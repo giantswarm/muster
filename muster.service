@@ -1,14 +1,13 @@
 [Unit]
-Description=muster MCP Server
+Description=Muster MCP Server
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/teemow/.go/bin/muster connect --no-tui --debug --yolo
+ExecStart=~/go/bin/muster serve --debug --yolo --config-path ~/.config/muster
 Restart=always
 RestartSec=5
-Environment=PATH=/home/teemow/.go/bin:/usr/local/bin:/usr/bin:/bin
-WorkingDirectory=/home/teemow/projects/giantswarm/muster
+Environment=PATH=~/go/bin:/usr/local/bin:/usr/bin:/bin
 
 # Logging
 StandardOutput=journal
