@@ -1,0 +1,20 @@
+name: "serviceclass-create-missing-start-tool"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-missing-start-tool"
+  tool: "core_serviceclass_create"
+  args:
+    name: "missing-start-sc"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        stop:
+          tool: "x_test-provider_stop"
+        # missing start tool
+  expected:
+    success: false
+    error_contains: ["start.tool", "is required"] 

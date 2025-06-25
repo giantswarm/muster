@@ -1,0 +1,20 @@
+name: "workflow-validate-valid"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "validate", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "validate-correct-workflow"
+  tool: "core_workflow_validate"
+  args:
+    name: "valid-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "test-step"
+        tool: "core_service_list"
+  expected:
+    success: true 

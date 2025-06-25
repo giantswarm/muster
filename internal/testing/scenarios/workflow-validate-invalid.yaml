@@ -1,0 +1,19 @@
+name: "workflow-validate-invalid"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "validate", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "validate-incorrect-workflow"
+  tool: "core_workflow_validate"
+  args:
+    name: "invalid-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps: []  # Invalid: empty steps should cause validation to fail
+  expected:
+    success: false
+    error_contains: ["workflow must have at least one step"] 

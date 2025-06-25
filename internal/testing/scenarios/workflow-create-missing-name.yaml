@@ -1,0 +1,16 @@
+name: "workflow-create-missing-name"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-missing-name"
+  tool: "core_workflow_create"
+  args:
+    steps:
+      - id: "step1"
+        tool: "core_capability_list"
+  expected:
+    success: false
+    error_contains: ["name", "required"] 

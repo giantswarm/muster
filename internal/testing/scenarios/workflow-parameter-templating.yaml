@@ -1,0 +1,79 @@
+name: "workflow-parameter-templating-scenarios"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "parameters", "templating", "core-api"]
+timeout: "5m"
+
+pre_configuration:
+  workflows:
+    - name: "param-templating-workflow"
+      config:
+        name: "param-templating-workflow"
+        inputSchema:
+          type: "object"
+          properties:
+            service_name:
+              type: "string"
+            message:
+              type: "string"
+              default: "default message"
+          required: ["service_name"]
+        steps:
+          - id: "echo-step"
+            tool: "x_mock-echo_echo"
+            args:
+              text: "Service {{ .input.service_name }} says: {{ .input.message }}"
+            store: "echo_result"
+
+  mcp_servers:
+    - name: "mock-echo"
+      config:
+        tools:
+          - name: "echo"
+            inputSchema:
+              type: "object"
+              properties: { text: { type: "string" } }
+            responses:
+              - response:
+                  # The response also uses templating based on its *own* inputs
+                  echoed_text: "{{ .text }}"
+
+steps:
+- id: "run-workflow-with-all-params"
+  tool: "workflow_param-templating-workflow"
+  args:
+    service_name: "myservice"
+    message: "hello world"
+  expected:
+    success: true
+    contains:
+      - "input.service_name"
+      - "input.message"
+      - "completed"
+
+- id: "run-workflow-with-default-param"
+  tool: "workflow_param-templating-workflow"
+  args:
+    service_name: "anotherservice"
+  expected:
+    success: true
+    contains:
+      - "input.service_name"
+      - "input.message"
+      - "completed"
+
+- id: "run-workflow-missing-required-param"
+  tool: "workflow_param-templating-workflow"
+  args:
+    message: "this will fail"
+  expected:
+    success: false
+    error_contains: ["required field", "service_name", "missing"]
+
+- id: "run-workflow-with-wrong-param-type"
+  tool: "workflow_param-templating-workflow"
+  args:
+    service_name: 12345
+  expected:
+    success: false
+    error_contains: ["wrong type", "service_name", "expected string"] 

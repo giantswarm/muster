@@ -1,0 +1,37 @@
+name: "workflow-run-with-default-input"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "run", "parameters", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "default-input-workflow"
+    config:
+      name: "default-input-workflow"
+      inputSchema:
+        type: "object"
+        properties:
+          message: { type: "string", default: "default value" }
+      steps:
+        - id: "echo"
+          tool: "x_echo-provider_echo"
+          args: { text: "{{ .input.message }}" }
+          store: "echo_result"
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        input_schema: { type: "object", properties: { text: { type: "string" } } }
+        responses: [ { response: { said: "{{ .text }}" } } ]
+steps:
+- id: "run-workflow-with-default"
+  tool: "workflow_default-input-workflow"
+  args: {}
+  expected:
+    success: true
+    contains:
+      - "default value"
+      - "completed"
+      - "echo_result" 

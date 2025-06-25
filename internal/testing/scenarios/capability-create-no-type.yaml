@@ -1,0 +1,18 @@
+name: "capability-create-no-type"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "error-handling", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-no-type-capability"
+  tool: "core_capability_create"
+  args:
+    name: "no-type-capability"
+    operations:
+      test_operation:
+        description: "Test operation for no-type capability"
+        requires: []
+  expected:
+    success: false
+    error_contains: ["type", "required"] 

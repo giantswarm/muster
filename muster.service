@@ -1,0 +1,25 @@
+[Unit]
+Description=muster MCP Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/teemow/.go/bin/muster connect --no-tui --debug --yolo
+Restart=always
+RestartSec=5
+Environment=PATH=/home/teemow/.go/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/teemow/projects/giantswarm/muster
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=muster
+
+# Security
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=default.target 

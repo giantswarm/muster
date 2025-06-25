@@ -1,0 +1,16 @@
+name: "mcpserver-check-unavailable"
+description: "Test checking status of non-existent MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "status", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "check-nonexistent"
+  description: "Check status of a non-existent MCP server"
+  tool: "core_service_status"
+  args:
+    name: "non-existent-server"
+  expected:
+    success: false
+    contains: ["not found"] 

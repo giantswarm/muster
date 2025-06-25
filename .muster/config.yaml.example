@@ -1,0 +1,14 @@
+# muster configuration file
+# This file contains the main muster configuration
+# MCP servers are now configured in individual files in the mcpservers/ directory
+
+# Global settings
+globalSettings:
+  defaultContainerRuntime: docker
+
+# Aggregator configuration
+aggregator:
+  port: 8090
+  host: localhost
+  # enabled: true
+  # musterPrefix: "x"

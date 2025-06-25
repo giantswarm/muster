@@ -1,0 +1,281 @@
+# Database Management ServiceClass Definition
+# This example demonstrates a ServiceClass for database management operations
+name: database_management
+type: database_management
+version: "1.0.0"
+description: "Database management ServiceClass for PostgreSQL operations"
+
+# ServiceClass configuration for lifecycle management
+serviceConfig:
+  # Service metadata
+  serviceType: "DatabaseManagement"
+  defaultLabel: "db-{{ .database_name }}-{{ .operation }}"
+  dependencies: []
+  
+  # Lifecycle tool mappings - defines which aggregator tools to call for each lifecycle event
+  lifecycleTools:
+    create:
+      tool: "api_database_connect"
+      arguments:
+        database: "{{ .database_name }}"
+        host: "{{ .host | default \"localhost\" }}"
+        port: "{{ .port | default 5432 }}"
+        username: "{{ .username }}"
+      responseMapping:
+        serviceId: "$.connectionId"
+        status: "$.status"
+        metadata:
+          database_name: "$.database"
+          host: "$.host"
+          port: "$.port"
+    
+    delete:
+      tool: "api_database_disconnect"
+      arguments:
+        connectionId: "{{ .service_id }}"
+      responseMapping:
+        status: "$.status"
+        
+    healthCheck:
+      tool: "api_database_ping"
+      arguments:
+        connectionId: "{{ .service_id }}"
+      responseMapping:
+        health: "$.connected"
+        status: "$.status"
+        error: "$.error"
+        
+    status:
+      tool: "api_database_status"
+      arguments:
+        connectionId: "{{ .service_id }}"
+      responseMapping:
+        metadata:
+          active_connections: "$.activeConnections"
+          database_size: "$.databaseSize"
+          last_backup: "$.lastBackup"
+  
+  # Health check configuration
+  healthCheck:
+    enabled: true
+    interval: "60s"
+    failureThreshold: 3
+    successThreshold: 1
+  
+  # Timeout configuration
+  timeout:
+    create: "30s"
+    delete: "15s"
+    healthCheck: "10s"
+  
+  # Parameter mapping for service creation
+  createParameters:
+    database_name:
+      toolParameter: "database"
+      required: true
+    host:
+      toolParameter: "host"
+      default: "localhost"
+      required: false
+    port:
+      toolParameter: "port"
+      default: 5432
+      required: false
+    username:
+      toolParameter: "username"
+      required: true
+
+# Operations define the ServiceClass interface
+operations:
+  backup:
+    description: "Create a backup of a PostgreSQL database"
+    parameters:
+      database_name:
+        type: string
+        required: true
+        description: "Name of the database to backup"
+      backup_format:
+        type: string
+        required: false
+        description: "Backup format (sql, custom, tar)"
+        default: "custom"
+    requires:
+      - api_database_backup
+    workflow:
+      name: database_backup
+      description: "Database backup workflow"
+      agentModifiable: false
+      inputSchema:
+        type: object
+        properties:
+          database_name:
+            type: string
+            description: "Database name"
+          backup_format:
+            type: string
+            description: "Backup format"
+        required:
+          - database_name
+      steps:
+        - id: create_backup
+          tool: api_database_backup
+          args:
+            database: "{{ .database_name }}"
+            format: "{{ .backup_format | default \"custom\" }}"
+            timestamp: true
+          store: backup_result
+  
+  restore:
+    description: "Restore a PostgreSQL database from backup"
+    parameters:
+      database_name:
+        type: string
+        required: true
+        description: "Name of the database to restore"
+      backup_file:
+        type: string
+        required: true
+        description: "Path to backup file"
+      clean:
+        type: boolean
+        required: false
+        description: "Clean database before restore"
+        default: false
+    requires:
+      - api_database_restore
+    workflow:
+      name: database_restore
+      description: "Database restore workflow"
+      agentModifiable: false
+      inputSchema:
+        type: object
+        properties:
+          database_name:
+            type: string
+          backup_file:
+            type: string
+          clean:
+            type: boolean
+        required:
+          - database_name
+          - backup_file
+      steps:
+        - id: restore_database
+          tool: api_database_restore
+          args:
+            database: "{{ .database_name }}"
+            backup_file: "{{ .backup_file }}"
+            clean: "{{ .clean | default false }}"
+          store: restore_result
+
+  migrate:
+    description: "Run database migrations"
+    parameters:
+      database_name:
+        type: string
+        required: true
+        description: "Name of the database"
+      migration_path:
+        type: string
+        required: false
+        description: "Path to migration files"
+        default: "migrations"
+      target_version:
+        type: string
+        required: false
+        description: "Target migration version"
+    requires:
+      - api_database_migrate
+    workflow:
+      name: database_migrate
+      description: "Database migration workflow"
+      agentModifiable: false
+      inputSchema:
+        type: object
+        properties:
+          database_name:
+            type: string
+          migration_path:
+            type: string
+          target_version:
+            type: string
+        required:
+          - database_name
+      steps:
+        - id: run_migrations
+          tool: api_database_migrate
+          args:
+            database: "{{ .database_name }}"
+            path: "{{ .migration_path | default \"migrations\" }}"
+            version: "{{ .target_version }}"
+          store: migration_result
+
+  create_service:
+    description: "Create a managed database connection service"
+    parameters:
+      database_name:
+        type: string
+        required: true
+        description: "Name of the database"
+      host:
+        type: string
+        required: false
+        description: "Database host"
+        default: "localhost"
+      port:
+        type: number
+        required: false
+        description: "Database port"
+        default: 5432
+      username:
+        type: string
+        required: true
+        description: "Database username"
+    requires:
+      - api_service_orchestrator_create_service
+    workflow:
+      name: create_database_service
+      description: "Create a managed database connection"
+      agentModifiable: false
+      inputSchema:
+        type: object
+        properties:
+          database_name:
+            type: string
+          host:
+            type: string
+          port:
+            type: number
+          username:
+            type: string
+        required:
+          - database_name
+          - username
+      steps:
+        - id: create_service
+          tool: api_service_orchestrator_create_service
+          args:
+            capability_name: "database_management"
+            label: "db-{{ .database_name }}"
+            parameters:
+              database_name: "{{ .database_name }}"
+              host: "{{ .host }}"
+              port: "{{ .port }}"
+              username: "{{ .username }}"
+          store: service_result
+
+# Metadata for additional information
+metadata:
+  provider: "postgresql"
+  category: "database"
+  icon: "🗄️"
+  supported_databases:
+    - "postgresql"
+    - "mysql"
+    - "mariadb"
+  tags:
+    - "backup"
+    - "restore"
+    - "migration"
+    - "data-management"
+    - "connection-management" 

@@ -1,0 +1,44 @@
+name: "service-persistence-scenarios"
+category: "behavioral"
+concept: "service"
+tags: ["service", "persistence", "core-api"]
+timeout: "5m"
+
+pre_configuration:
+  service_classes:
+    - name: "persistent-sc"
+      config:
+        name: persistent-sc
+        version: "1.0.0"
+        type: basic
+        serviceConfig:
+          lifecycleTools:
+            start: { tool: "core_service_list" }
+            stop: { tool: "core_service_list" }
+
+steps:
+# The core test here is creating a service with persist=true.
+# Verifying that it *was* persisted to a file is difficult in a behavioral
+# scenario without access to the filesystem of the muster instance.
+# We are defining the intended behavior. The test runner implementation
+# would need a way to inspect the instance's storage to fully validate.
+- id: "create-persistent-service"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "persistent-sc"
+    name: "my-persistent-service"
+  expected:
+    success: true
+    contains: ["my-persistent-service"]
+  cleanup:
+  # We still need to clean up the running instance
+  - tool: "core_service_delete"
+    args: { name: "my-persistent-service" }
+
+# This step is also conceptual. After the above step, if we were to restart
+# the muster instance, "my-persistent-service" should appear in this list.
+- id: "list-services-after-hypothetical-restart"
+  tool: "core_service_list"
+  expected:
+    success: true
+    contains: ["my-persistent-service"] 

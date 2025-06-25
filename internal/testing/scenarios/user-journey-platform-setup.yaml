@@ -1,0 +1,259 @@
+name: "user-journey-platform-setup"
+category: "behavioral"
+concept: "user-journey"
+tags: ["user-journey", "platform", "setup", "kubernetes", "core-api"]
+timeout: "10m"
+
+# User Story: Platform Engineer Setting Up Development Environment
+# Given: A clean muster instance
+# When: I configure the platform with MCP servers, capabilities, and service classes
+# Then: Developers should be able to create and manage services seamlessly
+
+pre_configuration:
+  # Mock external dependencies that would exist in real environment
+  mcp_servers:
+    - name: "kubernetes-provider"
+      config:
+        tools:
+          - name: "create_namespace"
+            input_schema:
+              type: "object"
+              properties:
+                name: { type: "string" }
+                labels: { type: "object" }
+            responses:
+              - response:
+                  namespace: "{{ .name }}"
+                  status: "created"
+                  
+          - name: "delete_namespace"
+            input_schema:
+              type: "object"
+              properties:
+                name: { type: "string" }
+            responses:
+              - response:
+                  status: "deleted"
+                  
+    - name: "monitoring-provider"
+      config:
+        tools:
+          - name: "setup_prometheus"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+                retention: { type: "string", default: "30d" }
+            responses:
+              - response:
+                  prometheus_url: "http://prometheus.{{ .namespace }}.svc.cluster.local:9090"
+                  status: "deployed"
+
+steps:
+  # Phase 1: Platform Engineer validates clean state
+  - id: "validate-clean-environment" 
+    tool: "core_service_list"
+    expected:
+      success: true
+      # Should only contain default/system services
+    
+  - id: "check-initial-capabilities"
+    tool: "core_capability_list"
+    expected:
+      success: true
+      
+  # Phase 2: Platform Engineer creates foundational capabilities
+  - id: "create-kubernetes-capability"
+    tool: "core_capability_create"
+    args:
+      name: "kubernetes-management"
+      type: "kubernetes"
+      version: "1.0.0"
+      operations:
+        create_namespace:
+          description: "Create a Kubernetes namespace"
+          requires: []
+        delete_namespace:
+          description: "Delete a Kubernetes namespace"
+          requires: []
+    expected:
+      success: true
+    cleanup:
+      - tool: "core_capability_delete"
+        args: { name: "kubernetes-management" }
+      
+  - id: "verify-capability-availability"
+    tool: "core_capability_check"
+    args:
+      name: "kubernetes-management"
+    expected:
+      success: true
+        
+  # Phase 3: Platform Engineer creates service classes for developers
+  - id: "create-development-namespace-serviceclass"
+    description: "Create ServiceClass for development namespaces"
+    tool: "core_serviceclass_create"
+    args:
+      name: "dev-namespace"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "namespace"
+        lifecycleTools:
+          start:
+            tool: "core_config_get"
+          stop:
+            tool: "core_config_get"
+    expected:
+      success: true
+    cleanup:
+      - tool: "core_serviceclass_delete"
+        args: { name: "dev-namespace" }
+      
+  - id: "create-monitoring-serviceclass"
+    description: "Create ServiceClass for monitoring stack"
+    tool: "core_serviceclass_create"
+    args:
+      name: "monitoring-stack"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "monitoring"
+        lifecycleTools:
+          start:
+            tool: "core_config_get"
+          stop:
+            tool: "core_config_get"
+    expected:
+      success: true
+    cleanup:
+      - tool: "core_serviceclass_delete"
+        args: { name: "monitoring-stack" }
+      
+  # Phase 4: Validate platform readiness
+  - id: "verify-serviceclass-availability"
+    tool: "core_serviceclass_available"
+    args:
+      name: "dev-namespace"
+    expected:
+      success: true
+      json_path:
+        available: true
+        
+  - id: "verify-monitoring-serviceclass-availability"
+    tool: "core_serviceclass_available"
+    args:
+      name: "monitoring-stack"
+    expected:
+      success: true
+      json_path:
+        available: true
+        
+  # Phase 5: Simulate developer workflow
+  - id: "developer-creates-dev-environment"
+    tool: "core_service_create"
+    args:
+      serviceClassName: "dev-namespace"
+      name: "team-alpha-project-x-dev"
+      parameters:
+        namespace_name: "team-alpha-project-x"
+        team: "alpha"
+        project: "project-x"
+        environment: "development"
+    expected:
+      success: true
+    cleanup:
+      - tool: "core_service_delete"
+        args: { name: "team-alpha-project-x-dev" }
+      
+  - id: "verify-development-namespace-running"
+    tool: "core_service_get"
+    args:
+      name: "team-alpha-project-x-dev"
+    expected:
+      success: true
+      json_path:
+        name: "team-alpha-project-x-dev"
+        serviceClassName: "dev-namespace"
+        state: "running"
+        
+  - id: "developer-adds-monitoring"
+    tool: "core_service_create"
+    args:
+      serviceClassName: "monitoring-stack"
+      name: "monitoring-alpha-project-x"
+      parameters:
+        namespace: "team-alpha-project-x"
+        prometheus_enabled: true
+        grafana_enabled: true
+    expected:
+      success: true
+    cleanup:
+      - tool: "core_service_delete"
+        args: { name: "monitoring-alpha-project-x" }
+      
+  - id: "verify-monitoring-deployed"
+    tool: "core_service_get"
+    args:
+      name: "monitoring-alpha-project-x"
+    expected:
+      success: true
+      json_path:
+        state: "running"
+        serviceClassName: "monitoring-stack"
+        
+  # Phase 6: Validate complete platform functionality
+  - id: "list-all-developer-services"
+    tool: "core_service_list"
+    expected:
+      success: true
+      contains: 
+        - "team-alpha-project-x-dev"
+        - "monitoring-alpha-project-x"
+        
+  - id: "verify-service-persistence"
+    tool: "core_service_get"
+    args:
+      name: "team-alpha-project-x-dev"
+    expected:
+      success: true
+      # Verify persistence flag is set
+
+cleanup:
+  - id: "cleanup-dev-environment"
+    tool: "core_service_delete"
+    args:
+      name: "team-alpha-project-x-dev"
+    expected:
+      success: true  # Service exists and can be deleted
+    continue_on_failure: true
+
+  - id: "cleanup-monitoring"
+    tool: "core_service_delete"
+    args:
+      name: "monitoring-alpha-project-x"
+    expected:
+      success: true  # Service exists and can be deleted
+    continue_on_failure: true
+
+  - id: "cleanup-serviceclasses"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "dev-namespace"
+    expected:
+      success: true  # ServiceClass exists and can be deleted
+    continue_on_failure: true
+
+  - id: "cleanup-monitoring-serviceclass"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "monitoring-stack"
+    expected:
+      success: true  # ServiceClass exists and can be deleted
+    continue_on_failure: true
+
+  - id: "cleanup-capability"
+    tool: "core_capability_delete"
+    args:
+      name: "kubernetes-management"
+    expected:
+      success: true  # Capability exists and can be deleted
+    continue_on_failure: true 

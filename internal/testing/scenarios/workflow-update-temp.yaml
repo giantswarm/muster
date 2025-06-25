@@ -1,0 +1,37 @@
+name: "workflow-update"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "update", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "update-test-workflow"
+    config:
+      name: "update-test-workflow"
+      inputSchema:
+        type: "object"
+        properties: {}
+        required: []
+      steps: [{id: "s1", tool: "core_service_list"}]
+steps:
+- id: "update-the-workflow"
+  tool: "core_workflow_update"
+  args:
+    name: "update-test-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "s1_updated_temp"
+        tool: "core_service_list"
+  expected:
+    success: true
+- id: "verify-workflow-was-updated"
+  tool: "core_workflow_get"
+  args:
+    name: "update-test-workflow"
+  expected:
+    success: true
+    contains: ["s1_updated_temp"]

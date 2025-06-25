@@ -1,0 +1,31 @@
+name: "mcpserver-check-available"
+description: "Test checking status of existing MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "status", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "available-server"
+    config:
+        tools:
+          - name: "lifecycle_test_tool"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "Tool is working: {{ .message }}"
+steps:
+- id: "check-status"
+  description: "Check the status of the pre-configured MCP server"
+  tool: "core_service_status"
+  args:
+    name: "available-server"
+  expected:
+    success: true
+    json_path:
+      name: "available-server"
+      state: "running" 

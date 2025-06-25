@@ -1,0 +1,290 @@
+name: "behavior-developer-onboarding-journey"
+category: "behavioral"
+concept: "end-to-end"
+tags: ["user-journey", "developer-experience", "onboarding", "end-to-end"]
+timeout: "15m"
+
+# Behavioral Story:
+# Given: A platform with existing ServiceClasses for development environments
+# When: A new developer needs to set up their workspace
+# Then: They should be able to discover, provision, and manage services through a self-service experience
+
+pre_configuration:
+  # Simulate existing platform infrastructure
+  mcp_servers:
+    - name: "git-provider"
+      config:
+        tools:
+          - name: "clone_repository"
+            input_schema:
+              type: "object"
+              properties:
+                repo_url: { type: "string" }
+                branch: { type: "string", default: "main" }
+            responses:
+              - response:
+                  repo_path: "/tmp/{{ .repo_url | basename }}"
+                  branch: "{{ .branch }}"
+                  status: "cloned"
+                  
+    - name: "database-provider"
+      config:
+        tools:
+          - name: "create_postgres_instance"
+            input_schema:
+              type: "object"
+              properties:
+                db_name: { type: "string" }
+                username: { type: "string" }
+                environment: { type: "string", default: "development" }
+            responses:
+              - response:
+                  connection_string: "postgresql://{{ .username }}:password@localhost:5432/{{ .db_name }}"
+                  database_id: "db-{{ .db_name }}-{{ .environment }}"
+                  status: "ready"
+                  
+          - name: "delete_postgres_instance"
+            input_schema:
+              type: "object"
+              properties:
+                database_id: { type: "string" }
+            responses:
+              - response:
+                  status: "deleted"
+
+  # Pre-existing ServiceClasses that platform team has created
+  service_classes:
+    - name: "development-workspace"
+      config:
+        name: "development-workspace"
+        type: "development"
+        version: "1.2.0"
+        serviceConfig:
+          serviceType: "dev-environment"
+          defaultLabel: "workspace-{{ .parameters.developer }}-{{ .parameters.project }}"
+          createParameters:
+            developer:
+              toolParameter: "dev_name"
+              required: true
+            project:
+              toolParameter: "project_name"
+              required: true
+            repository_url:
+              toolParameter: "repo_url"
+              required: true
+            database_needed:
+              toolParameter: "needs_db"
+              required: false
+              default: true
+          lifecycleTools:
+            start:
+              tool: "x_git-provider_clone_repository"
+              arguments:
+                repo_url: "{{ .parameters.repository_url }}"
+                branch: "main"
+              responseMapping:
+                serviceId: "repo_path"
+            stop:
+              tool: "x_database-provider_delete_postgres_instance"
+              arguments:
+                database_id: "{{ .service.metadata.database_id }}"
+              condition: "{{ .parameters.database_needed }}"
+
+    - name: "postgres-database"
+      config:
+        name: "postgres-database"
+        type: "database"
+        version: "1.0.0"
+        serviceConfig:
+          serviceType: "database"
+          defaultLabel: "db-{{ .parameters.project }}-{{ .parameters.environment }}"
+          createParameters:
+            project:
+              toolParameter: "project_name"
+              required: true
+            developer:
+              toolParameter: "username"
+              required: true
+            environment:
+              toolParameter: "env"
+              required: false
+              default: "development"
+          lifecycleTools:
+            start:
+              tool: "x_database-provider_create_postgres_instance"
+              arguments:
+                db_name: "{{ .parameters.project }}"
+                username: "{{ .parameters.developer }}"
+                environment: "{{ .parameters.environment }}"
+              responseMapping:
+                serviceId: "database_id"
+                connectionString: "connection_string"
+            stop:
+              tool: "x_database-provider_delete_postgres_instance"
+              arguments:
+                database_id: "{{ .service.id }}"
+
+steps:
+  # Phase 1: Developer Discovery (Given - What exists)
+  - id: "developer-discovers-available-services"
+    tool: "core_serviceclass_list"
+    expected:
+      success: true
+      contains: 
+        - "development-workspace"
+        - "postgres-database"
+      
+  - id: "developer-explores-workspace-options"
+    tool: "core_serviceclass_get"
+    args:
+      name: "development-workspace"
+    expected:
+      success: true
+      json_path:
+        name: "development-workspace"
+        version: "1.2.0"
+        
+  - id: "developer-checks-database-options"
+    tool: "core_serviceclass_get"
+    args:
+      name: "postgres-database"
+    expected:
+      success: true
+      json_path:
+        name: "postgres-database"
+        version: "1.0.0"
+        
+  # Phase 2: Developer Self-Service Provisioning (When - Actions)
+  - id: "developer-creates-workspace"
+    tool: "core_service_create"
+    args:
+      serviceClassName: "development-workspace"
+      name: "my-ecommerce-workspace"
+      parameters:
+        developer: "alice"
+        project: "ecommerce-api"
+        repository_url: "https://github.com/company/ecommerce-api.git"
+        database_needed: true
+    expected:
+      success: true
+      contains: ["my-ecommerce-workspace"]
+      
+  - id: "developer-provisions-database"
+    tool: "core_service_create"
+    args:
+      serviceClassName: "postgres-database"
+      name: "ecommerce-api-db"
+      parameters:
+        project: "ecommerce-api"
+        developer: "alice"
+        environment: "development"
+    expected:
+      success: true
+      contains: ["ecommerce-api-db"]
+      
+  # Phase 3: Developer Verification (Then - Outcomes)
+  - id: "developer-verifies-workspace-running"
+    tool: "core_service_get"
+    args:
+      name: "my-ecommerce-workspace"
+    expected:
+      success: true
+      json_path:
+        name: "my-ecommerce-workspace"
+        serviceClassName: "development-workspace"
+        state: "running"
+      
+  - id: "developer-verifies-database-connection"
+    tool: "core_service_get"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      json_path:
+        state: "running"
+        serviceClassName: "postgres-database"
+        # Should have connection string in metadata/service details
+        
+  - id: "developer-views-all-services"
+    tool: "core_service_list"
+    expected:
+      success: true
+      contains:
+        - "my-ecommerce-workspace"
+        - "ecommerce-api-db"
+        
+  # Phase 4: Developer Workflow Management
+  - id: "developer-stops-services-for-break"
+    tool: "core_service_stop"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      
+  - id: "developer-verifies-database-stopped"
+    tool: "core_service_status"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      json_path:
+        state: "stopped"
+        
+  - id: "developer-restarts-services"
+    tool: "core_service_start"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      
+  - id: "developer-verifies-restart-successful"
+    tool: "core_service_status"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      json_path:
+        state: "running"
+        
+  # Phase 5: End of Project Cleanup
+  - id: "developer-completes-project"
+    tool: "core_service_delete"
+    args:
+      name: "my-ecommerce-workspace"
+    expected:
+      success: true
+      
+  - id: "developer-removes-database"
+    tool: "core_service_delete"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: true
+      
+  - id: "developer-verifies-cleanup"
+    tool: "core_service_get"
+    args:
+      name: "my-ecommerce-workspace"
+    expected:
+      success: false
+      error_contains: ["not found"]
+
+cleanup:
+  # Cleanup any resources that might remain from failed test runs
+  - id: "cleanup-workspace"
+    tool: "core_service_delete"
+    args:
+      name: "my-ecommerce-workspace"
+    expected:
+      success: false  # Service already deleted in main test
+    timeout: "30s"
+    continue_on_failure: true
+    
+  - id: "cleanup-database"
+    tool: "core_service_delete"
+    args:
+      name: "ecommerce-api-db"
+    expected:
+      success: false  # Service already deleted in main test
+    timeout: "30s"
+    continue_on_failure: true 

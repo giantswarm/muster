@@ -1,0 +1,134 @@
+---
+# yamllint disable rule:truthy
+# .goreleaser.yaml
+# Make sure to check the documentation at https://goreleaser.com
+version: 2  # Explicitly set GoReleaser configuration version
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    # - go generate ./...
+
+builds:
+  - id: muster
+    # Path to main.go file or main package.
+    main: ./main.go
+    # Binary name.
+    # Defaults to the project name.
+    binary: muster
+    # GOOS list to build for.
+    # Defaults to linux, windows and darwin.
+    goos:
+      - linux
+      - windows
+      - darwin
+    # GOARCH list to build for.
+    # Defaults to 386, amd64 and arm64.
+    goarch:
+      - amd64
+      - arm64
+    # GOARM list to build for when GOARCH is arm.
+    # Defaults to 6.
+    # goarm:
+    #   - "6"
+    # Environment variables that will be passed to the build process.
+    env:
+      - CGO_ENABLED=0
+    # Set the modified timestamp on the output binary, typically
+    # you would do this to ensure reproducible builds.
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    # Flags to pass to the go build command.
+    # Defaults to -trimpath.
+    flags:
+      - -trimpath
+    # Ldflags to pass to the go build command.
+    # Defaults to -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+    # -X main.date={{.Date}} -X main.builtBy=goreleaser.
+    ldflags:
+      - >-
+        -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
+        -X main.date={{.Date}}
+
+archives:
+  - id: default
+    # Default formats for all platforms (can be overridden per OS)
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # Wrap the binary in a directory structure when extracted.
+    # Defaults to false.
+    wrap_in_directory: true
+    # Format overrides per OS (using new plural 'formats' syntax)
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+      - goos: darwin
+        formats: [zip]
+    # Files to include in the archive.
+    # Defaults to license*, readme*, etc.
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  # Algorithm to use. Valid options are sha256, sha512, sha1, crc32, md5, etc.
+  # Default is sha256.
+  algorithm: sha256
+  # Name template for the checksums file.
+  # Default is `{{ .ProjectName }}_{{ .Version }}_checksums.txt`.
+  name_template: '{{ .ProjectName }}_checksums.txt'
+
+changelog:
+  # Use GitHub's native release notes generation.
+  # This automatically uses PRs merged since the last tag.
+  # Disables sort, groups, filters, etc.
+  use: github-native
+
+release:
+  # Repo in format "owner/name".
+  # Defaults to the origin remote.
+  # repo:
+  #   owner: user
+  #   name: repo
+  # If set to true, will not auto-publish the release.
+  # Default is false.
+  draft: false
+  # If set to true, will mark the release as not ready for production.
+  # Default is false.
+  prerelease: auto
+  # You can change the name of the GitHub release.
+  # Default is `{{.Tag}}`
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  # Header to add to the release notes.
+  # Default is empty.
+  # header: |
+  #   This is the header
+  # Footer to add to the release notes.
+  # Default is empty.
+  # footer: |
+  #   This is the footer
+  # Add back the extra_files section with corrected globs
+  extra_files:
+    - glob: ./dist/muster_darwin_amd64*/muster
+      name_template: muster_darwin_amd64
+    - glob: ./dist/muster_darwin_arm64*/muster
+      name_template: muster_darwin_arm64
+    - glob: ./dist/muster_linux_amd64*/muster
+      name_template: muster_linux_amd64
+    - glob: ./dist/muster_linux_arm64*/muster
+      name_template: muster_linux_arm64
+    - glob: ./dist/muster_windows_amd64*/muster.exe
+      name_template: muster_windows_amd64.exe
+    - glob: ./dist/muster_windows_arm64*/muster.exe
+      name_template: muster_windows_arm64.exe
+  # If set to true, will generate the release notes using github's api
+  # instead of using the changelog.
+  # Default is false.
+
+# Modelines
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj

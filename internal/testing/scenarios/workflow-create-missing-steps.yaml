@@ -1,0 +1,18 @@
+name: "workflow-create-missing-steps"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-missing-steps"
+  tool: "core_workflow_create"
+  args:
+    name: "no-steps-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+  expected:
+    success: false
+    error_contains: ["steps", "required"] 

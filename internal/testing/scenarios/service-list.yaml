@@ -1,0 +1,11 @@
+name: "service-list"
+category: "behavioral"
+concept: "service"
+tags: ["service", "list", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "list-all-services"
+  tool: "core_service_list"
+  expected:
+    success: true 

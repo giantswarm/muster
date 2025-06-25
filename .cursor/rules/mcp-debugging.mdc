@@ -1,0 +1,148 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+- **Core Testing Loop**
+  - Whenever you change Go code and want to test the new functionality, you **MUST** follow these steps:
+    1. **Restart the Service:**
+       Run the development restart script to rebuild and restart the `muster` service with your changes.
+       ```bash
+       ./scripts/dev-restart.sh
+       ```
+    2. **Initial Log Check:**
+       Verify that the service started correctly by checking the logs.
+       ```bash
+       journalctl --user -u muster.service --no-pager |tail -n 50
+       ```
+    Look for any startup errors or unexpected messages.
+
+  - **Test with `mcp-debug`:**
+    - Use the `mcp-debug` tools to interact with the running service and test your new functionality.
+    - Start by listing the available tools to ensure your new features are registered.
+      ```
+      # Example: List all tools from the mcp-debug server
+      mcp_mcp-debug_call_tool(name="core_mcpserver_list_tools", arguments={ "serverName": "mcp-debug" })
+      ```
+    - Then, call the specific tools related to your changes to validate their behavior.
+      ```
+      # Example: Call a specific tool
+      mcp_mcp-debug_call_tool(name="your_new_tool", arguments={...})
+      ```
+  - **Final Log Check:**
+    - Inspect the logs again to see the output and any errors generated during your testing.
+      ```bash
+      journalctl --user -u muster.service --no-pager |tail -n 50
+      ```
+  - **Important Note**
+    - **Always use `--no-pager`:** When using `journalctl` or `systemctl`, you **MUST** include the `--no-pager` flag. Without it, the output will be piped to a pager program, and you will not receive a response in the terminal. 
+
+
+- **Debugging muster via mcp-debug**
+  - mcp-debug provides core debugging tools to test and explore the functionality of muster exposed in its aggregated MCP server. 
+  - Use mcp-debug tools as the primary debugging interface rather than manual inspection
+
+- **mcp-debug Tools**
+  - mcp_mcp-debug_list_tools: list all the tools exposed by the aggregated mcp server
+  - mcp_mcp-debug_describe_tool: describe a tool exposed by the aggregated mcp server
+  - mcp_mcp-debugcall_tool: execute a tool exposed by the aggregated mcp server
+
+- **Aggregated MCP server**
+  - The aggregated MCP server is exposed by muster. This is the main subject of development and debugging here.
+  - The aggregated MCP server exposes tools via the model-context-protocol that you can explore via mcp-debug
+  - The main functionality of muster is exposed through the tools that are prefixed with `core_*`
+  - The aggregated MCP server can be compiled and restarted via `./scripts/dev-restart.sh`
+
+- **Debugging Examples**
+  - 1. Verify All Services Are Running: 
+    Start by checking the overall health of the system:
+    ```
+    mcp_mcp-debug_call_tool(name="core_service_list", arguments={})
+    ```
+  - 2. Check MCP Server Registration:
+    Verify that all expected MCP servers are properly registered with the aggregator:
+    ```
+    mcp_mcp-debug_call_tool(name="core_mcpserver_list", arguments={})
+    ```
+  - 3. If a service shows as unhealthy:
+      1. Check its detailed status: `core_service_status`
+      2. Try restarting it: `core_service_restart`
+      3. Check if its MCP client is attached in the service list
+  - 4. Workflow validation fails:
+    - Use `core_workflow_validate` to check syntax
+    - Ensure tool names exist (check with `mcp_mcp-debug_list_tools`)
+    - Verify argument schemas match the tool requirements
+
+- **Important Notes**
+  - The tools with the prefix `x_` are coming from the MCP servers that are managed by muster and then aggregated in its own MCP server. Please don't try to fix them. They are separate projects. 
+  - Tool names from individual MCP servers get prefixed like this `x_kubernetes_*` for the kubernetes MCP server and `x_prometheus_*`  for the prometheus MCP server
+
+- **Debugging Approach**
+  - Phase 1: System Health Verification
+    ```
+    mcp_mcp-debug_call_tool(name="core_mcpserver_list", arguments={})
+    mcp_mcp-debug_call_tool(name="core_serviceclass_list", arguments={})
+    mcp_mcp-debug_call_tool(name="core_workflow_list", arguments={})
+    mcp_mcp-debug_call_tool(name="core_capability_list", arguments={})
+    mcp_mcp-debug_call_tool(name="core_service_list", arguments={})
+    ```
+    Key Checks:
+    - All MCP servers services show `"health": "Healthy"` and `"state": "Running"`
+    - ServiceClasses show `"available": true`
+    - No `missingTools` in ServiceClass definitions
+  - ServiceClass-Specific Testing
+    ```
+    # Test specific ServiceClass availability
+    mcp_mcp-debug_call_tool(name="core_serviceclass_available", arguments={"name": "<serviceclass-name>"})
+
+    # Test instantiation with safe parameters
+    mcp_mcp-debug_call_tool(name="core_service_create", arguments={
+    "serviceClassName": "<name>",
+    "label": "debug-test",
+    "parameters": {...}
+    })
+    ```
+  - Dependency Verification
+    ```
+    # Test underlying tools directly
+    mcp_mcp-debug_call_tool(name="<required-tool>", arguments={...})
+
+    # Verify connectivity to external systems
+    ```
+  - Service Recovery
+    ```
+    # Restart failed services
+    mcp_mcp-debug_call_tool(name="core_service_restart", arguments={"label": "<service-name>"})
+
+    # Check detailed status
+    mcp_mcp-debug_call_tool(name="core_service_status", arguments={"label": "<service-name>"})
+    ```
+  - Service Instance Management
+    ```
+    # List and clean up test instances
+    mcp_mcp-debug_call_tool(name="core_service_list", arguments={})
+    mcp_mcp-debug_call_tool(name="core_service_delete", arguments={"instanceId": "debug-test"})
+    ```
+
+- **Tool Missing Errors**
+  - **Pattern:** `missingTools` array not empty in ServiceClass list
+  - **Action:** Check MCP server health, restart if needed
+  - **Root Cause:** Usually failed MCP server initialization
+
+- **Cleanup Protocol**
+  - **✅ DO:** Always clean up test ServiceClasses, Workflows, Capabilities, MCP servers and Services after debugging
+  - **✅ DO:** Use unique, identifiable labels for test instances (e.g., "debug-test-<timestamp>")
+  - **❌ DON'T:** Leave test ServiceClasses, Workflows, Capabilities, MCP servers and Services
+
+- **When Debugging ServiceClasses, Workflows, Capabilities, MCP servers and Services**
+  - Document the issue in the debugging session
+  - Update the debugging workflow if new issues are discovered
+  - Add specific examples to the common issues section
+  - Create reproduction steps for any bugs found
+
+- **Mandatory Workflow Adherence**
+  - NEVER skip health verification when debugging
+  - ALWAYS clean up test instances after debugging sessions
+  - DOCUMENT new issues in the documentation
+  - USE mcp-debug tools as the primary debugging interface
+  - FOLLOW a systematic approach rather than ad-hoc investigation

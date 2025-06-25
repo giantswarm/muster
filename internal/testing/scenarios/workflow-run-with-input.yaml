@@ -1,0 +1,39 @@
+name: "workflow-run-with-input"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "run", "parameters", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "input-test-workflow"
+    config:
+      name: "input-test-workflow"
+      input_schema:
+        type: "object"
+        properties:
+          message: { type: "string" }
+        required: ["message"]
+      steps:
+        - id: "echo"
+          tool: "x_echo-provider_echo"
+          args: { text: "{{ .input.message }}" }
+          store: "echo_result"
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        input_schema: { type: "object", properties: { text: { type: "string" } } }
+        responses: [ { response: { said: "{{ .text }}" } } ]
+steps:
+- id: "run-workflow-with-params"
+  tool: "workflow_input-test-workflow"
+  args:
+    message: "hello from test"
+  expected:
+    success: true
+    contains:
+      - "hello from test"
+      - "completed"
+      - "echo_result" 

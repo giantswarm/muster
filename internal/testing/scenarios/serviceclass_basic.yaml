@@ -1,0 +1,115 @@
+name: "serviceclass-basic-operations"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["basic", "crud", "serviceclass"]
+timeout: "5m"
+
+# Pre-configure a mock server to provide the lifecycle tools
+pre_configuration:
+  mcp_servers:
+    - name: "test-lifecycle-mock"
+      config:
+        tools:
+          - name: "service_create"
+            input_schema:
+              type: object
+              properties:
+                serviceClassName:
+                  type: string
+                  required: true
+                name:
+                  type: string
+                  required: true
+                parameters:
+                  type: object
+            responses:
+              - response:
+                  status: "created"
+                  serviceId: "mock-service-123"
+                  name: "{{ .label }}"
+          - name: "service_delete"
+            input_schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  required: true
+            responses:
+              - response:
+                  status: "deleted"
+                  serviceId: "{{ .labelOrServiceId }}"
+
+steps:
+  - id: "list-initial-serviceclasses"
+    tool: "core_serviceclass_list"
+    args: {}
+    expected:
+      success: true
+    timeout: "30s"
+
+  - id: "create-test-serviceclass"
+    tool: "core_serviceclass_create"
+    args:
+      name: "test-basic-serviceclass"
+      version: "1.0.0"
+      serviceConfig:
+        createParameters:
+          replicas:
+            default: 1
+          image:
+            required: true
+        lifecycleTools:
+          start:
+            tool: "x_test-lifecycle-mock_service_create"
+          stop:
+            tool: "x_test-lifecycle-mock_service_delete"
+    expected:
+      success: true
+      contains: ["test-basic-serviceclass"]
+    timeout: "1m"
+
+  - id: "verify-serviceclass-created"
+    tool: "core_serviceclass_get"
+    args:
+      name: "test-basic-serviceclass"
+    expected:
+      success: true
+      contains: ["test-basic-serviceclass"]
+    timeout: "30s"
+
+  - id: "check-serviceclass-availability"
+    tool: "core_serviceclass_available"
+    args:
+      name: "test-basic-serviceclass"
+    expected:
+      success: true
+      json_path:
+        available: true
+    timeout: "30s"
+
+  - id: "list-serviceclasses-with-new"
+    tool: "core_serviceclass_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["test-basic-serviceclass"]
+    timeout: "30s"
+
+cleanup:
+  - id: "delete-test-serviceclass"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "test-basic-serviceclass"
+    expected:
+      success: true
+      contains: ["test-basic-serviceclass"]
+    timeout: "30s"
+
+  - id: "verify-serviceclass-deleted"
+    tool: "core_serviceclass_get"
+    args:
+      name: "test-basic-serviceclass"
+    expected:
+      success: false
+      contains: ["not found"]
+    timeout: "30s" 

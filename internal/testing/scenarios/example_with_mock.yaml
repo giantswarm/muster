@@ -1,0 +1,57 @@
+name: "example-with-mock"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["mock", "serviceclass", "dependencies"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "mock1"
+      config:
+        tools:
+          - name: "create"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  required: true
+            responses:
+              - response:
+                  status: "created"
+                  name: "{{ .name }}"
+                delay: "3s"
+          - name: "list"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response:
+                  status: "success"
+                  items: []
+
+steps:
+  - id: verify-mock-server-available
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["mock1"]
+    timeout: "30s"
+    
+  - id: test-create-tool
+    tool: "x_mock1_create"
+    args:
+      name: "test-item"
+    expected:
+      success: true
+      contains: ["created", "test-item"]
+    timeout: "30s"
+    
+  - id: test-list-tool
+    tool: "x_mock1_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["success"]
+    timeout: "30s" 

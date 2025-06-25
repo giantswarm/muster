@@ -1,0 +1,104 @@
+name: "workflow-crud-scenarios"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "crud", "core-api"]
+timeout: "5m"
+
+steps:
+- id: "list-initial-workflows"
+  tool: "core_workflow_list"
+  expected:
+    success: true
+
+- id: "create-correct-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "correct-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "get_status"
+        tool: "core_service_status"
+  expected:
+    success: true
+
+- id: "get-created-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "correct-workflow"
+  expected:
+    success: true
+    contains: ["correct-workflow"]
+
+- id: "update-workflow"
+  tool: "core_workflow_update"
+  args:
+    name: "correct-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "get_status_updated"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+- id: "verify-updated-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "correct-workflow"
+  expected:
+    success: true
+
+- id: "delete-created-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "correct-workflow"
+  expected:
+    success: true
+
+- id: "verify-workflow-is-deleted"
+  tool: "core_workflow_get"
+  args:
+    name: "correct-workflow"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "create-new-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "crud-test-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "list-services"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+- id: "verify-workflow-in-list"
+  tool: "core_workflow_list"
+  expected:
+    success: true
+    contains: ["crud-test-workflow"]
+
+- id: "get-new-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "crud-test-workflow"
+  expected:
+    success: true
+    contains: ["crud-test-workflow"]
+
+- id: "final-cleanup"
+  tool: "core_workflow_delete"
+  args:
+    name: "crud-test-workflow"
+  expected:
+    success: true 

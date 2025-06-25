@@ -1,0 +1,33 @@
+name: "service-restart"
+category: "behavioral"
+concept: "service"
+tags: ["service", "restart", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-restart"
+    config:
+      name: "sc-for-restart"
+      version: "1.0.0"
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+steps:
+- id: "create-service-for-restart"
+  tool: "core_service_create"
+  args: { serviceClassName: "sc-for-restart", name: "restart-test-service" }
+  expected: { success: true }
+  cleanup:
+  - tool: "core_service_delete"
+    args: { name: "restart-test-service" }
+- id: "restart-the-service"
+  tool: "core_service_restart"
+  args: { name: "restart-test-service" }
+  expected: { success: true }
+- id: "verify-service-restarted"
+  tool: "core_service_get"
+  args: { name: "restart-test-service" }
+  expected:
+    success: true 

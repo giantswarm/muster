@@ -1,0 +1,14 @@
+name: "service-start-non-existent"
+category: "behavioral"
+concept: "service"
+tags: ["service", "start", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "start-non-existent"
+  tool: "core_service_start"
+  args:
+    name: "non-existent-service"
+  expected:
+    success: false
+    error_contains: ["not found"] 

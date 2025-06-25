@@ -1,0 +1,73 @@
+name: "service-state-transitions-scenarios"
+category: "behavioral"
+concept: "service"
+tags: ["service", "lifecycle", "state", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  service_classes:
+  - name: "state-sc"
+    config:
+      name: "state-sc"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "test-service"
+        lifecycleTools:
+          start:
+            tool: "core_config_get"
+          stop:
+            tool: "core_config_get"
+
+steps:
+- id: "create-service-for-state-testing"
+  tool: "core_service_create"
+  args: { serviceClassName: "state-sc", name: "state-test-service" }
+  expected: { success: true }
+  cleanup:
+  - tool: "core_service_delete"
+    args: { name: "state-test-service" }
+
+- id: "check-status-is-running"
+  tool: "core_service_status"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "stop-service"
+  tool: "core_service_stop"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "check-status-is-stopped"
+  tool: "core_service_status"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "stop-already-stopped-service"
+  tool: "core_service_stop"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "start-service"
+  tool: "core_service_start"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "check-status-is-running-again"
+  tool: "core_service_status"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "start-already-running-service"
+  tool: "core_service_start"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "restart-running-service"
+  tool: "core_service_restart"
+  args: { name: "state-test-service" }
+  expected: { success: true }
+
+- id: "check-status-is-running-after-restart"
+  tool: "core_service_status"
+  args: { name: "state-test-service" }
+  expected: { success: true } 

@@ -1,0 +1,63 @@
+name: "service-start"
+description: "Test starting a stopped service"
+category: "behavioral"
+concept: "service"
+tags: ["service", "start", "lifecycle", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-start"
+    config:
+      name: "sc-for-start"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "test-service"
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+
+steps:
+- id: "create-service-for-start"
+  description: "Create a service for start testing"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "sc-for-start"
+    name: "start-test-service"
+  expected:
+    success: true
+
+- id: "stop-the-service"
+  description: "Stop the service first"
+  tool: "core_service_stop"
+  args:
+    name: "start-test-service"
+  expected:
+    success: true
+
+- id: "start-the-service"
+  description: "Start the service"
+  tool: "core_service_start"
+  args:
+    name: "start-test-service"
+  expected:
+    success: true
+
+- id: "verify-service-started"
+  description: "Verify the service is running"
+  tool: "core_service_get"
+  args:
+    name: "start-test-service"
+  expected:
+    success: true
+    json_path:
+      name: "start-test-service"
+
+cleanup:
+- id: "delete-test-service"
+  description: "Clean up the test service"
+  tool: "core_service_delete"
+  args:
+    name: "start-test-service"
+  expected:
+    success: true 

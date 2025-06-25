@@ -1,0 +1,30 @@
+name: "serviceclass-check-unavailable-missing-tool"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "available", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-unavailable-sc"
+  tool: "core_serviceclass_create"
+  args:
+    name: "unavailable-sc"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "x_fake-provider_fake-tool" }
+        stop: { tool: "core_service_list" }
+  expected:
+    success: true
+  cleanup:
+  - tool: "core_serviceclass_delete"
+    args: { name: "unavailable-sc" }
+
+- id: "check-is-unavailable"
+  tool: "core_serviceclass_available"
+  args:
+    name: "unavailable-sc"
+  expected:
+    success: true
+    json_path:
+      available: false 

@@ -1,0 +1,15 @@
+name: "service-create-non-existent-sc"
+category: "behavioral"
+concept: "service"
+tags: ["service", "create", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-with-bad-sc"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "sc-does-not-exist"
+    name: "my-failed-service"
+  expected:
+    success: false
+    error_contains: ["not found"] 

@@ -1,0 +1,14 @@
+name: "service-stop-non-existent"
+category: "behavioral"
+concept: "service"
+tags: ["service", "stop", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "stop-non-existent"
+  tool: "core_service_stop"
+  args:
+    name: "non-existent-service"
+  expected:
+    success: false
+    error_contains: ["not found"] 

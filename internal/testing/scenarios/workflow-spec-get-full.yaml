@@ -1,0 +1,25 @@
+name: "workflow-spec-get-full"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "spec", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "test-spec-workflow"
+    config:
+      name: "test-spec-workflow"
+      inputSchema:
+        type: "object"
+        properties: {}
+        required: []
+      steps: [{id: "s1", tool: "core_service_list"}]
+
+steps:
+- id: "get-full-spec"
+  tool: "core_workflow_get"
+  args:
+    name: "test-spec-workflow"
+  expected:
+    success: true
+    contains: ["workflow", "yaml", "name"] 

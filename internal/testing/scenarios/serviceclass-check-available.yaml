@@ -1,0 +1,26 @@
+name: "serviceclass-check-available"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "available", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+    - name: "available-sc"
+      config:
+        name: "available-sc"
+        version: "1.0.0"
+        serviceConfig:
+          lifecycleTools:
+            start: { tool: "core_service_list" }
+            stop: { tool: "core_service_list" }
+
+steps:
+- id: "check-is-available"
+  tool: "core_serviceclass_available"
+  args:
+    name: "available-sc"
+  expected:
+    success: true
+    json_path:
+      available: true 

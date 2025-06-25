@@ -1,0 +1,172 @@
+name: "serviceclass-error-handling-scenarios"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "error-handling", "core-api"]
+timeout: "5m"
+
+steps:
+- id: "create-sc-invalid-yaml"
+  tool: "core_serviceclass_create"
+  args:
+    name: ""  # Invalid empty name
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: false
+    error_contains: ["name", "required"]
+
+- id: "create-sc-missing-name"
+  tool: "core_serviceclass_create"
+  args:
+    version: "1.0.0"  # Missing name field entirely
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: false
+    error_contains: ["name", "required"]
+
+- id: "create-sc-missing-start-tool"
+  tool: "core_serviceclass_create"
+  args:
+    name: "sc-missing-start"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: false
+    error_contains: ["start.tool", "required"]
+
+- id: "create-sc-with-non-existent-tool"
+  tool: "core_serviceclass_create"
+  args:
+    name: "sc-bad-tool-ref"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "x_fake-provider_fake-tool"
+        stop:
+          tool: "x_fake-provider_fake-tool"
+  expected:
+    success: true # Creation is allowed, but it should be unavailable
+  cleanup:
+  - tool: "core_serviceclass_delete"
+    args: { name: "sc-bad-tool-ref" }
+
+- id: "check-availability-of-sc-with-bad-tool"
+  tool: "core_serviceclass_available"
+  args:
+    name: "sc-bad-tool-ref"
+  expected:
+    success: true
+    json_path:
+      available: false
+
+- id: "get-non-existent-sc"
+  tool: "core_serviceclass_get"
+  args:
+    name: "non-existent-sc"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "update-non-existent-sc"
+  tool: "core_serviceclass_update"
+  args:
+    name: "non-existent-update-sc"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "delete-non-existent-sc"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "non-existent-sc"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "create-serviceclass-with-conflicting-name"
+  tool: "core_serviceclass_create"
+  args:
+    name: "conflicting-name-serviceclass"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: true
+  cleanup:
+  - tool: "core_serviceclass_delete"
+    args: { name: "conflicting-name-serviceclass" }
+
+- id: "create-conflicting-serviceclass-step-2"
+  tool: "core_serviceclass_create"
+  args:
+    name: "conflicting-name-serviceclass"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: false
+    error_contains: ["already exists"]
+
+- id: "check-availability-for-non-existent-serviceclass"
+  tool: "core_serviceclass_available"
+  args:
+    name: "non-existent-serviceclass"
+  expected:
+    success: true
+    json_path:
+      available: false
+
+- id: "check-availability-with-missing-tools"
+  tool: "core_serviceclass_create"
+  args:
+    name: "missing-tools-serviceclass"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "x_non-existent-mock_start"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: true
+  cleanup:
+  - tool: "core_serviceclass_delete"
+    args: { name: "missing-tools-serviceclass" }
+
+- id: "check-availability-with-missing-tools-step-2"
+  tool: "core_serviceclass_available"
+  args:
+    name: "missing-tools-serviceclass"
+  expected:
+    success: true
+    json_path:
+      available: false 

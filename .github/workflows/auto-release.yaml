@@ -1,0 +1,78 @@
+---
+# yamllint disable rule:truthy
+name: Auto Release
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: write  # Needed to create releases and tags
+  pull-requests: read  # Needed to read PR information
+
+jobs:
+  auto_release:
+    name: Auto Release
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch all history and tags for version calculation and changelog
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'  # Specify Go version
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # either 'goreleaser' (default) or 'goreleaser-pro'
+          distribution: goreleaser
+          version: latest
+          args: --version  # Print version for verification
+
+      - name: Configure Git
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Determine Next Version
+        id: version
+        run: |
+          set -e
+          # Get the latest tag, defaulting to v0.0.0 if none exists
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null \
+            || echo "v0.0.0")
+          # Remove 'v' prefix
+          LATEST_VERSION=${LATEST_TAG#v}
+          # Split into major, minor, patch
+          IFS='.' read -r -a VERSION_PARTS <<< "$LATEST_VERSION"
+          # Increment patch version
+          NEXT_PATCH=$((VERSION_PARTS[2] + 1))
+          # Construct next version string
+          NEXT_VERSION="v${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$NEXT_PATCH"
+          echo "Latest tag: $LATEST_TAG"
+          echo "Next version: $NEXT_VERSION"
+          # Set output for subsequent steps
+          echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create Tag
+        run: |
+          NEXT_VERSION="${{ steps.version.outputs.next_version }}"
+          git tag "$NEXT_VERSION"
+          git push origin "$NEXT_VERSION"
+          echo "Created and pushed tag $NEXT_VERSION"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

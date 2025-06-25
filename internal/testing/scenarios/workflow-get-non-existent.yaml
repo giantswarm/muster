@@ -1,0 +1,14 @@
+name: "workflow-get-non-existent"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "get", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "get-non-existent"
+  tool: "core_workflow_get"
+  args:
+    name: "non-existent-workflow"
+  expected:
+    success: false
+    error_contains: ["not found"] 

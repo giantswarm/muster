@@ -1,0 +1,30 @@
+name: "capability-create"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-valid-capability"
+  tool: "core_capability_create"
+  args:
+    name: "basic-create-capability"
+    type: "test"
+    version: "1.0.0"
+    operations:
+      test_operation:
+        description: "Test operation for basic capability creation"
+        requires: []
+  expected:
+    success: true
+  cleanup:
+    - id: "delete-created-capability"
+      tool: "core_capability_delete"
+      args:
+        name: "basic-create-capability"
+
+- id: "verify-capability-in-list"
+  tool: "core_capability_list"
+  expected:
+    success: true
+    contains: ["basic-create-capability"] 

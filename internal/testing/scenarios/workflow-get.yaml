@@ -1,0 +1,24 @@
+name: "workflow-get"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "get", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "get-test-workflow"
+    config:
+      name: "get-test-workflow"
+      inputSchema:
+        type: "object"
+        properties: {}
+        required: []
+      steps: [{id: "s1", tool: "core_service_list"}]
+steps:
+- id: "get-specific-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "get-test-workflow"
+  expected:
+    success: true
+    contains: ["get-test-workflow"]

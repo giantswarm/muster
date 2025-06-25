@@ -1,0 +1,6 @@
+name: kubernetes
+type: localCommand
+enabledByDefault: true
+icon: "☸"
+category: "Core"
+command: ["mcp-kubernetes"]

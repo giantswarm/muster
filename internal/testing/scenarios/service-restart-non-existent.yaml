@@ -1,0 +1,14 @@
+name: "service-restart-non-existent"
+category: "behavioral"
+concept: "service"
+tags: ["service", "restart", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "restart-non-existent"
+  tool: "core_service_restart"
+  args:
+    name: "non-existent-service"
+  expected:
+    success: false
+    error_contains: ["not found"] 

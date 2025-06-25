@@ -1,0 +1,14 @@
+name: "capability-delete-non-existent"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "delete", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "delete-non-existent"
+  tool: "core_capability_delete"
+  args:
+    name: "i-do-not-exist"
+  expected:
+    success: false
+    error_contains: ["not found"] 

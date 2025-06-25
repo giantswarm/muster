@@ -1,0 +1,21 @@
+name: "workflow-update-non-existent"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "update", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "update-non-existent"
+  tool: "core_workflow_update"
+  args:
+    name: "non-existent-workflow-temp"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "test-step"
+        tool: "core_service_list"
+  expected:
+    success: false
+    error_contains: ["not found"] 

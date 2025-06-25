@@ -1,0 +1,58 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+- **Github Tools Usage**
+  - Always use the Github tools via mcp-debug
+  - The Github tools via mcp_mcp-debug_list_tools
+- **Github Tools Discovery**
+  - Sub-points with details
+  - Examples and explanations
+- **Issue Management Best Practices**
+  - **When updating existing issues:**
+    - Always update the issue description if the scope of the issue has changed. A comment is not enough. But only do the necessary changes to the description.
+    - Add a **short** comment underneath explaining what was added/changed
+    - Avoid lengthy comments that repeat the description content
+  - **When adding subtasks to main issues:**
+    - Create separate issues for each subtask with detailed information
+    - Include full description, objective, implementation details, and acceptance criteria in subtask issues
+    - Link subtask issues in the main issue's "Related Subtasks" section
+    - Use consistent naming: "Subtask X.Y: [Description]"
+    - Add appropriate labels: `subtask`, relevant components, priority
+  - **Subtask issue structure:**
+    - **Parent Issue**: Link to main issue (e.g., "#71 - Task 13: Main Task Title")
+    - **Objective**: Clear, one-sentence goal
+    - **Implementation Details**: Specific technical requirements and approach
+    - **Files to Create/Modify**: Explicit file listing
+    - **Acceptance Criteria**: Detailed, testable requirements
+    - **Dependencies**: Links to related issues/tasks
+- **New Task**
+  - Use the `x_github_list_issues` tool to fetch the list of open issues from the `giantswarm/muster` repository, ordered by issue number descending (newest first).
+  - Decide which is the next best issue in that list (still open issue) and use the `x_github_get_issue` tool with its issue number to retrieve full details. Also make sure to use the `x_github_get_issue_comments` tool to get the comments for the issue.
+  - Summarize that issue (title, number, body, key tasks) in the chat before starting implementation steps.
+  - After summarizing, outline the approach for addressing the issue and continue with the implementation.
+- **New Issue**
+  - Gather the necessary information for the issue: `title` and `body`. `labels` and `assignees` can also be included if provided.
+  - Use the `x_github_create_issue` tool to create the new issue in the `giantswarm/muster` repository. Set `owner` to `giantswarm` and `repo` to `muster`.
+  - Announce the new issue (title and number) in the chat after it has been created.
+- **Commit and Push Workflow**
+  - Get the current branch name using `git rev-parse --abbrev-ref HEAD`
+  - If the current branch is `main` or `master`, generate a new branch name using the pattern `<type>/issue-<issue_num>-<slugified_issue_title>`.
+  - Checkout the new branch using `git checkout -b <new_branch_name>`
+- **IMPORTANT - Before staging, committing and pushing changes**
+  - Make sure to run `goimports -w .` and `go fmt ./...` before you commit any code.
+  - Run tests by executing the `make test` command in the terminal using `run_terminal_cmd`.
+  - If tests fail, you have to fix the tests.
+- **Stage changes:**
+  - Run `git add .` using `run_terminal_cmd`.
+- **Commit changes:**
+  - Construct a commit message. The suggested pattern is: `<CommitType>: <issue_title> (closes #<issue_num>)`. Example: `Refactor: Refactor getPodNameForPortForward for clarity, scope, and context handling (closes #37)`. The `<CommitType>` (e.g., Refactor, Fix, Feat) should match the nature of the work.
+  - Run `git commit -m "<commit_message>"` using `run_terminal_cmd`.
+- **Push changes:**
+  - Run `git push origin <target_branch>` using `run_terminal_cmd`.
+  - Inform the user that the changes have been committed to `<target_branch>` and pushed to origin.
+- **Closing an issue**
+  - Confirm with the user that the issue is ready to be closed.
+  - Add a comment to the issue with the changes that were made. Use the `x_github_add_issue_comment` tool to add the comment.
+  - Use the `x_github_update_issue` tool to change the state of the issue to 'closed'.

@@ -1,0 +1,14 @@
+name: "serviceclass-get-non-existent"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "get", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "get-non-existent"
+  tool: "core_serviceclass_get"
+  args:
+    name: "sc-does-not-exist"
+  expected:
+    success: false
+    error_contains: ["not found"] 
