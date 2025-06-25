@@ -130,7 +130,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 - `category` (string, optional): Filter by category ("behavioral", "integration")
 - `concept` (string, optional): Filter by concept ("serviceclass", "workflow", "mcpserver", "capability", "service")
 - `scenario` (string, optional): Run specific scenario by name
-- `config_path` (string, optional): Path to scenario files (default: `/home/teemow/projects/giantswarm/muster/internal/testing/scenarios`)
+- `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
 - `parallel` (number, optional): Number of parallel workers (default: 1)
 - `fail_fast` (boolean, optional): Stop on first failure (default: false)
 - `verbose` (boolean, optional): Enable verbose output (default: false)
@@ -178,7 +178,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 **Parameters**:
 - `category` (string, optional): Filter by category
 - `concept` (string, optional): Filter by concept  
-- `config_path` (string, optional): Path to scenario files (default: `/home/teemow/projects/giantswarm/muster/internal/testing/scenarios`)
+- `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
 
 **Response Format**:
 ```json
@@ -228,7 +228,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
       "cleanup_count": 1
     }
   ],
-  "path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios"
+  "path": "internal/testing/scenarios"
 }
 ```
 
@@ -366,7 +366,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_run_scenarios",
   "parameters": {
-    "config_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios",
+    "config_path": "internal/testing/scenarios",
     "concept": "workflow"
   }
 }
@@ -389,7 +389,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/"
+    "scenario_path": "internal/testing/scenarios/"
   }
 }
 ```
@@ -410,7 +410,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/",
+    "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "concept": "serviceclass"
   }
@@ -448,7 +448,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/",
+    "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "category": "behavioral"
   }
@@ -481,7 +481,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 
 #### 1. Create New Test Scenario
 ```yaml
-# Create: /home/teemow/projects/giantswarm/muster/internal/testing/scenarios/my-new-test.yaml
+# Create: internal/testing/scenarios/my-new-test.yaml
 name: "my-new-feature-test"
 category: "behavioral"
 concept: "serviceclass"
@@ -504,7 +504,7 @@ steps:
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/my-new-test.yaml"
+    "scenario_path": "internal/testing/scenarios/my-new-test.yaml"
   }
 }
 ```
@@ -514,7 +514,7 @@ steps:
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/my-new-test.yaml",
+    "scenario_path": "internal/testing/scenarios/my-new-test.yaml",
     "schema_path": "schema.json"
   }
 }
@@ -560,7 +560,7 @@ steps:
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/",
+    "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "concept": "serviceclass"
   }
@@ -704,7 +704,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/"
+    "scenario_path": "internal/testing/scenarios/"
   }
 }
 ```
@@ -814,7 +814,7 @@ Common startup issues:
 {
   "tool": "mcp_muster-test_test_validate_scenario",
   "parameters": {
-    "scenario_path": "/home/teemow/projects/giantswarm/muster/internal/testing/scenarios/"
+    "scenario_path": "internal/testing/scenarios/"
   }
 }
 ```
