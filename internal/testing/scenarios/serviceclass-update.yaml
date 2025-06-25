@@ -1,0 +1,39 @@
+name: "serviceclass-update"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "update", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+    - name: "update-test-sc"
+      config:
+        name: "update-test-sc"
+        version: "1.0.0"
+        serviceConfig:
+          lifecycleTools:
+            start: { tool: "core_service_list" }
+            stop: { tool: "core_service_list" }
+
+steps:
+- id: "update-the-sc"
+  tool: "core_serviceclass_update"
+  args:
+    name: "update-test-sc"
+    version: "1.1.0"
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "core_config_get" }
+        stop: { tool: "core_config_get" }
+  expected:
+    success: true
+
+- id: "verify-sc-was-updated"
+  tool: "core_serviceclass_get"
+  args:
+    name: "update-test-sc"
+  expected:
+    success: true
+    json_path:
+      name: "update-test-sc"
+      version: "1.1.0"

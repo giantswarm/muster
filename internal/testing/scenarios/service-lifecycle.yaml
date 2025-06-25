@@ -1,0 +1,143 @@
+name: "behavior-developer-service-management"
+category: "behavioral"
+concept: "service"
+tags: ["service", "lifecycle", "developer-experience", "user-story"]
+timeout: "8m"
+
+# User Story: Developer Managing Application Services
+# Given: I have access to platform services for development
+# When: I create, start, stop, and manage services for my application
+# Then: I should have full control over my development environment
+
+pre_configuration:
+  mcp_servers:
+    - name: "service-tool-provider"
+      config:
+        tools:
+          - name: "create_it"
+            responses: [ { response: { service_id: "inst-{{ .name }}", status: "ok" } } ]
+          - name: "delete_it"
+            responses: [ { response: { status: "ok" } } ]
+
+  service_classes:
+    - name: "lifecycle-sc"
+      config:
+        name: "lifecycle-sc"
+        version: "1.0.0"
+        serviceConfig:
+          createParameters:
+            message:
+              toolParameter: "msg"
+              required: false
+              default: "default message"
+          lifecycleTools:
+            start:
+              tool: "x_service-tool-provider_create_it"
+              arguments:
+                name: "{{ .name }}"
+                msg: "{{ .parameters.message }}"
+              responseMapping:
+                serviceId: "service_id"
+            stop:
+              tool: "x_service-tool-provider_delete_it"
+              arguments:
+                id: "{{ .service.id }}"
+
+steps:
+# Phase 1: Developer Environment Assessment (Given)
+- id: "developer-checks-available-services"
+  tool: "core_service_list"
+  expected:
+    success: true
+    # Should get current baseline of services
+
+# Phase 2: Developer Creates Application Service (When)
+- id: "developer-provisions-application-service"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "lifecycle-sc"
+    name: "my-app-backend"
+    parameters:
+      message: "Development environment for my-app backend"
+  expected:
+    success: true
+    contains: ["my-app-backend"]
+
+# Phase 3: Developer Verifies Service Status (Then)
+- id: "developer-verifies-service-running"
+  tool: "core_service_get"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+    json_path:
+      name: "my-app-backend"
+      serviceClassName: "lifecycle-sc"
+      state: "running"
+      # Service should be auto-started after creation
+
+# Phase 4: Developer Manages Service During Development
+- id: "developer-stops-service-for-maintenance"
+  tool: "core_service_stop"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+
+- id: "developer-verifies-service-stopped"
+  tool: "core_service_status"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+    json_path:
+      state: "stopped"
+
+- id: "developer-resumes-development"
+  tool: "core_service_start"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+
+- id: "developer-confirms-service-available"
+  tool: "core_service_get"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+    json_path:
+      state: "running"
+      name: "my-app-backend"
+
+- id: "developer-restarts-service-during-testing"
+  tool: "core_service_restart"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+
+- id: "developer-verifies-restart-successful"
+  tool: "core_service_status"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+    json_path:
+      state: "running"
+
+# Phase 5: Developer Completes Project (Cleanup)
+- id: "developer-removes-project-service"
+  tool: "core_service_delete"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: true
+
+- id: "developer-confirms-service-removed"
+  tool: "core_service_get"
+  args:
+    name: "my-app-backend"
+  expected:
+    success: false
+    error_contains: ["not found"] 

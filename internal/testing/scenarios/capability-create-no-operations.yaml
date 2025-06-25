@@ -1,0 +1,15 @@
+name: "capability-create-no-operations"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-no-operations-capability"
+  tool: "core_capability_create"
+  args:
+    name: "no-operations-capability"
+    # type: "test" # removed - no longer supported
+  expected:
+    success: false
+    error_contains: ["must have at least one operation"] 

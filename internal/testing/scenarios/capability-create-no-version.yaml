@@ -1,0 +1,31 @@
+name: "capability-create-no-version"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-no-version-capability"
+  tool: "core_capability_create"
+  args:
+    name: "no-version-capability"
+    type: "test"
+    operations:
+      test_operation:
+        description: "Test operation for no-version capability"
+        requires: []
+  expected:
+    success: true
+  cleanup:
+    - id: "delete-no-version-capability"
+      tool: "core_capability_delete"
+      args: { name: "no-version-capability" }
+
+- id: "get-and-verify-no-version"
+  tool: "core_capability_get"
+  args:
+    name: "no-version-capability"
+  expected:
+    success: true
+    json_path:
+      name: "no-version-capability" 

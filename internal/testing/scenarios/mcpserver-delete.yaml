@@ -1,0 +1,45 @@
+name: "mcpserver-delete"
+description: "Test deleting MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "delete", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-mcpserver-to-delete"
+  description: "Create a MCP server that will be deleted"
+  tool: "core_mcpserver_create"
+  args:
+    name: "delete-test-server"
+    type: "localCommand"
+    command: ["echo", "server-to-be-deleted"]
+    autoStart: false
+  expected:
+    success: true
+
+- id: "verify-mcpserver-exists"
+  description: "Verify the MCP server exists before deletion"
+  tool: "core_mcpserver_get"
+  args:
+    name: "delete-test-server"
+  expected:
+    success: true
+    json_path:
+      name: "delete-test-server"
+
+- id: "delete-mcpserver"
+  description: "Delete the MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "delete-test-server"
+  expected:
+    success: true
+
+- id: "verify-mcpserver-deleted"
+  description: "Verify the MCP server no longer exists"
+  tool: "core_mcpserver_get"
+  args:
+    name: "delete-test-server"
+  expected:
+    success: false
+    error_contains: ["not found"] 

@@ -1,0 +1,26 @@
+name: "service-validate"
+category: "behavioral"
+concept: "service"
+tags: ["service", "validate", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-validation"
+    config:
+      name: "sc-for-validation"
+      version: "1.0.0"
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+
+steps:
+- id: "validate-services"
+  tool: "core_service_validate"
+  args:
+    name: "test-service"
+    serviceClassName: "sc-for-validation"
+    parameters: {}
+  expected:
+    success: true 

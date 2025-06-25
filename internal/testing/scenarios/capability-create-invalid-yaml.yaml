@@ -1,0 +1,15 @@
+name: "capability-create-invalid-parameters"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "error-handling", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-with-invalid-operations-structure"
+  tool: "core_capability_create"
+  args:
+    name: "invalid-ops-capability"
+    # type: "test" # removed - no longer supported
+  expected:
+    success: false
+    error_contains: ["must have at least one operation"] 

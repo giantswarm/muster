@@ -1,0 +1,32 @@
+name: "serviceclass-create"
+description: "Test creating a basic ServiceClass"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "create", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-basic-serviceclass"
+  description: "Create a basic ServiceClass with lifecycle tools"
+  tool: "core_serviceclass_create"
+  args:
+    name: "basic-create-sc"
+    version: "1.0.0"
+    serviceConfig:
+      serviceType: "test-service"
+      lifecycleTools:
+        start:
+          tool: "core_service_list"
+        stop:
+          tool: "core_service_list"
+  expected:
+    success: true
+
+cleanup:
+- id: "delete-created-serviceclass"
+  description: "Delete the test ServiceClass"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "basic-create-sc"
+  expected:
+    success: true 

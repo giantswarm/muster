@@ -1,0 +1,80 @@
+name: "capability-crud-scenarios"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "crud", "core-api"]
+timeout: "5m"
+
+# Per the types.go file, a Capability has 'Operations' which in turn have 'Parameters'
+# and can point to a 'Workflow'. We will model this structure.
+pre_configuration:
+  workflows:
+    - name: "sample-workflow-for-caps"
+      config:
+        name: "sample-workflow-for-caps"
+        steps:
+          - id: "list-services"
+            tool: "core_service_list"
+
+steps:
+- id: "list-initial-capabilities"
+  tool: "core_capability_list"
+  expected:
+    success: true
+
+- id: "create-new-capability"
+  tool: "core_capability_create"
+  args:
+    name: "crud-test-capability"
+    type: "test"
+    version: "1.0.0"
+    operations:
+      test_operation:
+        description: "Test operation for CRUD capability testing"
+        requires: []
+  expected:
+    success: true
+
+- id: "get-created-capability"
+  tool: "core_capability_get"
+  args:
+    name: "crud-test-capability"
+  expected:
+    success: true
+    json_path:
+      name: "crud-test-capability"
+
+- id: "update-capability-description"
+  tool: "core_capability_update"
+  args:
+    name: "crud-test-capability"
+    description: "Updated description for CRUD test capability"
+  expected:
+    success: true
+
+- id: "verify-updated-capability"
+  tool: "core_capability_get"
+  args:
+    name: "crud-test-capability"
+  expected:
+    success: true
+
+- id: "delete-created-capability"
+  tool: "core_capability_delete"
+  args:
+    name: "crud-test-capability"
+  expected:
+    success: true
+
+- id: "verify-capability-is-deleted"
+  tool: "core_capability_get"
+  args:
+    name: "crud-test-capability"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "list-capabilities-final"
+  tool: "core_capability_list"
+  expected:
+    success: true
+    not_contains: ["crud-test-capability"] 

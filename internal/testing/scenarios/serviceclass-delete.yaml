@@ -1,0 +1,32 @@
+name: "serviceclass-delete"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "delete", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+    - name: "delete-test-sc"
+      config:
+        name: "delete-test-sc"
+        version: "1.0.0"
+        serviceConfig:
+          lifecycleTools:
+            start: { tool: "core_service_list" }
+            stop: { tool: "core_service_list" }
+
+steps:
+- id: "delete-the-sc"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "delete-test-sc"
+  expected:
+    success: true
+
+- id: "verify-sc-is-gone"
+  tool: "core_serviceclass_get"
+  args:
+    name: "delete-test-sc"
+  expected:
+    success: false
+    error_contains: ["not found"] 

@@ -1,0 +1,146 @@
+name: "mcpserver-tool-call-lifecycle"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "tool-calls", "service-management", "core-api"]
+timeout: "5m"
+
+# Test Story: MCP Server Tool Call Behavior During Lifecycle
+# Given: An MCP server with a tool
+# When: The MCP server is running
+# Then: Tool calls should work successfully
+# When: I stop the MCP server
+# Then: Tool calls should fail with "tool doesn't exist" error
+# When: I start the MCP server again
+# Then: Tool calls should work successfully again
+
+pre_configuration:
+  mcp_servers:
+    - name: "tool-call-test-provider"
+      config:
+        tools:
+          - name: "call_test_tool"
+            input_schema:
+              type: "object"
+              properties:
+                operation: { type: "string" }
+                data: { type: "string" }
+            responses:
+              - response:
+                  operation: "{{ .operation }}"
+                  data: "{{ .data }}"
+                  server: "tool-call-test-provider"
+                  status: "executed"
+                  timestamp: "2024-01-01T00:00:00Z"
+
+steps:
+  # Phase 1: Verify tool calls work when MCP server is running
+  - id: "verify-service-running-initially"
+    tool: "core_service_status"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+      json_path:
+        name: "tool-call-test-provider"
+        state: "running"
+
+  - id: "test-tool-call-when-running"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "test"
+      data: "initial-call"
+    expected:
+      success: true
+      contains: ["test", "initial-call", "executed"]
+
+  - id: "test-another-tool-call-when-running"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "verify"
+      data: "server-is-running"
+    expected:
+      success: true
+      contains: ["verify", "server-is-running", "executed"]
+
+  # Phase 2: Stop the MCP server and verify tool calls fail
+  - id: "stop-mcpserver-service"
+    tool: "core_service_stop"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-stopped-mcpserver-service"
+    tool: "core_service_status"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "tool-call-test-provider"
+        state: "stopped"
+
+  - id: "test-tool-call-fails-when-stopped"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "should-fail"
+      data: "server-stopped"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+  - id: "test-another-tool-call-fails-when-stopped"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "also-should-fail"
+      data: "server-still-stopped"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+  # Phase 3: Start the MCP server and verify tool calls work again
+  - id: "start-mcpserver-service"
+    tool: "core_service_start"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-started-mcpserver-service"
+    tool: "core_service_status"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "tool-call-test-provider"
+        state: "running"
+
+  - id: "test-tool-call-works-after-restart"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "restart-test"
+      data: "server-restarted"
+    expected:
+      success: true
+      contains: ["restart-test", "server-restarted", "executed"]
+
+  - id: "test-final-tool-call-works"
+    tool: "x_tool-call-test-provider_call_test_tool"
+    args:
+      operation: "final-check"
+      data: "all-working-again"
+    expected:
+      success: true
+      contains: ["final-check", "all-working-again", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    tool: "core_service_stop"
+    args:
+      name: "tool-call-test-provider"
+    expected:
+      success: true
+    continue_on_failure: true 

@@ -1,0 +1,18 @@
+name: "mcpserver-update-non-existent"
+description: "Test updating a non-existent MCP server (should fail)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "update", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "update-non-existent"
+  description: "Attempt to update a non-existent MCP server"
+  tool: "core_mcpserver_update"
+  args:
+    name: "non-existent-server"
+    type: "localCommand"
+    command: ["echo", "this-should-fail"]
+  expected:
+    success: false
+    error_contains: ["not found"] 

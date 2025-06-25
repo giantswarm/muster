@@ -1,0 +1,23 @@
+name: "workflow-create-non-existent-tool"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "create", "error-handling", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-with-bad-tool"
+  tool: "core_workflow_create"
+  args:
+    name: "bad-tool-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "step1"
+        tool: "this_tool_is_not_real"
+  expected:
+    success: true  # Creation succeeds, execution would fail
+  cleanup:
+  - tool: "core_workflow_delete"
+    args: { name: "bad-tool-workflow" } 

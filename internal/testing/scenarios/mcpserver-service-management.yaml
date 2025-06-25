@@ -1,0 +1,136 @@
+name: "mcpserver-service-management"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "service-management", "lifecycle", "core-api"]
+timeout: "5m"
+
+# Test Story: MCP Server Service Management
+# Given: An MCP server configured in pre_configuration
+# When: I list services, get service details, stop and start the service
+# Then: All operations should work correctly and the MCP server should behave like any other service
+
+pre_configuration:
+  mcp_servers:
+    - name: "service-management-test"
+      config:
+        tools:
+          - name: "test_service_tool"
+            input_schema:
+              type: "object"
+              properties:
+                action: { type: "string" }
+            responses:
+              - response:
+                  action: "{{ .action }}"
+                  server: "service-management-test"
+                  status: "executed"
+
+steps:
+  # Phase 1: Verify MCP server appears in service list
+  - id: "list-all-services"
+    tool: "core_service_list"
+    expected:
+      success: true
+      contains: ["service-management-test"]
+
+  # Phase 2: Get detailed information about the MCP server service
+  - id: "get-mcpserver-service-details"
+    tool: "core_service_get"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "running"
+
+  - id: "verify-service-status"
+    tool: "core_service_status"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "running"
+
+  # Phase 3: Stop the MCP server service
+  - id: "stop-mcpserver-service"
+    tool: "core_service_stop"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+
+  - id: "verify-service-stopped"
+    tool: "core_service_get"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "stopped"
+
+  - id: "verify-stopped-status"
+    tool: "core_service_status"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "stopped"
+
+  # Phase 4: Start the MCP server service again
+  - id: "start-mcpserver-service"
+    tool: "core_service_start"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+
+  - id: "verify-service-restarted"
+    tool: "core_service_get"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "running"
+
+  - id: "verify-running-status-after-restart"
+    tool: "core_service_status"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+      json_path:
+        name: "service-management-test"
+        state: "running"
+
+  # Phase 5: Verify the service still appears in the list after restart
+  - id: "list-services-after-restart"
+    tool: "core_service_list"
+    expected:
+      success: true
+      contains: ["service-management-test"]
+
+  # Phase 6: Verify tool functionality after service restart
+  - id: "test-tool-after-restart"
+    tool: "x_service-management-test_test_service_tool"
+    args:
+      action: "verify_functionality"
+    expected:
+      success: true
+      contains: ["verify_functionality", "service-management-test", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    tool: "core_service_stop"
+    args:
+      name: "service-management-test"
+    expected:
+      success: true
+    continue_on_failure: true 

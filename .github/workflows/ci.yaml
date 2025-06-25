@@ -1,0 +1,52 @@
+---
+# yamllint disable rule:truthy
+name: CI Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:  # Also run on pushes to main to catch direct commits
+    branches:
+      - main
+
+jobs:
+  check:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'  # Match the version used in auto-release
+
+      - name: Install Python for yamllint
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run Checks (Lint & Test)
+        run: make check
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # either 'goreleaser' (default) or 'goreleaser-pro'
+          distribution: goreleaser
+          version: latest
+          install-only: true
+
+      - name: Run Release Dry-Run
+        # Only run on PRs, not on direct pushes to main
+        if: github.event_name == 'pull_request'
+        run: make release-dry-run
+        env:
+          # GoReleaser needs a GITHUB_TOKEN even for dry runs
+          # to check API rate limits, etc.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

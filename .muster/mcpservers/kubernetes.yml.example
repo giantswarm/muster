@@ -1,0 +1,4 @@
+name: kubernetes
+type: localCommand
+autoStart: true
+command: ["mcp-kubernetes"]

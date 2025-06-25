@@ -1,0 +1,47 @@
+name: "service-get"
+description: "Test getting service details"
+category: "behavioral"
+concept: "service"
+tags: ["service", "get", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-get"
+    config:
+      name: "sc-for-get"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "test-service"
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+
+steps:
+- id: "create-service-for-get"
+  description: "Create a service to get details from"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "sc-for-get"
+    name: "get-test-service"
+  expected:
+    success: true
+
+- id: "get-the-service"
+  description: "Get the service details"
+  tool: "core_service_get"
+  args:
+    name: "get-test-service"
+  expected:
+    success: true
+    json_path:
+      name: "get-test-service"
+
+cleanup:
+- id: "delete-test-service"
+  description: "Clean up the test service"
+  tool: "core_service_delete"
+  args:
+    name: "get-test-service"
+  expected:
+    success: true 

@@ -1,0 +1,186 @@
+name: "workflow-with-kubernetes-mock"
+category: "behavioral"
+concept: "workflow"
+tags: ["mock", "workflow", "kubernetes"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "kubernetes-mock"
+      config:
+        tools:
+          - name: "k8s_pod_list"
+            input_schema:
+              type: "object"
+              properties:
+                namespace:
+                  type: "string"
+                  default: "default"
+            responses:
+              - condition:
+                  namespace: "default"
+                response:
+                  pods:
+                    - name: "test-pod-1"
+                      status: "Running"
+                      image: "nginx:1.20"
+                    - name: "test-pod-2"
+                      status: "Pending"
+                      image: "redis:6.2"
+              - condition:
+                  namespace: "kube-system"
+                response:
+                  pods:
+                    - name: "coredns-5d78c9869d-xyz12"
+                      status: "Running"
+                      image: "k8s.gcr.io/coredns/coredns:v1.8.4"
+              - error: "namespace '{{ .namespace }}' not found"  # Default fallback
+
+          - name: "k8s_pod_create"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                image:
+                  type: "string"
+                namespace:
+                  type: "string"
+                  default: "default"
+              required:
+                - name
+                - image
+            responses:
+              - response:
+                  status: "created"
+                  name: "{{ .name }}"
+                  image: "{{ .image }}"
+                  namespace: "{{ .namespace }}"
+                  uid: "mock-{{ .name }}-12345"
+                delay: "2s"  # Simulate creation time
+
+          - name: "k8s_pod_delete"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                namespace:
+                  type: "string"
+                  default: "default"
+              required:
+                - name
+            responses:
+              - response:
+                  status: "deleted"
+                  name: "{{ .name }}"
+                  namespace: "{{ .namespace }}"
+                delay: "1s"
+
+  workflows:
+    - name: "deploy-test-app"
+      config:
+        name: "deploy-test-app"
+        input_schema:
+          type: object
+          properties:
+            app_name:
+              type: "string"
+            app_image:
+              type: "string"
+            namespace:
+              type: "string"
+              default: "default"
+          required:
+            - app_name
+            - app_image
+        steps:
+          - id: "list_existing_pods"
+            tool: "x_kubernetes-mock_k8s_pod_list"
+            args:
+              namespace: "{{ .input.namespace }}"
+            store: "pods_list"
+          - id: "create_application_pod"
+            tool: "x_kubernetes-mock_k8s_pod_create"
+            args:
+              name: "{{ .input.app_name }}"
+              image: "{{ .input.app_image }}"
+              namespace: "{{ .input.namespace }}"
+            store: "created_pod"
+
+steps:
+  - id: "verify-mock-server-tools"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["kubernetes-mock"]
+    timeout: "30s"
+
+  - id: "test-pod-list-default-namespace"
+    tool: "x_kubernetes-mock_k8s_pod_list"
+    args:
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["test-pod-1", "Running", "nginx:1.20"]
+    timeout: "30s"
+
+  - id: "test-pod-list-kube-system"
+    tool: "x_kubernetes-mock_k8s_pod_list"
+    args:
+      namespace: "kube-system"
+    expected:
+      success: true
+      contains: ["coredns", "k8s.gcr.io/coredns"]
+    timeout: "30s"
+
+  - id: "test-pod-list-nonexistent-namespace"
+    tool: "x_kubernetes-mock_k8s_pod_list"
+    args:
+      namespace: "nonexistent"
+    expected:
+      success: false
+      error_contains: ["namespace 'nonexistent' not found"]
+    timeout: "30s"
+
+  - id: "execute-deployment-workflow"
+    tool: "workflow_deploy-test-app"
+    args:
+      app_name: "test-app"
+      app_image: "nginx:latest"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["created", "test-app", "nginx:latest"]
+    timeout: "1m"
+
+  - id: "test-pod-creation-directly"
+    tool: "x_kubernetes-mock_k8s_pod_create"
+    args:
+      name: "direct-test-pod"
+      image: "redis:alpine"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["created", "direct-test-pod", "redis:alpine"]
+    timeout: "30s"
+
+  - id: "test-pod-deletion"
+    tool: "x_kubernetes-mock_k8s_pod_delete"
+    args:
+      name: "direct-test-pod"
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["deleted", "direct-test-pod"]
+    timeout: "30s"
+
+cleanup:
+  - id: "cleanup-workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "deploy-test-app"
+    expected:
+      success: true
+    timeout: "30s" 

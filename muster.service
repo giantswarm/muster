@@ -1,0 +1,24 @@
+[Unit]
+Description=Muster MCP Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=~/go/bin/muster serve --debug --yolo --config-path ~/.config/muster
+Restart=always
+RestartSec=5
+Environment=PATH=~/go/bin:/usr/local/bin:/usr/bin:/bin
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=muster
+
+# Security
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=default.target 

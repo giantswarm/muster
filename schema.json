@@ -1,0 +1,782 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Generated schema for muster core API tools for test scenario validation",
+  "generated_at": "2025-06-25T18:28:11+02:00",
+  "properties": {
+    "tools": {
+      "description": "Core API tools available in muster serve",
+      "properties": {
+        "core_capability_check": {
+          "description": "Parameters for core_capability_check tool",
+          "properties": {
+            "name": {
+              "description": "Name of the capability to check",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_capability_create": {
+          "description": "Parameters for core_capability_create tool",
+          "properties": {
+            "description": {
+              "description": "Capability description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Capability name",
+              "type": "string"
+            },
+            "operations": {
+              "description": "Operations map with operation definitions",
+              "type": "object"
+            },
+            "type": {
+              "description": "Capability type identifier",
+              "type": "string"
+            },
+            "version": {
+              "description": "Capability version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "operations"
+          ],
+          "type": "object"
+        },
+        "core_capability_delete": {
+          "description": "Parameters for core_capability_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the capability to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_capability_get": {
+          "description": "Parameters for core_capability_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the capability to retrieve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_capability_list": {
+          "description": "Parameters for core_capability_list tool",
+          "properties": {
+            "available_only": {
+              "default": false,
+              "description": "Only show capabilities that have all required tools available",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "core_capability_update": {
+          "description": "Parameters for core_capability_update tool",
+          "properties": {
+            "description": {
+              "description": "Capability description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the capability to update",
+              "type": "string"
+            },
+            "operations": {
+              "description": "Operations map with operation definitions",
+              "type": "object"
+            },
+            "type": {
+              "description": "Capability type identifier",
+              "type": "string"
+            },
+            "version": {
+              "description": "Capability version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_capability_validate": {
+          "description": "Parameters for core_capability_validate tool",
+          "properties": {
+            "description": {
+              "description": "Capability description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Capability name",
+              "type": "string"
+            },
+            "operations": {
+              "description": "Operations map with operation definitions",
+              "type": "object"
+            },
+            "type": {
+              "description": "Capability type identifier",
+              "type": "string"
+            },
+            "version": {
+              "description": "Capability version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "operations"
+          ],
+          "type": "object"
+        },
+        "core_config_get": {
+          "description": "Parameters for core_config_get tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_get_aggregator": {
+          "description": "Parameters for core_config_get_aggregator tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_get_global_settings": {
+          "description": "Parameters for core_config_get_global_settings tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_reload": {
+          "description": "Parameters for core_config_reload tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_save": {
+          "description": "Parameters for core_config_save tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_update_aggregator": {
+          "description": "Parameters for core_config_update_aggregator tool",
+          "properties": {
+            "aggregator": {
+              "description": "Aggregator configuration",
+              "type": "object"
+            }
+          },
+          "required": [
+            "aggregator"
+          ],
+          "type": "object"
+        },
+        "core_config_update_global_settings": {
+          "description": "Parameters for core_config_update_global_settings tool",
+          "properties": {
+            "settings": {
+              "description": "Global settings",
+              "type": "object"
+            }
+          },
+          "required": [
+            "settings"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_create": {
+          "description": "Parameters for core_mcpserver_create tool",
+          "properties": {
+            "autoStart": {
+              "description": "Whether server should auto-start",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command and arguments (for localCommand type)",
+              "type": "array"
+            },
+            "containerPorts": {
+              "description": "Port mappings (for container type)",
+              "type": "array"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "env": {
+              "description": "Environment variables",
+              "type": "object"
+            },
+            "image": {
+              "description": "Container image (for container type)",
+              "type": "string"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (localCommand or container)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_delete": {
+          "description": "Parameters for core_mcpserver_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the MCP server to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_get": {
+          "description": "Parameters for core_mcpserver_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the MCP server to retrieve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_list": {
+          "description": "Parameters for core_mcpserver_list tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_mcpserver_update": {
+          "description": "Parameters for core_mcpserver_update tool",
+          "properties": {
+            "autoStart": {
+              "description": "Whether server should auto-start",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command and arguments (for localCommand type)",
+              "type": "array"
+            },
+            "containerPorts": {
+              "description": "Port mappings (for container type)",
+              "type": "array"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "env": {
+              "description": "Environment variables",
+              "type": "object"
+            },
+            "image": {
+              "description": "Container image (for container type)",
+              "type": "string"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (localCommand or container)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_validate": {
+          "description": "Parameters for core_mcpserver_validate tool",
+          "properties": {
+            "autoStart": {
+              "description": "Whether server should auto-start",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command and arguments (for localCommand type)",
+              "type": "array"
+            },
+            "containerPorts": {
+              "description": "Port mappings (for container type)",
+              "type": "array"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "env": {
+              "description": "Environment variables",
+              "type": "object"
+            },
+            "image": {
+              "description": "Container image (for container type)",
+              "type": "string"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (localCommand or container)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        "core_service_create": {
+          "description": "Parameters for core_service_create tool",
+          "properties": {
+            "autoStart": {
+              "description": "Whether this instance should be started automatically on system startup (only applies if persist is true)",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "Unique name for the service instance",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Parameters for service creation",
+              "type": "object"
+            },
+            "persist": {
+              "description": "Whether to persist this service instance definition to YAML files for automatic recreation on startup",
+              "type": "boolean"
+            },
+            "serviceClassName": {
+              "description": "Name of the ServiceClass to instantiate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "serviceClassName",
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_delete": {
+          "description": "Parameters for core_service_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the ServiceClass instance to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_get": {
+          "description": "Parameters for core_service_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the service to get",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_list": {
+          "description": "Parameters for core_service_list tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_service_restart": {
+          "description": "Parameters for core_service_restart tool",
+          "properties": {
+            "name": {
+              "description": "Service name to restart",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_start": {
+          "description": "Parameters for core_service_start tool",
+          "properties": {
+            "name": {
+              "description": "Service name to start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_status": {
+          "description": "Parameters for core_service_status tool",
+          "properties": {
+            "name": {
+              "description": "Service name to get status for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_stop": {
+          "description": "Parameters for core_service_stop tool",
+          "properties": {
+            "name": {
+              "description": "Service name to stop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_validate": {
+          "description": "Parameters for core_service_validate tool",
+          "properties": {
+            "autoStart": {
+              "description": "Whether this instance should auto-start",
+              "type": "boolean"
+            },
+            "description": {
+              "description": "Service instance description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Service instance name",
+              "type": "string"
+            },
+            "parameters": {
+              "description": "Parameters for service creation",
+              "type": "object"
+            },
+            "serviceClassName": {
+              "description": "Name of the ServiceClass to instantiate",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "serviceClassName"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_available": {
+          "description": "Parameters for core_serviceclass_available tool",
+          "properties": {
+            "name": {
+              "description": "Name of the ServiceClass to check",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_create": {
+          "description": "Parameters for core_serviceclass_create tool",
+          "properties": {
+            "description": {
+              "description": "ServiceClass description",
+              "type": "string"
+            },
+            "name": {
+              "description": "ServiceClass name",
+              "type": "string"
+            },
+            "serviceConfig": {
+              "description": "Service configuration with lifecycle tools",
+              "type": "object"
+            },
+            "version": {
+              "description": "ServiceClass version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "serviceConfig"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_delete": {
+          "description": "Parameters for core_serviceclass_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the ServiceClass to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_get": {
+          "description": "Parameters for core_serviceclass_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the ServiceClass to retrieve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_list": {
+          "description": "Parameters for core_serviceclass_list tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_serviceclass_update": {
+          "description": "Parameters for core_serviceclass_update tool",
+          "properties": {
+            "description": {
+              "description": "ServiceClass description",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the ServiceClass to update",
+              "type": "string"
+            },
+            "serviceConfig": {
+              "description": "Service configuration with lifecycle tools",
+              "type": "object"
+            },
+            "version": {
+              "description": "ServiceClass version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_validate": {
+          "description": "Parameters for core_serviceclass_validate tool",
+          "properties": {
+            "description": {
+              "description": "ServiceClass description",
+              "type": "string"
+            },
+            "name": {
+              "description": "ServiceClass name",
+              "type": "string"
+            },
+            "serviceConfig": {
+              "description": "Service configuration with lifecycle tools",
+              "type": "object"
+            },
+            "version": {
+              "description": "ServiceClass version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "serviceConfig"
+          ],
+          "type": "object"
+        },
+        "core_workflow_create": {
+          "description": "Parameters for core_workflow_create tool",
+          "properties": {
+            "agentModifiable": {
+              "description": "Whether workflow can be modified by agents",
+              "type": "boolean"
+            },
+            "createdBy": {
+              "description": "Creator of the workflow",
+              "type": "string"
+            },
+            "description": {
+              "description": "Workflow description",
+              "type": "string"
+            },
+            "icon": {
+              "description": "Icon/emoji for display",
+              "type": "string"
+            },
+            "inputSchema": {
+              "description": "Input schema for the workflow",
+              "type": "object"
+            },
+            "name": {
+              "description": "Workflow name",
+              "type": "string"
+            },
+            "steps": {
+              "description": "Array of workflow steps",
+              "type": "array"
+            },
+            "version": {
+              "description": "Workflow version",
+              "type": "number"
+            }
+          },
+          "required": [
+            "name",
+            "inputSchema",
+            "steps"
+          ],
+          "type": "object"
+        },
+        "core_workflow_delete": {
+          "description": "Parameters for core_workflow_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_get": {
+          "description": "Parameters for core_workflow_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_list": {
+          "description": "Parameters for core_workflow_list tool",
+          "properties": {
+            "include_system": {
+              "default": true,
+              "description": "Include system-defined workflows",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "core_workflow_update": {
+          "description": "Parameters for core_workflow_update tool",
+          "properties": {
+            "agentModifiable": {
+              "description": "Whether workflow can be modified by agents",
+              "type": "boolean"
+            },
+            "createdBy": {
+              "description": "Creator of the workflow",
+              "type": "string"
+            },
+            "description": {
+              "description": "Workflow description",
+              "type": "string"
+            },
+            "icon": {
+              "description": "Icon/emoji for display",
+              "type": "string"
+            },
+            "inputSchema": {
+              "description": "Input schema for the workflow",
+              "type": "object"
+            },
+            "name": {
+              "description": "Name of the workflow to update",
+              "type": "string"
+            },
+            "steps": {
+              "description": "Array of workflow steps",
+              "type": "array"
+            },
+            "version": {
+              "description": "Workflow version",
+              "type": "number"
+            }
+          },
+          "required": [
+            "name",
+            "inputSchema",
+            "steps"
+          ],
+          "type": "object"
+        },
+        "core_workflow_validate": {
+          "description": "Parameters for core_workflow_validate tool",
+          "properties": {
+            "description": {
+              "description": "Workflow description",
+              "type": "string"
+            },
+            "inputSchema": {
+              "description": "Input schema for the workflow",
+              "type": "object"
+            },
+            "name": {
+              "description": "Workflow name",
+              "type": "string"
+            },
+            "steps": {
+              "description": "Array of workflow steps",
+              "type": "array"
+            },
+            "version": {
+              "description": "Workflow version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "inputSchema",
+            "steps"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "muster Core API Schema",
+  "type": "object",
+  "version": "1.0.0"
+}

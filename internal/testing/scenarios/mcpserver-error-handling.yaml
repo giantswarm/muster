@@ -1,0 +1,84 @@
+name: "mcpserver-error-handling-scenarios"
+description: "Test error handling and validation for MCP server operations"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "error-handling", "validation", "core-api"]
+timeout: "3m"
+
+steps:
+- id: "create-mcpserver-invalid-yaml"
+  description: "Test error handling with invalid server configuration"
+  tool: "core_mcpserver_create"
+  args:
+    name: "invalid-yaml-server"
+    type: "localCommand"
+    command: ["echo", "test"]
+  expected:
+    success: true
+
+- id: "create-mcpserver-missing-name"
+  description: "Test error when name is missing"
+  tool: "core_mcpserver_create"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["name", "required"]
+
+- id: "create-mcpserver-invalid-type"
+  description: "Test error with invalid type"
+  tool: "core_mcpserver_create"
+  args:
+    name: "invalid-type-server"
+    type: "invalidType"
+    command: ["echo", "test"]
+  expected:
+    success: false
+    error_contains: ["type", "invalid"]
+
+- id: "create-local-command-server-missing-command"
+  description: "Test local command server without command"
+  tool: "core_mcpserver_create"
+  args:
+    name: "missing-command-server"
+    type: "localCommand"
+  expected:
+    success: false
+    error_contains: ["command", "required"]
+
+- id: "get-non-existent-mcpserver"
+  description: "Test getting a non-existent MCP server"
+  tool: "core_mcpserver_get"
+  args:
+    name: "non-existent-server"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "update-non-existent-mcpserver"
+  description: "Test updating a non-existent MCP server"
+  tool: "core_mcpserver_update"
+  args:
+    name: "non-existent-server"
+    type: "localCommand"
+    command: ["echo", "test"]
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "delete-non-existent-mcpserver"
+  description: "Test deleting a non-existent MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "non-existent-server"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+cleanup:
+- id: "cleanup-test-servers"
+  description: "Clean up any test servers that were created"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "invalid-yaml-server"
+  expected:
+    success: true 

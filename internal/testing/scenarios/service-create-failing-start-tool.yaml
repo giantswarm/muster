@@ -1,0 +1,135 @@
+name: "behavior-service-resilience-and-error-recovery"
+category: "behavioral"
+concept: "service"
+tags: ["service", "error-handling", "resilience", "developer-experience", "user-story"]
+timeout: "5m"
+
+# User Story: Developer Handling Service Failures Gracefully
+# Given: Infrastructure services can fail due to various reasons
+# When: I attempt to create or manage services that encounter failures
+# Then: I should receive clear error messages and have options for recovery
+
+pre_configuration:
+  # Simulate real-world scenarios where infrastructure can fail
+  mcp_servers:
+  - name: "unreliable-database-provider"
+    config:
+      tools:
+      - name: "create_database"
+        responses: [ { error: "Database server is currently unavailable - connection timeout after 30s" } ]
+      - name: "health_check"
+        responses: [ { error: "Service health check failed: port 5432 unreachable" } ]
+        
+  - name: "working-provider"
+    config:
+      tools:
+      - name: "create_cache"
+        responses: [ { response: { cache_id: "cache-12345", status: "created" } } ]
+        
+  service_classes:
+  - name: "database-service"
+    config:
+      name: "database-service"
+      version: "1.0.0"
+      type: "data"
+      serviceConfig:
+        createParameters:
+          name:
+            toolParameter: "db_name"
+            required: true
+        lifecycleTools:
+          start: { tool: "x_unreliable-database-provider_create_database" }
+          stop: { tool: "core_config_get" }
+          
+  - name: "cache-service"
+    config:
+      name: "cache-service"
+      version: "1.0.0"
+      type: "data"
+      serviceConfig:
+        createParameters:
+          name:
+            toolParameter: "cache_name"
+            required: true
+        lifecycleTools:
+          start: { tool: "x_working-provider_create_cache" }
+          stop: { tool: "core_config_get" }
+
+steps:
+# Phase 1: Developer Attempts Service Creation (When)
+- id: "developer-attempts-database-service-creation"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "database-service"
+    name: "my-app-database"
+    parameters:
+      name: "my_app_db"
+  expected:
+    success: false
+    error_contains: ["Database server is currently unavailable"]
+
+# Phase 2: Developer Receives Clear Error Feedback (Then)
+- id: "developer-verifies-service-not-created"
+  tool: "core_service_get"
+  args:
+    name: "my-app-database"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "developer-checks-service-class-status"
+  tool: "core_serviceclass_available"
+  args:
+    name: "database-service"
+  expected:
+    success: true
+    json_path:
+      available: true  # Tool exists, so ServiceClass is available (even if tool fails)
+
+# Phase 3: Developer Tries Alternative Solution (Recovery)
+- id: "developer-creates-working-service-instead"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "cache-service"
+    name: "my-app-cache"
+    parameters:
+      name: "my_app_cache"
+  expected:
+    success: true
+    contains: ["my-app-cache"]
+
+- id: "developer-verifies-working-service-created"
+  tool: "core_service_get"
+  args:
+    name: "my-app-cache"
+  expected:
+    success: true
+    json_path:
+      name: "my-app-cache"
+      serviceClassName: "cache-service"
+      state: "running"
+
+# Phase 4: Developer Understands System Status
+- id: "developer-lists-all-services"
+  tool: "core_service_list"
+  expected:
+    success: true
+    contains: ["my-app-cache"]
+    not_contains: ["my-app-database"]
+
+# Phase 5: Developer Cleans Up Working Resources
+- id: "developer-removes-working-service"
+  tool: "core_service_delete"
+  args:
+    name: "my-app-cache"
+  expected:
+    success: true
+
+cleanup:
+  - id: "cleanup-cache-service"
+    tool: "core_service_delete"
+    args:
+      name: "my-app-cache"
+    expected:
+      success: false  # Service was already deleted in step 7, so cleanup fails (not found)
+    timeout: "30s" 

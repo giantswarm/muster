@@ -1,0 +1,45 @@
+name: "serviceclass-create-invalid-parameters"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "create", "error-handling", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-with-invalid-serviceconfig-structure"
+  tool: "core_serviceclass_create"
+  args:
+    name: "invalid-config-sc"
+    serviceConfig: "this should be an object not a string"
+  expected:
+    success: false
+    error_contains: ["cannot unmarshal string"]
+
+- id: "create-with-missing-lifecycle-tools"
+  tool: "core_serviceclass_create"
+  args:
+    name: "missing-lifecycle-sc"
+    version: "1.0.0"
+    serviceConfig:
+      serviceType: "test"
+      # missing lifecycleTools
+  expected:
+    success: false
+    error_contains: ["lifecycleTools", "is required"]
+
+- id: "create-with-invalid-operations-type"
+  tool: "core_serviceclass_create"
+  args:
+    name: "invalid-ops-sc"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "test_start"
+        stop:
+          tool: "test_stop"
+  expected:
+    success: true  # This is actually valid, so it should succeed
+    contains: ["created successfully"]
+  cleanup:
+  - tool: "core_serviceclass_delete"
+    args: { name: "invalid-ops-sc" } 

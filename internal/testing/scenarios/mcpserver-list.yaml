@@ -1,0 +1,34 @@
+name: "mcpserver-list"
+description: "Test listing MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "list", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-test-mcpserver"
+  description: "Create a test MCP server to list"
+  tool: "core_mcpserver_create"
+  args:
+    name: "list-test-server"
+    type: "localCommand"
+    command: ["echo", "test-server-for-list"]
+    autoStart: false
+  expected:
+    success: true
+
+- id: "list-mcpservers"
+  description: "List all MCP servers"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["list-test-server"]
+
+cleanup:
+- id: "delete-test-mcpserver"
+  description: "Delete the test MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "list-test-server"
+  expected:
+    success: true

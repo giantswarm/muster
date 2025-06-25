@@ -1,0 +1,34 @@
+name: "service-stop-already-stopped"
+category: "behavioral"
+concept: "service"
+tags: ["service", "stop", "lifecycle", "idempotency", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-idempotency"
+    config:
+      name: "sc-for-idempotency"
+      version: "1.0.0"
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+steps:
+- id: "create-service"
+  tool: "core_service_create"
+  args: { serviceClassName: "sc-for-idempotency", name: "idempotent-stop-test" }
+  expected: { success: true }
+  cleanup:
+  - tool: "core_service_delete"
+    args: { name: "idempotent-stop-test" }
+- id: "stop-service-once"
+  tool: "core_service_stop"
+  args: { name: "idempotent-stop-test" }
+  expected: { success: true }
+- id: "stop-service-again"
+  tool: "core_service_stop"
+  args: { name: "idempotent-stop-test" }
+  expected:
+    success: true
+    contains: ["already stopped"] 

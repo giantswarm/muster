@@ -1,0 +1,55 @@
+name: "service-stop"
+description: "Test stopping a running service"
+category: "behavioral"
+concept: "service"
+tags: ["service", "stop", "lifecycle", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "sc-for-stop"
+    config:
+      name: "sc-for-stop"
+      version: "1.0.0"
+      serviceConfig:
+        serviceType: "test-service"
+        lifecycleTools:
+          start: { tool: "core_config_get" }
+          stop: { tool: "core_config_get" }
+
+steps:
+- id: "create-service-for-stop"
+  description: "Create a service for stop testing"
+  tool: "core_service_create"
+  args:
+    serviceClassName: "sc-for-stop"
+    name: "stop-test-service"
+  expected:
+    success: true
+
+- id: "stop-the-service"
+  description: "Stop the service"
+  tool: "core_service_stop"
+  args:
+    name: "stop-test-service"
+  expected:
+    success: true
+
+- id: "verify-service-stopped"
+  description: "Verify the service is stopped"
+  tool: "core_service_get"
+  args:
+    name: "stop-test-service"
+  expected:
+    success: true
+    json_path:
+      name: "stop-test-service"
+
+cleanup:
+- id: "delete-test-service"
+  description: "Clean up the test service"
+  tool: "core_service_delete"
+  args:
+    name: "stop-test-service"
+  expected:
+    success: true 

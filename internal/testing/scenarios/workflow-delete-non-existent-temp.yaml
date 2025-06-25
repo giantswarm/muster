@@ -1,0 +1,14 @@
+name: "workflow-delete-non-existent"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "delete", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "delete-non-existent"
+  tool: "core_workflow_delete"
+  args:
+    name: "non-existent-workflow"
+  expected:
+    success: false
+    error_contains: ["not found"] 

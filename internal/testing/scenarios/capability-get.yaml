@@ -1,0 +1,26 @@
+name: "capability-get"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "get", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  capabilities:
+    - name: "get-test-capability"
+      config:
+        name: "get-test-capability"
+        type: "test"
+        operations:
+          test_operation:
+            description: "Test operation for capability get test"
+            requires: []
+
+steps:
+- id: "get-specific-capability"
+  tool: "core_capability_get"
+  args:
+    name: "get-test-capability"
+  expected:
+    success: true
+    json_path:
+      name: "get-test-capability"

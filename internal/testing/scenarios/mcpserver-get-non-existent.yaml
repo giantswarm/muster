@@ -1,0 +1,14 @@
+name: "mcpserver-get-non-existent"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "get", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "get-non-existent"
+  tool: "core_mcpserver_get"
+  args:
+    name: "server-does-not-exist"
+  expected:
+    success: false
+    error_contains: ["not found"] 

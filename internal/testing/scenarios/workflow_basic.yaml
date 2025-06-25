@@ -1,0 +1,73 @@
+name: "workflow-basic-operations"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "basic", "core-api"]
+timeout: "3m"
+
+steps:
+- id: "create-basic-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "basic-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "list_services"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "basic-workflow" }
+
+- id: "get-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "basic-workflow"
+  expected:
+    success: true
+    contains: ["basic-workflow"]
+
+- id: "list-workflows"
+  tool: "core_workflow_list"
+  expected:
+    success: true
+    contains: ["basic-workflow"]
+
+- id: "update-workflow"
+  tool: "core_workflow_update"
+  args:
+    name: "basic-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "list_services_updated"
+        tool: "core_service_list"
+  expected:
+    success: true
+
+- id: "verify-updated-workflow"
+  tool: "core_workflow_get"
+  args:
+    name: "basic-workflow"
+  expected:
+    success: true
+
+- id: "delete-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "basic-workflow"
+  expected:
+    success: true
+
+- id: "verify-workflow-deleted"
+  tool: "core_workflow_get"
+  args:
+    name: "basic-workflow"
+  expected:
+    success: false
+    error_contains: ["not found"] 

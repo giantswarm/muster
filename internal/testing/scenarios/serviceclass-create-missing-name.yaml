@@ -1,0 +1,19 @@
+name: "serviceclass-create-missing-name"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-missing-name"
+  tool: "core_serviceclass_create"
+  args:
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "x_test-provider_start"
+        stop:
+          tool: "x_test-provider_stop"
+  expected:
+    success: false
+    error_contains: ["name", "required"] 

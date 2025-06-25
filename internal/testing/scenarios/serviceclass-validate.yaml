@@ -1,0 +1,20 @@
+name: "serviceclass-validate"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "validate", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "validate-serviceclasses"
+  tool: "core_serviceclass_validate"
+  args:
+    name: "test-validate-sc"
+    version: "1.0.0"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: true 

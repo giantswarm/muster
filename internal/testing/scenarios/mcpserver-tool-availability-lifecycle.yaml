@@ -1,0 +1,116 @@
+name: "mcpserver-tool-availability-lifecycle"
+description: "Test MCP server service lifecycle management and tool availability"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "tools", "service-management"]
+timeout: "2m"
+
+# Test Story: MCP Server Tool Availability During Lifecycle
+# Given: An MCP server with a tool
+# When: I stop the MCP server
+# Then: The tool should become unavailable
+# When: I start the MCP server again
+# Then: The tool should become available again
+
+pre_configuration:
+  mcp_servers:
+    - name: "test-tool-provider"
+      config:
+        tools:
+          - name: "lifecycle_test_tool"
+            input_schema:
+              type: "object"
+              properties:
+                message: { type: "string" }
+            responses:
+              - response:
+                  message: "Tool is working: {{ .message }}"
+
+steps:
+  # Phase 1: Verify initial state - service should be running (or starting up)
+  - id: "verify-initial-service-status"
+    tool: "core_service_status"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+      json_path:
+        name: "test-tool-provider"
+        state: "running"
+
+  - id: "list-tools-initially"
+    tool: "core_service_list"
+    expected:
+      success: true
+      contains: ["test-tool-provider"]
+
+  - id: "test-initial-tool-functionality"
+    tool: "x_test-tool-provider_lifecycle_test_tool"
+    args:
+      message: "Initial test"
+    expected:
+      success: true
+      contains: ["Tool is working", "Initial test"]
+
+  # Phase 2: Stop the MCP server and verify service state changes
+  - id: "stop-mcpserver-service"
+    tool: "core_service_stop"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+
+  - id: "verify-service-stopped"
+    tool: "core_service_status"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "test-tool-provider"
+        state: "stopped"
+
+  - id: "verify-tool-unavailable-after-stop"
+    tool: "x_test-tool-provider_lifecycle_test_tool"
+    args:
+      message: "Test after stop"
+    expected:
+      success: false
+      contains: ["tool not found"]
+
+  # Phase 3: Start the MCP server and verify service state changes
+  - id: "start-mcpserver-service"
+    tool: "core_service_start"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+
+  - id: "verify-service-running"
+    tool: "core_service_status"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "test-tool-provider"
+        state: "running"
+
+  - id: "verify-tool-available-after-restart"
+    tool: "x_test-tool-provider_lifecycle_test_tool"
+    args:
+      message: "Test after restart"
+    expected:
+      success: true
+      contains: ["Tool is working", "Test after restart"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    tool: "core_service_stop"
+    args:
+      name: "test-tool-provider"
+    expected:
+      success: true
+    continue_on_failure: true 

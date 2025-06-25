@@ -1,0 +1,85 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- **Architectural principles**
+  - This document outlines the fundamental architectural principles and patterns for the `muster` codebase. Adherence to these guidelines is **mandatory** to maintain a clean, decoupled, and testable system.
+
+- **The API Service Locator Pattern**
+  - **All inter-package communication MUST go through the central API layer.** This is the most critical rule in our architecture. It prevents direct coupling between packages, enabling them to be developed, tested, and refactored independently.
+
+- **Core Concepts**
+  - **Central API:** The `internal/api` package acts as a service locator. It contains handlers for all core muster functionality and also the tool definitions exposed by the aggregator package.
+  - **Interface-Driven:** Packages communicate using interfaces defined in `internal/api/handlers.go`. They do not know about each other's concrete implementations.
+  - **One-Way Dependency:** All packages can depend on `internal/api`, but `internal/api` depends on **no other package** in the project. This is crucial for preventing circular dependencies.
+
+- **Define Interface in API:**
+  Add a new handler interface to `internal/api/handlers.go`.
+  ```go
+  // internal/api/handlers.go
+  type MyServiceHandler interface {
+      DoSomething(ctx context.Context) error
+  }
+  ```
+- **Implement Adapter in Service Package:**
+  In the package providing the functionality (e.g., `internal/myservice`), create an `api_adapter.go`. This adapter implements the interface and calls the package's internal logic.
+  ```go
+  // internal/myservice/api_adapter.go
+  type Adapter struct {
+      logic *ServiceLogic
+  }
+  func (a *Adapter) DoSomething(ctx context.Context) error {
+      return a.logic.performAction(ctx)
+  }
+  ```
+- **Register the Adapter:**
+  Implement a `Register()` method on the adapter that calls the registration function in the `api` package.
+  ```go
+  // internal/myservice/api_adapter.go
+  func (a *Adapter) Register() {
+      api.RegisterMyService(a)
+  }
+  ```
+- **Consume via API:**
+  Any other package that needs to use the service **MUST** retrieve the handler from the `api` package. It **MUST NOT** import the service package directly.
+  ```go
+  // in another_package/logic.go
+  import "muster/internal/api"
+
+  func DoWork(ctx context.Context) {
+      handler := api.GetMyService()
+      if handler == nil {
+          // Handle case where service is not available
+          return
+      }
+      handler.DoSomething(ctx)
+  }
+  ```
+
+- **CRITICAL: Anti-Patterns**
+  -   **NEVER import workflow, mcpserver, serviceclass, capability and service packages directly.** This creates tight coupling and violates the core architectural principle.
+  -   **NEVER USE TIMER/SLEEP/WAIT TO FIX TESTS OR RACE CONDITIONS. NEVER!!**
+  -   **ALWAYS retrieve handlers from the `api` package.**
+
+- **Testing Standards**
+  - **Minimum Coverage:** All new code **MUST** achieve at least **80% unit test coverage**.
+  - **TUI Golden Files:** All TUI view changes **MUST** be verified with golden file snapshots.
+    Run `NO_COLOR=true go test ./internal/tui/view/... -update` to update snapshots.
+    Manually review the `.golden` file changes in `internal/tui/view/testdata/` to ensure they are intentional.
+  - **No Flaky Tests:** Tests **MUST** be deterministic. Do not use `time.Sleep` or other mechanisms that can lead to race conditions. Use dependency injection for things like clocks or timers to make code testable.
+
+- **Go Development & Style**
+  - **Formatting:** Before **every commit**, run:
+    ```bash
+    goimports -w .
+    go fmt ./...
+    ```
+  - **Dependencies:** Before adding a new dependency with `go get`, use `web_search` to find its latest stable version.
+  - **Error Handling:** Wrap errors with `fmt.Errorf("context: %w", err)` to preserve context.
+  - **File Size:** Keep files focused and under **400 lines**. Refactor larger files.
+
+- **Documentation**
+  - **Packages:** Every package **MUST** have a `doc.go` file explaining its purpose.
+  - **Exported Members:** Every exported function, type, and variable **MUST** have a GoDoc comment.
+  - **Project Docs:** New features or significant changes require updates to the relevant documents in the `docs/` directory.

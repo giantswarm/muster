@@ -1,0 +1,30 @@
+name: "workflow-run-bad-template"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "run", "template", "error-handling", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "bad-template-workflow"
+    config:
+      name: "bad-template-workflow"
+      steps:
+        - id: "bad-step"
+          tool: "x_echo-provider_echo"
+          args: { text: "{{ .context.non_existent_value }}" }
+          store: "echo_result"
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        input_schema: { type: "object", properties: { text: { type: "string" } } }
+        responses: [ { response: { said: "{{ .text }}" } } ]
+steps:
+- id: "run-bad-template"
+  tool: "workflow_bad-template-workflow"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["failed to render arguments", "non_existent_value"] 

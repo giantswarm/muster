@@ -1,0 +1,248 @@
+name: "workflow-parameter-templating-with-mock"
+category: "behavioral"
+concept: "workflow"
+description: "Test workflow parameter templating with mock dependencies"
+tags: ["workflow", "templating", "mock", "kubernetes"]
+timeout: "10m"
+
+# Pre-configuration for the isolated muster instance
+pre_configuration:
+  # Mock MCP servers are automatically configured and integrated
+  mcp_servers:
+    - name: "kubernetes-mock"
+      config:
+        tools:
+          - name: "create_deployment"
+            description: "Create Kubernetes deployment"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  required: true
+                image:
+                  type: "string"
+                  required: true
+                replicas:
+                  type: "integer"
+                  default: 1
+                namespace:
+                  type: "string"
+                  default: "default"
+            responses:
+              - response:
+                  status: "created"
+                  deployment_name: "{{ .name }}"
+                  image: "{{ .image }}"
+                  replicas: "{{ .replicas }}"
+                  namespace: "{{ .namespace }}"
+                  ready_replicas: 0
+                delay: "3s"
+
+          - name: "get_deployment_status"
+            description: "Get deployment status"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  required: true
+                namespace:
+                  type: "string"
+                  default: "default"
+            responses:
+              - response:
+                  deployment_name: "{{ .name }}"
+                  namespace: "{{ .namespace }}"
+                  status: "Running"
+                  ready_replicas: 3
+                  desired_replicas: 3
+
+    - name: "storage-mock"
+      config:
+        tools:
+          - name: "create_pvc"
+            description: "Create persistent volume claim"
+            input_schema:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  required: true
+                size:
+                  type: "string"
+                  default: "1Gi"
+                storage_class:
+                  type: "string"
+                  default: "standard"
+            responses:
+              - response:
+                  status: "created"
+                  pvc_name: "{{ .name }}"
+                  size: "{{ .size }}"
+                  storage_class: "{{ .storage_class }}"
+                  phase: "Bound"
+
+  # Workflows are automatically registered with workflow_ prefix
+  workflows:
+    - name: "deploy-application"
+      config:
+        name: "deploy-application"
+        description: "Deploy application with storage and compute resources"
+        input_schema:
+          type: "object"
+          properties:
+            app_name:
+              type: "string"
+              required: true
+              description: "Application name"
+            app_image:
+              type: "string"
+              required: true
+              description: "Container image"
+            replicas:
+              type: "integer"
+              default: 3
+              description: "Number of replicas"
+            storage_size:
+              type: "string"
+              default: "5Gi"
+              description: "Storage size"
+            namespace:
+              type: "string"
+              default: "default"
+              description: "Kubernetes namespace"
+        steps:
+          - id: "create_storage"
+            tool: "x_storage-mock_create_pvc"  # Mock tool with x_ prefix
+            args:
+              name: "{{ .input.app_name }}-storage"
+              size: "{{ .input.storage_size }}"
+              storage_class: "fast"
+            store: "storage_result"
+            
+          - id: "create_deployment"
+            tool: "x_kubernetes-mock_create_deployment"  # Mock tool with x_ prefix
+            args:
+              name: "{{ .input.app_name }}"
+              image: "{{ .input.app_image }}"
+              replicas: "{{ .input.replicas }}"
+              namespace: "{{ .input.namespace }}"
+            store: "deployment_result"
+            
+          - id: "verify_deployment"
+            tool: "x_kubernetes-mock_get_deployment_status"  # Mock tool with x_ prefix
+            args:
+              name: "{{ .input.app_name }}"
+              namespace: "{{ .input.namespace }}"
+            store: "status_result"
+
+# Test steps using the configured instance
+steps:
+  - id: "verify-mock-servers-available"
+    description: "Verify that mock MCP servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["kubernetes-mock", "storage-mock"]
+    timeout: "30s"
+
+  - id: "verify-workflow-available"
+    description: "Verify that workflow is available"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["deploy-application"]
+    timeout: "30s"
+
+  - id: "test-direct-mock-storage-tool"
+    description: "Test storage mock tool directly"
+    tool: "x_storage-mock_create_pvc"  # Direct mock tool usage
+    args:
+      name: "test-direct-pvc"
+      size: "2Gi"
+      storage_class: "standard"
+    expected:
+      success: true
+      contains: ["created", "test-direct-pvc", "2Gi", "Bound"]
+    timeout: "30s"
+
+  - id: "test-direct-mock-k8s-tool"
+    description: "Test kubernetes mock tool directly"
+    tool: "x_kubernetes-mock_create_deployment"  # Direct mock tool usage
+    args:
+      name: "test-direct-deployment"
+      image: "nginx:latest"
+      replicas: 2
+      namespace: "default"
+    expected:
+      success: true
+      contains: ["created", "test-direct-deployment", "nginx:latest"]
+    timeout: "30s"
+
+  - id: "execute-deployment-workflow-small"
+    description: "Execute deployment workflow with small configuration"
+    tool: "workflow_deploy-application"  # Workflow tool with workflow_ prefix (NOT action_)
+    args:
+      app_name: "small-app"
+      app_image: "nginx:1.20"
+      replicas: 1
+      storage_size: "1Gi"
+      namespace: "test"
+    expected:
+      success: true
+      contains: ["small-app", "nginx:1.20", "created"]
+    timeout: "2m"
+
+  - id: "execute-deployment-workflow-large"
+    description: "Execute deployment workflow with large configuration"
+    tool: "workflow_deploy-application"  # Workflow tool with workflow_ prefix
+    args:
+      app_name: "large-app"
+      app_image: "redis:6.2"
+      replicas: 5
+      storage_size: "10Gi"
+      namespace: "production"
+    expected:
+      success: true
+      contains: ["large-app", "redis:6.2", "created"]
+    timeout: "2m"
+
+  - id: "test-parameter-templating"
+    description: "Test that workflow parameters are properly templated"
+    tool: "workflow_deploy-application"
+    args:
+      app_name: "templating-test"
+      app_image: "alpine:latest"
+      replicas: 2
+      storage_size: "3Gi" 
+      namespace: "testing"
+    expected:
+      success: true
+      # Verify that templated parameters are correctly passed to mock tools
+      contains: ["templating-test-storage", "3Gi", "templating-test", "alpine:latest"]
+    timeout: "2m"
+
+# Cleanup runs against the same isolated instance
+cleanup:
+  - id: "cleanup-workflow"
+    description: "Delete the deployment workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "deploy-application"
+    expected:
+      success: true
+    timeout: "30s"
+    continue_on_failure: true
+
+  - id: "verify-workflow-deleted"
+    description: "Verify workflow was deleted"
+    tool: "core_workflow_list"
+    args: {}
+    expected:
+      success: true
+      not_contains: ["deploy-application"]
+    timeout: "30s"
+    continue_on_failure: true 

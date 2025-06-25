@@ -1,0 +1,142 @@
+name: "serviceclass-crud-scenarios"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "crud", "core-api"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "lifecycle-provider"
+      config:
+        tools:
+          - name: "create_resource"
+            input_schema:
+              type: "object"
+              properties:
+                resource_name: { type: "string" }
+            responses:
+              - response:
+                  id: "res-{{ .resource_name }}"
+                  status: "created"
+          - name: "delete_resource"
+            input_schema:
+              type: "object"
+              properties:
+                resource_id: { type: "string" }
+            responses:
+              - response:
+                  status: "deleted"
+
+steps:
+  - id: "list-initial-serviceclasses"
+    tool: "core_serviceclass_list"
+    expected:
+      success: true
+
+  - id: "create-correct-serviceclass"
+    tool: "core_serviceclass_create"
+    args:
+      name: "correct-sc"
+      version: "1.0.1"
+      serviceConfig:
+        serviceType: "mock-resource"
+        createParameters:
+          name:
+            toolParameter: "resource_name"
+            required: true
+        lifecycleTools:
+          start:
+            tool: "x_lifecycle-provider_create_resource"
+            arguments:
+              resource_name: "{{ .parameters.name }}"
+          stop:
+            tool: "x_lifecycle-provider_delete_resource"
+            arguments:
+              resource_id: "{{ .service.id }}"
+    expected:
+      success: true
+      contains: ["correct-sc"]
+
+  - id: "get-created-serviceclass"
+    tool: "core_serviceclass_get"
+    args:
+      name: "correct-sc"
+    expected:
+      success: true
+      json_path:
+        name: "correct-sc"
+        version: "1.0.1"
+
+  - id: "check-availability-of-new-serviceclass"
+    tool: "core_serviceclass_available"
+    args:
+      name: "correct-sc"
+    expected:
+      success: true
+      json_path:
+        available: true
+
+  - id: "update-serviceclass-description"
+    tool: "core_serviceclass_update"
+    args:
+      name: "correct-sc"
+      version: "1.0.2"
+      serviceConfig:
+        serviceType: "mock-resource"
+        createParameters:
+          name:
+            toolParameter: "resource_name"
+            required: true
+        lifecycleTools:
+          start:
+            tool: "x_lifecycle-provider_create_resource"
+            arguments:
+              resource_name: "{{ .parameters.name }}"
+          stop:
+            tool: "x_lifecycle-provider_delete_resource"
+            arguments:
+              resource_id: "{{ .service.id }}"
+    expected:
+      success: true
+
+  - id: "verify-updated-description"
+    tool: "core_serviceclass_get"
+    args:
+      name: "correct-sc"
+    expected:
+      success: true
+      json_path:
+        version: "1.0.2"
+
+  - id: "delete-created-serviceclass"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "correct-sc"
+    expected:
+      success: true
+
+  - id: "verify-serviceclass-is-deleted"
+    tool: "core_serviceclass_get"
+    args:
+      name: "correct-sc"
+    expected:
+      success: false
+      error_contains: ["not found"]
+
+cleanup:
+  - id: "cleanup-delete-serviceclass"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "correct-sc"
+    expected:
+      success: false  # Should fail since service was already deleted in main flow
+    timeout: "30s"
+
+  - id: "cleanup-verify-deleted"
+    tool: "core_serviceclass_get"
+    args:
+      name: "correct-sc"
+    expected:
+      success: false
+      contains: ["not found"]
+    timeout: "30s" 

@@ -1,0 +1,23 @@
+name: "workflow-create-duplicate-step-ids"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "create", "validation", "error-handling", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-duplicate-step-ids"
+  tool: "core_workflow_create"
+  args:
+    name: "duplicate-steps-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "duplicate-step"
+        tool: "core_capability_list"
+      - id: "duplicate-step"
+        tool: "core_mcpserver_list"
+  expected:
+    success: false
+    error_contains: ["duplicate", "step id"] 

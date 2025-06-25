@@ -1,0 +1,100 @@
+name: "serviceclass-dependency-resolution-scenarios"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "dependencies", "core-api"]
+timeout: "5m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "tool-provider-a"
+      config:
+        tools:
+          - name: "tool-a"
+            responses: [ { response: { status: "ok" } } ]
+    - name: "tool-provider-b"
+      config:
+        tools:
+          - name: "tool-b"
+            responses: [ { response: { status: "ok" } } ]
+
+  capabilities:
+    - name: "capability-a"
+      config:
+        name: "capability-a"
+        resolution: { type: "static", tools: ["x_tool-provider-a_tool-a"] }
+    - name: "capability-b"
+      config:
+        name: "capability-b"
+        resolution: { type: "static", tools: ["x_tool-provider-b_tool-b"] }
+
+steps:
+- id: "create-sc-with-capability-dependency"
+  description: "Create ServiceClass with capability dependency"
+  tool: "core_serviceclass_create"
+  args:
+    name: "sc-with-capability-dep"
+    version: "1.0.0"
+    serviceConfig:
+      serviceType: "test-service"
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_serviceclass_delete"
+      args: { name: "sc-with-capability-dep" }
+
+- id: "check-sc-availability"
+  tool: "core_serviceclass_available"
+  args:
+    name: "sc-with-capability-dep"
+  expected:
+    success: true
+
+- id: "create-sc-with-unmet-capability-dependency"
+  description: "Create ServiceClass with unmet dependency"
+  tool: "core_serviceclass_create"
+  args:
+    name: "sc-with-unmet-dep"
+    version: "1.0.0"
+    serviceConfig:
+      serviceType: "test-service"
+      lifecycleTools:
+        start:
+          tool: "non_existent_tool"
+        stop:
+          tool: "core_config_get"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_serviceclass_delete"
+      args: { name: "sc-with-unmet-dep" }
+
+- id: "check-sc-unavailable"
+  tool: "core_serviceclass_available"
+  args:
+    name: "sc-with-unmet-dep"
+  expected:
+    success: true
+
+- id: "list-available-serviceclasses"
+  tool: "core_serviceclass_list"
+  expected:
+    success: true
+
+- id: "cleanup-created-serviceclasses"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "sc-with-capability-dep"
+  expected:
+    success: true
+
+- id: "cleanup-unmet-dep-serviceclass"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "sc-with-unmet-dep"
+  expected:
+    success: true 

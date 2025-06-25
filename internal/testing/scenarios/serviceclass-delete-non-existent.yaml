@@ -1,0 +1,14 @@
+name: "serviceclass-delete-non-existent"
+category: "behavioral"
+concept: "serviceclass"
+tags: ["serviceclass", "delete", "error-handling", "not-found", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "delete-non-existent"
+  tool: "core_serviceclass_delete"
+  args:
+    name: "sc-does-not-exist"
+  expected:
+    success: false
+    error_contains: ["not found"] 

@@ -1,0 +1,30 @@
+name: "capability-create-conflicting-name"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "create", "error-handling", "conflict", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  capabilities:
+    - name: "existing-capability"
+      config:
+        name: "existing-capability"
+        type: "test"
+        operations:
+          existing_operation:
+            description: "Existing operation for conflict test"
+            requires: []
+
+steps:
+- id: "create-conflicting-capability"
+  tool: "core_capability_create"
+  args:
+    name: "existing-capability"
+    type: "test"
+    operations:
+      test_operation:
+        description: "Test operation for conflicting name test"
+        requires: []
+  expected:
+    success: false
+    error_contains: ["already exists"] 

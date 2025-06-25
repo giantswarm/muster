@@ -1,0 +1,26 @@
+name: "workflow-delete"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "delete", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "delete-test-workflow"
+    config:
+      name: "delete-test-workflow"
+      steps: [{id: "s1", tool: "core_service_list"}]
+steps:
+- id: "delete-the-workflow"
+  tool: "core_workflow_delete"
+  args:
+    name: "delete-test-workflow"
+  expected:
+    success: true
+- id: "verify-workflow-is-gone"
+  tool: "core_workflow_get"
+  args:
+    name: "delete-test-workflow"
+  expected:
+    success: false
+    error_contains: ["not found"] 

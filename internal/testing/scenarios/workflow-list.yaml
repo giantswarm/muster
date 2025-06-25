@@ -1,0 +1,12 @@
+name: "workflow-list"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "list", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "list-all-workflows"
+  tool: "core_workflow_list"
+  args:
+  expected:
+    success: true 

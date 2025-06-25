@@ -1,0 +1,31 @@
+name: "capability-update"
+category: "behavioral"
+concept: "capability"
+tags: ["capability", "update", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-initial-capability"
+  tool: "core_capability_create"
+  args:
+    name: "update-test-capability"
+    type: "test"
+    operations:
+      initial_operation:
+        description: "Initial operation for update test"
+        requires: []
+  expected:
+    success: true
+
+- id: "update-capability"
+  tool: "core_capability_update"
+  args:
+    name: "update-test-capability"
+    description: "Updated description for update test"
+  expected:
+    success: true
+  cleanup:
+    - id: "delete-updated-capability"
+      tool: "core_capability_delete"
+      args:
+        name: "update-test-capability"
