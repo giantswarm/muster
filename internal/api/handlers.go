@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"muster/pkg/logging"
 	"fmt"
+	"muster/pkg/logging"
 	"strings"
 	"sync"
 )

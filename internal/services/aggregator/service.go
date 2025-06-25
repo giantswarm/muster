@@ -2,11 +2,11 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/aggregator"
 	"muster/internal/api"
 	"muster/internal/services"
 	"muster/pkg/logging"
-	"fmt"
 	"sync"
 	"time"
 )

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"muster/internal/aggregator"
 	"muster/internal/api"
 	"muster/internal/capability"
@@ -13,7 +14,6 @@ import (
 	"muster/internal/services/mcpserver"
 	"muster/internal/workflow"
 	"muster/pkg/logging"
-	"fmt"
 )
 
 // Services holds all the initialized services and APIs

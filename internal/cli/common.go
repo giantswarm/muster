@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"muster/internal/config"
 	"fmt"
+	"muster/internal/config"
 	"net/http"
 	"time"
 )

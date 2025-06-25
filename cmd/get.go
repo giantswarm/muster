@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
-	"muster/internal/cli"
 	"fmt"
+	"muster/internal/cli"
 	"sort"
 	"strings"
 

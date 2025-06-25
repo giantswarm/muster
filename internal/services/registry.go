@@ -1,8 +1,8 @@
 package services
 
 import (
-	"muster/internal/api"
 	"fmt"
+	"muster/internal/api"
 	"sync"
 )
 

@@ -643,18 +643,18 @@ func (a *Adapter) GetService(name string) (*api.ServiceInstance, error) {
 	}
 	// Add service_type to serviceData for API compatibility
 	serviceData["service_type"] = status.ServiceType
-	
+
 	return &api.ServiceInstance{
 		Name:             status.Name,
 		ServiceClassName: "", // Not applicable for static services
-		ServiceClassType: "", // Not applicable for static services  
+		ServiceClassType: "", // Not applicable for static services
 		State:            api.ServiceState(status.State),
 		Health:           api.HealthStatus(status.Health),
 		LastError:        status.Error,
-		CreatedAt:        now,   // Default for static services
-		LastChecked:      nil,   // Default for static services
+		CreatedAt:        now,         // Default for static services
+		LastChecked:      nil,         // Default for static services
 		ServiceData:      serviceData, // Include service_type in metadata
-		Parameters:       nil, // Not applicable for static services
+		Parameters:       nil,         // Not applicable for static services
 	}, nil
 }
 

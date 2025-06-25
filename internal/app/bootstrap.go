@@ -2,9 +2,9 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/config"
 	"muster/pkg/logging"
-	"fmt"
 	"os"
 )
 

@@ -434,22 +434,22 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 		if r.debug {
 			r.logger.Debug("⏳ State waiting configured - polling for expected state\n")
 		}
-		
+
 		// Use the configured timeout
 		timeout := expected.WaitForState
 		pollInterval := 1 * time.Second // Default poll interval
-				
+
 		// Start polling with timeout
 		waitCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		
+
 		pollTicker := time.NewTicker(pollInterval)
 		defer pollTicker.Stop()
-		
+
 		if r.debug {
 			r.logger.Debug("🔄 Starting state polling: tool=%s, timeout=%v, interval=%v\n", stepTool, timeout, pollInterval)
 		}
-		
+
 		// Poll for expected state
 		for {
 			select {
@@ -458,15 +458,15 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 					r.logger.Debug("⏰ State waiting timeout reached\n")
 				}
 				return false // Timeout reached without achieving expected state
-				
+
 			case <-pollTicker.C:
 				// Make status call using the polling tool and args
 				response, err := client.CallTool(waitCtx, stepTool, stepArgs)
-				
+
 				if r.debug {
 					r.logger.Debug("📊 Status poll result: error=%v\n", err)
 				}
-				
+
 				// Check if the status call succeeded and meets JSON path expectations
 				if err == nil {
 					if r.validateExpectations(expected, response, nil) {
@@ -483,7 +483,7 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 			}
 		}
 	}
-	
+
 	// Continue with normal validation using original response and error
 	return r.validateExpectations(expected, response, err)
 }

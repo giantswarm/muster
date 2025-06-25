@@ -2,9 +2,9 @@ package mcpserver
 
 import (
 	"context"
-	"muster/pkg/logging"
 	"fmt"
 	"io"
+	"muster/pkg/logging"
 	"sync"
 	"time"
 

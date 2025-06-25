@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"muster/internal/cli"
 	"fmt"
 	"io"
+	"muster/internal/cli"
 	"os"
 
 	"github.com/spf13/cobra"

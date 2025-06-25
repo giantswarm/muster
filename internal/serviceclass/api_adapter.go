@@ -3,9 +3,9 @@ package serviceclass
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"muster/internal/api"
 	"muster/pkg/logging"
-	"fmt"
 	"time"
 )
 

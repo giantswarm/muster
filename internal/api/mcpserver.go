@@ -4,10 +4,10 @@ package api
 // This consolidates MCPServerDefinition, MCPServerInfo, and MCPServerConfig into one type
 type MCPServer struct {
 	// Configuration fields (from YAML)
-	Name      string        `yaml:"name" json:"name"`
-	Type      MCPServerType `yaml:"type" json:"type"`
-	AutoStart bool          `yaml:"autoStart" json:"autoStart"`
-	ToolPrefix string       `yaml:"toolPrefix,omitempty" json:"toolPrefix,omitempty"`
+	Name       string        `yaml:"name" json:"name"`
+	Type       MCPServerType `yaml:"type" json:"type"`
+	AutoStart  bool          `yaml:"autoStart" json:"autoStart"`
+	ToolPrefix string        `yaml:"toolPrefix,omitempty" json:"toolPrefix,omitempty"`
 
 	// LocalCommand fields
 	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`

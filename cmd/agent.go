@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/agent"
 	"muster/internal/cli"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"

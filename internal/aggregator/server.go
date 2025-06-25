@@ -2,9 +2,9 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/config"
 	"muster/pkg/logging"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"

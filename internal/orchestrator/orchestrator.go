@@ -2,11 +2,11 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/api"
 	"muster/internal/config"
 	"muster/internal/services"
 	"muster/pkg/logging"
-	"fmt"
 	"sync"
 	"time"
 )

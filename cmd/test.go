@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"muster/internal/agent"
 	"muster/internal/cli"
 	"muster/internal/testing"
 	"muster/internal/testing/mock"
-	"fmt"
 	"os"
 	"os/signal"
 	"strings"

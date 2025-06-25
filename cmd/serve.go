@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
-	"muster/internal/app"
 	"fmt"
+	"muster/internal/app"
 
 	"github.com/spf13/cobra"
 )

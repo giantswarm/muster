@@ -2,9 +2,9 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 	"muster/internal/api"
 	"muster/pkg/logging"
-	"fmt"
 	"sync"
 	"time"
 )

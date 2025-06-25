@@ -2,8 +2,8 @@ package aggregator
 
 import (
 	"context"
-	"muster/internal/api"
 	"fmt"
+	"muster/internal/api"
 	"sync"
 	"testing"
 	"time"
