@@ -20,7 +20,6 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 		{
 			name: "valid config structure",
 			cfg: &Config{
-				NoTUI: false,
 				Debug: true,
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
@@ -37,7 +36,6 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 		{
 			name: "no-tui config",
 			cfg: &Config{
-				NoTUI: true,
 				Debug: false,
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
@@ -54,7 +52,6 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 		{
 			name: "minimal config",
 			cfg: &Config{
-				NoTUI: true,
 				Debug: false,
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
@@ -91,9 +88,6 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 
 			// Verify the config is properly set if app was created
 			if app != nil {
-				if app.config.NoTUI != tt.cfg.NoTUI {
-					t.Errorf("NoTUI = %v, want %v", app.config.NoTUI, tt.cfg.NoTUI)
-				}
 				if app.config.Debug != tt.cfg.Debug {
 					t.Errorf("Debug = %v, want %v", app.config.Debug, tt.cfg.Debug)
 				}
@@ -105,7 +99,6 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 func TestApplication_Structure(t *testing.T) {
 	// Test that the application structure is properly set up
 	cfg := &Config{
-		NoTUI: false,
 		Debug: true,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{
@@ -134,66 +127,9 @@ func TestApplication_Structure(t *testing.T) {
 	}
 }
 
-func TestApplication_ModeSelection(t *testing.T) {
-	tests := []struct {
-		name      string
-		noTUI     bool
-		expectTUI bool
-	}{
-		{
-			name:      "run CLI mode",
-			noTUI:     true,
-			expectTUI: false,
-		},
-		{
-			name:      "run TUI mode",
-			noTUI:     false,
-			expectTUI: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				NoTUI: tt.noTUI,
-				MusterConfig: &config.MusterConfig{
-					Aggregator: config.AggregatorConfig{
-						Port:    8090,
-						Host:    "localhost",
-						Enabled: false,
-					},
-				},
-			}
-
-			app := &Application{
-				config: cfg,
-				services: &Services{
-					AggregatorPort: 8090,
-				},
-			}
-
-			// Verify that the correct mode would be selected
-			if app.config.NoTUI != tt.noTUI {
-				t.Errorf("config.NoTUI = %v, want %v", app.config.NoTUI, tt.noTUI)
-			}
-
-			// Test mode selection logic
-			shouldUseTUI := !app.config.NoTUI
-
-			if tt.expectTUI && !shouldUseTUI {
-				t.Error("Expected TUI mode to be selected")
-			}
-			if !tt.expectTUI && shouldUseTUI {
-				t.Error("Did not expect TUI mode to be selected")
-			}
-		})
-	}
-}
-
 func TestConfig_WithMusterConfig(t *testing.T) {
 	// Test configuration with muster config
 	cfg := &Config{
-		NoTUI: true,
 		Debug: false,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{

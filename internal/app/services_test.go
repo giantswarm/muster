@@ -17,7 +17,6 @@ func TestInitializeServices(t *testing.T) {
 		{
 			name: "basic initialization without aggregator",
 			config: &Config{
-				NoTUI: false,
 				Debug: true,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
@@ -42,7 +41,6 @@ func TestInitializeServices(t *testing.T) {
 		{
 			name: "initialization with aggregator",
 			config: &Config{
-				NoTUI: true,
 				Debug: false,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
@@ -62,7 +60,6 @@ func TestInitializeServices(t *testing.T) {
 		{
 			name: "initialization with default aggregator port",
 			config: &Config{
-				NoTUI: true,
 				Debug: false,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
@@ -103,7 +100,6 @@ func TestInitializeServices(t *testing.T) {
 
 func TestInitializeServices_OrchestratorConfig(t *testing.T) {
 	cfg := &Config{
-		NoTUI: true,
 		Debug: false,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{
@@ -129,7 +125,6 @@ func TestInitializeServices_OrchestratorConfig(t *testing.T) {
 // Test that services are created
 func TestServices_Creation(t *testing.T) {
 	cfg := &Config{
-		NoTUI: true,
 		Debug: false,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{Enabled: false},

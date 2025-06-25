@@ -64,10 +64,7 @@ func NewApplication(cfg *Config) (*Application, error) {
 
 // Run executes the application in the appropriate mode
 func (a *Application) Run(ctx context.Context) error {
-	if a.config.NoTUI {
-		return a.runCLIMode(ctx)
-	}
-	return a.runTUIMode(ctx)
+	return a.runCLIMode(ctx)
 }
 
 // runCLIMode runs the application in non-interactive CLI mode
