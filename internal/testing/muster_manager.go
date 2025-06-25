@@ -733,7 +733,6 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	// Create command
 	args := []string{
 		"serve",
-		"--no-tui",
 		"--config-path", musterConfigPath,
 		"--debug",
 	}
