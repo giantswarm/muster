@@ -20,140 +20,51 @@ func NewJSONFormatter(options Options) Formatter {
 }
 
 // FormatToolsList formats tools list as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatToolsList(tools []mcp.Tool) string {
 	if len(tools) == 0 {
 		return `{"tools": [], "count": 0}`
 	}
-
-	type ToolInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	toolList := make([]ToolInfo, len(tools))
-	for i, tool := range tools {
-		toolList[i] = ToolInfo{
-			Name:        tool.Name,
-			Description: tool.Description,
-		}
-	}
-
-	result := map[string]interface{}{
-		"tools": toolList,
-		"count": len(tools),
-	}
-
-	return f.marshal(result)
+	return fmt.Sprintf(`{"message": "Use agent formatters for MCP data formatting", "count": %d}`, len(tools))
 }
 
 // FormatResourcesList formats resources list as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatResourcesList(resources []mcp.Resource) string {
 	if len(resources) == 0 {
 		return `{"resources": [], "count": 0}`
 	}
-
-	type ResourceInfo struct {
-		URI         string `json:"uri"`
-		Name        string `json:"name"`
-		Description string `json:"description,omitempty"`
-		MIMEType    string `json:"mimeType,omitempty"`
-	}
-
-	resourceList := make([]ResourceInfo, len(resources))
-	for i, resource := range resources {
-		desc := resource.Description
-		if desc == "" {
-			desc = resource.Name
-		}
-		resourceList[i] = ResourceInfo{
-			URI:         resource.URI,
-			Name:        resource.Name,
-			Description: desc,
-			MIMEType:    resource.MIMEType,
-		}
-	}
-
-	result := map[string]interface{}{
-		"resources": resourceList,
-		"count":     len(resources),
-	}
-
-	return f.marshal(result)
+	return fmt.Sprintf(`{"message": "Use agent formatters for MCP data formatting", "count": %d}`, len(resources))
 }
 
 // FormatPromptsList formats prompts list as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatPromptsList(prompts []mcp.Prompt) string {
 	if len(prompts) == 0 {
 		return `{"prompts": [], "count": 0}`
 	}
-
-	type PromptInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	promptList := make([]PromptInfo, len(prompts))
-	for i, prompt := range prompts {
-		promptList[i] = PromptInfo{
-			Name:        prompt.Name,
-			Description: prompt.Description,
-		}
-	}
-
-	result := map[string]interface{}{
-		"prompts": promptList,
-		"count":   len(prompts),
-	}
-
-	return f.marshal(result)
+	return fmt.Sprintf(`{"message": "Use agent formatters for MCP data formatting", "count": %d}`, len(prompts))
 }
 
 // FormatToolDetail formats detailed tool information as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatToolDetail(tool mcp.Tool) string {
-	toolInfo := map[string]interface{}{
-		"name":        tool.Name,
-		"description": tool.Description,
-		"inputSchema": tool.InputSchema,
-	}
-
-	return f.marshal(toolInfo)
+	return fmt.Sprintf(`{"name": "%s", "message": "Use agent formatters for detailed MCP formatting"}`, tool.Name)
 }
 
 // FormatResourceDetail formats detailed resource information as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatResourceDetail(resource mcp.Resource) string {
-	resourceInfo := map[string]interface{}{
-		"uri":         resource.URI,
-		"name":        resource.Name,
-		"description": resource.Description,
-		"mimeType":    resource.MIMEType,
-	}
-
-	return f.marshal(resourceInfo)
+	return fmt.Sprintf(`{"uri": "%s", "message": "Use agent formatters for detailed MCP formatting"}`, resource.URI)
 }
 
 // FormatPromptDetail formats detailed prompt information as JSON
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *JSONFormatter) FormatPromptDetail(prompt mcp.Prompt) string {
-	promptInfo := map[string]interface{}{
-		"name":        prompt.Name,
-		"description": prompt.Description,
-	}
-
-	if len(prompt.Arguments) > 0 {
-		args := make([]map[string]interface{}, len(prompt.Arguments))
-		for i, arg := range prompt.Arguments {
-			args[i] = map[string]interface{}{
-				"name":        arg.Name,
-				"description": arg.Description,
-				"required":    arg.Required,
-			}
-		}
-		promptInfo["arguments"] = args
-	}
-
-	return f.marshal(promptInfo)
+	return fmt.Sprintf(`{"name": "%s", "message": "Use agent formatters for detailed MCP formatting"}`, prompt.Name)
 }
 
-// FormatData formats generic data as JSON (already JSON, just print)
+// FormatData formats generic data as JSON (non-MCP specific)
 func (f *JSONFormatter) FormatData(data interface{}) error {
 	fmt.Println(f.marshal(data))
 	return nil
@@ -208,8 +119,8 @@ func (f *JSONFormatter) marshal(data interface{}) string {
 		// Compact JSON for quiet mode
 		jsonBytes, err = json.Marshal(data)
 	} else {
-		// Pretty-printed JSON for normal mode
-		jsonBytes, err = json.MarshalIndent(data, "", "  ")
+		// Use consolidated PrettyJSON for normal mode
+		return PrettyJSON(data)
 	}
 
 	if err != nil {

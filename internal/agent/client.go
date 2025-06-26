@@ -899,31 +899,6 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// PrettyJSON formats any value as indented JSON for human-readable display.
-// It handles marshaling errors gracefully by falling back to fmt.Sprintf.
-// This is useful for displaying structured data in logs, REPL output, and debugging.
-//
-// Example:
-//
-//	data := map[string]interface{}{"name": "test", "value": 42}
-//	fmt.Println(agent.PrettyJSON(data))
-//	// Output:
-//	// {
-//	//   "name": "test",
-//	//   "value": 42
-//	// }
-func PrettyJSON(v interface{}) string {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("%v", v)
-	}
-	return string(b)
-}
-
-func prettyJSON(v interface{}) string {
-	return PrettyJSON(v)
-}
-
 // NotificationHandler defines a function type for handling MCP notifications.
 // It receives JSON-RPC notifications from the MCP server and can be used
 // to implement custom notification processing logic.

@@ -65,17 +65,6 @@ func TestShowToolDiff(t *testing.T) {
 	client.showToolDiff(oldTools, newTools)
 }
 
-func TestPrettyJSON(t *testing.T) {
-	input := map[string]interface{}{
-		"test":   "value",
-		"number": 123,
-	}
-
-	result := prettyJSON(input)
-	assert.Contains(t, result, "\"test\": \"value\"")
-	assert.Contains(t, result, "\"number\": 123")
-}
-
 func TestCountTools(t *testing.T) {
 	logger := NewLogger(false, false, false)
 

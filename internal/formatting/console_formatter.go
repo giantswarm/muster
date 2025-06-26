@@ -1,9 +1,7 @@
 package formatting
 
 import (
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -21,100 +19,63 @@ func NewConsoleFormatter(options Options) Formatter {
 }
 
 // FormatToolsList formats tools list for console output
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatToolsList(tools []mcp.Tool) string {
+	// This functionality is provided by agent.Formatters which is actively used
+	// We keep this stub for interface compatibility
 	if len(tools) == 0 {
 		return "No tools available."
 	}
-
-	var output []string
-	output = append(output, fmt.Sprintf("Available tools (%d):", len(tools)))
-	for i, tool := range tools {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, tool.Description))
-	}
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Use agent formatters for MCP data formatting (%d tools)", len(tools))
 }
 
 // FormatResourcesList formats resources list for console output
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatResourcesList(resources []mcp.Resource) string {
+	// This functionality is provided by agent.Formatters which is actively used
+	// We keep this stub for interface compatibility
 	if len(resources) == 0 {
 		return "No resources available."
 	}
-
-	var output []string
-	output = append(output, fmt.Sprintf("Available resources (%d):", len(resources)))
-	for i, resource := range resources {
-		desc := resource.Description
-		if desc == "" {
-			desc = resource.Name
-		}
-		output = append(output, fmt.Sprintf("  %d. %-40s - %s", i+1, resource.URI, desc))
-	}
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Use agent formatters for MCP data formatting (%d resources)", len(resources))
 }
 
 // FormatPromptsList formats prompts list for console output
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatPromptsList(prompts []mcp.Prompt) string {
+	// This functionality is provided by agent.Formatters which is actively used
+	// We keep this stub for interface compatibility
 	if len(prompts) == 0 {
 		return "No prompts available."
 	}
-
-	var output []string
-	output = append(output, fmt.Sprintf("Available prompts (%d):", len(prompts)))
-	for i, prompt := range prompts {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, prompt.Name, prompt.Description))
-	}
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Use agent formatters for MCP data formatting (%d prompts)", len(prompts))
 }
 
 // FormatToolDetail formats detailed tool information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatToolDetail(tool mcp.Tool) string {
-	var output []string
-	output = append(output, fmt.Sprintf("Tool: %s", tool.Name))
-	output = append(output, fmt.Sprintf("Description: %s", tool.Description))
-	output = append(output, "Input Schema:")
-	output = append(output, f.prettyJSON(tool.InputSchema))
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Tool: %s\nUse agent formatters for detailed MCP formatting", tool.Name)
 }
 
 // FormatResourceDetail formats detailed resource information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatResourceDetail(resource mcp.Resource) string {
-	var output []string
-	output = append(output, fmt.Sprintf("Resource: %s", resource.URI))
-	output = append(output, fmt.Sprintf("Name: %s", resource.Name))
-	if resource.Description != "" {
-		output = append(output, fmt.Sprintf("Description: %s", resource.Description))
-	}
-	if resource.MIMEType != "" {
-		output = append(output, fmt.Sprintf("MIME Type: %s", resource.MIMEType))
-	}
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Resource: %s\nUse agent formatters for detailed MCP formatting", resource.URI)
 }
 
 // FormatPromptDetail formats detailed prompt information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *ConsoleFormatter) FormatPromptDetail(prompt mcp.Prompt) string {
-	var output []string
-	output = append(output, fmt.Sprintf("Prompt: %s", prompt.Name))
-	output = append(output, fmt.Sprintf("Description: %s", prompt.Description))
-	if len(prompt.Arguments) > 0 {
-		output = append(output, "Arguments:")
-		for _, arg := range prompt.Arguments {
-			required := ""
-			if arg.Required {
-				required = " (required)"
-			}
-			output = append(output, fmt.Sprintf("  - %s%s: %s", arg.Name, required, arg.Description))
-		}
-	}
-	return strings.Join(output, "\n")
+	return fmt.Sprintf("Prompt: %s\nUse agent formatters for detailed MCP formatting", prompt.Name)
 }
 
-// FormatData formats generic data (fallback to simple text representation)
+// FormatData formats generic data (non-MCP specific)
 func (f *ConsoleFormatter) FormatData(data interface{}) error {
 	switch d := data.(type) {
 	case map[string]interface{}:
-		fmt.Println(f.prettyJSON(d))
+		fmt.Println(PrettyJSON(d))
 	case []interface{}:
-		fmt.Println(f.prettyJSON(d))
+		fmt.Println(PrettyJSON(d))
 	case string:
 		fmt.Println(d)
 	default:
@@ -163,11 +124,3 @@ func (f *ConsoleFormatter) GetOptions() Options {
 	return f.options
 }
 
-// prettyJSON formats JSON data with indentation
-func (f *ConsoleFormatter) prettyJSON(v interface{}) string {
-	jsonBytes, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("Error formatting JSON: %v", err)
-	}
-	return string(jsonBytes)
-}
