@@ -8,13 +8,49 @@ import (
 	"os"
 )
 
-// Application is the main application structure that bootstraps and runs muster
+// Application represents the main application structure that bootstraps and runs muster.
+// It encapsulates all necessary configuration and services required for the application's
+// lifecycle, including initialization, service management, and execution mode handling.
+//
+// The Application follows a two-phase initialization pattern:
+//  1. Bootstrap phase: Load configuration, initialize logging, setup services
+//  2. Execution phase: Run in either CLI (non-interactive) or TUI (interactive) mode
+//
+// Example usage:
+//
+//	cfg := app.NewConfig(false, true, false, "")  // TUI mode, debug enabled
+//	app, err := app.NewApplication(cfg)
+//	if err != nil {
+//	    return fmt.Errorf("failed to create application: %w", err)
+//	}
+//	return app.Run(ctx)
 type Application struct {
 	config   *Config
 	services *Services
 }
 
-// NewApplication creates and initializes a new application instance
+// NewApplication creates and initializes a new application instance with the provided configuration.
+// This function performs the complete bootstrap sequence:
+//
+//  1. Configures logging based on debug settings
+//  2. Loads muster configuration (layered or single-path)
+//  3. Initializes all required services and API handlers
+//  4. Sets up service dependencies and registrations
+//
+// Configuration Loading Behavior:
+//   - If cfg.ConfigPath is set: loads from the specified directory only
+//   - If cfg.ConfigPath is empty: uses layered loading (defaults + user + project)
+//
+// The function returns an error if any critical initialization step fails,
+// including configuration loading or service initialization failures.
+//
+// Example:
+//
+//	cfg := app.NewConfig(true, false, false, "/custom/config")  // CLI mode, custom config
+//	app, err := app.NewApplication(cfg)
+//	if err != nil {
+//	    log.Fatalf("Bootstrap failed: %v", err)
+//	}
 func NewApplication(cfg *Config) (*Application, error) {
 	// Configure logging based on debug flag
 	appLogLevel := logging.LevelInfo
@@ -62,17 +98,29 @@ func NewApplication(cfg *Config) (*Application, error) {
 	}, nil
 }
 
-// Run executes the application in the appropriate mode
+// Run executes the application in the appropriate mode based on configuration.
+// The execution mode is determined by the NoTUI flag in the application configuration:
+//
+//   - NoTUI = true: Runs in CLI mode (non-interactive, suitable for scripting)
+//   - NoTUI = false: Runs in TUI mode (interactive terminal interface)
+//
+// Both modes handle graceful shutdown via context cancellation and system signals.
+// The method blocks until the application is terminated or encounters an error.
+//
+// Returns an error if the selected execution mode fails to start or encounters
+// a runtime error during execution.
 func (a *Application) Run(ctx context.Context) error {
 	return a.runCLIMode(ctx)
 }
 
-// runCLIMode runs the application in non-interactive CLI mode
+// runCLIMode runs the application in non-interactive CLI mode.
+// This is an internal method that handles CLI-specific initialization and execution.
 func (a *Application) runCLIMode(ctx context.Context) error {
 	return runCLIMode(ctx, a.config, a.services)
 }
 
-// runTUIMode runs the application in interactive TUI mode
+// runTUIMode runs the application in interactive TUI mode.
+// This is an internal method that handles TUI-specific initialization and execution.
 func (a *Application) runTUIMode(ctx context.Context) error {
 	return runTUIMode(ctx, a.config, a.services)
 }

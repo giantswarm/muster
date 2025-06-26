@@ -5,32 +5,92 @@ import (
 	"fmt"
 )
 
-// OrchestratorAPI defines the interface for orchestrating services
+// OrchestratorAPI defines the interface for orchestrating service lifecycle management.
+// It provides methods to start, stop, restart services, check their status, and subscribe
+// to state change events. The orchestrator acts as a high-level controller that coordinates
+// service operations through the underlying service management infrastructure.
 type OrchestratorAPI interface {
-	// Service lifecycle management
+	// StartService initiates the startup process for the specified service.
+	// It returns an error if the service cannot be started or if the service manager
+	// is not available.
+	//
+	// Parameters:
+	//   - name: The unique name of the service to start
+	//
+	// Returns:
+	//   - error: nil on success, or an error describing why the service could not be started
 	StartService(name string) error
+
+	// StopService initiates the shutdown process for the specified service.
+	// It returns an error if the service cannot be stopped or if the service manager
+	// is not available.
+	//
+	// Parameters:
+	//   - name: The unique name of the service to stop
+	//
+	// Returns:
+	//   - error: nil on success, or an error describing why the service could not be stopped
 	StopService(name string) error
+
+	// RestartService performs a stop followed by a start operation on the specified service.
+	// This is equivalent to calling StopService followed by StartService, but may be
+	// implemented more efficiently by the underlying service manager.
+	//
+	// Parameters:
+	//   - name: The unique name of the service to restart
+	//
+	// Returns:
+	//   - error: nil on success, or an error describing why the service could not be restarted
 	RestartService(name string) error
 
-	// Service status
+	// GetServiceStatus retrieves the current status and metadata for a specific service.
+	// The returned ServiceStatus includes state, health, error information, and metadata.
+	//
+	// Parameters:
+	//   - name: The unique name of the service to query
+	//
+	// Returns:
+	//   - *ServiceStatus: Current status of the service, or nil if service not found
+	//   - error: nil on success, or an error if the service could not be found or queried
 	GetServiceStatus(name string) (*ServiceStatus, error)
+
+	// GetAllServices returns the status of all registered services in the system.
+	// This provides a snapshot of the current state of all services managed by
+	// the orchestrator.
+	//
+	// Returns:
+	//   - []ServiceStatus: Slice containing status of all services (empty if none exist)
 	GetAllServices() []ServiceStatus
 
-	// State change events
+	// SubscribeToStateChanges returns a channel that receives service state change events.
+	// Clients can listen to this channel to be notified when any service changes state.
+	// The channel will be closed if the service manager becomes unavailable.
+	//
+	// Returns:
+	//   - <-chan ServiceStateChangedEvent: Read-only channel for receiving state change events
 	SubscribeToStateChanges() <-chan ServiceStateChangedEvent
 }
 
-// orchestratorAPI wraps the orchestrator to implement OrchestratorAPI
+// orchestratorAPI is the concrete implementation of OrchestratorAPI that delegates
+// operations to registered service management handlers through the API layer.
+// It follows the service locator pattern to decouple the orchestrator from
+// specific service management implementations.
 type orchestratorAPI struct {
-	// No fields - uses handlers from registry
+	// No fields - uses handlers from registry to maintain loose coupling
 }
 
-// NewOrchestratorAPI creates a new API wrapper for the orchestrator
+// NewOrchestratorAPI creates a new orchestrator API instance.
+// The returned instance uses the API service locator pattern to access
+// service management functionality without direct coupling to implementations.
+//
+// Returns:
+//   - OrchestratorAPI: A new orchestrator API instance
 func NewOrchestratorAPI() OrchestratorAPI {
 	return &orchestratorAPI{}
 }
 
-// StartService starts a specific service
+// StartService starts a specific service by delegating to the registered service manager.
+// It validates that a service manager is available before attempting the operation.
 func (a *orchestratorAPI) StartService(name string) error {
 	handler := GetServiceManager()
 	if handler == nil {
@@ -39,7 +99,8 @@ func (a *orchestratorAPI) StartService(name string) error {
 	return handler.StartService(name)
 }
 
-// StopService stops a specific service
+// StopService stops a specific service by delegating to the registered service manager.
+// It validates that a service manager is available before attempting the operation.
 func (a *orchestratorAPI) StopService(name string) error {
 	handler := GetServiceManager()
 	if handler == nil {
@@ -48,7 +109,8 @@ func (a *orchestratorAPI) StopService(name string) error {
 	return handler.StopService(name)
 }
 
-// RestartService restarts a specific service
+// RestartService restarts a specific service by delegating to the registered service manager.
+// It validates that a service manager is available before attempting the operation.
 func (a *orchestratorAPI) RestartService(name string) error {
 	handler := GetServiceManager()
 	if handler == nil {
@@ -57,7 +119,8 @@ func (a *orchestratorAPI) RestartService(name string) error {
 	return handler.RestartService(name)
 }
 
-// SubscribeToStateChanges returns a channel for receiving service state change events
+// SubscribeToStateChanges returns a channel for receiving service state change events.
+// If no service manager is registered, it returns a closed channel to prevent blocking.
 func (a *orchestratorAPI) SubscribeToStateChanges() <-chan ServiceStateChangedEvent {
 	handler := GetServiceManager()
 	if handler == nil {
@@ -69,7 +132,9 @@ func (a *orchestratorAPI) SubscribeToStateChanges() <-chan ServiceStateChangedEv
 	return handler.SubscribeToStateChanges()
 }
 
-// GetServiceStatus returns the status of a specific service
+// GetServiceStatus retrieves the current status of a specific service.
+// It queries the service registry to find the service and constructs a comprehensive
+// status report including state, health, errors, and metadata.
 func (a *orchestratorAPI) GetServiceStatus(name string) (*ServiceStatus, error) {
 	registry := GetServiceRegistry()
 	if registry == nil {
@@ -101,7 +166,9 @@ func (a *orchestratorAPI) GetServiceStatus(name string) (*ServiceStatus, error) 
 	return status, nil
 }
 
-// ListServices returns the status of all services
+// ListServices returns the status of all registered services.
+// This method provides a comprehensive view of the entire service ecosystem,
+// including their current states, health status, and any error conditions.
 func (a *orchestratorAPI) ListServices(ctx context.Context) ([]*ServiceStatus, error) {
 	registry := GetServiceRegistry()
 	if registry == nil {
@@ -135,7 +202,9 @@ func (a *orchestratorAPI) ListServices(ctx context.Context) ([]*ServiceStatus, e
 	return statuses, nil
 }
 
-// GetAllServices returns the status of all services
+// GetAllServices returns the status of all services as a slice of values rather than pointers.
+// This method is maintained for backward compatibility and convenience when pointer semantics
+// are not required.
 func (a *orchestratorAPI) GetAllServices() []ServiceStatus {
 	registry := GetServiceRegistry()
 	if registry == nil {

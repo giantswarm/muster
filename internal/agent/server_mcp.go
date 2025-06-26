@@ -7,7 +7,23 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// MCPServer wraps the agent functionality and exposes it via MCP
+// MCPServer wraps the agent functionality and exposes it as MCP tools for AI assistants.
+// It acts as a bridge between AI assistants and the muster aggregator, enabling
+// programmatic access to all MCP capabilities through the standard MCP protocol.
+//
+// The server exposes comprehensive tool operations including:
+//   - Listing and describing tools, resources, and prompts
+//   - Executing tools with argument validation
+//   - Retrieving resource contents and prompt templates
+//   - Advanced filtering and search capabilities
+//   - Core tool identification and categorization
+//
+// Key features:
+//   - Stdio transport for AI assistant integration
+//   - JSON-formatted responses for structured data consumption
+//   - Error handling with detailed error messages
+//   - Optional client notification support
+//   - Tool availability caching and refresh
 type MCPServer struct {
 	client        *Client
 	logger        *Logger
@@ -15,8 +31,34 @@ type MCPServer struct {
 	notifyClients bool
 }
 
-// NewMCPServer creates a new MCP server that exposes agent functionality
-// NewMCPServerWithTransport creates a new MCP server with specified transport
+// NewMCPServer creates a new MCP server that exposes agent functionality as MCP tools.
+// This enables AI assistants to interact with muster through the standard MCP protocol
+// using stdio transport.
+//
+// Parameters:
+//   - client: MCP client for aggregator communication
+//   - logger: Logger instance for structured logging
+//   - notifyClients: Whether to enable client notifications for tool changes
+//
+// The server is initialized with:
+//   - Complete tool registry for agent operations
+//   - Stdio transport for AI assistant integration
+//   - Tool, resource, and prompt capabilities
+//   - Optional notification support for dynamic updates
+//
+// Exposed tools include: list_tools, describe_tool, call_tool, get_resource,
+// get_prompt, filter_tools, list_core_tools, and more.
+//
+// Example:
+//
+//	client := agent.NewClient("http://localhost:8090/sse", logger, agent.TransportSSE)
+//	server, err := agent.NewMCPServer(client, logger, false)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	if err := server.Start(ctx); err != nil {
+//	    log.Fatal(err)
+//	}
 func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServer, error) {
 	// Create MCP server
 	mcpServer := server.NewMCPServer(
@@ -40,7 +82,13 @@ func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServe
 	return ms, nil
 }
 
-// Start starts the MCP server using stdio transport
+// Start starts the MCP server using stdio transport for AI assistant integration.
+// This method blocks until the server is terminated, handling MCP protocol
+// communication over stdin/stdout. It's designed to be used as the main
+// entry point when running as an MCP server for AI assistants.
+//
+// The server will continue running until the context is cancelled or
+// the stdio connection is closed by the client.
 func (m *MCPServer) Start(ctx context.Context) error {
 	// Start the stdio server
 	return server.ServeStdio(m.mcpServer)

@@ -13,15 +13,29 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// createToolsFromProviders creates MCP tools from all registered tool providers
+// createToolsFromProviders creates MCP tools from all registered tool providers in the system.
+//
+// This method discovers and integrates tools from various muster components that implement
+// the ToolProvider interface, including:
+//   - Workflow manager (for workflow execution and management)
+//   - Capability manager (for capability operations)
+//   - Service manager (for service lifecycle operations)
+//   - Config manager (for configuration management)
+//   - ServiceClass manager (for service class operations)
+//   - MCP server manager (for MCP server management)
+//
+// Each provider's tools are integrated with appropriate prefixing to avoid naming conflicts
+// and ensure consistent tool naming across the aggregator.
+//
+// Returns a slice of MCP server tools ready to be registered with the aggregator server.
 func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 	var tools []server.ServerTool
 
-	// Get workflow handler and check if it's a ToolProvider
+	// Integrate workflow management tools
 	if workflowHandler := api.GetWorkflow(); workflowHandler != nil {
 		if provider, ok := workflowHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("workflow", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -39,11 +53,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		}
 	}
 
-	// Get capability handler and check if it's a ToolProvider
+	// Integrate capability management tools
 	if capabilityHandler := api.GetCapability(); capabilityHandler != nil {
 		if provider, ok := capabilityHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("capability", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -61,11 +75,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		}
 	}
 
-	// Get service manager handler and check if it's a ToolProvider
+	// Integrate service management tools
 	if serviceManagerHandler := api.GetServiceManager(); serviceManagerHandler != nil {
 		if provider, ok := serviceManagerHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("service", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -83,11 +97,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		}
 	}
 
-	// Get config handler and check if it's a ToolProvider
+	// Integrate configuration management tools
 	if configHandler := api.GetConfig(); configHandler != nil {
 		if provider, ok := configHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("config", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -105,11 +119,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		}
 	}
 
-	// Get service class manager handler and check if it's a ToolProvider
+	// Integrate service class management tools
 	if serviceClassHandler := api.GetServiceClassManager(); serviceClassHandler != nil {
 		if provider, ok := serviceClassHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("serviceclass", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -127,11 +141,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		}
 	}
 
-	// Get MCP server manager handler and check if it's a ToolProvider
+	// Integrate MCP server management tools
 	if mcpServerManagerHandler := api.GetMCPServerManager(); mcpServerManagerHandler != nil {
 		if provider, ok := mcpServerManagerHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
-				// Apply appropriate prefix
+				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("mcpserver", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
@@ -152,17 +166,42 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 	return tools
 }
 
-// prefixToolName applies the appropriate prefix based on tool patterns and provider type
+// prefixToolName applies intelligent prefixing to tool names based on their purpose and patterns.
+//
+// This method implements a sophisticated naming strategy that categorizes tools into different
+// types and applies appropriate prefixes:
+//
+// Management Tools (get "core_" prefix):
+//   - service_*, serviceclass_*, mcpserver_*, workflow_*, capability_*, config_* operations
+//   - These are administrative tools for managing muster components
+//
+// Execution Tools (get transformed prefixes):
+//   - action_* tools become workflow_* tools (for workflow execution)
+//   - api_* tools remain unchanged (for capability operations)
+//
+// External Tools (get configurable prefix):
+//   - Tools from external MCP servers get the configured muster prefix
+//
+// This naming strategy ensures that:
+//   1. Management tools are clearly identified as core muster functionality
+//   2. Execution tools have intuitive names that match their purpose
+//   3. External tools are properly namespaced to avoid conflicts
+//
+// Parameters:
+//   - provider: The type of provider (workflow, capability, service, etc.)
+//   - toolName: The original tool name from the provider
+//
+// Returns the appropriately prefixed tool name for exposure through the aggregator.
 func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 	// Define management tool patterns that should get core_ prefix
 	managementPatterns := []string{
-		"service_",      // service management
-		"serviceclass_", // ServiceClass management
-		"mcpserver_",    // MCP server management
-		"workflow_",     // workflow management (not execution)
-		"capability_",   // capability management
-		"config_",       // configuration management
-		"mcp_",          // MCP service management
+		"service_",      // service management operations
+		"serviceclass_", // ServiceClass management operations
+		"mcpserver_",    // MCP server management operations
+		"workflow_",     // workflow management (not execution) operations
+		"capability_",   // capability management operations
+		"config_",       // configuration management operations
+		"mcp_",          // MCP service management operations
 	}
 
 	// Check if this is a management tool that should get core_ prefix
@@ -176,6 +215,7 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 	switch {
 	case strings.HasPrefix(toolName, "action_"):
 		// Transform action_* to workflow_* for execution tools
+		// This makes workflow execution tools more intuitive
 		workflowName := strings.Replace(toolName, "action_", "workflow_", 1)
 		return workflowName
 	case strings.HasPrefix(toolName, "api_"):
@@ -188,10 +228,26 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 	}
 }
 
-// createToolHandler creates an MCP handler for a tool
+// createToolHandler creates an MCP handler function for a specific tool.
+//
+// This method wraps the tool provider's ExecuteTool method in an MCP-compatible
+// handler function. It handles the conversion between MCP request/response formats
+// and the internal tool provider interface.
+//
+// The handler performs the following operations:
+//   1. Extracts arguments from the MCP request
+//   2. Calls the tool provider's ExecuteTool method
+//   3. Converts the result to MCP format
+//   4. Handles errors appropriately
+//
+// Parameters:
+//   - provider: The tool provider that will execute the tool
+//   - toolName: The original tool name (before prefixing)
+//
+// Returns an MCP handler function that can be registered with the MCP server.
 func (a *AggregatorServer) createToolHandler(provider api.ToolProvider, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Extract arguments from MCP request
+		// Extract arguments from MCP request format
 		args := make(map[string]interface{})
 		if req.Params.Arguments != nil {
 			if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
@@ -199,19 +255,34 @@ func (a *AggregatorServer) createToolHandler(provider api.ToolProvider, toolName
 			}
 		}
 
-		// Execute through the provider
+		// Execute the tool through the provider
 		result, err := provider.ExecuteTool(ctx, toolName, args)
 		if err != nil {
 			logging.Error("AggregatorToolHandler", err, "Tool execution failed for %s with args %+v", toolName, args)
 			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: %v", err)), nil
 		}
 
-		// Convert API result to MCP result
+		// Convert API result to MCP result format
 		return convertToMCPResult(result), nil
 	}
 }
 
-// convertToMCPSchema converts parameter metadata to MCP input schema
+// convertToMCPSchema converts internal parameter metadata to MCP input schema format.
+//
+// This function bridges the gap between the internal tool parameter representation
+// and the JSON Schema format expected by MCP clients. It handles:
+//   - Parameter types and descriptions
+//   - Required parameter specification
+//   - Default value handling
+//   - Schema property generation
+//
+// The resulting schema allows MCP clients to understand what parameters a tool
+// expects and how to validate input before sending requests.
+//
+// Parameters:
+//   - params: Slice of parameter metadata from the tool provider
+//
+// Returns an MCP-compatible input schema with proper type information and validation rules.
 func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
 	properties := make(map[string]interface{})
 	required := []string{}
@@ -240,7 +311,21 @@ func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
 	}
 }
 
-// convertToMCPResult converts an API CallToolResult to MCP CallToolResult
+// convertToMCPResult converts an internal tool result to MCP format.
+//
+// This function handles the conversion from the internal CallToolResult format
+// to the MCP CallToolResult format. It processes different types of content:
+//   - String content is converted directly to MCP text content
+//   - Non-string content is marshaled to JSON and converted to text content
+//   - Error status is preserved in the result
+//
+// This allows tools to return various types of data while ensuring compatibility
+// with MCP clients that expect specific content formats.
+//
+// Parameters:
+//   - result: Internal tool result from the tool provider
+//
+// Returns an MCP-compatible tool result with properly formatted content.
 func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 	mcpContent := make([]mcp.Content, len(result.Content))
 
@@ -248,7 +333,7 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 		if text, ok := content.(string); ok {
 			mcpContent[i] = mcp.NewTextContent(text)
 		} else {
-			// Marshal non-string content to JSON
+			// Marshal non-string content to JSON for MCP compatibility
 			jsonBytes, _ := json.Marshal(content)
 			mcpContent[i] = mcp.NewTextContent(string(jsonBytes))
 		}

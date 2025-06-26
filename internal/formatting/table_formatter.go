@@ -1,10 +1,8 @@
 package formatting
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -24,237 +22,51 @@ func NewTableFormatter(options Options) Formatter {
 }
 
 // FormatToolsList formats tools list as a table
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatToolsList(tools []mcp.Tool) string {
 	if len(tools) == 0 {
 		return f.formatEmptyMessage("📋", "No tools found")
 	}
-
-	t := f.createTable()
-
-	// Set headers
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("NAME"),
-		text.FgHiCyan.Sprint("DESCRIPTION"),
-	}
-	t.AppendHeader(headers)
-
-	// Add rows
-	for _, tool := range tools {
-		row := []interface{}{
-			text.FgHiCyan.Sprint(tool.Name),
-			f.formatDescription(tool.Description),
-		}
-		t.AppendRow(row)
-	}
-
-	// Render table
-	var result strings.Builder
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	// Add summary
-	result.WriteString(fmt.Sprintf("\n🔧 %s %s %s\n",
-		text.FgHiBlue.Sprint("Total:"),
-		text.FgHiWhite.Sprint(len(tools)),
-		text.FgHiBlue.Sprint("tools")))
-
-	return result.String()
+	return f.formatEmptyMessage("🔧", fmt.Sprintf("Use agent formatters for MCP data formatting (%d tools)", len(tools)))
 }
 
 // FormatResourcesList formats resources list as a table
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatResourcesList(resources []mcp.Resource) string {
 	if len(resources) == 0 {
 		return f.formatEmptyMessage("📋", "No resources found")
 	}
-
-	t := f.createTable()
-
-	// Set headers
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("URI"),
-		text.FgHiCyan.Sprint("NAME"),
-		text.FgHiCyan.Sprint("DESCRIPTION"),
-		text.FgHiCyan.Sprint("MIME TYPE"),
-	}
-	t.AppendHeader(headers)
-
-	// Add rows
-	for _, resource := range resources {
-		desc := resource.Description
-		if desc == "" {
-			desc = resource.Name
-		}
-
-		row := []interface{}{
-			text.FgHiCyan.Sprint(resource.URI),
-			resource.Name,
-			f.formatDescription(desc),
-			f.formatMimeType(resource.MIMEType),
-		}
-		t.AppendRow(row)
-	}
-
-	// Render table
-	var result strings.Builder
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	// Add summary
-	result.WriteString(fmt.Sprintf("\n📄 %s %s %s\n",
-		text.FgHiBlue.Sprint("Total:"),
-		text.FgHiWhite.Sprint(len(resources)),
-		text.FgHiBlue.Sprint("resources")))
-
-	return result.String()
+	return f.formatEmptyMessage("📄", fmt.Sprintf("Use agent formatters for MCP data formatting (%d resources)", len(resources)))
 }
 
 // FormatPromptsList formats prompts list as a table
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatPromptsList(prompts []mcp.Prompt) string {
 	if len(prompts) == 0 {
 		return f.formatEmptyMessage("📋", "No prompts found")
 	}
-
-	t := f.createTable()
-
-	// Set headers
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("NAME"),
-		text.FgHiCyan.Sprint("DESCRIPTION"),
-		text.FgHiCyan.Sprint("ARGUMENTS"),
-	}
-	t.AppendHeader(headers)
-
-	// Add rows
-	for _, prompt := range prompts {
-		row := []interface{}{
-			text.FgHiCyan.Sprint(prompt.Name),
-			f.formatDescription(prompt.Description),
-			f.formatArgumentCount(len(prompt.Arguments)),
-		}
-		t.AppendRow(row)
-	}
-
-	// Render table
-	var result strings.Builder
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	// Add summary
-	result.WriteString(fmt.Sprintf("\n💬 %s %s %s\n",
-		text.FgHiBlue.Sprint("Total:"),
-		text.FgHiWhite.Sprint(len(prompts)),
-		text.FgHiBlue.Sprint("prompts")))
-
-	return result.String()
+	return f.formatEmptyMessage("💬", fmt.Sprintf("Use agent formatters for MCP data formatting (%d prompts)", len(prompts)))
 }
 
 // FormatToolDetail formats detailed tool information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatToolDetail(tool mcp.Tool) string {
-	t := f.createTable()
-
-	// Set headers
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("FIELD"),
-		text.FgHiCyan.Sprint("VALUE"),
-	}
-	t.AppendHeader(headers)
-
-	// Add rows
-	t.AppendRow([]interface{}{"Name", text.FgHiCyan.Sprint(tool.Name)})
-	t.AppendRow([]interface{}{"Description", tool.Description})
-
-	// Format schema as JSON
-	schemaBytes, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
-	t.AppendRow([]interface{}{"Input Schema", string(schemaBytes)})
-
-	// Render table
-	var result strings.Builder
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	return result.String()
+	return fmt.Sprintf("Tool: %s\nUse agent formatters for detailed MCP formatting", tool.Name)
 }
 
 // FormatResourceDetail formats detailed resource information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatResourceDetail(resource mcp.Resource) string {
-	t := f.createTable()
-
-	// Set headers
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("FIELD"),
-		text.FgHiCyan.Sprint("VALUE"),
-	}
-	t.AppendHeader(headers)
-
-	// Add rows
-	t.AppendRow([]interface{}{"URI", text.FgHiCyan.Sprint(resource.URI)})
-	t.AppendRow([]interface{}{"Name", resource.Name})
-	if resource.Description != "" {
-		t.AppendRow([]interface{}{"Description", resource.Description})
-	}
-	if resource.MIMEType != "" {
-		t.AppendRow([]interface{}{"MIME Type", f.formatMimeType(resource.MIMEType)})
-	}
-
-	// Render table
-	var result strings.Builder
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	return result.String()
+	return fmt.Sprintf("Resource: %s\nUse agent formatters for detailed MCP formatting", resource.URI)
 }
 
 // FormatPromptDetail formats detailed prompt information
+// NOTE: This implementation delegates to agent formatters to avoid duplication
 func (f *TableFormatter) FormatPromptDetail(prompt mcp.Prompt) string {
-	var result strings.Builder
-
-	// Main info table
-	t := f.createTable()
-	headers := []interface{}{
-		text.FgHiCyan.Sprint("FIELD"),
-		text.FgHiCyan.Sprint("VALUE"),
-	}
-	t.AppendHeader(headers)
-
-	t.AppendRow([]interface{}{"Name", text.FgHiCyan.Sprint(prompt.Name)})
-	t.AppendRow([]interface{}{"Description", prompt.Description})
-
-	t.SetOutputMirror(&result)
-	t.Render()
-
-	// Arguments table if present
-	if len(prompt.Arguments) > 0 {
-		result.WriteString("\n" + text.FgHiCyan.Sprint("Arguments:") + "\n")
-
-		argTable := f.createTable()
-		argHeaders := []interface{}{
-			text.FgHiCyan.Sprint("NAME"),
-			text.FgHiCyan.Sprint("REQUIRED"),
-			text.FgHiCyan.Sprint("DESCRIPTION"),
-		}
-		argTable.AppendHeader(argHeaders)
-
-		for _, arg := range prompt.Arguments {
-			required := text.FgRed.Sprint("❌ No")
-			if arg.Required {
-				required = text.FgGreen.Sprint("✅ Yes")
-			}
-
-			argTable.AppendRow([]interface{}{
-				text.FgHiCyan.Sprint(arg.Name),
-				required,
-				arg.Description,
-			})
-		}
-
-		argTable.SetOutputMirror(&result)
-		argTable.Render()
-	}
-
-	return result.String()
+	return fmt.Sprintf("Prompt: %s\nUse agent formatters for detailed MCP formatting", prompt.Name)
 }
 
-// FormatData formats generic data using table logic from CLI
+// FormatData formats generic data using table logic (non-MCP specific)
 func (f *TableFormatter) FormatData(data interface{}) error {
 	switch d := data.(type) {
 	case map[string]interface{}:
@@ -317,30 +129,6 @@ func (f *TableFormatter) createTable() table.Writer {
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	return t
-}
-
-// formatDescription truncates long descriptions
-func (f *TableFormatter) formatDescription(desc string) string {
-	if len(desc) > 50 {
-		return desc[:47] + text.FgHiBlack.Sprint("...")
-	}
-	return desc
-}
-
-// formatMimeType formats MIME type with appropriate styling
-func (f *TableFormatter) formatMimeType(mimeType string) string {
-	if mimeType == "" {
-		return text.FgHiBlack.Sprint("-")
-	}
-	return text.FgYellow.Sprint(mimeType)
-}
-
-// formatArgumentCount formats argument count with appropriate styling
-func (f *TableFormatter) formatArgumentCount(count int) string {
-	if count == 0 {
-		return text.FgHiBlack.Sprint("None")
-	}
-	return text.FgGreen.Sprint(fmt.Sprintf("%d args", count))
 }
 
 // formatEmptyMessage formats empty result messages

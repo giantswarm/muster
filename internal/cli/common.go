@@ -7,7 +7,13 @@ import (
 	"time"
 )
 
-// DetectAggregatorEndpoint detects the aggregator endpoint from configuration
+// DetectAggregatorEndpoint detects and returns the aggregator endpoint URL from configuration.
+// It loads the muster configuration and constructs the MCP endpoint URL using the configured
+// host and port settings. If configuration cannot be loaded, it returns a default localhost endpoint.
+//
+// Returns:
+//   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
+//   - error: Always nil (kept for future compatibility)
 func DetectAggregatorEndpoint() (string, error) {
 	// Load configuration to get aggregator settings
 	cfg, err := config.LoadConfig()
@@ -31,7 +37,13 @@ func DetectAggregatorEndpoint() (string, error) {
 	return endpoint, nil
 }
 
-// CheckServerRunning checks if the aggregator server is running
+// CheckServerRunning verifies that the muster aggregator server is running and responsive.
+// It performs a health check by sending a GET request to the MCP endpoint and validates
+// the response status code. This is typically used before attempting to execute commands
+// that require server connectivity.
+//
+// Returns:
+//   - error: nil if server is running and responsive, otherwise an error with guidance
 func CheckServerRunning() error {
 	endpoint, err := DetectAggregatorEndpoint()
 	if err != nil {
@@ -57,17 +69,38 @@ func CheckServerRunning() error {
 	return nil
 }
 
-// FormatError formats an error message for CLI output
+// FormatError formats an error message for consistent CLI output display.
+// It prefixes the error message with "Error: " for clear identification.
+//
+// Parameters:
+//   - err: The error to format
+//
+// Returns:
+//   - string: Formatted error message with "Error: " prefix
 func FormatError(err error) string {
 	return fmt.Sprintf("Error: %v", err)
 }
 
-// FormatSuccess formats a success message for CLI output
+// FormatSuccess formats a success message for CLI output with a checkmark icon.
+// Used to provide positive feedback to users when operations complete successfully.
+//
+// Parameters:
+//   - msg: The success message to format
+//
+// Returns:
+//   - string: Formatted success message with "✓ " prefix
 func FormatSuccess(msg string) string {
 	return fmt.Sprintf("✓ %s", msg)
 }
 
-// FormatWarning formats a warning message for CLI output
+// FormatWarning formats a warning message for CLI output with a warning icon.
+// Used to alert users about potential issues or important information.
+//
+// Parameters:
+//   - msg: The warning message to format
+//
+// Returns:
+//   - string: Formatted warning message with "⚠ " prefix
 func FormatWarning(msg string) string {
 	return fmt.Sprintf("⚠ %s", msg)
 }

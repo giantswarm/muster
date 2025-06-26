@@ -16,15 +16,81 @@ import (
 	"muster/pkg/logging"
 )
 
-// Services holds all the initialized services and APIs
+// Services holds all initialized services and APIs used by the application.
+// This struct serves as the central registry for all core application components,
+// providing access to service management, API interfaces, and runtime configuration.
+//
+// The Services struct follows the dependency injection pattern, ensuring that
+// all components are properly initialized and registered before being made
+// available to the application runtime.
+//
+// Field descriptions:
+//   - Orchestrator: Core service orchestrator responsible for service lifecycle management
+//   - OrchestratorAPI: API interface for orchestrator operations (start, stop, status)
+//   - ConfigAPI: API interface for configuration management and persistence
+//   - AggregatorPort: Port number where the MCP aggregator service is listening
+//
+// Service Dependencies:
+// The services are initialized in a specific order to handle dependencies:
+//  1. Storage and tool interfaces (shared dependencies)
+//  2. Service adapters and API registrations
+//  3. Manager instances (ServiceClass, Capability, Workflow, MCPServer)
+//  4. Concrete service instances
+//  5. Aggregator service (when enabled)
 type Services struct {
-	Orchestrator    *orchestrator.Orchestrator
+	// Orchestrator manages the lifecycle of all registered services.
+	// It handles service startup, shutdown, dependency resolution, and health monitoring.
+	Orchestrator *orchestrator.Orchestrator
+
+	// OrchestratorAPI provides programmatic access to orchestrator operations.
+	// This interface allows other components to interact with service management
+	// functionality through the central API layer.
 	OrchestratorAPI api.OrchestratorAPI
-	ConfigAPI       api.ConfigAPI
-	AggregatorPort  int
+
+	// ConfigAPI provides programmatic access to configuration management.
+	// This interface enables runtime configuration updates, persistence,
+	// and retrieval through the central API layer.
+	ConfigAPI api.ConfigAPI
+
+	// AggregatorPort specifies the port number for the MCP aggregator service.
+	// This port is used by external MCP clients to connect to the aggregator
+	// for tool discovery and execution.
+	AggregatorPort int
 }
 
-// InitializeServices creates and registers all required services
+// InitializeServices creates and registers all required services for the application.
+// This function implements the complete service initialization sequence, following
+// the API Service Locator Pattern for clean separation of concerns.
+//
+// Initialization Sequence:
+//  1. **Storage Setup**: Creates shared configuration storage for persistence
+//  2. **API Interfaces**: Creates tool checker and caller for service integration
+//  3. **Orchestrator**: Initializes the core service orchestrator
+//  4. **Service Registry**: Sets up the service registry for dependency injection
+//  5. **API Adapters**: Creates and registers all service adapters with the API layer
+//  6. **Manager Initialization**: Creates managers for ServiceClass, Capability, Workflow, MCPServer
+//  7. **Definition Loading**: Loads component definitions from configuration directories
+//  8. **Service Creation**: Creates concrete service instances based on definitions
+//  9. **Aggregator Setup**: Initializes MCP aggregator service (when enabled)
+//
+// Configuration Handling:
+//   - If cfg.ConfigPath is set: uses single-directory configuration loading
+//   - If cfg.ConfigPath is empty: uses layered configuration approach
+//
+// Service Auto-registration:
+// Services marked with AutoStart=true in their definitions are automatically
+// registered with the orchestrator and will be started when the orchestrator starts.
+//
+// Error Handling:
+// The function uses a fail-fast approach for critical components but continues
+// initialization for optional components (logging warnings for failures).
+// Critical failures include storage creation, orchestrator setup, and API registration.
+//
+// Aggregator Service:
+// The MCP aggregator is enabled by default unless explicitly disabled in configuration.
+// It provides MCP protocol support for external tool integration and discovery.
+//
+// Returns a fully initialized Services struct or an error if critical initialization fails.
 func InitializeServices(cfg *Config) (*Services, error) {
 	// Create storage for shared use across services including orchestrator persistence
 	var storage *config.Storage
