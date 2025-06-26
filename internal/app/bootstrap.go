@@ -110,10 +110,7 @@ func NewApplication(cfg *Config) (*Application, error) {
 // Returns an error if the selected execution mode fails to start or encounters
 // a runtime error during execution.
 func (a *Application) Run(ctx context.Context) error {
-	if a.config.NoTUI {
-		return a.runCLIMode(ctx)
-	}
-	return a.runTUIMode(ctx)
+	return a.runCLIMode(ctx)
 }
 
 // runCLIMode runs the application in non-interactive CLI mode.

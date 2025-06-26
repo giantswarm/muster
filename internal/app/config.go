@@ -19,13 +19,7 @@ import (
 //   - ConfigPath: Optional custom configuration directory path
 //   - MusterConfig: Loaded muster configuration (populated during bootstrap)
 type Config struct {
-	// NoTUI controls the user interface mode.
-	// true = CLI mode (non-interactive, suitable for automation)
-	// false = TUI mode (interactive terminal interface)
-	NoTUI bool
-
-	// Debug enables debug-level logging and additional diagnostic information.
-	// When enabled, provides verbose output for troubleshooting and development.
+	// Debug settings
 	Debug bool
 
 	// Yolo enables "you only live once" mode with relaxed safety checks.
@@ -42,6 +36,7 @@ type Config struct {
 	// This field is populated during application bootstrap after configuration loading.
 	MusterConfig *config.MusterConfig
 }
+
 
 // NewConfig creates a new application configuration with the specified settings.
 // This is the primary constructor for application configuration, taking all
@@ -62,9 +57,8 @@ type Config struct {
 //
 //	// CLI mode with custom configuration path
 //	cfg := app.NewConfig(true, false, false, "/opt/muster/config")
-func NewConfig(noTUI, debug, yolo bool, configPath string) *Config {
+func NewConfig(debug, yolo bool, configPath string) *Config {
 	return &Config{
-		NoTUI:      noTUI,
 		Debug:      debug,
 		Yolo:       yolo,
 		ConfigPath: configPath,

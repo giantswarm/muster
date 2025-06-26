@@ -7,35 +7,30 @@ import (
 func TestNewConfig(t *testing.T) {
 	tests := []struct {
 		name       string
-		noTUI      bool
 		debug      bool
 		yolo       bool
 		configPath string
 	}{
 		{
 			name:       "full configuration",
-			noTUI:      true,
 			debug:      true,
 			yolo:       true,
 			configPath: "/custom/config/path",
 		},
 		{
 			name:       "minimal configuration",
-			noTUI:      false,
 			debug:      false,
 			yolo:       false,
 			configPath: "",
 		},
 		{
 			name:       "debug only",
-			noTUI:      false,
 			debug:      true,
 			yolo:       false,
 			configPath: "",
 		},
 		{
 			name:       "with custom config path",
-			noTUI:      false,
 			debug:      false,
 			yolo:       false,
 			configPath: "/test/config",
@@ -44,11 +39,8 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := NewConfig(tt.noTUI, tt.debug, tt.yolo, tt.configPath)
+			cfg := NewConfig(tt.debug, tt.yolo, tt.configPath)
 
-			if cfg.NoTUI != tt.noTUI {
-				t.Errorf("NoTUI = %v, want %v", cfg.NoTUI, tt.noTUI)
-			}
 			if cfg.Debug != tt.debug {
 				t.Errorf("Debug = %v, want %v", cfg.Debug, tt.debug)
 			}
@@ -68,14 +60,10 @@ func TestNewConfig(t *testing.T) {
 func TestConfigFields(t *testing.T) {
 	// Test that all fields can be set and retrieved
 	cfg := &Config{
-		NoTUI: true,
 		Debug: true,
 		Yolo:  true,
 	}
 
-	if !cfg.NoTUI {
-		t.Error("NoTUI should be true")
-	}
 	if !cfg.Debug {
 		t.Error("Debug should be true")
 	}
