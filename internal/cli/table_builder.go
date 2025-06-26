@@ -8,15 +8,38 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 )
 
-// TableBuilder handles cell formatting and styling
+// TableBuilder handles cell formatting and styling for table display.
+// It provides specialized formatting for different types of data commonly
+// encountered in muster operations, including status indicators, metadata,
+// and resource-specific information. The builder applies consistent styling
+// and iconography to create professional-looking table output.
 type TableBuilder struct{}
 
-// NewTableBuilder creates a new table builder
+// NewTableBuilder creates a new table builder instance.
+// The builder is stateless and can be reused for multiple formatting operations.
+//
+// Returns:
+//   - *TableBuilder: New table builder ready for use
 func NewTableBuilder() *TableBuilder {
 	return &TableBuilder{}
 }
 
-// FormatCellValue formats individual cell values with appropriate styling
+// FormatCellValue formats individual cell values with appropriate styling and icons.
+// It applies different formatting rules based on the column name and data type,
+// providing consistent and readable output across all muster tables.
+//
+// The formatter recognizes common column types and applies appropriate styling:
+//   - Status fields get color-coded icons
+//   - Names and IDs get prominent highlighting
+//   - Arrays and objects get compact representation
+//   - Long text gets truncated with ellipsis
+//
+// Parameters:
+//   - column: The column name/type to determine formatting rules
+//   - value: The raw value to format
+//
+// Returns:
+//   - interface{}: Formatted value with styling applied
 func (b *TableBuilder) FormatCellValue(column string, value interface{}) interface{} {
 	if value == nil {
 		return text.FgHiBlack.Sprint("-")
@@ -62,7 +85,15 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 	}
 }
 
-// formatHealthStatus adds color coding to health status
+// formatHealthStatus adds color coding and icons to health status values.
+// This provides immediate visual feedback about the health state of services
+// and components.
+//
+// Parameters:
+//   - status: The health status string to format
+//
+// Returns:
+//   - interface{}: Formatted status with appropriate color and icon
 func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 	switch strings.ToLower(status) {
 	case "healthy":
@@ -82,7 +113,14 @@ func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 	}
 }
 
-// formatAvailableStatus formats boolean availability
+// formatAvailableStatus formats boolean availability with clear visual indicators.
+// This is commonly used for capabilities and services to show their availability status.
+//
+// Parameters:
+//   - value: The availability value (boolean or string)
+//
+// Returns:
+//   - interface{}: Formatted availability status with color and icon
 func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
@@ -100,7 +138,14 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	}
 }
 
-// formatState formats service state with icons
+// formatState formats service state with descriptive icons.
+// This provides clear visual indication of service lifecycle states.
+//
+// Parameters:
+//   - state: The service state string to format
+//
+// Returns:
+//   - interface{}: Formatted state with appropriate icon and color
 func (b *TableBuilder) formatState(state string) interface{} {
 	switch strings.ToLower(state) {
 	case "running":
@@ -116,7 +161,15 @@ func (b *TableBuilder) formatState(state string) interface{} {
 	}
 }
 
-// formatMetadata extracts useful information from metadata objects
+// formatMetadata extracts and formats useful information from metadata objects.
+// Metadata objects often contain nested information that needs to be summarized
+// for table display. This function extracts the most relevant fields.
+//
+// Parameters:
+//   - value: The metadata object to format
+//
+// Returns:
+//   - interface{}: Formatted metadata summary
 func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 	if value == nil {
 		return text.FgHiBlack.Sprint("-")
@@ -155,7 +208,15 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 	return text.FgHiBlack.Sprint("[metadata]")
 }
 
-// formatToolsList shows actual tool names instead of "[N items]"
+// formatToolsList formats arrays of tool names for compact display.
+// Instead of showing "[N items]", this shows actual tool names up to a limit,
+// then indicates how many more tools are available.
+//
+// Parameters:
+//   - value: The tools array to format
+//
+// Returns:
+//   - interface{}: Formatted tools list with simplified names
 func (b *TableBuilder) formatToolsList(value interface{}) interface{} {
 	if value == nil {
 		return text.FgHiBlack.Sprint("-")
@@ -187,7 +248,15 @@ func (b *TableBuilder) formatToolsList(value interface{}) interface{} {
 	return fmt.Sprintf("%v", value)
 }
 
-// SimplifyToolName removes common prefixes to make tool names more readable
+// SimplifyToolName removes common prefixes to make tool names more readable.
+// Many muster tools have predictable prefixes that add noise to table display.
+// This function strips common prefixes to improve readability.
+//
+// Parameters:
+//   - toolName: The full tool name to simplify
+//
+// Returns:
+//   - string: Simplified tool name with common prefixes removed
 func (b *TableBuilder) SimplifyToolName(toolName string) string {
 	// Remove common prefixes
 	prefixes := []string{"x_kubernetes_", "x_", "core_", "mcp_"}
@@ -199,7 +268,15 @@ func (b *TableBuilder) SimplifyToolName(toolName string) string {
 	return toolName
 }
 
-// formatDescription truncates long descriptions appropriately
+// formatDescription truncates long descriptions with ellipsis for table display.
+// Descriptions can be very long and need to be truncated to fit in table columns
+// while still providing useful information.
+//
+// Parameters:
+//   - desc: The description string to format
+//
+// Returns:
+//   - interface{}: Formatted description, possibly truncated
 func (b *TableBuilder) formatDescription(desc string) interface{} {
 	if len(desc) <= 50 {
 		return desc
@@ -207,12 +284,27 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 	return desc[:45] + text.FgHiBlack.Sprint("...")
 }
 
-// formatType adds subtle styling to types
+// formatType adds subtle styling to type information.
+// Type fields are important for identifying resource types and get consistent styling.
+//
+// Parameters:
+//   - typ: The type string to format
+//
+// Returns:
+//   - interface{}: Formatted type with subtle color styling
 func (b *TableBuilder) formatType(typ string) interface{} {
 	return text.FgCyan.Sprint(typ)
 }
 
-// formatSteps formats workflow steps with a count
+// formatSteps formats workflow steps information with a count indicator.
+// Workflow steps are typically arrays that are better represented as counts
+// rather than the full step details in table format.
+//
+// Parameters:
+//   - value: The steps array to format
+//
+// Returns:
+//   - interface{}: Formatted steps count with appropriate styling
 func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 	if value == nil {
 		return text.FgHiBlack.Sprint("-")
@@ -229,7 +321,15 @@ func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 	return fmt.Sprintf("%v", value)
 }
 
-// formatArray provides clean display of arrays
+// formatArray provides clean display of generic arrays.
+// This handles arrays that don't fit into specific categories,
+// providing a balance between information and readability.
+//
+// Parameters:
+//   - arr: The array to format
+//
+// Returns:
+//   - interface{}: Formatted array representation
 func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 	if len(arr) == 0 {
 		return text.FgHiBlack.Sprint("[]")
@@ -248,7 +348,15 @@ func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 	return text.FgBlue.Sprintf("[%d items]", len(arr))
 }
 
-// formatObject provides clean display of objects
+// formatObject provides clean display of generic objects.
+// This handles nested objects by looking for common display fields
+// or showing a summary of the object's structure.
+//
+// Parameters:
+//   - obj: The object map to format
+//
+// Returns:
+//   - interface{}: Formatted object representation
 func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 	if len(obj) == 0 {
 		return text.FgHiBlack.Sprint("{}")
@@ -266,7 +374,16 @@ func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 	return text.FgBlue.Sprintf("{%d fields}", len(obj))
 }
 
-// SortDataByName sorts data by the first column (usually name/id)
+// SortDataByName sorts data by the first column (usually name/id).
+// This provides consistent ordering in tables, making it easier for users
+// to find specific resources.
+//
+// Parameters:
+//   - data: Array of data objects to sort
+//   - columns: Column names, with the first used for sorting
+//
+// Returns:
+//   - []interface{}: Sorted data array
 func (b *TableBuilder) SortDataByName(data []interface{}, columns []string) []interface{} {
 	sort.SliceStable(data, func(i, j int) bool {
 		iMap, iOk := data[i].(map[string]interface{})
@@ -284,7 +401,15 @@ func (b *TableBuilder) SortDataByName(data []interface{}, columns []string) []in
 	return data
 }
 
-// GetResourceIcon returns an appropriate icon for the resource type
+// GetResourceIcon returns an appropriate icon for the resource type.
+// Different muster resource types get different colored icons for easy
+// visual identification in tables and summaries.
+//
+// Parameters:
+//   - resourceType: The type of resource (services, workflows, etc.)
+//
+// Returns:
+//   - string: Colored icon appropriate for the resource type
 func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 	switch resourceType {
 	case "services":
@@ -302,7 +427,15 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 	}
 }
 
-// Pluralize adds 's' to a word if it doesn't already end with 's'
+// Pluralize adds 's' to a word if it doesn't already end with 's'.
+// This is used for generating consistent plural forms in table summaries
+// and resource counting.
+//
+// Parameters:
+//   - word: The word to potentially pluralize
+//
+// Returns:
+//   - string: Pluralized word
 func (b *TableBuilder) Pluralize(word string) string {
 	if strings.HasSuffix(word, "s") {
 		return word

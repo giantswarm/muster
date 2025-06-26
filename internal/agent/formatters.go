@@ -8,15 +8,40 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Formatters provides utilities for formatting MCP data consistently
+// Formatters provides utilities for formatting MCP data consistently.
+// It supports both human-readable console output and structured JSON responses
+// for tools, resources, and prompts. The formatters ensure consistent
+// presentation across different output modes (REPL, CLI, MCP server).
+//
+// Key features:
+//   - Console-friendly formatting with numbering and alignment
+//   - JSON formatting for structured data consumption
+//   - Search and lookup utilities for cached data
+//   - Consistent error handling and fallback formatting
 type Formatters struct{}
 
-// NewFormatters creates a new formatters instance
+// NewFormatters creates a new formatters instance.
+// The formatters instance is stateless and can be safely used concurrently.
 func NewFormatters() *Formatters {
 	return &Formatters{}
 }
 
-// FormatToolsList formats tools list for console output
+// FormatToolsList formats a list of tools for human-readable console output.
+// The output includes numbering, aligned columns, and descriptive text to
+// make it easy to browse available tools interactively.
+//
+// Parameters:
+//   - tools: Slice of tools to format
+//
+// Returns:
+//   - Formatted string with numbered list of tools and descriptions
+//
+// Output format:
+//   Available tools (N):
+//     1. tool_name                    - Tool description
+//     2. another_tool                 - Another description
+//
+// If no tools are available, returns a user-friendly message.
 func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 	if len(tools) == 0 {
 		return "No tools available."
@@ -30,7 +55,23 @@ func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatResourcesList formats resources list for console output
+// FormatResourcesList formats a list of resources for human-readable console output.
+// The output includes numbering, aligned columns for URIs, and descriptions to
+// make it easy to browse available resources interactively.
+//
+// Parameters:
+//   - resources: Slice of resources to format
+//
+// Returns:
+//   - Formatted string with numbered list of resources and descriptions
+//
+// Output format:
+//   Available resources (N):
+//     1. file://config.yaml                    - Configuration file
+//     2. memory://cache/data                   - Cached data
+//
+// If a resource has no description, the name field is used as a fallback.
+// If no resources are available, returns a user-friendly message.
 func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 	if len(resources) == 0 {
 		return "No resources available."
@@ -48,7 +89,22 @@ func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatPromptsList formats prompts list for console output
+// FormatPromptsList formats a list of prompts for human-readable console output.
+// The output includes numbering, aligned columns, and descriptions to
+// make it easy to browse available prompts interactively.
+//
+// Parameters:
+//   - prompts: Slice of prompts to format
+//
+// Returns:
+//   - Formatted string with numbered list of prompts and descriptions
+//
+// Output format:
+//   Available prompts (N):
+//     1. code_review                  - Review code for quality
+//     2. documentation                - Generate documentation
+//
+// If no prompts are available, returns a user-friendly message.
 func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 	if len(prompts) == 0 {
 		return "No prompts available."
@@ -62,7 +118,24 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatToolDetail formats detailed tool information
+// FormatToolDetail formats detailed information about a single tool for console display.
+// This provides comprehensive information including the tool's input schema,
+// which is essential for understanding how to use the tool.
+//
+// Parameters:
+//   - tool: The tool to format detailed information for
+//
+// Returns:
+//   - Multi-line formatted string with tool details and schema
+//
+// Output format:
+//   Tool: tool_name
+//   Description: Tool description
+//   Input Schema:
+//   {
+//     "type": "object",
+//     "properties": { ... }
+//   }
 func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Tool: %s", tool.Name))
@@ -72,7 +145,23 @@ func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatResourceDetail formats detailed resource information
+// FormatResourceDetail formats detailed information about a single resource for console display.
+// This provides comprehensive metadata about the resource including URI, name, description,
+// and MIME type when available.
+//
+// Parameters:
+//   - resource: The resource to format detailed information for
+//
+// Returns:
+//   - Multi-line formatted string with resource details
+//
+// Output format:
+//   Resource: file://config.yaml
+//   Name: config.yaml
+//   Description: Configuration file
+//   MIME Type: application/yaml
+//
+// Optional fields (description, MIME type) are only included if present.
 func (f *Formatters) FormatResourceDetail(resource mcp.Resource) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Resource: %s", resource.URI))
@@ -86,7 +175,24 @@ func (f *Formatters) FormatResourceDetail(resource mcp.Resource) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatPromptDetail formats detailed prompt information
+// FormatPromptDetail formats detailed information about a single prompt for console display.
+// This provides comprehensive information including the prompt's arguments and their
+// requirements, which is essential for understanding how to use the prompt.
+//
+// Parameters:
+//   - prompt: The prompt to format detailed information for
+//
+// Returns:
+//   - Multi-line formatted string with prompt details and arguments
+//
+// Output format:
+//   Prompt: code_review
+//   Description: Review code for quality
+//   Arguments:
+//     - language (required): Programming language
+//     - style: Code style to enforce
+//
+// Arguments are listed with their names, requirements, and descriptions.
 func (f *Formatters) FormatPromptDetail(prompt mcp.Prompt) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Prompt: %s", prompt.Name))
@@ -104,7 +210,26 @@ func (f *Formatters) FormatPromptDetail(prompt mcp.Prompt) string {
 	return strings.Join(output, "\n")
 }
 
-// FormatToolsListJSON formats tools list as JSON
+// FormatToolsListJSON formats a list of tools as structured JSON.
+// This format is used for programmatic consumption, MCP server responses,
+// and integration with external tools that expect structured data.
+//
+// Parameters:
+//   - tools: Slice of tools to format
+//
+// Returns:
+//   - JSON string containing array of tool objects with name and description
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   [
+//     {
+//       "name": "tool_name",
+//       "description": "Tool description"
+//     }
+//   ]
+//
+// If no tools are available, returns a simple message string.
 func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 	if len(tools) == 0 {
 		return "No tools available", nil
@@ -131,7 +256,29 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 	return string(jsonData), nil
 }
 
-// FormatResourcesListJSON formats resources list as JSON
+// FormatResourcesListJSON formats a list of resources as structured JSON.
+// This format is used for programmatic consumption, MCP server responses,
+// and integration with external tools that expect structured data.
+//
+// Parameters:
+//   - resources: Slice of resources to format
+//
+// Returns:
+//   - JSON string containing array of resource objects with URI, name, description, and MIME type
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   [
+//     {
+//       "uri": "file://config.yaml",
+//       "name": "config.yaml",
+//       "description": "Configuration file",
+//       "mimeType": "application/yaml"
+//     }
+//   ]
+//
+// If a resource has no description, the name field is used as a fallback.
+// If no resources are available, returns a simple message string.
 func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, error) {
 	if len(resources) == 0 {
 		return "No resources available", nil
@@ -166,7 +313,26 @@ func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, 
 	return string(jsonData), nil
 }
 
-// FormatPromptsListJSON formats prompts list as JSON
+// FormatPromptsListJSON formats a list of prompts as structured JSON.
+// This format is used for programmatic consumption, MCP server responses,
+// and integration with external tools that expect structured data.
+//
+// Parameters:
+//   - prompts: Slice of prompts to format
+//
+// Returns:
+//   - JSON string containing array of prompt objects with name and description
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   [
+//     {
+//       "name": "code_review",
+//       "description": "Review code for quality"
+//     }
+//   ]
+//
+// If no prompts are available, returns a simple message string.
 func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error) {
 	if len(prompts) == 0 {
 		return "No prompts available", nil
@@ -193,7 +359,23 @@ func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error)
 	return string(jsonData), nil
 }
 
-// FormatToolDetailJSON formats detailed tool information as JSON
+// FormatToolDetailJSON formats detailed tool information as structured JSON.
+// This format includes the complete tool schema and is used for programmatic
+// consumption and tool introspection.
+//
+// Parameters:
+//   - tool: The tool to format detailed information for
+//
+// Returns:
+//   - JSON string containing complete tool information including schema
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   {
+//     "name": "tool_name",
+//     "description": "Tool description",
+//     "inputSchema": { ... }
+//   }
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo := map[string]interface{}{
 		"name":        tool.Name,
@@ -209,7 +391,24 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	return string(jsonData), nil
 }
 
-// FormatResourceDetailJSON formats detailed resource information as JSON
+// FormatResourceDetailJSON formats detailed resource information as structured JSON.
+// This format includes all available resource metadata and is used for programmatic
+// consumption and resource introspection.
+//
+// Parameters:
+//   - resource: The resource to format detailed information for
+//
+// Returns:
+//   - JSON string containing complete resource information
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   {
+//     "uri": "file://config.yaml",
+//     "name": "config.yaml",
+//     "description": "Configuration file",
+//     "mimeType": "application/yaml"
+//   }
 func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, error) {
 	resourceInfo := map[string]interface{}{
 		"uri":         resource.URI,
@@ -226,7 +425,31 @@ func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, er
 	return string(jsonData), nil
 }
 
-// FormatPromptDetailJSON formats detailed prompt information as JSON
+// FormatPromptDetailJSON formats detailed prompt information as structured JSON.
+// This format includes argument specifications and is used for programmatic
+// consumption and prompt introspection.
+//
+// Parameters:
+//   - prompt: The prompt to format detailed information for
+//
+// Returns:
+//   - JSON string containing complete prompt information including arguments
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//   {
+//     "name": "code_review",
+//     "description": "Review code for quality",
+//     "arguments": [
+//       {
+//         "name": "language",
+//         "description": "Programming language",
+//         "required": true
+//       }
+//     ]
+//   }
+//
+// The arguments field is only included if the prompt has arguments.
 func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
 	promptInfo := map[string]interface{}{
 		"name":        prompt.Name,
@@ -253,7 +476,17 @@ func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
 	return string(jsonData), nil
 }
 
-// FindTool finds a tool by name in the cache
+// FindTool searches for a tool by name in the provided tool list.
+// This is a utility method for command implementations and internal lookups.
+//
+// Parameters:
+//   - tools: Slice of tools to search in
+//   - name: Exact name of the tool to find
+//
+// Returns:
+//   - Pointer to the found tool, or nil if not found
+//
+// The search is case-sensitive and requires exact name matching.
 func (f *Formatters) FindTool(tools []mcp.Tool, name string) *mcp.Tool {
 	for _, tool := range tools {
 		if tool.Name == name {
@@ -263,7 +496,17 @@ func (f *Formatters) FindTool(tools []mcp.Tool, name string) *mcp.Tool {
 	return nil
 }
 
-// FindResource finds a resource by URI in the cache
+// FindResource searches for a resource by URI in the provided resource list.
+// This is a utility method for command implementations and internal lookups.
+//
+// Parameters:
+//   - resources: Slice of resources to search in
+//   - uri: Exact URI of the resource to find
+//
+// Returns:
+//   - Pointer to the found resource, or nil if not found
+//
+// The search is case-sensitive and requires exact URI matching.
 func (f *Formatters) FindResource(resources []mcp.Resource, uri string) *mcp.Resource {
 	for _, resource := range resources {
 		if resource.URI == uri {
@@ -273,7 +516,17 @@ func (f *Formatters) FindResource(resources []mcp.Resource, uri string) *mcp.Res
 	return nil
 }
 
-// FindPrompt finds a prompt by name in the cache
+// FindPrompt searches for a prompt by name in the provided prompt list.
+// This is a utility method for command implementations and internal lookups.
+//
+// Parameters:
+//   - prompts: Slice of prompts to search in
+//   - name: Exact name of the prompt to find
+//
+// Returns:
+//   - Pointer to the found prompt, or nil if not found
+//
+// The search is case-sensitive and requires exact name matching.
 func (f *Formatters) FindPrompt(prompts []mcp.Prompt, name string) *mcp.Prompt {
 	for _, prompt := range prompts {
 		if prompt.Name == name {

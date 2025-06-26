@@ -2,9 +2,20 @@ package agent
 
 import "github.com/mark3labs/mcp-go/mcp"
 
-// showToolDiff displays the differences between old and new tool lists
+// showToolDiff displays the differences between old and new tool lists.
+// This method is called when tool change notifications are received to provide
+// visual feedback about what capabilities have been added or removed from the
+// MCP server. It compares the tool lists by name and categorizes changes as
+// added, removed, or unchanged.
+//
+// The diff output uses color-coded logging:
+//   - Green (✓) for unchanged tools
+//   - Green (+) for newly added tools
+//   - Red (-) for removed tools
+//
+// This method is only called when caching is enabled and a logger is available.
 func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
-	// Create maps for easier comparison
+	// Create maps for easier comparison using tool names as keys
 	oldMap := make(map[string]mcp.Tool)
 	for _, tool := range oldTools {
 		oldMap[tool.Name] = tool
@@ -15,12 +26,12 @@ func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
 		newMap[tool.Name] = tool
 	}
 
-	// Check for changes
+	// Check for changes by comparing tool name presence
 	var added []string
 	var removed []string
 	var unchanged []string
 
-	// Find added and unchanged
+	// Find added and unchanged tools
 	for name := range newMap {
 		if _, exists := oldMap[name]; exists {
 			unchanged = append(unchanged, name)
@@ -29,14 +40,14 @@ func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
 		}
 	}
 
-	// Find removed
+	// Find removed tools
 	for name := range oldMap {
 		if _, exists := newMap[name]; !exists {
 			removed = append(removed, name)
 		}
 	}
 
-	// Display changes
+	// Display changes with appropriate visual indicators
 	if len(added) > 0 || len(removed) > 0 {
 		c.logger.Info("Tool changes detected:")
 		for _, name := range unchanged {
@@ -53,9 +64,20 @@ func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
 	}
 }
 
-// showResourceDiff displays the differences between old and new resource lists
+// showResourceDiff displays the differences between old and new resource lists.
+// This method is called when resource change notifications are received to provide
+// visual feedback about what resources have been added or removed from the
+// MCP server. It compares the resource lists by URI and categorizes changes as
+// added, removed, or unchanged.
+//
+// The diff output uses color-coded logging:
+//   - Green (✓) for unchanged resources
+//   - Green (+) for newly added resources
+//   - Red (-) for removed resources
+//
+// This method is only called when caching is enabled and a logger is available.
 func (c *Client) showResourceDiff(oldResources, newResources []mcp.Resource) {
-	// Create maps for easier comparison
+	// Create maps for easier comparison using resource URIs as keys
 	oldMap := make(map[string]mcp.Resource)
 	for _, resource := range oldResources {
 		oldMap[resource.URI] = resource
@@ -66,12 +88,12 @@ func (c *Client) showResourceDiff(oldResources, newResources []mcp.Resource) {
 		newMap[resource.URI] = resource
 	}
 
-	// Check for changes
+	// Check for changes by comparing resource URI presence
 	var added []string
 	var removed []string
 	var unchanged []string
 
-	// Find added and unchanged
+	// Find added and unchanged resources
 	for uri := range newMap {
 		if _, exists := oldMap[uri]; exists {
 			unchanged = append(unchanged, uri)
@@ -80,14 +102,14 @@ func (c *Client) showResourceDiff(oldResources, newResources []mcp.Resource) {
 		}
 	}
 
-	// Find removed
+	// Find removed resources
 	for uri := range oldMap {
 		if _, exists := newMap[uri]; !exists {
 			removed = append(removed, uri)
 		}
 	}
 
-	// Display changes
+	// Display changes with appropriate visual indicators
 	if len(added) > 0 || len(removed) > 0 {
 		c.logger.Info("Resource changes detected:")
 		for _, uri := range unchanged {
@@ -104,9 +126,20 @@ func (c *Client) showResourceDiff(oldResources, newResources []mcp.Resource) {
 	}
 }
 
-// showPromptDiff displays the differences between old and new prompt lists
+// showPromptDiff displays the differences between old and new prompt lists.
+// This method is called when prompt change notifications are received to provide
+// visual feedback about what prompts have been added or removed from the
+// MCP server. It compares the prompt lists by name and categorizes changes as
+// added, removed, or unchanged.
+//
+// The diff output uses color-coded logging:
+//   - Green (✓) for unchanged prompts
+//   - Green (+) for newly added prompts
+//   - Red (-) for removed prompts
+//
+// This method is only called when caching is enabled and a logger is available.
 func (c *Client) showPromptDiff(oldPrompts, newPrompts []mcp.Prompt) {
-	// Create maps for easier comparison
+	// Create maps for easier comparison using prompt names as keys
 	oldMap := make(map[string]mcp.Prompt)
 	for _, prompt := range oldPrompts {
 		oldMap[prompt.Name] = prompt
@@ -117,12 +150,12 @@ func (c *Client) showPromptDiff(oldPrompts, newPrompts []mcp.Prompt) {
 		newMap[prompt.Name] = prompt
 	}
 
-	// Check for changes
+	// Check for changes by comparing prompt name presence
 	var added []string
 	var removed []string
 	var unchanged []string
 
-	// Find added and unchanged
+	// Find added and unchanged prompts
 	for name := range newMap {
 		if _, exists := oldMap[name]; exists {
 			unchanged = append(unchanged, name)
@@ -131,14 +164,14 @@ func (c *Client) showPromptDiff(oldPrompts, newPrompts []mcp.Prompt) {
 		}
 	}
 
-	// Find removed
+	// Find removed prompts
 	for name := range oldMap {
 		if _, exists := newMap[name]; !exists {
 			removed = append(removed, name)
 		}
 	}
 
-	// Display changes
+	// Display changes with appropriate visual indicators
 	if len(added) > 0 || len(removed) > 0 {
 		c.logger.Info("Prompt changes detected:")
 		for _, name := range unchanged {

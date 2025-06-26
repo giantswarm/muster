@@ -4,26 +4,64 @@ import (
 	"muster/internal/config"
 )
 
-// Config holds the application configuration
+// Config holds the application configuration that controls bootstrap behavior and execution modes.
+// This struct encapsulates all settings needed during application initialization and runtime,
+// including UI preferences, debugging options, safety settings, and configuration loading behavior.
+//
+// The configuration supports both layered and single-path configuration loading strategies:
+//   - Layered: Merges configuration from defaults, user config, and project config
+//   - Single-path: Loads configuration from a specific directory only
+//
+// Field descriptions:
+//   - NoTUI: When true, runs in CLI mode; when false, runs in TUI mode
+//   - Debug: Enables debug-level logging and additional diagnostic output
+//   - Yolo: Enables "you only live once" mode with relaxed safety checks
+//   - ConfigPath: Optional custom configuration directory path
+//   - MusterConfig: Loaded muster configuration (populated during bootstrap)
 type Config struct {
-	// UI mode
+	// NoTUI controls the user interface mode.
+	// true = CLI mode (non-interactive, suitable for automation)
+	// false = TUI mode (interactive terminal interface)
 	NoTUI bool
 
-	// Debug settings
+	// Debug enables debug-level logging and additional diagnostic information.
+	// When enabled, provides verbose output for troubleshooting and development.
 	Debug bool
 
-	// Safety settings
+	// Yolo enables "you only live once" mode with relaxed safety checks.
+	// This setting reduces confirmation prompts and safety validations.
+	// Use with caution in production environments.
 	Yolo bool
 
-	// Custom configuration path (optional)
-	// When set, disables layered configuration loading
+	// ConfigPath specifies a custom configuration directory path.
+	// When set, disables layered configuration loading and loads from this path only.
+	// When empty, uses standard layered configuration loading strategy.
 	ConfigPath string
 
-	// Environment configuration
+	// MusterConfig holds the loaded muster environment configuration.
+	// This field is populated during application bootstrap after configuration loading.
 	MusterConfig *config.MusterConfig
 }
 
-// NewConfig creates a new application configuration
+// NewConfig creates a new application configuration with the specified settings.
+// This is the primary constructor for application configuration, taking all
+// essential runtime parameters needed for application bootstrap and execution.
+//
+// Parameters:
+//   - noTUI: true for CLI mode, false for TUI mode
+//   - debug: enables debug logging and verbose output
+//   - yolo: enables relaxed safety checks and reduced confirmations
+//   - configPath: custom config directory (empty string for default layered loading)
+//
+// Returns a fully initialized Config struct ready for use with NewApplication.
+//
+// Example:
+//
+//	// Standard TUI mode with debug enabled
+//	cfg := app.NewConfig(false, true, false, "")
+//
+//	// CLI mode with custom configuration path
+//	cfg := app.NewConfig(true, false, false, "/opt/muster/config")
 func NewConfig(noTUI, debug, yolo bool, configPath string) *Config {
 	return &Config{
 		NoTUI:      noTUI,

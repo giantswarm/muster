@@ -10,13 +10,27 @@ import (
 	"github.com/jedib0t/go-pretty/v6/text"
 )
 
-// TableFormatter handles table creation and optimization
+// TableFormatter handles table creation and optimization for muster CLI output.
+// It provides intelligent formatting for different types of data structures,
+// automatically optimizing column layouts and applying consistent styling.
+// The formatter can handle both simple arrays and complex nested objects,
+// adapting the display format to provide the best user experience.
 type TableFormatter struct {
+	// options contains formatting preferences and execution settings
 	options ExecutorOptions
+	// builder provides cell-level formatting and styling utilities
 	builder *TableBuilder
 }
 
-// NewTableFormatter creates a new table formatter
+// NewTableFormatter creates a new table formatter with the specified options.
+// The formatter uses the provided options to determine output behavior,
+// including format selection and verbosity settings.
+//
+// Parameters:
+//   - options: Configuration options for formatting behavior
+//
+// Returns:
+//   - *TableFormatter: Configured table formatter ready for use
 func NewTableFormatter(options ExecutorOptions) *TableFormatter {
 	return &TableFormatter{
 		options: options,
@@ -24,7 +38,16 @@ func NewTableFormatter(options ExecutorOptions) *TableFormatter {
 	}
 }
 
-// FormatData formats data according to its type (object or array)
+// FormatData formats data according to its type and structure.
+// It intelligently handles different data types including objects, arrays,
+// and simple values, applying the most appropriate formatting strategy
+// for optimal readability and information density.
+//
+// Parameters:
+//   - data: The data to format (can be object, array, or simple value)
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) FormatData(data interface{}) error {
 	switch d := data.(type) {
 	case map[string]interface{}:
@@ -38,7 +61,15 @@ func (f *TableFormatter) FormatData(data interface{}) error {
 	}
 }
 
-// formatTableFromObject handles object data that might contain arrays
+// formatTableFromObject handles object data that might contain arrays.
+// It looks for common wrapper patterns and extracts array data for table
+// display, or formats the object as key-value pairs if no arrays are found.
+//
+// Parameters:
+//   - data: Object data to format
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) error {
 	// Check for common wrapper patterns like {"services": [...], "total": N}
 	arrayKey := f.findArrayKey(data)
@@ -53,7 +84,15 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 	return f.formatKeyValueTable(data)
 }
 
-// findArrayKey looks for common array keys in wrapped objects
+// findArrayKey looks for common array keys in wrapped objects.
+// Many muster API responses wrap arrays in objects with predictable key names.
+// This function identifies those patterns to extract the relevant data.
+//
+// Parameters:
+//   - data: Object data to search for array keys
+//
+// Returns:
+//   - string: The key name containing array data, or empty string if none found
 func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "capabilities", "items", "results"}
 
@@ -67,7 +106,16 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 	return ""
 }
 
-// formatTableFromArray creates a table from an array of objects
+// formatTableFromArray creates a professional table from an array of objects.
+// It automatically optimizes column selection, applies consistent formatting,
+// sorts data for better readability, and adds summary information with
+// appropriate icons and styling.
+//
+// Parameters:
+//   - data: Array of objects to display as a table
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	if len(data) == 0 {
 		fmt.Printf("%s %s\n",
@@ -125,7 +173,17 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	return nil
 }
 
-// optimizeColumns determines the best columns to show based on the data type
+// optimizeColumns determines the best columns to show based on the data type.
+// It analyzes the data structure and selects the most relevant columns for
+// display, prioritizing key fields and limiting the total number of columns
+// to prevent layout issues. Different resource types get specialized column
+// selection logic.
+//
+// Parameters:
+//   - sample: Sample data object used to determine available columns
+//
+// Returns:
+//   - []string: Optimized list of column names for table display
 func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string {
 	// Extract all available keys
 	var allKeys []string
@@ -186,7 +244,15 @@ func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string
 	return columns
 }
 
-// detectResourceType attempts to determine what type of resource this is
+// detectResourceType attempts to determine what type of muster resource this is.
+// It analyzes the object structure and field names to identify the resource
+// type, which is used for specialized formatting and column optimization.
+//
+// Parameters:
+//   - sample: Sample data object to analyze
+//
+// Returns:
+//   - string: Detected resource type (services, workflows, etc.) or "generic"
 func (f *TableFormatter) detectResourceType(sample map[string]interface{}) string {
 	// Look for distinctive fields
 	if f.keyExists(sample, "health") && f.keyExists(sample, "service_type") {
@@ -212,7 +278,15 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 	return "generic"
 }
 
-// formatKeyValueTable formats an object as key-value pairs
+// formatKeyValueTable formats an object as key-value pairs.
+// This is used for single objects or complex data that doesn't fit well
+// in array-based tables. It provides a clean property-value layout.
+//
+// Parameters:
+//   - data: Object data to format as key-value pairs
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error {
 	// Check if this is workflow data and handle it specially
 	if f.isWorkflowData(data) {
@@ -246,7 +320,15 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	return nil
 }
 
-// isWorkflowData checks if the data represents a workflow
+// isWorkflowData checks if the data represents a workflow.
+// It analyzes the object structure to identify workflow-specific patterns
+// and fields, enabling specialized formatting for workflow data.
+//
+// Parameters:
+//   - data: Object data to check for workflow characteristics
+//
+// Returns:
+//   - bool: true if the data appears to be workflow-related
 func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
 	// Check for workflow-specific fields
 	if _, hasWorkflow := data["workflow"]; hasWorkflow {
@@ -261,7 +343,15 @@ func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
 	return hasName && (hasSteps || hasInputSchema)
 }
 
-// formatWorkflowDetails provides a clean, readable format for workflow data
+// formatWorkflowDetails provides a clean, readable format for workflow data.
+// It creates a specialized layout for workflows, showing basic information,
+// input parameters, and workflow steps in an organized and readable format.
+//
+// Parameters:
+//   - data: Workflow data to format
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) error {
 	// Extract workflow data from the "workflow" field if it exists
 	var workflowData map[string]interface{}
@@ -304,7 +394,12 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 	return nil
 }
 
-// displayWorkflowInputs shows the input parameters in a readable format
+// displayWorkflowInputs shows the input parameters in a readable format.
+// It extracts input schema information and displays parameter details
+// including types, descriptions, and requirement status in a structured table.
+//
+// Parameters:
+//   - workflowData: Workflow data containing input schema information
 func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface{}) {
 	inputSchemaFields := []string{"InputSchema", "inputSchema", "inputs", "parameters"}
 
@@ -393,7 +488,12 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 	}
 }
 
-// displayWorkflowSteps shows the workflow steps in a readable format
+// displayWorkflowSteps shows the workflow steps in a readable format.
+// It extracts workflow steps and displays them in a sequential table
+// showing step numbers, tools used, and descriptions for easy understanding.
+//
+// Parameters:
+//   - workflowData: Workflow data containing steps information
 func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{}) {
 	stepsFields := []string{"Steps", "steps", "actions"}
 
@@ -455,7 +555,15 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 	t.Render()
 }
 
-// formatSimpleList formats an array of simple values
+// formatSimpleList formats an array of simple values.
+// This handles arrays that contain primitive values rather than objects,
+// displaying each value on a separate line.
+//
+// Parameters:
+//   - data: Array of simple values to display
+//
+// Returns:
+//   - error: Formatting error, if any
 func (f *TableFormatter) formatSimpleList(data []interface{}) error {
 	for _, item := range data {
 		fmt.Println(item)
@@ -464,11 +572,30 @@ func (f *TableFormatter) formatSimpleList(data []interface{}) error {
 }
 
 // Helper methods
+
+// keyExists checks if a key exists in a map.
+// This is a utility function used throughout the formatter for safe key access.
+//
+// Parameters:
+//   - data: Map to check for key existence
+//   - key: Key name to look for
+//
+// Returns:
+//   - bool: true if the key exists in the map
 func (f *TableFormatter) keyExists(data map[string]interface{}, key string) bool {
 	_, exists := data[key]
 	return exists
 }
 
+// getRemainingKeys returns keys that haven't been used yet.
+// This helps in column optimization by identifying available but unused columns.
+//
+// Parameters:
+//   - allKeys: Complete list of available keys
+//   - usedKeys: Keys that have already been selected
+//
+// Returns:
+//   - []string: List of remaining unused keys
 func (f *TableFormatter) getRemainingKeys(allKeys, usedKeys []string) []string {
 	usedSet := make(map[string]bool)
 	for _, key := range usedKeys {
@@ -484,6 +611,15 @@ func (f *TableFormatter) getRemainingKeys(allKeys, usedKeys []string) []string {
 	return remaining
 }
 
+// containsString checks if a string slice contains a specific item.
+// This is a utility function for string slice operations.
+//
+// Parameters:
+//   - slice: String slice to search in
+//   - item: Item to look for
+//
+// Returns:
+//   - bool: true if the item is found in the slice
 func (f *TableFormatter) containsString(slice []string, item string) bool {
 	for _, i := range slice {
 		if i == item {
@@ -493,6 +629,14 @@ func (f *TableFormatter) containsString(slice []string, item string) bool {
 	return false
 }
 
+// min returns the smaller of two integers.
+// This is a utility function for integer comparisons.
+//
+// Parameters:
+//   - a, b: Integers to compare
+//
+// Returns:
+//   - int: The smaller of the two values
 func (f *TableFormatter) min(a, b int) int {
 	if a < b {
 		return a

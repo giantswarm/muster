@@ -14,14 +14,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ConfigAdapter adapts the config system to implement api.ConfigHandler
+// ConfigAdapter adapts the config system to implement api.ConfigHandler.
+// It provides a thread-safe interface for reading and updating muster configuration
+// and serves as the bridge between the application layer and the API system.
 type ConfigAdapter struct {
 	config     *config.MusterConfig
 	configPath string
 	mu         sync.RWMutex
 }
 
-// NewConfigAdapter creates a new config adapter
+// NewConfigAdapter creates a new config adapter instance.
+// The configPath parameter specifies where to save configuration changes.
+// If empty, the adapter will auto-detect an appropriate path.
 func NewConfigAdapter(cfg *config.MusterConfig, configPath string) *ConfigAdapter {
 	return &ConfigAdapter{
 		config:     cfg,
@@ -29,12 +33,15 @@ func NewConfigAdapter(cfg *config.MusterConfig, configPath string) *ConfigAdapte
 	}
 }
 
-// Register registers the adapter with the API
+// Register registers the adapter with the API layer.
+// This must be called during application initialization to make the config
+// handler available to other components through the API system.
 func (a *ConfigAdapter) Register() {
 	api.RegisterConfig(a)
 }
 
-// Get configuration
+// GetConfig returns the current muster configuration.
+// This method is thread-safe and returns a copy of the configuration.
 func (a *ConfigAdapter) GetConfig(ctx context.Context) (*config.MusterConfig, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -45,6 +52,7 @@ func (a *ConfigAdapter) GetConfig(ctx context.Context) (*config.MusterConfig, er
 	return a.config, nil
 }
 
+// GetAggregatorConfig returns the aggregator-specific configuration section.
 func (a *ConfigAdapter) GetAggregatorConfig(ctx context.Context) (*config.AggregatorConfig, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -55,6 +63,7 @@ func (a *ConfigAdapter) GetAggregatorConfig(ctx context.Context) (*config.Aggreg
 	return &a.config.Aggregator, nil
 }
 
+// GetGlobalSettings returns the global settings section of the configuration.
 func (a *ConfigAdapter) GetGlobalSettings(ctx context.Context) (*config.GlobalSettings, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -65,7 +74,8 @@ func (a *ConfigAdapter) GetGlobalSettings(ctx context.Context) (*config.GlobalSe
 	return &a.config.GlobalSettings, nil
 }
 
-// Update configuration
+// UpdateAggregatorConfig updates the aggregator configuration section.
+// Changes are immediately saved to disk if a valid config path is available.
 func (a *ConfigAdapter) UpdateAggregatorConfig(ctx context.Context, aggregator config.AggregatorConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -78,6 +88,8 @@ func (a *ConfigAdapter) UpdateAggregatorConfig(ctx context.Context, aggregator c
 	return a.saveConfig()
 }
 
+// UpdateGlobalSettings updates the global settings section of the configuration.
+// Changes are immediately saved to disk if a valid config path is available.
 func (a *ConfigAdapter) UpdateGlobalSettings(ctx context.Context, settings config.GlobalSettings) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -90,12 +102,15 @@ func (a *ConfigAdapter) UpdateGlobalSettings(ctx context.Context, settings confi
 	return a.saveConfig()
 }
 
-// Save configuration
+// SaveConfig persists the current configuration to disk.
+// If no config path was specified during creation, it attempts to auto-detect
+// an appropriate location (project directory first, then user directory).
 func (a *ConfigAdapter) SaveConfig(ctx context.Context) error {
 	return a.saveConfig()
 }
 
-// ReloadConfig reloads the configuration from disk
+// ReloadConfig reloads the configuration from disk using the centralized loader.
+// This replaces the current in-memory configuration with the version from disk.
 func (a *ConfigAdapter) ReloadConfig(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -110,7 +125,8 @@ func (a *ConfigAdapter) ReloadConfig(ctx context.Context) error {
 	return nil
 }
 
-// GetTools returns all tools this provider offers
+// GetTools returns metadata for all configuration management tools provided by this adapter.
+// These tools are exposed through the MCP aggregator for external clients.
 func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
@@ -160,7 +176,8 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 	}
 }
 
-// ExecuteTool executes a tool by name
+// ExecuteTool executes a configuration management tool by name with the provided arguments.
+// This is the main entry point for MCP clients to interact with configuration.
 func (a *ConfigAdapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {
 	case "config_get":
@@ -182,7 +199,11 @@ func (a *ConfigAdapter) ExecuteTool(ctx context.Context, toolName string, args m
 	}
 }
 
-// Helper to save configuration
+// saveConfig is an internal helper that persists the current configuration to disk.
+// It automatically determines the config file path if not already set, preferring
+// project-local configuration (./.muster/config.yaml) over user configuration
+// (~/.config/muster/config.yaml). The method creates necessary directories
+// and handles YAML marshaling with appropriate file permissions.
 func (a *ConfigAdapter) saveConfig() error {
 	if a.configPath == "" {
 		// Try to determine the config path - check project dir first, then user dir
@@ -226,7 +247,8 @@ func (a *ConfigAdapter) saveConfig() error {
 	return nil
 }
 
-// Helper functions to get config paths
+// getUserConfigPath returns the path to the user's configuration file.
+// The path follows the XDG Base Directory specification: ~/.config/muster/config.yaml
 func getUserConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -235,6 +257,8 @@ func getUserConfigPath() (string, error) {
 	return filepath.Join(homeDir, ".config", "muster", "config.yaml"), nil
 }
 
+// getProjectConfigPath returns the path to the project's configuration file.
+// The path is relative to the current working directory: ./.muster/config.yaml
 func getProjectConfigPath() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -243,7 +267,10 @@ func getProjectConfigPath() (string, error) {
 	return filepath.Join(wd, ".muster", "config.yaml"), nil
 }
 
-// Handler implementations
+// Handler implementations for MCP tool execution
+
+// handleConfigGet handles the 'config_get' tool call.
+// Returns the complete muster configuration as a tool result.
 func (a *ConfigAdapter) handleConfigGet(ctx context.Context) (*api.CallToolResult, error) {
 	cfg, err := a.GetConfig(ctx)
 	if err != nil {
@@ -259,6 +286,8 @@ func (a *ConfigAdapter) handleConfigGet(ctx context.Context) (*api.CallToolResul
 	}, nil
 }
 
+// handleConfigGetAggregator handles the 'config_get_aggregator' tool call.
+// Returns only the aggregator configuration section as a tool result.
 func (a *ConfigAdapter) handleConfigGetAggregator(ctx context.Context) (*api.CallToolResult, error) {
 	aggregator, err := a.GetAggregatorConfig(ctx)
 	if err != nil {
@@ -274,6 +303,8 @@ func (a *ConfigAdapter) handleConfigGetAggregator(ctx context.Context) (*api.Cal
 	}, nil
 }
 
+// handleConfigGetGlobalSettings handles the 'config_get_global_settings' tool call.
+// Returns only the global settings configuration section as a tool result.
 func (a *ConfigAdapter) handleConfigGetGlobalSettings(ctx context.Context) (*api.CallToolResult, error) {
 	settings, err := a.GetGlobalSettings(ctx)
 	if err != nil {
@@ -289,7 +320,8 @@ func (a *ConfigAdapter) handleConfigGetGlobalSettings(ctx context.Context) (*api
 	}, nil
 }
 
-// Update handlers
+// handleConfigUpdateAggregator handles the 'config_update_aggregator' tool call.
+// Updates the aggregator configuration section and persists changes to disk.
 func (a *ConfigAdapter) handleConfigUpdateAggregator(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	aggregatorData, ok := args["aggregator"]
 	if !ok {
@@ -321,6 +353,8 @@ func (a *ConfigAdapter) handleConfigUpdateAggregator(ctx context.Context, args m
 	}, nil
 }
 
+// handleConfigUpdateGlobalSettings handles the 'config_update_global_settings' tool call.
+// Updates the global settings configuration section and persists changes to disk.
 func (a *ConfigAdapter) handleConfigUpdateGlobalSettings(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	settingsData, ok := args["settings"]
 	if !ok {
@@ -352,6 +386,8 @@ func (a *ConfigAdapter) handleConfigUpdateGlobalSettings(ctx context.Context, ar
 	}, nil
 }
 
+// handleConfigSave handles the 'config_save' tool call.
+// Explicitly saves the current configuration to disk.
 func (a *ConfigAdapter) handleConfigSave(ctx context.Context) (*api.CallToolResult, error) {
 	err := a.SaveConfig(ctx)
 	if err != nil {
@@ -365,6 +401,8 @@ func (a *ConfigAdapter) handleConfigSave(ctx context.Context) (*api.CallToolResu
 	}, nil
 }
 
+// handleConfigReload handles the 'config_reload' tool call.
+// Reloads configuration from disk and triggers definition reloads for other components.
 func (a *ConfigAdapter) handleConfigReload(ctx context.Context) (*api.CallToolResult, error) {
 	// Reload main configuration
 	if err := a.ReloadConfig(ctx); err != nil {
@@ -396,7 +434,9 @@ func (a *ConfigAdapter) handleConfigReload(ctx context.Context) (*api.CallToolRe
 	}, nil
 }
 
-// Helper function to convert interface{} to struct
+// convertToStruct converts interface{} data to a target struct using JSON marshaling.
+// This is used internally to convert tool arguments from generic interface{} types
+// to specific configuration structs.
 func convertToStruct(data interface{}, target interface{}) error {
 	// For simplicity, we'll use JSON marshaling/unmarshaling
 	// In production, you might want a more efficient approach
