@@ -188,7 +188,7 @@ func (m *MCPServer) registerTools() {
 
 	// Filter tools
 	filterToolsTool := mcp.NewTool("filter_tools",
-		mcp.WithDescription("Filter available tools based on name patterns or descriptions"),
+		mcp.WithDescription("Filter available tools based on name patterns or descriptions with full specifications"),
 		mcp.WithString("pattern",
 			mcp.Description("Pattern to match against tool names (supports wildcards like *)"),
 		),
@@ -197,6 +197,9 @@ func (m *MCPServer) registerTools() {
 		),
 		mcp.WithBoolean("case_sensitive",
 			mcp.Description("Whether pattern matching should be case-sensitive (default: false)"),
+		),
+		mcp.WithBoolean("include_schema",
+			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
 		),
 	)
 	m.mcpServer.AddTool(filterToolsTool, m.handleFilterTools)

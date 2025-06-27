@@ -33,7 +33,7 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 
 	// Get pattern and description filter from args
 	var pattern, descriptionFilter string
-	var caseSensitive bool
+	var caseSensitive, brief bool
 
 	if len(parsed) > 1 {
 		pattern = parsed[1]
@@ -44,12 +44,15 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 	if len(parsed) > 3 {
 		caseSensitive = strings.ToLower(parsed[3]) == "true"
 	}
+	if len(parsed) > 4 {
+		brief = strings.ToLower(parsed[4]) == "true"
+	}
 
-	return f.filterTools(pattern, descriptionFilter, caseSensitive)
+	return f.filterTools(pattern, descriptionFilter, caseSensitive, brief)
 }
 
 // filterTools filters tools by pattern and description
-func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool) error {
+func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool, brief bool) error {
 	tools := f.client.GetToolCache()
 	if len(tools) == 0 {
 		f.output.OutputLine("No tools available to filter")
@@ -85,10 +88,24 @@ func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensi
 		return nil
 	}
 
-	// Display matching tools
-	f.output.OutputLine("\nMatching tools:")
-	for i, tool := range filteredTools {
-		f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+	// Display matching tools with full specifications by default
+	if brief {
+		// Brief mode - show simple list like before
+		f.output.OutputLine("\nMatching tools:")
+		for i, tool := range filteredTools {
+			f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+		}
+	} else {
+		// Detailed mode - show full specifications (new default)
+		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
+		f.output.OutputLine(strings.Repeat("=", 60))
+
+		for i, tool := range filteredTools {
+			f.output.OutputLine("\n%d. %s", i+1, f.getFormatters().FormatToolDetail(tool))
+			if i < len(filteredTools)-1 {
+				f.output.OutputLine(strings.Repeat("-", 40))
+			}
+		}
 	}
 
 	return nil
@@ -134,12 +151,12 @@ func (f *FilterCommand) containsDescription(description, filter string, caseSens
 
 // Usage returns the usage string
 func (f *FilterCommand) Usage() string {
-	return "filter tools [pattern] [description-filter] [case-sensitive]"
+	return "filter tools [pattern] [description-filter] [case-sensitive] [brief]"
 }
 
 // Description returns the command description
 func (f *FilterCommand) Description() string {
-	return "Filter tools by name pattern or description"
+	return "Filter tools by name pattern or description with full specifications"
 }
 
 // Completions returns possible completions

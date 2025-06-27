@@ -53,7 +53,7 @@ func (h *HelpCommand) showGeneralHelp() {
 	h.output.OutputLine("  list resources               - List all available resources")
 	h.output.OutputLine("  list prompts                 - List all available prompts")
 	h.output.OutputLine("  list core-tools              - List core muster tools (built-in functionality)")
-	h.output.OutputLine("  filter tools [pattern] [desc] - Filter tools by name pattern or description")
+	h.output.OutputLine("  filter tools [pattern] [desc] [case] [brief] - Filter tools with full specifications")
 	h.output.OutputLine("  describe tool <name>         - Show detailed information about a tool")
 	h.output.OutputLine("  describe resource <uri>      - Show detailed information about a resource")
 	h.output.OutputLine("  describe prompt <name>       - Show detailed information about a prompt")
