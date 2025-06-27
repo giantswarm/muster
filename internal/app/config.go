@@ -37,7 +37,6 @@ type Config struct {
 	MusterConfig *config.MusterConfig
 }
 
-
 // NewConfig creates a new application configuration with the specified settings.
 // This is the primary constructor for application configuration, taking all
 // essential runtime parameters needed for application bootstrap and execution.

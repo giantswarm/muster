@@ -10,16 +10,16 @@ import (
 
 // Windows API constants
 const (
-	PROCESS_TERMINATE = 0x0001
+	PROCESS_TERMINATE         = 0x0001
 	PROCESS_QUERY_INFORMATION = 0x0400
 )
 
 // Windows API functions
 var (
-	kernel32 = syscall.NewLazyDLL("kernel32.dll")
-	procOpenProcess = kernel32.NewProc("OpenProcess")
+	kernel32             = syscall.NewLazyDLL("kernel32.dll")
+	procOpenProcess      = kernel32.NewProc("OpenProcess")
 	procTerminateProcess = kernel32.NewProc("TerminateProcess")
-	procCloseHandle = kernel32.NewProc("CloseHandle")
+	procCloseHandle      = kernel32.NewProc("CloseHandle")
 )
 
 // configureProcAttr configures the process attributes for Windows
@@ -47,7 +47,7 @@ func (m *musterInstanceManager) killProcessGroup(pid int, sig syscall.Signal) er
 		uintptr(0), // bInheritHandle = FALSE
 		uintptr(pid),
 	)
-	
+
 	if handle == 0 {
 		return fmt.Errorf("failed to open process %d: %v", pid, err)
 	}
@@ -63,4 +63,4 @@ func (m *musterInstanceManager) killProcessGroup(pid int, sig syscall.Signal) er
 	}
 
 	return nil
-} 
+}

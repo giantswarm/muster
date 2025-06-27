@@ -302,8 +302,6 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 	}
 }
 
-
-
 // WaitForReady waits for an instance to be ready to accept connections and has all expected resources available
 func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *MusterInstance) error {
 	if m.debug {

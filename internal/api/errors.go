@@ -91,7 +91,7 @@ func NewNotFoundError(resourceType, resourceName string) *NotFoundError {
 //
 // Example:
 //
-//	return api.NewNotFoundErrorWithMessage("service", "database", 
+//	return api.NewNotFoundErrorWithMessage("service", "database",
 //	    "database service is not available in this environment")
 func NewNotFoundErrorWithMessage(resourceType, resourceName, message string) *NotFoundError {
 	return &NotFoundError{

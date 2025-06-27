@@ -15,20 +15,41 @@ import (
 //   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
 //   - error: Always nil (kept for future compatibility)
 func DetectAggregatorEndpoint() (string, error) {
-	// Load configuration to get aggregator settings
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		// Use default if config cannot be loaded
-		endpoint := "http://localhost:8090/mcp"
-		return endpoint, nil
+	return DetectAggregatorEndpointWithConfig(nil)
+}
+
+// DetectAggregatorEndpointWithConfig detects and returns the aggregator endpoint URL from configuration.
+// If cfg is provided, it uses that configuration; otherwise it loads the configuration from the system.
+// This function is designed to be testable by accepting a configuration parameter.
+//
+// Parameters:
+//   - cfg: Optional configuration to use. If nil, loads from system
+//
+// Returns:
+//   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
+//   - error: Always nil (kept for future compatibility)
+func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error) {
+	var actualCfg config.MusterConfig
+	var err error
+
+	if cfg != nil {
+		actualCfg = *cfg
+	} else {
+		// Load configuration to get aggregator settings
+		actualCfg, err = config.LoadConfig()
+		if err != nil {
+			// Use default if config cannot be loaded
+			endpoint := "http://localhost:8090/mcp"
+			return endpoint, nil
+		}
 	}
 
 	// Build endpoint from config
-	host := cfg.Aggregator.Host
+	host := actualCfg.Aggregator.Host
 	if host == "" {
 		host = "localhost"
 	}
-	port := cfg.Aggregator.Port
+	port := actualCfg.Aggregator.Port
 	if port == 0 {
 		port = 8090
 	}

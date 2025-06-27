@@ -62,13 +62,13 @@ type MCPClient interface {
 type ServerInfo struct {
 	// Name is the unique identifier for this server within the aggregator
 	Name string
-	
+
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient
-	
+
 	// LastUpdate tracks when the server information was last refreshed
 	LastUpdate time.Time
-	
+
 	// ToolPrefix is the configured prefix for tools from this server.
 	// This is used for name collision resolution.
 	ToolPrefix string
@@ -132,23 +132,23 @@ func (s *ServerInfo) IsConnected() bool {
 type AggregatorConfig struct {
 	// Port specifies the port number to listen on for the aggregated MCP endpoint
 	Port int
-	
+
 	// Host specifies the host address to bind to (default: localhost)
 	Host string
-	
+
 	// Transport defines the protocol to use for MCP communication.
 	// Supported values: "sse", "streamable-http", "stdio"
 	Transport string
-	
+
 	// Yolo disables the security denylist for destructive tools.
 	// When true, all tools are allowed regardless of their destructive nature.
 	// This should only be enabled in development environments.
 	Yolo bool
-	
+
 	// ConfigDir is the user configuration directory for workflows and other configs.
 	// This is used to load workflow definitions and make them available as tools.
 	ConfigDir string
-	
+
 	// MusterPrefix is the global prefix applied to all aggregated tools.
 	// This helps distinguish muster tools from other MCP tools in mixed environments.
 	// Default value is "x".
@@ -161,10 +161,10 @@ type AggregatorConfig struct {
 type RegistrationEvent struct {
 	// Type indicates whether this is a registration or deregistration event
 	Type EventType
-	
+
 	// ServerName is the unique identifier of the server involved in the event
 	ServerName string
-	
+
 	// Client is the MCP client associated with the server (may be nil for deregistration)
 	Client MCPClient
 }
@@ -176,7 +176,7 @@ type EventType int
 const (
 	// EventRegister indicates a server is being registered with the aggregator
 	EventRegister EventType = iota
-	
+
 	// EventDeregister indicates a server is being removed from the aggregator
 	EventDeregister
 )
@@ -187,7 +187,7 @@ const (
 type ToolWithStatus struct {
 	// Tool contains the MCP tool definition
 	Tool mcp.Tool
-	
+
 	// Blocked indicates whether this tool is blocked by the security denylist.
 	// Blocked tools cannot be executed unless the Yolo flag is enabled.
 	Blocked bool

@@ -56,14 +56,14 @@ func TestPrettyJSONWithInvalidData(t *testing.T) {
 	// Test with data that can't be marshaled (like a channel)
 	ch := make(chan int)
 	result := PrettyJSON(ch)
-	
+
 	// Should fallback to fmt.Sprintf format
 	if result == "" {
 		t.Error("PrettyJSON() should not return empty string for invalid data")
 	}
-	
+
 	// Should contain some representation of the channel
 	if len(result) < 5 {
 		t.Error("PrettyJSON() fallback should provide meaningful output")
 	}
-} 
+}
