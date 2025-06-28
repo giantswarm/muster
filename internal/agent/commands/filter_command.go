@@ -33,7 +33,7 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 
 	// Get pattern and description filter from args
 	var pattern, descriptionFilter string
-	var caseSensitive, brief bool
+	var caseSensitive, detailed bool
 
 	if len(parsed) > 1 {
 		pattern = parsed[1]
@@ -45,14 +45,14 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		caseSensitive = strings.ToLower(parsed[3]) == "true"
 	}
 	if len(parsed) > 4 {
-		brief = strings.ToLower(parsed[4]) == "true"
+		detailed = strings.ToLower(parsed[4]) == "true"
 	}
 
-	return f.filterTools(pattern, descriptionFilter, caseSensitive, brief)
+	return f.filterTools(pattern, descriptionFilter, caseSensitive, detailed)
 }
 
 // filterTools filters tools by pattern and description
-func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool, brief bool) error {
+func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
 	tools := f.client.GetToolCache()
 	if len(tools) == 0 {
 		f.output.OutputLine("No tools available to filter")
@@ -88,15 +88,9 @@ func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensi
 		return nil
 	}
 
-	// Display matching tools with full specifications by default
-	if brief {
-		// Brief mode - show simple list like before
-		f.output.OutputLine("\nMatching tools:")
-		for i, tool := range filteredTools {
-			f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
-		}
-	} else {
-		// Detailed mode - show full specifications (new default)
+	// Display matching tools - brief mode by default for better CLI UX
+	if detailed {
+		// Detailed mode - show full specifications (optional)
 		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
 		f.output.OutputLine(strings.Repeat("=", 60))
 
@@ -105,6 +99,12 @@ func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensi
 			if i < len(filteredTools)-1 {
 				f.output.OutputLine(strings.Repeat("-", 40))
 			}
+		}
+	} else {
+		// Brief mode - show simple list (default for good CLI UX)
+		f.output.OutputLine("\nMatching tools:")
+		for i, tool := range filteredTools {
+			f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
 		}
 	}
 
@@ -151,12 +151,12 @@ func (f *FilterCommand) containsDescription(description, filter string, caseSens
 
 // Usage returns the usage string
 func (f *FilterCommand) Usage() string {
-	return "filter tools [pattern] [description-filter] [case-sensitive] [brief]"
+	return "filter tools [pattern] [description-filter] [case-sensitive] [detailed]"
 }
 
 // Description returns the command description
 func (f *FilterCommand) Description() string {
-	return "Filter tools by name pattern or description with full specifications"
+	return "Filter tools by name pattern or description"
 }
 
 // Completions returns possible completions
