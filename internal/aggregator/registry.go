@@ -55,11 +55,11 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 // Register adds a new MCP server to the registry and initializes its capabilities.
 //
 // This method performs the following operations:
-//   1. Validates that the server name is not already in use
-//   2. Initializes the MCP client if needed
-//   3. Queries the server for its initial capabilities
-//   4. Stores the server information and updates the name tracker
-//   5. Notifies subscribers of the registry update
+//  1. Validates that the server name is not already in use
+//  2. Initializes the MCP client if needed
+//  3. Queries the server for its initial capabilities
+//  4. Stores the server information and updates the name tracker
+//  5. Notifies subscribers of the registry update
 //
 // The method is thread-safe and can be called concurrently.
 //

@@ -23,10 +23,10 @@ import (
 // The handler operates asynchronously and is designed to be resilient to temporary
 // failures in the registration process.
 type EventHandler struct {
-	orchestratorAPI api.OrchestratorAPI // Interface for receiving service events
+	orchestratorAPI api.OrchestratorAPI                 // Interface for receiving service events
 	registerFunc    func(context.Context, string) error // Callback for server registration
 	deregisterFunc  func(string) error                  // Callback for server deregistration
-	
+
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
 	cancelFunc context.CancelFunc // Function to cancel the context

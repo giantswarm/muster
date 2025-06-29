@@ -37,8 +37,8 @@ import (
 // All public methods are thread-safe and can be called concurrently. Internal state
 // is protected by appropriate synchronization mechanisms.
 type AggregatorServer struct {
-	config   AggregatorConfig // Configuration parameters for the aggregator
-	registry *ServerRegistry  // Registry of backend MCP servers
+	config   AggregatorConfig  // Configuration parameters for the aggregator
+	registry *ServerRegistry   // Registry of backend MCP servers
 	server   *server.MCPServer // Core MCP server implementation
 
 	// Transport-specific server instances for different communication protocols
@@ -88,12 +88,12 @@ func NewAggregatorServer(aggConfig AggregatorConfig) *AggregatorServer {
 // Start initializes and starts the aggregator server with all configured transports.
 //
 // This method performs a comprehensive startup sequence:
-//   1. Creates and configures the core MCP server with full capabilities
-//   2. Initializes workflow adapter if config directory is provided
-//   3. Starts background monitoring of registry updates
-//   4. Subscribes to tool update events from other muster components
-//   5. Performs initial capability discovery and registration
-//   6. Starts the appropriate transport server(s) based on configuration
+//  1. Creates and configures the core MCP server with full capabilities
+//  2. Initializes workflow adapter if config directory is provided
+//  3. Starts background monitoring of registry updates
+//  4. Subscribes to tool update events from other muster components
+//  5. Performs initial capability discovery and registration
+//  6. Starts the appropriate transport server(s) based on configuration
 //
 // Transport Support:
 //   - SSE: Server-Sent Events with HTTP endpoints (/sse, /message)
@@ -121,9 +121,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	mcpServer := server.NewMCPServer(
 		"muster-aggregator",
 		"1.0.0",
-		server.WithToolCapabilities(true),                  // Enable tool execution
-		server.WithResourceCapabilities(true, true),        // Enable resources with subscribe and listChanged
-		server.WithPromptCapabilities(true),                // Enable prompt retrieval
+		server.WithToolCapabilities(true), // Enable tool execution
+		server.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
+		server.WithPromptCapabilities(true),         // Enable prompt retrieval
 	)
 
 	a.server = mcpServer
@@ -165,10 +165,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		a.sseServer = server.NewSSEServer(
 			a.server,
 			server.WithBaseURL(baseURL),
-			server.WithSSEEndpoint("/sse"),                    // Main SSE endpoint for events
-			server.WithMessageEndpoint("/message"),            // Endpoint for sending messages
-			server.WithKeepAlive(true),                        // Enable keep-alive for connection stability
-			server.WithKeepAliveInterval(30*time.Second),      // Keep-alive interval
+			server.WithSSEEndpoint("/sse"),               // Main SSE endpoint for events
+			server.WithMessageEndpoint("/message"),       // Endpoint for sending messages
+			server.WithKeepAlive(true),                   // Enable keep-alive for connection stability
+			server.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
 		)
 		sseServer := a.sseServer
 		if sseServer != nil {
@@ -214,11 +214,11 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 // Stop gracefully shuts down the aggregator server and all its components.
 //
 // This method performs a coordinated shutdown sequence:
-//   1. Cancels the context to signal shutdown to all background routines
-//   2. Shuts down all transport servers with a timeout
-//   3. Waits for background routines to complete
-//   4. Deregisters all backend servers to clean up connections
-//   5. Resets internal state to allow for restart
+//  1. Cancels the context to signal shutdown to all background routines
+//  2. Shuts down all transport servers with a timeout
+//  3. Waits for background routines to complete
+//  4. Deregisters all backend servers to clean up connections
+//  5. Resets internal state to allow for restart
 //
 // The shutdown process includes:
 //   - Graceful shutdown of HTTP-based transports with a 5-second timeout
@@ -398,11 +398,11 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 // updateCapabilities performs a comprehensive update of the aggregator's exposed capabilities.
 //
 // This method is the core of the aggregator's dynamic capability management. It:
-//   1. Collects all available items from backend servers and core providers
-//   2. Removes capabilities that are no longer available (cleanup)
-//   3. Adds new capabilities that have become available
-//   4. Updates the MCP server's advertised capabilities
-//   5. Publishes events to notify dependent components
+//  1. Collects all available items from backend servers and core providers
+//  2. Removes capabilities that are no longer available (cleanup)
+//  3. Adds new capabilities that have become available
+//  4. Updates the MCP server's advertised capabilities
+//  5. Publishes events to notify dependent components
 //
 // The update process is designed to be efficient and minimize disruption to active
 // connections. Items are added and removed in batches where possible, and the
@@ -722,9 +722,9 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - Core tools from muster components (called directly through providers)
 //
 // The method performs intelligent tool resolution:
-//   1. First attempts to resolve the tool through the server registry
-//   2. If not found, checks if it's a core tool from muster components
-//   3. Routes the call to the appropriate handler based on tool type
+//  1. First attempts to resolve the tool through the server registry
+//  2. If not found, checks if it's a core tool from muster components
+//  3. Routes the call to the appropriate handler based on tool type
 //
 // This internal calling mechanism is essential for:
 //   - Inter-component communication within muster
@@ -790,7 +790,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 //
 // Tool Routing Logic:
 //   - workflow_*: Routed to the workflow manager for workflow operations
-//   - capability_*, api_*: Routed to the capability manager for capability operations  
+//   - capability_*, api_*: Routed to the capability manager for capability operations
 //   - service_*: Routed to the service manager for service lifecycle operations
 //   - config_*: Routed to the config manager for configuration operations
 //   - serviceclass_*: Routed to the service class manager for service class operations
@@ -808,7 +808,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 // no appropriate handler is found or execution fails.
 func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	logging.Debug("Aggregator", "callCoreToolDirectly called for tool: %s", toolName)
-	
+
 	// Remove the core_ prefix to get the original tool name for routing
 	originalToolName := strings.TrimPrefix(toolName, "core_")
 	logging.Debug("Aggregator", "Original tool name after prefix removal: %s", originalToolName)
@@ -934,9 +934,9 @@ func (a *AggregatorServer) createWorkflowAdapter() interface {
 // verify tool availability before attempting to use them.
 //
 // The check process:
-//   1. Attempts to resolve the tool through the server registry
-//   2. If not found, checks the current core tool inventory
-//   3. Returns true if found in either location
+//  1. Attempts to resolve the tool through the server registry
+//  2. If not found, checks the current core tool inventory
+//  3. Returns true if found in either location
 //
 // This method is used by:
 //   - Workflow manager for validating workflow step tools
@@ -974,10 +974,10 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 // other muster components.
 //
 // The aggregation process:
-//   1. Collects all tools from registered backend servers via the registry
-//   2. Collects all core tools from muster component providers
-//   3. Combines both lists into a unified tool inventory
-//   4. Returns tool names (with appropriate prefixing applied)
+//  1. Collects all tools from registered backend servers via the registry
+//  2. Collects all core tools from muster component providers
+//  3. Combines both lists into a unified tool inventory
+//  4. Returns tool names (with appropriate prefixing applied)
 //
 // This method is used by:
 //   - Workflow manager for populating available tool lists

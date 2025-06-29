@@ -123,4 +123,3 @@ func (f *ConsoleFormatter) SetOptions(options Options) {
 func (f *ConsoleFormatter) GetOptions() Options {
 	return f.options
 }
-

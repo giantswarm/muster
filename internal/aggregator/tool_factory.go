@@ -183,9 +183,9 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 //   - Tools from external MCP servers get the configured muster prefix
 //
 // This naming strategy ensures that:
-//   1. Management tools are clearly identified as core muster functionality
-//   2. Execution tools have intuitive names that match their purpose
-//   3. External tools are properly namespaced to avoid conflicts
+//  1. Management tools are clearly identified as core muster functionality
+//  2. Execution tools have intuitive names that match their purpose
+//  3. External tools are properly namespaced to avoid conflicts
 //
 // Parameters:
 //   - provider: The type of provider (workflow, capability, service, etc.)
@@ -235,10 +235,10 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 // and the internal tool provider interface.
 //
 // The handler performs the following operations:
-//   1. Extracts arguments from the MCP request
-//   2. Calls the tool provider's ExecuteTool method
-//   3. Converts the result to MCP format
-//   4. Handles errors appropriately
+//  1. Extracts arguments from the MCP request
+//  2. Calls the tool provider's ExecuteTool method
+//  3. Converts the result to MCP format
+//  4. Handles errors appropriately
 //
 // Parameters:
 //   - provider: The tool provider that will execute the tool
