@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"muster/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,21 +12,62 @@ import (
 func TestDetectAggregatorEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
+		config   *config.MusterConfig
 		expected string
 	}{
 		{
-			name:     "returns default endpoint",
+			name: "uses config values when provided",
+			config: &config.MusterConfig{
+				Aggregator: config.AggregatorConfig{
+					Host: "testhost",
+					Port: 9999,
+				},
+			},
+			expected: "http://testhost:9999/mcp",
+		},
+		{
+			name: "uses defaults for empty host and port",
+			config: &config.MusterConfig{
+				Aggregator: config.AggregatorConfig{
+					Host: "",
+					Port: 0,
+				},
+			},
 			expected: "http://localhost:8090/mcp",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			endpoint, err := DetectAggregatorEndpoint()
+			endpoint, err := DetectAggregatorEndpointWithConfig(tt.config)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, endpoint)
 		})
 	}
+}
+
+func TestDetectAggregatorEndpointWithoutConfig(t *testing.T) {
+	// Save original functions
+	originalUserHomeDir := config.GetOsUserHomeDir()
+	originalGetwd := config.GetOsGetwd()
+
+	// Restore original functions after test
+	defer func() {
+		config.SetOsUserHomeDir(originalUserHomeDir)
+		config.SetOsGetwd(originalGetwd)
+	}()
+
+	// Mock functions to return non-existent directories to force default config
+	config.SetOsUserHomeDir(func() (string, error) {
+		return "/non/existent/home", nil
+	})
+	config.SetOsGetwd(func() (string, error) {
+		return "/non/existent/workdir", nil
+	})
+
+	endpoint, err := DetectAggregatorEndpoint()
+	assert.NoError(t, err)
+	assert.Equal(t, "http://localhost:8090/mcp", endpoint)
 }
 
 func TestCheckServerRunning_WithMockServer(t *testing.T) {

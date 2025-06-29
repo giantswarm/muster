@@ -12,20 +12,20 @@ type ParameterDefinition struct {
 	// Type specifies the expected data type for this parameter.
 	// Valid types are "string", "integer", "boolean", and "number".
 	// This is used for runtime type validation during service creation.
-	Type        string      `yaml:"type" json:"type"`
+	Type string `yaml:"type" json:"type"`
 
 	// Required indicates whether this parameter must be provided when creating a service instance.
 	// Required parameters without default values will cause service creation to fail if not provided.
-	Required    bool        `yaml:"required" json:"required"`
+	Required bool `yaml:"required" json:"required"`
 
 	// Default provides a default value to use if this parameter is not provided during service creation.
 	// The default value must match the specified Type. If no default is provided and the parameter
 	// is not required, the parameter will be omitted from the service configuration.
-	Default     interface{} `yaml:"default,omitempty" json:"default,omitempty"`
+	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
 	// Description provides human-readable documentation for this parameter.
 	// This is used for generating help text, UI forms, and API documentation.
-	Description string      `yaml:"description,omitempty" json:"description,omitempty"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 // ServiceClass represents a service template that defines how to create and manage service instances.
@@ -38,11 +38,11 @@ type ParameterDefinition struct {
 type ServiceClass struct {
 	// Name is the unique identifier for this ServiceClass.
 	// This name is used when creating service instances and for ServiceClass management operations.
-	Name        string `yaml:"name" json:"name"`
+	Name string `yaml:"name" json:"name"`
 
 	// Version specifies the version of this ServiceClass definition.
 	// This can be used for compatibility checks and configuration migration.
-	Version     string `yaml:"version" json:"version"`
+	Version string `yaml:"version" json:"version"`
 
 	// Description provides a human-readable explanation of what this ServiceClass does
 	// and what kind of services can be created from it.
@@ -56,11 +56,11 @@ type ServiceClass struct {
 	// ServiceConfig contains the core configuration for service lifecycle management.
 	// This defines how services created from this class should be managed, including
 	// tool mappings, health checks, and operational parameters.
-	ServiceConfig ServiceConfig                  `yaml:"serviceConfig" json:"serviceConfig"`
+	ServiceConfig ServiceConfig `yaml:"serviceConfig" json:"serviceConfig"`
 
 	// Operations defines custom operations that can be performed on services created from this class.
 	// These operations extend the basic lifecycle management with service-specific functionality.
-	Operations    map[string]OperationDefinition `yaml:"operations" json:"operations"`
+	Operations map[string]OperationDefinition `yaml:"operations" json:"operations"`
 
 	// ServiceType indicates the general category of service that this class creates.
 	// This is runtime information derived from the ServiceConfig and used for categorization.
@@ -68,43 +68,43 @@ type ServiceClass struct {
 
 	// Available indicates whether this ServiceClass can currently be used to create service instances.
 	// This depends on the availability of required tools and other dependencies.
-	Available   bool   `json:"available,omitempty" yaml:"-"`
+	Available bool `json:"available,omitempty" yaml:"-"`
 
 	// State represents the current operational state of the ServiceClass itself.
 	// This is runtime information and not persisted to YAML files.
-	State       string `json:"state,omitempty" yaml:"-"`
+	State string `json:"state,omitempty" yaml:"-"`
 
 	// Health indicates the health status of the ServiceClass.
 	// This reflects whether the class's dependencies and tools are functioning properly.
-	Health      string `json:"health,omitempty" yaml:"-"`
+	Health string `json:"health,omitempty" yaml:"-"`
 
 	// Error contains any error message related to this ServiceClass.
 	// This is populated if the class cannot be used due to missing tools or other issues.
-	Error       string `json:"error,omitempty" yaml:"-"`
+	Error string `json:"error,omitempty" yaml:"-"`
 
 	// CreateToolAvailable indicates whether the tool required for service creation is available.
 	// This is part of the tool availability assessment for the ServiceClass.
-	CreateToolAvailable      bool     `json:"createToolAvailable,omitempty" yaml:"-"`
+	CreateToolAvailable bool `json:"createToolAvailable,omitempty" yaml:"-"`
 
 	// DeleteToolAvailable indicates whether the tool required for service deletion is available.
 	// This is part of the tool availability assessment for the ServiceClass.
-	DeleteToolAvailable      bool     `json:"deleteToolAvailable,omitempty" yaml:"-"`
+	DeleteToolAvailable bool `json:"deleteToolAvailable,omitempty" yaml:"-"`
 
 	// HealthCheckToolAvailable indicates whether the health check tool is available.
 	// This affects whether health monitoring can be performed for services created from this class.
-	HealthCheckToolAvailable bool     `json:"healthCheckToolAvailable,omitempty" yaml:"-"`
+	HealthCheckToolAvailable bool `json:"healthCheckToolAvailable,omitempty" yaml:"-"`
 
 	// StatusToolAvailable indicates whether the status query tool is available.
 	// This affects whether detailed status information can be retrieved for services.
-	StatusToolAvailable      bool     `json:"statusToolAvailable,omitempty" yaml:"-"`
+	StatusToolAvailable bool `json:"statusToolAvailable,omitempty" yaml:"-"`
 
 	// RequiredTools lists all tools that must be available for this ServiceClass to function.
 	// This is computed from the ServiceConfig tool mappings and used for dependency checking.
-	RequiredTools            []string `json:"requiredTools,omitempty" yaml:"-"`
+	RequiredTools []string `json:"requiredTools,omitempty" yaml:"-"`
 
 	// MissingTools lists any required tools that are currently not available.
 	// This is used to determine why a ServiceClass might not be available for use.
-	MissingTools             []string `json:"missingTools,omitempty" yaml:"-"`
+	MissingTools []string `json:"missingTools,omitempty" yaml:"-"`
 }
 
 // ServiceConfig defines the service lifecycle management configuration for a ServiceClass.
@@ -113,11 +113,11 @@ type ServiceClass struct {
 type ServiceConfig struct {
 	// ServiceType categorizes the kind of service this configuration manages.
 	// This is used for grouping, filtering, and applying type-specific logic.
-	ServiceType  string   `yaml:"serviceType" json:"serviceType"`
+	ServiceType string `yaml:"serviceType" json:"serviceType"`
 
 	// DefaultName provides a default name pattern for services created from this class.
 	// This can include templating placeholders that are replaced during service creation.
-	DefaultName  string   `yaml:"defaultName" json:"defaultName"`
+	DefaultName string `yaml:"defaultName" json:"defaultName"`
 
 	// Dependencies lists other ServiceClasses that must be available before services
 	// of this type can be created. This ensures proper ordering and availability.
@@ -133,7 +133,7 @@ type ServiceConfig struct {
 
 	// Timeout specifies timeout values for various service operations.
 	// These timeouts help prevent operations from hanging indefinitely.
-	Timeout TimeoutConfig     `yaml:"timeout" json:"timeout"`
+	Timeout TimeoutConfig `yaml:"timeout" json:"timeout"`
 
 	// CreateParameters defines how service creation parameters should be mapped to tool arguments.
 	// This allows ServiceClass parameters to be transformed and passed to the appropriate tools.

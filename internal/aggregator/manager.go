@@ -73,11 +73,11 @@ func NewAggregatorManager(
 // Start initializes and starts the aggregator manager.
 //
 // This method performs the following initialization sequence:
-//   1. Starts the underlying aggregator server
-//   2. Validates that required APIs are available
-//   3. Performs initial sync of healthy MCP servers
-//   4. Sets up event handling for automatic updates
-//   5. Starts periodic retry mechanism for failed registrations
+//  1. Starts the underlying aggregator server
+//  2. Validates that required APIs are available
+//  3. Performs initial sync of healthy MCP servers
+//  4. Sets up event handling for automatic updates
+//  5. Starts periodic retry mechanism for failed registrations
 //
 // The method is idempotent - calling it multiple times has no additional effect.
 // Returns an error if any component fails to start.
@@ -129,10 +129,10 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 // Stop gracefully shuts down the aggregator manager.
 //
 // This method stops all components in reverse order of startup:
-//   1. Cancels the context to signal shutdown to all goroutines
-//   2. Stops the event handler
-//   3. Stops the aggregator server
-//   4. Waits for all background operations to complete
+//  1. Cancels the context to signal shutdown to all goroutines
+//  2. Stops the event handler
+//  3. Stops the aggregator server
+//  4. Waits for all background operations to complete
 //
 // The method is idempotent and can be called multiple times safely.
 func (am *AggregatorManager) Stop(ctx context.Context) error {

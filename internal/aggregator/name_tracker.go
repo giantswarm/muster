@@ -14,7 +14,8 @@ import (
 // names and their original server/name combinations.
 //
 // Naming scheme:
-//   {muster_prefix}_{server_prefix}_{original_name}
+//
+//	{muster_prefix}_{server_prefix}_{original_name}
 //
 // For example:
 //   - Original tool: "list_files" from server "github"
@@ -29,13 +30,13 @@ type NameTracker struct {
 		originalName string // Original name before prefixing
 		itemType     string // Type: "tool", "prompt", or "resource"
 	}
-	
+
 	// Server-specific prefix configuration
 	serverPrefixes map[string]string // Maps server name to its configured prefix
-	
+
 	// Global muster prefix applied to all capabilities
 	musterPrefix string
-	
+
 	// Thread-safety protection
 	mu sync.RWMutex
 }

@@ -19,23 +19,23 @@ import (
 type ToolUpdateEvent struct {
 	// Type specifies the kind of tool update event.
 	// Valid values: "server_registered", "server_deregistered", "tools_updated"
-	Type       string    `json:"type"`
+	Type string `json:"type"`
 
 	// ServerName identifies the MCP server that triggered this event
-	ServerName string    `json:"server_name"`
+	ServerName string `json:"server_name"`
 
 	// Tools contains the list of tool names affected by this event.
 	// For "server_registered": all tools provided by the server
 	// For "server_deregistered": all tools that were removed
 	// For "tools_updated": the current complete tool list
-	Tools      []string  `json:"tools"`
+	Tools []string `json:"tools"`
 
 	// Timestamp records when this event occurred
-	Timestamp  time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp"`
 
 	// Error contains error information if the event represents a failure condition.
 	// Only populated for error events, empty for successful operations.
-	Error      string    `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // CallToolResult represents the result of a tool execution or capability call.
@@ -48,7 +48,7 @@ type ToolUpdateEvent struct {
 type CallToolResult struct {
 	// Content contains the actual result data from the tool execution.
 	// Can be strings, objects, or any other JSON-serializable data.
-	// 
+	//
 	// For successful executions: contains the tool's output data
 	// For errors: contains error messages and diagnostic information
 	Content []interface{} `json:"content"`
@@ -56,7 +56,7 @@ type CallToolResult struct {
 	// IsError indicates whether the tool execution resulted in an error.
 	// true: The execution failed and Content contains error information
 	// false: The execution succeeded and Content contains the result data
-	IsError bool          `json:"isError,omitempty"`
+	IsError bool `json:"isError,omitempty"`
 }
 
 // ToolMetadata describes a tool that can be exposed through the MCP protocol.
@@ -69,7 +69,7 @@ type CallToolResult struct {
 type ToolMetadata struct {
 	// Name is the unique identifier for the tool (e.g., "workflow_list", "auth_login")
 	// Must be unique within the scope of the tool provider
-	Name        string
+	Name string
 
 	// Description provides human-readable documentation about what the tool does
 	// and how to use it effectively
@@ -77,7 +77,7 @@ type ToolMetadata struct {
 
 	// Parameters defines the input parameters accepted by this tool,
 	// including validation rules and documentation
-	Parameters  []ParameterMetadata
+	Parameters []ParameterMetadata
 }
 
 // ParameterMetadata describes a single parameter for a tool.
@@ -88,14 +88,14 @@ type ToolMetadata struct {
 // and helps generate helpful error messages when parameters are invalid.
 type ParameterMetadata struct {
 	// Name is the parameter identifier used in tool calls
-	Name        string
+	Name string
 
 	// Type specifies the expected parameter type for validation.
 	// Valid values: "string", "number", "boolean", "object", "array"
-	Type        string
+	Type string
 
 	// Required indicates whether this parameter must be provided in tool calls
-	Required    bool
+	Required bool
 
 	// Description provides human-readable documentation for this parameter,
 	// explaining its purpose and expected format
@@ -103,7 +103,7 @@ type ParameterMetadata struct {
 
 	// Default specifies the default value used when the parameter is not provided.
 	// Only used when Required is false. Must match the specified Type.
-	Default     interface{}
+	Default interface{}
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
@@ -213,7 +213,7 @@ type ToolUpdateSubscriber interface {
 	//	func (s *MySubscriber) OnToolsUpdated(event api.ToolUpdateEvent) {
 	//	    switch event.Type {
 	//	    case "server_registered":
-	//	        log.Printf("New server %s registered with %d tools", 
+	//	        log.Printf("New server %s registered with %d tools",
 	//	            event.ServerName, len(event.Tools))
 	//	        s.refreshCapabilities()
 	//	    case "server_deregistered":
@@ -237,11 +237,11 @@ type ToolUpdateSubscriber interface {
 type ToolCall struct {
 	// Tool specifies the name of the tool to call.
 	// Must correspond to an available tool in the aggregator.
-	Tool            string                 `yaml:"tool" json:"tool"`
+	Tool string `yaml:"tool" json:"tool"`
 
 	// Arguments provides static arguments to pass to the tool.
 	// These can be combined with dynamic arguments from service parameters.
-	Arguments       map[string]interface{} `yaml:"arguments" json:"arguments"`
+	Arguments map[string]interface{} `yaml:"arguments" json:"arguments"`
 
 	// ResponseMapping defines how to extract information from tool responses.
 	// This allows ServiceClass lifecycle tools to provide structured information
@@ -259,15 +259,15 @@ type HealthStatus string
 const (
 	// HealthUnknown indicates the health status cannot be determined.
 	// This is the default state when no health check has been performed.
-	HealthUnknown   HealthStatus = "unknown"
+	HealthUnknown HealthStatus = "unknown"
 
 	// HealthHealthy indicates the component is operating normally.
 	// All health checks are passing and the component is fully functional.
-	HealthHealthy   HealthStatus = "healthy"
+	HealthHealthy HealthStatus = "healthy"
 
 	// HealthDegraded indicates the component has some issues but is still functional.
 	// Some non-critical features may be impaired but core functionality works.
-	HealthDegraded  HealthStatus = "degraded"
+	HealthDegraded HealthStatus = "degraded"
 
 	// HealthUnhealthy indicates the component has significant issues.
 	// Core functionality may be impaired and manual intervention may be required.
@@ -275,7 +275,7 @@ const (
 
 	// HealthChecking indicates a health check is currently in progress.
 	// This is a transient state during health check execution.
-	HealthChecking  HealthStatus = "checking"
+	HealthChecking HealthStatus = "checking"
 )
 
 // SchemaProperty defines a single property in a JSON schema.
@@ -287,15 +287,15 @@ const (
 type SchemaProperty struct {
 	// Type specifies the JSON schema type for validation.
 	// Valid values: "string", "number", "boolean", "object", "array"
-	Type        string      `yaml:"type" json:"type"`
+	Type string `yaml:"type" json:"type"`
 
 	// Description provides human-readable documentation for this property,
 	// explaining its purpose and expected format
-	Description string      `yaml:"description" json:"description"`
+	Description string `yaml:"description" json:"description"`
 
 	// Default specifies the default value used when the property is not provided.
 	// Must be compatible with the specified Type.
-	Default     interface{} `yaml:"default,omitempty" json:"default,omitempty"`
+	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
 // TimeoutConfig defines timeout behavior for various operations.
@@ -307,11 +307,11 @@ type SchemaProperty struct {
 type TimeoutConfig struct {
 	// Create specifies the maximum time to wait for resource creation operations.
 	// Includes service instance creation, capability initialization, etc.
-	Create      time.Duration `yaml:"create" json:"create"`
+	Create time.Duration `yaml:"create" json:"create"`
 
 	// Delete specifies the maximum time to wait for resource deletion operations.
 	// Includes service instance cleanup, resource deallocation, etc.
-	Delete      time.Duration `yaml:"delete" json:"delete"`
+	Delete time.Duration `yaml:"delete" json:"delete"`
 
 	// HealthCheck specifies the maximum time to wait for health check operations.
 	// Individual health checks should complete within this time limit.
@@ -327,19 +327,19 @@ type TimeoutConfig struct {
 type HealthCheckConfig struct {
 	// Enabled determines whether health checks should be performed.
 	// When false, the component health status remains unknown.
-	Enabled          bool          `yaml:"enabled" json:"enabled"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 
 	// Interval specifies how often to perform health checks.
 	// Shorter intervals provide faster failure detection but use more resources.
-	Interval         time.Duration `yaml:"interval" json:"interval"`
+	Interval time.Duration `yaml:"interval" json:"interval"`
 
 	// FailureThreshold is the number of consecutive failures before marking unhealthy.
 	// Higher values reduce false negatives but increase detection time.
-	FailureThreshold int           `yaml:"failureThreshold" json:"failureThreshold"`
+	FailureThreshold int `yaml:"failureThreshold" json:"failureThreshold"`
 
 	// SuccessThreshold is the number of consecutive successes before marking healthy.
 	// Higher values reduce false positives but increase recovery time.
-	SuccessThreshold int           `yaml:"successThreshold" json:"successThreshold"`
+	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
 }
 
 // ParameterMapping defines how service creation parameters map to tool arguments.
@@ -352,18 +352,18 @@ type HealthCheckConfig struct {
 type ParameterMapping struct {
 	// ToolParameter specifies the name of the parameter in the tool call.
 	// This is how the parameter will be passed to the lifecycle tool.
-	ToolParameter string      `yaml:"toolParameter" json:"toolParameter"`
+	ToolParameter string `yaml:"toolParameter" json:"toolParameter"`
 
 	// Default specifies the default value used when the parameter is not provided.
 	// Only used when Required is false.
-	Default       interface{} `yaml:"default,omitempty" json:"default,omitempty"`
+	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
 	// Required indicates whether this parameter must be provided during service creation.
-	Required        bool        `yaml:"required" json:"required"`
+	Required bool `yaml:"required" json:"required"`
 
 	// Transform specifies an optional transformation to apply to the parameter value.
 	// Can be used for format conversion or value mapping.
-	Transform       string      `yaml:"transform,omitempty" json:"transform,omitempty"`
+	Transform string `yaml:"transform,omitempty" json:"transform,omitempty"`
 }
 
 // ResponseMapping defines how to extract information from tool responses.
@@ -376,7 +376,7 @@ type ParameterMapping struct {
 type ResponseMapping struct {
 	// Name specifies the JSON path to extract the service name from the response.
 	// Used to verify the correct service was operated on.
-	Name     string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 
 	// Status specifies the JSON path to extract the service status from the response.
 	Status   string            `yaml:"status,omitempty" json:"status,omitempty"`

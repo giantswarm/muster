@@ -39,9 +39,10 @@ func NewFormatters() *Formatters {
 //   - Formatted string with numbered list of tools and descriptions
 //
 // Output format:
-//   Available tools (N):
-//     1. tool_name                    - Tool description
-//     2. another_tool                 - Another description
+//
+//	Available tools (N):
+//	  1. tool_name                    - Tool description
+//	  2. another_tool                 - Another description
 //
 // If no tools are available, returns a user-friendly message.
 func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
@@ -68,9 +69,10 @@ func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 //   - Formatted string with numbered list of resources and descriptions
 //
 // Output format:
-//   Available resources (N):
-//     1. file://config.yaml                    - Configuration file
-//     2. memory://cache/data                   - Cached data
+//
+//	Available resources (N):
+//	  1. file://config.yaml                    - Configuration file
+//	  2. memory://cache/data                   - Cached data
 //
 // If a resource has no description, the name field is used as a fallback.
 // If no resources are available, returns a user-friendly message.
@@ -102,9 +104,10 @@ func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 //   - Formatted string with numbered list of prompts and descriptions
 //
 // Output format:
-//   Available prompts (N):
-//     1. code_review                  - Review code for quality
-//     2. documentation                - Generate documentation
+//
+//	Available prompts (N):
+//	  1. code_review                  - Review code for quality
+//	  2. documentation                - Generate documentation
 //
 // If no prompts are available, returns a user-friendly message.
 func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
@@ -131,13 +134,14 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 //   - Multi-line formatted string with tool details and schema
 //
 // Output format:
-//   Tool: tool_name
-//   Description: Tool description
-//   Input Schema:
-//   {
-//     "type": "object",
-//     "properties": { ... }
-//   }
+//
+//	Tool: tool_name
+//	Description: Tool description
+//	Input Schema:
+//	{
+//	  "type": "object",
+//	  "properties": { ... }
+//	}
 func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Tool: %s", tool.Name))
@@ -158,10 +162,11 @@ func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
 //   - Multi-line formatted string with resource details
 //
 // Output format:
-//   Resource: file://config.yaml
-//   Name: config.yaml
-//   Description: Configuration file
-//   MIME Type: application/yaml
+//
+//	Resource: file://config.yaml
+//	Name: config.yaml
+//	Description: Configuration file
+//	MIME Type: application/yaml
 //
 // Optional fields (description, MIME type) are only included if present.
 func (f *Formatters) FormatResourceDetail(resource mcp.Resource) string {
@@ -188,11 +193,12 @@ func (f *Formatters) FormatResourceDetail(resource mcp.Resource) string {
 //   - Multi-line formatted string with prompt details and arguments
 //
 // Output format:
-//   Prompt: code_review
-//   Description: Review code for quality
-//   Arguments:
-//     - language (required): Programming language
-//     - style: Code style to enforce
+//
+//	Prompt: code_review
+//	Description: Review code for quality
+//	Arguments:
+//	  - language (required): Programming language
+//	  - style: Code style to enforce
 //
 // Arguments are listed with their names, requirements, and descriptions.
 func (f *Formatters) FormatPromptDetail(prompt mcp.Prompt) string {
@@ -224,12 +230,13 @@ func (f *Formatters) FormatPromptDetail(prompt mcp.Prompt) string {
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   [
-//     {
-//       "name": "tool_name",
-//       "description": "Tool description"
-//     }
-//   ]
+//
+//	[
+//	  {
+//	    "name": "tool_name",
+//	    "description": "Tool description"
+//	  }
+//	]
 //
 // If no tools are available, returns a simple message string.
 func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
@@ -270,14 +277,15 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   [
-//     {
-//       "uri": "file://config.yaml",
-//       "name": "config.yaml",
-//       "description": "Configuration file",
-//       "mimeType": "application/yaml"
-//     }
-//   ]
+//
+//	[
+//	  {
+//	    "uri": "file://config.yaml",
+//	    "name": "config.yaml",
+//	    "description": "Configuration file",
+//	    "mimeType": "application/yaml"
+//	  }
+//	]
 //
 // If a resource has no description, the name field is used as a fallback.
 // If no resources are available, returns a simple message string.
@@ -327,12 +335,13 @@ func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, 
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   [
-//     {
-//       "name": "code_review",
-//       "description": "Review code for quality"
-//     }
-//   ]
+//
+//	[
+//	  {
+//	    "name": "code_review",
+//	    "description": "Review code for quality"
+//	  }
+//	]
 //
 // If no prompts are available, returns a simple message string.
 func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error) {
@@ -373,11 +382,12 @@ func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error)
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   {
-//     "name": "tool_name",
-//     "description": "Tool description",
-//     "inputSchema": { ... }
-//   }
+//
+//	{
+//	  "name": "tool_name",
+//	  "description": "Tool description",
+//	  "inputSchema": { ... }
+//	}
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo := map[string]interface{}{
 		"name":        tool.Name,
@@ -405,12 +415,13 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   {
-//     "uri": "file://config.yaml",
-//     "name": "config.yaml",
-//     "description": "Configuration file",
-//     "mimeType": "application/yaml"
-//   }
+//
+//	{
+//	  "uri": "file://config.yaml",
+//	  "name": "config.yaml",
+//	  "description": "Configuration file",
+//	  "mimeType": "application/yaml"
+//	}
 func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, error) {
 	resourceInfo := map[string]interface{}{
 		"uri":         resource.URI,
@@ -439,17 +450,18 @@ func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, er
 //   - error: JSON marshaling errors (should be rare)
 //
 // Output format:
-//   {
-//     "name": "code_review",
-//     "description": "Review code for quality",
-//     "arguments": [
-//       {
-//         "name": "language",
-//         "description": "Programming language",
-//         "required": true
-//       }
-//     ]
-//   }
+//
+//	{
+//	  "name": "code_review",
+//	  "description": "Review code for quality",
+//	  "arguments": [
+//	    {
+//	      "name": "language",
+//	      "description": "Programming language",
+//	      "required": true
+//	    }
+//	  ]
+//	}
 //
 // The arguments field is only included if the prompt has arguments.
 func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
