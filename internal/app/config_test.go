@@ -7,12 +7,14 @@ import (
 func TestNewConfig(t *testing.T) {
 	tests := []struct {
 		name       string
+		silent     bool
 		debug      bool
 		yolo       bool
 		configPath string
 	}{
 		{
 			name:       "full configuration",
+			silent:     true,
 			debug:      true,
 			yolo:       true,
 			configPath: "/custom/config/path",
@@ -20,17 +22,20 @@ func TestNewConfig(t *testing.T) {
 		{
 			name:       "minimal configuration",
 			debug:      false,
+			silent:     false,
 			yolo:       false,
 			configPath: "",
 		},
 		{
 			name:       "debug only",
+			silent:     false,
 			debug:      true,
 			yolo:       false,
 			configPath: "",
 		},
 		{
 			name:       "with custom config path",
+			silent:     false,
 			debug:      false,
 			yolo:       false,
 			configPath: "/test/config",
@@ -39,10 +44,13 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := NewConfig(tt.debug, tt.yolo, tt.configPath)
+			cfg := NewConfig(tt.debug, tt.silent, tt.yolo, tt.configPath)
 
 			if cfg.Debug != tt.debug {
 				t.Errorf("Debug = %v, want %v", cfg.Debug, tt.debug)
+			}
+			if cfg.Silent != tt.silent {
+				t.Errorf("Silent = %v, want %v", cfg.Silent, tt.silent)
 			}
 			if cfg.Yolo != tt.yolo {
 				t.Errorf("Yolo = %v, want %v", cfg.Yolo, tt.yolo)

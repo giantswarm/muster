@@ -22,6 +22,9 @@ type Config struct {
 	// Debug settings
 	Debug bool
 
+	// Silent disables all output to the console.
+	Silent bool
+
 	// Yolo enables "you only live once" mode with relaxed safety checks.
 	// This setting reduces confirmation prompts and safety validations.
 	// Use with caution in production environments.
@@ -56,9 +59,10 @@ type Config struct {
 //
 //	// CLI mode with custom configuration path
 //	cfg := app.NewConfig(true, false, false, "/opt/muster/config")
-func NewConfig(debug, yolo bool, configPath string) *Config {
+func NewConfig(debug, silent, yolo bool, configPath string) *Config {
 	return &Config{
 		Debug:      debug,
+		Silent:     silent,
 		Yolo:       yolo,
 		ConfigPath: configPath,
 	}
