@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
+	"context"
+	"errors"
 
 	"github.com/spf13/cobra"
 )
@@ -26,16 +25,23 @@ func runStandalone(cmd *cobra.Command, args []string) error {
 	// Disable serve logging
 	serveSilent = true
 
+	errCh := make(chan error, 1)
+
 	// Start the aggregator server
-	go runServe(cmd, args)
+	go func() {
+		errCh <- runServe(cmd, args)
+	}()
 
 	// Start the agent
-	go runAgent(cmd, args)
+	go func() {
+		errCh <- runAgent(cmd, args)
+	}()
 
-	// Wait for termination signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	// Wait for either the aggregator server or agent to return an error
+	err := <-errCh
+	if !errors.Is(err, context.Canceled) {
+		return err
+	}
 
 	return nil
 }
