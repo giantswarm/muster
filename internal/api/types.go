@@ -104,6 +104,17 @@ type ParameterMetadata struct {
 	// Default specifies the default value used when the parameter is not provided.
 	// Only used when Required is false. Must match the specified Type.
 	Default interface{}
+
+	// Schema provides detailed JSON Schema definition for complex types.
+	// When specified, this takes precedence over the basic Type field for
+	// generating detailed MCP schemas. This is particularly useful for:
+	// - Object types that need property definitions and validation rules
+	// - Array types that need item type specifications
+	// - Advanced validation constraints (patterns, ranges, etc.)
+	//
+	// For simple types (string, number, boolean), this field can be omitted
+	// and the basic Type field will be used.
+	Schema map[string]interface{} `json:"schema,omitempty"`
 }
 
 // ToolProvider interface defines the contract for components that can provide tools

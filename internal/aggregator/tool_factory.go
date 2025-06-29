@@ -275,6 +275,11 @@ func (a *AggregatorServer) createToolHandler(provider api.ToolProvider, toolName
 //   - Required parameter specification
 //   - Default value handling
 //   - Schema property generation
+//   - Detailed nested schemas for complex types (objects, arrays)
+//
+// When a parameter has a detailed Schema field, that takes precedence over
+// the basic Type field, allowing for comprehensive validation rules and
+// nested structure definitions.
 //
 // The resulting schema allows MCP clients to understand what parameters a tool
 // expects and how to validate input before sending requests.
@@ -288,11 +293,29 @@ func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
 	required := []string{}
 
 	for _, param := range params {
-		propSchema := map[string]interface{}{
-			"type":        param.Type,
-			"description": param.Description,
+		var propSchema map[string]interface{}
+
+		// Use detailed schema if available, otherwise fall back to basic type
+		if param.Schema != nil && len(param.Schema) > 0 {
+			// Use the detailed schema definition
+			propSchema = make(map[string]interface{})
+			for key, value := range param.Schema {
+				propSchema[key] = value
+			}
+			
+			// Ensure description is included (override schema description if needed)
+			if param.Description != "" {
+				propSchema["description"] = param.Description
+			}
+		} else {
+			// Fall back to basic type-based schema
+			propSchema = map[string]interface{}{
+				"type":        param.Type,
+				"description": param.Description,
+			}
 		}
 
+		// Add default value if specified
 		if param.Default != nil {
 			propSchema["default"] = param.Default
 		}
