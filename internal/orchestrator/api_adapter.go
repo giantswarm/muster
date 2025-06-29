@@ -274,6 +274,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "Parameters for service creation",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Service creation parameters as key-value pairs, validated against the ServiceClass parameter definitions",
+						"additionalProperties": map[string]interface{}{
+							"description": "Parameter value - type depends on ServiceClass parameter definition",
+						},
+					},
 				},
 				{
 					Name:        "persist",
@@ -319,7 +326,19 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Service instance name"},
 				{Name: "serviceClassName", Type: "string", Required: true, Description: "Name of the ServiceClass to instantiate"},
-				{Name: "parameters", Type: "object", Required: false, Description: "Parameters for service creation"},
+				{
+					Name:        "parameters",
+					Type:        "object",
+					Required:    false,
+					Description: "Parameters for service creation",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Service creation parameters as key-value pairs, validated against the ServiceClass parameter definitions",
+						"additionalProperties": map[string]interface{}{
+							"description": "Parameter value - type depends on ServiceClass parameter definition",
+						},
+					},
+				},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether this instance should auto-start"},
 				{Name: "description", Type: "string", Required: false, Description: "Service instance description"},
 			},

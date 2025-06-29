@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-25T18:28:11+02:00",
+  "generated_at": "2025-06-29T22:52:24+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -31,6 +31,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "parameters": {
+                    "additionalProperties": {
+                      "description": "Parameter definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the parameter"
+                        },
+                        "description": {
+                          "description": "Parameter description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this parameter is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input parameters for this operation",
+                    "type": "object"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -99,6 +150,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "parameters": {
+                    "additionalProperties": {
+                      "description": "Parameter definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the parameter"
+                        },
+                        "description": {
+                          "description": "Parameter description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this parameter is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input parameters for this operation",
+                    "type": "object"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -128,6 +230,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "parameters": {
+                    "additionalProperties": {
+                      "description": "Parameter definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the parameter"
+                        },
+                        "description": {
+                          "description": "Parameter description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this parameter is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input parameters for this operation",
+                    "type": "object"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -207,10 +360,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -218,6 +381,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -280,10 +447,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -291,6 +468,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -321,10 +502,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -332,6 +523,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -366,6 +561,9 @@
               "type": "string"
             },
             "parameters": {
+              "additionalProperties": {
+                "description": "Parameter value - type depends on ServiceClass parameter definition"
+              },
               "description": "Parameters for service creation",
               "type": "object"
             },
@@ -483,6 +681,9 @@
               "type": "string"
             },
             "parameters": {
+              "additionalProperties": {
+                "description": "Parameter value - type depends on ServiceClass parameter definition"
+              },
               "description": "Parameters for service creation",
               "type": "object"
             },
@@ -522,7 +723,213 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -579,7 +986,213 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -604,7 +1217,213 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -626,7 +1445,44 @@
               "type": "string"
             },
             "inputSchema": {
-              "description": "Input schema for the workflow",
+              "description": "JSON Schema definition for workflow input validation",
+              "properties": {
+                "properties": {
+                  "additionalProperties": {
+                    "properties": {
+                      "default": {
+                        "description": "Default value for the parameter"
+                      },
+                      "description": {
+                        "description": "Parameter description",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": "Property definitions for input parameters",
+                  "type": "object"
+                },
+                "required": {
+                  "description": "List of required parameter names",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "default": "object",
+                  "description": "Schema type (typically 'object')",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
               "type": "object"
             },
             "name": {
@@ -634,7 +1490,42 @@
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "description": "Conditional expression to determine if this step should execute (optional)",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "version": {
@@ -694,7 +1585,44 @@
               "type": "string"
             },
             "inputSchema": {
-              "description": "Input schema for the workflow",
+              "description": "JSON Schema definition for workflow input validation",
+              "properties": {
+                "properties": {
+                  "additionalProperties": {
+                    "properties": {
+                      "default": {
+                        "description": "Default value for the parameter"
+                      },
+                      "description": {
+                        "description": "Parameter description",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": "Property definitions for input parameters",
+                  "type": "object"
+                },
+                "required": {
+                  "description": "List of required parameter names",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "default": "object",
+                  "description": "Schema type (typically 'object')",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
               "type": "object"
             },
             "name": {
@@ -702,7 +1630,42 @@
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "description": "Conditional expression to determine if this step should execute (optional)",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "version": {
@@ -725,7 +1688,44 @@
               "type": "string"
             },
             "inputSchema": {
-              "description": "Input schema for the workflow",
+              "description": "JSON Schema definition for workflow input validation",
+              "properties": {
+                "properties": {
+                  "additionalProperties": {
+                    "properties": {
+                      "default": {
+                        "description": "Default value for the parameter"
+                      },
+                      "description": {
+                        "description": "Parameter description",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": "Property definitions for input parameters",
+                  "type": "object"
+                },
+                "required": {
+                  "description": "List of required parameter names",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "default": "object",
+                  "description": "Schema type (typically 'object')",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
               "type": "object"
             },
             "name": {
@@ -733,7 +1733,42 @@
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "description": "Conditional expression to determine if this step should execute (optional)",
+                    "type": "string"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "version": {

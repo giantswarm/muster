@@ -82,7 +82,65 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: true, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    true,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"parameters": map[string]interface{}{
+									"type":        "object",
+									"description": "Input parameters for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Parameter definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this parameter is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the parameter",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required": []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 		{
@@ -93,7 +151,65 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "type", Type: "string", Required: false, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: false, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    false,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"parameters": map[string]interface{}{
+									"type":        "object",
+									"description": "Input parameters for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Parameter definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this parameter is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the parameter",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required": []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 		{
@@ -116,7 +232,65 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: true, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    true,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"parameters": map[string]interface{}{
+									"type":        "object",
+									"description": "Input parameters for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Parameter definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this parameter is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Parameter description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the parameter",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required": []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 	}
