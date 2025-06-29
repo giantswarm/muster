@@ -3,12 +3,13 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"muster/internal/agent"
-	"muster/internal/cli"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"muster/internal/agent"
+	"muster/internal/cli"
 
 	"github.com/spf13/cobra"
 )

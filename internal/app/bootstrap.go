@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+
 	"muster/internal/config"
 	"muster/pkg/logging"
-	"os"
 )
 
 // Application represents the main application structure that bootstraps and runs muster.
@@ -59,7 +61,12 @@ func NewApplication(cfg *Config) (*Application, error) {
 	}
 
 	// Initialize logging for CLI output (will be replaced for TUI mode)
-	logging.InitForCLI(appLogLevel, os.Stdout)
+	var logOutput io.Writer = os.Stdout
+	if cfg.Silent {
+		// If silent mode is enabled, suppress all output
+		logOutput = io.Discard
+	}
+	logging.InitForCLI(appLogLevel, logOutput)
 
 	// Load environment configuration
 	var musterCfg config.MusterConfig

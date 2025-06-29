@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+
 	"muster/internal/app"
 
 	"github.com/spf13/cobra"
@@ -11,6 +12,9 @@ import (
 // debug enables verbose logging across the application.
 // This helps troubleshoot connection issues and understand service behavior.
 var serveDebug bool
+
+// serveSilent disables all output to the console.
+var serveSilent bool
 
 // yolo disables the denylist for destructive tool calls.
 // When enabled, all MCP tools can be executed without restrictions.
@@ -58,7 +62,7 @@ Configuration:
 // runServe is the main entry point for the serve command
 func runServe(cmd *cobra.Command, args []string) error {
 	// Create application configuration without cluster arguments
-	cfg := app.NewConfig(serveDebug, serveYolo, serveConfigPath)
+	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath)
 
 	// Create and initialize the application
 	application, err := app.NewApplication(cfg)
@@ -81,6 +85,7 @@ func init() {
 
 	// Register command flags
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
+	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", "", "Custom configuration directory path (disables layered config)")
 }
