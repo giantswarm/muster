@@ -140,13 +140,7 @@ git clone https://github.com/giantswarm/muster.git
 cd muster && go build .
 ```
 
-### 2. Start the Control Plane
-```bash
-# Start Muster's process manager
-./muster serve &
-```
-
-### 3. Configure MCP Servers
+### 2. Configure MCP Servers
 
 Create `kubernetes-server.yaml`:
 ```yaml
@@ -164,7 +158,7 @@ Register it:
 ./muster create mcpserver kubernetes.yaml
 ```
 
-### 4. Connect Your AI Agent
+### 3. Connect Your AI Agent
 
 Configure your IDE to use Muster's agent as an MCP server:
 
@@ -174,13 +168,13 @@ Configure your IDE to use Muster's agent as an MCP server:
   "mcpServers": {
     "muster": {
       "command": "muster",
-      "args": ["agent", "--mcp-server"]
+      "args": ["standalone"]
     }
   }
 }
 ```
 
-### 5. Let Your Agent Discover Tools
+### 4. Let Your Agent Discover Tools
 
 Your agent now has meta-capabilities:
 - **`list_tools`**: Show all available tools
