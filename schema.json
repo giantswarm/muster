@@ -621,20 +621,8 @@
         "core_workflow_create": {
           "description": "Parameters for core_workflow_create tool",
           "properties": {
-            "agentModifiable": {
-              "description": "Whether workflow can be modified by agents",
-              "type": "boolean"
-            },
-            "createdBy": {
-              "description": "Creator of the workflow",
-              "type": "string"
-            },
             "description": {
               "description": "Workflow description",
-              "type": "string"
-            },
-            "icon": {
-              "description": "Icon/emoji for display",
               "type": "string"
             },
             "inputSchema": {
@@ -701,20 +689,8 @@
         "core_workflow_update": {
           "description": "Parameters for core_workflow_update tool",
           "properties": {
-            "agentModifiable": {
-              "description": "Whether workflow can be modified by agents",
-              "type": "boolean"
-            },
-            "createdBy": {
-              "description": "Creator of the workflow",
-              "type": "string"
-            },
             "description": {
               "description": "Workflow description",
-              "type": "string"
-            },
-            "icon": {
-              "description": "Icon/emoji for display",
               "type": "string"
             },
             "inputSchema": {

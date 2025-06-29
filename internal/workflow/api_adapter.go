@@ -182,9 +182,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "icon", Type: "string", Required: false, Description: "Icon/emoji for display"},
-				{Name: "agentModifiable", Type: "boolean", Required: false, Description: "Whether workflow can be modified by agents"},
-				{Name: "createdBy", Type: "string", Required: false, Description: "Creator of the workflow"},
 				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
 				{Name: "inputSchema", Type: "object", Required: true, Description: "Input schema for the workflow"},
 				{Name: "steps", Type: "array", Required: true, Description: "Array of workflow steps"},
@@ -196,9 +193,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "icon", Type: "string", Required: false, Description: "Icon/emoji for display"},
-				{Name: "agentModifiable", Type: "boolean", Required: false, Description: "Whether workflow can be modified by agents"},
-				{Name: "createdBy", Type: "string", Required: false, Description: "Creator of the workflow"},
 				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
 				{Name: "inputSchema", Type: "object", Required: true, Description: "Input schema for the workflow"},
 				{Name: "steps", Type: "array", Required: true, Description: "Array of workflow steps"},
@@ -468,9 +462,6 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	}
 	if version, ok := args["version"].(int); ok {
 		wf.Version = version
-	}
-	if createdBy, ok := args["createdBy"].(string); ok {
-		wf.CreatedBy = createdBy
 	}
 
 	// Convert inputSchema

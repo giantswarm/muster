@@ -49,9 +49,6 @@ type Workflow struct {
 
 	// Metadata fields - Additional workflow information
 
-	// CreatedBy indicates who created this workflow definition
-	CreatedBy string `yaml:"createdBy,omitempty" json:"createdBy,omitempty"`
-
 	// CreatedAt indicates when this workflow was created
 	CreatedAt time.Time `yaml:"createdAt,omitempty" json:"createdAt"`
 
@@ -114,10 +111,6 @@ type WorkflowReference struct {
 
 	// Description provides documentation for this workflow reference
 	Description string `yaml:"description" json:"description"`
-
-	// AgentModifiable indicates whether AI agents can modify this workflow during execution.
-	// This enables dynamic workflow adaptation based on execution context.
-	AgentModifiable bool `yaml:"agentModifiable" json:"agentModifiable"`
 
 	// InputSchema defines the expected input parameters for this workflow reference.
 	// This may be a subset or transformation of the parent operation's parameters.

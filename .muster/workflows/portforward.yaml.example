@@ -1,8 +1,5 @@
 name: portforward-workflow
 description: "Set up port forwarding for a service"
-icon: "🌐"
-agentModifiable: true
-createdBy: "user"
 version: 1
 inputSchema:
   type: object

@@ -104,7 +104,6 @@ operations:
     workflow:
       name: database_backup
       description: "Database backup workflow"
-      agentModifiable: false
       inputSchema:
         type: object
         properties:
@@ -146,7 +145,6 @@ operations:
     workflow:
       name: database_restore
       description: "Database restore workflow"
-      agentModifiable: false
       inputSchema:
         type: object
         properties:
@@ -189,7 +187,6 @@ operations:
     workflow:
       name: database_migrate
       description: "Database migration workflow"
-      agentModifiable: false
       inputSchema:
         type: object
         properties:
@@ -236,7 +233,6 @@ operations:
     workflow:
       name: create_database_service
       description: "Create a managed database connection"
-      agentModifiable: false
       inputSchema:
         type: object
         properties:
