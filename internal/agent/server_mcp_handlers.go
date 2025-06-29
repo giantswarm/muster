@@ -410,15 +410,29 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 // muster functionality, helping AI assistants distinguish between built-in
 // capabilities and external MCP server tools.
 //
+// Parameters:
+//   - include_schema (optional): Whether to include full tool specifications (default: true)
+//
 // The handler:
 //   - Filters tools that start with "core" prefix (case-insensitive)
 //   - Provides summary statistics about filtering results
 //   - Returns structured data compatible with filter_tools format
+//   - Includes full tool specifications with input schemas by default
 //
 // Returns:
-//   - JSON object with filter criteria, counts, and filtered tool list
+//   - JSON object with filter criteria, counts, and filtered tool list with full specifications
 //   - Error message if formatting fails
 func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Get include_schema parameter (defaults to true for full specifications)
+	args := request.GetArguments()
+	includeSchema := true
+
+	if schemaVal, ok := args["include_schema"]; ok {
+		if b, ok := schemaVal.(bool); ok {
+			includeSchema = b
+		}
+	}
+
 	// Get all tools from cache
 	m.client.mu.RLock()
 	tools := m.client.toolCache
@@ -435,10 +449,17 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 	for _, tool := range tools {
 		toolName := strings.ToLower(tool.Name)
 		if strings.HasPrefix(toolName, pattern) {
-			coreTools = append(coreTools, map[string]interface{}{
+			toolInfo := map[string]interface{}{
 				"name":        tool.Name,
 				"description": tool.Description,
-			})
+			}
+
+			// Include full input schema if requested (default behavior)
+			if includeSchema {
+				toolInfo["inputSchema"] = tool.InputSchema
+			}
+
+			coreTools = append(coreTools, toolInfo)
 		}
 	}
 
@@ -448,6 +469,7 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 			"pattern":            "core*",
 			"description_filter": "",
 			"case_sensitive":     false,
+			"include_schema":     includeSchema,
 		},
 		"total_tools":    len(tools),
 		"filtered_count": len(coreTools),
