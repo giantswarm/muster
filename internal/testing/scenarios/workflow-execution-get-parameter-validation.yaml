@@ -1,0 +1,144 @@
+name: "workflow-execution-get-parameter-validation"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "get", "validation", "parameters"]
+timeout: "3m"
+
+steps:
+- id: "create-validation-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "validation-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "validation_step"
+        tool: "core_service_list"
+        store: "validation_result"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "validation-workflow" }
+
+- id: "execute-validation-workflow"
+  tool: "workflow_validation-workflow"
+  args: {}
+  expected:
+    success: true
+  store: "validation_execution"
+
+# Test missing required parameter
+- id: "test-missing-execution-id"
+  tool: "core_workflow_execution_get"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["required", "execution_id"]
+
+# Test empty execution_id
+- id: "test-empty-execution-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: ""
+  expected:
+    success: false
+    error_contains: ["execution_id"]
+
+# Test null execution_id
+- id: "test-null-execution-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: null
+  expected:
+    success: false
+    error_contains: ["execution_id"]
+
+# Test invalid step_id (empty string)
+- id: "test-empty-step-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    step_id: ""
+  expected:
+    success: false
+    error_contains: ["step", "empty", "invalid"]
+
+# Test null step_id
+- id: "test-null-step-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    step_id: null
+  expected:
+    success: false
+    error_contains: ["step"]
+
+# Test valid include_steps boolean values
+- id: "test-include-steps-true"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    include_steps: true
+  expected:
+    success: true
+    contains: ["steps", "validation_step"]
+
+- id: "test-include-steps-false"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    not_contains: ["steps", "validation_step"]
+
+# Test invalid include_steps type
+- id: "test-include-steps-string"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    include_steps: "not-boolean"
+  expected:
+    success: false
+    error_contains: ["boolean", "include_steps"]
+
+# Test invalid include_steps number
+- id: "test-include-steps-number"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    include_steps: 1
+  expected:
+    success: false
+    error_contains: ["boolean", "include_steps"]
+
+# Test very long execution_id
+- id: "test-very-long-execution-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "this-is-a-very-long-execution-id-that-should-not-exist-in-the-system-and-is-used-for-testing-purposes-only"
+  expected:
+    success: false
+    error_contains: ["not found", "execution"]
+
+# Test valid execution with all parameters
+- id: "test-all-valid-parameters"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ validation_execution.execution_id }}"
+    include_steps: true
+    step_id: "validation_step"
+  expected:
+    success: true
+    contains: ["validation_step", "step_id", "result"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "validation-workflow" }
+  expected:
+    success: true 

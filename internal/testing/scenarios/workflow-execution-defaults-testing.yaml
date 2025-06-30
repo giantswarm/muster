@@ -1,0 +1,165 @@
+name: "workflow-execution-defaults-testing"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "defaults", "parameters"]
+timeout: "3m"
+
+steps:
+- id: "create-defaults-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "defaults-workflow"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "defaults_step"
+        tool: "core_service_list"
+        store: "defaults_result"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "defaults-workflow" }
+
+# Create multiple executions to test default limit behavior
+- id: "execute-workflow-1"
+  tool: "workflow_defaults-workflow"
+  args: {}
+  expected:
+    success: true
+  store: "execution_1"
+
+- id: "execute-workflow-2"
+  tool: "workflow_defaults-workflow"
+  args: {}
+  expected:
+    success: true
+  store: "execution_2"
+
+- id: "execute-workflow-3"
+  tool: "workflow_defaults-workflow"
+  args: {}
+  expected:
+    success: true
+  store: "execution_3"
+
+# Test default limit (should be 50 according to issue #16)
+- id: "test-default-limit-no-params"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+- id: "test-default-limit-explicit-50"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    limit: 50
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+# Test default offset (should be 0 according to issue #16)
+- id: "test-default-offset-no-params"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    limit: 1
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+- id: "test-default-offset-explicit-0"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    limit: 1
+    offset: 0
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+# Test default include_steps (should be true according to issue #16)
+- id: "test-default-include-steps-no-param"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execution_1.execution_id }}"
+  expected:
+    success: true
+    contains: ["steps", "defaults_step", "defaults_result"]
+
+- id: "test-default-include-steps-explicit-true"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execution_1.execution_id }}"
+    include_steps: true
+  expected:
+    success: true
+    contains: ["steps", "defaults_step", "defaults_result"]
+
+# Compare behavior: default vs explicit parameters
+- id: "compare-default-vs-explicit-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    # No limit specified - should use default of 50
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+- id: "compare-default-vs-explicit-offset"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    limit: 10
+    # No offset specified - should use default of 0
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+# Verify defaults work with all parameters omitted
+- id: "test-all-defaults-list"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+    # Should succeed with all default values
+
+- id: "test-all-defaults-get"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ execution_1.execution_id }}"
+    # Only required parameter, others should use defaults
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "status", "steps"]
+
+# Test that omitting optional parameters works correctly
+- id: "test-omit-workflow-name"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 5
+    # workflow_name omitted - should list all workflows
+  expected:
+    success: true
+
+- id: "test-omit-status"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "defaults-workflow"
+    # status omitted - should list all statuses
+  expected:
+    success: true
+    contains: ["defaults-workflow"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "defaults-workflow" }
+  expected:
+    success: true 

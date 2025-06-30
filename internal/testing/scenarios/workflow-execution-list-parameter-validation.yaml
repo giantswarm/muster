@@ -1,0 +1,117 @@
+name: "workflow-execution-list-parameter-validation"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "validation", "parameters"]
+timeout: "2m"
+
+steps:
+# Test limit parameter boundaries
+- id: "test-limit-boundary-minimum"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1
+  expected:
+    success: true
+
+- id: "test-limit-boundary-maximum"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1000
+  expected:
+    success: true
+
+- id: "test-limit-below-minimum"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 0
+  expected:
+    success: false
+    error_contains: ["minimum", "limit"]
+
+- id: "test-limit-above-maximum"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1001
+  expected:
+    success: false
+    error_contains: ["maximum", "limit"]
+
+- id: "test-limit-negative"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: -1
+  expected:
+    success: false
+    error_contains: ["minimum", "limit"]
+
+# Test offset parameter boundaries  
+- id: "test-offset-minimum"
+  tool: "core_workflow_execution_list"
+  args:
+    offset: 0
+  expected:
+    success: true
+
+- id: "test-offset-negative"
+  tool: "core_workflow_execution_list"
+  args:
+    offset: -1
+  expected:
+    success: false
+    error_contains: ["minimum", "offset"]
+
+# Test invalid status enum values
+- id: "test-invalid-status-value"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "invalid-status"
+  expected:
+    success: false
+    error_contains: ["enum", "status"]
+
+- id: "test-empty-status-value"
+  tool: "core_workflow_execution_list"
+  args:
+    status: ""
+  expected:
+    success: false
+    error_contains: ["enum", "status"]
+
+# Test valid status enum values
+- id: "test-valid-status-inprogress"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "inprogress"
+  expected:
+    success: true
+
+- id: "test-valid-status-completed"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "completed"
+  expected:
+    success: true
+
+- id: "test-valid-status-failed"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "failed"
+  expected:
+    success: true
+
+# Test workflow_name parameter edge cases
+- id: "test-empty-workflow-name"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: ""
+  expected:
+    success: true
+    # Should return empty results for non-existent workflow
+
+- id: "test-nonexistent-workflow-name"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "definitely-does-not-exist"
+  expected:
+    success: true
+    # Should return empty results for non-existent workflow 

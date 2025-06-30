@@ -1,0 +1,251 @@
+name: "workflow-execution-edge-cases"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "edge", "cases"]
+timeout: "3m"
+
+steps:
+# Test with special characters in workflow names
+- id: "create-special-name-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "special-chars-workflow_123"
+    inputSchema:
+      type: "object"
+      properties:
+        special_input:
+          type: "string"
+          default: "test-with-special-chars_@#$"
+      required: []
+    steps:
+      - id: "special_step"
+        tool: "core_service_list"
+        store: "special_result"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-special-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "special-chars-workflow_123" }
+
+- id: "execute-special-name-workflow"
+  tool: "workflow_special-chars-workflow_123"
+  args:
+    special_input: "edge-case-input_with_underscores-and-dashes"
+  expected:
+    success: true
+  store: "special_execution"
+
+# Test filtering with special characters
+- id: "list-executions-special-name"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "special-chars-workflow_123"
+  expected:
+    success: true
+    contains: ["special-chars-workflow_123"]
+
+# Test very large offset with no results
+- id: "test-large-offset-no-results"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1
+    offset: 999999
+  expected:
+    success: true
+    # Should return empty results, not error
+
+# Test combining all filters
+- id: "test-all-filters-combined"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "special-chars-workflow_123"
+    status: "completed"
+    limit: 1
+    offset: 0
+  expected:
+    success: true
+    contains: ["special-chars-workflow_123", "completed"]
+
+# Test malformed execution ID patterns
+- id: "test-malformed-uuid-format"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "not-a-valid-uuid-format"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "test-short-execution-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "short"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+- id: "test-numeric-execution-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "12345"
+  expected:
+    success: false
+    error_contains: ["not found"]
+
+# Test edge case with maximum limit and zero offset
+- id: "test-max-limit-zero-offset"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1000
+    offset: 0
+  expected:
+    success: true
+
+# Test edge case workflow names with various characters
+- id: "create-edge-case-workflow-names"
+  tool: "core_workflow_create"
+  args:
+    name: "workflow-with-many-dashes-and-numbers-123-456"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "edge_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "workflow-with-many-dashes-and-numbers-123-456" }
+
+- id: "execute-edge-case-workflow"
+  tool: "workflow_workflow-with-many-dashes-and-numbers-123-456"
+  args: {}
+  expected:
+    success: true
+  store: "edge_execution"
+
+# Test filtering with long workflow names
+- id: "test-long-workflow-name-filtering"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "workflow-with-many-dashes-and-numbers-123-456"
+  expected:
+    success: true
+    contains: ["workflow-with-many-dashes-and-numbers-123-456"]
+
+# Test step_id edge cases
+- id: "test-special-chars-step-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ special_execution.execution_id }}"
+    step_id: "special_step"
+  expected:
+    success: true
+    contains: ["special_step", "step_id"]
+
+# Test case sensitivity in workflow names
+- id: "test-case-sensitive-workflow-name"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "SPECIAL-CHARS-WORKFLOW_123"  # Different case
+  expected:
+    success: true
+    # Should return empty results if case sensitive
+
+# Test with very small limit
+- id: "test-minimum-limit-one"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1
+  expected:
+    success: true
+
+# Test large offset with small limit
+- id: "test-large-offset-small-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1
+    offset: 1000
+  expected:
+    success: true
+
+# Test special characters in input parameters preservation
+- id: "validate-special-chars-preservation"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ special_execution.execution_id }}"
+  expected:
+    success: true
+    contains: [
+      "edge-case-input_with_underscores-and-dashes", 
+      "special_input"
+    ]
+
+# Test empty string filtering behavior
+- id: "test-empty-string-filtering"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: ""
+  expected:
+    success: true
+    # Should handle empty string gracefully
+
+# Test whitespace in workflow names
+- id: "test-whitespace-workflow-name"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: " "
+  expected:
+    success: true
+    # Should handle whitespace gracefully
+
+# Test concurrent execution edge case
+- id: "test-multiple-executions-same-workflow"
+  tool: "workflow_special-chars-workflow_123"
+  args:
+    special_input: "concurrent-test-1"
+  expected:
+    success: true
+  store: "concurrent_execution_1"
+
+- id: "test-second-concurrent-execution"
+  tool: "workflow_special-chars-workflow_123"
+  args:
+    special_input: "concurrent-test-2"
+  expected:
+    success: true
+  store: "concurrent_execution_2"
+
+# Verify both executions are tracked
+- id: "verify-concurrent-executions-tracked"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "special-chars-workflow_123"
+    limit: 10
+  expected:
+    success: true
+    contains: ["special-chars-workflow_123"]
+
+# Test zero offset explicitly
+- id: "test-explicit-zero-offset"
+  tool: "core_workflow_execution_list"
+  args:
+    offset: 0
+    limit: 5
+  expected:
+    success: true
+
+cleanup:
+- id: "final-cleanup-special-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "special-chars-workflow_123" }
+  expected:
+    success: true
+
+- id: "final-cleanup-edge-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "workflow-with-many-dashes-and-numbers-123-456" }
+  expected:
+    success: true 
