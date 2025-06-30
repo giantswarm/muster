@@ -238,6 +238,8 @@ type TestStep struct {
 	Args map[string]interface{} `yaml:"args"`
 	// Expected defines the expected outcome
 	Expected TestExpectation `yaml:"expected"`
+	// Store defines where to store the step result for template variable access
+	Store string `yaml:"store,omitempty"`
 	// Retry configuration for this step
 	Retry *RetryConfig `yaml:"retry,omitempty"`
 	// Timeout for this specific step

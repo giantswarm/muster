@@ -206,7 +206,7 @@ func (r *testRunner) collectInstanceLogs(instance *MusterInstance, result *TestS
 	}
 }
 
-// runScenario executes a single test scenario
+// runScenario executes a single test scenario with template variable support
 func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, config TestConfiguration) TestScenarioResult {
 	result := TestScenarioResult{
 		Scenario:    scenario,
@@ -217,6 +217,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Report scenario start
 	r.reporter.ReportScenarioStart(scenario)
+
+	// Create scenario context for template variable support
+	scenarioContext := NewScenarioContext()
 
 	// Apply scenario timeout if specified
 	scenarioCtx := ctx
@@ -337,7 +340,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
-		stepResult := r.runStepWithClient(scenarioCtx, step, config, scenarioClient)
+		stepResult := r.runStep(scenarioCtx, step, config, scenarioClient, scenarioContext)
 		result.StepResults = append(result.StepResults, stepResult)
 
 		// Report step result
@@ -354,7 +357,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Execute cleanup steps regardless of main scenario outcome using the isolated client
 	if len(scenario.Cleanup) > 0 {
 		for _, cleanupStep := range scenario.Cleanup {
-			stepResult := r.runStepWithClient(scenarioCtx, cleanupStep, config, scenarioClient)
+			stepResult := r.runStep(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext)
 			result.StepResults = append(result.StepResults, stepResult)
 			r.reporter.ReportStepResult(stepResult)
 
@@ -380,13 +383,8 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	return result
 }
 
-// runStep executes a single test step using the shared client (for backward compatibility)
-func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration) TestStepResult {
-	return r.runStepWithClient(ctx, step, config, r.client)
-}
-
-// runStepWithClient executes a single test step using the specified MCP client
-func (r *testRunner) runStepWithClient(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient) TestStepResult {
+// runStep executes a single test step using the specified MCP client with template variable support
+func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext) TestStepResult {
 	result := TestStepResult{
 		Step:      step,
 		StartTime: time.Now(),
@@ -401,16 +399,47 @@ func (r *testRunner) runStepWithClient(ctx context.Context, step TestStep, confi
 		defer cancel()
 	}
 
-	// Execute the tool call
-	response, err := client.CallTool(stepCtx, step.Tool, step.Args)
+	// Resolve template variables in step arguments if scenario context is available
+	resolvedArgs := step.Args
+	if scenarioContext != nil {
+		processor := NewTemplateProcessor(scenarioContext)
+
+		var err error
+		resolvedArgs, err = processor.ResolveArgs(step.Args)
+		if err != nil {
+			result.Result = ResultError
+			result.Error = fmt.Sprintf("template resolution failed: %v", err)
+			result.EndTime = time.Now()
+			result.Duration = result.EndTime.Sub(result.StartTime)
+			return result
+		}
+
+		if r.debug {
+			r.logger.Debug("🔧 Step %s: Template resolution completed\n", step.ID)
+		}
+	}
+
+	// Execute the tool call with resolved arguments
+	response, err := client.CallTool(stepCtx, step.Tool, resolvedArgs)
 
 	// Store response (even if there's an error)
 	result.Response = response
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
+	// Store result if requested and scenario context is available
+	if step.Store != "" && scenarioContext != nil && response != nil {
+		// Extract actual data from MCP CallToolResult for template variable access
+		storableResult := r.extractStorableResult(response)
+		scenarioContext.StoreResult(step.Store, storableResult)
+
+		if r.debug {
+			r.logger.Debug("💾 Step %s: Stored result as '%s': %v\n", step.ID, step.Store, storableResult)
+		}
+	}
+
 	// Validate expectations (always check, even with errors - they might be expected)
-	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, step.Args) {
+	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs) {
 		if err != nil {
 			result.Result = ResultError
 			result.Error = fmt.Sprintf("tool call failed: %v", err)
@@ -853,5 +882,46 @@ func (r *testRunner) updateCounters(suiteResult *TestSuiteResult, scenarioResult
 		suiteResult.SkippedScenarios++
 	case ResultError:
 		suiteResult.ErrorScenarios++
+	}
+}
+
+// extractStorableResult extracts a storable result from a response
+func (r *testRunner) extractStorableResult(response interface{}) interface{} {
+	// Handle different response types
+	switch resp := response.(type) {
+	case *mcp.CallToolResult:
+		// Extract text content from MCP result
+		var textParts []string
+		for _, content := range resp.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				textParts = append(textParts, textContent.Text)
+			}
+		}
+
+		if len(textParts) == 0 {
+			return response // Return original if no text content
+		}
+
+		// Join all text parts
+		combinedText := strings.Join(textParts, " ")
+
+		// Try to parse as JSON first
+		var jsonResult interface{}
+		if err := json.Unmarshal([]byte(combinedText), &jsonResult); err == nil {
+			// Successfully parsed as JSON, return the structured data
+			if r.debug {
+				r.logger.Debug("🔍 Extracted JSON result for template variables: %v\n", jsonResult)
+			}
+			return jsonResult
+		}
+
+		// If not JSON, return as string
+		if r.debug {
+			r.logger.Debug("🔍 Extracted text result for template variables: %s\n", combinedText)
+		}
+		return combinedText
+	default:
+		// For other response types, return as-is
+		return response
 	}
 }

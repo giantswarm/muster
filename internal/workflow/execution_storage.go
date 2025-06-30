@@ -76,7 +76,7 @@ func (es *ExecutionStorageImpl) Store(ctx context.Context, execution *api.Workfl
 		return fmt.Errorf("failed to marshal execution %s: %w", execution.ExecutionID, err)
 	}
 
-	// Store using existing storage with "workflow_executions" entity type  
+	// Store using existing storage with "workflow_executions" entity type
 	if err := es.storage.Save("workflow_executions", execution.ExecutionID, data); err != nil {
 		return fmt.Errorf("failed to save execution %s: %w", execution.ExecutionID, err)
 	}

@@ -19,6 +19,13 @@ type ToolCaller interface {
 	CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 }
 
+// stepMetadata holds metadata about an executed step for tracking purposes
+type stepMetadata struct {
+	ID    string // Original step ID from workflow definition
+	Tool  string // Tool name used in the step
+	Store string // Variable name where result was stored (if any)
+}
+
 // WorkflowExecutor executes workflow steps
 type WorkflowExecutor struct {
 	toolCaller ToolCaller
@@ -48,6 +55,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		variables:    make(map[string]interface{}),
 		results:      make(map[string]interface{}),
 		templateVars: make([]string, 0),
+		stepMetadata: make([]stepMetadata, 0),
 	}
 	logging.Debug("WorkflowExecutor", "Initial execution context: input=%+v, results=%+v", execCtx.input, execCtx.results)
 
@@ -98,6 +106,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			logging.Debug("WorkflowExecutor", "Current execution context results: %+v", execCtx.results)
 		}
 
+		// Record step metadata for execution tracking
+		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+			ID:    step.ID,
+			Tool:  step.Tool,
+			Store: step.Store,
+		})
+
 		// Check if result indicates an error
 		if result.IsError {
 			logging.Error("WorkflowExecutor", fmt.Errorf("step returned error"), "Step %s returned error result", step.ID)
@@ -112,6 +127,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		"results":      execCtx.results,
 		"input":        execCtx.input,        // Include input parameters
 		"templateVars": execCtx.templateVars, // Include template variables used
+		"stepMetadata": execCtx.stepMetadata, // Include step metadata for execution tracking
 		"status":       "completed",
 	}
 
@@ -160,6 +176,7 @@ type executionContext struct {
 	variables    map[string]interface{} // User-defined variables
 	results      map[string]interface{} // Results from previous steps
 	templateVars []string               // Track template variables used
+	stepMetadata []stepMetadata         // Track step metadata
 }
 
 // validateInputs validates the input arguments against the schema

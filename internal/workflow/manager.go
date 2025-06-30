@@ -347,7 +347,7 @@ func (wm *WorkflowManager) enhanceResultWithExecutionID(result *mcp.CallToolResu
 		if err := json.Unmarshal([]byte(textContent.Text), &contentData); err == nil {
 			// Successfully parsed as JSON - add execution_id
 			contentData["execution_id"] = executionID
-			
+
 			// Re-marshal to JSON
 			enhancedJSON, marshalErr := json.Marshal(contentData)
 			if marshalErr == nil {
@@ -356,12 +356,12 @@ func (wm *WorkflowManager) enhanceResultWithExecutionID(result *mcp.CallToolResu
 					Content: []mcp.Content{mcp.NewTextContent(string(enhancedJSON))},
 					IsError: result.IsError,
 				}
-				
+
 				// Add any additional content items
 				if len(result.Content) > 1 {
 					enhancedResult.Content = append(enhancedResult.Content, result.Content[1:]...)
 				}
-				
+
 				return enhancedResult
 			}
 		}

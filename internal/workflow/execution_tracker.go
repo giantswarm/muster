@@ -143,29 +143,86 @@ func (et *ExecutionTracker) extractStepInformation(execution *api.WorkflowExecut
 			return // Can't parse, skip step extraction
 		}
 
-		// Look for results field in the workflow result
-		if results, ok := resultData["results"].(map[string]interface{}); ok {
-			stepCount := 0
-			for stepVar, stepResult := range results {
-				stepCount++
+		// Look for step metadata in the workflow result
+		stepMetadataRaw, hasStepMetadata := resultData["stepMetadata"]
+		resultsRaw, hasResults := resultData["results"].(map[string]interface{})
 
-				// Create a basic step record
-				step := api.WorkflowExecutionStep{
-					StepID:      fmt.Sprintf("step_%d", stepCount),
-					Tool:        "unknown", // We don't have tool information from result
-					Status:      api.WorkflowExecutionCompleted,
-					StartedAt:   execution.StartedAt, // Approximate timing
-					CompletedAt: execution.CompletedAt,
-					DurationMs:  0,                        // Unknown duration
-					Input:       map[string]interface{}{}, // Unknown input
-					Result:      stepResult,
-					Error:       nil,
-					StoredAs:    stepVar,
-				}
-
-				execution.Steps = append(execution.Steps, step)
-			}
+		if hasStepMetadata && hasResults {
+			// Use enhanced step metadata approach
+			et.extractStepsFromMetadata(execution, stepMetadataRaw, resultsRaw)
+		} else {
+			// Fallback to legacy approach for backwards compatibility
+			et.extractStepsLegacy(execution, resultsRaw)
 		}
+	}
+}
+
+// extractStepsFromMetadata extracts step information using enhanced metadata
+func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExecution, stepMetadataRaw interface{}, results map[string]interface{}) {
+	stepMetadataList, ok := stepMetadataRaw.([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, stepMetaRaw := range stepMetadataList {
+		stepMeta, ok := stepMetaRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		stepID, _ := stepMeta["ID"].(string)
+		tool, _ := stepMeta["Tool"].(string)
+		store, _ := stepMeta["Store"].(string)
+
+		// Get the result if it was stored
+		var stepResult interface{}
+		if store != "" {
+			stepResult = results[store]
+		}
+
+		// Create step record with actual metadata
+		step := api.WorkflowExecutionStep{
+			StepID:      stepID,
+			Tool:        tool,
+			Status:      api.WorkflowExecutionCompleted,
+			StartedAt:   execution.StartedAt, // Approximate timing
+			CompletedAt: execution.CompletedAt,
+			DurationMs:  0,                        // Unknown duration for now
+			Input:       map[string]interface{}{}, // Unknown input for now
+			Result:      stepResult,
+			Error:       nil,
+			StoredAs:    store,
+		}
+
+		execution.Steps = append(execution.Steps, step)
+	}
+}
+
+// extractStepsLegacy provides backwards compatibility for results without step metadata
+func (et *ExecutionTracker) extractStepsLegacy(execution *api.WorkflowExecution, results map[string]interface{}) {
+	if results == nil {
+		return
+	}
+
+	stepCount := 0
+	for stepVar, stepResult := range results {
+		stepCount++
+
+		// Create a basic step record (legacy approach)
+		step := api.WorkflowExecutionStep{
+			StepID:      fmt.Sprintf("step_%d", stepCount),
+			Tool:        "unknown", // We don't have tool information from result
+			Status:      api.WorkflowExecutionCompleted,
+			StartedAt:   execution.StartedAt, // Approximate timing
+			CompletedAt: execution.CompletedAt,
+			DurationMs:  0,                        // Unknown duration
+			Input:       map[string]interface{}{}, // Unknown input
+			Result:      stepResult,
+			Error:       nil,
+			StoredAs:    stepVar,
+		}
+
+		execution.Steps = append(execution.Steps, step)
 	}
 }
 
