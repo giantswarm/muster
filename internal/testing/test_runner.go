@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -810,14 +811,68 @@ func min(a, b int) int {
 
 // compareValues compares two values for equality, handling type conversions
 func compareValues(actual, expected interface{}) bool {
-	// Direct equality check first
-	if actual == expected {
+	// Handle nil cases first
+	if actual == nil || expected == nil {
+		return actual == expected
+	}
+
+	// Handle slice/array comparisons to prevent panic
+	actualVal := reflect.ValueOf(actual)
+	expectedVal := reflect.ValueOf(expected)
+	
+	// Check if both are slices or arrays
+	if actualVal.Kind() == reflect.Slice || actualVal.Kind() == reflect.Array {
+		if expectedVal.Kind() == reflect.Slice || expectedVal.Kind() == reflect.Array {
+			// Compare lengths first
+			if actualVal.Len() != expectedVal.Len() {
+				return false
+			}
+			
+			// Compare each element
+			for i := 0; i < actualVal.Len(); i++ {
+				actualItem := actualVal.Index(i).Interface()
+				expectedItem := expectedVal.Index(i).Interface()
+				if !compareValues(actualItem, expectedItem) {
+					return false
+				}
+			}
+			return true
+		}
+		// One is slice/array, other is not - not equal
+		return false
+	}
+	
+	// Handle map comparisons
+	if actualVal.Kind() == reflect.Map && expectedVal.Kind() == reflect.Map {
+		actualKeys := actualVal.MapKeys()
+		expectedKeys := expectedVal.MapKeys()
+		
+		// Compare number of keys
+		if len(actualKeys) != len(expectedKeys) {
+			return false
+		}
+		
+		// Check each key-value pair
+		for _, key := range expectedKeys {
+			actualValue := actualVal.MapIndex(key)
+			expectedValue := expectedVal.MapIndex(key)
+			
+			if !actualValue.IsValid() {
+				return false // Key doesn't exist in actual
+			}
+			
+			if !compareValues(actualValue.Interface(), expectedValue.Interface()) {
+				return false
+			}
+		}
 		return true
 	}
 
-	// Handle nil cases
-	if actual == nil || expected == nil {
-		return actual == expected
+	// Direct equality check for comparable types (but not slices/arrays)
+	if actualVal.Type().Comparable() && expectedVal.Type().Comparable() {
+		if actual == expected {
+			return true
+		}
 	}
 
 	// Handle boolean comparisons
