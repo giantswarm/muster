@@ -21,8 +21,7 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
-	// Version indicates the workflow definition version for compatibility tracking
-	Version int `yaml:"version" json:"version"`
+
 
 	// InputSchema defines the expected input parameters for workflow execution.
 	// This is used for parameter validation and documentation generation.
@@ -32,20 +31,14 @@ type Workflow struct {
 	// Each step represents a tool call with its arguments and processing logic.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
 
-	// OutputSchema defines the expected output structure from workflow execution.
-	// This is used for result validation and documentation.
-	OutputSchema map[string]interface{} `yaml:"outputSchema,omitempty" json:"outputSchema,omitempty"`
+
 
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
 	Available bool `json:"available,omitempty" yaml:"-"`
 
-	// State represents the current operational state of the workflow
-	State string `json:"state,omitempty" yaml:"-"`
 
-	// Error contains error information if the workflow is in an error state
-	Error string `json:"error,omitempty" yaml:"-"`
 
 	// Metadata fields - Additional workflow information
 
@@ -56,13 +49,7 @@ type Workflow struct {
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
 }
 
-// WorkflowConfig represents a configuration file containing multiple workflows.
-// This is used for loading workflow definitions from YAML files that contain
-// multiple workflow definitions in a single file.
-type WorkflowConfig struct {
-	// Workflows contains the list of workflow definitions in this configuration
-	Workflows []Workflow `yaml:"workflows" json:"workflows"`
-}
+
 
 // Parameter defines a parameter for operations and workflows.
 // This provides a standardized way to define input validation and documentation
@@ -97,29 +84,10 @@ type OperationDefinition struct {
 	// This is used for availability checking and dependency validation.
 	Requires []string `yaml:"requires" json:"requires"`
 
-	// Workflow specifies the workflow to execute for this operation.
-	// This can be either an inline workflow definition or a reference to an existing workflow.
-	Workflow *WorkflowReference `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+
 }
 
-// WorkflowReference references a workflow for an operation.
-// This is simplified to avoid circular dependencies while still providing
-// the necessary information for workflow execution and capability integration.
-type WorkflowReference struct {
-	// Name identifies the workflow to execute (can be a reference to an existing workflow)
-	Name string `yaml:"name" json:"name"`
 
-	// Description provides documentation for this workflow reference
-	Description string `yaml:"description" json:"description"`
-
-	// InputSchema defines the expected input parameters for this workflow reference.
-	// This may be a subset or transformation of the parent operation's parameters.
-	InputSchema map[string]interface{} `yaml:"inputSchema" json:"inputSchema"`
-
-	// Steps defines the workflow steps if this is an inline workflow definition.
-	// If empty, the workflow is resolved by Name from the workflow registry.
-	Steps []WorkflowStep `yaml:"steps" json:"steps"`
-}
 
 // WorkflowStep defines a single step in a workflow execution.
 // Each step represents a tool call with its arguments, result processing,
@@ -141,9 +109,7 @@ type WorkflowStep struct {
 	// This allows subsequent steps to reference the result of this step.
 	Store string `yaml:"store,omitempty" json:"store,omitempty"`
 
-	// Condition specifies a conditional expression that determines whether this step should execute.
-	// Uses a simple expression language to evaluate conditions based on previous step results.
-	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
+
 
 	// Description provides human-readable documentation for this step's purpose
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`

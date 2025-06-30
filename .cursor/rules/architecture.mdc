@@ -61,6 +61,7 @@ alwaysApply: true
   -   **NEVER import workflow, mcpserver, serviceclass, capability and service packages directly.** This creates tight coupling and violates the core architectural principle.
   -   **NEVER USE TIMER/SLEEP/WAIT TO FIX TESTS OR RACE CONDITIONS. NEVER!!**
   -   **ALWAYS retrieve handlers from the `api` package.**
+  -   **Don't change schema.json manually** It is generated via `muster test --generate-schema` and changes are the result of the actual api of `muster serve`.
 
 - **Testing Standards**
   - **Minimum Coverage:** All new code **MUST** achieve at least **80% unit test coverage**.

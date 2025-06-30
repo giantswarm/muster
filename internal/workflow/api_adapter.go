@@ -182,7 +182,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
 				{
 					Name:        "inputSchema",
 					Type:        "object",
@@ -254,10 +253,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"store": map[string]interface{}{
 									"type":        "string",
 									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"condition": map[string]interface{}{
-									"type":        "string",
-									"description": "Conditional expression to determine if this step should execute (optional)",
 								},
 								"description": map[string]interface{}{
 									"type":        "string",
@@ -278,7 +273,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
 				{
 					Name:        "inputSchema",
 					Type:        "object",
@@ -350,10 +344,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"store": map[string]interface{}{
 									"type":        "string",
 									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"condition": map[string]interface{}{
-									"type":        "string",
-									"description": "Conditional expression to determine if this step should execute (optional)",
 								},
 								"description": map[string]interface{}{
 									"type":        "string",
@@ -386,7 +376,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "version", Type: "string", Required: false, Description: "Workflow version"},
 				{
 					Name:        "inputSchema",
 					Type:        "object",
@@ -458,10 +447,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"store": map[string]interface{}{
 									"type":        "string",
 									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"condition": map[string]interface{}{
-									"type":        "string",
-									"description": "Conditional expression to determine if this step should execute (optional)",
 								},
 								"description": map[string]interface{}{
 									"type":        "string",
@@ -563,7 +548,6 @@ func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, 
 		workflowInfo := map[string]interface{}{
 			"name":        wf.Name,
 			"description": wf.Description,
-			"version":     wf.Version,
 			"available":   wf.Available,
 		}
 		result = append(result, workflowInfo)
@@ -715,9 +699,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if desc, ok := args["description"].(string); ok {
 		wf.Description = desc
 	}
-	if version, ok := args["version"].(int); ok {
-		wf.Version = version
-	}
+
 
 	// Convert inputSchema
 	if inputSchemaParam, ok := args["inputSchema"].(map[string]interface{}); ok {
@@ -828,10 +810,7 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			step.Store = store
 		}
 
-		// Condition (optional)
-		if condition, ok := stepMap["condition"].(string); ok {
-			step.Condition = condition
-		}
+
 
 		// Description (optional)
 		if description, ok := stepMap["description"].(string); ok {

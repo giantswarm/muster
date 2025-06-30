@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-29T22:52:24+02:00",
+  "generated_at": "2025-06-30T08:14:56+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -1498,10 +1498,6 @@
                     "description": "Arguments to pass to the tool (optional)",
                     "type": "object"
                   },
-                  "condition": {
-                    "description": "Conditional expression to determine if this step should execute (optional)",
-                    "type": "string"
-                  },
                   "description": {
                     "description": "Human-readable description of what this step does (optional)",
                     "type": "string"
@@ -1527,10 +1523,6 @@
               },
               "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "number"
             }
           },
           "required": [
@@ -1638,10 +1630,6 @@
                     "description": "Arguments to pass to the tool (optional)",
                     "type": "object"
                   },
-                  "condition": {
-                    "description": "Conditional expression to determine if this step should execute (optional)",
-                    "type": "string"
-                  },
                   "description": {
                     "description": "Human-readable description of what this step does (optional)",
                     "type": "string"
@@ -1667,10 +1655,6 @@
               },
               "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "number"
             }
           },
           "required": [
@@ -1741,10 +1725,6 @@
                     "description": "Arguments to pass to the tool (optional)",
                     "type": "object"
                   },
-                  "condition": {
-                    "description": "Conditional expression to determine if this step should execute (optional)",
-                    "type": "string"
-                  },
                   "description": {
                     "description": "Human-readable description of what this step does (optional)",
                     "type": "string"
@@ -1770,10 +1750,6 @@
               },
               "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "string"
             }
           },
           "required": [
