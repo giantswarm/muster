@@ -94,7 +94,7 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 // Returns:
 //   - string: The key name containing array data, or empty string if none found
 func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
-	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "capabilities", "items", "results"}
+	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "executions", "capabilities", "items", "results"}
 
 	for _, key := range arrayKeys {
 		if value, exists := data[key]; exists {
@@ -210,6 +210,7 @@ func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
 		"mcpServers":     {"state", "serverType", "description"},
 		"workflows":      {"status", "description", "steps"},
+		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
 		"capabilities":   {"available", "capabilityType", "description"},
 		"generic":        {"status", "type", "description", "available"},
 	}
@@ -266,6 +267,10 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 		(f.keyExists(sample, "type") && f.keyExists(sample, "command")) ||
 		(f.keyExists(sample, "available") && f.keyExists(sample, "category")) {
 		return "mcpServers"
+	}
+	// Check for workflow execution fields
+	if f.keyExists(sample, "execution_id") && f.keyExists(sample, "workflow_name") {
+		return "executions"
 	}
 	// Check for workflow-related fields
 	if f.keyExists(sample, "steps") || f.keyExists(sample, "workflow") ||

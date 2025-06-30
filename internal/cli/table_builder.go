@@ -50,15 +50,22 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 
 	// Handle different column types with enhanced formatting
 	switch colLower {
-	case "name", "label", "id", "workflow", "capability":
+	case "name", "label", "id", "workflow", "capability", "execution_id":
 		// Primary identifiers - make them prominent
 		return text.FgHiCyan.Sprint(strValue)
+	case "workflow_name":
+		// Workflow name in executions - make it distinct
+		return text.FgHiWhite.Sprint(strValue)
 	case "health", "status":
 		return b.formatHealthStatus(strValue)
 	case "available":
 		return b.formatAvailableStatus(value)
 	case "state":
 		return b.formatState(strValue)
+	case "started_at", "completed_at":
+		return b.formatTimestamp(strValue)
+	case "duration_ms":
+		return b.formatDuration(value)
 	case "metadata":
 		return b.formatMetadata(value)
 	case "requiredtools", "tools":
@@ -420,6 +427,8 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 		return text.FgRed.Sprint("🔴")
 	case "workflows":
 		return text.FgBlue.Sprint("🔵")
+	case "executions":
+		return text.FgCyan.Sprint("🔄")
 	case "capabilities":
 		return text.FgMagenta.Sprint("🟣")
 	default:
@@ -441,4 +450,82 @@ func (b *TableBuilder) Pluralize(word string) string {
 		return word
 	}
 	return word + "s"
+}
+
+// formatTimestamp formats timestamp strings for better readability.
+// It simplifies ISO 8601 timestamps by removing microseconds and timezone
+// information for cleaner table display.
+//
+// Parameters:
+//   - timestamp: The timestamp string to format
+//
+// Returns:
+//   - interface{}: Formatted timestamp string
+func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
+	if timestamp == "" || timestamp == "-" {
+		return text.FgHiBlack.Sprint("-")
+	}
+
+	// Remove microseconds and timezone for cleaner display
+	// Convert "2024-01-01T12:34:56.789Z" to "2024-01-01 12:34:56"
+	if strings.Contains(timestamp, "T") {
+		parts := strings.Split(timestamp, "T")
+		if len(parts) == 2 {
+			timePart := parts[1]
+			// Remove microseconds and timezone
+			if dotIndex := strings.Index(timePart, "."); dotIndex != -1 {
+				timePart = timePart[:dotIndex]
+			}
+			if strings.HasSuffix(timePart, "Z") {
+				timePart = strings.TrimSuffix(timePart, "Z")
+			}
+			return text.FgHiBlack.Sprint(parts[0] + " " + timePart)
+		}
+	}
+
+	return text.FgHiBlack.Sprint(timestamp)
+}
+
+// formatDuration formats duration in milliseconds to a human-readable format.
+// It converts milliseconds to appropriate units (ms, s, m, h) for better
+// understanding of execution times.
+//
+// Parameters:
+//   - value: The duration value (typically in milliseconds)
+//
+// Returns:
+//   - interface{}: Formatted duration string with appropriate units
+func (b *TableBuilder) formatDuration(value interface{}) interface{} {
+	if value == nil {
+		return text.FgHiBlack.Sprint("-")
+	}
+
+	// Convert to float64 for calculation
+	var durationMs float64
+	switch v := value.(type) {
+	case int:
+		durationMs = float64(v)
+	case int64:
+		durationMs = float64(v)
+	case float64:
+		durationMs = v
+	case string:
+		// Try to parse string as number
+		if parsed, err := fmt.Sscanf(v, "%f", &durationMs); parsed != 1 || err != nil {
+			return v // Return as-is if can't parse
+		}
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+
+	// Format based on duration
+	if durationMs < 1000 {
+		return text.FgGreen.Sprintf("%.0fms", durationMs)
+	} else if durationMs < 60000 {
+		return text.FgYellow.Sprintf("%.1fs", durationMs/1000)
+	} else if durationMs < 3600000 {
+		return text.FgCyan.Sprintf("%.1fm", durationMs/60000)
+	} else {
+		return text.FgRed.Sprintf("%.1fh", durationMs/3600000)
+	}
 }
