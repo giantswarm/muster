@@ -55,7 +55,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 				IsError: true,
 			}, nil
 		}
-		
+
 		// Fallback for errors without execution data
 		return &api.CallToolResult{
 			Content: []interface{}{err.Error()},
@@ -798,19 +798,85 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 		req.WorkflowName = workflowName
 	}
 
+	// Validate status parameter
 	if status, ok := args["status"].(string); ok {
+		// Empty status is invalid when explicitly provided
+		if status == "" {
+			return &api.CallToolResult{
+				Content: []interface{}{"status must be one of the enum values: inprogress, completed, failed"},
+				IsError: true,
+			}, nil
+		}
+		if status != "inprogress" && status != "completed" && status != "failed" {
+			return &api.CallToolResult{
+				Content: []interface{}{"status must be one of the enum values: inprogress, completed, failed"},
+				IsError: true,
+			}, nil
+		}
 		req.Status = api.WorkflowExecutionStatus(status)
 	}
 
-	if limit, ok := args["limit"].(float64); ok {
-		req.Limit = int(limit)
+	// Validate limit parameter
+	if limitVal, ok := args["limit"]; ok {
+		// Handle both int and float64 types (JSON may parse as either)
+		var limitInt int
+		switch v := limitVal.(type) {
+		case float64:
+			limitInt = int(v)
+		case int:
+			limitInt = v
+		case int64:
+			limitInt = int(v)
+		default:
+			return &api.CallToolResult{
+				Content: []interface{}{"limit must be a number"},
+				IsError: true,
+			}, nil
+		}
+
+		if limitInt < 1 {
+			return &api.CallToolResult{
+				Content: []interface{}{"limit must be at least 1 (minimum value)"},
+				IsError: true,
+			}, nil
+		}
+		if limitInt > 1000 {
+			return &api.CallToolResult{
+				Content: []interface{}{"limit must be at most 1000 (maximum value)"},
+				IsError: true,
+			}, nil
+		}
+		req.Limit = limitInt
 	}
 	if req.Limit <= 0 {
 		req.Limit = 50 // Default
 	}
 
-	if offset, ok := args["offset"].(float64); ok {
-		req.Offset = int(offset)
+	// Validate offset parameter
+	if offsetVal, ok := args["offset"]; ok {
+		// Handle both int and float64 types (JSON may parse as either)
+		var offsetInt int
+		switch v := offsetVal.(type) {
+		case float64:
+			offsetInt = int(v)
+		case int:
+			offsetInt = v
+		case int64:
+			offsetInt = int(v)
+		default:
+			return &api.CallToolResult{
+				Content: []interface{}{"offset must be a number"},
+				IsError: true,
+			}, nil
+		}
+
+		if offsetInt < 0 {
+			return &api.CallToolResult{
+				Content: []interface{}{"offset must be at least 0 (minimum value)"},
+				IsError: true,
+			}, nil
+		}
+		req.Offset = offsetInt
 	}
 	if req.Offset < 0 {
 		req.Offset = 0 // Default
@@ -847,13 +913,27 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 	}
 	req.ExecutionID = executionID
 
-	if includeSteps, ok := args["include_steps"].(bool); ok {
-		req.IncludeSteps = includeSteps
+	// Validate include_steps parameter
+	if includeStepsVal, ok := args["include_steps"]; ok {
+		if includeSteps, ok := includeStepsVal.(bool); ok {
+			req.IncludeSteps = includeSteps
+		} else {
+			return &api.CallToolResult{
+				Content: []interface{}{"include_steps must be a boolean value"},
+				IsError: true,
+			}, nil
+		}
 	}
 
-	// Validate step_id parameter - explicitly check for empty string
-	if stepID, exists := args["step_id"]; exists {
-		if stepIDStr, ok := stepID.(string); ok {
+	// Validate step_id parameter - check for empty string and null
+	if stepIDVal, exists := args["step_id"]; exists {
+		if stepIDVal == nil {
+			return &api.CallToolResult{
+				Content: []interface{}{"step_id cannot be null"},
+				IsError: true,
+			}, nil
+		}
+		if stepIDStr, ok := stepIDVal.(string); ok {
 			if stepIDStr == "" {
 				// Empty step_id is explicitly invalid per BDD requirements
 				return &api.CallToolResult{

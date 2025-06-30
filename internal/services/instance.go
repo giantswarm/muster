@@ -454,9 +454,9 @@ func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{}
 		"serviceClassName": gsi.serviceClassName,
 		"parameters":       gsi.creationParameters, // Service class templates expect {{ .parameters.repository_url }}
 		"service": map[string]interface{}{
-			"id":       gsi.name,             // Service ID for templates like {{ .service.id }}
-			"name":     gsi.name,             // Service name
-			"metadata": gsi.serviceData,      // Service metadata for templates like {{ .service.metadata.database_id }}
+			"id":       gsi.name,        // Service ID for templates like {{ .service.id }}
+			"name":     gsi.name,        // Service name
+			"metadata": gsi.serviceData, // Service metadata for templates like {{ .service.metadata.database_id }}
 		},
 	}
 

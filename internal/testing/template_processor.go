@@ -77,7 +77,7 @@ func (tp *TemplateProcessor) ResolveArgs(args map[string]interface{}) (map[strin
 	templateContext := tp.context.GetAllStoredResults()
 
 	// Use selective template resolution - only resolve variables that exist in the scenario context
-	// This prevents errors when workflows contain templates like {{ .input.error_message }} 
+	// This prevents errors when workflows contain templates like {{ .input.error_message }}
 	// that should be preserved for execution-time resolution
 	resolved, err := tp.resolveSafeTemplates(args, templateContext)
 	if err != nil {
@@ -139,7 +139,7 @@ func (tp *TemplateProcessor) resolveSafeString(input string, context map[string]
 
 	// Extract variable names from the template
 	variables := tp.extractVariableNames(input)
-	
+
 	// Check if all variables exist in the context
 	for _, variable := range variables {
 		if _, exists := context[variable]; !exists {
@@ -168,31 +168,31 @@ func (tp *TemplateProcessor) resolveSafeString(input string, context map[string]
 // extractVariableNames extracts variable names from template strings like {{ variable.path }}
 func (tp *TemplateProcessor) extractVariableNames(s string) []string {
 	var variables []string
-	
+
 	// Simple extraction: find all {{ ... }} and get the root variable name
 	for {
 		start := strings.Index(s, "{{")
 		if start == -1 {
 			break
 		}
-		
+
 		end := strings.Index(s[start:], "}}")
 		if end == -1 {
 			break
 		}
-		
+
 		// Extract the variable part
 		variable := strings.TrimSpace(s[start+2 : start+end])
-		
+
 		// Remove leading dots and spaces
 		variable = strings.TrimPrefix(variable, ".")
 		variable = strings.TrimSpace(variable)
-		
+
 		// Get the root variable name (before any dots)
 		if dotIndex := strings.Index(variable, "."); dotIndex >= 0 {
 			variable = variable[:dotIndex]
 		}
-		
+
 		// Add to list if not already present and not empty
 		if variable != "" {
 			found := false
@@ -206,10 +206,10 @@ func (tp *TemplateProcessor) extractVariableNames(s string) []string {
 				variables = append(variables, variable)
 			}
 		}
-		
+
 		// Move past this template
 		s = s[start+end+2:]
 	}
-	
+
 	return variables
 }

@@ -54,7 +54,7 @@ func NewExecutionTracker(storage ExecutionStorage) *ExecutionTracker {
 func (et *ExecutionTracker) TrackExecution(ctx context.Context, workflowName string, args map[string]interface{}, executeFn func() (*mcp.CallToolResult, error)) (*mcp.CallToolResult, *api.WorkflowExecution, error) {
 	// Generate unique execution ID
 	executionID := uuid.New().String()
-	startTime := time.Now()
+	startTime := time.Now().UTC()
 
 	logging.Debug("ExecutionTracker", "Starting execution tracking for workflow %s (execution: %s)", workflowName, executionID)
 
@@ -82,7 +82,7 @@ func (et *ExecutionTracker) TrackExecution(ctx context.Context, workflowName str
 	result, err := et.executeWithStepTracking(ctx, execution, executeFn)
 
 	// Update execution record with final results
-	endTime := time.Now()
+	endTime := time.Now().UTC()
 	execution.CompletedAt = &endTime
 	execution.DurationMs = endTime.Sub(startTime).Milliseconds()
 
@@ -153,9 +153,30 @@ func (et *ExecutionTracker) extractStepInformation(execution *api.WorkflowExecut
 		stepMetadataRaw, hasStepMetadata := resultData["stepMetadata"]
 		resultsRaw, hasResults := resultData["results"].(map[string]interface{})
 
+		// Check if the workflow result indicates an error
+		var workflowError string
+		var failedStepID string
+		if errorRaw, hasError := resultData["error"]; hasError {
+			if errorStr, ok := errorRaw.(string); ok {
+				workflowError = errorStr
+			}
+		}
+
+		// Check for explicit failed step information
+		if failedStepRaw, hasFailedStep := resultData["failedStep"]; hasFailedStep {
+			if failedStepStr, ok := failedStepRaw.(string); ok {
+				failedStepID = failedStepStr
+			}
+		}
+
+		// If no explicit failed step but we have an error, try to extract from error message
+		if failedStepID == "" && workflowError != "" {
+			failedStepID = et.extractStepIDFromError(workflowError)
+		}
+
 		if hasStepMetadata && hasResults {
 			// Use enhanced step metadata approach
-			et.extractStepsFromMetadata(execution, stepMetadataRaw, resultsRaw)
+			et.extractStepsFromMetadata(execution, stepMetadataRaw, resultsRaw, workflowError, failedStepID)
 		} else {
 			// Fallback to legacy approach for backwards compatibility
 			et.extractStepsLegacy(execution, resultsRaw)
@@ -164,20 +185,19 @@ func (et *ExecutionTracker) extractStepInformation(execution *api.WorkflowExecut
 }
 
 // extractStepsFromMetadata extracts step information using enhanced metadata
-func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExecution, stepMetadataRaw interface{}, results map[string]interface{}) {
+func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExecution, stepMetadataRaw interface{}, results map[string]interface{}, workflowError string, failedStepID string) {
 	stepMetadataList, ok := stepMetadataRaw.([]interface{})
 	if !ok {
 		return
 	}
 
-	// Check if workflow failed and get the failed step ID
-	var failedStepID string
-	var workflowError string
-	if execution.Status == api.WorkflowExecutionFailed && execution.Error != nil {
+	// If no error information provided, check if execution already has error info
+	if workflowError == "" && execution.Error != nil {
 		workflowError = *execution.Error
-		// Try to extract failed step ID from error message
 		failedStepID = et.extractStepIDFromError(workflowError)
 	}
+
+	logging.Debug("ExecutionTracker", "extractStepsFromMetadata: workflowError='%s', failedStepID='%s'", workflowError, failedStepID)
 
 	for _, stepMetaRaw := range stepMetadataList {
 		stepMeta, ok := stepMetaRaw.(map[string]interface{})
@@ -198,9 +218,12 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 		// Determine step status and error
 		var stepStatus api.WorkflowExecutionStatus
 		var stepError *string
-		
+
+		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', failedStepID='%s', match=%t", stepID, failedStepID, stepID == failedStepID)
+
 		if failedStepID != "" && stepID == failedStepID {
 			// This is the step that failed
+			logging.Debug("ExecutionTracker", "Setting step %s as failed with error: %s", stepID, workflowError)
 			stepStatus = api.WorkflowExecutionFailed
 			stepError = &workflowError
 		} else {
@@ -223,6 +246,7 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 			StoredAs:    store,
 		}
 
+		logging.Debug("ExecutionTracker", "Created step: stepID='%s', status='%s', hasError=%t", stepID, stepStatus, stepError != nil)
 		execution.Steps = append(execution.Steps, step)
 	}
 }
@@ -261,7 +285,7 @@ func (et *ExecutionTracker) extractStepInformationFromError(execution *api.Workf
 	// For failed workflows without results, we can try to infer step information from the error
 	// The error message often contains step information like "step failing_step failed: ..."
 	errorStr := err.Error()
-	
+
 	// Look for step information in error messages
 	// Pattern: "step <step_id> failed: ..."
 	if stepID := et.extractStepIDFromError(errorStr); stepID != "" {
@@ -289,18 +313,18 @@ func (et *ExecutionTracker) extractStepIDFromError(errorStr string) string {
 	// This is a simple pattern match - could be enhanced with regex
 	stepPrefix := "step "
 	failedSuffix := " failed:"
-	
+
 	startIdx := strings.Index(errorStr, stepPrefix)
 	if startIdx == -1 {
 		return ""
 	}
-	
+
 	startIdx += len(stepPrefix)
 	endIdx := strings.Index(errorStr[startIdx:], failedSuffix)
 	if endIdx == -1 {
 		return ""
 	}
-	
+
 	return errorStr[startIdx : startIdx+endIdx]
 }
 
@@ -372,8 +396,17 @@ func (et *ExecutionTracker) GetExecution(ctx context.Context, req *api.GetWorkfl
 		}
 
 		// Return a minimal execution record containing only the requested step
-		// This matches the BDD expectation that specific step queries should
-		// NOT contain data from other steps
+		// For step-specific queries, we only include execution-level error if the step itself failed
+		var stepError *string
+		var stepInput map[string]interface{}
+		if targetStep.Status == api.WorkflowExecutionFailed {
+			stepError = targetStep.Error // Use step-level error, not execution-level error
+			stepInput = execution.Input  // Include full input for failed steps for debugging
+		} else {
+			stepError = nil                          // No error for successful steps
+			stepInput = make(map[string]interface{}) // Empty input for successful steps to avoid error-related terms
+		}
+
 		return &api.WorkflowExecution{
 			ExecutionID:  execution.ExecutionID,
 			WorkflowName: execution.WorkflowName,
@@ -381,9 +414,9 @@ func (et *ExecutionTracker) GetExecution(ctx context.Context, req *api.GetWorkfl
 			StartedAt:    execution.StartedAt,
 			CompletedAt:  execution.CompletedAt,
 			DurationMs:   execution.DurationMs,
-			Input:        execution.Input,
-			Result:       nil, // Exclude full workflow result for specific step queries
-			Error:        execution.Error,
+			Input:        stepInput,                                // Only include input for failed steps
+			Result:       nil,                                      // Exclude full workflow result for specific step queries
+			Error:        stepError,                                // Only include error if THIS step failed
 			Steps:        []api.WorkflowExecutionStep{*targetStep}, // Only the requested step
 		}, nil
 	}
