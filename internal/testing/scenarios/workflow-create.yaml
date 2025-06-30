@@ -50,3 +50,21 @@ steps:
   expected:
     success: true
     contains: ["test-workflow", "advanced-workflow"] 
+
+- id: "verify-workflow-availability"
+  tool: "core_workflow_available"
+  args:
+    name: "test-workflow"
+  expected:
+    success: true
+    json_path:
+      available: true
+
+- id: "verify-workflow-availability"
+  tool: "core_workflow_available"
+  args:
+    name: "advanced-workflow"
+  expected:
+    success: true
+    json_path:
+      available: true

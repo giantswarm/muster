@@ -1,0 +1,49 @@
+name: "workflow-available-with-mock"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "create", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "test-mock"
+      config:
+        tools:
+          - name: "toola"
+            description: "A tool that returns a string"
+            input_schema:
+              type: object
+              properties:
+                text:
+                  type: "string"
+              required:
+                - text
+            responses:
+              - response:
+                  status: "created"
+  workflows:
+    - name: "test-workflow"
+      config:
+        name: "test-workflow"
+        input_schema:
+          type: object
+          properties:
+            text:
+              type: "string"
+          required:
+            - text
+        steps:
+          - id: "run-toola"
+            tool: "x_test-mock_toola"
+            args:
+              text: "{{ .input.text }}"
+
+steps:
+- id: "check-availability-of-workflow-with-mcp-tool"
+  tool: "core_workflow_available"
+  args:
+    name: "test-workflow"
+  expected:
+    success: true
+    json_path:
+      available: true

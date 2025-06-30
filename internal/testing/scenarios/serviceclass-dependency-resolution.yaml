@@ -17,16 +17,6 @@ pre_configuration:
           - name: "tool-b"
             responses: [ { response: { status: "ok" } } ]
 
-  capabilities:
-    - name: "capability-a"
-      config:
-        name: "capability-a"
-        resolution: { type: "static", tools: ["x_tool-provider-a_tool-a"] }
-    - name: "capability-b"
-      config:
-        name: "capability-b"
-        resolution: { type: "static", tools: ["x_tool-provider-b_tool-b"] }
-
 steps:
 - id: "create-sc-with-capability-dependency"
   description: "Create ServiceClass with capability dependency"
@@ -38,14 +28,11 @@ steps:
       serviceType: "test-service"
       lifecycleTools:
         start:
-          tool: "core_config_get"
+          tool: "x_tool-provider-a_tool-a"
         stop:
-          tool: "core_config_get"
+          tool: "x_tool-provider-b_tool-b"
   expected:
     success: true
-  cleanup:
-    - tool: "core_serviceclass_delete"
-      args: { name: "sc-with-capability-dep" }
 
 - id: "check-sc-availability"
   tool: "core_serviceclass_available"
@@ -53,6 +40,8 @@ steps:
     name: "sc-with-capability-dep"
   expected:
     success: true
+    json_path:
+      available: true
 
 - id: "create-sc-with-unmet-capability-dependency"
   description: "Create ServiceClass with unmet dependency"
@@ -64,14 +53,11 @@ steps:
       serviceType: "test-service"
       lifecycleTools:
         start:
-          tool: "non_existent_tool"
+          tool: "x_tool-provider-a_tool-a"
         stop:
-          tool: "core_config_get"
+          tool: "x_tool-provider-a_tool-b"
   expected:
     success: true
-  cleanup:
-    - tool: "core_serviceclass_delete"
-      args: { name: "sc-with-unmet-dep" }
 
 - id: "check-sc-unavailable"
   tool: "core_serviceclass_available"
@@ -79,11 +65,8 @@ steps:
     name: "sc-with-unmet-dep"
   expected:
     success: true
-
-- id: "list-available-serviceclasses"
-  tool: "core_serviceclass_list"
-  expected:
-    success: true
+    json_path:
+      available: false
 
 - id: "cleanup-created-serviceclasses"
   tool: "core_serviceclass_delete"
