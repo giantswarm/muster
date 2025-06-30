@@ -1,0 +1,70 @@
+name: "workflow-execution-multi-step-tracking"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "multi-step"]
+timeout: "3m"
+
+steps:
+- id: "create-multi-step-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "multi-step-tracking-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        service_name:
+          type: "string"
+          default: "test-service"
+      required: []
+    steps:
+      - id: "list_services"
+        tool: "core_service_list"
+        store: "services_result"
+      - id: "get_config"
+        tool: "core_config_get"
+        store: "config_result"
+      - id: "list_workflows"
+        tool: "core_workflow_list"
+        store: "workflows_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "multi-step-tracking-workflow" }
+
+- id: "execute-multi-step-workflow"
+  tool: "workflow_multi-step-tracking-workflow"
+  args:
+    service_name: "multi-step-service"
+  expected:
+    success: true
+  store: "multi_step_execution"
+
+- id: "verify-all-steps-tracked"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ multi_step_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["list_services", "get_config", "list_workflows", "services_result", "config_result", "workflows_result"]
+
+- id: "verify-step-order-and-timing"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ multi_step_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["started_at", "completed_at", "duration_ms"]
+
+- id: "get-specific-step-result"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ multi_step_execution.execution_id }}"
+    step_id: "list_services"
+  expected:
+    success: true
+    contains: ["step_id", "list_services", "status", "started_at", "completed_at", "duration_ms", "result"]
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "multi-step-tracking-workflow" } 

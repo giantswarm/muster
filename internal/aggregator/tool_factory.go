@@ -302,7 +302,7 @@ func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
 			for key, value := range param.Schema {
 				propSchema[key] = value
 			}
-			
+
 			// Ensure description is included (override schema description if needed)
 			if param.Description != "" {
 				propSchema["description"] = param.Description

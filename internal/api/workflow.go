@@ -21,8 +21,6 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
-
-
 	// InputSchema defines the expected input parameters for workflow execution.
 	// This is used for parameter validation and documentation generation.
 	InputSchema WorkflowInputSchema `yaml:"inputSchema" json:"inputSchema"`
@@ -31,14 +29,10 @@ type Workflow struct {
 	// Each step represents a tool call with its arguments and processing logic.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
 
-
-
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
 	Available bool `json:"available,omitempty" yaml:"-"`
-
-
 
 	// Metadata fields - Additional workflow information
 
@@ -48,8 +42,6 @@ type Workflow struct {
 	// LastModified indicates when this workflow was last updated
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
 }
-
-
 
 // Parameter defines a parameter for operations and workflows.
 // This provides a standardized way to define input validation and documentation
@@ -83,11 +75,7 @@ type OperationDefinition struct {
 	// Requires lists the tools or capabilities that must be available for this operation.
 	// This is used for availability checking and dependency validation.
 	Requires []string `yaml:"requires" json:"requires"`
-
-
 }
-
-
 
 // WorkflowStep defines a single step in a workflow execution.
 // Each step represents a tool call with its arguments, result processing,
@@ -108,8 +96,6 @@ type WorkflowStep struct {
 	// Store specifies the variable name where the step result should be stored.
 	// This allows subsequent steps to reference the result of this step.
 	Store string `yaml:"store,omitempty" json:"store,omitempty"`
-
-
 
 	// Description provides human-readable documentation for this step's purpose
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`

@@ -197,8 +197,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"default":     "object",
 							},
 							"properties": map[string]interface{}{
-								"type":                 "object",
-								"description":          "Property definitions for input parameters",
+								"type":        "object",
+								"description": "Property definitions for input parameters",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
@@ -259,7 +259,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"description": "Human-readable description of what this step does (optional)",
 								},
 							},
-							"required": []string{"id", "tool"},
+							"required":             []string{"id", "tool"},
 							"additionalProperties": false,
 						},
 						"minItems": 1,
@@ -288,8 +288,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"default":     "object",
 							},
 							"properties": map[string]interface{}{
-								"type":                 "object",
-								"description":          "Property definitions for input parameters",
+								"type":        "object",
+								"description": "Property definitions for input parameters",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
@@ -350,7 +350,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"description": "Human-readable description of what this step does (optional)",
 								},
 							},
-							"required": []string{"id", "tool"},
+							"required":             []string{"id", "tool"},
 							"additionalProperties": false,
 						},
 						"minItems": 1,
@@ -391,8 +391,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"default":     "object",
 							},
 							"properties": map[string]interface{}{
-								"type":                 "object",
-								"description":          "Property definitions for input parameters",
+								"type":        "object",
+								"description": "Property definitions for input parameters",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
@@ -453,7 +453,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"description": "Human-readable description of what this step does (optional)",
 								},
 							},
-							"required": []string{"id", "tool"},
+							"required":             []string{"id", "tool"},
 							"additionalProperties": false,
 						},
 						"minItems": 1,
@@ -700,7 +700,6 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		wf.Description = desc
 	}
 
-
 	// Convert inputSchema
 	if inputSchemaParam, ok := args["inputSchema"].(map[string]interface{}); ok {
 		inputSchema, err := convertInputSchema(inputSchemaParam)
@@ -809,8 +808,6 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 		if store, ok := stepMap["store"].(string); ok {
 			step.Store = store
 		}
-
-
 
 		// Description (optional)
 		if description, ok := stepMap["description"].(string); ok {

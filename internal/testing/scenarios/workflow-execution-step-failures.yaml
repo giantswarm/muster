@@ -1,0 +1,126 @@
+name: "workflow-execution-step-failures"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "step", "failure"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "step-failure-mock"
+      config:
+        tools:
+          - name: "conditional_fail"
+            input_schema:
+              type: "object"
+              properties:
+                should_fail:
+                  type: "boolean"
+                  default: false
+                error_msg:
+                  type: "string"
+                  default: "Step failed"
+            responses:
+              - condition:
+                  should_fail: true
+                error: "{{ .error_msg }}"
+              - response:
+                  status: "success"
+                  message: "Step completed successfully"
+
+steps:
+- id: "create-step-failure-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "step-failure-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        fail_at_step:
+          type: "string"
+          description: "Which step should fail"
+          default: "none"
+      required: []
+    steps:
+      - id: "step_1"
+        tool: "core_service_list"
+        store: "step1_result"
+      - id: "step_2"
+        tool: "x_step-failure-mock_conditional_fail"
+        args:
+          should_fail: "{{ eq .input.fail_at_step 'step_2' }}"
+          error_msg: "Step 2 intentional failure"
+        store: "step2_result"
+      - id: "step_3"
+        tool: "x_step-failure-mock_conditional_fail"
+        args:
+          should_fail: "{{ eq .input.fail_at_step 'step_3' }}"
+          error_msg: "Step 3 intentional failure"
+        store: "step3_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "step-failure-workflow" }
+
+- id: "execute-workflow-no-failures"
+  tool: "workflow_step-failure-workflow"
+  args:
+    fail_at_step: "none"
+  expected:
+    success: true
+  store: "success_execution"
+
+- id: "execute-workflow-fail-at-step-2"
+  tool: "workflow_step-failure-workflow"
+  args:
+    fail_at_step: "step_2"
+  expected:
+    success: false
+    error_contains: ["Step 2 intentional failure"]
+  store: "step2_failure_execution"
+
+- id: "execute-workflow-fail-at-step-3"
+  tool: "workflow_step-failure-workflow"
+  args:
+    fail_at_step: "step_3"
+  expected:
+    success: false
+    error_contains: ["Step 3 intentional failure"]
+  store: "step3_failure_execution"
+
+- id: "verify-successful-execution-all-steps-completed"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ success_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["completed", "step_1", "step_2", "step_3"]
+
+- id: "verify-step-2-failure-execution"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ step2_failure_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["failed", "step_1", "completed", "step_2", "failed", "Step 2 intentional failure"]
+
+- id: "verify-step-3-failure-execution"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ step3_failure_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["failed", "step_1", "completed", "step_2", "completed", "step_3", "failed", "Step 3 intentional failure"]
+
+- id: "get-failed-step-2-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ step2_failure_execution.execution_id }}"
+    step_id: "step_2"
+  expected:
+    success: true
+    contains: ["step_2", "failed", "error", "Step 2 intentional failure"]
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "step-failure-workflow" } 

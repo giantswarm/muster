@@ -1,0 +1,121 @@
+name: "workflow-execution-list-pagination"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "pagination"]
+timeout: "3m"
+
+steps:
+- id: "create-pagination-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "pagination-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        execution_number:
+          type: "integer"
+          default: 1
+      required: []
+    steps:
+      - id: "simple_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "pagination-workflow" }
+
+# Execute multiple workflows to create pagination data
+- id: "execute-workflow-1"
+  tool: "workflow_pagination-workflow"
+  args: { execution_number: 1 }
+  expected:
+    success: true
+
+- id: "execute-workflow-2"
+  tool: "workflow_pagination-workflow"
+  args: { execution_number: 2 }
+  expected:
+    success: true
+
+- id: "execute-workflow-3"
+  tool: "workflow_pagination-workflow"
+  args: { execution_number: 3 }
+  expected:
+    success: true
+
+- id: "execute-workflow-4"
+  tool: "workflow_pagination-workflow"
+  args: { execution_number: 4 }
+  expected:
+    success: true
+
+- id: "execute-workflow-5"
+  tool: "workflow_pagination-workflow"
+  args: { execution_number: 5 }
+  expected:
+    success: true
+
+- id: "list-with-limit-2"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "pagination-workflow"
+    limit: 2
+  expected:
+    success: true
+    contains: ["pagination-workflow"]
+
+- id: "list-with-limit-3-offset-0"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "pagination-workflow"
+    limit: 3
+    offset: 0
+  expected:
+    success: true
+    contains: ["pagination-workflow"]
+
+- id: "list-with-limit-3-offset-2"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "pagination-workflow"
+    limit: 3
+    offset: 2
+  expected:
+    success: true
+    contains: ["pagination-workflow"]
+
+- id: "list-with-large-offset"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "pagination-workflow"
+    limit: 10
+    offset: 100
+  expected:
+    success: true
+
+- id: "list-with-minimum-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1
+  expected:
+    success: true
+
+- id: "list-with-maximum-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 1000
+  expected:
+    success: true
+
+- id: "list-with-zero-offset"
+  tool: "core_workflow_execution_list"
+  args:
+    offset: 0
+    limit: 5
+  expected:
+    success: true
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "pagination-workflow" } 

@@ -1,0 +1,118 @@
+name: "workflow-execution-list-filtering"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "filtering"]
+timeout: "3m"
+
+steps:
+- id: "create-filter-workflow-a"
+  tool: "core_workflow_create"
+  args:
+    name: "filter-workflow-a"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "step_a"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "filter-workflow-a" }
+
+- id: "create-filter-workflow-b"
+  tool: "core_workflow_create"
+  args:
+    name: "filter-workflow-b"
+    inputSchema:
+      type: "object"
+      properties: {}
+      required: []
+    steps:
+      - id: "step_b"
+        tool: "core_workflow_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "filter-workflow-b" }
+
+- id: "execute-workflow-a-first"
+  tool: "workflow_filter-workflow-a"
+  args: {}
+  expected:
+    success: true
+  store: "exec_a1"
+
+- id: "execute-workflow-a-second"
+  tool: "workflow_filter-workflow-a"
+  args: {}
+  expected:
+    success: true
+  store: "exec_a2"
+
+- id: "execute-workflow-b-first"
+  tool: "workflow_filter-workflow-b"
+  args: {}
+  expected:
+    success: true
+  store: "exec_b1"
+
+- id: "list-all-executions"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+    contains: ["filter-workflow-a", "filter-workflow-b"]
+
+- id: "filter-by-workflow-a"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "filter-workflow-a"
+  expected:
+    success: true
+    contains: ["filter-workflow-a"]
+    not_contains: ["filter-workflow-b"]
+
+- id: "filter-by-workflow-b"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "filter-workflow-b"
+  expected:
+    success: true
+    contains: ["filter-workflow-b"]
+    not_contains: ["filter-workflow-a"]
+
+- id: "filter-by-completed-status"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "completed"
+  expected:
+    success: true
+    contains: ["completed"]
+
+- id: "filter-by-nonexistent-workflow"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "nonexistent-workflow"
+  expected:
+    success: true
+    not_contains: ["filter-workflow-a", "filter-workflow-b"]
+
+- id: "filter-by-workflow-and-status"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "filter-workflow-a"
+    status: "completed"
+  expected:
+    success: true
+    contains: ["filter-workflow-a", "completed"]
+    not_contains: ["filter-workflow-b"]
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "filter-workflow-a" }
+- tool: "core_workflow_delete"
+  args: { name: "filter-workflow-b" } 

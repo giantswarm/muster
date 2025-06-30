@@ -1,0 +1,65 @@
+name: "workflow-execution-list-empty"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "empty"]
+timeout: "2m"
+
+steps:
+- id: "list-executions-when-empty"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+
+- id: "list-executions-with-limit-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 10
+  expected:
+    success: true
+
+- id: "list-executions-with-offset-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 5
+    offset: 10
+  expected:
+    success: true
+
+- id: "filter-by-nonexistent-workflow-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "nonexistent-workflow"
+  expected:
+    success: true
+
+- id: "filter-by-status-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "completed"
+  expected:
+    success: true
+
+- id: "filter-by-inprogress-status-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "inprogress"
+  expected:
+    success: true
+
+- id: "filter-by-failed-status-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    status: "failed"
+  expected:
+    success: true
+
+- id: "list-with-all-filters-when-empty"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "test-workflow"
+    status: "completed"
+    limit: 5
+    offset: 0
+  expected:
+    success: true 

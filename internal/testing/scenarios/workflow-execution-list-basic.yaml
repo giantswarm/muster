@@ -1,0 +1,89 @@
+name: "workflow-execution-list-basic"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "basic"]
+timeout: "3m"
+
+steps:
+- id: "create-list-test-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "list-test-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        test_param:
+          type: "string"
+          default: "test-value"
+      required: []
+    steps:
+      - id: "simple_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "list-test-workflow" }
+
+- id: "list-executions-empty"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+
+- id: "execute-workflow-first"
+  tool: "workflow_list-test-workflow"
+  args:
+    test_param: "first-execution"
+  expected:
+    success: true
+  store: "first_execution"
+
+- id: "execute-workflow-second"
+  tool: "workflow_list-test-workflow"
+  args:
+    test_param: "second-execution"
+  expected:
+    success: true
+  store: "second_execution"
+
+- id: "execute-workflow-third"
+  tool: "workflow_list-test-workflow"
+  args:
+    test_param: "third-execution"
+  expected:
+    success: true
+  store: "third_execution"
+
+- id: "list-all-executions"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "status", "started_at"]
+
+- id: "list-executions-default-limit"
+  tool: "core_workflow_execution_list"
+  args: {}
+  expected:
+    success: true
+    contains: ["list-test-workflow"]
+
+- id: "verify-execution-count"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "list-test-workflow"
+  expected:
+    success: true
+    contains: ["list-test-workflow"]
+
+- id: "list-executions-small-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 2
+  expected:
+    success: true
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "list-test-workflow" } 

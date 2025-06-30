@@ -57,6 +57,11 @@ alwaysApply: true
   }
   ```
 
+- **Workflow executions**
+  - From the user perspective workflows are executed via the tools `workflow_<workflow-name>`.
+  - In the workflows and api package these workflow execution tools are still called `action_<workflow-name>`.
+  - The aggregator maps the `action_<workflow-name>` tools to the actual `workflow_<workflow-name>`.
+
 - **CRITICAL: Anti-Patterns**
   -   **NEVER import workflow, mcpserver, serviceclass, capability and service packages directly.** This creates tight coupling and violates the core architectural principle.
   -   **NEVER USE TIMER/SLEEP/WAIT TO FIX TESTS OR RACE CONDITIONS. NEVER!!**

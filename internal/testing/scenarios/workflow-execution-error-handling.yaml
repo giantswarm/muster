@@ -1,0 +1,103 @@
+name: "workflow-execution-error-handling"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "error", "failure"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+    - name: "error-mock"
+      config:
+        tools:
+          - name: "always_fail"
+            input_schema:
+              type: "object"
+              properties:
+                error_message:
+                  type: "string"
+                  default: "Mock error"
+            responses:
+              - error: "{{ .error_message }}"
+
+steps:
+- id: "create-failing-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "failing-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        error_message:
+          type: "string"
+          default: "Test failure"
+      required: []
+    steps:
+      - id: "successful_step"
+        tool: "core_service_list"
+        store: "success_result"
+      - id: "failing_step"
+        tool: "x_error-mock_always_fail"
+        args:
+          error_message: "{{ .input.error_message }}"
+        store: "failure_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "failing-workflow" }
+
+- id: "execute-failing-workflow"
+  tool: "workflow_failing-workflow"
+  args:
+    error_message: "Expected test failure"
+  expected:
+    success: false
+    error_contains: ["Expected test failure"]
+  store: "failed_execution"
+
+- id: "verify-failed-execution-tracked"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "failing-workflow"
+    status: "failed"
+  expected:
+    success: true
+    contains: ["failing-workflow", "failed"]
+
+- id: "get-failed-execution-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ failed_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "status", "failed", "error", "Expected test failure"]
+
+- id: "verify-partial-step-execution"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ failed_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["successful_step", "completed", "failing_step", "failed"]
+
+- id: "get-successful-step-from-failed-execution"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ failed_execution.execution_id }}"
+    step_id: "successful_step"
+  expected:
+    success: true
+    contains: ["successful_step", "completed", "success_result"]
+
+- id: "get-failed-step-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ failed_execution.execution_id }}"
+    step_id: "failing_step"
+  expected:
+    success: true
+    contains: ["failing_step", "failed", "error", "Expected test failure"]
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "failing-workflow" } 

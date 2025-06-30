@@ -1,0 +1,71 @@
+name: "workflow-execution-with-storage"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "storage"]
+timeout: "3m"
+
+steps:
+- id: "create-storage-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "storage-tracking-workflow"
+    inputSchema:
+      type: "object"
+      properties:
+        service_name:
+          type: "string"
+          default: "storage-service"
+      required: []
+    steps:
+      - id: "get_services_list"
+        tool: "core_service_list"
+        store: "initial_services"
+      - id: "get_config_data"
+        tool: "core_config_get"
+        store: "config_data"
+      - id: "get_workflows_list"
+        tool: "core_workflow_list"
+        store: "workflows_data"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "storage-tracking-workflow" }
+
+- id: "execute-storage-workflow"
+  tool: "workflow_storage-tracking-workflow"
+  args:
+    service_name: "storage-test-service"
+  expected:
+    success: true
+  store: "storage_execution"
+
+- id: "verify-stored-values-tracked"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ storage_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["initial_services", "config_data", "workflows_data", "stored_as"]
+
+- id: "verify-step-storage-metadata"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ storage_execution.execution_id }}"
+    step_id: "get_services_list"
+  expected:
+    success: true
+    contains: ["stored_as", "initial_services", "result"]
+
+- id: "verify-all-stored-values"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ storage_execution.execution_id }}"
+    include_steps: true
+  expected:
+    success: true
+    contains: ["get_services_list", "get_config_data", "get_workflows_list"]
+
+cleanup:
+- tool: "core_workflow_delete"
+  args: { name: "storage-tracking-workflow" } 
