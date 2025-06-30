@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -660,20 +661,38 @@ func (a *Adapter) convertWorkflowParameters(workflowName string) []api.Parameter
 
 // Helper methods for handling management operations
 func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, error) {
-	workflows := a.GetWorkflows()
+	workflows := a.manager.ListDefinitions()
 
 	var result []map[string]interface{}
 	for _, wf := range workflows {
+		// Populate the Available field by checking availability
+		available := a.manager.IsAvailable(wf.Name)
+		
 		workflowInfo := map[string]interface{}{
-			"name":        wf.Name,
-			"description": wf.Description,
-			"available":   wf.Available,
+			"name":      wf.Name,
+			"available": available,
 		}
+		
+		// Only include description if it's not empty
+		if wf.Description != "" {
+			workflowInfo["description"] = wf.Description
+		}
+		
 		result = append(result, workflowInfo)
 	}
 
+	// Sort workflows by name for consistent ordering
+	sort.Slice(result, func(i, j int) bool {
+		return result[i]["name"].(string) < result[j]["name"].(string)
+	})
+
+	// Wrap the result in a "workflows" field to match expected format
+	response := map[string]interface{}{
+		"workflows": result,
+	}
+
 	return &api.CallToolResult{
-		Content: []interface{}{result},
+		Content: []interface{}{response},
 		IsError: false,
 	}, nil
 }
