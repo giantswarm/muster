@@ -24,7 +24,6 @@
 //	  args:
 //	    key: "value"
 //	    env: "{{.environment}}"
-//	  continueOnError: false
 //	- id: "step2"
 //	  tool: "another_tool"
 //	  args:
@@ -59,7 +58,6 @@
 //   - Calls the specified tool with the provided arguments
 //   - Can reference outputs from previous steps using {{stepId.field}} syntax
 //   - Can reference input parameters using {{.parameterName}} syntax
-//   - Can optionally continue on error if continueOnError is true
 //   - Has access to the workflow's execution context
 //   - Supports parameter templating for dynamic argument construction
 //
@@ -68,7 +66,6 @@
 // Workflows support Go template syntax for dynamic parameter substitution:
 //   - **Input parameters**: {{.parameterName}}
 //   - **Step outputs**: {{stepId.result}} or {{stepId.specificField}}
-//   - **Conditional logic**: Template conditionals and loops
 //   - **Default values**: Via input schema default properties
 //
 // # Workflow Manager

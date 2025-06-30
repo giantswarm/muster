@@ -34,9 +34,6 @@ Workflow files define sequences of MCP tool calls that can be executed together:
 ```yaml
 name: my-workflow
 description: "Custom workflow description"
-icon: "⚡"
-agentModifiable: true
-createdBy: "user"
 version: 1
 inputSchema:
   type: object
@@ -66,9 +63,6 @@ steps:
 
 - **name**: Unique identifier for the workflow
 - **description**: Human-readable description
-- **icon**: Optional emoji icon for UI display
-- **agentModifiable**: Whether AI agents can modify this workflow
-- **createdBy**: Creator identifier (user/agent)
 - **version**: Version number for tracking changes
 - **inputSchema**: JSON Schema defining input parameters
 - **steps**: Array of workflow steps to execute

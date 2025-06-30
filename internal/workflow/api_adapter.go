@@ -182,12 +182,89 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "icon", Type: "string", Required: false, Description: "Icon/emoji for display"},
-				{Name: "agentModifiable", Type: "boolean", Required: false, Description: "Whether workflow can be modified by agents"},
-				{Name: "createdBy", Type: "string", Required: false, Description: "Creator of the workflow"},
-				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
-				{Name: "inputSchema", Type: "object", Required: true, Description: "Input schema for the workflow"},
-				{Name: "steps", Type: "array", Required: true, Description: "Array of workflow steps"},
+				{
+					Name:        "inputSchema",
+					Type:        "object",
+					Required:    true,
+					Description: "JSON Schema definition for workflow input validation",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "JSON Schema definition for workflow input validation",
+						"properties": map[string]interface{}{
+							"type": map[string]interface{}{
+								"type":        "string",
+								"description": "Schema type (typically 'object')",
+								"default":     "object",
+							},
+							"properties": map[string]interface{}{
+								"type":                 "object",
+								"description":          "Property definitions for input parameters",
+								"additionalProperties": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"type": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter type (string, number, boolean, object, array)",
+										},
+										"description": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter description",
+										},
+										"default": map[string]interface{}{
+											"description": "Default value for the parameter",
+										},
+									},
+								},
+							},
+							"required": map[string]interface{}{
+								"type":        "array",
+								"description": "List of required parameter names",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+						"required": []string{"type"},
+					},
+				},
+				{
+					Name:        "steps",
+					Type:        "array",
+					Required:    true,
+					Description: "Array of workflow steps defining the execution sequence",
+					Schema: map[string]interface{}{
+						"type":        "array",
+						"description": "Array of workflow steps defining the execution sequence",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "string",
+									"description": "Unique identifier for this step within the workflow",
+								},
+								"tool": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the tool to execute for this step",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Arguments to pass to the tool (optional)",
+								},
+								"store": map[string]interface{}{
+									"type":        "string",
+									"description": "Variable name to store the step result for use in later steps (optional)",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this step does (optional)",
+								},
+							},
+							"required": []string{"id", "tool"},
+							"additionalProperties": false,
+						},
+						"minItems": 1,
+					},
+				},
 			},
 		},
 		{
@@ -196,12 +273,89 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "icon", Type: "string", Required: false, Description: "Icon/emoji for display"},
-				{Name: "agentModifiable", Type: "boolean", Required: false, Description: "Whether workflow can be modified by agents"},
-				{Name: "createdBy", Type: "string", Required: false, Description: "Creator of the workflow"},
-				{Name: "version", Type: "number", Required: false, Description: "Workflow version"},
-				{Name: "inputSchema", Type: "object", Required: true, Description: "Input schema for the workflow"},
-				{Name: "steps", Type: "array", Required: true, Description: "Array of workflow steps"},
+				{
+					Name:        "inputSchema",
+					Type:        "object",
+					Required:    true,
+					Description: "JSON Schema definition for workflow input validation",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "JSON Schema definition for workflow input validation",
+						"properties": map[string]interface{}{
+							"type": map[string]interface{}{
+								"type":        "string",
+								"description": "Schema type (typically 'object')",
+								"default":     "object",
+							},
+							"properties": map[string]interface{}{
+								"type":                 "object",
+								"description":          "Property definitions for input parameters",
+								"additionalProperties": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"type": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter type (string, number, boolean, object, array)",
+										},
+										"description": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter description",
+										},
+										"default": map[string]interface{}{
+											"description": "Default value for the parameter",
+										},
+									},
+								},
+							},
+							"required": map[string]interface{}{
+								"type":        "array",
+								"description": "List of required parameter names",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+						"required": []string{"type"},
+					},
+				},
+				{
+					Name:        "steps",
+					Type:        "array",
+					Required:    true,
+					Description: "Array of workflow steps defining the execution sequence",
+					Schema: map[string]interface{}{
+						"type":        "array",
+						"description": "Array of workflow steps defining the execution sequence",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "string",
+									"description": "Unique identifier for this step within the workflow",
+								},
+								"tool": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the tool to execute for this step",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Arguments to pass to the tool (optional)",
+								},
+								"store": map[string]interface{}{
+									"type":        "string",
+									"description": "Variable name to store the step result for use in later steps (optional)",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this step does (optional)",
+								},
+							},
+							"required": []string{"id", "tool"},
+							"additionalProperties": false,
+						},
+						"minItems": 1,
+					},
+				},
 			},
 		},
 		{
@@ -222,9 +376,89 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
-				{Name: "version", Type: "string", Required: false, Description: "Workflow version"},
-				{Name: "inputSchema", Type: "object", Required: true, Description: "Input schema for the workflow"},
-				{Name: "steps", Type: "array", Required: true, Description: "Array of workflow steps"},
+				{
+					Name:        "inputSchema",
+					Type:        "object",
+					Required:    true,
+					Description: "JSON Schema definition for workflow input validation",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "JSON Schema definition for workflow input validation",
+						"properties": map[string]interface{}{
+							"type": map[string]interface{}{
+								"type":        "string",
+								"description": "Schema type (typically 'object')",
+								"default":     "object",
+							},
+							"properties": map[string]interface{}{
+								"type":                 "object",
+								"description":          "Property definitions for input parameters",
+								"additionalProperties": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"type": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter type (string, number, boolean, object, array)",
+										},
+										"description": map[string]interface{}{
+											"type":        "string",
+											"description": "Parameter description",
+										},
+										"default": map[string]interface{}{
+											"description": "Default value for the parameter",
+										},
+									},
+								},
+							},
+							"required": map[string]interface{}{
+								"type":        "array",
+								"description": "List of required parameter names",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+						"required": []string{"type"},
+					},
+				},
+				{
+					Name:        "steps",
+					Type:        "array",
+					Required:    true,
+					Description: "Array of workflow steps defining the execution sequence",
+					Schema: map[string]interface{}{
+						"type":        "array",
+						"description": "Array of workflow steps defining the execution sequence",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"id": map[string]interface{}{
+									"type":        "string",
+									"description": "Unique identifier for this step within the workflow",
+								},
+								"tool": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the tool to execute for this step",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Arguments to pass to the tool (optional)",
+								},
+								"store": map[string]interface{}{
+									"type":        "string",
+									"description": "Variable name to store the step result for use in later steps (optional)",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this step does (optional)",
+								},
+							},
+							"required": []string{"id", "tool"},
+							"additionalProperties": false,
+						},
+						"minItems": 1,
+					},
+				},
 			},
 		},
 	}
@@ -314,7 +548,6 @@ func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, 
 		workflowInfo := map[string]interface{}{
 			"name":        wf.Name,
 			"description": wf.Description,
-			"version":     wf.Version,
 			"available":   wf.Available,
 		}
 		result = append(result, workflowInfo)
@@ -466,12 +699,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if desc, ok := args["description"].(string); ok {
 		wf.Description = desc
 	}
-	if version, ok := args["version"].(int); ok {
-		wf.Version = version
-	}
-	if createdBy, ok := args["createdBy"].(string); ok {
-		wf.CreatedBy = createdBy
-	}
+
 
 	// Convert inputSchema
 	if inputSchemaParam, ok := args["inputSchema"].(map[string]interface{}); ok {
@@ -582,10 +810,7 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			step.Store = store
 		}
 
-		// Condition (optional)
-		if condition, ok := stepMap["condition"].(string); ok {
-			step.Condition = condition
-		}
+
 
 		// Description (optional)
 		if description, ok := stepMap["description"].(string); ok {
