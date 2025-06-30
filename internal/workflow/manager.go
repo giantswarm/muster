@@ -15,13 +15,14 @@ import (
 
 // WorkflowManager manages workflows and their execution
 type WorkflowManager struct {
-	storage     *config.Storage          // Use the new Storage
-	workflows   map[string]*api.Workflow // In-memory workflow storage
-	executor    *WorkflowExecutor
-	toolChecker config.ToolAvailabilityChecker
-	configPath  string // Optional custom config path
-	mu          sync.RWMutex
-	stopped     bool
+	storage          *config.Storage          // Use the new Storage
+	workflows        map[string]*api.Workflow // In-memory workflow storage
+	executor         *WorkflowExecutor
+	executionTracker *ExecutionTracker // NEW: Execution tracking
+	toolChecker      config.ToolAvailabilityChecker
+	configPath       string // Optional custom config path
+	mu               sync.RWMutex
+	stopped          bool
 }
 
 // NewWorkflowManager creates a new workflow manager
@@ -35,12 +36,17 @@ func NewWorkflowManager(storage *config.Storage, toolCaller ToolCaller, toolChec
 		// For now, leave it empty
 	}
 
+	// Initialize execution storage and tracker
+	executionStorage := NewExecutionStorage(configPath)
+	executionTracker := NewExecutionTracker(executionStorage)
+
 	wm := &WorkflowManager{
-		storage:     storage,
-		workflows:   make(map[string]*api.Workflow),
-		executor:    executor,
-		toolChecker: toolChecker,
-		configPath:  configPath,
+		storage:          storage,
+		workflows:        make(map[string]*api.Workflow),
+		executor:         executor,
+		executionTracker: executionTracker,
+		toolChecker:      toolChecker,
+		configPath:       configPath,
 	}
 
 	// Subscribe to tool update events for logging (workflows use dynamic checking)
@@ -55,6 +61,11 @@ func (wm *WorkflowManager) SetConfigPath(configPath string) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	wm.configPath = configPath
+
+	// Reinitialize execution storage and tracker with new config path
+	executionStorage := NewExecutionStorage(configPath)
+	wm.executionTracker = NewExecutionTracker(executionStorage)
+	logging.Debug("WorkflowManager", "Updated execution tracker with config path: %s", configPath)
 }
 
 // SetToolCaller sets the ToolCaller for workflow execution
@@ -288,7 +299,7 @@ func (wm *WorkflowManager) GetWorkflows() []mcp.Tool {
 	return tools
 }
 
-// ExecuteWorkflow executes a workflow by name
+// ExecuteWorkflow executes a workflow by name with automatic execution tracking
 func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
@@ -303,7 +314,12 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, arg
 		return nil, fmt.Errorf("workflow %s is not available (missing required tools)", name)
 	}
 
-	return wm.executor.ExecuteWorkflow(ctx, workflow, args)
+	// Execute workflow with automatic tracking
+	result, _, err := wm.executionTracker.TrackExecution(ctx, name, args, func() (*mcp.CallToolResult, error) {
+		return wm.executor.ExecuteWorkflow(ctx, workflow, args)
+	})
+
+	return result, err
 }
 
 // Stop gracefully stops the workflow manager

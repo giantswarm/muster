@@ -395,3 +395,183 @@ type ResponseMapping struct {
 	Error    string            `yaml:"error,omitempty" json:"error,omitempty"`
 	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
+
+// WorkflowExecutionStatus represents the status of a workflow execution
+type WorkflowExecutionStatus string
+
+const (
+	// WorkflowExecutionInProgress indicates the execution is currently running
+	WorkflowExecutionInProgress WorkflowExecutionStatus = "inprogress"
+
+	// WorkflowExecutionCompleted indicates the execution finished successfully
+	WorkflowExecutionCompleted WorkflowExecutionStatus = "completed"
+
+	// WorkflowExecutionFailed indicates the execution failed with an error
+	WorkflowExecutionFailed WorkflowExecutionStatus = "failed"
+)
+
+// WorkflowExecution represents a complete workflow execution record.
+// This provides comprehensive information about a workflow execution including
+// timing, results, errors, and detailed step-by-step execution information.
+//
+// Workflow executions are automatically tracked when workflows are executed
+// via the workflow_<name> tools, enabling debugging, auditing, and monitoring.
+type WorkflowExecution struct {
+	// ExecutionID is the unique identifier for this execution (UUID v4)
+	ExecutionID string `json:"execution_id"`
+
+	// WorkflowName is the name of the workflow that was executed
+	WorkflowName string `json:"workflow_name"`
+
+	// Status indicates the current state of the execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the total execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// Input contains the original arguments passed to the workflow
+	Input map[string]interface{} `json:"input"`
+
+	// Result contains the final result of the workflow execution (nil if failed or in progress)
+	Result interface{} `json:"result,omitempty"`
+
+	// Error contains error information if the execution failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+
+	// Steps contains detailed information about each step execution
+	Steps []WorkflowExecutionStep `json:"steps"`
+}
+
+// WorkflowExecutionStep represents a single step execution within a workflow.
+// This provides detailed information about individual step execution including
+// timing, arguments, results, and any errors that occurred.
+//
+// Step execution information enables granular debugging and understanding
+// of workflow execution flow and data transformation.
+type WorkflowExecutionStep struct {
+	// StepID is the unique identifier for this step within the workflow
+	StepID string `json:"step_id"`
+
+	// Tool is the name of the tool that was executed for this step
+	Tool string `json:"tool"`
+
+	// Status indicates the current state of the step execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the step execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the step execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the step execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// Input contains the resolved arguments passed to the tool for this step
+	Input map[string]interface{} `json:"input"`
+
+	// Result contains the result returned by the tool execution (nil if failed or in progress)
+	Result interface{} `json:"result,omitempty"`
+
+	// Error contains error information if the step failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+
+	// StoredAs is the variable name where the step result was stored (from workflow definition)
+	StoredAs string `json:"stored_as,omitempty"`
+}
+
+// ListWorkflowExecutionsRequest represents a request to list workflow executions
+// with optional filtering and pagination parameters.
+//
+// This request structure enables efficient querying of execution history
+// with support for filtering by workflow name and status, plus pagination
+// for handling large execution datasets.
+type ListWorkflowExecutionsRequest struct {
+	// WorkflowName filters executions to only those from the specified workflow (optional)
+	WorkflowName string `json:"workflow_name,omitempty"`
+
+	// Status filters executions to only those with the specified status (optional)
+	Status WorkflowExecutionStatus `json:"status,omitempty"`
+
+	// Limit is the maximum number of executions to return (default: 50, max: 1000)
+	Limit int `json:"limit,omitempty"`
+
+	// Offset is the number of executions to skip for pagination (default: 0)
+	Offset int `json:"offset,omitempty"`
+}
+
+// ListWorkflowExecutionsResponse represents the response from listing workflow executions.
+// This provides paginated execution results with metadata for navigation.
+//
+// The response includes both the execution data and pagination metadata
+// to enable efficient client-side handling of large execution datasets.
+type ListWorkflowExecutionsResponse struct {
+	// Executions contains the list of execution records (summary information only)
+	Executions []WorkflowExecutionSummary `json:"executions"`
+
+	// Total is the total number of executions matching the filter criteria
+	Total int `json:"total"`
+
+	// Limit is the maximum number of executions returned in this response
+	Limit int `json:"limit"`
+
+	// Offset is the number of executions skipped in this response
+	Offset int `json:"offset"`
+
+	// HasMore indicates whether there are more executions available
+	HasMore bool `json:"has_more"`
+}
+
+// WorkflowExecutionSummary represents a summary of a workflow execution
+// for use in list responses. This contains essential information without
+// the detailed step execution data to optimize performance.
+//
+// Summary information is sufficient for most listing and overview use cases,
+// with detailed information available via GetWorkflowExecution.
+type WorkflowExecutionSummary struct {
+	// ExecutionID is the unique identifier for this execution
+	ExecutionID string `json:"execution_id"`
+
+	// WorkflowName is the name of the workflow that was executed
+	WorkflowName string `json:"workflow_name"`
+
+	// Status indicates the current state of the execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the total execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// StepCount is the total number of steps in the workflow
+	StepCount int `json:"step_count"`
+
+	// Error contains error information if the execution failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+}
+
+// GetWorkflowExecutionRequest represents a request to get detailed information
+// about a specific workflow execution.
+//
+// This request structure enables flexible querying of execution details
+// with options to include/exclude step information and retrieve specific step results.
+type GetWorkflowExecutionRequest struct {
+	// ExecutionID is the unique identifier of the execution to retrieve
+	ExecutionID string `json:"execution_id"`
+
+	// IncludeSteps controls whether detailed step information is included (default: true)
+	IncludeSteps bool `json:"include_steps,omitempty"`
+
+	// StepID specifies a specific step to retrieve (optional, returns only that step)
+	StepID string `json:"step_id,omitempty"`
+}

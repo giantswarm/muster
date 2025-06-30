@@ -122,6 +122,16 @@ func (a *Adapter) DeleteWorkflow(name string) error {
 	return a.manager.DeleteWorkflow(name)
 }
 
+// ListWorkflowExecutions returns paginated list of workflow executions with optional filtering
+func (a *Adapter) ListWorkflowExecutions(ctx context.Context, req *api.ListWorkflowExecutionsRequest) (*api.ListWorkflowExecutionsResponse, error) {
+	return a.manager.executionTracker.ListExecutions(ctx, req)
+}
+
+// GetWorkflowExecution returns detailed information about a specific workflow execution
+func (a *Adapter) GetWorkflowExecution(ctx context.Context, req *api.GetWorkflowExecutionRequest) (*api.WorkflowExecution, error) {
+	return a.manager.executionTracker.GetExecution(ctx, req)
+}
+
 // CallToolInternal calls a tool internally - required by ToolCaller interface
 func (a *Adapter) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	if a.manager == nil {
@@ -461,6 +471,79 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				},
 			},
 		},
+		// Workflow execution tracking tools
+		{
+			Name:        "core_workflow_execution_list",
+			Description: "List workflow executions with filtering and pagination",
+			Parameters: []api.ParameterMetadata{
+				{
+					Name:        "workflow_name",
+					Type:        "string",
+					Required:    false,
+					Description: "Filter executions by workflow name (optional)",
+				},
+				{
+					Name:        "status",
+					Type:        "string",
+					Required:    false,
+					Description: "Filter executions by status (optional)",
+					Schema: map[string]interface{}{
+						"type": "string",
+						"enum": []string{"inprogress", "completed", "failed"},
+					},
+				},
+				{
+					Name:        "limit",
+					Type:        "integer",
+					Required:    false,
+					Description: "Maximum number of executions to return (default: 50)",
+					Default:     50,
+					Schema: map[string]interface{}{
+						"type":    "integer",
+						"minimum": 1,
+						"maximum": 1000,
+						"default": 50,
+					},
+				},
+				{
+					Name:        "offset",
+					Type:        "integer",
+					Required:    false,
+					Description: "Number of executions to skip for pagination (default: 0)",
+					Default:     0,
+					Schema: map[string]interface{}{
+						"type":    "integer",
+						"minimum": 0,
+						"default": 0,
+					},
+				},
+			},
+		},
+		{
+			Name:        "core_workflow_execution_get",
+			Description: "Get workflow execution details",
+			Parameters: []api.ParameterMetadata{
+				{
+					Name:        "execution_id",
+					Type:        "string",
+					Required:    true,
+					Description: "Unique identifier of the workflow execution",
+				},
+				{
+					Name:        "include_steps",
+					Type:        "boolean",
+					Required:    false,
+					Description: "Include detailed step results in the response (default: true)",
+					Default:     true,
+				},
+				{
+					Name:        "step_id",
+					Type:        "string",
+					Required:    false,
+					Description: "Get result for specific step only (optional)",
+				},
+			},
+		},
 	}
 
 	// Add a tool for each workflow
@@ -497,6 +580,10 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleDelete(args)
 	case toolName == "workflow_validate":
 		return a.handleValidate(args)
+	case toolName == "core_workflow_execution_list":
+		return a.handleExecutionList(ctx, args)
+	case toolName == "core_workflow_execution_get":
+		return a.handleExecutionGet(ctx, args)
 
 	case strings.HasPrefix(toolName, "action_"):
 		// Execute workflow
@@ -680,6 +767,87 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf("Validation successful for workflow %s", req.Name)},
+		IsError: false,
+	}, nil
+}
+
+// handleExecutionList handles the core_workflow_execution_list tool
+func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	// Parse request parameters
+	req := &api.ListWorkflowExecutionsRequest{}
+
+	if workflowName, ok := args["workflow_name"].(string); ok {
+		req.WorkflowName = workflowName
+	}
+
+	if status, ok := args["status"].(string); ok {
+		req.Status = api.WorkflowExecutionStatus(status)
+	}
+
+	if limit, ok := args["limit"].(float64); ok {
+		req.Limit = int(limit)
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50 // Default
+	}
+
+	if offset, ok := args["offset"].(float64); ok {
+		req.Offset = int(offset)
+	}
+	if req.Offset < 0 {
+		req.Offset = 0 // Default
+	}
+
+	// Call the execution tracking functionality
+	response, err := a.ListWorkflowExecutions(ctx, req)
+	if err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("Failed to list executions: %v", err)},
+			IsError: true,
+		}, nil
+	}
+
+	return &api.CallToolResult{
+		Content: []interface{}{response},
+		IsError: false,
+	}, nil
+}
+
+// handleExecutionGet handles the core_workflow_execution_get tool
+func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	// Parse request parameters
+	req := &api.GetWorkflowExecutionRequest{
+		IncludeSteps: true, // Default to true
+	}
+
+	executionID, ok := args["execution_id"].(string)
+	if !ok || executionID == "" {
+		return &api.CallToolResult{
+			Content: []interface{}{"execution_id is required"},
+			IsError: true,
+		}, nil
+	}
+	req.ExecutionID = executionID
+
+	if includeSteps, ok := args["include_steps"].(bool); ok {
+		req.IncludeSteps = includeSteps
+	}
+
+	if stepID, ok := args["step_id"].(string); ok {
+		req.StepID = stepID
+	}
+
+	// Call the execution tracking functionality
+	execution, err := a.GetWorkflowExecution(ctx, req)
+	if err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("Failed to get execution: %v", err)},
+			IsError: true,
+		}, nil
+	}
+
+	return &api.CallToolResult{
+		Content: []interface{}{execution},
 		IsError: false,
 	}, nil
 }

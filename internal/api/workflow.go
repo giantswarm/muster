@@ -146,6 +146,32 @@ type WorkflowHandler interface {
 	//	})
 	ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]interface{}) (*CallToolResult, error)
 
+	// Workflow execution tracking
+
+	// ListWorkflowExecutions returns paginated list of workflow executions with optional filtering.
+	// This enables users to view execution history and track workflow usage patterns.
+	//
+	// Parameters:
+	//   - ctx: Context for the operation, including cancellation and timeout
+	//   - req: Request parameters for filtering, pagination, and sorting
+	//
+	// Returns:
+	//   - *ListWorkflowExecutionsResponse: Paginated list of execution records
+	//   - error: Error if the request is invalid or operation fails
+	ListWorkflowExecutions(ctx context.Context, req *ListWorkflowExecutionsRequest) (*ListWorkflowExecutionsResponse, error)
+
+	// GetWorkflowExecution returns detailed information about a specific workflow execution.
+	// This enables users to examine execution results, step details, and debug failed executions.
+	//
+	// Parameters:
+	//   - ctx: Context for the operation, including cancellation and timeout
+	//   - req: Request parameters specifying execution ID and optional filtering
+	//
+	// Returns:
+	//   - *WorkflowExecution: Complete execution record with step details
+	//   - error: Error if the execution doesn't exist or operation fails
+	GetWorkflowExecution(ctx context.Context, req *GetWorkflowExecutionRequest) (*WorkflowExecution, error)
+
 	// Workflow information and discovery
 
 	// GetWorkflows returns information about all available workflows in the system.
