@@ -321,8 +321,17 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, arg
 	})
 
 	// Include execution_id in the response for test scenarios and API consumers
-	if err == nil && result != nil && execution != nil {
-		result = wm.enhanceResultWithExecutionID(result, execution.ExecutionID)
+	// This should happen even for failed workflows since they still have execution tracking
+	if execution != nil {
+		if result != nil {
+			result = wm.enhanceResultWithExecutionID(result, execution.ExecutionID)
+		} else if err != nil {
+			// For failed workflows with no result, create a minimal result with execution_id
+			result = &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s", "error": "%s"}`, execution.ExecutionID, err.Error()))},
+				IsError: true,
+			}
+		}
 	}
 
 	return result, err

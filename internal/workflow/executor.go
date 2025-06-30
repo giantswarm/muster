@@ -75,7 +75,43 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		result, err := we.toolCaller.CallToolInternal(ctx, step.Tool, resolvedArgs)
 		if err != nil {
 			logging.Error("WorkflowExecutor", err, "Step %s failed", step.ID)
-			return nil, fmt.Errorf("step %s failed: %w", step.ID, err)
+			
+			// Record the failed step metadata 
+			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+				ID:    step.ID,
+				Tool:  step.Tool,
+				Store: step.Store,
+			})
+			
+			// Create partial result with steps completed so far, including the failed step
+			partialResult := map[string]interface{}{
+				"workflow":     workflow.Name,
+				"results":      execCtx.results,
+				"input":        execCtx.input,
+				"templateVars": execCtx.templateVars,
+				"stepMetadata": execCtx.stepMetadata,
+				"status":       "failed",
+				"error":        err.Error(),
+				"failedStep":   step.ID,
+			}
+			
+			// Return partial result as JSON for execution tracking
+			partialJSON, jsonErr := json.Marshal(partialResult)
+			if jsonErr != nil {
+				// If JSON marshaling fails, return the original error without partial results
+				return nil, fmt.Errorf("step %s failed: %w", step.ID, err)
+			}
+			
+			// Return partial result with the original error
+			// This allows execution tracking to capture successful steps before failure
+			partialMCPResult := &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.NewTextContent(string(partialJSON)),
+				},
+				IsError: true, // Mark as error result
+			}
+			
+			return partialMCPResult, fmt.Errorf("step %s failed: %w", step.ID, err)
 		}
 		logging.Debug("WorkflowExecutor", "Step %s result: %+v", step.ID, result)
 

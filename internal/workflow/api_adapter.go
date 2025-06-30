@@ -39,6 +39,24 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	// Get the MCP result
 	mcpResult, err := a.manager.ExecuteWorkflow(ctx, workflowName, args)
 	if err != nil {
+		// For failed workflows, we might still have execution tracking data in mcpResult
+		if mcpResult != nil {
+			// Convert the mcp result with execution data and error
+			var content []interface{}
+			for _, mcpContent := range mcpResult.Content {
+				if textContent, ok := mcpContent.(mcp.TextContent); ok {
+					content = append(content, textContent.Text)
+				} else {
+					content = append(content, mcpContent)
+				}
+			}
+			return &api.CallToolResult{
+				Content: content,
+				IsError: true,
+			}, nil
+		}
+		
+		// Fallback for errors without execution data
 		return &api.CallToolResult{
 			Content: []interface{}{err.Error()},
 			IsError: true,
@@ -833,8 +851,18 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 		req.IncludeSteps = includeSteps
 	}
 
-	if stepID, ok := args["step_id"].(string); ok {
-		req.StepID = stepID
+	// Validate step_id parameter - explicitly check for empty string
+	if stepID, exists := args["step_id"]; exists {
+		if stepIDStr, ok := stepID.(string); ok {
+			if stepIDStr == "" {
+				// Empty step_id is explicitly invalid per BDD requirements
+				return &api.CallToolResult{
+					Content: []interface{}{"step_id is invalid: cannot be empty"},
+					IsError: true,
+				}, nil
+			}
+			req.StepID = stepIDStr
+		}
 	}
 
 	// Call the execution tracking functionality
@@ -843,6 +871,34 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to get execution: %v", err)},
 			IsError: true,
+		}, nil
+	}
+
+	// For summary mode, create a custom response that completely omits the "steps" field
+	if !req.IncludeSteps && execution.Steps == nil {
+		summaryResponse := map[string]interface{}{
+			"execution_id":  execution.ExecutionID,
+			"workflow_name": execution.WorkflowName,
+			"status":        execution.Status,
+			"started_at":    execution.StartedAt,
+			"duration_ms":   execution.DurationMs,
+			"input":         execution.Input,
+		}
+
+		// Add optional fields only if they exist
+		if execution.CompletedAt != nil {
+			summaryResponse["completed_at"] = execution.CompletedAt
+		}
+		if execution.Result != nil {
+			summaryResponse["result"] = execution.Result
+		}
+		if execution.Error != nil {
+			summaryResponse["error"] = execution.Error
+		}
+
+		return &api.CallToolResult{
+			Content: []interface{}{summaryResponse},
+			IsError: false,
 		}, nil
 	}
 

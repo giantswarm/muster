@@ -447,12 +447,23 @@ func (gsi *GenericServiceInstance) UpdateState(state ServiceState, health Health
 
 // buildTemplateContext creates the template context for tool argument substitution
 func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{} {
-	return template.MergeContexts(
-		gsi.creationParameters,
-		map[string]interface{}{
-			"name":             gsi.name,
-			"serviceClassName": gsi.serviceClassName,
+	// Build context with parameters nested under "parameters" key for service class template compatibility
+	// Also keep parameters at root level for backward compatibility
+	serviceContext := map[string]interface{}{
+		"name":             gsi.name,
+		"serviceClassName": gsi.serviceClassName,
+		"parameters":       gsi.creationParameters, // Service class templates expect {{ .parameters.repository_url }}
+		"service": map[string]interface{}{
+			"id":       gsi.name,             // Service ID for templates like {{ .service.id }}
+			"name":     gsi.name,             // Service name
+			"metadata": gsi.serviceData,      // Service metadata for templates like {{ .service.metadata.database_id }}
 		},
+	}
+
+	// Merge with creation parameters at root level for backward compatibility
+	return template.MergeContexts(
+		gsi.creationParameters, // Parameters at root level (backward compatibility)
+		serviceContext,         // Structured context with parameters nested
 	)
 }
 
