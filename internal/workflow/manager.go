@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -315,11 +316,65 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, arg
 	}
 
 	// Execute workflow with automatic tracking
-	result, _, err := wm.executionTracker.TrackExecution(ctx, name, args, func() (*mcp.CallToolResult, error) {
+	result, execution, err := wm.executionTracker.TrackExecution(ctx, name, args, func() (*mcp.CallToolResult, error) {
 		return wm.executor.ExecuteWorkflow(ctx, workflow, args)
 	})
 
+	// Include execution_id in the response for test scenarios and API consumers
+	if err == nil && result != nil && execution != nil {
+		result = wm.enhanceResultWithExecutionID(result, execution.ExecutionID)
+	}
+
 	return result, err
+}
+
+// enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
+// This allows test scenarios and API consumers to access the execution_id for further operations
+func (wm *WorkflowManager) enhanceResultWithExecutionID(result *mcp.CallToolResult, executionID string) *mcp.CallToolResult {
+	if result == nil || len(result.Content) == 0 {
+		// Create a basic result with execution_id if no content exists
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID))},
+			IsError: result.IsError,
+		}
+	}
+
+	// Try to enhance the first content item with execution_id
+	firstContent := result.Content[0]
+	if textContent, ok := firstContent.(mcp.TextContent); ok {
+		// Try to parse the existing content as JSON
+		var contentData map[string]interface{}
+		if err := json.Unmarshal([]byte(textContent.Text), &contentData); err == nil {
+			// Successfully parsed as JSON - add execution_id
+			contentData["execution_id"] = executionID
+			
+			// Re-marshal to JSON
+			enhancedJSON, marshalErr := json.Marshal(contentData)
+			if marshalErr == nil {
+				// Create new result with enhanced content
+				enhancedResult := &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.NewTextContent(string(enhancedJSON))},
+					IsError: result.IsError,
+				}
+				
+				// Add any additional content items
+				if len(result.Content) > 1 {
+					enhancedResult.Content = append(enhancedResult.Content, result.Content[1:]...)
+				}
+				
+				return enhancedResult
+			}
+		}
+	}
+
+	// Fallback: prepend execution_id as new content item if we can't enhance existing content
+	executionContent := mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID))
+	enhancedResult := &mcp.CallToolResult{
+		Content: append([]mcp.Content{executionContent}, result.Content...),
+		IsError: result.IsError,
+	}
+
+	return enhancedResult
 }
 
 // Stop gracefully stops the workflow manager

@@ -117,5 +117,6 @@ steps:
     success: true
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "pagination-workflow" } 

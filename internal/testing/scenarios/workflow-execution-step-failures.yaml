@@ -122,5 +122,6 @@ steps:
     contains: ["step_2", "failed", "error", "Step 2 intentional failure"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "step-failure-workflow" } 

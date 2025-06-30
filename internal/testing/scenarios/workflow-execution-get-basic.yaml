@@ -83,5 +83,6 @@ steps:
     contains: ["started_at", "completed_at", "duration_ms"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "get-test-workflow" } 

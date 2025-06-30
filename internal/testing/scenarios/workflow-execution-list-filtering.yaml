@@ -19,7 +19,8 @@ steps:
   expected:
     success: true
   cleanup:
-    - tool: "core_workflow_delete"
+    - id: "cleanup-workflow-a-after-create"
+      tool: "core_workflow_delete"
       args: { name: "filter-workflow-a" }
 
 - id: "create-filter-workflow-b"
@@ -36,7 +37,8 @@ steps:
   expected:
     success: true
   cleanup:
-    - tool: "core_workflow_delete"
+    - id: "cleanup-workflow-b-after-create"
+      tool: "core_workflow_delete"
       args: { name: "filter-workflow-b" }
 
 - id: "execute-workflow-a-first"
@@ -112,7 +114,9 @@ steps:
     not_contains: ["filter-workflow-b"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "filter-workflow-a" }
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow-b"
+  tool: "core_workflow_delete"
   args: { name: "filter-workflow-b" } 

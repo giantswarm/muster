@@ -24,7 +24,8 @@ steps:
   expected:
     success: true
   cleanup:
-    - tool: "core_workflow_delete"
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
       args: { name: "basic-tracking-workflow" }
 
 - id: "execute-workflow-first-time"
@@ -61,5 +62,8 @@ steps:
     contains: ["api-service", "list_services", "services_result"]
 
 cleanup:
-- tool: "core_workflow_delete"
-  args: { name: "basic-tracking-workflow" } 
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "basic-tracking-workflow" }
+  expected:
+    success: true 

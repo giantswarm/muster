@@ -67,5 +67,6 @@ steps:
     contains: ["get_services_list", "get_config_data", "get_workflows_list"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "storage-tracking-workflow" } 

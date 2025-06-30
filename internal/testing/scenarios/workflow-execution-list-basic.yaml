@@ -22,7 +22,8 @@ steps:
   expected:
     success: true
   cleanup:
-    - tool: "core_workflow_delete"
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
       args: { name: "list-test-workflow" }
 
 - id: "list-executions-empty"
@@ -85,5 +86,6 @@ steps:
     success: true
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "list-test-workflow" } 

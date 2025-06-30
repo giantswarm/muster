@@ -99,5 +99,6 @@ steps:
     contains: ["failing_step", "failed", "error", "Expected test failure"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "failing-workflow" } 

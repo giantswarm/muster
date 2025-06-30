@@ -27,7 +27,8 @@ steps:
   expected:
     success: true
   cleanup:
-    - tool: "core_workflow_delete"
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
       args: { name: "step-error-workflow" }
 
 - id: "execute-workflow-for-step-tests"
@@ -64,5 +65,6 @@ steps:
     error_contains: ["invalid", "execution_id"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "step-error-workflow" } 

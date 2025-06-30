@@ -66,5 +66,6 @@ steps:
     contains: ["step_id", "list_services", "status", "started_at", "completed_at", "duration_ms", "result"]
 
 cleanup:
-- tool: "core_workflow_delete"
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
   args: { name: "multi-step-tracking-workflow" } 
