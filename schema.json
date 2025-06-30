@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-30T12:16:47+02:00",
+  "generated_at": "2025-06-30T20:23:44+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -1434,6 +1434,19 @@
           "required": [
             "name",
             "serviceConfig"
+          ],
+          "type": "object"
+        },
+        "core_workflow_available": {
+          "description": "Parameters for core_workflow_available tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow to check",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
           ],
           "type": "object"
         },

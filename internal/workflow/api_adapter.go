@@ -562,6 +562,18 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				},
 			},
 		},
+		{
+			Name:        "workflow_available",
+			Description: "Check if a workflow is available (all required tools present)",
+			Parameters: []api.ParameterMetadata{
+				{
+					Name:        "name",
+					Type:        "string",
+					Required:    true,
+					Description: "Name of the workflow to check",
+				},
+			},
+		},
 	}
 
 	// Add a tool for each workflow
@@ -578,7 +590,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		})
 	}
 
-	logging.Info("WorkflowAdapter", "GetTools returning %d total tools (6 management + %d workflow execution)", len(tools), len(workflows))
+	logging.Info("WorkflowAdapter", "GetTools returning %d total tools (7 management + %d workflow execution)", len(tools), len(workflows))
 
 	return tools
 }
@@ -598,6 +610,8 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleDelete(args)
 	case toolName == "workflow_validate":
 		return a.handleValidate(args)
+	case toolName == "workflow_available":
+		return a.handleWorkflowAvailable(args)
 	case toolName == "workflow_execution_list":
 		return a.handleExecutionList(ctx, args)
 	case toolName == "workflow_execution_get":
@@ -785,6 +799,28 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf("Validation successful for workflow %s", req.Name)},
+		IsError: false,
+	}, nil
+}
+
+func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.CallToolResult, error) {
+	name, ok := args["name"].(string)
+	if !ok {
+		return &api.CallToolResult{
+			Content: []interface{}{"name parameter is required"},
+			IsError: true,
+		}, nil
+	}
+
+	available := a.manager.IsAvailable(name)
+
+	result := map[string]interface{}{
+		"name":      name,
+		"available": available,
+	}
+
+	return &api.CallToolResult{
+		Content: []interface{}{result},
 		IsError: false,
 	}, nil
 }
