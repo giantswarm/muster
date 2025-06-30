@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-30T08:14:56+02:00",
+  "generated_at": "2025-06-30T11:05:58+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -1543,6 +1543,60 @@
           "required": [
             "name"
           ],
+          "type": "object"
+        },
+        "core_workflow_execution_get": {
+          "description": "Parameters for core_workflow_execution_get tool",
+          "properties": {
+            "execution_id": {
+              "description": "Unique identifier of the workflow execution",
+              "type": "string"
+            },
+            "include_steps": {
+              "default": true,
+              "description": "Include detailed step results in the response (default: true)",
+              "type": "boolean"
+            },
+            "step_id": {
+              "description": "Get result for specific step only (optional)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "execution_id"
+          ],
+          "type": "object"
+        },
+        "core_workflow_execution_list": {
+          "description": "Parameters for core_workflow_execution_list tool",
+          "properties": {
+            "limit": {
+              "default": 50,
+              "description": "Maximum number of executions to return (default: 50)",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Number of executions to skip for pagination (default: 0)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "description": "Filter executions by status (optional)",
+              "enum": [
+                "inprogress",
+                "completed",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "workflow_name": {
+              "description": "Filter executions by workflow name (optional)",
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "core_workflow_get": {

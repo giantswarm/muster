@@ -473,7 +473,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		// Workflow execution tracking tools
 		{
-			Name:        "core_workflow_execution_list",
+			Name:        "workflow_execution_list",
 			Description: "List workflow executions with filtering and pagination",
 			Parameters: []api.ParameterMetadata{
 				{
@@ -520,7 +520,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			},
 		},
 		{
-			Name:        "core_workflow_execution_get",
+			Name:        "workflow_execution_get",
 			Description: "Get workflow execution details",
 			Parameters: []api.ParameterMetadata{
 				{
@@ -580,9 +580,9 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		return a.handleDelete(args)
 	case toolName == "workflow_validate":
 		return a.handleValidate(args)
-	case toolName == "core_workflow_execution_list":
+	case toolName == "workflow_execution_list":
 		return a.handleExecutionList(ctx, args)
-	case toolName == "core_workflow_execution_get":
+	case toolName == "workflow_execution_get":
 		return a.handleExecutionGet(ctx, args)
 
 	case strings.HasPrefix(toolName, "action_"):
@@ -771,7 +771,7 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 	}, nil
 }
 
-// handleExecutionList handles the core_workflow_execution_list tool
+// handleExecutionList handles the workflow_execution_list tool (exposed as core_workflow_execution_list)
 func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	// Parse request parameters
 	req := &api.ListWorkflowExecutionsRequest{}
@@ -813,7 +813,7 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 	}, nil
 }
 
-// handleExecutionGet handles the core_workflow_execution_get tool
+// handleExecutionGet handles the workflow_execution_get tool (exposed as core_workflow_execution_get)
 func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	// Parse request parameters
 	req := &api.GetWorkflowExecutionRequest{
