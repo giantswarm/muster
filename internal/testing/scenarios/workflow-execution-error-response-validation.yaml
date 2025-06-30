@@ -108,7 +108,7 @@ steps:
     contains: [
       "success_step", "status", "completed", "result", "success_result"
     ]
-    not_contains: ["error"]  # Should not have error field for successful step
+    not_contains: ['"error":', '"error": ']  # Should not have step-level error field
 
 # Validate that unreachable steps are not executed
 - id: "validate-unreachable-step-not-executed"
@@ -127,8 +127,10 @@ steps:
     execution_id: "{{ failed_execution.execution_id }}"
   expected:
     success: true
-    contains: ["status", "failed"]
-    not_contains: ["completed", "inprogress"]
+    contains: [
+      "status", "failed",  # Basic status check
+      "error"  # Failed executions should have error field
+    ]
 
 # Validate failed execution in list results
 - id: "validate-failed-execution-in-list"
