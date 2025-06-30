@@ -106,4 +106,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "cleanup-test-workflow" } 
+  args: { name: "cleanup-test-workflow" }
+  expected:
+    success: true 

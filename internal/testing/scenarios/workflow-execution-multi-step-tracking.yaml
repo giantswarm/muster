@@ -68,4 +68,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "multi-step-tracking-workflow" } 
+  args: { name: "multi-step-tracking-workflow" }
+  expected:
+    success: true 

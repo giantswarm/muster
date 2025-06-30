@@ -101,4 +101,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "failing-workflow" } 
+  args: { name: "failing-workflow" }
+  expected:
+    success: true 

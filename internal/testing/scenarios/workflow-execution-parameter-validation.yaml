@@ -20,7 +20,7 @@ steps:
           description: "Optional parameter"
           default: "default-value"
         numeric_param:
-          type: "integer"
+          type: "number"
           description: "Numeric parameter"
           default: 42
       required: ["required_param"]
@@ -88,4 +88,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "parameter-tracking-workflow" } 
+  args: { name: "parameter-tracking-workflow" }
+  expected:
+    success: true 

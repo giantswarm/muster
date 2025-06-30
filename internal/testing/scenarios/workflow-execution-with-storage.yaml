@@ -69,4 +69,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "storage-tracking-workflow" } 
+  args: { name: "storage-tracking-workflow" }
+  expected:
+    success: true 

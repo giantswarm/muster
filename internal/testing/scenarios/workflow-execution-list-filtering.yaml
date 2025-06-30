@@ -117,6 +117,10 @@ cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
   args: { name: "filter-workflow-a" }
+  expected:
+    success: true
 - id: "final-cleanup-workflow-b"
   tool: "core_workflow_delete"
-  args: { name: "filter-workflow-b" } 
+  args: { name: "filter-workflow-b" }
+  expected:
+    success: true 

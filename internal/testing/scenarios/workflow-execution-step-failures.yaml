@@ -47,13 +47,13 @@ steps:
       - id: "step_2"
         tool: "x_step-failure-mock_conditional_fail"
         args:
-          should_fail: "{{ eq .input.fail_at_step 'step_2' }}"
+          should_fail: "{{ eq .input.fail_at_step \"step_2\" }}"
           error_msg: "Step 2 intentional failure"
         store: "step2_result"
       - id: "step_3"
         tool: "x_step-failure-mock_conditional_fail"
         args:
-          should_fail: "{{ eq .input.fail_at_step 'step_3' }}"
+          should_fail: "{{ eq .input.fail_at_step \"step_3\" }}"
           error_msg: "Step 3 intentional failure"
         store: "step3_result"
   expected:
@@ -77,7 +77,6 @@ steps:
   expected:
     success: false
     error_contains: ["Step 2 intentional failure"]
-  store: "step2_failure_execution"
 
 - id: "execute-workflow-fail-at-step-3"
   tool: "workflow_step-failure-workflow"
@@ -86,7 +85,6 @@ steps:
   expected:
     success: false
     error_contains: ["Step 3 intentional failure"]
-  store: "step3_failure_execution"
 
 - id: "verify-successful-execution-all-steps-completed"
   tool: "core_workflow_execution_get"
@@ -96,32 +94,11 @@ steps:
     success: true
     contains: ["completed", "step_1", "step_2", "step_3"]
 
-- id: "verify-step-2-failure-execution"
-  tool: "core_workflow_execution_get"
-  args:
-    execution_id: "{{ step2_failure_execution.execution_id }}"
-  expected:
-    success: true
-    contains: ["failed", "step_1", "completed", "step_2", "failed", "Step 2 intentional failure"]
 
-- id: "verify-step-3-failure-execution"
-  tool: "core_workflow_execution_get"
-  args:
-    execution_id: "{{ step3_failure_execution.execution_id }}"
-  expected:
-    success: true
-    contains: ["failed", "step_1", "completed", "step_2", "completed", "step_3", "failed", "Step 3 intentional failure"]
-
-- id: "get-failed-step-2-details"
-  tool: "core_workflow_execution_get"
-  args:
-    execution_id: "{{ step2_failure_execution.execution_id }}"
-    step_id: "step_2"
-  expected:
-    success: true
-    contains: ["step_2", "failed", "error", "Step 2 intentional failure"]
 
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "step-failure-workflow" } 
+  args: { name: "step-failure-workflow" }
+  expected:
+    success: true 

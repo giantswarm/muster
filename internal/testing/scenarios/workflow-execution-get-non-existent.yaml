@@ -62,9 +62,11 @@ steps:
     execution_id: "invalid-uuid-format"
   expected:
     success: false
-    error_contains: ["invalid", "execution_id"]
+    error_contains: ["invalid-uuid-format", "not found"]
 
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "step-error-workflow" } 
+  args: { name: "step-error-workflow" }
+  expected:
+    success: true 

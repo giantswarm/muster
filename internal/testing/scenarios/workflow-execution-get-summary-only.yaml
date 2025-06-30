@@ -54,7 +54,7 @@ steps:
     include_steps: false
   expected:
     success: true
-    contains: ["summary-execution", "summary-value"]
+    contains: ["summary-execution", "summary_param"]
 
 - id: "verify-summary-excludes-step-details"
   tool: "core_workflow_execution_get"
@@ -95,4 +95,6 @@ steps:
 cleanup:
 - id: "final-cleanup-workflow"
   tool: "core_workflow_delete"
-  args: { name: "summary-test-workflow" } 
+  args: { name: "summary-test-workflow" }
+  expected:
+    success: true 
