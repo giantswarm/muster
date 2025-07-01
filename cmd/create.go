@@ -7,12 +7,21 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var (
 	createOutputFormat string
 	createQuiet        bool
 )
+
+// WorkflowDefinition represents the structure of a workflow YAML file
+type WorkflowDefinition struct {
+	Name        string                 `yaml:"name"`
+	Description string                 `yaml:"description,omitempty"`
+	Args        map[string]interface{} `yaml:"args,omitempty"`
+	Steps       []interface{}          `yaml:"steps"`
+}
 
 // createCmd represents the create command
 var createCmd = &cobra.Command{
@@ -55,10 +64,25 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: workflow", resourceType)
 	}
 
-	// Read resource definition
-	definition, err := readResourceFile(resourceFile)
-	if err != nil {
-		return fmt.Errorf("failed to read resource file: %w", err)
+	// Read and parse resource definition
+	var toolArgs map[string]interface{}
+	var err error
+
+	switch resourceType {
+	case "workflow":
+		toolArgs, err = parseWorkflowDefinition(resourceFile)
+		if err != nil {
+			return fmt.Errorf("failed to parse workflow definition: %w", err)
+		}
+	default:
+		// Fallback to raw definition for other resource types
+		definition, err := readResourceFile(resourceFile)
+		if err != nil {
+			return fmt.Errorf("failed to read resource file: %w", err)
+		}
+		toolArgs = map[string]interface{}{
+			"definition": definition,
+		}
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
@@ -75,11 +99,39 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	toolArgs := map[string]interface{}{
-		"definition": definition,
+	return executor.Execute(ctx, toolName, toolArgs)
+}
+
+// parseWorkflowDefinition parses a workflow YAML file and converts it to tool arguments
+func parseWorkflowDefinition(filename string) (map[string]interface{}, error) {
+	// Read the YAML file
+	yamlContent, err := readResourceFile(filename)
+	if err != nil {
+		return nil, err
 	}
 
-	return executor.Execute(ctx, toolName, toolArgs)
+	// Parse YAML into WorkflowDefinition structure
+	var workflowDef WorkflowDefinition
+	if err := yaml.Unmarshal([]byte(yamlContent), &workflowDef); err != nil {
+		return nil, fmt.Errorf("failed to parse workflow YAML: %w", err)
+	}
+
+	// Convert to tool arguments format expected by core_workflow_create
+	toolArgs := map[string]interface{}{
+		"name":  workflowDef.Name,
+		"steps": workflowDef.Steps,
+	}
+
+	// Add optional fields if present
+	if workflowDef.Description != "" {
+		toolArgs["description"] = workflowDef.Description
+	}
+
+	if workflowDef.Args != nil {
+		toolArgs["args"] = workflowDef.Args
+	}
+
+	return toolArgs, nil
 }
 
 // readResourceFile reads a resource definition file or from stdin

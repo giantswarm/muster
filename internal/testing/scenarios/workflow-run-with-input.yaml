@@ -9,14 +9,14 @@ pre_configuration:
   - name: "input-test-workflow"
     config:
       name: "input-test-workflow"
-      input_schema:
-        args:
-          message: { type: "string" }
-        required: ["message"]
+      args:
+        message: { type: "string" }
+      required: ["message"]
       steps:
         - id: "echo"
           tool: "x_echo-provider_echo"
-          args: { text: "{{ .input.message }}" }
+          args: 
+            text: "{{ .input.message }}"
           store: "echo_result"
   mcp_servers:
   - name: "echo-provider"
@@ -31,7 +31,7 @@ steps:
     message: "hello from test"
   expected:
     success: true
-    contains:
-      - "hello from test"
-      - "completed"
-      - "echo_result" 
+    json_path:
+      status: "completed"
+      results.echo_result.said: "hello from test"
+      workflow: "input-test-workflow"

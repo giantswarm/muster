@@ -519,6 +519,7 @@ func convertMCPToolToSchema(tool mcp.Tool, verbose, debug bool) map[string]inter
 		"properties":  make(map[string]interface{}),
 	}
 
+	// Handle both old InputSchema format and new args format
 	if tool.InputSchema.Properties != nil {
 		// Copy properties from the tool's input schema
 		schema["properties"] = tool.InputSchema.Properties
@@ -529,7 +530,10 @@ func convertMCPToolToSchema(tool mcp.Tool, verbose, debug bool) map[string]inter
 	}
 
 	if verbose || debug {
-		propertiesCount := len(tool.InputSchema.Properties)
+		var propertiesCount int
+		if tool.InputSchema.Properties != nil {
+			propertiesCount = len(tool.InputSchema.Properties)
+		}
 		fmt.Printf("  📝 Tool %s has %d properties\n", tool.Name, propertiesCount)
 	}
 
