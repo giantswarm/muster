@@ -447,28 +447,28 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 	var resolvedOutputs map[string]interface{}
 	if serviceClass.ServiceConfig.Outputs != nil && len(serviceClass.ServiceConfig.Outputs) > 0 {
 		logging.Debug("Orchestrator", "Processing outputs for ServiceClass %s, service instance %s", req.ServiceClassName, req.Name)
-		
+
 		// Create template context with service args at root level for direct template access
 		templateContext := make(map[string]interface{})
-		
+
 		// Add service creation arguments at root level so {{ .text }} works
 		for key, value := range req.Args {
 			templateContext[key] = value
 		}
-		
+
 		// Also add structured context for advanced templates
 		templateContext["args"] = req.Args
 		templateContext["name"] = req.Name
-		
+
 		// Add runtime data from the service instance if available
 		if serviceData := instance.GetServiceData(); serviceData != nil {
 			for key, value := range serviceData {
 				templateContext[key] = value
 			}
 		}
-		
+
 		logging.Debug("Orchestrator", "Template context for outputs: %+v", templateContext)
-		
+
 		// Create template engine and resolve outputs
 		templateEngine := template.New()
 		resolvedResult, err := templateEngine.Replace(serviceClass.ServiceConfig.Outputs, templateContext)
