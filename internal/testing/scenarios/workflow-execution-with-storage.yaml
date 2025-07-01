@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "storage-tracking-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         service_name:
           type: "string"
           default: "storage-service"
-      required: []
     steps:
       - id: "get_services_list"
         tool: "core_service_list"

@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_update"
   args:
     name: "non-existent-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "test-step"
         tool: "core_service_list"

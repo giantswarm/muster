@@ -17,10 +17,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "step-error-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "valid_step"
         tool: "core_service_list"

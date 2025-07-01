@@ -212,49 +212,10 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
-					Name:        "inputSchema",
+					Name:        "args",
 					Type:        "object",
-					Required:    true,
-					Description: "JSON Schema definition for workflow input validation",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "JSON Schema definition for workflow input validation",
-						"properties": map[string]interface{}{
-							"type": map[string]interface{}{
-								"type":        "string",
-								"description": "Schema type (typically 'object')",
-								"default":     "object",
-							},
-							"properties": map[string]interface{}{
-								"type":        "object",
-								"description": "Property definitions for input arguments",
-								"additionalProperties": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"type": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument type (string, number, boolean, object, array)",
-										},
-										"description": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument description",
-										},
-										"default": map[string]interface{}{
-											"description": "Default value for the argument",
-										},
-									},
-								},
-							},
-							"required": map[string]interface{}{
-								"type":        "array",
-								"description": "List of required argument names",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
-						"required": []string{"type"},
-					},
+					Required:    false,
+					Description: "Simple argument definitions for workflow input validation",
 				},
 				{
 					Name:        "steps",
@@ -303,49 +264,10 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
-					Name:        "inputSchema",
+					Name:        "args",
 					Type:        "object",
-					Required:    true,
-					Description: "JSON Schema definition for workflow input validation",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "JSON Schema definition for workflow input validation",
-						"properties": map[string]interface{}{
-							"type": map[string]interface{}{
-								"type":        "string",
-								"description": "Schema type (typically 'object')",
-								"default":     "object",
-							},
-							"properties": map[string]interface{}{
-								"type":        "object",
-								"description": "Property definitions for input arguments",
-								"additionalProperties": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"type": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument type (string, number, boolean, object, array)",
-										},
-										"description": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument description",
-										},
-										"default": map[string]interface{}{
-											"description": "Default value for the argument",
-										},
-									},
-								},
-							},
-							"required": map[string]interface{}{
-								"type":        "array",
-								"description": "List of required argument names",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
-						"required": []string{"type"},
-					},
+					Required:    false,
+					Description: "Simple argument definitions for workflow input validation",
 				},
 				{
 					Name:        "steps",
@@ -406,49 +328,10 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
-					Name:        "inputSchema",
+					Name:        "args",
 					Type:        "object",
-					Required:    true,
-					Description: "JSON Schema definition for workflow input validation",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "JSON Schema definition for workflow input validation",
-						"properties": map[string]interface{}{
-							"type": map[string]interface{}{
-								"type":        "string",
-								"description": "Schema type (typically 'object')",
-								"default":     "object",
-							},
-							"properties": map[string]interface{}{
-								"type":        "object",
-								"description": "Property definitions for input arguments",
-								"additionalProperties": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"type": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument type (string, number, boolean, object, array)",
-										},
-										"description": map[string]interface{}{
-											"type":        "string",
-											"description": "Argument description",
-										},
-										"default": map[string]interface{}{
-											"description": "Default value for the argument",
-										},
-									},
-								},
-							},
-							"required": map[string]interface{}{
-								"type":        "array",
-								"description": "List of required argument names",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
-						"required": []string{"type"},
-					},
+					Required:    false,
+					Description: "Simple argument definitions for workflow input validation",
 				},
 				{
 					Name:        "steps",
@@ -627,7 +510,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
-// convertWorkflowArgs converts workflow input schema to argument metadata
+// convertWorkflowArgs converts workflow args to argument metadata
 func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 	workflow, err := a.GetWorkflow(workflowName)
 	if err != nil {
@@ -636,21 +519,14 @@ func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 
 	var params []api.ArgMetadata
 
-	// Extract properties from input schema
-	for name, prop := range workflow.InputSchema.Args {
+	// Extract args from workflow definition
+	for name, argDef := range workflow.Args {
 		param := api.ArgMetadata{
 			Name:        name,
-			Type:        prop.Type,
-			Description: prop.Description,
-			Default:     prop.Default,
-		}
-
-		// Check if required
-		for _, req := range workflow.InputSchema.Required {
-			if req == name {
-				param.Required = true
-				break
-			}
+			Type:        argDef.Type,
+			Required:    argDef.Required,
+			Description: argDef.Description,
+			Default:     argDef.Default,
 		}
 
 		params = append(params, param)
@@ -1059,16 +935,15 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		wf.Description = desc
 	}
 
-	// Convert inputSchema
-	if inputSchemaParam, ok := args["inputSchema"].(map[string]interface{}); ok {
-		inputSchema, err := convertInputSchema(inputSchemaParam)
+	// Convert args
+	if argsParam, ok := args["args"].(map[string]interface{}); ok {
+		argsDefinition, err := convertArgsDefinition(argsParam)
 		if err != nil {
-			return wf, fmt.Errorf("invalid inputSchema: %v", err)
+			return wf, fmt.Errorf("invalid args: %v", err)
 		}
-		wf.InputSchema = inputSchema
-	} else {
-		return wf, fmt.Errorf("inputSchema argument is required")
+		wf.Args = argsDefinition
 	}
+	// Args are optional, so no error if not provided
 
 	// Convert steps
 	if stepsParam, ok := args["steps"].([]interface{}); ok {
@@ -1088,48 +963,44 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	return wf, nil
 }
 
-// convertInputSchema converts a map[string]interface{} to api.WorkflowInputSchema
-func convertInputSchema(schemaParam map[string]interface{}) (api.WorkflowInputSchema, error) {
-	var schema api.WorkflowInputSchema
+// convertArgsDefinition converts a map[string]interface{} to map[string]api.ArgDefinition
+func convertArgsDefinition(argsParam map[string]interface{}) (map[string]api.ArgDefinition, error) {
+	argsDefinition := make(map[string]api.ArgDefinition)
 
-	// Type field
-	if schemaType, ok := schemaParam["type"].(string); ok {
-		schema.Type = schemaType
-	}
-
-		// Args field
-	if propsParam, ok := schemaParam["args"].(map[string]interface{}); ok {
-		properties := make(map[string]api.SchemaProperty)
-		for name, prop := range propsParam {
-			if propMap, ok := prop.(map[string]interface{}); ok {
-				var property api.SchemaProperty
-				if propType, ok := propMap["type"].(string); ok {
-					property.Type = propType
-				}
-				if desc, ok := propMap["description"].(string); ok {
-					property.Description = desc
-				}
-				if def, ok := propMap["default"]; ok {
-					property.Default = def
-				}
-				properties[name] = property
-			}
+	for name, argParam := range argsParam {
+		argMap, ok := argParam.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("argument %s is not a valid object", name)
 		}
-		schema.Args = properties
-	}
 
-	// Required field
-	if requiredParam, ok := schemaParam["required"].([]interface{}); ok {
-		var required []string
-		for _, req := range requiredParam {
-			if reqStr, ok := req.(string); ok {
-				required = append(required, reqStr)
-			}
+		var argDef api.ArgDefinition
+
+		// Type is required
+		if argType, ok := argMap["type"].(string); ok {
+			argDef.Type = argType
+		} else {
+			return nil, fmt.Errorf("argument %s: type is required", name)
 		}
-		schema.Required = required
+
+		// Required field (default to false)
+		if required, ok := argMap["required"].(bool); ok {
+			argDef.Required = required
+		}
+
+		// Description field
+		if desc, ok := argMap["description"].(string); ok {
+			argDef.Description = desc
+		}
+
+		// Default value
+		if def, exists := argMap["default"]; exists {
+			argDef.Default = def
+		}
+
+		argsDefinition[name] = argDef
 	}
 
-	return schema, nil
+	return argsDefinition, nil
 }
 
 // convertWorkflowSteps converts []interface{} to []api.WorkflowStep

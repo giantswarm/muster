@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "validation-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "validation_step"
         tool: "core_service_list"

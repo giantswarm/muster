@@ -9,16 +9,13 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "structure-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         test_input:
           type: "string"
           default: "structure-test"
         numeric_input:
           type: "number"
           default: 42
-      required: []
     steps:
       - id: "structure_step_1"
         tool: "core_service_list"

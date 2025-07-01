@@ -40,11 +40,18 @@ func NewWorkflowExecutor(toolCaller ToolCaller) *WorkflowExecutor {
 
 // ExecuteWorkflow executes a workflow with the given arguments
 func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.Workflow, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	logging.Error("WorkflowExecutor", fmt.Errorf("workflow execution started"), "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, workflow.InputSchema.Required)
+	// Log required args for debugging
+	var requiredArgs []string
+	for name, arg := range workflow.Args {
+		if arg.Required {
+			requiredArgs = append(requiredArgs, name)
+		}
+	}
+	logging.Error("WorkflowExecutor", fmt.Errorf("workflow execution started"), "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, requiredArgs)
 	logging.Debug("WorkflowExecutor", "Executing workflow %s with %d steps", workflow.Name, len(workflow.Steps))
 
-	// Validate inputs against schema
-	if err := we.validateInputs(workflow.InputSchema, args); err != nil {
+	// Validate inputs against args definition
+	if err := we.validateInputs(workflow.Args, args); err != nil {
 		logging.Error("WorkflowExecutor", err, "Input validation failed for workflow %s", workflow.Name)
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
@@ -216,42 +223,36 @@ type executionContext struct {
 	stepMetadata []stepMetadata         // Track step metadata
 }
 
-// validateInputs validates the input arguments against the schema
-func (we *WorkflowExecutor) validateInputs(schema api.WorkflowInputSchema, args map[string]interface{}) error {
+// validateInputs validates the input arguments against the args definition
+func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefinition, args map[string]interface{}) error {
 	logging.Debug("WorkflowExecutor", "validateInputs called with args: %+v", args)
-	logging.Debug("WorkflowExecutor", "validateInputs schema properties: %+v", schema.Args)
+	logging.Debug("WorkflowExecutor", "validateInputs args definition: %+v", argsDefinition)
 
-	// Check required fields
-	logging.Debug("WorkflowExecutor", "Checking required fields: %+v", schema.Required)
-	for _, required := range schema.Required {
-		if _, exists := args[required]; !exists {
-			logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args %+v", required, args)
-			return fmt.Errorf("required field '%s' is missing", required)
-		}
-	}
+	// Check required fields and apply defaults
+	for key, argDef := range argsDefinition {
+		value, exists := args[key]
 
-	// Validate each provided argument
-	for key, value := range args {
-		prop, exists := schema.Args[key]
 		if !exists {
-			// Allow extra properties for flexibility
+			if argDef.Required {
+				logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args %+v", key, args)
+				return fmt.Errorf("required field '%s' is missing", key)
+			}
+			// Apply default value if not provided
+			if argDef.Default != nil {
+				logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, argDef.Default)
+				args[key] = argDef.Default
+			}
 			continue
 		}
 
-		// Basic type validation
-		if !we.validateType(value, prop.Type) {
-			return fmt.Errorf("field '%s' has wrong type, expected %s", key, prop.Type)
+		// Basic type validation for provided values
+		if !we.validateType(value, argDef.Type) {
+			return fmt.Errorf("field '%s' has wrong type, expected %s", key, argDef.Type)
 		}
 	}
 
-	// Apply defaults for missing optional fields
-	for key, prop := range schema.Args {
-		logging.Debug("WorkflowExecutor", "Checking property %s: exists=%v, default=%+v", key, args[key] != nil, prop.Default)
-		if _, exists := args[key]; !exists && prop.Default != nil {
-			logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, prop.Default)
-			args[key] = prop.Default
-		}
-	}
+	// Check for unknown arguments - allow extra properties for flexibility
+	// This follows the same pattern as ServiceClass.ValidateServiceArgs
 
 	logging.Debug("WorkflowExecutor", "validateInputs final args: %+v", args)
 	return nil

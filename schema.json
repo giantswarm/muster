@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-01T10:20:37+02:00",
+  "generated_at": "2025-07-01T12:02:59+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -1453,50 +1453,13 @@
         "core_workflow_create": {
           "description": "Arguments for core_workflow_create tool",
           "properties": {
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
+            },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "inputSchema": {
-              "description": "JSON Schema definition for workflow input validation",
-              "properties": {
-                "properties": {
-                  "additionalProperties": {
-                    "properties": {
-                      "default": {
-                        "description": "Default value for the argument"
-                      },
-                      "description": {
-                        "description": "Argument description",
-                        "type": "string"
-                      },
-                      "type": {
-                        "description": "Argument type (string, number, boolean, object, array)",
-                        "type": "string"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "description": "Property definitions for input arguments",
-                  "type": "object"
-                },
-                "required": {
-                  "description": "List of required argument names",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "type": {
-                  "default": "object",
-                  "description": "Schema type (typically 'object')",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
             },
             "name": {
               "description": "Workflow name",
@@ -1540,7 +1503,6 @@
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"
@@ -1639,50 +1601,13 @@
         "core_workflow_update": {
           "description": "Arguments for core_workflow_update tool",
           "properties": {
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
+            },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "inputSchema": {
-              "description": "JSON Schema definition for workflow input validation",
-              "properties": {
-                "properties": {
-                  "additionalProperties": {
-                    "properties": {
-                      "default": {
-                        "description": "Default value for the argument"
-                      },
-                      "description": {
-                        "description": "Argument description",
-                        "type": "string"
-                      },
-                      "type": {
-                        "description": "Argument type (string, number, boolean, object, array)",
-                        "type": "string"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "description": "Property definitions for input arguments",
-                  "type": "object"
-                },
-                "required": {
-                  "description": "List of required argument names",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "type": {
-                  "default": "object",
-                  "description": "Schema type (typically 'object')",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
             },
             "name": {
               "description": "Name of the workflow to update",
@@ -1726,7 +1651,6 @@
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"
@@ -1734,50 +1658,13 @@
         "core_workflow_validate": {
           "description": "Arguments for core_workflow_validate tool",
           "properties": {
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
+            },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "inputSchema": {
-              "description": "JSON Schema definition for workflow input validation",
-              "properties": {
-                "properties": {
-                  "additionalProperties": {
-                    "properties": {
-                      "default": {
-                        "description": "Default value for the argument"
-                      },
-                      "description": {
-                        "description": "Argument description",
-                        "type": "string"
-                      },
-                      "type": {
-                        "description": "Argument type (string, number, boolean, object, array)",
-                        "type": "string"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "description": "Property definitions for input arguments",
-                  "type": "object"
-                },
-                "required": {
-                  "description": "List of required argument names",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "type": {
-                  "default": "object",
-                  "description": "Schema type (typically 'object')",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
             },
             "name": {
               "description": "Workflow name",
@@ -1821,7 +1708,6 @@
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"

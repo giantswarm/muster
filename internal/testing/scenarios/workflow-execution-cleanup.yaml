@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "cleanup-test-workflow"
-    inputSchema:
-      type: "object"
-      args:
-        test_id:
-          type: "string"
-          default: "cleanup-1"
-      required: []
+    args:
+      test_id:
+        type: "string"
+        default: "cleanup-1"
     steps:
       - id: "cleanup_step"
         tool: "core_service_list"

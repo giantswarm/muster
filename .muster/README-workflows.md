@@ -35,17 +35,15 @@ Workflow files define sequences of MCP tool calls that can be executed together:
 name: my-workflow
 description: "Custom workflow description"
 version: 1
-inputSchema:
-  type: object
-  properties:
-    param1:
-      type: string
-      description: "First arg"
-    param2:
-      type: string
-      description: "Second arg"
-      default: "default-value"
-  required: ["param1"]
+args:
+  param1:
+    type: string
+    required: true
+    description: "First arg"
+  param2:
+    type: string
+    description: "Second arg"
+    default: "default-value"
 steps:
   - id: step1
     tool: api_some_tool
@@ -64,7 +62,7 @@ steps:
 - **name**: Unique identifier for the workflow
 - **description**: Human-readable description
 - **version**: Version number for tracking changes
-- **inputSchema**: JSON Schema defining input arguments
+- **args**: Argument definitions for workflow inputs
 - **steps**: Array of workflow steps to execute
 
 ### Step Schema

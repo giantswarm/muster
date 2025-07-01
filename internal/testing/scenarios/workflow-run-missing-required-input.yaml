@@ -9,11 +9,10 @@ pre_configuration:
   - name: "require-input-workflow"
     config:
       name: "require-input-workflow"
-      inputSchema:
-        type: "object"
-        args:
-          message: { type: "string" }
-        required: ["message"]
+      args:
+        message:
+          type: "string"
+          required: true
       steps: [{id: "s1", tool: "core_service_list"}]
 steps:
 - id: "run-workflow-missing-input"

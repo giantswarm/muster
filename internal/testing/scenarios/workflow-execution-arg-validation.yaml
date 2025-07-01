@@ -9,21 +9,21 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "parameter-tracking-workflow"
-    inputSchema:
-      type: "object"
-      args:
-        required_param:
-          type: "string"
-          description: "Required parameter"
-        optional_param:
-          type: "string"
-          description: "Optional parameter"
-          default: "default-value"
-        numeric_param:
-          type: "number"
-          description: "Numeric parameter"
-          default: 42
-      required: ["required_param"]
+    args:
+      required_param:
+        type: "string"
+        description: "Required parameter"
+        required: true
+      optional_param:
+        type: "string"
+        description: "Optional parameter"
+        default: "default-value"
+        required: false
+      numeric_param:
+        type: "number"
+        description: "Numeric parameter"
+        default: 42
+        required: false
     steps:
       - id: "validate_params"
         tool: "core_service_list"

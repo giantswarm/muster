@@ -9,14 +9,11 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "basic-tracking-workflow"
-    inputSchema:
-      type: "object"
-      args:
-        service_name:
-          type: "string"
-          description: "Name of the service"
-          default: "test-service"
-      required: []
+    args:
+      service_name:
+        type: "string"
+        description: "Name of the service"
+        default: "test-service"
     steps:
       - id: "list_services"
         tool: "core_service_list"

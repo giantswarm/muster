@@ -89,29 +89,27 @@ pre_configuration:
       config:
         name: "deploy-application"
         description: "Deploy application with storage and compute resources"
-        input_schema:
-          type: "object"
-          properties:
-            app_name:
-              type: "string"
-              required: true
-              description: "Application name"
-            app_image:
-              type: "string"
-              required: true
-              description: "Container image"
-            replicas:
-              type: "integer"
-              default: 3
-              description: "Number of replicas"
-            storage_size:
-              type: "string"
-              default: "5Gi"
-              description: "Storage size"
-            namespace:
-              type: "string"
-              default: "default"
-              description: "Kubernetes namespace"
+        args:
+          app_name:
+            type: "string"
+            required: true
+            description: "Application name"
+          app_image:
+            type: "string"
+            required: true
+            description: "Container image"
+          replicas:
+            type: "integer"
+            default: 3
+            description: "Number of replicas"
+          storage_size:
+            type: "string"
+            default: "5Gi"
+            description: "Storage size"
+          namespace:
+            type: "string"
+            default: "default"
+            description: "Kubernetes namespace"
         steps:
           - id: "create_storage"
             tool: "x_storage-mock_create_pvc"  # Mock tool with x_ prefix

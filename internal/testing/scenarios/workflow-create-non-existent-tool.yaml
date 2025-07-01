@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "bad-tool-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "step1"
         tool: "this_tool_is_not_real"

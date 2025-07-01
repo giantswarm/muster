@@ -11,7 +11,6 @@ pre_configuration:
         tools:
           - name: "validation_fail"
             input_schema:
-              type: "object"
               args:
                 error_type:
                   type: "string"
@@ -24,13 +23,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "error-validation-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         error_type:
           type: "string"
           default: "test"
-      required: []
     steps:
       - id: "success_step"
         tool: "core_service_list"

@@ -9,10 +9,11 @@ pre_configuration:
   - name: "default-input-workflow"
     config:
       name: "default-input-workflow"
-      inputSchema:
-        type: "object"
-        args:
-          message: { type: "string", default: "default value" }
+      args:
+        message:
+          type: "string"
+          default: "default value"
+          required: false
       steps:
         - id: "echo"
           tool: "x_echo-provider_echo"
@@ -23,7 +24,6 @@ pre_configuration:
     config:
       tools:
       - name: "echo"
-        input_schema: { type: "object", properties: { text: { type: "string" } } }
         responses: [ { response: { said: "{{ .text }}" } } ]
 steps:
 - id: "run-workflow-with-default"

@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "summary-test-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         summary_param:
           type: "string"
           default: "summary-value"
-      required: []
     steps:
       - id: "summary_step_1"
         tool: "core_service_list"

@@ -10,13 +10,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "special-chars-workflow_123"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         special_input:
           type: "string"
           default: "test-with-special-chars_@#$"
-      required: []
     steps:
       - id: "special_step"
         tool: "core_service_list"
@@ -106,10 +103,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "workflow-with-many-dashes-and-numbers-123-456"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "edge_step"
         tool: "core_service_list"

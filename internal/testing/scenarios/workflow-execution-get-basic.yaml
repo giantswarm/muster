@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "get-test-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         test_input:
           type: "string"
           default: "test-value"
-      required: []
     steps:
       - id: "get_step"
         tool: "core_service_list"

@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "filter-workflow-a"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "step_a"
         tool: "core_service_list"
@@ -27,10 +24,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "filter-workflow-b"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "step_b"
         tool: "core_workflow_list"

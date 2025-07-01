@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "multi-step-tracking-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         service_name:
           type: "string"
           default: "test-service"
-      required: []
     steps:
       - id: "list_services"
         tool: "core_service_list"

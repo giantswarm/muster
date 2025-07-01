@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_validate"
   args:
     name: "invalid-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps: []
   expected:
     success: false
@@ -21,10 +18,7 @@ steps:
 - id: "create-workflow-missing-name"
   tool: "core_workflow_create"
   args:
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps: []
   expected:
     success: false
@@ -34,10 +28,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "workflow-no-steps"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
   expected:
     success: false
     error_contains: ["steps", "required"]
@@ -46,10 +37,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "workflow-duplicate-steps"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "step-1"
         tool: "core_service_list"
@@ -63,10 +51,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "workflow-bad-tool"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "step-1"
         tool: "this_tool_does_not_exist"
@@ -88,10 +73,7 @@ steps:
   tool: "core_workflow_update"
   args:
     name: "non-existent-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "test-step"
         tool: "core_service_list"

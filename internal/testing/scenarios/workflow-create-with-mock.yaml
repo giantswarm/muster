@@ -12,7 +12,6 @@ pre_configuration:
           - name: "toola"
             description: "A tool that returns a string"
             input_schema:
-              type: "object"
               args:
                 text:
                   type: "string"
@@ -28,12 +27,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "test-workflow"
-    inputSchema:
-      type: "object"
-      args:
-        text:
-          type: "string"
-      required: ["text"]
+    args:
+      text:
+        type: "string"
+        required: true
     steps:
       - id: "run-toola"
         tool: "x_test-mock_toola"

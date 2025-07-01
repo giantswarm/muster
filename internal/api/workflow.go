@@ -21,9 +21,10 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
-	// InputSchema defines the expected input arguments for workflow execution.
-	// This is used for arg validation and documentation generation.
-	InputSchema WorkflowInputSchema `yaml:"inputSchema" json:"inputSchema"`
+	// Args defines the validation rules and metadata for workflow execution arguments.
+	// These definitions are used to validate arguments when executing workflows
+	// and to provide documentation for the workflow execution API.
+	Args map[string]ArgDefinition `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to be performed during workflow execution.
 	// Each step represents a tool call with its arguments and processing logic.
@@ -108,6 +109,8 @@ type WorkflowStep struct {
 // WorkflowInputSchema defines the input argument schema for a workflow.
 // This provides structured validation and documentation for workflow inputs,
 // following JSON Schema conventions for argument definition.
+//
+// DEPRECATED: Use Args map[string]ArgDefinition instead
 type WorkflowInputSchema struct {
 	// Type specifies the overall schema type (typically "object" for workflow inputs)
 	Type string `yaml:"type" json:"type"`
@@ -253,8 +256,8 @@ type CreateWorkflowRequest struct {
 	// Description provides human-readable documentation for the workflow
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
-	// InputSchema defines the expected input arguments for workflow execution
-	InputSchema map[string]interface{} `yaml:"inputSchema" json:"inputSchema"`
+	// Args defines the expected input arguments for workflow execution
+	Args map[string]ArgDefinition `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to be performed during workflow execution
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`

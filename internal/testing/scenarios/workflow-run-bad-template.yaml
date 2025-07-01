@@ -19,7 +19,6 @@ pre_configuration:
     config:
       tools:
       - name: "echo"
-        input_schema: { type: "object", properties: { text: { type: "string" } } }
         responses: [ { response: { said: "{{ .text }}" } } ]
 steps:
 - id: "run-bad-template"

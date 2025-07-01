@@ -10,14 +10,12 @@
 //
 //	name: "my-workflow"
 //	description: "A sample workflow that demonstrates multi-step operations"
-//	inputSchema:
-//	  type: "object"
-//	  properties:
-//	    environment:
-//	      type: "string"
-//	      description: "Target environment"
-//	      default: "development"
-//	  required: ["environment"]
+//	args:
+//	  environment:
+//	    type: string
+//	    description: "Target environment"
+//	    default: "development"
+//	    required: false
 //	steps:
 //	- id: "step1"
 //	  tool: "some_tool"
@@ -79,25 +77,24 @@
 //   - **Tool Integration**: Automatic registration as MCP tools
 //   - **Availability Checking**: Dynamic tool availability validation
 //
-// # Input Schema Support
+// # Input Argument Support
 //
-// Workflows can define input schemas for arg validation:
+// Workflows can define input arguments for validation:
 //
-//	inputSchema:
-//	  type: "object"
-//	  properties:
-//	    environment:
-//	      type: "string"
-//	      description: "Deployment environment"
-//	      default: "development"
-//	    version:
-//	      type: "string"
-//	      description: "Application version"
-//	    replicas:
-//	      type: "number"
-//	      description: "Number of replicas"
-//	      default: 3
-//	  required: ["environment", "version"]
+//	args:
+//	  environment:
+//	    type: string
+//	    description: "Deployment environment"
+//	    default: "development"
+//	    required: false
+//	  version:
+//	    type: string
+//	    description: "Application version"
+//	    required: true
+//	  replicas:
+//	    type: number
+//	    description: "Number of replicas"
+//	    default: 3
 //
 // This enables:
 //   - **Arg validation** before execution
@@ -143,20 +140,18 @@
 //	workflow := api.Workflow{
 //	    Name:        "deploy-app",
 //	    Description: "Deploy application to environment",
-//	    InputSchema: api.WorkflowInputSchema{
-//	        Type: "object",
-//	        Args: map[string]api.SchemaProperty{
-//	            "environment": {
-//	                Type:        "string",
-//	                Description: "Target environment",
-//	                Default:     "development",
-//	            },
-//	            "version": {
-//	                Type:        "string",
-//	                Description: "Application version",
-//	            },
+//	    Args: map[string]api.ArgDefinition{
+//	        "environment": {
+//	            Type:        "string",
+//	            Description: "Target environment",
+//	            Default:     "development",
+//	            Required:    false,
 //	        },
-//	        Required: []string{"version"},
+//	        "version": {
+//	            Type:        "string",
+//	            Description: "Application version",
+//	            Required:    true,
+//	        },
 //	    },
 //	    Steps: []api.WorkflowStep{
 //	        {

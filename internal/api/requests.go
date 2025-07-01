@@ -342,15 +342,12 @@ type MCPServerValidateRequest struct {
 //	request := WorkflowCreateRequest{
 //	    Name: "deploy-service",
 //	    Description: "Deploy a service to production",
-//	    InputSchema: WorkflowInputSchema{
-//	        Type: "object",
-//	        Args: map[string]SchemaProperty{
-//	            "service_name": {
-//	                Type:        "string",
-//	                Description: "Name of the service to deploy",
-//	            },
+//	    Args: map[string]ArgDefinition{
+//	        "service_name": {
+//	            Type:        "string",
+//	            Required:    true,
+//	            Description: "Name of the service to deploy",
 //	        },
-//	        Required: []string{"service_name"},
 //	    },
 //	    Steps: []WorkflowStep{
 //	        {
@@ -375,10 +372,10 @@ type WorkflowCreateRequest struct {
 	// Should explain the workflow's purpose and expected outcomes.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema defines the expected input args for workflow execution.
+	// Args defines the expected input arguments for workflow execution.
 	// Used for arg validation and documentation generation.
 	// If not specified, the workflow accepts any args.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to perform (required).
 	// Each step executes a tool with specified arguments and processing logic.
@@ -387,7 +384,7 @@ type WorkflowCreateRequest struct {
 }
 
 // WorkflowUpdateRequest represents a request to update an existing workflow definition.
-// This allows modification of workflow steps, input schema, and metadata.
+// This allows modification of workflow steps, input args, and metadata.
 type WorkflowUpdateRequest struct {
 	// Name of the workflow to update (required).
 	Name string `json:"name" validate:"required"`
@@ -398,9 +395,9 @@ type WorkflowUpdateRequest struct {
 	// Description can be updated to improve documentation.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema can be modified to change arg requirements.
+	// Args can be modified to change arg requirements.
 	// Changes may affect existing callers of this workflow.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps can be added, modified, or reordered.
 	// Changes affect workflow execution behavior.
@@ -419,8 +416,8 @@ type WorkflowValidateRequest struct {
 	// Description for validation.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema for validation.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	// Args for validation.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps for validation (required). All referenced tools will be checked for availability.
 	Steps []WorkflowStep `json:"steps" validate:"required"`
@@ -549,7 +546,7 @@ func validateRequest(request interface{}) error {
 //	allowed := []string{"name", "type", "description"}
 //	err := ValidateStrictArgs(args, allowed)
 //	if err != nil {
-	//	    return fmt.Errorf("arg validation failed: %w", err)
+//	    return fmt.Errorf("arg validation failed: %w", err)
 //	}
 func ValidateStrictArgs(args map[string]interface{}, allowedFields []string) error {
 	allowedMap := make(map[string]bool)

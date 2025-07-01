@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "performance-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         batch_id:
           type: "string"
           default: "batch-1"
-      required: []
     steps:
       - id: "perf_step"
         tool: "core_service_list"

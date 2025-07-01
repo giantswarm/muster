@@ -14,10 +14,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "correct-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "get_status"
         tool: "core_service_status"
@@ -36,10 +33,7 @@ steps:
   tool: "core_workflow_update"
   args:
     name: "correct-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "get_status_updated"
         tool: "core_service_list"
@@ -72,10 +66,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "crud-test-workflow"
-    inputSchema:
-      type: "object"
-      args: {}
-      required: []
+    args: {}
     steps:
       - id: "list-services"
         tool: "core_service_list"

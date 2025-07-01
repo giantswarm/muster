@@ -156,31 +156,21 @@ func (wm *WorkflowManager) validateWorkflowDefinition(def *api.Workflow) error {
 		}
 	}
 
-	// Validate input schema if present
-	if def.InputSchema.Type != "" {
-		validTypes := []string{"object", "array", "string", "number", "boolean"}
-		if err := config.ValidateOneOf("inputSchema.type", def.InputSchema.Type, validTypes); err != nil {
-			errors = append(errors, err.(config.ValidationError))
-		}
-
-		// Validate required fields if specified
-		for i, required := range def.InputSchema.Required {
-			if required == "" {
-				errors.Add(fmt.Sprintf("inputSchema.required[%d]", i), "required field name cannot be empty")
-			}
-		}
+	// Validate args if present
+	if def.Args != nil {
+		validTypes := []string{"string", "integer", "boolean", "number"}
 
 		// Validate args if specified
-		for argName, arg := range def.InputSchema.Args {
+		for argName, arg := range def.Args {
 			if argName == "" {
-				errors.Add("inputSchema.args", "argument name cannot be empty")
+				errors.Add("args", "argument name cannot be empty")
 				continue
 			}
 
 			if arg.Type == "" {
-				errors.Add(fmt.Sprintf("inputSchema.args.%s.type", argName), "argument type is required")
+				errors.Add(fmt.Sprintf("args.%s.type", argName), "argument type is required")
 			} else {
-				if err := config.ValidateOneOf(fmt.Sprintf("inputSchema.args.%s.type", argName), arg.Type, validTypes); err != nil {
+				if err := config.ValidateOneOf(fmt.Sprintf("args.%s.type", argName), arg.Type, validTypes); err != nil {
 					errors = append(errors, err.(config.ValidationError))
 				}
 			}
@@ -395,23 +385,28 @@ func (wm *WorkflowManager) Stop() {
 
 // workflowToTool converts a workflow definition to an MCP tool
 func (wm *WorkflowManager) workflowToTool(workflow api.Workflow) mcp.Tool {
-	// Convert workflow input schema to MCP tool input schema
+	// Convert workflow args to MCP tool input schema
 	properties := make(map[string]interface{})
-	required := workflow.InputSchema.Required
+	var required []string
 
-	for name, prop := range workflow.InputSchema.Args {
+	for name, arg := range workflow.Args {
 		propSchema := map[string]interface{}{
-			"type":        prop.Type,
-			"description": prop.Description,
+			"type":        arg.Type,
+			"description": arg.Description,
 		}
-		if prop.Default != nil {
-			propSchema["default"] = prop.Default
+		if arg.Default != nil {
+			propSchema["default"] = arg.Default
 		}
 		properties[name] = propSchema
+
+		// Add to required list if the argument is required
+		if arg.Required {
+			required = append(required, name)
+		}
 	}
 
 	inputSchema := mcp.ToolInputSchema{
-		Type:       workflow.InputSchema.Type,
+		Type:       "object",
 		Properties: properties,
 		Required:   required,
 	}

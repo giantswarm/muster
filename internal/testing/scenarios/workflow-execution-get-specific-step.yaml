@@ -9,13 +9,10 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "specific-step-workflow"
-    inputSchema:
-      type: "object"
-      args:
+    args:
         step_param:
           type: "string"
           default: "step-value"
-      required: []
     steps:
       - id: "first_step"
         tool: "core_service_list"
