@@ -1,0 +1,51 @@
+name: "workflow-run-nested-workflow"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "run", "args", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  workflows:
+  - name: "input-test-workflow"
+    config:
+      name: "input-test-workflow"
+      args:
+        message: { type: "string" }
+      required: ["message"]
+      steps:
+        - id: "echo"
+          tool: "x_echo-provider_echo"
+          args: 
+            text: "{{ .input.message }}"
+          store: "echo_result"
+  - name: "input-test-workflow-2"
+    config:
+      name: "input-test-workflow-2"
+      args:
+        message: { type: "string" }
+      required: ["message"]
+      steps:
+        - id: "echo"
+          tool: "workflow_input-test-workflow"
+          args: 
+            message: "{{ .input.message }}"
+          store: "echo_result2"
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+steps:
+- id: "run-nested-workflow"
+  tool: "workflow_input-test-workflow-2"
+  args:
+    message: "hello from test"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      results.echo_result2.status: "completed"
+      results.echo_result2.workflow: "input-test-workflow"
+      results.echo_result2.results.echo_result.said: "hello from test"
+      workflow: "input-test-workflow-2"

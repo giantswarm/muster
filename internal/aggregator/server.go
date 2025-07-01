@@ -822,7 +822,10 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			return nil, fmt.Errorf("workflow handler not available")
 		}
 		if provider, ok := handler.(api.ToolProvider); ok {
-			result, err := provider.ExecuteTool(ctx, originalToolName, args)
+			// Map workflow_ tools back to action_ for internal workflow handler
+			internalToolName := strings.Replace(originalToolName, "workflow_", "action_", 1)
+			logging.Debug("Aggregator", "Mapping workflow tool %s to internal name %s", originalToolName, internalToolName)
+			result, err := provider.ExecuteTool(ctx, internalToolName, args)
 			if err != nil {
 				return nil, err
 			}
