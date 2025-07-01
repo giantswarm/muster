@@ -1,9 +1,13 @@
 package template
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
+	"text/template"
+
+	"github.com/Masterminds/sprig/v3"
 )
 
 // Engine handles arg templating for capability operations
@@ -214,4 +218,31 @@ func (e *Engine) getProperty(obj interface{}, property string) (interface{}, err
 	default:
 		return nil, fmt.Errorf("cannot access property '%s' on non-object type %T", property, obj)
 	}
+}
+
+// RenderGoTemplate renders a full Go template with Sprig template functions
+// This is used for complex expressions like {{ eq .input.var "value" }}
+func (e *Engine) RenderGoTemplate(templateStr string, context map[string]interface{}) (interface{}, error) {
+	tmpl, err := template.New("template").Funcs(sprig.TxtFuncMap()).Option("missingkey=error").Parse(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+
+	result := buf.String()
+
+	// Try to parse as boolean first (common for eq/ne functions)
+	if result == "true" {
+		return true, nil
+	}
+	if result == "false" {
+		return false, nil
+	}
+
+	// Return as string for other results
+	return result, nil
 }

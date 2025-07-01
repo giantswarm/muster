@@ -134,7 +134,7 @@ func (h *ToolHandler) matchesCondition(condition map[string]interface{}, args ma
 
 	for key, expectedValue := range condition {
 		actualValue, exists := args[key]
-		if !exists || actualValue != expectedValue {
+		if !exists || !h.valuesEqual(expectedValue, actualValue) {
 			return false
 		}
 	}

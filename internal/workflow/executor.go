@@ -1,14 +1,13 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"muster/internal/api"
+	"muster/internal/template"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -29,12 +28,14 @@ type stepMetadata struct {
 // WorkflowExecutor executes workflow steps
 type WorkflowExecutor struct {
 	toolCaller ToolCaller
+	template   *template.Engine
 }
 
 // NewWorkflowExecutor creates a new workflow executor
 func NewWorkflowExecutor(toolCaller ToolCaller) *WorkflowExecutor {
 	return &WorkflowExecutor{
 		toolCaller: toolCaller,
+		template:   template.New(),
 	}
 }
 
@@ -397,34 +398,12 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 	}
 
 	// Parse and execute template with strict mode options
-	tmpl, err := template.New("arg").Option("missingkey=error").Parse(templateStr)
+	result, err := we.template.RenderGoTemplate(templateStr, templateCtx)
 	if err != nil {
-		return nil, fmt.Errorf("invalid template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, templateCtx); err != nil {
-		// Check for missing key errors and provide more context
-		if strings.Contains(err.Error(), "executing") && strings.Contains(err.Error(), "no such key") {
-			return nil, fmt.Errorf("failed to render arguments: template variable not found: %w", err)
-		}
 		return nil, fmt.Errorf("failed to render arguments: %w", err)
 	}
 
-	result := buf.String()
-	logging.Debug("WorkflowExecutor", "Template result: %s", result)
-
-	// Only try to parse as JSON if the result looks like structured data (objects or arrays)
-	// This prevents simple values like "18000" from being converted to float64
-	trimmedResult := strings.TrimSpace(result)
-	if strings.HasPrefix(trimmedResult, "{") || strings.HasPrefix(trimmedResult, "[") {
-		var jsonResult interface{}
-		if err := json.Unmarshal([]byte(result), &jsonResult); err == nil {
-			return jsonResult, nil
-		}
-	}
-
-	// Return as string to preserve original type
+	logging.Debug("WorkflowExecutor", "Template result: %v", result)
 	return result, nil
 }
 

@@ -724,81 +724,37 @@ func toLower(s string) string {
 
 // extractJSONFromMCPResponse attempts to extract JSON from MCP CallToolResult
 func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string]interface{} {
-	// Try to handle MCP CallToolResult structure
-	responseStr := fmt.Sprintf("%+v", response)
-
-	// Look for patterns that indicate this is an MCP response with JSON content
-	if !containsText(responseStr, "Content:[") {
-		return nil
-	}
-
-	// Try to extract the JSON text from the response structure
-	// The format is usually: Content:[{...Text:{"json":"here"}...}]
-	// We'll use string parsing to extract the JSON content
-
-	// Find the Text: field in the string representation
-	textStart := -1
-	textEnd := -1
-
-	// Look for "Text:" pattern
-	textPattern := "Text:"
-	for i := 0; i <= len(responseStr)-len(textPattern); i++ {
-		if responseStr[i:i+len(textPattern)] == textPattern {
-			textStart = i + len(textPattern)
-			break
-		}
-	}
-
-	if textStart == -1 {
-		if r.debug {
-			r.logger.Debug("🔍 Could not find 'Text:' in response: %s\n", responseStr[:min(200, len(responseStr))])
-		}
-		return nil
-	}
-
-	// Find the end of the JSON text (look for the closing brace followed by '}')
-	braceCount := 0
-	inJson := false
-	for i := textStart; i < len(responseStr); i++ {
-		char := responseStr[i]
-		if char == '{' {
-			if !inJson {
-				inJson = true
-				textStart = i // Start from the actual JSON opening brace
-			}
-			braceCount++
-		} else if char == '}' {
-			braceCount--
-			if braceCount == 0 && inJson {
-				textEnd = i + 1
-				break
+	// Handle MCP CallToolResult structure properly
+	if mcpResult, ok := response.(*mcp.CallToolResult); ok {
+		// Extract text content from MCP result
+		for _, content := range mcpResult.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				// Try to parse the text content as JSON
+				var result map[string]interface{}
+				if err := json.Unmarshal([]byte(textContent.Text), &result); err == nil {
+					if r.debug {
+						r.logger.Debug("🔍 Successfully extracted JSON from MCP response: %+v\n", result)
+					}
+					return result
+				} else {
+					if r.debug {
+						r.logger.Debug("🔍 Failed to parse MCP text content as JSON: %v\n", err)
+						r.logger.Debug("🔍 Text content was: %s\n", textContent.Text)
+					}
+				}
 			}
 		}
 	}
 
-	if textEnd == -1 || !inJson {
-		if r.debug {
-			r.logger.Debug("🔍 Could not find complete JSON in response text\n")
-		}
-		return nil
+	// Try to handle other response types
+	if respMap, ok := response.(map[string]interface{}); ok {
+		return respMap
 	}
 
-	// Extract the JSON string
-	jsonStr := responseStr[textStart:textEnd]
 	if r.debug {
-		r.logger.Debug("🔍 Extracted JSON string: %s\n", jsonStr)
+		r.logger.Debug("🔍 Could not extract JSON from response type %T\n", response)
 	}
-
-	// Parse the JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		if r.debug {
-			r.logger.Debug("🔍 Failed to parse JSON: %v\n", err)
-		}
-		return nil
-	}
-
-	return result
+	return nil
 }
 
 // min returns the minimum of two integers
