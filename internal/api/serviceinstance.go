@@ -67,6 +67,11 @@ type ServiceInstance struct {
 	// This might include connection information, status details, or other service-specific data.
 	ServiceData map[string]interface{} `json:"serviceData,omitempty" yaml:"-"`
 
+	// Outputs contains the resolved outputs from the ServiceClass outputs definition.
+	// These are generated during service creation by resolving templates with service args and runtime data.
+	// Outputs are available for workflows and other consumers that need access to service-generated values.
+	Outputs map[string]interface{} `json:"outputs,omitempty" yaml:"-"`
+
 	// CreatedAt records when this service instance was initially created.
 	// This timestamp is persisted and used for auditing and lifecycle management.
 	CreatedAt time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`

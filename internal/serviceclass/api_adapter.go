@@ -417,6 +417,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									},
 								},
 							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
 						},
 						"required":             []string{"serviceType", "lifecycleTools"},
 						"additionalProperties": false,
@@ -600,6 +607,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									},
 								},
 							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
 						},
 						"required":             []string{"serviceType", "lifecycleTools"},
 						"additionalProperties": false,
@@ -781,6 +795,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 										"type":        "string",
 										"description": "Health check timeout (e.g., '10s', '30s')",
 									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
 								},
 							},
 						},

@@ -6,6 +6,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/config"
 	"muster/internal/services"
+	"muster/internal/template"
 	"muster/pkg/logging"
 	"sync"
 	"time"
@@ -59,6 +60,7 @@ type ServiceInstanceInfo struct {
 	LastChecked      *time.Time             `json:"lastChecked,omitempty"`
 	ServiceData      map[string]interface{} `json:"serviceData,omitempty"`
 	CreationArgs     map[string]interface{} `json:"creationArgs"`
+	Outputs          map[string]interface{} `json:"outputs,omitempty"`
 }
 
 // ServiceInstanceEvent represents a service instance state change event
@@ -441,6 +443,51 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		}
 	}
 
+	// Process ServiceClass outputs if defined
+	var resolvedOutputs map[string]interface{}
+	if serviceClass.ServiceConfig.Outputs != nil && len(serviceClass.ServiceConfig.Outputs) > 0 {
+		logging.Debug("Orchestrator", "Processing outputs for ServiceClass %s, service instance %s", req.ServiceClassName, req.Name)
+		
+		// Create template context with service args at root level for direct template access
+		templateContext := make(map[string]interface{})
+		
+		// Add service creation arguments at root level so {{ .text }} works
+		for key, value := range req.Args {
+			templateContext[key] = value
+		}
+		
+		// Also add structured context for advanced templates
+		templateContext["args"] = req.Args
+		templateContext["name"] = req.Name
+		
+		// Add runtime data from the service instance if available
+		if serviceData := instance.GetServiceData(); serviceData != nil {
+			for key, value := range serviceData {
+				templateContext[key] = value
+			}
+		}
+		
+		logging.Debug("Orchestrator", "Template context for outputs: %+v", templateContext)
+		
+		// Create template engine and resolve outputs
+		templateEngine := template.New()
+		resolvedResult, err := templateEngine.Replace(serviceClass.ServiceConfig.Outputs, templateContext)
+		if err != nil {
+			logging.Error("Orchestrator", err, "Failed to resolve outputs for ServiceClass %s, service instance %s", req.ServiceClassName, req.Name)
+			// Don't fail the creation, just log the error and continue without outputs
+			resolvedOutputs = nil
+		} else {
+			// Ensure the result is a map[string]interface{}
+			if outputsMap, ok := resolvedResult.(map[string]interface{}); ok {
+				resolvedOutputs = outputsMap
+				logging.Debug("Orchestrator", "Successfully resolved outputs for service instance %s: %+v", req.Name, resolvedOutputs)
+			} else {
+				logging.Error("Orchestrator", fmt.Errorf("outputs resolution returned non-map type"), "Invalid outputs format for service instance %s", req.Name)
+				resolvedOutputs = nil
+			}
+		}
+	}
+
 	return &ServiceInstanceInfo{
 		Name:             req.Name,
 		ServiceClassName: req.ServiceClassName,
@@ -450,6 +497,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		CreatedAt:        time.Now(),
 		ServiceData:      instance.GetServiceData(),
 		CreationArgs:     req.Args,
+		Outputs:          resolvedOutputs,
 	}, nil
 }
 
@@ -554,6 +602,7 @@ func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *servi
 		CreatedAt:        instance.GetCreatedAt(),
 		ServiceData:      instance.GetServiceData(),
 		CreationArgs:     instance.GetCreationArgs(),
+		Outputs:          nil, // Outputs are only available during creation, not stored in GenericServiceInstance
 	}
 }
 

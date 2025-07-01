@@ -138,6 +138,11 @@ type ServiceConfig struct {
 	// CreateArgs defines how service creation args should be mapped to tool arguments.
 	// This allows ServiceClass args to be transformed and passed to the appropriate tools.
 	CreateArgs map[string]ArgMapping `yaml:"createArgs" json:"createArgs"`
+
+	// Outputs defines template-based outputs that should be generated when service instances are created.
+	// These templates are resolved using service instance arguments and runtime data (like sessionID).
+	// The resolved outputs are made available in service creation results and can be used by workflows.
+	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
 
 // LifecycleTools maps service lifecycle events to aggregator tools.

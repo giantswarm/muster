@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-01T12:02:59+02:00",
+  "generated_at": "2025-07-01T23:36:55+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -903,6 +903,13 @@
                   ],
                   "type": "object"
                 },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
                 "serviceType": {
                   "description": "Type of service this configuration manages",
                   "type": "string"
@@ -1166,6 +1173,13 @@
                   ],
                   "type": "object"
                 },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
                 "serviceType": {
                   "description": "Type of service this configuration manages",
                   "type": "string"
@@ -1395,6 +1409,13 @@
                     "start",
                     "stop"
                   ],
+                  "type": "object"
+                },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
                   "type": "object"
                 },
                 "serviceType": {

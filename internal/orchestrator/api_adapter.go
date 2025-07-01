@@ -194,6 +194,7 @@ func (a *Adapter) convertToAPIServiceInstance(internalInfo *ServiceInstanceInfo)
 		LastChecked:      internalInfo.LastChecked,
 		ServiceData:      internalInfo.ServiceData,
 		Args:             internalInfo.CreationArgs,
+		Outputs:          internalInfo.Outputs,
 	}
 }
 
