@@ -386,6 +386,16 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 
 	logging.Debug("WorkflowExecutor", "Template context results (raw): %v", templateCtx["results"])
 
+	// Check if this is a simple variable access pattern ({{ .input.key }} or {{ .results.key }})
+	// If so, try to preserve the original type
+	if we.isSimpleVariableAccess(templateStr) {
+		originalValue := we.getOriginalValue(templateStr, ctx)
+		if originalValue != nil {
+			// For simple variable access, return the original value with its type preserved
+			return originalValue, nil
+		}
+	}
+
 	// Parse and execute template with strict mode options
 	tmpl, err := template.New("arg").Option("missingkey=error").Parse(templateStr)
 	if err != nil {
@@ -404,14 +414,59 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 	result := buf.String()
 	logging.Debug("WorkflowExecutor", "Template result: %s", result)
 
-	// Try to parse as JSON first
-	var jsonResult interface{}
-	if err := json.Unmarshal([]byte(result), &jsonResult); err == nil {
-		return jsonResult, nil
+	// Only try to parse as JSON if the result looks like structured data (objects or arrays)
+	// This prevents simple values like "18000" from being converted to float64
+	trimmedResult := strings.TrimSpace(result)
+	if strings.HasPrefix(trimmedResult, "{") || strings.HasPrefix(trimmedResult, "[") {
+		var jsonResult interface{}
+		if err := json.Unmarshal([]byte(result), &jsonResult); err == nil {
+			return jsonResult, nil
+		}
 	}
 
-	// If not valid JSON, return as string
+	// Return as string to preserve original type
 	return result, nil
+}
+
+// isSimpleVariableAccess checks if the template is a simple variable access pattern
+func (we *WorkflowExecutor) isSimpleVariableAccess(templateStr string) bool {
+	// Remove whitespace and check if it matches {{ .input.key }} or {{ .results.key }} pattern
+	trimmed := strings.TrimSpace(templateStr)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return false
+	}
+
+	// Extract the inner part
+	inner := strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+
+	// Check if it's a simple dot notation access
+	return strings.HasPrefix(inner, ".input.") || strings.HasPrefix(inner, ".results.") || strings.HasPrefix(inner, ".vars.")
+}
+
+// getOriginalValue extracts the original value from the context based on the template path
+func (we *WorkflowExecutor) getOriginalValue(templateStr string, ctx *executionContext) interface{} {
+	// Remove whitespace and extract the path
+	trimmed := strings.TrimSpace(templateStr)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return nil
+	}
+
+	// Extract the inner part
+	inner := strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+
+	// Parse the path and get the value
+	if strings.HasPrefix(inner, ".input.") {
+		key := inner[7:] // Remove ".input."
+		return ctx.input[key]
+	} else if strings.HasPrefix(inner, ".results.") {
+		key := inner[9:] // Remove ".results."
+		return ctx.results[key]
+	} else if strings.HasPrefix(inner, ".vars.") {
+		key := inner[6:] // Remove ".vars."
+		return ctx.variables[key]
+	}
+
+	return nil
 }
 
 // contains checks if a string slice contains a specific string

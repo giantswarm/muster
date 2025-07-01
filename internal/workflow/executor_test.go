@@ -146,7 +146,7 @@ func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
 		{
 			name:     "number value",
 			template: "{{ .input.port }}",
-			expected: float64(8080), // Numbers are preserved when parsed as JSON
+			expected: 8080, // Numbers are preserved as their original type
 		},
 		{
 			name:     "nested access",
@@ -198,4 +198,23 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 
 	// Second call should have resolved the stored result
 	assert.Equal(t, "success", mock.calls[1].args["data"])
+}
+
+func TestWorkflowExecutor_ResolveTemplate_StringNumbers(t *testing.T) {
+	executor := NewWorkflowExecutor(nil)
+
+	// Test that string templates with numeric values don't get converted to float64
+	ctx := &executionContext{
+		input: map[string]interface{}{
+			"localPort": "18000", // This is a string, not a number
+		},
+		variables: make(map[string]interface{}),
+		results:   make(map[string]interface{}),
+	}
+
+	// This should return a string, not a float64
+	result, err := executor.resolveTemplate("{{.input.localPort}}", ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, "18000", result)
+	assert.IsType(t, "", result) // Should be string type, not float64
 }

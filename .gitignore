@@ -5,6 +5,7 @@ dist/
 .muster/serviceclasses/*.yaml
 .muster/capabilities/*.yaml
 .muster/workflows/*.yaml
+.muster/workflow_executions/*.yaml
 .cursor/mcp.json
 
 # Added by Task Master AI
