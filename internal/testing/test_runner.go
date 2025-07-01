@@ -650,7 +650,8 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 
 			// Check each JSON path expectation
 			for jsonPath, expectedValue := range expected.JSONPath {
-				actualValue, exists := responseMap[jsonPath]
+				// Use enhanced path resolution that supports dot notation
+				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
 				if !exists {
 					if r.debug {
 						r.logger.Debug("❌ JSON path '%s' not found in response\n", jsonPath)
@@ -658,8 +659,8 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 					return false
 				}
 
-				// Compare values
-				if !compareValues(actualValue, expectedValue) {
+				// Enhanced value comparison with partial matching support
+				if !r.compareValuesEnhanced(actualValue, expectedValue) {
 					if r.debug {
 						r.logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
 					}
@@ -935,4 +936,156 @@ func (r *testRunner) extractStorableResult(response interface{}) interface{} {
 		// For other response types, return as-is
 		return response
 	}
+}
+
+// resolveJSONPath resolves a JSON path in a map, supporting dot notation
+func (r *testRunner) resolveJSONPath(obj map[string]interface{}, path string) (interface{}, bool) {
+	// Handle direct key access first (no dots)
+	if !strings.Contains(path, ".") {
+		if val, exists := obj[path]; exists {
+			return val, true
+		}
+		return nil, false
+	}
+
+	// Split the path into segments
+	segments := strings.Split(path, ".")
+	current := obj
+
+	// Traverse the map based on the segments
+	for i, segment := range segments {
+		if val, exists := current[segment]; exists {
+			// If this is the last segment, return the value
+			if i == len(segments)-1 {
+				return val, true
+			}
+			// Otherwise, continue traversing if it's a map
+			if m, ok := val.(map[string]interface{}); ok {
+				current = m
+			} else {
+				// Value exists but is not a map, and we have more segments to traverse
+				return nil, false
+			}
+		} else {
+			return nil, false
+		}
+	}
+
+	// This should not be reached, but return the current object if all segments were traversed
+	return current, true
+}
+
+// compareValuesEnhanced compares two values for equality with partial matching support
+func (r *testRunner) compareValuesEnhanced(actual, expected interface{}) bool {
+	// Handle nil cases first
+	if actual == nil || expected == nil {
+		return actual == expected
+	}
+
+	// Handle slice/array comparisons to prevent panic
+	actualVal := reflect.ValueOf(actual)
+	expectedVal := reflect.ValueOf(expected)
+
+	// Check if both are slices or arrays
+	if actualVal.Kind() == reflect.Slice || actualVal.Kind() == reflect.Array {
+		if expectedVal.Kind() == reflect.Slice || expectedVal.Kind() == reflect.Array {
+			// Compare lengths first
+			if actualVal.Len() != expectedVal.Len() {
+				return false
+			}
+
+			// Compare each element
+			for i := 0; i < actualVal.Len(); i++ {
+				actualItem := actualVal.Index(i).Interface()
+				expectedItem := expectedVal.Index(i).Interface()
+				if !r.compareValuesEnhanced(actualItem, expectedItem) {
+					return false
+				}
+			}
+			return true
+		}
+		// One is slice/array, other is not - not equal
+		return false
+	}
+
+	// Handle map comparisons with partial matching support
+	if actualVal.Kind() == reflect.Map && expectedVal.Kind() == reflect.Map {
+		expectedKeys := expectedVal.MapKeys()
+
+		// For partial matching, we only check that all expected keys exist and match
+		// We don't require that the actual map has the same number of keys
+		// This allows the actual map to have additional fields not specified in expected
+
+		// Check each expected key-value pair
+		for _, key := range expectedKeys {
+			actualValue := actualVal.MapIndex(key)
+			expectedValue := expectedVal.MapIndex(key)
+
+			if !actualValue.IsValid() {
+				return false // Key doesn't exist in actual
+			}
+
+			if !r.compareValuesEnhanced(actualValue.Interface(), expectedValue.Interface()) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Direct equality check for comparable types (but not slices/arrays)
+	if actualVal.Type().Comparable() && expectedVal.Type().Comparable() {
+		if actual == expected {
+			return true
+		}
+	}
+
+	// Handle boolean comparisons
+	if expectedBool, ok := expected.(bool); ok {
+		if actualBool, ok := actual.(bool); ok {
+			return actualBool == expectedBool
+		}
+		// Convert string to bool if needed
+		if actualStr, ok := actual.(string); ok {
+			if actualStr == "true" {
+				return expectedBool == true
+			}
+			if actualStr == "false" {
+				return expectedBool == false
+			}
+		}
+	}
+
+	// Handle string comparisons
+	if expectedStr, ok := expected.(string); ok {
+		if actualStr, ok := actual.(string); ok {
+			return actualStr == expectedStr
+		}
+		// Convert other types to string for comparison
+		actualStr := fmt.Sprintf("%v", actual)
+		return actualStr == expectedStr
+	}
+
+	// Handle numeric comparisons (int, float64, etc.)
+	if expectedFloat, ok := expected.(float64); ok {
+		if actualFloat, ok := actual.(float64); ok {
+			return actualFloat == expectedFloat
+		}
+		if actualInt, ok := actual.(int); ok {
+			return float64(actualInt) == expectedFloat
+		}
+	}
+
+	if expectedInt, ok := expected.(int); ok {
+		if actualInt, ok := actual.(int); ok {
+			return actualInt == expectedInt
+		}
+		if actualFloat, ok := actual.(float64); ok {
+			return actualFloat == float64(expectedInt)
+		}
+	}
+
+	// For other types, convert both to strings and compare
+	actualStr := fmt.Sprintf("%v", actual)
+	expectedStr := fmt.Sprintf("%v", expected)
+	return actualStr == expectedStr
 }
