@@ -569,35 +569,8 @@ func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolR
 				searchPattern = strings.ToLower(searchPattern)
 			}
 
-			// Implement wildcard pattern matching
-			if strings.Contains(searchPattern, "*") {
-				// Convert wildcard pattern to appropriate matching strategy
-				if strings.HasPrefix(searchPattern, "*") && strings.HasSuffix(searchPattern, "*") {
-					// *pattern* - contains
-					middle := strings.Trim(searchPattern, "*")
-					matches = matches && strings.Contains(toolName, middle)
-				} else if strings.HasPrefix(searchPattern, "*") {
-					// *pattern - ends with
-					suffix := strings.TrimPrefix(searchPattern, "*")
-					matches = matches && strings.HasSuffix(toolName, suffix)
-				} else if strings.HasSuffix(searchPattern, "*") {
-					// pattern* - starts with
-					prefix := strings.TrimSuffix(searchPattern, "*")
-					matches = matches && strings.HasPrefix(toolName, prefix)
-				} else {
-					// pattern*pattern - complex pattern, check each part
-					parts := strings.Split(searchPattern, "*")
-					for _, part := range parts {
-						if part != "" && !strings.Contains(toolName, part) {
-							matches = false
-							break
-						}
-					}
-				}
-			} else {
-				// Exact match or contains for patterns without wildcards
-				matches = matches && strings.Contains(toolName, searchPattern)
-			}
+			// Use proper wildcard pattern matching
+			matches = matches && matchWildcard(toolName, searchPattern)
 		}
 
 		// Check description filter with case sensitivity option
@@ -648,4 +621,52 @@ func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolR
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+// matchWildcard implements proper sequential wildcard pattern matching
+func matchWildcard(text, pattern string) bool {
+	// Handle edge cases
+	if pattern == "*" {
+		return true
+	}
+	if pattern == "" {
+		return text == ""
+	}
+	if text == "" {
+		return pattern == ""
+	}
+
+	// If no wildcards, do substring matching (like the original behavior)
+	if !strings.Contains(pattern, "*") {
+		return strings.Contains(text, pattern)
+	}
+
+	// Split pattern by wildcards
+	parts := strings.Split(pattern, "*")
+	textPos := 0
+
+	for i, part := range parts {
+		// Skip empty parts between consecutive wildcards
+		if part == "" {
+			continue
+		}
+
+		if i == 0 && !strings.HasPrefix(pattern, "*") {
+			// First part must match from the beginning (no leading wildcard)
+			if !strings.HasPrefix(text[textPos:], part) {
+				return false
+			}
+			textPos += len(part)
+		} else {
+			// All other parts must exist in sequence
+			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
+			idx := strings.Index(text[textPos:], part)
+			if idx == -1 {
+				return false
+			}
+			textPos += idx + len(part)
+		}
+	}
+
+	return true
 }

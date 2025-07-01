@@ -819,7 +819,7 @@ func compareValues(actual, expected interface{}) bool {
 	// Handle slice/array comparisons to prevent panic
 	actualVal := reflect.ValueOf(actual)
 	expectedVal := reflect.ValueOf(expected)
-	
+
 	// Check if both are slices or arrays
 	if actualVal.Kind() == reflect.Slice || actualVal.Kind() == reflect.Array {
 		if expectedVal.Kind() == reflect.Slice || expectedVal.Kind() == reflect.Array {
@@ -827,7 +827,7 @@ func compareValues(actual, expected interface{}) bool {
 			if actualVal.Len() != expectedVal.Len() {
 				return false
 			}
-			
+
 			// Compare each element
 			for i := 0; i < actualVal.Len(); i++ {
 				actualItem := actualVal.Index(i).Interface()
@@ -841,26 +841,26 @@ func compareValues(actual, expected interface{}) bool {
 		// One is slice/array, other is not - not equal
 		return false
 	}
-	
+
 	// Handle map comparisons
 	if actualVal.Kind() == reflect.Map && expectedVal.Kind() == reflect.Map {
 		actualKeys := actualVal.MapKeys()
 		expectedKeys := expectedVal.MapKeys()
-		
+
 		// Compare number of keys
 		if len(actualKeys) != len(expectedKeys) {
 			return false
 		}
-		
+
 		// Check each key-value pair
 		for _, key := range expectedKeys {
 			actualValue := actualVal.MapIndex(key)
 			expectedValue := expectedVal.MapIndex(key)
-			
+
 			if !actualValue.IsValid() {
 				return false // Key doesn't exist in actual
 			}
-			
+
 			if !compareValues(actualValue.Interface(), expectedValue.Interface()) {
 				return false
 			}

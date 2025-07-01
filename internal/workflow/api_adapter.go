@@ -667,17 +667,17 @@ func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, 
 	for _, wf := range workflows {
 		// Populate the Available field by checking availability
 		available := a.manager.IsAvailable(wf.Name)
-		
+
 		workflowInfo := map[string]interface{}{
 			"name":      wf.Name,
 			"available": available,
 		}
-		
+
 		// Only include description if it's not empty
 		if wf.Description != "" {
 			workflowInfo["description"] = wf.Description
 		}
-		
+
 		result = append(result, workflowInfo)
 	}
 
