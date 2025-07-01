@@ -14,7 +14,7 @@ type OrchestratorAPI interface {
 	// It returns an error if the service cannot be started or if the service manager
 	// is not available.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the service to start
 	//
 	// Returns:
@@ -25,7 +25,7 @@ type OrchestratorAPI interface {
 	// It returns an error if the service cannot be stopped or if the service manager
 	// is not available.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the service to stop
 	//
 	// Returns:
@@ -36,7 +36,7 @@ type OrchestratorAPI interface {
 	// This is equivalent to calling StopService followed by StartService, but may be
 	// implemented more efficiently by the underlying service manager.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the service to restart
 	//
 	// Returns:
@@ -46,7 +46,7 @@ type OrchestratorAPI interface {
 	// GetServiceStatus retrieves the current status and metadata for a specific service.
 	// The returned ServiceStatus includes state, health, error information, and metadata.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the service to query
 	//
 	// Returns:

@@ -1,11 +1,11 @@
 name: "workflow-execution-list-parameter-validation"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "execution", "list", "validation", "parameters"]
+tags: ["workflow", "execution", "list", "validation", "args"]
 timeout: "2m"
 
 steps:
-# Test limit parameter boundaries
+# Test limit arg boundaries
 - id: "test-limit-boundary-minimum"
   tool: "core_workflow_execution_list"
   args:
@@ -44,7 +44,7 @@ steps:
     success: false
     error_contains: ["minimum", "limit"]
 
-# Test offset parameter boundaries  
+# Test offset arg boundaries  
 - id: "test-offset-minimum"
   tool: "core_workflow_execution_list"
   args:
@@ -99,7 +99,7 @@ steps:
   expected:
     success: true
 
-# Test workflow_name parameter edge cases
+# Test workflow_name arg edge cases
 - id: "test-empty-workflow-name"
   tool: "core_workflow_execution_list"
   args:

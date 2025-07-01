@@ -1,7 +1,7 @@
 name: "workflow-parameter-templating-with-mock"
 category: "behavioral"
 concept: "workflow"
-description: "Test workflow parameter templating with mock dependencies"
+description: "Test workflow arg templating with mock dependencies"
 tags: ["workflow", "templating", "mock", "kubernetes"]
 timeout: "10m"
 
@@ -211,7 +211,7 @@ steps:
     timeout: "2m"
 
   - id: "test-parameter-templating"
-    description: "Test that workflow parameters are properly templated"
+    description: "Test that workflow args are properly templated"
     tool: "workflow_deploy-application"
     args:
       app_name: "templating-test"
@@ -221,7 +221,7 @@ steps:
       namespace: "testing"
     expected:
       success: true
-      # Verify that templated parameters are correctly passed to mock tools
+      # Verify that templated args are correctly passed to mock tools
       contains: ["templating-test-storage", "3Gi", "templating-test", "alpine:latest"]
     timeout: "2m"
 

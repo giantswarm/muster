@@ -11,7 +11,7 @@ steps:
     name: "invalid-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps: []  # Invalid: empty steps should cause validation to fail
   expected:

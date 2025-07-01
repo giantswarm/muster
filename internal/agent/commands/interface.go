@@ -21,7 +21,7 @@ type Command interface {
 	Description() string
 
 	// Completions returns possible completions for the command
-	// The input parameter is the current partial input for context
+	// The input arg is the current partial input for context
 	Completions(input string) []string
 
 	// Aliases returns alternative names for this command

@@ -1,7 +1,7 @@
 name: "service-create-with-params"
 category: "behavioral"
 concept: "service"
-tags: ["service", "create", "parameters", "core-api"]
+tags: ["service", "create", "args", "core-api"]
 timeout: "1m"
 
 pre_configuration:
@@ -18,15 +18,15 @@ pre_configuration:
       name: "sc-with-params"
       version: "1.0.0"
       serviceConfig:
-        createParameters:
+        createArgs:
           message:
-            toolParameter: "text"
+            toolArg: "text"
             required: true
         lifecycleTools:
           start:
             tool: "x_echo-provider_echo"
-            arguments:
-              text: "{{ .parameters.message }}"
+            args:
+              text: "{{ .args.message }}"
           stop: { tool: "core_config_get" }
 steps:
 - id: "create-service-with-params"
@@ -34,7 +34,7 @@ steps:
   args:
     serviceClassName: "sc-with-params"
     name: "service-with-params"
-    parameters:
+    args:
       message: "hello world"
   expected:
     success: true

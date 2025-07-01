@@ -54,7 +54,7 @@ func (a *Adapter) GetServiceClass(name string) (*api.ServiceClass, error) {
 }
 
 // GetStartTool returns start tool information for a service class
-func (a *Adapter) GetStartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -77,11 +77,11 @@ func (a *Adapter) GetStartTool(name string) (toolName string, arguments map[stri
 		"error":  startTool.ResponseMapping.Error,
 	}
 
-	return startTool.Tool, startTool.Arguments, respMapping, nil
+	return startTool.Tool, startTool.Args, respMapping, nil
 }
 
 // GetStopTool returns stop tool information for a service class
-func (a *Adapter) GetStopTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -104,11 +104,11 @@ func (a *Adapter) GetStopTool(name string) (toolName string, arguments map[strin
 		"error":  stopTool.ResponseMapping.Error,
 	}
 
-	return stopTool.Tool, stopTool.Arguments, respMapping, nil
+	return stopTool.Tool, stopTool.Args, respMapping, nil
 }
 
 // GetRestartTool returns restart tool information for a service class
-func (a *Adapter) GetRestartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -132,11 +132,11 @@ func (a *Adapter) GetRestartTool(name string) (toolName string, arguments map[st
 		"error":  restartTool.ResponseMapping.Error,
 	}
 
-	return restartTool.Tool, restartTool.Arguments, respMapping, nil
+	return restartTool.Tool, restartTool.Args, respMapping, nil
 }
 
 // GetHealthCheckTool returns health check tool information for a service class
-func (a *Adapter) GetHealthCheckTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -163,7 +163,7 @@ func (a *Adapter) GetHealthCheckTool(name string) (toolName string, arguments ma
 		"error":  healthTool.ResponseMapping.Error,
 	}
 
-	return healthTool.Tool, healthTool.Arguments, respMapping, nil
+	return healthTool.Tool, healthTool.Args, respMapping, nil
 }
 
 // GetHealthCheckConfig returns health check configuration for a service class
@@ -222,7 +222,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_get",
 			Description: "Get detailed information about a specific ServiceClass definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -234,7 +234,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_available",
 			Description: "Check if a ServiceClass is available (all required tools present)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -246,7 +246,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_validate",
 			Description: "Validate a serviceclass definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "ServiceClass name"},
 				{
 					Name:        "serviceConfig",
@@ -429,7 +429,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_create",
 			Description: "Create a new service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "ServiceClass name"},
 				{
 					Name:        "serviceConfig",
@@ -612,7 +612,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_update",
 			Description: "Update an existing service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the ServiceClass to update"},
 				{
 					Name:        "serviceConfig",
@@ -795,7 +795,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_delete",
 			Description: "Delete a service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the ServiceClass to delete"},
 			},
 		},
@@ -844,7 +844,7 @@ func (a *Adapter) handleServiceClassGet(args map[string]interface{}) (*api.CallT
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -864,7 +864,7 @@ func (a *Adapter) handleServiceClassAvailable(args map[string]interface{}) (*api
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -998,7 +998,7 @@ func (a *Adapter) handleServiceClassUpdate(args map[string]interface{}) (*api.Ca
 func (a *Adapter) handleServiceClassDelete(args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return simpleError("name parameter is required")
+		return simpleError("name argument is required")
 	}
 
 	if err := a.manager.DeleteServiceClass(name); err != nil {

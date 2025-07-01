@@ -40,7 +40,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_list",
 			Description: "List all capability definitions",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "available_only",
 					Type:        "boolean",
@@ -53,7 +53,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_get",
 			Description: "Get details of a specific capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -65,7 +65,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_check",
 			Description: "Check if a capability is available (all required tools are available)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -77,7 +77,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_create",
 			Description: "Create a new capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Capability name"},
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
@@ -98,27 +98,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"type":        "string",
 									"description": "Human-readable description of what this operation does",
 								},
-								"parameters": map[string]interface{}{
+								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Input parameters for this operation",
+									"description": "Input arguments for this operation",
 									"additionalProperties": map[string]interface{}{
 										"type":        "object",
-										"description": "Parameter definition",
+										"description": "Argument definition",
 										"properties": map[string]interface{}{
 											"type": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter type (string, number, boolean, object, array)",
+												"description": "Argument type (string, number, boolean, object, array)",
 											},
 											"required": map[string]interface{}{
 												"type":        "boolean",
-												"description": "Whether this parameter is required",
+												"description": "Whether this argument is required",
 											},
 											"description": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter description",
+												"description": "Argument description",
 											},
 											"default": map[string]interface{}{
-												"description": "Default value for the parameter",
+												"description": "Default value for the argument",
 											},
 										},
 									},
@@ -146,7 +146,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_update",
 			Description: "Update an existing capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the capability to update"},
 				{Name: "type", Type: "string", Required: false, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
@@ -167,27 +167,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"type":        "string",
 									"description": "Human-readable description of what this operation does",
 								},
-								"parameters": map[string]interface{}{
+								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Input parameters for this operation",
+									"description": "Input arguments for this operation",
 									"additionalProperties": map[string]interface{}{
 										"type":        "object",
-										"description": "Parameter definition",
+										"description": "Argument definition",
 										"properties": map[string]interface{}{
 											"type": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter type (string, number, boolean, object, array)",
+												"description": "Argument type (string, number, boolean, object, array)",
 											},
 											"required": map[string]interface{}{
 												"type":        "boolean",
-												"description": "Whether this parameter is required",
+												"description": "Whether this argument is required",
 											},
 											"description": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter description",
+												"description": "Argument description",
 											},
 											"default": map[string]interface{}{
-												"description": "Default value for the parameter",
+												"description": "Default value for the argument",
 											},
 										},
 									},
@@ -215,7 +215,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_delete",
 			Description: "Delete a capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -227,7 +227,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_validate",
 			Description: "Validate a capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Capability name"},
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
@@ -248,27 +248,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"type":        "string",
 									"description": "Human-readable description of what this operation does",
 								},
-								"parameters": map[string]interface{}{
+								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Input parameters for this operation",
+									"description": "Input arguments for this operation",
 									"additionalProperties": map[string]interface{}{
 										"type":        "object",
-										"description": "Parameter definition",
+										"description": "Argument definition",
 										"properties": map[string]interface{}{
 											"type": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter type (string, number, boolean, object, array)",
+												"description": "Argument type (string, number, boolean, object, array)",
 											},
 											"required": map[string]interface{}{
 												"type":        "boolean",
-												"description": "Whether this parameter is required",
+												"description": "Whether this argument is required",
 											},
 											"description": map[string]interface{}{
 												"type":        "string",
-												"description": "Parameter description",
+												"description": "Argument description",
 											},
 											"default": map[string]interface{}{
-												"description": "Default value for the parameter",
+												"description": "Default value for the argument",
 											},
 										},
 									},
@@ -313,7 +313,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}
@@ -323,7 +323,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}
@@ -339,7 +339,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}

@@ -41,7 +41,7 @@ func NewExecutionTracker(storage ExecutionStorage) *ExecutionTracker {
 // and persists the complete execution history while preserving the original
 // execution behavior and results.
 //
-// Parameters:
+// Arguments:
 //   - ctx: Context for the operation
 //   - workflowName: Name of the workflow being executed
 //   - args: Arguments passed to the workflow

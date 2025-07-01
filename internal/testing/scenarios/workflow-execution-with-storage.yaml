@@ -11,7 +11,7 @@ steps:
     name: "storage-tracking-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         service_name:
           type: "string"
           default: "storage-service"

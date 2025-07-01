@@ -1,5 +1,5 @@
 name: "mcpserver-create-missing-name"
-description: "Test creating MCP server without required name parameter"
+description: "Test creating MCP server without required name arg"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "error-handling", "validation", "core-api"]
@@ -7,7 +7,7 @@ timeout: "1m"
 
 steps:
 - id: "create-missing-name"
-  description: "Attempt to create MCP server without name parameter"
+  description: "Attempt to create MCP server without name arg"
   tool: "core_mcpserver_create"
   args: {}
   expected:

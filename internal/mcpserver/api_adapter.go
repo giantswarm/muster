@@ -90,7 +90,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_get",
 			Description: "Get detailed information about a specific MCP server definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -102,7 +102,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_validate",
 			Description: "Validate an mcpserver definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
 				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand or container)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
@@ -157,7 +157,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_create",
 			Description: "Create a new MCP server definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
 				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand or container)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
@@ -212,7 +212,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_update",
 			Description: "Update an existing MCP server definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
 				{Name: "type", Type: "string", Required: false, Description: "MCP server type (localCommand or container)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
@@ -267,7 +267,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_delete",
 			Description: "Delete an MCP server definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -319,7 +319,7 @@ func (a *Adapter) handleMCPServerGet(args map[string]interface{}) (*api.CallTool
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -345,7 +345,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		}, nil
 	}
 
-	// Build internal api.MCPServer from structured parameters
+	// Build internal api.MCPServer from structured args
 	def := api.MCPServer{
 		Name:           req.Name,
 		Type:           api.MCPServerType(req.Type),
@@ -439,7 +439,7 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return simpleError("name parameter is required")
+		return simpleError("name argument is required")
 	}
 
 	// Check if it exists

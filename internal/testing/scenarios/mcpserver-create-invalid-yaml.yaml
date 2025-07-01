@@ -1,5 +1,5 @@
 name: "mcpserver-create-invalid-yaml"
-description: "Test creating MCP server with invalid type parameter"
+description: "Test creating MCP server with invalid type arg"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "validation", "core-api"]
@@ -7,7 +7,7 @@ timeout: "1m"
 
 steps:
 - id: "create-invalid-config"
-  description: "Create MCP server with invalid type parameter"
+  description: "Create MCP server with invalid type arg"
   tool: "core_mcpserver_create"
   args:
     name: "invalid-yaml-server"

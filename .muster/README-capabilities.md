@@ -79,7 +79,7 @@ description: "CI/CD pipeline operations for my project"
 operations:
   deploy:
     description: "Deploy application to environment"
-    parameters:
+    args:
       environment:
         type: string
         required: true
@@ -139,7 +139,7 @@ The capability system also provides management tools:
 
 3. **Validate your YAML** - Use `capability_validate` to check syntax before using
 
-4. **Document your operations** - Add clear descriptions and parameter documentation
+4. **Document your operations** - Add clear descriptions and arg documentation
 
 5. **Version your capabilities** - Use semantic versioning to track changes
 

@@ -14,7 +14,7 @@ import (
 // ToolCaller represents the interface for calling aggregator tools
 // This interface is implemented by the aggregator integration
 type ToolCaller interface {
-	CallTool(ctx context.Context, toolName string, arguments map[string]interface{}) (map[string]interface{}, error)
+	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error)
 }
 
 // GenericServiceInstance is a runtime-configurable service instance
@@ -37,7 +37,7 @@ type GenericServiceInstance struct {
 	dependencies []string
 
 	// Service data and tracking
-	creationParameters   map[string]interface{}
+	creationArgs         map[string]interface{}
 	serviceData          map[string]interface{}
 	createdAt            time.Time
 	updatedAt            time.Time
@@ -58,7 +58,7 @@ func NewGenericServiceInstance(
 	name string,
 	serviceClassName string,
 	toolCaller ToolCaller,
-	parameters map[string]interface{},
+	args map[string]interface{},
 ) *GenericServiceInstance {
 	// Get service class info through API
 	serviceClassMgr := api.GetServiceClassManager()
@@ -92,7 +92,7 @@ func NewGenericServiceInstance(
 		state:                StateUnknown,
 		health:               HealthUnknown,
 		dependencies:         localDependencies,
-		creationParameters:   parameters,
+		creationArgs:         args,
 		serviceData:          make(map[string]interface{}),
 		createdAt:            time.Now(),
 		updatedAt:            time.Now(),
@@ -121,7 +121,7 @@ func (gsi *GenericServiceInstance) Start(ctx context.Context) error {
 		return err
 	}
 
-	toolName, arguments, responseMapping, err := serviceClassMgr.GetStartTool(gsi.serviceClassName)
+	toolName, args, responseMapping, err := serviceClassMgr.GetStartTool(gsi.serviceClassName)
 	if err != nil {
 		err = fmt.Errorf("failed to get start tool: %w", err)
 		gsi.updateStateInternal(StateFailed, HealthUnknown, err)
@@ -129,7 +129,7 @@ func (gsi *GenericServiceInstance) Start(ctx context.Context) error {
 	}
 
 	// Execute the start tool
-	return gsi.executeLifecycleTool(ctx, "start", toolName, arguments, responseMapping)
+	return gsi.executeLifecycleTool(ctx, "start", toolName, args, responseMapping)
 }
 
 // Stop implements the Service interface - stops the service using the stop tool
@@ -151,7 +151,7 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 		return err
 	}
 
-	toolName, arguments, responseMapping, err := serviceClassMgr.GetStopTool(gsi.serviceClassName)
+	toolName, args, responseMapping, err := serviceClassMgr.GetStopTool(gsi.serviceClassName)
 	if err != nil {
 		err = fmt.Errorf("failed to get stop tool: %w", err)
 		gsi.updateStateInternal(StateFailed, HealthUnknown, err)
@@ -159,7 +159,7 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 	}
 
 	// Execute the stop tool
-	err = gsi.executeLifecycleTool(ctx, "stop", toolName, arguments, responseMapping)
+	err = gsi.executeLifecycleTool(ctx, "stop", toolName, args, responseMapping)
 	if err != nil {
 		return err
 	}
@@ -188,11 +188,11 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 		return err
 	}
 
-	toolName, arguments, responseMapping, err := serviceClassMgr.GetRestartTool(gsi.serviceClassName)
+	toolName, args, responseMapping, err := serviceClassMgr.GetRestartTool(gsi.serviceClassName)
 	// If a restart tool is defined and available, use it
 	if err == nil && toolName != "" {
 		gsi.updateStateInternal(StateStarting, HealthChecking, nil) // A restart is a form of starting
-		return gsi.executeLifecycleTool(ctx, "restart", toolName, arguments, responseMapping)
+		return gsi.executeLifecycleTool(ctx, "restart", toolName, args, responseMapping)
 	}
 
 	// Otherwise, fallback to Stop() then Start()
@@ -416,14 +416,14 @@ func (gsi *GenericServiceInstance) GetServiceClassName() string {
 	return gsi.serviceClassName
 }
 
-// GetCreationParameters returns the creation parameters for this instance
-func (gsi *GenericServiceInstance) GetCreationParameters() map[string]interface{} {
+// GetCreationArgs returns the creation args for this instance
+func (gsi *GenericServiceInstance) GetCreationArgs() map[string]interface{} {
 	gsi.mu.RLock()
 	defer gsi.mu.RUnlock()
 
 	// Return a copy to prevent external modification
 	params := make(map[string]interface{})
-	for k, v := range gsi.creationParameters {
+	for k, v := range gsi.creationArgs {
 		params[k] = v
 	}
 	return params
@@ -447,12 +447,11 @@ func (gsi *GenericServiceInstance) UpdateState(state ServiceState, health Health
 
 // buildTemplateContext creates the template context for tool argument substitution
 func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{} {
-	// Build context with parameters nested under "parameters" key for service class template compatibility
-	// Also keep parameters at root level for backward compatibility
+	// Build context with args nested under "args" key for template usage
 	serviceContext := map[string]interface{}{
 		"name":             gsi.name,
 		"serviceClassName": gsi.serviceClassName,
-		"parameters":       gsi.creationParameters, // Service class templates expect {{ .parameters.repository_url }}
+		"args":             gsi.creationArgs, // Service class templates use {{ .args.repository_url }}
 		"service": map[string]interface{}{
 			"id":       gsi.name,        // Service ID for templates like {{ .service.id }}
 			"name":     gsi.name,        // Service name
@@ -460,10 +459,10 @@ func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{}
 		},
 	}
 
-	// Merge with creation parameters at root level for backward compatibility
+	// Merge with creation args at root level for direct template access
 	return template.MergeContexts(
-		gsi.creationParameters, // Parameters at root level (backward compatibility)
-		serviceContext,         // Structured context with parameters nested
+		gsi.creationArgs, // Args at root level for direct template access
+		serviceContext,   // Structured context with args nested under "args"
 	)
 }
 
@@ -565,7 +564,7 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 	ctx context.Context,
 	toolType string,
 	toolName string,
-	arguments map[string]interface{},
+	args map[string]interface{},
 	responseMapping map[string]string,
 ) error {
 	// Prepare the context for template substitution
@@ -573,10 +572,10 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 
 	// Debug logging
 	logging.Debug("GenericServiceInstance", "Template context for %s tool %s: %+v", toolType, toolName, templateContext)
-	logging.Debug("GenericServiceInstance", "Raw arguments for %s tool %s: %+v", toolType, toolName, arguments)
+	logging.Debug("GenericServiceInstance", "Raw arguments for %s tool %s: %+v", toolType, toolName, args)
 
 	// Apply template substitution to tool arguments
-	processedArgs, err := gsi.templater.Replace(arguments, templateContext)
+	processedArgs, err := gsi.templater.Replace(args, templateContext)
 	if err != nil {
 		err = fmt.Errorf("failed to process %s tool arguments: %w", toolType, err)
 		gsi.updateStateInternal(StateFailed, HealthUnhealthy, err)

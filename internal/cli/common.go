@@ -20,9 +20,9 @@ func DetectAggregatorEndpoint() (string, error) {
 
 // DetectAggregatorEndpointWithConfig detects and returns the aggregator endpoint URL from configuration.
 // If cfg is provided, it uses that configuration; otherwise it loads the configuration from the system.
-// This function is designed to be testable by accepting a configuration parameter.
+// This function is designed to be testable by accepting a configuration arg.
 //
-// Parameters:
+// Args:
 //   - cfg: Optional configuration to use. If nil, loads from system
 //
 // Returns:
@@ -93,7 +93,7 @@ func CheckServerRunning() error {
 // FormatError formats an error message for consistent CLI output display.
 // It prefixes the error message with "Error: " for clear identification.
 //
-// Parameters:
+// Args:
 //   - err: The error to format
 //
 // Returns:
@@ -105,7 +105,7 @@ func FormatError(err error) string {
 // FormatSuccess formats a success message for CLI output with a checkmark icon.
 // Used to provide positive feedback to users when operations complete successfully.
 //
-// Parameters:
+// Args:
 //   - msg: The success message to format
 //
 // Returns:
@@ -117,7 +117,7 @@ func FormatSuccess(msg string) string {
 // FormatWarning formats a warning message for CLI output with a warning icon.
 // Used to alert users about potential issues or important information.
 //
-// Parameters:
+// Args:
 //   - msg: The warning message to format
 //
 // Returns:

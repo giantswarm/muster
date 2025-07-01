@@ -95,9 +95,9 @@ func (a *Adapter) GetWorkflow(name string) (*api.Workflow, error) {
 	return &workflow, nil
 }
 
-// CreateWorkflowFromStructured creates a new workflow from structured parameters
+// CreateWorkflowFromStructured creates a new workflow from structured arguments
 func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) error {
-	// Convert structured parameters to api.Workflow
+	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return err
@@ -106,9 +106,9 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 	return a.manager.CreateWorkflow(wf)
 }
 
-// UpdateWorkflowFromStructured updates an existing workflow from structured parameters
+// UpdateWorkflowFromStructured updates an existing workflow from structured arguments
 func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]interface{}) error {
-	// Convert structured parameters to api.Workflow
+	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return err
@@ -117,9 +117,9 @@ func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]inte
 	return a.manager.UpdateWorkflow(name, wf)
 }
 
-// ValidateWorkflowFromStructured validates a workflow definition from structured parameters
+// ValidateWorkflowFromStructured validates a workflow definition from structured arguments
 func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) error {
-	// Convert structured parameters to validate structure
+	// Convert structured args to validate structure
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return err
@@ -183,7 +183,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_list",
 			Description: "List all workflows",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "include_system",
 					Type:        "boolean",
@@ -196,7 +196,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_get",
 			Description: "Get workflow details",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -207,8 +207,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_create",
-			Description: "Create a new workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
-			Parameters: []api.ParameterMetadata{
+			Description: "Create a new workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
@@ -227,27 +227,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"properties": map[string]interface{}{
 								"type":        "object",
-								"description": "Property definitions for input parameters",
+								"description": "Property definitions for input arguments",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
 										"type": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter type (string, number, boolean, object, array)",
+											"description": "Argument type (string, number, boolean, object, array)",
 										},
 										"description": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter description",
+											"description": "Argument description",
 										},
 										"default": map[string]interface{}{
-											"description": "Default value for the parameter",
+											"description": "Default value for the argument",
 										},
 									},
 								},
 							},
 							"required": map[string]interface{}{
 								"type":        "array",
-								"description": "List of required parameter names",
+								"description": "List of required argument names",
 								"items": map[string]interface{}{
 									"type": "string",
 								},
@@ -298,8 +298,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_update",
-			Description: "Update an existing workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
-			Parameters: []api.ParameterMetadata{
+			Description: "Update an existing workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
@@ -318,27 +318,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"properties": map[string]interface{}{
 								"type":        "object",
-								"description": "Property definitions for input parameters",
+								"description": "Property definitions for input arguments",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
 										"type": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter type (string, number, boolean, object, array)",
+											"description": "Argument type (string, number, boolean, object, array)",
 										},
 										"description": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter description",
+											"description": "Argument description",
 										},
 										"default": map[string]interface{}{
-											"description": "Default value for the parameter",
+											"description": "Default value for the argument",
 										},
 									},
 								},
 							},
 							"required": map[string]interface{}{
 								"type":        "array",
-								"description": "List of required parameter names",
+								"description": "List of required argument names",
 								"items": map[string]interface{}{
 									"type": "string",
 								},
@@ -390,7 +390,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_delete",
 			Description: "Delete a workflow",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -401,8 +401,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_validate",
-			Description: "Validate a workflow definition. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
-			Parameters: []api.ParameterMetadata{
+			Description: "Validate a workflow definition. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
 				{
@@ -421,27 +421,27 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"properties": map[string]interface{}{
 								"type":        "object",
-								"description": "Property definitions for input parameters",
+								"description": "Property definitions for input arguments",
 								"additionalProperties": map[string]interface{}{
 									"type": "object",
 									"properties": map[string]interface{}{
 										"type": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter type (string, number, boolean, object, array)",
+											"description": "Argument type (string, number, boolean, object, array)",
 										},
 										"description": map[string]interface{}{
 											"type":        "string",
-											"description": "Parameter description",
+											"description": "Argument description",
 										},
 										"default": map[string]interface{}{
-											"description": "Default value for the parameter",
+											"description": "Default value for the argument",
 										},
 									},
 								},
 							},
 							"required": map[string]interface{}{
 								"type":        "array",
-								"description": "List of required parameter names",
+								"description": "List of required argument names",
 								"items": map[string]interface{}{
 									"type": "string",
 								},
@@ -494,7 +494,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_execution_list",
 			Description: "List workflow executions with filtering and pagination",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "workflow_name",
 					Type:        "string",
@@ -541,7 +541,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_execution_get",
 			Description: "Get workflow execution details",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "execution_id",
 					Type:        "string",
@@ -566,7 +566,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "workflow_available",
 			Description: "Check if a workflow is available (all required tools present)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -587,7 +587,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		tools = append(tools, api.ToolMetadata{
 			Name:        toolName,
 			Description: wf.Description,
-			Parameters:  a.convertWorkflowParameters(wf.Name),
+			Args:        a.convertWorkflowArgs(wf.Name),
 		})
 	}
 
@@ -627,18 +627,18 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
-// convertWorkflowParameters converts workflow input schema to parameter metadata
-func (a *Adapter) convertWorkflowParameters(workflowName string) []api.ParameterMetadata {
+// convertWorkflowArgs converts workflow input schema to argument metadata
+func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 	workflow, err := a.GetWorkflow(workflowName)
 	if err != nil {
 		return nil
 	}
 
-	var params []api.ParameterMetadata
+	var params []api.ArgMetadata
 
 	// Extract properties from input schema
-	for name, prop := range workflow.InputSchema.Properties {
-		param := api.ParameterMetadata{
+	for name, prop := range workflow.InputSchema.Args {
+		param := api.ArgMetadata{
 			Name:        name,
 			Type:        prop.Type,
 			Description: prop.Description,
@@ -740,7 +740,7 @@ func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult
 		}, nil
 	}
 
-	// Convert structured parameters to api.Workflow
+	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
@@ -826,7 +826,7 @@ func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.Cal
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -846,14 +846,14 @@ func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.Cal
 
 // handleExecutionList handles the workflow_execution_list tool (exposed as core_workflow_execution_list)
 func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	// Parse request parameters
+	// Parse request arguments
 	req := &api.ListWorkflowExecutionsRequest{}
 
 	if workflowName, ok := args["workflow_name"].(string); ok {
 		req.WorkflowName = workflowName
 	}
 
-	// Validate status parameter
+	// Validate status arg
 	if status, ok := args["status"].(string); ok {
 		// Empty status is invalid when explicitly provided
 		if status == "" {
@@ -871,7 +871,7 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 		req.Status = api.WorkflowExecutionStatus(status)
 	}
 
-	// Validate limit parameter
+	// Validate limit arg
 	if limitVal, ok := args["limit"]; ok {
 		// Handle both int and float64 types (JSON may parse as either)
 		var limitInt int
@@ -907,7 +907,7 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 		req.Limit = 50 // Default
 	}
 
-	// Validate offset parameter
+	// Validate offset arg
 	if offsetVal, ok := args["offset"]; ok {
 		// Handle both int and float64 types (JSON may parse as either)
 		var offsetInt int
@@ -954,7 +954,7 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 
 // handleExecutionGet handles the workflow_execution_get tool (exposed as core_workflow_execution_get)
 func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	// Parse request parameters
+	// Parse request arguments
 	req := &api.GetWorkflowExecutionRequest{
 		IncludeSteps: true, // Default to true
 	}
@@ -968,7 +968,7 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 	}
 	req.ExecutionID = executionID
 
-	// Validate include_steps parameter
+	// Validate include_steps arg
 	if includeStepsVal, ok := args["include_steps"]; ok {
 		if includeSteps, ok := includeStepsVal.(bool); ok {
 			req.IncludeSteps = includeSteps
@@ -980,7 +980,7 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 		}
 	}
 
-	// Validate step_id parameter - check for empty string and null
+	// Validate step_id arg - check for empty string and null
 	if stepIDVal, exists := args["step_id"]; exists {
 		if stepIDVal == nil {
 			return &api.CallToolResult{
@@ -1043,14 +1043,14 @@ func (a *Adapter) handleExecutionGet(ctx context.Context, args map[string]interf
 	}, nil
 }
 
-// convertToWorkflow converts structured parameters to api.Workflow
+// convertToWorkflow converts structured arguments to api.Workflow
 func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	var wf api.Workflow
 
 	// Required fields
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return wf, fmt.Errorf("name parameter is required")
+		return wf, fmt.Errorf("name argument is required")
 	}
 	wf.Name = name
 
@@ -1067,7 +1067,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		}
 		wf.InputSchema = inputSchema
 	} else {
-		return wf, fmt.Errorf("inputSchema parameter is required")
+		return wf, fmt.Errorf("inputSchema argument is required")
 	}
 
 	// Convert steps
@@ -1078,7 +1078,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 		}
 		wf.Steps = steps
 	} else {
-		return wf, fmt.Errorf("steps parameter is required")
+		return wf, fmt.Errorf("steps argument is required")
 	}
 
 	// Set timestamps
@@ -1097,8 +1097,8 @@ func convertInputSchema(schemaParam map[string]interface{}) (api.WorkflowInputSc
 		schema.Type = schemaType
 	}
 
-	// Properties field
-	if propsParam, ok := schemaParam["properties"].(map[string]interface{}); ok {
+		// Args field
+	if propsParam, ok := schemaParam["args"].(map[string]interface{}); ok {
 		properties := make(map[string]api.SchemaProperty)
 		for name, prop := range propsParam {
 			if propMap, ok := prop.(map[string]interface{}); ok {
@@ -1115,7 +1115,7 @@ func convertInputSchema(schemaParam map[string]interface{}) (api.WorkflowInputSc
 				properties[name] = property
 			}
 		}
-		schema.Properties = properties
+		schema.Args = properties
 	}
 
 	// Required field

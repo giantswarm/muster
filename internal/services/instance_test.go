@@ -21,8 +21,8 @@ type mockToolCaller struct {
 }
 
 type toolCall struct {
-	toolName  string
-	arguments map[string]interface{}
+	toolName string
+	args     map[string]interface{}
 }
 
 func newMockToolCaller() *mockToolCaller {
@@ -33,8 +33,8 @@ func newMockToolCaller() *mockToolCaller {
 	}
 }
 
-func (m *mockToolCaller) CallTool(ctx context.Context, toolName string, arguments map[string]interface{}) (map[string]interface{}, error) {
-	m.calls = append(m.calls, toolCall{toolName: toolName, arguments: arguments})
+func (m *mockToolCaller) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error) {
+	m.calls = append(m.calls, toolCall{toolName: toolName, args: args})
 
 	if err, exists := m.errors[toolName]; exists {
 		return nil, err
@@ -124,25 +124,25 @@ func (m *mockServiceClassManager) GetServiceClass(name string) (*api.ServiceClas
 	return nil, fmt.Errorf("service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetStartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if info, exists := m.createTools[name]; exists {
 		return info.toolName, info.arguments, info.responseMapping, nil
 	}
 	return "", nil, nil, fmt.Errorf("start tool for service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetStopTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if info, exists := m.deleteTools[name]; exists {
 		return info.toolName, info.arguments, info.responseMapping, nil
 	}
 	return "", nil, nil, fmt.Errorf("stop tool for service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetRestartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	return "", nil, nil, nil // Optional tool
 }
 
-func (m *mockServiceClassManager) GetHealthCheckTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if info, exists := m.healthCheckTools[name]; exists {
 		return info.toolName, info.arguments, info.responseMapping, nil
 	}
@@ -267,7 +267,7 @@ func TestNewGenericServiceInstance(t *testing.T) {
 	toolCaller := newMockToolCaller()
 
 	// Test successful creation
-	parameters := map[string]interface{}{
+	args := map[string]interface{}{
 		"param1": "value1",
 		"param2": "value2",
 	}
@@ -276,7 +276,7 @@ func TestNewGenericServiceInstance(t *testing.T) {
 		"test-name",
 		"test-service",
 		toolCaller,
-		parameters,
+		args,
 	)
 
 	require.NotNil(t, instance)
@@ -285,7 +285,7 @@ func TestNewGenericServiceInstance(t *testing.T) {
 	assert.Equal(t, StateUnknown, instance.state)
 	assert.Equal(t, HealthUnknown, instance.health)
 	assert.Equal(t, []string{"dependency1", "dependency2"}, instance.dependencies)
-	assert.Equal(t, parameters, instance.creationParameters)
+	assert.Equal(t, args, instance.creationArgs)
 }
 
 func TestNewGenericServiceInstance_ServiceClassNotFound(t *testing.T) {
@@ -295,13 +295,13 @@ func TestNewGenericServiceInstance_ServiceClassNotFound(t *testing.T) {
 	// Don't set up the service class - it should fail
 
 	toolCaller := newMockToolCaller()
-	parameters := map[string]interface{}{}
+	args := map[string]interface{}{}
 
 	instance := NewGenericServiceInstance(
 		"test-name",
 		"non-existent-service",
 		toolCaller,
-		parameters,
+		args,
 	)
 
 	assert.Nil(t, instance)
@@ -357,8 +357,8 @@ func TestGenericServiceInstance_Start_Success(t *testing.T) {
 	calls := toolCaller.GetCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "test_create_tool", calls[0].toolName)
-	assert.Equal(t, "test-name", calls[0].arguments["name"])
-	assert.Equal(t, "test-type", calls[0].arguments["type"])
+	assert.Equal(t, "test-name", calls[0].args["name"])
+	assert.Equal(t, "test-type", calls[0].args["type"])
 }
 
 func TestGenericServiceInstance_Start_ToolCallError(t *testing.T) {
@@ -485,7 +485,7 @@ func TestGenericServiceInstance_Stop_Success(t *testing.T) {
 	calls := toolCaller.GetCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "test_delete_tool", calls[0].toolName)
-	assert.Equal(t, "test-name", calls[0].arguments["name"])
+	assert.Equal(t, "test-name", calls[0].args["name"])
 }
 
 func TestGenericServiceInstance_Restart(t *testing.T) {
@@ -590,7 +590,7 @@ func TestGenericServiceInstance_CheckHealth_Success(t *testing.T) {
 	calls := toolCaller.GetCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "test_health_tool", calls[0].toolName)
-	assert.Equal(t, "test-name", calls[0].arguments["name"])
+	assert.Equal(t, "test-name", calls[0].args["name"])
 }
 
 func TestGenericServiceInstance_CheckHealth_Disabled(t *testing.T) {

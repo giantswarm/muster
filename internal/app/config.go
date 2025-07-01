@@ -42,9 +42,9 @@ type Config struct {
 
 // NewConfig creates a new application configuration with the specified settings.
 // This is the primary constructor for application configuration, taking all
-// essential runtime parameters needed for application bootstrap and execution.
+// essential runtime args needed for application bootstrap and execution.
 //
-// Parameters:
+// Args:
 //   - noTUI: true for CLI mode, false for TUI mode
 //   - debug: enables debug logging and verbose output
 //   - yolo: enables relaxed safety checks and reduced confirmations

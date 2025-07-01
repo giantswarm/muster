@@ -153,7 +153,7 @@ steps:
     args:
       serviceClassName: "dev-namespace"
       name: "team-alpha-project-x-dev"
-      parameters:
+      args:
         namespace_name: "team-alpha-project-x"
         team: "alpha"
         project: "project-x"
@@ -180,7 +180,7 @@ steps:
     args:
       serviceClassName: "monitoring-stack"
       name: "monitoring-alpha-project-x"
-      parameters:
+      args:
         namespace: "team-alpha-project-x"
         prometheus_enabled: true
         grafana_enabled: true

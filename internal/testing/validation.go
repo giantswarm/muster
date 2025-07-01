@@ -163,7 +163,7 @@ func validateStep(step TestStep, toolSchemas map[string]interface{}, verbose, de
 		// x_* = mock MCP server tools
 		// workflow_* = workflow execution tools
 		// api_* = API tools
-		// We consider them valid but don't validate parameters since they're scenario-specific
+		// We consider them valid but don't validate args since they're scenario-specific
 	} else {
 		// All other tools are invalid
 		result.Valid = false

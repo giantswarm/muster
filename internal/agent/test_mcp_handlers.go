@@ -15,7 +15,7 @@ import (
 func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := request.GetArguments()
 
-	// Extract and validate parameters
+	// Extract and validate args
 	var config testing.TestConfiguration
 	config.Timeout = 30 * time.Second // Default timeout
 	config.Parallel = 1               // Default parallel workers
@@ -23,7 +23,7 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 	config.Debug = t.debug            // Inherit debug setting from server
 	config.BasePort = 18000           // Default base port for test instances
 
-	// Parse optional parameters
+	// Parse optional args
 	if category, ok := args["category"].(string); ok && category != "" {
 		switch category {
 		case "behavioral":
@@ -223,7 +223,7 @@ func (t *TestMCPServer) handleListScenarios(ctx context.Context, request mcp.Cal
 func (t *TestMCPServer) handleValidateScenario(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	scenarioPath, err := request.RequireString("scenario_path")
 	if err != nil {
-		return mcp.NewToolResultError("scenario_path parameter is required"), nil
+		return mcp.NewToolResultError("scenario_path argument is required"), nil
 	}
 
 	args := request.GetArguments()

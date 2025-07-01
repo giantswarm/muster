@@ -141,7 +141,7 @@ type MCPServerManagerHandler interface {
 	// GetMCPServer retrieves detailed information about a specific MCP server.
 	// This includes both configuration and runtime state for the requested server.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the MCP server to retrieve
 	//
 	// Returns:

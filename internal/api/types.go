@@ -61,7 +61,7 @@ type CallToolResult struct {
 
 // ToolMetadata describes a tool that can be exposed through the MCP protocol.
 // This metadata is used for tool discovery, documentation generation, and
-// parameter validation during tool execution.
+// argument validation during tool execution.
 //
 // Tools are the primary mechanism for exposing functionality through muster,
 // allowing workflows, capabilities, and other components to be discoverable
@@ -75,33 +75,33 @@ type ToolMetadata struct {
 	// and how to use it effectively
 	Description string
 
-	// Parameters defines the input parameters accepted by this tool,
+	// Args defines the input arguments accepted by this tool,
 	// including validation rules and documentation
-	Parameters []ParameterMetadata
+	Args []ArgMetadata
 }
 
-// ParameterMetadata describes a single parameter for a tool.
+// ArgMetadata describes a single argument for a tool.
 // This is used for validation, documentation, and UI generation
-// for tool parameters in various interfaces.
+// for tool arguments in various interfaces.
 //
-// Parameter metadata enables automatic validation of tool calls
-// and helps generate helpful error messages when parameters are invalid.
-type ParameterMetadata struct {
-	// Name is the parameter identifier used in tool calls
+// Argument metadata enables automatic validation of tool calls
+// and helps generate helpful error messages when arguments are invalid.
+type ArgMetadata struct {
+	// Name is the argument identifier used in tool calls
 	Name string
 
-	// Type specifies the expected parameter type for validation.
+	// Type specifies the expected argument type for validation.
 	// Valid values: "string", "number", "boolean", "object", "array"
 	Type string
 
-	// Required indicates whether this parameter must be provided in tool calls
+	// Required indicates whether this argument must be provided in tool calls
 	Required bool
 
-	// Description provides human-readable documentation for this parameter,
+	// Description provides human-readable documentation for this argument,
 	// explaining its purpose and expected format
 	Description string
 
-	// Default specifies the default value used when the parameter is not provided.
+	// Default specifies the default value used when the argument is not provided.
 	// Only used when Required is false. Must match the specified Type.
 	Default interface{}
 
@@ -144,7 +144,7 @@ type ToolProvider interface {
 	//	        {
 	//	            Name:        "my_operation",
 	//	            Description: "Performs my custom operation",
-	//	            Parameters: []ParameterMetadata{
+	//	            Args: []ArgMetadata{
 	//	                {
 	//	                    Name:        "input",
 	//	                    Type:        "string",
@@ -159,9 +159,9 @@ type ToolProvider interface {
 
 	// ExecuteTool executes a specific tool by name with the provided arguments.
 	// This is the main entry point for tool execution and must handle
-	// parameter validation, execution logic, and result formatting.
+	// arg validation, execution logic, and result formatting.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//   - toolName: The name of the tool to execute (must match a tool from GetTools)
 	//   - args: Arguments for the tool execution, should be validated against tool metadata
@@ -178,7 +178,7 @@ type ToolProvider interface {
 	//	        input, ok := args["input"].(string)
 	//	        if !ok {
 	//	            return &CallToolResult{
-	//	                Content: []interface{}{"input parameter must be a string"},
+	//	                Content: []interface{}{"input arg must be a string"},
 	//	                IsError: true,
 	//	            }, nil
 	//	        }
@@ -213,7 +213,7 @@ type ToolUpdateSubscriber interface {
 	// - Changes in available tools from existing servers
 	// - Tool configuration updates
 	//
-	// Parameters:
+	// Args:
 	//   - event: ToolUpdateEvent containing details about what changed
 	//
 	// Note: This method is called asynchronously and should not block.
@@ -250,9 +250,9 @@ type ToolCall struct {
 	// Must correspond to an available tool in the aggregator.
 	Tool string `yaml:"tool" json:"tool"`
 
-	// Arguments provides static arguments to pass to the tool.
-	// These can be combined with dynamic arguments from service parameters.
-	Arguments map[string]interface{} `yaml:"arguments" json:"arguments"`
+	// Args provides static arguments to pass to the tool.
+	// These can be combined with dynamic arguments from service args.
+	Args map[string]interface{} `yaml:"args" json:"args"`
 
 	// ResponseMapping defines how to extract information from tool responses.
 	// This allows ServiceClass lifecycle tools to provide structured information
@@ -291,7 +291,7 @@ const (
 
 // SchemaProperty defines a single property in a JSON schema.
 // This is used for input validation and documentation in workflows and capabilities,
-// providing structured parameter definition and validation rules.
+// providing structured arg definition and validation rules.
 //
 // Schema properties enable automatic validation of inputs and help generate
 // helpful error messages and documentation for users.
@@ -353,26 +353,26 @@ type HealthCheckConfig struct {
 	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
 }
 
-// ParameterMapping defines how service creation parameters map to tool arguments.
-// This is used in ServiceClass definitions to specify how user-provided parameters
+// ArgMapping defines how service creation arguments map to tool arguments.
+// This is used in ServiceClass definitions to specify how user-provided arguments
 // are transformed and passed to lifecycle tools.
 //
-// Parameter mapping enables ServiceClasses to provide a clean interface for
+// Argument mapping enables ServiceClasses to provide a clean interface for
 // service creation while translating to the specific tool arguments needed
 // for the underlying implementation.
-type ParameterMapping struct {
-	// ToolParameter specifies the name of the parameter in the tool call.
-	// This is how the parameter will be passed to the lifecycle tool.
-	ToolParameter string `yaml:"toolParameter" json:"toolParameter"`
+type ArgMapping struct {
+	// ToolArg specifies the name of the argument in the tool call.
+	// This is how the argument will be passed to the lifecycle tool.
+	ToolArg string `yaml:"toolArg" json:"toolArg"`
 
-	// Default specifies the default value used when the parameter is not provided.
+	// Default specifies the default value used when the argument is not provided.
 	// Only used when Required is false.
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
-	// Required indicates whether this parameter must be provided during service creation.
+	// Required indicates whether this argument must be provided during service creation.
 	Required bool `yaml:"required" json:"required"`
 
-	// Transform specifies an optional transformation to apply to the parameter value.
+	// Transform specifies an optional transformation to apply to the argument value.
 	// Can be used for format conversion or value mapping.
 	Transform string `yaml:"transform,omitempty" json:"transform,omitempty"`
 }
@@ -487,7 +487,7 @@ type WorkflowExecutionStep struct {
 }
 
 // ListWorkflowExecutionsRequest represents a request to list workflow executions
-// with optional filtering and pagination parameters.
+// with optional filtering and pagination args.
 //
 // This request structure enables efficient querying of execution history
 // with support for filtering by workflow name and status, plus pagination

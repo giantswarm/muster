@@ -47,7 +47,7 @@ type AggregatorManager struct {
 // and the service registry for querying service information. These dependencies are
 // provided through the central API pattern to maintain loose coupling.
 //
-// Parameters:
+// Args:
 //   - config: Configuration for the aggregator server behavior
 //   - orchestratorAPI: Interface for receiving service lifecycle events
 //   - serviceRegistry: Interface for querying service information
@@ -283,7 +283,7 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 // service architecture guarantees that running+healthy services have ready
 // MCP clients, this method can safely extract and use the client immediately.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the registration operation
 //   - serverName: Unique name of the server to register
 //
@@ -331,7 +331,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 // It cleanly removes the server from the aggregator, which will also
 // remove all tools, resources, and prompts provided by that server.
 //
-// Parameters:
+// Args:
 //   - serverName: Unique name of the server to deregister
 //
 // Returns an error if deregistration fails.
@@ -395,7 +395,7 @@ func (am *AggregatorManager) GetEventHandler() *EventHandler {
 // of the server registrations outside of the normal event-driven flow.
 // It performs the same operation as the initial sync during startup.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the refresh operation
 //
 // Returns an error if the refresh operation fails.
@@ -410,7 +410,7 @@ func (am *AggregatorManager) ManualRefresh(ctx context.Context) error {
 // initial registration or when services recover from unhealthy states.
 // It runs until the provided context is cancelled.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for controlling the retry loop lifecycle
 func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
@@ -433,7 +433,7 @@ func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
 // running and healthy but not currently registered. It's used by the retry
 // mechanism to handle temporary registration failures.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the registration attempts
 func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 	if am.serviceRegistry == nil {

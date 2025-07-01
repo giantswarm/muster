@@ -11,7 +11,7 @@ steps:
     name: "performance-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         batch_id:
           type: "string"
           default: "batch-1"

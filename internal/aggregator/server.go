@@ -37,7 +37,7 @@ import (
 // All public methods are thread-safe and can be called concurrently. Internal state
 // is protected by appropriate synchronization mechanisms.
 type AggregatorServer struct {
-	config   AggregatorConfig  // Configuration parameters for the aggregator
+	config   AggregatorConfig  // Configuration args for the aggregator
 	registry *ServerRegistry   // Registry of backend MCP servers
 	server   *server.MCPServer // Core MCP server implementation
 
@@ -71,8 +71,8 @@ type AggregatorServer struct {
 //   - Active item managers for tracking capabilities
 //   - Default transport settings based on configuration
 //
-// Parameters:
-//   - aggConfig: Configuration parameters defining server behavior, transport, and security settings
+// Args:
+//   - aggConfig: Configuration args defining server behavior, transport, and security settings
 //
 // Returns a configured but unstarted aggregator server ready for initialization.
 func NewAggregatorServer(aggConfig AggregatorConfig) *AggregatorServer {
@@ -103,7 +103,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig) *AggregatorServer {
 // The method is idempotent for the same context - calling it multiple times with
 // the same context will return an error indicating the server is already started.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for controlling the server lifecycle and coordinating shutdown
 //
 // Returns an error if startup fails at any stage, or nil on successful startup.
@@ -229,7 +229,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 // The method is idempotent - calling it multiple times is safe and will not
 // cause errors or duplicate cleanup operations.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for controlling the shutdown timeout and operations
 //
 // Returns an error if shutdown encounters issues, though cleanup continues regardless.
@@ -299,7 +299,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 // tools, resources, and prompts available through the aggregated interface.
 // The registration process includes client initialization and capability discovery.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the registration operation and capability queries
 //   - name: Unique identifier for the server within the aggregator
 //   - client: MCP client interface for communicating with the backend server
@@ -318,7 +318,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 // cause all tools, resources, and prompts from that server to become unavailable.
 // The backend client connection is closed as part of the deregistration process.
 //
-// Parameters:
+// Args:
 //   - name: Unique identifier of the server to remove
 //
 // Returns an error if the server is not found or deregistration fails.
@@ -453,7 +453,7 @@ func (a *AggregatorServer) updateCapabilities() {
 //   - Tools and prompts: Batch removal using DeleteTools/DeletePrompts
 //   - Resources: Individual removal due to MCP library limitations
 //
-// Parameters:
+// Args:
 //   - collected: Result of capability collection containing current available items
 func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 	// Remove obsolete tools using batch operation
@@ -503,7 +503,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 //   - Creating MCP-compatible handlers for all new items
 //   - Batch registration to minimize client notifications
 //
-// Parameters:
+// Args:
 //   - servers: Map of all registered backend servers and their information
 func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 	var toolsToAdd []server.ServerTool
@@ -557,7 +557,7 @@ func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 //   - Debugging capability discovery issues
 //   - Understanding the current tool landscape
 //
-// Parameters:
+// Args:
 //   - servers: Map of all registered backend servers for capability counting
 func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo) {
 	toolCount := 0
@@ -690,7 +690,7 @@ func (a *AggregatorServer) GetPrompts() []mcp.Prompt {
 // The full implementation would maintain a runtime override list that could
 // selectively enable or disable specific tools regardless of the global yolo setting.
 //
-// Parameters:
+// Args:
 //   - toolName: Name of the tool to toggle blocking status for
 //
 // Returns an error indicating the feature is not yet implemented.
@@ -731,7 +731,7 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //   - Workflow execution that needs to call other tools
 //   - Administrative operations that require tool access
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the tool execution
 //   - toolName: Name of the tool to execute (may be prefixed)
 //   - args: Arguments to pass to the tool as key-value pairs
@@ -799,7 +799,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 // The method removes the "core_" prefix from tool names before routing to ensure
 // proper tool resolution within each component's tool provider interface.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the tool execution
 //   - toolName: Name of the core tool to execute (with core_ prefix)
 //   - args: Arguments to pass to the tool as key-value pairs
@@ -943,7 +943,7 @@ func (a *AggregatorServer) createWorkflowAdapter() interface {
 //   - Capability manager for dependency checking
 //   - Service class manager for tool availability validation
 //
-// Parameters:
+// Args:
 //   - toolName: Name of the tool to check (may be prefixed)
 //
 // Returns true if the tool is available, false otherwise.
@@ -1046,7 +1046,7 @@ func (a *AggregatorServer) UpdateCapabilities() {
 //   - Mutex conflicts are avoided by allowing the publisher to complete first
 //   - Capability updates happen promptly but safely
 //
-// Parameters:
+// Args:
 //   - event: Tool update event containing change information, tool lists, and metadata
 //
 // The method processes events selectively, focusing on workflow manager events

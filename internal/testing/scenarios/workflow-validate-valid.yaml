@@ -11,7 +11,7 @@ steps:
     name: "valid-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "test-step"

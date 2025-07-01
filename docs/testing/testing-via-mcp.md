@@ -126,7 +126,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ### 1. `mcp_muster-test_test_run_scenarios`
 **Purpose**: Execute test scenarios with comprehensive configuration options and automatic instance management
 
-**Parameters**:
+**Args**:
 - `category` (string, optional): Filter by category ("behavioral", "integration")
 - `concept` (string, optional): Filter by concept ("serviceclass", "workflow", "mcpserver", "capability", "service")
 - `scenario` (string, optional): Run specific scenario by name
@@ -175,7 +175,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ### 2. `mcp_muster-test_test_list_scenarios`
 **Purpose**: Discover available test scenarios with filtering capabilities
 
-**Parameters**:
+**Args**:
 - `category` (string, optional): Filter by category
 - `concept` (string, optional): Filter by concept  
 - `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
@@ -204,7 +204,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ### 3. `mcp_muster-test_test_validate_scenario`
 **Purpose**: Validate YAML scenario files for syntax and completeness, with optional API schema validation
 
-**Parameters**:
+**Args**:
 - `scenario_path` (string, required): Path to scenario file or directory
 - `schema_path` (string, optional): Path to API schema file for API validation
 - `category` (string, optional): Filter by category when using schema validation ("behavioral", "integration")  
@@ -249,7 +249,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
           "type": "unexpected_argument",
           "message": "Step create-test-serviceclass: Argument 'description' not expected for tool 'core_serviceclass_create'",
           "field": "description",
-          "suggestion": "Remove argument or check if parameter name changed"
+          "suggestion": "Remove argument or check if arg name changed"
         }
       ],
       "step_results": [
@@ -274,8 +274,8 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ### 4. `mcp_muster-test_test_get_results`
 **Purpose**: Retrieve detailed results from the last test execution
 
-**Parameters**:
-- `random_string` (string, required): Dummy parameter (use any value)
+**Args**:
+- `random_string` (string, required): Dummy arg (use any value)
 
 **Response Format**:
 ```json
@@ -307,7 +307,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "verbose": true
   }
 }
@@ -317,7 +317,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios", 
-  "parameters": {
+  "args": {
     "category": "behavioral",
     "verbose": true
   }
@@ -328,7 +328,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "concept": "serviceclass",
     "parallel": 2
   }
@@ -339,7 +339,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "scenario": "serviceclass-basic-operations",
     "verbose": true
   }
@@ -352,7 +352,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "category": "integration",
     "parallel": 4,
     "fail_fast": true,
@@ -365,7 +365,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "config_path": "internal/testing/scenarios",
     "concept": "workflow"
   }
@@ -378,7 +378,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "test_list_scenarios",
-  "parameters": {
+  "args": {
     "concept": "serviceclass"
   }
 }
@@ -388,7 +388,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/"
   }
 }
@@ -398,7 +398,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "test_validate_api_schema",
-  "parameters": {
+  "args": {
     "schema_path": "schema.json",
     "category": "behavioral"
   }
@@ -409,7 +409,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "concept": "serviceclass"
@@ -421,7 +421,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_get_results",
-  "parameters": {
+  "args": {
     "random_string": "get_results"
   }
 }
@@ -435,7 +435,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "category": "behavioral",
     "parallel": 2,
     "fail_fast": true
@@ -447,7 +447,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "category": "behavioral"
@@ -459,7 +459,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "concept": "workflow",
     "verbose": true
   }
@@ -470,7 +470,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "scenario": "serviceclass-basic-operations",
     "verbose": true
   }
@@ -503,7 +503,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/my-new-test.yaml"
   }
 }
@@ -513,7 +513,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/my-new-test.yaml",
     "schema_path": "schema.json"
   }
@@ -524,7 +524,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "scenario": "my-new-feature-test",
     "verbose": true
   }
@@ -535,7 +535,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_get_results",
-  "parameters": {
+  "args": {
     "random_string": "check_results"
   }
 }
@@ -547,7 +547,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "concept": "serviceclass",
     "fail_fast": true,
     "verbose": true
@@ -559,7 +559,7 @@ steps:
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/",
     "schema_path": "schema.json",
     "concept": "serviceclass"
@@ -587,7 +587,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ```json
 {
   "tool": "mcp_muster-test_test_get_results",
-  "parameters": {
+  "args": {
     "random_string": "debug_analysis"
   }
 }
@@ -597,7 +597,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "scenario": "specific-failing-scenario",
     "verbose": true
   }
@@ -613,7 +613,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 // Start with behavioral tests
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "category": "behavioral",
     "fail_fast": true
   }
@@ -622,7 +622,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 // Then run integration tests
 {
   "tool": "mcp_muster-test_test_run_scenarios", 
-  "parameters": {
+  "args": {
     "category": "integration",
     "parallel": 2
   }
@@ -634,7 +634,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 // Test the concept you're actively developing
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "concept": "workflow",
     "verbose": true
   }
@@ -645,7 +645,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "fail_fast": true,
     "parallel": 4,
     "verbose": true
@@ -657,7 +657,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 
 #### 1. **Naming Conventions**
 - Use descriptive names: `serviceclass-crud-operations`
-- Include complexity level: `workflow-basic-parameter-templating`
+- Include complexity level: `workflow-basic-arg-templating`
 - Group by functionality: `mcpserver-connection-management`
 
 #### 2. **Category Usage**
@@ -680,7 +680,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "fail_fast": false,  // Continue execution
     "verbose": true      // Get detailed error info
   }
@@ -692,7 +692,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 // Always check results after execution
 {
   "tool": "mcp_muster-test_test_get_results",
-  "parameters": {
+  "args": {
     "random_string": "post_execution_check"
   }
 }
@@ -703,7 +703,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 // Validate scenarios before running
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/"
   }
 }
@@ -763,7 +763,7 @@ The framework will automatically retry with different ports, but if the entire r
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "parallel": 1,
     "verbose": true
   }
@@ -813,7 +813,7 @@ Common startup issues:
 ```json
 {
   "tool": "mcp_muster-test_test_validate_scenario",
-  "parameters": {
+  "args": {
     "scenario_path": "internal/testing/scenarios/"
   }
 }
@@ -833,7 +833,7 @@ Reduce parallel execution:
 ```json
 {
   "tool": "mcp_muster-test_test_run_scenarios",
-  "parameters": {
+  "args": {
     "parallel": 1,
     "concept": "serviceclass"
   }
@@ -960,7 +960,7 @@ steps:
         lifecycleTools:
           start: "mock_start"
           stop: "mock_stop"
-        parameters: []
+        args: []
     expected:
       success: true
 

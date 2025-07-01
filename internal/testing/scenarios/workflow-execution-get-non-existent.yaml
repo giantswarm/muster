@@ -19,7 +19,7 @@ steps:
     name: "step-error-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "valid_step"

@@ -59,7 +59,7 @@ steps:
   - id: "step-unique-name"             # Unique step identifier
     description: "What this step does" # Human-readable step description
     tool: "core_serviceclass_create"   # MCP tool name to invoke
-    args:                              # Tool parameters (renamed from 'parameters')
+    args:                              # Tool args (renamed from 'args')
       yaml: |                          # YAML content (for tools that accept YAML)
         name: test-resource
         description: "Test resource"
@@ -76,7 +76,7 @@ cleanup:
   - id: "cleanup-resources"            # Changed from 'name' to 'id'
     description: "Remove test resources"
     tool: "core_serviceclass_delete"
-    args:                              # Changed from 'parameters' to 'args'
+    args:                              # Changed from 'args' to 'args'
       name: "test-resource"
     expected:
       success: true
@@ -87,7 +87,7 @@ cleanup:
 
 #### Updated Field Names
 - Step identifiers use `id` instead of `name` (aligns with workflow step format)
-- Tool parameters use `args` instead of `parameters` (aligns with workflow step format)
+- Tool args use `args` instead of `args` (aligns with workflow step format)
 - Cleanup steps also use `id` and `args` for consistency
 
 #### Tool Naming Conventions
@@ -164,7 +164,7 @@ Use descriptive, kebab-case names:
 ```yaml
 # ✅ Good examples
 name: "serviceclass-basic-crud-operations"
-name: "workflow-parameter-templating-validation"
+name: "workflow-arg-templating-validation"
 name: "mcpserver-connection-recovery-handling"
 
 # ❌ Bad examples
@@ -226,9 +226,9 @@ steps:
     tool: "workflow_backup-data"     # workflow_<name> pattern (NOT action_)
 ```
 
-### 3. Parameter Patterns
+### 3. Arg Patterns
 
-#### YAML Parameters
+#### YAML Args
 For tools that accept YAML configurations:
 
 ```yaml
@@ -236,7 +236,7 @@ args:
   yaml: |
     name: test-serviceclass
     description: "Test ServiceClass for scenario"
-    parameters:
+    args:
       replicas:
         type: integer
         default: 1
@@ -247,8 +247,8 @@ args:
       - name: "core_service_create"
 ```
 
-#### Key-Value Parameters
-For simple parameter passing:
+#### Key-Value Args
+For simple arg passing:
 
 ```yaml
 args:
@@ -405,7 +405,7 @@ steps:
 steps:
   - name: "test-step"         # Should be 'id'
     tool: "core_test"
-    parameters:               # Should be 'args'
+    args:               # Should be 'args'
       test: true
       
 # ✅ Good: Consistent field naming

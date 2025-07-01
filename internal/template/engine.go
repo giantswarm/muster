@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Engine handles parameter templating for capability operations
+// Engine handles arg templating for capability operations
 type Engine struct {
 	// Pattern to match template variables like {{ variableName }} or {{ variable.property.subproperty }}
 	templatePattern *regexp.Regexp

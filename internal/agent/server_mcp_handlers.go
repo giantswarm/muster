@@ -86,13 +86,13 @@ func (m *MCPServer) handleListPrompts(ctx context.Context, request mcp.CallToolR
 
 // handleDescribeTool handles the describe_tool MCP tool for AI assistants.
 // This handler provides detailed information about a specific tool, including
-// its complete input schema for parameter validation and documentation.
+// its complete input schema for arg validation and documentation.
 //
-// Parameters:
+// Args:
 //   - name (required): The exact name of the tool to describe
 //
 // The handler:
-//   - Validates the tool name parameter
+//   - Validates the tool name arg
 //   - Searches the cached tool list for the specified tool
 //   - Returns detailed tool information including input schema
 //
@@ -102,7 +102,7 @@ func (m *MCPServer) handleListPrompts(ctx context.Context, request mcp.CallToolR
 func (m *MCPServer) handleDescribeTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name, err := request.RequireString("name")
 	if err != nil {
-		return mcp.NewToolResultError("name parameter is required"), nil
+		return mcp.NewToolResultError("name argument is required"), nil
 	}
 
 	m.client.mu.RLock()
@@ -126,11 +126,11 @@ func (m *MCPServer) handleDescribeTool(ctx context.Context, request mcp.CallTool
 // This handler provides detailed metadata about a specific resource, including
 // URI, name, description, and MIME type information.
 //
-// Parameters:
+// Args:
 //   - uri (required): The exact URI of the resource to describe
 //
 // The handler:
-//   - Validates the resource URI parameter
+//   - Validates the resource URI arg
 //   - Searches the cached resource list for the specified resource
 //   - Returns comprehensive resource metadata
 //
@@ -140,7 +140,7 @@ func (m *MCPServer) handleDescribeTool(ctx context.Context, request mcp.CallTool
 func (m *MCPServer) handleDescribeResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	uri, err := request.RequireString("uri")
 	if err != nil {
-		return mcp.NewToolResultError("uri parameter is required"), nil
+		return mcp.NewToolResultError("uri argument is required"), nil
 	}
 
 	m.client.mu.RLock()
@@ -164,11 +164,11 @@ func (m *MCPServer) handleDescribeResource(ctx context.Context, request mcp.Call
 // This handler provides detailed information about a specific prompt, including
 // its argument specifications and requirements for proper usage.
 //
-// Parameters:
+// Args:
 //   - name (required): The exact name of the prompt to describe
 //
 // The handler:
-//   - Validates the prompt name parameter
+//   - Validates the prompt name arg
 //   - Searches the cached prompt list for the specified prompt
 //   - Returns detailed prompt information including argument specifications
 //
@@ -178,7 +178,7 @@ func (m *MCPServer) handleDescribeResource(ctx context.Context, request mcp.Call
 func (m *MCPServer) handleDescribePrompt(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name, err := request.RequireString("name")
 	if err != nil {
-		return mcp.NewToolResultError("name parameter is required"), nil
+		return mcp.NewToolResultError("name argument is required"), nil
 	}
 
 	m.client.mu.RLock()
@@ -203,23 +203,23 @@ func (m *MCPServer) handleDescribePrompt(ctx context.Context, request mcp.CallTo
 // invoke any tool available through the muster aggregator with proper
 // argument validation and error handling.
 //
-// Parameters:
+// Args:
 //   - name (required): The exact name of the tool to execute
-//   - arguments (optional): JSON object with tool-specific parameters
+//   - arguments (optional): JSON object with tool-specific args
 //
 // The handler:
-//   - Validates tool name and argument parameters
+//   - Validates tool name and argument args
 //   - Forwards the tool call to the aggregator via the client
 //   - Handles both successful results and tool-reported errors
 //   - Formats content for different media types (text, images, audio)
 //
 // Returns:
 //   - Tool execution results formatted as text
-//   - Error message if tool execution fails or parameters are invalid
+//   - Error message if tool execution fails or args are invalid
 func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name, err := request.RequireString("name")
 	if err != nil {
-		return mcp.NewToolResultError("name parameter is required"), nil
+		return mcp.NewToolResultError("name argument is required"), nil
 	}
 
 	// Get arguments if provided and validate they're a JSON object
@@ -268,11 +268,11 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 // This handler allows AI assistants to retrieve resource content from
 // any resource available through the muster aggregator.
 //
-// Parameters:
+// Args:
 //   - uri (required): The URI of the resource to retrieve
 //
 // The handler:
-//   - Validates the resource URI parameter
+//   - Validates the resource URI arg
 //   - Retrieves resource content via the client
 //   - Handles different content types (text and binary)
 //   - Formats content appropriately for AI assistant consumption
@@ -284,7 +284,7 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 func (m *MCPServer) handleGetResource(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	uri, err := request.RequireString("uri")
 	if err != nil {
-		return mcp.NewToolResultError("uri parameter is required"), nil
+		return mcp.NewToolResultError("uri argument is required"), nil
 	}
 
 	// Retrieve the resource via the client
@@ -310,9 +310,9 @@ func (m *MCPServer) handleGetResource(ctx context.Context, request mcp.CallToolR
 // This handler allows AI assistants to execute prompt templates with
 // specific arguments and retrieve the generated content.
 //
-// Parameters:
+// Args:
 //   - name (required): The exact name of the prompt to execute
-//   - arguments (optional): JSON object with prompt-specific parameters
+//   - arguments (optional): JSON object with prompt-specific args
 //
 // The handler:
 //   - Validates prompt name and converts arguments to string map
@@ -322,11 +322,11 @@ func (m *MCPServer) handleGetResource(ctx context.Context, request mcp.CallToolR
 //
 // Returns:
 //   - JSON array of message objects with role and content information
-//   - Error message if prompt execution fails or parameters are invalid
+//   - Error message if prompt execution fails or args are invalid
 func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name, err := request.RequireString("name")
 	if err != nil {
-		return mcp.NewToolResultError("name parameter is required"), nil
+		return mcp.NewToolResultError("name argument is required"), nil
 	}
 
 	// Get arguments if provided and convert to string map
@@ -410,7 +410,7 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 // muster functionality, helping AI assistants distinguish between built-in
 // capabilities and external MCP server tools.
 //
-// Parameters:
+// Args:
 //   - include_schema (optional): Whether to include full tool specifications (default: true)
 //
 // The handler:
@@ -423,7 +423,7 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 //   - JSON object with filter criteria, counts, and filtered tool list with full specifications
 //   - Error message if formatting fails
 func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Get include_schema parameter (defaults to true for full specifications)
+	// Get include_schema arg (defaults to true for full specifications)
 	args := request.GetArguments()
 	includeSchema := true
 
@@ -489,7 +489,7 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 // tools based on name patterns and description content, enabling AI
 // assistants to find relevant tools more efficiently.
 //
-// Parameters:
+// Args:
 //   - pattern (optional): Wildcard pattern for tool name matching (* supported)
 //   - description_filter (optional): Substring to match in descriptions
 //   - case_sensitive (optional): Whether to use case-sensitive matching
@@ -512,7 +512,7 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 //   - JSON object with filter criteria, statistics, and matching tools with full specifications
 //   - Error message if formatting fails
 func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Get filter parameters from arguments with defaults
+	// Get filter args from arguments with defaults
 	args := request.GetArguments()
 
 	var pattern, descriptionFilter string

@@ -21,6 +21,6 @@ steps:
   args:
     name: "test-service"
     serviceClassName: "sc-for-validation"
-    parameters: {}
+    args: {}
   expected:
     success: true 

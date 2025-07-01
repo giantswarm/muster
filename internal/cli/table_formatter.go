@@ -26,7 +26,7 @@ type TableFormatter struct {
 // The formatter uses the provided options to determine output behavior,
 // including format selection and verbosity settings.
 //
-// Parameters:
+// Args:
 //   - options: Configuration options for formatting behavior
 //
 // Returns:
@@ -43,7 +43,7 @@ func NewTableFormatter(options ExecutorOptions) *TableFormatter {
 // and simple values, applying the most appropriate formatting strategy
 // for optimal readability and information density.
 //
-// Parameters:
+// Args:
 //   - data: The data to format (can be object, array, or simple value)
 //
 // Returns:
@@ -65,7 +65,7 @@ func (f *TableFormatter) FormatData(data interface{}) error {
 // It looks for common wrapper patterns and extracts array data for table
 // display, or formats the object as key-value pairs if no arrays are found.
 //
-// Parameters:
+// Args:
 //   - data: Object data to format
 //
 // Returns:
@@ -88,7 +88,7 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 // Many muster API responses wrap arrays in objects with predictable key names.
 // This function identifies those patterns to extract the relevant data.
 //
-// Parameters:
+// Args:
 //   - data: Object data to search for array keys
 //
 // Returns:
@@ -111,7 +111,7 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 // sorts data for better readability, and adds summary information with
 // appropriate icons and styling.
 //
-// Parameters:
+// Args:
 //   - data: Array of objects to display as a table
 //
 // Returns:
@@ -179,7 +179,7 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 // to prevent layout issues. Different resource types get specialized column
 // selection logic.
 //
-// Parameters:
+// Args:
 //   - sample: Sample data object used to determine available columns
 //
 // Returns:
@@ -249,7 +249,7 @@ func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string
 // It analyzes the object structure and field names to identify the resource
 // type, which is used for specialized formatting and column optimization.
 //
-// Parameters:
+// Args:
 //   - sample: Sample data object to analyze
 //
 // Returns:
@@ -287,7 +287,7 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 // This is used for single objects or complex data that doesn't fit well
 // in array-based tables. It provides a clean property-value layout.
 //
-// Parameters:
+// Args:
 //   - data: Object data to format as key-value pairs
 //
 // Returns:
@@ -329,7 +329,7 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 // It analyzes the object structure to identify workflow-specific patterns
 // and fields, enabling specialized formatting for workflow data.
 //
-// Parameters:
+// Args:
 //   - data: Object data to check for workflow characteristics
 //
 // Returns:
@@ -350,9 +350,9 @@ func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
 
 // formatWorkflowDetails provides a clean, readable format for workflow data.
 // It creates a specialized layout for workflows, showing basic information,
-// input parameters, and workflow steps in an organized and readable format.
+// input args, and workflow steps in an organized and readable format.
 //
-// Parameters:
+// Args:
 //   - data: Workflow data to format
 //
 // Returns:
@@ -390,7 +390,7 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 
 	t.Render()
 
-	// Display Input Parameters if they exist
+	// Display Input Args if they exist
 	f.displayWorkflowInputs(workflowData)
 
 	// Display Steps if they exist
@@ -399,14 +399,14 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 	return nil
 }
 
-// displayWorkflowInputs shows the input parameters in a readable format.
-// It extracts input schema information and displays parameter details
+// displayWorkflowInputs shows the input args in a readable format.
+// It extracts input schema information and displays arg details
 // including types, descriptions, and requirement status in a structured table.
 //
-// Parameters:
+// Args:
 //   - workflowData: Workflow data containing input schema information
 func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface{}) {
-	inputSchemaFields := []string{"InputSchema", "inputSchema", "inputs", "parameters"}
+	inputSchemaFields := []string{"InputSchema", "inputSchema", "inputs", "args"}
 
 	var inputSchema map[string]interface{}
 	for _, field := range inputSchemaFields {
@@ -422,7 +422,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		return
 	}
 
-	fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Parameters:"))
+	fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Args:"))
 
 	// Look for properties in the schema
 	if properties, exists := inputSchema["properties"]; exists {
@@ -431,7 +431,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 			t.SetOutputMirror(os.Stdout)
 			t.SetStyle(table.StyleRounded)
 			t.AppendHeader(table.Row{
-				text.FgHiCyan.Sprint("PARAMETER"),
+				text.FgHiCyan.Sprint("ARGUMENT"),
 				text.FgHiCyan.Sprint("TYPE"),
 				text.FgHiCyan.Sprint("DESCRIPTION"),
 				text.FgHiCyan.Sprint("REQUIRED"),
@@ -449,7 +449,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 				}
 			}
 
-			// Sort parameter names
+			// Sort arg names
 			var paramNames []string
 			for paramName := range propsMap {
 				paramNames = append(paramNames, paramName)
@@ -497,7 +497,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 // It extracts workflow steps and displays them in a sequential table
 // showing step numbers, tools used, and descriptions for easy understanding.
 //
-// Parameters:
+// Args:
 //   - workflowData: Workflow data containing steps information
 func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{}) {
 	stepsFields := []string{"Steps", "steps", "actions"}
@@ -532,17 +532,34 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 			stepNum := fmt.Sprintf("%d", i+1)
 
 			tool := "-"
-			if toolName, exists := stepMap["Tool"]; exists {
-				tool = fmt.Sprintf("%v", toolName)
-				// Simplify tool name for display
-				tool = f.builder.SimplifyToolName(tool)
+			// Check for common tool field names
+			toolFields := []string{"Tool", "tool", "action", "Action", "command", "Command"}
+			for _, field := range toolFields {
+				if toolName, exists := stepMap[field]; exists && toolName != nil {
+					tool = fmt.Sprintf("%v", toolName)
+					tool = f.builder.SimplifyToolName(tool)
+					break
+				}
 			}
 
 			description := "-"
-			if desc, exists := stepMap["Description"]; exists && desc != nil {
-				description = fmt.Sprintf("%v", desc)
-			} else if id, exists := stepMap["ID"]; exists && id != nil {
-				description = fmt.Sprintf("Execute %v", id)
+			// Check for common description field names
+			descFields := []string{"Description", "description", "name", "Name", "title", "Title"}
+			for _, field := range descFields {
+				if desc, exists := stepMap[field]; exists && desc != nil {
+					description = fmt.Sprintf("%v", desc)
+					break
+				}
+			}
+			// If no description found, try ID fields as fallback
+			if description == "-" {
+				idFields := []string{"ID", "id", "step_id", "stepId"}
+				for _, field := range idFields {
+					if id, exists := stepMap[field]; exists && id != nil {
+						description = fmt.Sprintf("Execute %v", id)
+						break
+					}
+				}
 			}
 
 			if len(description) > 50 {
@@ -564,7 +581,7 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 // This handles arrays that contain primitive values rather than objects,
 // displaying each value on a separate line.
 //
-// Parameters:
+// Args:
 //   - data: Array of simple values to display
 //
 // Returns:
@@ -581,7 +598,7 @@ func (f *TableFormatter) formatSimpleList(data []interface{}) error {
 // keyExists checks if a key exists in a map.
 // This is a utility function used throughout the formatter for safe key access.
 //
-// Parameters:
+// Args:
 //   - data: Map to check for key existence
 //   - key: Key name to look for
 //
@@ -595,7 +612,7 @@ func (f *TableFormatter) keyExists(data map[string]interface{}, key string) bool
 // getRemainingKeys returns keys that haven't been used yet.
 // This helps in column optimization by identifying available but unused columns.
 //
-// Parameters:
+// Args:
 //   - allKeys: Complete list of available keys
 //   - usedKeys: Keys that have already been selected
 //
@@ -619,7 +636,7 @@ func (f *TableFormatter) getRemainingKeys(allKeys, usedKeys []string) []string {
 // containsString checks if a string slice contains a specific item.
 // This is a utility function for string slice operations.
 //
-// Parameters:
+// Args:
 //   - slice: String slice to search in
 //   - item: Item to look for
 //
@@ -637,7 +654,7 @@ func (f *TableFormatter) containsString(slice []string, item string) bool {
 // min returns the smaller of two integers.
 // This is a utility function for integer comparisons.
 //
-// Parameters:
+// Args:
 //   - a, b: Integers to compare
 //
 // Returns:

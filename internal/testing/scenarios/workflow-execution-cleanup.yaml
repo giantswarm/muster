@@ -11,7 +11,7 @@ steps:
     name: "cleanup-test-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         test_id:
           type: "string"
           default: "cleanup-1"

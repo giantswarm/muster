@@ -193,7 +193,7 @@ func (a *Adapter) convertToAPIServiceInstance(internalInfo *ServiceInstanceInfo)
 		CreatedAt:        internalInfo.CreatedAt,
 		LastChecked:      internalInfo.LastChecked,
 		ServiceData:      internalInfo.ServiceData,
-		Parameters:       internalInfo.CreationParameters,
+		Args:             internalInfo.CreationArgs,
 	}
 }
 
@@ -208,7 +208,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_start",
 			Description: "Start a specific service (works for both static and ServiceClass-based services)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -220,7 +220,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_stop",
 			Description: "Stop a specific service (works for both static and ServiceClass-based services)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -232,7 +232,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_restart",
 			Description: "Restart a specific service (works for both static and ServiceClass-based services)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -244,7 +244,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_status",
 			Description: "Get status of a specific service (works for both static and ServiceClass-based services)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -256,7 +256,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_create",
 			Description: "Create a new ServiceClass-based service instance",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "serviceClassName",
 					Type:        "string",
@@ -270,15 +270,15 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Description: "Unique name for the service instance",
 				},
 				{
-					Name:        "parameters",
+					Name:        "args",
 					Type:        "object",
 					Required:    false,
-					Description: "Parameters for service creation",
+					Description: "Arguments for service creation",
 					Schema: map[string]interface{}{
 						"type":        "object",
-						"description": "Service creation parameters as key-value pairs, validated against the ServiceClass parameter definitions",
+						"description": "Service creation arguments as key-value pairs, validated against the ServiceClass argument definitions",
 						"additionalProperties": map[string]interface{}{
-							"description": "Parameter value - type depends on ServiceClass parameter definition",
+							"description": "Argument value - type depends on ServiceClass argument definition",
 						},
 					},
 				},
@@ -299,7 +299,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_delete",
 			Description: "Delete a ServiceClass-based service instance (static services cannot be deleted)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -311,7 +311,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_get",
 			Description: "Get detailed information about any service (MCP servers, aggregator, ServiceClass instances)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -323,19 +323,19 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "service_validate",
 			Description: "Validate a service instance definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Service instance name"},
 				{Name: "serviceClassName", Type: "string", Required: true, Description: "Name of the ServiceClass to instantiate"},
 				{
-					Name:        "parameters",
+					Name:        "args",
 					Type:        "object",
 					Required:    false,
-					Description: "Parameters for service creation",
+					Description: "Arguments for service creation",
 					Schema: map[string]interface{}{
 						"type":        "object",
-						"description": "Service creation parameters as key-value pairs, validated against the ServiceClass parameter definitions",
+						"description": "Service creation arguments as key-value pairs, validated against the ServiceClass argument definitions",
 						"additionalProperties": map[string]interface{}{
-							"description": "Parameter value - type depends on ServiceClass parameter definition",
+							"description": "Argument value - type depends on ServiceClass argument definition",
 						},
 					},
 				},
@@ -531,19 +531,19 @@ func (a *Adapter) handleServiceClassInstanceCreate(ctx context.Context, args map
 		}, nil
 	}
 
-	parameters, _ := args["parameters"].(map[string]interface{})
-	if parameters == nil {
-		parameters = make(map[string]interface{})
+	serviceArgs, _ := args["args"].(map[string]interface{})
+	if serviceArgs == nil {
+		serviceArgs = make(map[string]interface{})
 	}
 
-	// Parse optional boolean parameters
+	// Parse optional boolean args
 	persist, _ := args["persist"].(bool)
 	autoStart, _ := args["autoStart"].(bool)
 
 	req := api.CreateServiceInstanceRequest{
 		ServiceClassName: serviceClassName,
 		Name:             name,
-		Parameters:       parameters,
+		Args:             serviceArgs,
 		Persist:          persist,
 		AutoStart:        autoStart,
 	}
@@ -615,7 +615,7 @@ func (a *Adapter) CreateService(ctx context.Context, req api.CreateServiceInstan
 	internalReq := CreateServiceRequest{
 		ServiceClassName: req.ServiceClassName,
 		Name:             req.Name,
-		Parameters:       req.Parameters,
+		Args:             req.Args,
 		CreateTimeout:    req.CreateTimeout,
 		DeleteTimeout:    req.DeleteTimeout,
 	}
@@ -673,7 +673,7 @@ func (a *Adapter) GetService(name string) (*api.ServiceInstance, error) {
 		CreatedAt:        now,         // Default for static services
 		LastChecked:      nil,         // Default for static services
 		ServiceData:      serviceData, // Include service_type in metadata
-		Parameters:       nil,         // Not applicable for static services
+		Args:             nil,         // Not applicable for static services
 	}, nil
 }
 
@@ -687,7 +687,7 @@ func (a *Adapter) handleServiceValidate(ctx context.Context, args map[string]int
 		}, nil
 	}
 
-	// Validate without persisting - just check if the ServiceClass exists and parameters are valid
+	// Validate without persisting - just check if the ServiceClass exists and args are valid
 	// Get ServiceClassManager through API
 	serviceClassManager := api.GetServiceClassManager()
 	if serviceClassManager == nil {
@@ -705,7 +705,7 @@ func (a *Adapter) handleServiceValidate(ctx context.Context, args map[string]int
 		}, nil
 	}
 
-	// Basic parameter validation could be added here
+	// Basic arg validation could be added here
 	// For now, we just validate the basic required fields and ServiceClass availability
 
 	return &api.CallToolResult{

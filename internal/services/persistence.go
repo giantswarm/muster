@@ -20,8 +20,8 @@ type ServiceInstanceDefinition struct {
 	ServiceClassName string `yaml:"serviceClassName" json:"serviceClassName"` // Which service class to instantiate
 	ServiceClassType string `yaml:"serviceClassType" json:"serviceClassType"` // Type of service class (informational)
 
-	// Creation parameters
-	Parameters map[string]interface{} `yaml:"parameters,omitempty" json:"parameters,omitempty"` // Parameters used to create the instance
+	// Creation args
+	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"` // Args used to create the instance
 
 	// Optional metadata
 	Description string `yaml:"description,omitempty" json:"description,omitempty"` // Human-readable description
@@ -136,8 +136,8 @@ func (sip *ServiceInstancePersistence) validateDefinition(def *ServiceInstanceDe
 		return fmt.Errorf("serviceClassName is required for service instance %s", def.Name)
 	}
 
-	if def.Parameters == nil {
-		def.Parameters = make(map[string]interface{})
+	if def.Args == nil {
+		def.Args = make(map[string]interface{})
 	}
 
 	if def.CreatedAt.IsZero() {
@@ -149,12 +149,12 @@ func (sip *ServiceInstancePersistence) validateDefinition(def *ServiceInstanceDe
 
 // CreateDefinitionFromInstance creates a ServiceInstanceDefinition from orchestrator data
 // This is a helper function for the orchestrator to easily create persistent definitions
-func CreateDefinitionFromInstance(name, serviceClassName, serviceClassType string, parameters map[string]interface{}, autoStart bool) ServiceInstanceDefinition {
+func CreateDefinitionFromInstance(name, serviceClassName, serviceClassType string, args map[string]interface{}, autoStart bool) ServiceInstanceDefinition {
 	return ServiceInstanceDefinition{
 		Name:             name,
 		ServiceClassName: serviceClassName,
 		ServiceClassType: serviceClassType,
-		Parameters:       parameters,
+		Args:             args,
 		Enabled:          true,
 		AutoStart:        autoStart,
 		CreatedAt:        time.Now(),

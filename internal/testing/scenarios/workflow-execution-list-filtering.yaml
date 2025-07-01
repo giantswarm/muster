@@ -11,7 +11,7 @@ steps:
     name: "filter-workflow-a"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "step_a"
@@ -29,7 +29,7 @@ steps:
     name: "filter-workflow-b"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "step_b"

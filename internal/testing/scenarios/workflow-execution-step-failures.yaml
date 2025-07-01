@@ -12,7 +12,7 @@ pre_configuration:
           - name: "conditional_fail"
             input_schema:
               type: "object"
-              properties:
+              args:
                 should_fail:
                   type: "boolean"
                   default: false
@@ -34,7 +34,7 @@ steps:
     name: "step-failure-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         fail_at_step:
           type: "string"
           description: "Which step should fail"

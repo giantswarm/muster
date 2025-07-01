@@ -41,7 +41,7 @@ type EventHandler struct {
 // aggregator manager. This design allows the handler to focus solely on event
 // processing while delegating the actual registration logic to the caller.
 //
-// Parameters:
+// Args:
 //   - orchestratorAPI: Interface for subscribing to service state changes
 //   - registerFunc: Callback function to register a server by name
 //   - deregisterFunc: Callback function to deregister a server by name
@@ -68,7 +68,7 @@ func NewEventHandler(
 // The event processing continues until the provided context is cancelled or the
 // Stop method is called.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for controlling the event handler lifecycle
 //
 // Returns nil on successful startup. The method does not wait for event processing
@@ -145,7 +145,7 @@ func (eh *EventHandler) IsRunning() bool {
 // The method automatically updates the running state when it exits to ensure
 // accurate status reporting.
 //
-// Parameters:
+// Args:
 //   - eventChan: Read-only channel for receiving service state change events
 func (eh *EventHandler) handleEvents(eventChan <-chan api.ServiceStateChangedEvent) {
 	defer eh.wg.Done()
@@ -183,7 +183,7 @@ func (eh *EventHandler) handleEvents(eventChan <-chan api.ServiceStateChangedEve
 // The registration/deregistration operations are performed through callback functions
 // to maintain separation of concerns.
 //
-// Parameters:
+// Args:
 //   - event: Service state change event from the orchestrator
 func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	// Filter for MCP service events only
@@ -224,7 +224,7 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 // processed by the event handler. Other service types are ignored to avoid
 // unnecessary processing overhead.
 //
-// Parameters:
+// Args:
 //   - event: Service state change event to examine
 //
 // Returns true if the event is related to an MCP service, false otherwise.

@@ -11,7 +11,7 @@ steps:
     name: "invalid-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps: []
   expected:
@@ -23,12 +23,12 @@ steps:
   args:
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps: []
   expected:
     success: false
-    error_contains: ["name parameter is required"]
+    error_contains: ["name argument is required"]
 
 - id: "create-workflow-missing-steps"
   tool: "core_workflow_create"
@@ -36,7 +36,7 @@ steps:
     name: "workflow-no-steps"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
   expected:
     success: false
@@ -48,7 +48,7 @@ steps:
     name: "workflow-duplicate-steps"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "step-1"
@@ -65,7 +65,7 @@ steps:
     name: "workflow-bad-tool"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "step-1"
@@ -90,7 +90,7 @@ steps:
     name: "non-existent-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "test-step"

@@ -1,7 +1,7 @@
 name: "workflow-execution-defaults-testing"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "execution", "defaults", "parameters"]
+tags: ["workflow", "execution", "defaults", "args"]
 timeout: "3m"
 
 steps:
@@ -11,7 +11,7 @@ steps:
     name: "defaults-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "defaults_step"
@@ -102,7 +102,7 @@ steps:
     success: true
     contains: ["steps", "defaults_step", "defaults_result"]
 
-# Compare behavior: default vs explicit parameters
+# Compare behavior: default vs explicit args
 - id: "compare-default-vs-explicit-limit"
   tool: "core_workflow_execution_list"
   args:
@@ -122,7 +122,7 @@ steps:
     success: true
     contains: ["defaults-workflow"]
 
-# Verify defaults work with all parameters omitted
+# Verify defaults work with all args omitted
 - id: "test-all-defaults-list"
   tool: "core_workflow_execution_list"
   args: {}
@@ -134,12 +134,12 @@ steps:
   tool: "core_workflow_execution_get"
   args:
     execution_id: "{{ execution_1.execution_id }}"
-    # Only required parameter, others should use defaults
+    # Only required arg, others should use defaults
   expected:
     success: true
     contains: ["execution_id", "workflow_name", "status", "steps"]
 
-# Test that omitting optional parameters works correctly
+# Test that omitting optional args works correctly
 - id: "test-omit-workflow-name"
   tool: "core_workflow_execution_list"
   args:

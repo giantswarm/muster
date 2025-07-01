@@ -34,7 +34,7 @@ func NewTableBuilder() *TableBuilder {
 //   - Arrays and objects get compact representation
 //   - Long text gets truncated with ellipsis
 //
-// Parameters:
+// Args:
 //   - column: The column name/type to determine formatting rules
 //   - value: The raw value to format
 //
@@ -96,7 +96,7 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 // This provides immediate visual feedback about the health state of services
 // and components.
 //
-// Parameters:
+// Args:
 //   - status: The health status string to format
 //
 // Returns:
@@ -123,7 +123,7 @@ func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 // formatAvailableStatus formats boolean availability with clear visual indicators.
 // This is commonly used for capabilities and services to show their availability status.
 //
-// Parameters:
+// Args:
 //   - value: The availability value (boolean or string)
 //
 // Returns:
@@ -148,7 +148,7 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 // formatState formats service state with descriptive icons.
 // This provides clear visual indication of service lifecycle states.
 //
-// Parameters:
+// Args:
 //   - state: The service state string to format
 //
 // Returns:
@@ -172,7 +172,7 @@ func (b *TableBuilder) formatState(state string) interface{} {
 // Metadata objects often contain nested information that needs to be summarized
 // for table display. This function extracts the most relevant fields.
 //
-// Parameters:
+// Args:
 //   - value: The metadata object to format
 //
 // Returns:
@@ -219,7 +219,7 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 // Instead of showing "[N items]", this shows actual tool names up to a limit,
 // then indicates how many more tools are available.
 //
-// Parameters:
+// Args:
 //   - value: The tools array to format
 //
 // Returns:
@@ -259,7 +259,7 @@ func (b *TableBuilder) formatToolsList(value interface{}) interface{} {
 // Many muster tools have predictable prefixes that add noise to table display.
 // This function strips common prefixes to improve readability.
 //
-// Parameters:
+// Args:
 //   - toolName: The full tool name to simplify
 //
 // Returns:
@@ -279,7 +279,7 @@ func (b *TableBuilder) SimplifyToolName(toolName string) string {
 // Descriptions can be very long and need to be truncated to fit in table columns
 // while still providing useful information.
 //
-// Parameters:
+// Args:
 //   - desc: The description string to format
 //
 // Returns:
@@ -294,7 +294,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 // formatType adds subtle styling to type information.
 // Type fields are important for identifying resource types and get consistent styling.
 //
-// Parameters:
+// Args:
 //   - typ: The type string to format
 //
 // Returns:
@@ -307,7 +307,7 @@ func (b *TableBuilder) formatType(typ string) interface{} {
 // Workflow steps are typically arrays that are better represented as counts
 // rather than the full step details in table format.
 //
-// Parameters:
+// Args:
 //   - value: The steps array to format
 //
 // Returns:
@@ -332,7 +332,7 @@ func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 // This handles arrays that don't fit into specific categories,
 // providing a balance between information and readability.
 //
-// Parameters:
+// Args:
 //   - arr: The array to format
 //
 // Returns:
@@ -359,7 +359,7 @@ func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 // This handles nested objects by looking for common display fields
 // or showing a summary of the object's structure.
 //
-// Parameters:
+// Args:
 //   - obj: The object map to format
 //
 // Returns:
@@ -385,7 +385,7 @@ func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 // This provides consistent ordering in tables, making it easier for users
 // to find specific resources.
 //
-// Parameters:
+// Args:
 //   - data: Array of data objects to sort
 //   - columns: Column names, with the first used for sorting
 //
@@ -412,7 +412,7 @@ func (b *TableBuilder) SortDataByName(data []interface{}, columns []string) []in
 // Different muster resource types get different colored icons for easy
 // visual identification in tables and summaries.
 //
-// Parameters:
+// Args:
 //   - resourceType: The type of resource (services, workflows, etc.)
 //
 // Returns:
@@ -440,7 +440,7 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 // This is used for generating consistent plural forms in table summaries
 // and resource counting.
 //
-// Parameters:
+// Args:
 //   - word: The word to potentially pluralize
 //
 // Returns:
@@ -456,7 +456,7 @@ func (b *TableBuilder) Pluralize(word string) string {
 // It simplifies ISO 8601 timestamps by removing microseconds and timezone
 // information for cleaner table display.
 //
-// Parameters:
+// Args:
 //   - timestamp: The timestamp string to format
 //
 // Returns:
@@ -490,7 +490,7 @@ func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 // It converts milliseconds to appropriate units (ms, s, m, h) for better
 // understanding of execution times.
 //
-// Parameters:
+// Args:
 //   - value: The duration value (typically in milliseconds)
 //
 // Returns:

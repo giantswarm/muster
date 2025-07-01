@@ -13,7 +13,7 @@ pre_configuration:
             description: "A tool that returns a string"
             input_schema:
               type: object
-              properties:
+              args:
                 text:
                   type: "string"
               required:
@@ -27,7 +27,7 @@ pre_configuration:
         name: "test-workflow"
         input_schema:
           type: object
-          properties:
+          args:
             text:
               type: "string"
           required:

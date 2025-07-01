@@ -1,7 +1,7 @@
 name: "workflow-execution-get-parameter-validation"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "execution", "get", "validation", "parameters"]
+tags: ["workflow", "execution", "get", "validation", "args"]
 timeout: "3m"
 
 steps:
@@ -11,7 +11,7 @@ steps:
     name: "validation-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "validation_step"
@@ -31,7 +31,7 @@ steps:
     success: true
   store: "validation_execution"
 
-# Test missing required parameter
+# Test missing required arg
 - id: "test-missing-execution-id"
   tool: "core_workflow_execution_get"
   args: {}
@@ -125,8 +125,8 @@ steps:
     success: false
     error_contains: ["not found", "execution"]
 
-# Test valid execution with all parameters
-- id: "test-all-valid-parameters"
+# Test valid execution with all args
+- id: "test-all-valid-args"
   tool: "core_workflow_execution_get"
   args:
     execution_id: "{{ validation_execution.execution_id }}"

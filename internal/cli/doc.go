@@ -46,7 +46,7 @@
 //   - Services: Health status, state, service type, and metadata
 //   - ServiceClasses: Availability, required tools, and descriptions
 //   - MCP Servers: Server state, type, and configuration details
-//   - Workflows: Steps, input parameters, and execution details
+//   - Workflows: Steps, input args, and execution details
 //   - Capabilities: Availability status and capability types
 //
 // # Usage Patterns

@@ -11,7 +11,7 @@ steps:
     name: "basic-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "list_services"
@@ -42,7 +42,7 @@ steps:
     name: "basic-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "list_services_updated"

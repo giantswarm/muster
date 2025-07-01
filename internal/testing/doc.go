@@ -56,7 +56,7 @@
 //
 // The MCPTestClient provides MCP protocol communication capabilities:
 // - **Protocol Communication**: Direct communication with muster aggregator
-// - **Tool Invocation**: Execute MCP tools with parameter validation
+// - **Tool Invocation**: Execute MCP tools with arg validation
 // - **Response Handling**: Parse and validate tool responses
 // - **Connection Management**: Automatic connection handling and recovery
 // - **Debug Tracing**: Protocol-level debugging and logging capabilities
@@ -108,7 +108,7 @@
 //   - Cleanup: Teardown steps executed after scenario completion
 //
 // **TestStep**: Individual test operation within a scenario
-//   - Tool invocation: MCP tool name and parameters
+//   - Tool invocation: MCP tool name and args
 //   - Validation: Expected outcomes and assertion rules
 //   - Error handling: Retry logic and failure recovery
 //   - Timing: Step-specific timeout and delay configurations
@@ -152,12 +152,12 @@
 // ## ServiceClass Testing
 // - **Management Operations**: Create, update, delete, list ServiceClass definitions
 // - **Dynamic Instantiation**: Validate ServiceClass-to-Service instantiation
-// - **Parameter Validation**: Test parameter templating and validation logic
+// - **Arg Validation**: Test arg templating and validation logic
 // - **Tool Integration**: Verify ServiceClass tool definitions and availability
 //
 // ## Workflow Testing
 // - **Execution Logic**: Validate workflow step execution and flow control
-// - **Parameter Templating**: Test parameter substitution and variable scoping
+// - **Arg Templating**: Test arg substitution and variable scoping
 // - **Error Handling**: Validate error propagation and recovery mechanisms
 // - **Integration**: Test workflow interaction with other core concepts
 //
@@ -184,7 +184,7 @@
 // The testing framework includes comprehensive mock MCP server functionality:
 //
 // - **Mock Tool Definitions**: Define tools with configurable responses
-// - **Conditional Responses**: Different responses based on input parameters
+// - **Conditional Responses**: Different responses based on input args
 // - **Template-Based Responses**: Dynamic response generation using Go templates
 // - **Error Simulation**: Simulate various error conditions and failures
 // - **Standalone Mode**: Run mock servers independently for external testing

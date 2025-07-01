@@ -118,7 +118,7 @@ Many MCP servers need setup (port-forwarding, authentication, etc.). ServiceClas
 ```yaml
 name: prometheus-access
 startTool: x_kubernetes_port_forward
-parameters:
+args:
   service: "prometheus-server"  
   namespace: "monitoring"
   localPort: 9090
@@ -193,7 +193,7 @@ name: cluster-login
 version: "1.0.0"
 serviceConfig:
   serviceType: "auth"
-  parameters:
+  args:
     cluster:
       type: "string"
       required: true
@@ -239,7 +239,7 @@ steps:
 # Prometheus access with port-forwarding
 name: prometheus-tunnel
 startTool: k8s_port_forward
-parameters:
+args:
   service: "prometheus-server"
   localPort: 9090
     
@@ -247,7 +247,7 @@ parameters:
 # Grafana dashboard access  
 name: grafana-tunnel  
 startTool: k8s_port_forward
-parameters:
+args:
   service: "grafana"
   localPort: 3000    
 ---

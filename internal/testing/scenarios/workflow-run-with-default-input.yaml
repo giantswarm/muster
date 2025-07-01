@@ -1,7 +1,7 @@
 name: "workflow-run-with-default-input"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "run", "parameters", "core-api"]
+tags: ["workflow", "run", "args", "core-api"]
 timeout: "1m"
 
 pre_configuration:
@@ -11,7 +11,7 @@ pre_configuration:
       name: "default-input-workflow"
       inputSchema:
         type: "object"
-        properties:
+        args:
           message: { type: "string", default: "default value" }
       steps:
         - id: "echo"

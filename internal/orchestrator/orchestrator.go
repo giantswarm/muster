@@ -22,7 +22,7 @@ const (
 // ToolCaller represents the interface for calling aggregator tools
 // This interface is implemented by the aggregator integration
 type ToolCaller interface {
-	CallTool(ctx context.Context, toolName string, arguments map[string]interface{}) (map[string]interface{}, error)
+	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error)
 }
 
 // CreateServiceRequest represents a request to create a new ServiceClass-based service instance
@@ -33,8 +33,8 @@ type CreateServiceRequest struct {
 	// Name for the service instance (must be unique)
 	Name string `json:"name"`
 
-	// Parameters for service creation
-	Parameters map[string]interface{} `json:"parameters"`
+	// Arguments for service creation
+	Args map[string]interface{} `json:"args"`
 
 	// Whether to persist this service instance definition to YAML files
 	Persist bool `json:"persist,omitempty"`
@@ -49,16 +49,16 @@ type CreateServiceRequest struct {
 
 // ServiceInstanceInfo provides information about a ServiceClass-based service instance
 type ServiceInstanceInfo struct {
-	Name               string                 `json:"name"`
-	ServiceClassName   string                 `json:"serviceClassName"`
-	ServiceClassType   string                 `json:"serviceClassType"`
-	State              string                 `json:"state"`
-	Health             string                 `json:"health"`
-	LastError          string                 `json:"lastError,omitempty"`
-	CreatedAt          time.Time              `json:"createdAt"`
-	LastChecked        *time.Time             `json:"lastChecked,omitempty"`
-	ServiceData        map[string]interface{} `json:"serviceData,omitempty"`
-	CreationParameters map[string]interface{} `json:"creationParameters"`
+	Name             string                 `json:"name"`
+	ServiceClassName string                 `json:"serviceClassName"`
+	ServiceClassType string                 `json:"serviceClassType"`
+	State            string                 `json:"state"`
+	Health           string                 `json:"health"`
+	LastError        string                 `json:"lastError,omitempty"`
+	CreatedAt        time.Time              `json:"createdAt"`
+	LastChecked      *time.Time             `json:"lastChecked,omitempty"`
+	ServiceData      map[string]interface{} `json:"serviceData,omitempty"`
+	CreationArgs     map[string]interface{} `json:"creationArgs"`
 }
 
 // ServiceInstanceEvent represents a service instance state change event
@@ -243,7 +243,7 @@ func (o *Orchestrator) processMCPServerServiceClasses(ctx context.Context, mcpSe
 		req := CreateServiceRequest{
 			ServiceClassName: serviceClassName,
 			Name:             name,
-			Parameters:       o.buildServiceParameters(mcpServerInfo, serviceClassName),
+			Args:             o.buildServiceArgs(mcpServerInfo, serviceClassName),
 		}
 
 		if _, err := o.CreateServiceClassInstance(ctx, req); err != nil {
@@ -264,13 +264,13 @@ func (o *Orchestrator) extractServiceClassNames(mcpServerInfo api.MCPServerInfo)
 	return []string{}
 }
 
-// buildServiceParameters builds parameters for ServiceClass instantiation based on MCP Server config
-func (o *Orchestrator) buildServiceParameters(mcpServerInfo api.MCPServerInfo, serviceClassName string) map[string]interface{} {
+// buildServiceArgs builds args for ServiceClass instantiation based on MCP Server config
+func (o *Orchestrator) buildServiceArgs(mcpServerInfo api.MCPServerInfo, serviceClassName string) map[string]interface{} {
 	return map[string]interface{}{
 		"mcpServerName": mcpServerInfo.Name,
 		"mcpServerType": mcpServerInfo.Type,
 		"serviceClass":  serviceClassName,
-		// Add other relevant parameters from MCP server config
+		// Add other relevant args from MCP server config
 	}
 }
 
@@ -310,7 +310,7 @@ func (o *Orchestrator) loadPersistedServiceInstances(ctx context.Context) error 
 		req := CreateServiceRequest{
 			ServiceClassName: def.ServiceClassName,
 			Name:             def.Name,
-			Parameters:       def.Parameters,
+			Args:             def.Args,
 			Persist:          false, // Already persisted, don't save again
 			AutoStart:        def.AutoStart,
 		}
@@ -361,9 +361,9 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		return nil, fmt.Errorf("ServiceClass %s is not available (missing required tools)", req.ServiceClassName)
 	}
 
-	// Validate service creation parameters against ServiceClass parameter definitions
-	if err := serviceClass.ValidateServiceParameters(req.Parameters); err != nil {
-		return nil, fmt.Errorf("parameter validation failed: %w", err)
+	// Validate service creation args against ServiceClass arg definitions
+	if err := serviceClass.ValidateServiceArgs(req.Args); err != nil {
+		return nil, fmt.Errorf("arg validation failed: %w", err)
 	}
 
 	// Check if name is already in use
@@ -384,7 +384,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		req.Name,
 		req.ServiceClassName,
 		o.toolCaller,
-		req.Parameters,
+		req.Args,
 	)
 
 	if instance == nil {
@@ -429,7 +429,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 			req.Name,
 			req.ServiceClassName,
 			"serviceclass", // Default since Type field removed from API in Phase 3
-			req.Parameters,
+			req.Args,
 			req.AutoStart,
 		)
 
@@ -442,14 +442,14 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 	}
 
 	return &ServiceInstanceInfo{
-		Name:               req.Name,
-		ServiceClassName:   req.ServiceClassName,
-		ServiceClassType:   "serviceclass", // Default since Type field removed from API in Phase 3
-		State:              string(instance.GetState()),
-		Health:             string(instance.GetHealth()),
-		CreatedAt:          time.Now(),
-		ServiceData:        instance.GetServiceData(),
-		CreationParameters: req.Parameters,
+		Name:             req.Name,
+		ServiceClassName: req.ServiceClassName,
+		ServiceClassType: "serviceclass", // Default since Type field removed from API in Phase 3
+		State:            string(instance.GetState()),
+		Health:           string(instance.GetHealth()),
+		CreatedAt:        time.Now(),
+		ServiceData:      instance.GetServiceData(),
+		CreationArgs:     req.Args,
 	}, nil
 }
 
@@ -536,8 +536,8 @@ func (o *Orchestrator) validateCreateRequest(req CreateServiceRequest) error {
 	if req.Name == "" {
 		return fmt.Errorf("service name is required")
 	}
-	if req.Parameters == nil {
-		req.Parameters = make(map[string]interface{})
+	if req.Args == nil {
+		req.Args = make(map[string]interface{})
 	}
 	return nil
 }
@@ -545,15 +545,15 @@ func (o *Orchestrator) validateCreateRequest(req CreateServiceRequest) error {
 // serviceInstanceToInfo converts a GenericServiceInstance to ServiceInstanceInfo
 func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *services.GenericServiceInstance) *ServiceInstanceInfo {
 	return &ServiceInstanceInfo{
-		Name:               instance.GetName(), // Use the instance's actual name
-		ServiceClassName:   instance.GetServiceClassName(),
-		ServiceClassType:   string(instance.GetType()),
-		State:              string(instance.GetState()),
-		Health:             string(instance.GetHealth()),
-		LastError:          "",
-		CreatedAt:          instance.GetCreatedAt(),
-		ServiceData:        instance.GetServiceData(),
-		CreationParameters: instance.GetCreationParameters(),
+		Name:             instance.GetName(), // Use the instance's actual name
+		ServiceClassName: instance.GetServiceClassName(),
+		ServiceClassType: string(instance.GetType()),
+		State:            string(instance.GetState()),
+		Health:           string(instance.GetHealth()),
+		LastError:        "",
+		CreatedAt:        instance.GetCreatedAt(),
+		ServiceData:      instance.GetServiceData(),
+		CreationArgs:     instance.GetCreationArgs(),
 	}
 }
 

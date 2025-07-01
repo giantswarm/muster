@@ -75,11 +75,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	arguments := map[string]interface{}{
+	toolArgs := map[string]interface{}{
 		"definition": definition,
 	}
 
-	return executor.Execute(ctx, toolName, arguments)
+	return executor.Execute(ctx, toolName, toolArgs)
 }
 
 // readResourceFile reads a resource definition file or from stdin

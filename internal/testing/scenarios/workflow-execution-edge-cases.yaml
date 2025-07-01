@@ -12,7 +12,7 @@ steps:
     name: "special-chars-workflow_123"
     inputSchema:
       type: "object"
-      properties:
+      args:
         special_input:
           type: "string"
           default: "test-with-special-chars_@#$"
@@ -108,7 +108,7 @@ steps:
     name: "workflow-with-many-dashes-and-numbers-123-456"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "edge_step"
@@ -171,7 +171,7 @@ steps:
   expected:
     success: true
 
-# Test special characters in input parameters preservation
+# Test special characters in input args preservation
 - id: "validate-special-chars-preservation"
   tool: "core_workflow_execution_get"
   args:

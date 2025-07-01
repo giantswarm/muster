@@ -11,7 +11,7 @@ steps:
     name: "duplicate-steps-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "duplicate-step"

@@ -28,7 +28,7 @@
 // ## ServiceClass-Based Services (Dynamic)
 //   - **ServiceClass Instances**: Runtime-configurable services created from YAML definitions
 //   - **Tool-Driven Lifecycle**: Operations executed through aggregator tool integration
-//   - **Template-Based Configuration**: Dynamic parameter substitution and mapping
+//   - **Template-Based Configuration**: Dynamic arg substitution and mapping
 //   - **Event Streaming**: Real-time instance state and lifecycle events
 //   - **Persistence Support**: Optional persistence of service instance definitions
 //
@@ -47,8 +47,8 @@
 //  1. **ServiceClass Validation**: Verify ServiceClass exists and is available
 //  2. **Tool Availability Check**: Ensure required tools are accessible through aggregator
 //  3. **Instance Creation**: Create GenericServiceInstance with ServiceClass reference
-//  4. **Parameter Validation**: Validate parameters against ServiceClass schema
-//  5. **Tool Execution**: Execute ServiceClass create tool with templated parameters
+//  4. **Arg Validation**: Validate args against ServiceClass schema
+//  5. **Tool Execution**: Execute ServiceClass create tool with templated args
 //  6. **Registration**: Register instance with unified service registry
 //  7. **Health Monitoring**: Periodic health checks using ServiceClass health tools
 //  8. **Event Propagation**: Broadcast instance state changes and lifecycle events
@@ -87,7 +87,7 @@
 // ## ServiceClass Health
 //   - Tool-driven health checking through ServiceClass health tools
 //   - Configurable health check intervals and thresholds
-//   - Template-based parameter substitution for health check tools
+//   - Template-based arg substitution for health check tools
 //   - Response mapping for health status extraction
 //   - Failure threshold tracking and recovery detection
 //
@@ -143,7 +143,7 @@
 //	req := orchestrator.CreateServiceRequest{
 //	    ServiceClassName: "kubernetes_port_forward",
 //	    Name:             "my-app-forward",
-//	    Parameters: map[string]interface{}{
+//	    Args: map[string]interface{}{
 //	        "namespace":    "default",
 //	        "service_name": "my-app",
 //	        "local_port":   "8080",
@@ -186,7 +186,7 @@
 // ## ServiceClass Instances
 //   - **User-defined names** specified during instance creation
 //   - Must be unique within the service registry
-//   - Can use ServiceClass default name templates with parameter substitution
+//   - Can use ServiceClass default name templates with arg substitution
 //
 // # Error Handling
 //
@@ -194,7 +194,7 @@
 //
 //   - **ServiceClass Validation Errors**: Invalid or unavailable ServiceClass definitions
 //   - **Tool Execution Errors**: Aggregator tool failures and response mapping errors
-//   - **Parameter Template Errors**: Template substitution and validation failures
+//   - **Arg Template Errors**: Template substitution and validation failures
 //   - **Dependency Errors**: Invalid dependencies and circular dependency detection
 //   - **Instance Management Errors**: Creation, deletion, and lifecycle management failures
 //   - **Persistence Errors**: YAML file operations and storage failures

@@ -15,7 +15,7 @@ Users create capability definition files in their configuration directory:
 Each capability is defined as a YAML file with:
 - **Custom capability type** (any string, e.g., "auth", "database", "monitoring", "deployment")
 - **Operations** that map to tool calls and workflows
-- **Parameters** and validation rules
+- **Args** and validation rules
 - **Embedded workflows** for complex operations
 
 # Capability Examples
@@ -49,7 +49,7 @@ operations:
 
 	deploy:
 	  description: "Deploy application"
-	  parameters:
+	  args:
 	    environment:
 	      type: string
 	      required: true

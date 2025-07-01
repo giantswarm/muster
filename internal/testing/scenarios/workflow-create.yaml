@@ -11,7 +11,7 @@ steps:
     name: "test-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "check_service"
@@ -30,7 +30,7 @@ steps:
     name: "advanced-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "list_services"

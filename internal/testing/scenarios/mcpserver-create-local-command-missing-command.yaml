@@ -1,5 +1,5 @@
 name: "mcpserver-create-local-command-missing-command"
-description: "Test creating local command MCP server without required command parameter"
+description: "Test creating local command MCP server without required command arg"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "validation", "core-api"]

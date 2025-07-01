@@ -4,7 +4,7 @@ concept: "capability"
 tags: ["capability", "crud", "core-api"]
 timeout: "5m"
 
-# Per the types.go file, a Capability has 'Operations' which in turn have 'Parameters'
+# Per the types.go file, a Capability has 'Operations.*Args'
 # and can point to a 'Workflow'. We will model this structure.
 pre_configuration:
   workflows:

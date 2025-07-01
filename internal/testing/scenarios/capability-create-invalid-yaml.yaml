@@ -1,4 +1,4 @@
-name: "capability-create-invalid-parameters"
+name: "capability-create-invalid-args"
 category: "behavioral"
 concept: "capability"
 tags: ["capability", "create", "error-handling", "validation", "core-api"]

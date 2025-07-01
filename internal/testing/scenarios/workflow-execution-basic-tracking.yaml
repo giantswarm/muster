@@ -11,7 +11,7 @@ steps:
     name: "basic-tracking-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         service_name:
           type: "string"
           description: "Name of the service"

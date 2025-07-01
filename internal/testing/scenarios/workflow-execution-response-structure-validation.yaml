@@ -11,7 +11,7 @@ steps:
     name: "structure-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         test_input:
           type: "string"
           default: "structure-test"

@@ -11,7 +11,7 @@ steps:
     name: "non-existent-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "test-step"

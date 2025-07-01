@@ -11,7 +11,7 @@ steps:
     name: "multi-step-tracking-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         service_name:
           type: "string"
           default: "test-service"

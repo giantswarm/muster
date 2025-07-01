@@ -56,7 +56,7 @@ type Client struct {
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
 //
-// Parameters:
+// Args:
 //   - endpoint: The MCP server endpoint URL (e.g., "http://localhost:8090/sse")
 //   - logger: Logger instance for structured logging, or nil to disable logging
 //   - transport: Transport type (TransportSSE or TransportStreamableHTTP)
@@ -363,7 +363,7 @@ func (c *Client) initialize(ctx context.Context) error {
 // This method handles both initial loading and refresh scenarios, with intelligent
 // diff tracking for notification-driven updates.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - initial: Whether this is the first time loading tools (affects diff display)
 //
@@ -433,7 +433,7 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 // This method handles both initial loading and refresh scenarios, with intelligent
 // diff tracking for notification-driven updates.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - initial: Whether this is the first time loading resources (affects diff display)
 //
@@ -503,7 +503,7 @@ func (c *Client) listResources(ctx context.Context, initial bool) error {
 // This method handles both initial loading and refresh scenarios, with intelligent
 // diff tracking for notification-driven updates.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - initial: Whether this is the first time loading prompts (affects diff display)
 //
@@ -573,10 +573,10 @@ func (c *Client) listPrompts(ctx context.Context, initial bool) error {
 // This is the core method for tool execution, handling request construction,
 // timeout management, and error propagation.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - name: The exact name of the tool to execute
-//   - args: Tool arguments as a map of parameter names to values
+//   - args: Tool arguments as a map of arg names to values
 //
 // Returns:
 //   - CallToolResult: Complete tool execution result including content and metadata
@@ -629,10 +629,10 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 // This is a convenience method that handles the most common use case of tool
 // execution where you expect a simple text response.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - name: The exact name of the tool to execute
-//   - args: Tool arguments as a map of parameter names to values
+//   - args: Tool arguments as a map of arg names to values
 //
 // Returns:
 //   - string: The first text content from the tool result, or empty string if no text content
@@ -690,10 +690,10 @@ func (c *Client) CallToolSimple(ctx context.Context, name string, args map[strin
 // This is a convenience method for tools that return structured data.
 // If the result is not valid JSON, it returns the text content as-is.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - name: The exact name of the tool to execute
-//   - args: Tool arguments as a map of parameter names to values
+//   - args: Tool arguments as a map of arg names to values
 //
 // Returns:
 //   - interface{}: Parsed JSON data structure, or string if not valid JSON
@@ -733,7 +733,7 @@ func (c *Client) CallToolJSON(ctx context.Context, name string, args map[string]
 // Resources are identified by URI and can contain various types of content
 // including text, binary data, or structured information.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - uri: The resource URI to retrieve (e.g., "file://config.yaml", "memory://cache/data")
 //
@@ -804,12 +804,12 @@ func (c *Client) GetResource(ctx context.Context, uri string) (*mcp.ReadResource
 }
 
 // GetPrompt retrieves a prompt template from the MCP server and executes it with the given arguments.
-// Prompts are template-based text generation tools that can be parameterized for different contexts.
+// Prompts are template-based text generation tools that can be argeterized for different contexts.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for cancellation and timeout control
 //   - name: The exact name of the prompt to retrieve
-//   - args: Template arguments as a map of parameter names to string values
+//   - args: Template arguments as a map of arg names to string values
 //
 // Returns:
 //   - GetPromptResult: Complete prompt result including generated messages and metadata
@@ -981,7 +981,7 @@ func (c *Client) SupportsNotifications() bool {
 // When caching is disabled, every operation will fetch fresh data from the server,
 // which is useful for testing scenarios or when you need always-current data.
 //
-// Parameters:
+// Args:
 //   - enabled: Whether to enable caching (true) or disable it (false)
 //
 // Disabling caching also disables diff tracking and change notifications since
@@ -1003,7 +1003,7 @@ func (c *Client) SetCacheEnabled(enabled bool) {
 // This timeout applies to all network operations including tool calls,
 // resource retrieval, prompt execution, and capability listing.
 //
-// Parameters:
+// Args:
 //   - timeout: The timeout duration for operations (e.g., 30*time.Second)
 //
 // The default timeout is 30 seconds. Setting a shorter timeout can help

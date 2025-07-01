@@ -54,7 +54,7 @@ type AggregatorHandler interface {
 	// This method provides the primary interface for external tool execution with
 	// result formatting suitable for API responses.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for request cancellation and timeout control
 	//   - toolName: The name of the tool to execute
 	//   - args: Arguments to pass to the tool as key-value pairs
@@ -68,7 +68,7 @@ type AggregatorHandler interface {
 	// This method is used internally by workflow and other subsystems that need
 	// direct access to the underlying MCP tool result format.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for request cancellation and timeout control
 	//   - toolName: The name of the tool to execute
 	//   - args: Arguments to pass to the tool as key-value pairs
@@ -81,7 +81,7 @@ type AggregatorHandler interface {
 	// IsToolAvailable checks whether a specific tool is currently available for execution.
 	// This is used for validation before attempting tool calls and for capability reporting.
 	//
-	// Parameters:
+	// Args:
 	//   - toolName: The name of the tool to check
 	//
 	// Returns:
@@ -104,7 +104,7 @@ type AggregatorHandler interface {
 // It provides a standardized way for capabilities to execute tools with proper error handling
 // and result formatting. The method converts the aggregator's result format to the format
 // expected by the capability system.
-func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, arguments map[string]interface{}) (map[string]interface{}, error) {
+func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error) {
 	aggregatorHandler := GetAggregator()
 	if aggregatorHandler == nil {
 		return nil, fmt.Errorf("aggregator handler not available")
@@ -115,10 +115,10 @@ func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, arguments 
 		return nil, fmt.Errorf("tool %s is not available", toolName)
 	}
 
-	logging.Debug("APIToolCaller", "Calling tool %s with args: %v", toolName, arguments)
+	logging.Debug("APIToolCaller", "Calling tool %s with args: %v", toolName, args)
 
 	// Call the tool through the aggregator handler
-	result, err := aggregatorHandler.CallTool(ctx, toolName, arguments)
+	result, err := aggregatorHandler.CallTool(ctx, toolName, args)
 	if err != nil {
 		logging.Error("APIToolCaller", err, "Failed to call tool %s", toolName)
 		return nil, fmt.Errorf("failed to call tool %s: %w", toolName, err)

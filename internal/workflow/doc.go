@@ -57,14 +57,14 @@
 // Workflows are executed step by step in the defined order. Each step:
 //   - Calls the specified tool with the provided arguments
 //   - Can reference outputs from previous steps using {{stepId.field}} syntax
-//   - Can reference input parameters using {{.parameterName}} syntax
+//   - Can reference input args using {{.argumentName}} syntax
 //   - Has access to the workflow's execution context
-//   - Supports parameter templating for dynamic argument construction
+//   - Supports arg templating for dynamic argument construction
 //
-// ## Parameter Templating
+// ## Arg Templating
 //
-// Workflows support Go template syntax for dynamic parameter substitution:
-//   - **Input parameters**: {{.parameterName}}
+// Workflows support Go template syntax for dynamic arg substitution:
+//   - **Input arguments**: {{.argumentName}}
 //   - **Step outputs**: {{stepId.result}} or {{stepId.specificField}}
 //   - **Default values**: Via input schema default properties
 //
@@ -75,13 +75,13 @@
 //   - **Definition Loading**: Load workflows from YAML files
 //   - **Validation**: Comprehensive validation of workflow definitions
 //   - **CRUD Operations**: Create, read, update, and delete workflows
-//   - **Execution**: Execute workflows with parameter validation
+//   - **Execution**: Execute workflows with arg validation
 //   - **Tool Integration**: Automatic registration as MCP tools
 //   - **Availability Checking**: Dynamic tool availability validation
 //
 // # Input Schema Support
 //
-// Workflows can define input schemas for parameter validation:
+// Workflows can define input schemas for arg validation:
 //
 //	inputSchema:
 //	  type: "object"
@@ -100,9 +100,9 @@
 //	  required: ["environment", "version"]
 //
 // This enables:
-//   - **Parameter validation** before execution
-//   - **Default value** assignment for optional parameters
-//   - **Type checking** for input parameters
+//   - **Arg validation** before execution
+//   - **Default value** assignment for optional arguments
+//   - **Type checking** for input arguments
 //   - **Documentation** for workflow consumers
 //
 // # Error Handling
@@ -111,7 +111,7 @@
 //   - Invalid workflow files are logged but don't prevent other workflows from loading
 //   - Missing tools are detected and reported during validation
 //   - Execution errors can be configured to stop or continue the workflow
-//   - Parameter validation errors prevent workflow execution
+//   - Arg validation errors prevent workflow execution
 //   - Tool execution errors are propagated with context
 //
 // # Dynamic Tool Availability
@@ -145,7 +145,7 @@
 //	    Description: "Deploy application to environment",
 //	    InputSchema: api.WorkflowInputSchema{
 //	        Type: "object",
-//	        Properties: map[string]api.WorkflowProperty{
+//	        Args: map[string]api.SchemaProperty{
 //	            "environment": {
 //	                Type:        "string",
 //	                Description: "Target environment",
@@ -255,7 +255,7 @@
 //   - **Step validation**: Required fields and step ID uniqueness
 //   - **Tool validation**: Tool names cannot be empty
 //   - **Schema validation**: Input schema structure and types
-//   - **Parameter validation**: Required and optional parameter checking
+//   - **Arg validation**: Required and optional arg checking
 //
 // # Performance Characteristics
 //

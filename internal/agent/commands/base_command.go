@@ -86,7 +86,7 @@ type BaseCommand struct {
 // This constructor ensures all commands have access to the core functionality
 // they need while maintaining clean separation of concerns.
 //
-// Parameters:
+// Args:
 //   - client: MCP client interface for operations
 //   - output: Logger interface for user-facing output
 //   - transport: Transport interface for capability checking
@@ -105,7 +105,7 @@ func NewBaseCommand(client ClientInterface, output OutputLogger, transport Trans
 // This utility method provides consistent argument validation across commands
 // and generates appropriate usage messages when validation fails.
 //
-// Parameters:
+// Args:
 //   - args: Command arguments to validate
 //   - minArgs: Minimum number of arguments required
 //   - usage: Usage string to display on validation failure
@@ -124,7 +124,7 @@ func (b *BaseCommand) parseArgs(args []string, minArgs int, usage string) ([]str
 // This is useful for commands that accept free-form text or JSON arguments
 // where multiple command line arguments should be treated as one logical argument.
 //
-// Parameters:
+// Args:
 //   - args: Argument slice to process
 //   - index: Starting index for joining (0-based)
 //
@@ -141,7 +141,7 @@ func (b *BaseCommand) joinArgsFrom(args []string, index int) string {
 // This is used by commands that operate on different types of MCP items
 // (tools, resources, prompts) to ensure valid target specification.
 //
-// Parameters:
+// Args:
 //   - target: The target type to validate (case-insensitive)
 //   - validTargets: Slice of valid target type names
 //
@@ -159,7 +159,7 @@ func (b *BaseCommand) validateTarget(target string, validTargets []string) error
 // getCompletionsForTargets returns completion suggestions for valid targets.
 // This provides tab completion support for commands that accept target types.
 //
-// Parameters:
+// Args:
 //   - targets: Slice of valid target names to suggest
 //
 // Returns:

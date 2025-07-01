@@ -28,9 +28,9 @@ type ServiceInstance struct {
 	// This is populated from the ServiceClass configuration and used for categorization.
 	ServiceClassType string `json:"serviceClassType,omitempty" yaml:"serviceClassType,omitempty"`
 
-	// Parameters contains the configuration values provided when creating this service instance.
-	// These values are validated against the ServiceClass parameter definitions.
-	Parameters map[string]interface{} `yaml:"parameters" json:"parameters"`
+	// Args contains the configuration values provided when creating this service instance.
+	// These values are validated against the ServiceClass arg definitions.
+	Args map[string]interface{} `yaml:"args" json:"args"`
 
 	// Dependencies lists other service instances that must be running before this instance can start.
 	// The orchestrator uses this for proper startup ordering.
@@ -100,10 +100,10 @@ type CreateServiceInstanceRequest struct {
 	// This name must be unique across all service instances in the system.
 	Name string `json:"name"`
 
-	// Parameters contains the configuration values for the new service instance.
-	// These parameters are validated against the ServiceClass parameter definitions
+	// Args contains the configuration values for the new service instance.
+	// These args are validated against the ServiceClass arg definitions
 	// and used to customize the service behavior.
-	Parameters map[string]interface{} `json:"parameters"`
+	Args map[string]interface{} `json:"args"`
 
 	// Persist determines whether this service instance definition should be saved to YAML files.
 	// When true, the instance configuration will be persisted and survive system restarts.

@@ -40,7 +40,7 @@ type ServiceInfo interface {
 type ServiceRegistryHandler interface {
 	// Get retrieves a service by name from the registry.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the service to retrieve
 	//
 	// Returns:
@@ -56,7 +56,7 @@ type ServiceRegistryHandler interface {
 
 	// GetByType returns all services of a specific type.
 	//
-	// Parameters:
+	// Args:
 	//   - serviceType: The type of services to retrieve (e.g., TypeMCPServer)
 	//
 	// Returns:
@@ -76,7 +76,7 @@ type ServiceManagerHandler interface {
 	// StartService starts a service by name.
 	// Works for both static services and ServiceClass-based service instances.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service to start
 	//
 	// Returns:
@@ -86,7 +86,7 @@ type ServiceManagerHandler interface {
 	// StopService stops a running service by name.
 	// Works for both static services and ServiceClass-based service instances.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service to stop
 	//
 	// Returns:
@@ -96,7 +96,7 @@ type ServiceManagerHandler interface {
 	// RestartService restarts a service by name (stop followed by start).
 	// Works for both static services and ServiceClass-based service instances.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service to restart
 	//
 	// Returns:
@@ -107,7 +107,7 @@ type ServiceManagerHandler interface {
 
 	// GetServiceStatus returns the current status of a service.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service to query
 	//
 	// Returns:
@@ -124,7 +124,7 @@ type ServiceManagerHandler interface {
 	// GetService returns detailed information about a specific service.
 	// This provides more comprehensive information than GetServiceStatus.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service to query
 	//
 	// Returns:
@@ -137,9 +137,9 @@ type ServiceManagerHandler interface {
 	// CreateService creates a new service instance from a ServiceClass template.
 	// This operation is only applicable to ServiceClass-based services.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
-	//   - req: Request containing ServiceClass name, instance name, and parameters
+	//   - req: Request containing ServiceClass name, instance name, and args
 	//
 	// Returns:
 	//   - *ServiceInstance: The created service instance information
@@ -149,7 +149,7 @@ type ServiceManagerHandler interface {
 	// DeleteService removes a ServiceClass-based service instance.
 	// This operation is only applicable to ServiceClass-based services.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//   - name: The name of the service instance to delete
 	//

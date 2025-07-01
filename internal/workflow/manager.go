@@ -33,7 +33,7 @@ func NewWorkflowManager(storage *config.Storage, toolCaller ToolCaller, toolChec
 	// Extract config path from storage if it has one
 	var configPath string
 	if storage != nil {
-		// We can't directly access the configPath from storage, so we'll pass it via parameter later
+		// We can't directly access the configPath from storage, so we'll pass it via arg later
 		// For now, leave it empty
 	}
 
@@ -170,17 +170,17 @@ func (wm *WorkflowManager) validateWorkflowDefinition(def *api.Workflow) error {
 			}
 		}
 
-		// Validate properties if specified
-		for propName, prop := range def.InputSchema.Properties {
-			if propName == "" {
-				errors.Add("inputSchema.properties", "property name cannot be empty")
+		// Validate args if specified
+		for argName, arg := range def.InputSchema.Args {
+			if argName == "" {
+				errors.Add("inputSchema.args", "argument name cannot be empty")
 				continue
 			}
 
-			if prop.Type == "" {
-				errors.Add(fmt.Sprintf("inputSchema.properties.%s.type", propName), "property type is required")
+			if arg.Type == "" {
+				errors.Add(fmt.Sprintf("inputSchema.args.%s.type", argName), "argument type is required")
 			} else {
-				if err := config.ValidateOneOf(fmt.Sprintf("inputSchema.properties.%s.type", propName), prop.Type, validTypes); err != nil {
+				if err := config.ValidateOneOf(fmt.Sprintf("inputSchema.args.%s.type", argName), arg.Type, validTypes); err != nil {
 					errors = append(errors, err.(config.ValidationError))
 				}
 			}
@@ -399,7 +399,7 @@ func (wm *WorkflowManager) workflowToTool(workflow api.Workflow) mcp.Tool {
 	properties := make(map[string]interface{})
 	required := workflow.InputSchema.Required
 
-	for name, prop := range workflow.InputSchema.Properties {
+	for name, prop := range workflow.InputSchema.Args {
 		propSchema := map[string]interface{}{
 			"type":        prop.Type,
 			"description": prop.Description,

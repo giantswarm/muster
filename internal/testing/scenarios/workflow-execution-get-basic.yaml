@@ -11,7 +11,7 @@ steps:
     name: "get-test-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         test_input:
           type: "string"
           default: "test-value"

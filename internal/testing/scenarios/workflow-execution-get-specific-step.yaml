@@ -11,7 +11,7 @@ steps:
     name: "specific-step-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         step_param:
           type: "string"
           default: "step-value"

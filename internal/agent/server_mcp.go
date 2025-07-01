@@ -35,7 +35,7 @@ type MCPServer struct {
 // This enables AI assistants to interact with muster through the standard MCP protocol
 // using stdio transport.
 //
-// Parameters:
+// Args:
 //   - client: MCP client for aggregator communication
 //   - logger: Logger instance for structured logging
 //   - notifyClients: Whether to enable client notifications for tool changes

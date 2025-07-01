@@ -56,9 +56,9 @@
 //
 // ## ServiceClass Operations
 //   - List available ServiceClasses with real-time availability status
-//   - Get ServiceClass definitions, parameters, and lifecycle tool configuration
+//   - Get ServiceClass definitions, args, and lifecycle tool configuration
 //   - Check tool availability for ServiceClasses and validate configurations
-//   - Create and manage ServiceClass-based service instances with parameter validation
+//   - Create and manage ServiceClass-based service instances with arg validation
 //   - ServiceClass instance lifecycle, health monitoring, and event streaming
 //
 // ## MCP Server Management
@@ -70,27 +70,27 @@
 //
 // ## Capability System
 //   - User-defined capability definition management with operation validation
-//   - Capability operation execution with parameter validation
+//   - Capability operation execution with arg validation
 //   - Dynamic capability availability checking based on underlying tools
 //   - Integration with tool provider system for extensible operations
 //   - Capability namespace management and conflict resolution
 //
 // ## Workflow Management
 //   - Workflow definition management (create, update, delete, validate)
-//   - Multi-step workflow execution with parameter templating
+//   - Multi-step workflow execution with arg templating
 //   - Conditional logic and step dependency management
 //   - Tool integration for workflow steps with error handling
 //   - Workflow input schema validation and documentation generation
 //
 // ## Tool Provider System
 //   - Tool provider registration and discovery
-//   - Tool metadata management and parameter validation
+//   - Tool metadata management and arg validation
 //   - Tool execution abstraction for different implementation types
 //   - Automatic tool aggregation and namespace management
 //
 // ## Request/Response Handling
 //   - Structured request types for all operations (Create, Update, Validate patterns)
-//   - Type-safe parameter parsing and validation using ParseRequest
+//   - Type-safe arg parsing and validation using ParseRequest
 //   - Comprehensive error handling with contextual information
 //   - Response mapping for ServiceClass tool integration
 //
@@ -213,7 +213,7 @@
 //
 // ## Request Validation and Parsing
 //
-//	// Parse and validate request parameters
+//	// Parse and validate request args
 //	var req ServiceClassCreateRequest
 //	if err := api.ParseRequest(args, &req); err != nil {
 //	    return fmt.Errorf("invalid request: %w", err)

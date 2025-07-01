@@ -42,7 +42,7 @@ func TestWorkflowExecutor_ExecuteWorkflow(t *testing.T) {
 		Description: "Test workflow",
 		InputSchema: api.WorkflowInputSchema{
 			Type: "object",
-			Properties: map[string]api.SchemaProperty{
+			Args: map[string]api.SchemaProperty{
 				"cluster": {
 					Type:        "string",
 					Description: "Cluster name",
@@ -83,7 +83,7 @@ func TestWorkflowExecutor_ValidateInputs(t *testing.T) {
 
 	schema := api.WorkflowInputSchema{
 		Type: "object",
-		Properties: map[string]api.SchemaProperty{
+		Args: map[string]api.SchemaProperty{
 			"required_string": {
 				Type:        "string",
 				Description: "Required string field",
@@ -177,8 +177,8 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 		Name:        "test_workflow",
 		Description: "Test workflow with result storage",
 		InputSchema: api.WorkflowInputSchema{
-			Type:       "object",
-			Properties: map[string]api.SchemaProperty{},
+			Type: "object",
+			Args: map[string]api.SchemaProperty{},
 		},
 		Steps: []api.WorkflowStep{
 			{

@@ -11,7 +11,7 @@ pre_configuration:
       name: "update-test-workflow"
       inputSchema:
         type: "object"
-        properties: {}
+        args: {}
         required: []
       steps: [{id: "s1", tool: "core_service_list"}]
 steps:
@@ -21,7 +21,7 @@ steps:
     name: "update-test-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "s1_updated_temp"

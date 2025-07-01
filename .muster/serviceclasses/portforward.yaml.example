@@ -54,36 +54,36 @@ serviceConfig:
     delete: "30s"
     healthCheck: "10s"
   
-  # Parameter mapping for service creation
-  createParameters:
+  # Arg mapping for service creation
+  createArgs:
     namespace:
-      toolParameter: "namespace"
+      toolArg: "namespace"
       default: "default"
       required: false
     resource_type:
-      toolParameter: "resourceType"
+      toolArg: "resourceType"
       required: true
     resource_name:
-      toolParameter: "resourceName"
+      toolArg: "resourceName"
       required: true
     local_port:
-      toolParameter: "localPort"
+      toolArg: "localPort"
       required: true
     remote_port:
-      toolParameter: "targetPort"
+      toolArg: "targetPort"
       required: true
 
-# Parameter definitions for create operation
-  createParameters:
+# Arg definitions for create operation
+  createArgs:
     local_port:
-      toolParameter: "localPort"
+      toolArg: "localPort"
       default: "9090"
       required: false
   
-  # Parameters for other operations (empty for this ServiceClass)
-  deleteParameters: {}
-  statusParameters: {}
-  healthCheckParameters: {}
+  # Args for other operations (empty for this ServiceClass)
+  deleteArgs: {}
+  statusArgs: {}
+  healthCheckArgs: {}
 
 # Metadata for additional information
 metadata:
@@ -104,12 +104,12 @@ documentation:
   examples:
     - name: "Default promtheus connection"
       description: "Connect to Mimir on default port 9090"
-      parameters:
+      args:
         local_port: "9090"
         target_port: "9090"
         namespace: "monitoring"
 
-# Validation rules for parameters
+# Validation rules for args
 validation:
   rules:
     - field: "local_port"

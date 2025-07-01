@@ -56,7 +56,7 @@ type ToolExecutor struct {
 // It establishes the connection configuration and initializes the MCP client
 // for communication with the muster aggregator server.
 //
-// Parameters:
+// Args:
 //   - options: Configuration options for execution and output formatting
 //
 // Returns:
@@ -103,7 +103,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 // It shows a progress spinner unless quiet mode is enabled, and handles
 // connection errors with appropriate user feedback.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for connection timeout and cancellation
 //
 // Returns:
@@ -137,19 +137,19 @@ func (e *ToolExecutor) Close() error {
 	return e.client.Close()
 }
 
-// Execute executes a tool with the given arguments and formats the output.
+// Execute executes a tool with the given args and formats the output.
 // This is the main method for running muster tools through the CLI interface.
 // It handles progress indication, error formatting, and output formatting
 // according to the configured options.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for execution timeout and cancellation
 //   - toolName: Name of the tool to execute
-//   - arguments: Tool arguments as key-value pairs
+//   - args: Tool args as key-value pairs
 //
 // Returns:
 //   - error: Execution or formatting error, if any
-func (e *ToolExecutor) Execute(ctx context.Context, toolName string, arguments map[string]interface{}) error {
+func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[string]interface{}) error {
 	var s *spinner.Spinner
 	if !e.options.Quiet {
 		s = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
@@ -157,7 +157,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, arguments m
 		s.Start()
 	}
 
-	result, err := e.client.CallTool(ctx, toolName, arguments)
+	result, err := e.client.CallTool(ctx, toolName, args)
 
 	if s != nil {
 		s.Stop()
@@ -184,10 +184,10 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, arguments m
 // This method bypasses output formatting and is useful for programmatic
 // access to tool results or when custom formatting is needed.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for execution timeout and cancellation
 //   - toolName: Name of the tool to execute
-//   - args: Tool arguments as key-value pairs
+//   - args: Tool args as key-value pairs
 //
 // Returns:
 //   - string: Raw tool output as string
@@ -200,10 +200,10 @@ func (e *ToolExecutor) ExecuteSimple(ctx context.Context, toolName string, args 
 // This method is useful when you need to work with structured data
 // programmatically rather than displaying it to users.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for execution timeout and cancellation
 //   - toolName: Name of the tool to execute
-//   - args: Tool arguments as key-value pairs
+//   - args: Tool args as key-value pairs
 //
 // Returns:
 //   - interface{}: Parsed JSON result as Go data structures
@@ -216,7 +216,7 @@ func (e *ToolExecutor) ExecuteJSON(ctx context.Context, toolName string, args ma
 // It extracts error messages from the MCP result and presents them
 // in a user-friendly format.
 //
-// Parameters:
+// Args:
 //   - result: MCP call result containing error information
 //
 // Returns:
@@ -238,7 +238,7 @@ func (e *ToolExecutor) formatError(result *mcp.CallToolResult) error {
 // It handles conversion between different output formats and delegates
 // to appropriate formatting functions based on the configured output format.
 //
-// Parameters:
+// Args:
 //   - result: MCP call result containing the data to format
 //
 // Returns:
@@ -272,9 +272,10 @@ func (e *ToolExecutor) formatOutput(result *mcp.CallToolResult) error {
 
 // outputYAML converts JSON data to YAML format and prints it.
 // This provides a more readable alternative to JSON for configuration
-// and structured data display.
+// and structured data display. For responses that already contain a 'yaml'
+// field, it outputs that directly instead of converting the entire response.
 //
-// Parameters:
+// Args:
 //   - jsonData: JSON data as a string
 //
 // Returns:
@@ -285,6 +286,18 @@ func (e *ToolExecutor) outputYAML(jsonData string) error {
 		return fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
+	// Check if this is a response that already contains YAML content
+	if dataMap, ok := data.(map[string]interface{}); ok {
+		// If there's a 'yaml' field, output that directly (common for workflows)
+		if yamlContent, exists := dataMap["yaml"]; exists {
+			if yamlStr, ok := yamlContent.(string); ok {
+				fmt.Print(yamlStr)
+				return nil
+			}
+		}
+	}
+
+	// Fallback to converting entire response to YAML
 	yamlData, err := yaml.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to convert to YAML: %w", err)
@@ -298,7 +311,7 @@ func (e *ToolExecutor) outputYAML(jsonData string) error {
 // This provides the most user-friendly display format with proper styling,
 // icons, and optimized column layouts.
 //
-// Parameters:
+// Args:
 //   - jsonData: JSON data as a string to be formatted as a table
 //
 // Returns:

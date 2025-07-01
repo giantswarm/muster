@@ -64,7 +64,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	for i, step := range workflow.Steps {
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
-		// Resolve template variables in arguments
+		// Resolve template variables in step arguments
 		resolvedArgs, err := we.resolveArguments(step.Args, execCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve arguments for step %s: %w", step.ID, err)
@@ -119,6 +119,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		lastStepResult = result
 
 		// Store result if requested
+		// TODO: Implement step.Outputs processing for extracting specific fields
 		if step.Store != "" {
 			logging.Debug("WorkflowExecutor", "Processing result for step %s: %+v", step.ID, result)
 			var resultData interface{}
@@ -161,7 +162,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	finalResult := map[string]interface{}{
 		"workflow":     workflow.Name,
 		"results":      execCtx.results,
-		"input":        execCtx.input,        // Include input parameters
+		"input":        execCtx.input,        // Include input arguments
 		"templateVars": execCtx.templateVars, // Include template variables used
 		"stepMetadata": execCtx.stepMetadata, // Include step metadata for execution tracking
 		"status":       "completed",
@@ -208,7 +209,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 // executionContext holds the state during workflow execution
 type executionContext struct {
-	input        map[string]interface{} // Original input parameters
+	input        map[string]interface{} // Original input arguments
 	variables    map[string]interface{} // User-defined variables
 	results      map[string]interface{} // Results from previous steps
 	templateVars []string               // Track template variables used
@@ -218,7 +219,7 @@ type executionContext struct {
 // validateInputs validates the input arguments against the schema
 func (we *WorkflowExecutor) validateInputs(schema api.WorkflowInputSchema, args map[string]interface{}) error {
 	logging.Debug("WorkflowExecutor", "validateInputs called with args: %+v", args)
-	logging.Debug("WorkflowExecutor", "validateInputs schema properties: %+v", schema.Properties)
+	logging.Debug("WorkflowExecutor", "validateInputs schema properties: %+v", schema.Args)
 
 	// Check required fields
 	logging.Debug("WorkflowExecutor", "Checking required fields: %+v", schema.Required)
@@ -231,7 +232,7 @@ func (we *WorkflowExecutor) validateInputs(schema api.WorkflowInputSchema, args 
 
 	// Validate each provided argument
 	for key, value := range args {
-		prop, exists := schema.Properties[key]
+		prop, exists := schema.Args[key]
 		if !exists {
 			// Allow extra properties for flexibility
 			continue
@@ -244,7 +245,7 @@ func (we *WorkflowExecutor) validateInputs(schema api.WorkflowInputSchema, args 
 	}
 
 	// Apply defaults for missing optional fields
-	for key, prop := range schema.Properties {
+	for key, prop := range schema.Args {
 		logging.Debug("WorkflowExecutor", "Checking property %s: exists=%v, default=%+v", key, args[key] != nil, prop.Default)
 		if _, exists := args[key]; !exists && prop.Default != nil {
 			logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, prop.Default)

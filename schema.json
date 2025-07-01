@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-30T20:23:44+02:00",
+  "generated_at": "2025-07-01T10:20:37+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
       "properties": {
         "core_capability_check": {
-          "description": "Parameters for core_capability_check tool",
+          "description": "Arguments for core_capability_check tool",
           "properties": {
             "name": {
               "description": "Name of the capability to check",
@@ -20,7 +20,7 @@
           "type": "object"
         },
         "core_capability_create": {
-          "description": "Parameters for core_capability_create tool",
+          "description": "Arguments for core_capability_create tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -35,34 +35,34 @@
                 "additionalProperties": false,
                 "description": "Operation definition",
                 "properties": {
-                  "description": {
-                    "description": "Human-readable description of what this operation does",
-                    "type": "string"
-                  },
-                  "parameters": {
+                  "args": {
                     "additionalProperties": {
-                      "description": "Parameter definition",
+                      "description": "Argument definition",
                       "properties": {
                         "default": {
-                          "description": "Default value for the parameter"
+                          "description": "Default value for the argument"
                         },
                         "description": {
-                          "description": "Parameter description",
+                          "description": "Argument description",
                           "type": "string"
                         },
                         "required": {
-                          "description": "Whether this parameter is required",
+                          "description": "Whether this argument is required",
                           "type": "boolean"
                         },
                         "type": {
-                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "description": "Argument type (string, number, boolean, object, array)",
                           "type": "string"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "Input parameters for this operation",
+                    "description": "Input arguments for this operation",
                     "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
                   },
                   "requires": {
                     "description": "List of tools this operation requires to be available",
@@ -102,7 +102,7 @@
           "type": "object"
         },
         "core_capability_delete": {
-          "description": "Parameters for core_capability_delete tool",
+          "description": "Arguments for core_capability_delete tool",
           "properties": {
             "name": {
               "description": "Name of the capability to delete",
@@ -115,7 +115,7 @@
           "type": "object"
         },
         "core_capability_get": {
-          "description": "Parameters for core_capability_get tool",
+          "description": "Arguments for core_capability_get tool",
           "properties": {
             "name": {
               "description": "Name of the capability to retrieve",
@@ -128,7 +128,7 @@
           "type": "object"
         },
         "core_capability_list": {
-          "description": "Parameters for core_capability_list tool",
+          "description": "Arguments for core_capability_list tool",
           "properties": {
             "available_only": {
               "default": false,
@@ -139,7 +139,7 @@
           "type": "object"
         },
         "core_capability_update": {
-          "description": "Parameters for core_capability_update tool",
+          "description": "Arguments for core_capability_update tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -154,34 +154,34 @@
                 "additionalProperties": false,
                 "description": "Operation definition",
                 "properties": {
-                  "description": {
-                    "description": "Human-readable description of what this operation does",
-                    "type": "string"
-                  },
-                  "parameters": {
+                  "args": {
                     "additionalProperties": {
-                      "description": "Parameter definition",
+                      "description": "Argument definition",
                       "properties": {
                         "default": {
-                          "description": "Default value for the parameter"
+                          "description": "Default value for the argument"
                         },
                         "description": {
-                          "description": "Parameter description",
+                          "description": "Argument description",
                           "type": "string"
                         },
                         "required": {
-                          "description": "Whether this parameter is required",
+                          "description": "Whether this argument is required",
                           "type": "boolean"
                         },
                         "type": {
-                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "description": "Argument type (string, number, boolean, object, array)",
                           "type": "string"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "Input parameters for this operation",
+                    "description": "Input arguments for this operation",
                     "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
                   },
                   "requires": {
                     "description": "List of tools this operation requires to be available",
@@ -219,7 +219,7 @@
           "type": "object"
         },
         "core_capability_validate": {
-          "description": "Parameters for core_capability_validate tool",
+          "description": "Arguments for core_capability_validate tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -234,34 +234,34 @@
                 "additionalProperties": false,
                 "description": "Operation definition",
                 "properties": {
-                  "description": {
-                    "description": "Human-readable description of what this operation does",
-                    "type": "string"
-                  },
-                  "parameters": {
+                  "args": {
                     "additionalProperties": {
-                      "description": "Parameter definition",
+                      "description": "Argument definition",
                       "properties": {
                         "default": {
-                          "description": "Default value for the parameter"
+                          "description": "Default value for the argument"
                         },
                         "description": {
-                          "description": "Parameter description",
+                          "description": "Argument description",
                           "type": "string"
                         },
                         "required": {
-                          "description": "Whether this parameter is required",
+                          "description": "Whether this argument is required",
                           "type": "boolean"
                         },
                         "type": {
-                          "description": "Parameter type (string, number, boolean, object, array)",
+                          "description": "Argument type (string, number, boolean, object, array)",
                           "type": "string"
                         }
                       },
                       "type": "object"
                     },
-                    "description": "Input parameters for this operation",
+                    "description": "Input arguments for this operation",
                     "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
                   },
                   "requires": {
                     "description": "List of tools this operation requires to be available",
@@ -301,32 +301,32 @@
           "type": "object"
         },
         "core_config_get": {
-          "description": "Parameters for core_config_get tool",
+          "description": "Arguments for core_config_get tool",
           "properties": {},
           "type": "object"
         },
         "core_config_get_aggregator": {
-          "description": "Parameters for core_config_get_aggregator tool",
+          "description": "Arguments for core_config_get_aggregator tool",
           "properties": {},
           "type": "object"
         },
         "core_config_get_global_settings": {
-          "description": "Parameters for core_config_get_global_settings tool",
+          "description": "Arguments for core_config_get_global_settings tool",
           "properties": {},
           "type": "object"
         },
         "core_config_reload": {
-          "description": "Parameters for core_config_reload tool",
+          "description": "Arguments for core_config_reload tool",
           "properties": {},
           "type": "object"
         },
         "core_config_save": {
-          "description": "Parameters for core_config_save tool",
+          "description": "Arguments for core_config_save tool",
           "properties": {},
           "type": "object"
         },
         "core_config_update_aggregator": {
-          "description": "Parameters for core_config_update_aggregator tool",
+          "description": "Arguments for core_config_update_aggregator tool",
           "properties": {
             "aggregator": {
               "description": "Aggregator configuration",
@@ -339,7 +339,7 @@
           "type": "object"
         },
         "core_config_update_global_settings": {
-          "description": "Parameters for core_config_update_global_settings tool",
+          "description": "Arguments for core_config_update_global_settings tool",
           "properties": {
             "settings": {
               "description": "Global settings",
@@ -352,7 +352,7 @@
           "type": "object"
         },
         "core_mcpserver_create": {
-          "description": "Parameters for core_mcpserver_create tool",
+          "description": "Arguments for core_mcpserver_create tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -408,7 +408,7 @@
           "type": "object"
         },
         "core_mcpserver_delete": {
-          "description": "Parameters for core_mcpserver_delete tool",
+          "description": "Arguments for core_mcpserver_delete tool",
           "properties": {
             "name": {
               "description": "Name of the MCP server to delete",
@@ -421,7 +421,7 @@
           "type": "object"
         },
         "core_mcpserver_get": {
-          "description": "Parameters for core_mcpserver_get tool",
+          "description": "Arguments for core_mcpserver_get tool",
           "properties": {
             "name": {
               "description": "Name of the MCP server to retrieve",
@@ -434,12 +434,12 @@
           "type": "object"
         },
         "core_mcpserver_list": {
-          "description": "Parameters for core_mcpserver_list tool",
+          "description": "Arguments for core_mcpserver_list tool",
           "properties": {},
           "type": "object"
         },
         "core_mcpserver_update": {
-          "description": "Parameters for core_mcpserver_update tool",
+          "description": "Arguments for core_mcpserver_update tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -494,7 +494,7 @@
           "type": "object"
         },
         "core_mcpserver_validate": {
-          "description": "Parameters for core_mcpserver_validate tool",
+          "description": "Arguments for core_mcpserver_validate tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -550,8 +550,15 @@
           "type": "object"
         },
         "core_service_create": {
-          "description": "Parameters for core_service_create tool",
+          "description": "Arguments for core_service_create tool",
           "properties": {
+            "args": {
+              "additionalProperties": {
+                "description": "Argument value - type depends on ServiceClass argument definition"
+              },
+              "description": "Arguments for service creation",
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether this instance should be started automatically on system startup (only applies if persist is true)",
               "type": "boolean"
@@ -559,13 +566,6 @@
             "name": {
               "description": "Unique name for the service instance",
               "type": "string"
-            },
-            "parameters": {
-              "additionalProperties": {
-                "description": "Parameter value - type depends on ServiceClass parameter definition"
-              },
-              "description": "Parameters for service creation",
-              "type": "object"
             },
             "persist": {
               "description": "Whether to persist this service instance definition to YAML files for automatic recreation on startup",
@@ -583,7 +583,7 @@
           "type": "object"
         },
         "core_service_delete": {
-          "description": "Parameters for core_service_delete tool",
+          "description": "Arguments for core_service_delete tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass instance to delete",
@@ -596,7 +596,7 @@
           "type": "object"
         },
         "core_service_get": {
-          "description": "Parameters for core_service_get tool",
+          "description": "Arguments for core_service_get tool",
           "properties": {
             "name": {
               "description": "Name of the service to get",
@@ -609,12 +609,12 @@
           "type": "object"
         },
         "core_service_list": {
-          "description": "Parameters for core_service_list tool",
+          "description": "Arguments for core_service_list tool",
           "properties": {},
           "type": "object"
         },
         "core_service_restart": {
-          "description": "Parameters for core_service_restart tool",
+          "description": "Arguments for core_service_restart tool",
           "properties": {
             "name": {
               "description": "Service name to restart",
@@ -627,7 +627,7 @@
           "type": "object"
         },
         "core_service_start": {
-          "description": "Parameters for core_service_start tool",
+          "description": "Arguments for core_service_start tool",
           "properties": {
             "name": {
               "description": "Service name to start",
@@ -640,7 +640,7 @@
           "type": "object"
         },
         "core_service_status": {
-          "description": "Parameters for core_service_status tool",
+          "description": "Arguments for core_service_status tool",
           "properties": {
             "name": {
               "description": "Service name to get status for",
@@ -653,7 +653,7 @@
           "type": "object"
         },
         "core_service_stop": {
-          "description": "Parameters for core_service_stop tool",
+          "description": "Arguments for core_service_stop tool",
           "properties": {
             "name": {
               "description": "Service name to stop",
@@ -666,8 +666,15 @@
           "type": "object"
         },
         "core_service_validate": {
-          "description": "Parameters for core_service_validate tool",
+          "description": "Arguments for core_service_validate tool",
           "properties": {
+            "args": {
+              "additionalProperties": {
+                "description": "Argument value - type depends on ServiceClass argument definition"
+              },
+              "description": "Arguments for service creation",
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether this instance should auto-start",
               "type": "boolean"
@@ -679,13 +686,6 @@
             "name": {
               "description": "Service instance name",
               "type": "string"
-            },
-            "parameters": {
-              "additionalProperties": {
-                "description": "Parameter value - type depends on ServiceClass parameter definition"
-              },
-              "description": "Parameters for service creation",
-              "type": "object"
             },
             "serviceClassName": {
               "description": "Name of the ServiceClass to instantiate",
@@ -699,7 +699,7 @@
           "type": "object"
         },
         "core_serviceclass_available": {
-          "description": "Parameters for core_serviceclass_available tool",
+          "description": "Arguments for core_serviceclass_available tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to check",
@@ -712,7 +712,7 @@
           "type": "object"
         },
         "core_serviceclass_create": {
-          "description": "Parameters for core_serviceclass_create tool",
+          "description": "Arguments for core_serviceclass_create tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -944,7 +944,7 @@
           "type": "object"
         },
         "core_serviceclass_delete": {
-          "description": "Parameters for core_serviceclass_delete tool",
+          "description": "Arguments for core_serviceclass_delete tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to delete",
@@ -957,7 +957,7 @@
           "type": "object"
         },
         "core_serviceclass_get": {
-          "description": "Parameters for core_serviceclass_get tool",
+          "description": "Arguments for core_serviceclass_get tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to retrieve",
@@ -970,12 +970,12 @@
           "type": "object"
         },
         "core_serviceclass_list": {
-          "description": "Parameters for core_serviceclass_list tool",
+          "description": "Arguments for core_serviceclass_list tool",
           "properties": {},
           "type": "object"
         },
         "core_serviceclass_update": {
-          "description": "Parameters for core_serviceclass_update tool",
+          "description": "Arguments for core_serviceclass_update tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -1206,7 +1206,7 @@
           "type": "object"
         },
         "core_serviceclass_validate": {
-          "description": "Parameters for core_serviceclass_validate tool",
+          "description": "Arguments for core_serviceclass_validate tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -1438,7 +1438,7 @@
           "type": "object"
         },
         "core_workflow_available": {
-          "description": "Parameters for core_workflow_available tool",
+          "description": "Arguments for core_workflow_available tool",
           "properties": {
             "name": {
               "description": "Name of the workflow to check",
@@ -1451,7 +1451,7 @@
           "type": "object"
         },
         "core_workflow_create": {
-          "description": "Parameters for core_workflow_create tool",
+          "description": "Arguments for core_workflow_create tool",
           "properties": {
             "description": {
               "description": "Workflow description",
@@ -1464,24 +1464,24 @@
                   "additionalProperties": {
                     "properties": {
                       "default": {
-                        "description": "Default value for the parameter"
+                        "description": "Default value for the argument"
                       },
                       "description": {
-                        "description": "Parameter description",
+                        "description": "Argument description",
                         "type": "string"
                       },
                       "type": {
-                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "description": "Argument type (string, number, boolean, object, array)",
                         "type": "string"
                       }
                     },
                     "type": "object"
                   },
-                  "description": "Property definitions for input parameters",
+                  "description": "Property definitions for input arguments",
                   "type": "object"
                 },
                 "required": {
-                  "description": "List of required parameter names",
+                  "description": "List of required argument names",
                   "items": {
                     "type": "string"
                   },
@@ -1508,7 +1508,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "args": {
-                    "description": "Arguments to pass to the tool (optional)",
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
                   },
                   "description": {
@@ -1546,7 +1546,7 @@
           "type": "object"
         },
         "core_workflow_delete": {
-          "description": "Parameters for core_workflow_delete tool",
+          "description": "Arguments for core_workflow_delete tool",
           "properties": {
             "name": {
               "description": "Name of the workflow to delete",
@@ -1559,7 +1559,7 @@
           "type": "object"
         },
         "core_workflow_execution_get": {
-          "description": "Parameters for core_workflow_execution_get tool",
+          "description": "Arguments for core_workflow_execution_get tool",
           "properties": {
             "execution_id": {
               "description": "Unique identifier of the workflow execution",
@@ -1581,7 +1581,7 @@
           "type": "object"
         },
         "core_workflow_execution_list": {
-          "description": "Parameters for core_workflow_execution_list tool",
+          "description": "Arguments for core_workflow_execution_list tool",
           "properties": {
             "limit": {
               "default": 50,
@@ -1613,7 +1613,7 @@
           "type": "object"
         },
         "core_workflow_get": {
-          "description": "Parameters for core_workflow_get tool",
+          "description": "Arguments for core_workflow_get tool",
           "properties": {
             "name": {
               "description": "Name of the workflow",
@@ -1626,7 +1626,7 @@
           "type": "object"
         },
         "core_workflow_list": {
-          "description": "Parameters for core_workflow_list tool",
+          "description": "Arguments for core_workflow_list tool",
           "properties": {
             "include_system": {
               "default": true,
@@ -1637,7 +1637,7 @@
           "type": "object"
         },
         "core_workflow_update": {
-          "description": "Parameters for core_workflow_update tool",
+          "description": "Arguments for core_workflow_update tool",
           "properties": {
             "description": {
               "description": "Workflow description",
@@ -1650,24 +1650,24 @@
                   "additionalProperties": {
                     "properties": {
                       "default": {
-                        "description": "Default value for the parameter"
+                        "description": "Default value for the argument"
                       },
                       "description": {
-                        "description": "Parameter description",
+                        "description": "Argument description",
                         "type": "string"
                       },
                       "type": {
-                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "description": "Argument type (string, number, boolean, object, array)",
                         "type": "string"
                       }
                     },
                     "type": "object"
                   },
-                  "description": "Property definitions for input parameters",
+                  "description": "Property definitions for input arguments",
                   "type": "object"
                 },
                 "required": {
-                  "description": "List of required parameter names",
+                  "description": "List of required argument names",
                   "items": {
                     "type": "string"
                   },
@@ -1694,7 +1694,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "args": {
-                    "description": "Arguments to pass to the tool (optional)",
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
                   },
                   "description": {
@@ -1732,7 +1732,7 @@
           "type": "object"
         },
         "core_workflow_validate": {
-          "description": "Parameters for core_workflow_validate tool",
+          "description": "Arguments for core_workflow_validate tool",
           "properties": {
             "description": {
               "description": "Workflow description",
@@ -1745,24 +1745,24 @@
                   "additionalProperties": {
                     "properties": {
                       "default": {
-                        "description": "Default value for the parameter"
+                        "description": "Default value for the argument"
                       },
                       "description": {
-                        "description": "Parameter description",
+                        "description": "Argument description",
                         "type": "string"
                       },
                       "type": {
-                        "description": "Parameter type (string, number, boolean, object, array)",
+                        "description": "Argument type (string, number, boolean, object, array)",
                         "type": "string"
                       }
                     },
                     "type": "object"
                   },
-                  "description": "Property definitions for input parameters",
+                  "description": "Property definitions for input arguments",
                   "type": "object"
                 },
                 "required": {
-                  "description": "List of required parameter names",
+                  "description": "List of required argument names",
                   "items": {
                     "type": "string"
                   },
@@ -1789,7 +1789,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "args": {
-                    "description": "Arguments to pass to the tool (optional)",
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
                   },
                   "description": {

@@ -24,7 +24,7 @@ type ConfigAdapter struct {
 }
 
 // NewConfigAdapter creates a new config adapter instance.
-// The configPath parameter specifies where to save configuration changes.
+// The configPath arg specifies where to save configuration changes.
 // If empty, the adapter will auto-detect an appropriate path.
 func NewConfigAdapter(cfg *config.MusterConfig, configPath string) *ConfigAdapter {
 	return &ConfigAdapter{
@@ -144,7 +144,7 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "config_update_aggregator",
 			Description: "Update aggregator configuration",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "aggregator",
 					Type:        "object",
@@ -156,7 +156,7 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "config_update_global_settings",
 			Description: "Update global settings",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "settings",
 					Type:        "object",

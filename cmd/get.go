@@ -206,17 +206,17 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prepare arguments based on resource type
-	var arguments map[string]interface{}
+	var toolArgs map[string]interface{}
 	if resourceType == "workflow-execution" {
 		// workflow-execution uses execution_id instead of name
-		arguments = map[string]interface{}{
+		toolArgs = map[string]interface{}{
 			"execution_id": resourceName,
 		}
 	} else {
-		arguments = map[string]interface{}{
+		toolArgs = map[string]interface{}{
 			"name": resourceName,
 		}
 	}
 
-	return executor.Execute(ctx, toolName, arguments)
+	return executor.Execute(ctx, toolName, toolArgs)
 }

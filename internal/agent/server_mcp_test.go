@@ -119,7 +119,7 @@ func TestMCPServerDescribeTool(t *testing.T) {
 					Properties: map[string]interface{}{
 						"param1": map[string]interface{}{
 							"type":        "string",
-							"description": "Parameter 1",
+							"description": "Arg 1",
 						},
 					},
 				},

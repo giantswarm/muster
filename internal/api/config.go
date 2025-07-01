@@ -43,7 +43,7 @@ type ConfigAPI interface {
 	// This provides access to the complete configuration state for comprehensive
 	// configuration management scenarios.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//
 	// Returns:
@@ -65,7 +65,7 @@ type ConfigAPI interface {
 	// This is useful when only aggregator-specific settings are needed,
 	// avoiding the overhead of retrieving the entire configuration.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -84,7 +84,7 @@ type ConfigAPI interface {
 	// GetGlobalSettings returns the global system settings section.
 	// These settings affect the behavior of the entire muster system.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -105,7 +105,7 @@ type ConfigAPI interface {
 	// UpdateAggregatorConfig updates the aggregator configuration section.
 	// Changes take effect immediately but are not persisted until SaveConfig is called.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//   - aggregator: The new aggregator configuration to apply
 	//
@@ -128,7 +128,7 @@ type ConfigAPI interface {
 	// UpdateGlobalSettings updates the global system settings.
 	// Changes take effect immediately but are not persisted until SaveConfig is called.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//   - settings: The new global settings to apply
 	//
@@ -153,7 +153,7 @@ type ConfigAPI interface {
 	// This makes all pending configuration changes permanent and updates
 	// the configuration files on disk.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -175,7 +175,7 @@ type ConfigAPI interface {
 	// This is useful for reverting to the last saved configuration state or
 	// picking up external changes to configuration files.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -245,7 +245,7 @@ type ConfigHandler interface {
 	// This provides access to all configuration sections including
 	// aggregator settings, global settings, and any other configured components.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//
 	// Returns:
@@ -265,7 +265,7 @@ type ConfigHandler interface {
 	// GetAggregatorConfig returns the aggregator-specific configuration section.
 	// This method is optimized for cases where only aggregator settings are needed.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -276,7 +276,7 @@ type ConfigHandler interface {
 	// GetGlobalSettings returns the global system settings.
 	// These settings control system-wide behavior like logging, timeouts, and defaults.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -289,7 +289,7 @@ type ConfigHandler interface {
 	// UpdateAggregatorConfig updates the aggregator configuration section.
 	// The new configuration is validated before being applied to ensure system stability.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//   - aggregator: The new aggregator configuration to apply
 	//
@@ -302,7 +302,7 @@ type ConfigHandler interface {
 	// UpdateGlobalSettings updates the global system settings.
 	// Settings are validated for consistency and correctness before being applied.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//   - settings: The new global settings to apply
 	//
@@ -318,7 +318,7 @@ type ConfigHandler interface {
 	// This operation is atomic - either all changes are saved successfully
 	// or no changes are made to the persistent storage.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:
@@ -336,7 +336,7 @@ type ConfigHandler interface {
 	// This is useful for reverting to the last known good configuration or
 	// picking up external configuration changes.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation
 	//
 	// Returns:

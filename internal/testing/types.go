@@ -350,8 +350,8 @@ type TestRunner interface {
 type MCPTestClient interface {
 	// Connect establishes connection to the MCP aggregator
 	Connect(ctx context.Context, endpoint string) error
-	// CallTool invokes an MCP tool with the given parameters
-	CallTool(ctx context.Context, toolName string, parameters map[string]interface{}) (interface{}, error)
+	// CallTool invokes an MCP tool with the given args
+	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
 	// ListTools returns available MCP tools
 	ListTools(ctx context.Context) ([]string, error)
 	// ListToolsWithSchemas returns available MCP tools with their full schemas

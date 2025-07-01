@@ -207,18 +207,18 @@ serviceConfig:
       responseMapping:
         status: "$.status"
   
-  createParameters:
+  createArgs:
     cluster_name:
-      toolParameter: "clusterName"
+      toolArg: "clusterName"
       required: true
     context:
-      toolParameter: "context"
+      toolArg: "context"
       required: false
 
 operations:
   create_connection:
     description: "Create Kubernetes connection"
-    parameters:
+    args:
       cluster_name:
         type: string
         required: true
@@ -311,7 +311,7 @@ serviceConfig:
 operations:
   create_portforward:
     description: "Create port forward"
-    parameters:
+    args:
       namespace:
         type: string
         required: true

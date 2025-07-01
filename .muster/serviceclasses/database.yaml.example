@@ -68,28 +68,28 @@ serviceConfig:
     delete: "15s"
     healthCheck: "10s"
   
-  # Parameter mapping for service creation
-  createParameters:
+  # Arg mapping for service creation
+  createArgs:
     database_name:
-      toolParameter: "database"
+      toolArg: "database"
       required: true
     host:
-      toolParameter: "host"
+      toolArg: "host"
       default: "localhost"
       required: false
     port:
-      toolParameter: "port"
+      toolArg: "port"
       default: 5432
       required: false
     username:
-      toolParameter: "username"
+      toolArg: "username"
       required: true
 
 # Operations define the ServiceClass interface
 operations:
   backup:
     description: "Create a backup of a PostgreSQL database"
-    parameters:
+    args:
       database_name:
         type: string
         required: true
@@ -126,7 +126,7 @@ operations:
   
   restore:
     description: "Restore a PostgreSQL database from backup"
-    parameters:
+    args:
       database_name:
         type: string
         required: true
@@ -168,7 +168,7 @@ operations:
 
   migrate:
     description: "Run database migrations"
-    parameters:
+    args:
       database_name:
         type: string
         required: true
@@ -209,7 +209,7 @@ operations:
 
   create_service:
     description: "Create a managed database connection service"
-    parameters:
+    args:
       database_name:
         type: string
         required: true
@@ -253,7 +253,7 @@ operations:
           args:
             capability_name: "database_management"
             label: "db-{{ .database_name }}"
-            parameters:
+            args:
               database_name: "{{ .database_name }}"
               host: "{{ .host }}"
               port: "{{ .port }}"

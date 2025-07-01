@@ -14,7 +14,7 @@ type ToolConfig struct {
 
 // ToolResponse defines a conditional response for a mock tool
 type ToolResponse struct {
-	// Condition defines parameter matching for this response (optional)
+	// Condition defines arg matching for this response (optional)
 	// If empty, this response is used as a fallback
 	Condition map[string]interface{} `yaml:"condition,omitempty"`
 	// Response is the response data to return

@@ -4,7 +4,7 @@ concept: "serviceclass"
 tags: ["serviceclass", "create", "validation", "error-handling", "core-api"]
 timeout: "1m"
 # NOTE: Parameter mapping validation is not yet implemented during ServiceClass creation
-# TODO: This test should fail when parameter mapping validation is added
+# TODO: This test should fail when arg mapping validation is added
 
 steps:
 - id: "create-invalid-param-mapping"
@@ -16,12 +16,12 @@ steps:
       lifecycleTools:
         start:
           tool: "x_test-provider_start"
-          arguments:
+          args:
             invalid_param: "{{ .nonexistent }}"
         stop:
           tool: "x_test-provider_stop"
   expected:
-    success: true  # Currently succeeds because parameter validation is not implemented
+    success: true  # Currently succeeds because arg validation is not implemented
     contains: ["created successfully"]
   cleanup:
   - tool: "core_serviceclass_delete"

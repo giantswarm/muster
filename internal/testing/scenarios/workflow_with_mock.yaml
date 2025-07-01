@@ -12,7 +12,7 @@ pre_configuration:
           - name: "k8s_pod_list"
             input_schema:
               type: "object"
-              properties:
+              args:
                 namespace:
                   type: "string"
                   default: "default"
@@ -39,7 +39,7 @@ pre_configuration:
           - name: "k8s_pod_create"
             input_schema:
               type: "object"
-              properties:
+              args:
                 name:
                   type: "string"
                 image:
@@ -62,7 +62,7 @@ pre_configuration:
           - name: "k8s_pod_delete"
             input_schema:
               type: "object"
-              properties:
+              args:
                 name:
                   type: "string"
                 namespace:
@@ -83,7 +83,7 @@ pre_configuration:
         name: "deploy-test-app"
         input_schema:
           type: object
-          properties:
+          args:
             app_name:
               type: "string"
             app_image:

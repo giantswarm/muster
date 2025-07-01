@@ -16,7 +16,7 @@ steps:
     name: "correct-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "get_status"
@@ -38,7 +38,7 @@ steps:
     name: "correct-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "get_status_updated"
@@ -74,7 +74,7 @@ steps:
     name: "crud-test-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
     steps:
       - id: "list-services"

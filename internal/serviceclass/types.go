@@ -26,7 +26,7 @@ func NewServiceInstanceState() *ServiceInstanceState {
 }
 
 // CreateInstance creates a new service instance
-func (s *ServiceInstanceState) CreateInstance(name, serviceClassName, serviceClassType string, parameters map[string]interface{}) *api.ServiceInstance {
+func (s *ServiceInstanceState) CreateInstance(name, serviceClassName, serviceClassType string, args map[string]interface{}) *api.ServiceInstance {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -36,7 +36,7 @@ func (s *ServiceInstanceState) CreateInstance(name, serviceClassName, serviceCla
 		ServiceClassType:     serviceClassType,
 		State:                api.StateUnknown,
 		Health:               api.HealthUnknown,
-		Parameters:           parameters,
+		Args:                 args,
 		ServiceData:          make(map[string]interface{}),
 		CreatedAt:            time.Now(),
 		UpdatedAt:            time.Now(),

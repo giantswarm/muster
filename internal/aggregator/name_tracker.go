@@ -47,7 +47,7 @@ type NameTracker struct {
 // from other MCP tools in mixed environments. If no prefix is provided, "x" is
 // used as the default.
 //
-// Parameters:
+// Args:
 //   - musterPrefix: Global prefix for all aggregated capabilities (defaults to "x")
 //
 // Returns a new name tracker ready for use.
@@ -74,7 +74,7 @@ func NewNameTracker(musterPrefix string) *NameTracker {
 //
 // This method is thread-safe and can be called while the tracker is in use.
 //
-// Parameters:
+// Args:
 //   - serverName: Unique identifier of the server
 //   - prefix: Prefix to use for this server's capabilities (uses server name if empty)
 func (nt *NameTracker) SetServerPrefix(serverName, prefix string) {
@@ -94,7 +94,7 @@ func (nt *NameTracker) SetServerPrefix(serverName, prefix string) {
 // prefixes if the name already includes the expected prefix. It has special
 // handling for resource URIs to preserve URI schemes.
 //
-// Parameters:
+// Args:
 //   - serverName: Name of the server providing the capability
 //   - name: Original capability name or URI
 //   - isResource: Whether this is a resource URI (affects prefixing logic)
@@ -132,7 +132,7 @@ func (nt *NameTracker) applyPrefix(serverName, name string, isResource bool) str
 //
 // The naming pattern is: {muster_prefix}_{server_prefix}_{original_name}
 //
-// Parameters:
+// Args:
 //   - serverName: Name of the server providing the tool
 //   - toolName: Original tool name from the server
 //
@@ -173,7 +173,7 @@ func (nt *NameTracker) GetExposedToolName(serverName, toolName string) string {
 //
 // The naming pattern is: {muster_prefix}_{server_prefix}_{original_name}
 //
-// Parameters:
+// Args:
 //   - serverName: Name of the server providing the prompt
 //   - promptName: Original prompt name from the server
 //
@@ -214,7 +214,7 @@ func (nt *NameTracker) GetExposedPromptName(serverName, promptName string) strin
 //
 // For simple resource identifiers, the standard prefixing pattern is applied.
 //
-// Parameters:
+// Args:
 //   - serverName: Name of the server providing the resource
 //   - resourceURI: Original resource URI from the server
 //
@@ -258,7 +258,7 @@ func (nt *NameTracker) GetExposedResourceURI(serverName, resourceURI string) str
 //
 // This is essential for routing requests to the correct backend server.
 //
-// Parameters:
+// Args:
 //   - exposedName: The prefixed name as seen by clients
 //
 // Returns the server name, original name, item type, and nil error if successful.
@@ -281,7 +281,7 @@ func (nt *NameTracker) ResolveName(exposedName string) (serverName, originalName
 // as capabilities are registered, so this method is no longer needed.
 // It is kept to avoid breaking existing code that might call it.
 //
-// Parameters:
+// Args:
 //   - servers: Map of server information (unused in current implementation)
 func (nt *NameTracker) RebuildMappings(servers map[string]*ServerInfo) {
 	// This method is kept for compatibility but does nothing

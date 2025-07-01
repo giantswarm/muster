@@ -11,7 +11,7 @@ steps:
     name: "no-steps-workflow"
     inputSchema:
       type: "object"
-      properties: {}
+      args: {}
       required: []
   expected:
     success: false

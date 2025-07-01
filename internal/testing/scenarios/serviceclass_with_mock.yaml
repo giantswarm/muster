@@ -88,7 +88,7 @@ pre_configuration:
         name: "web-application"
         type: "stateful"
         version: "1.0.0"
-        parameters:
+        args:
           app_name:
             type: "string"
             required: true
@@ -103,12 +103,12 @@ pre_configuration:
           lifecycleTools:
             start:
               tool: "x_storage-mock_storage_volume_create"
-              arguments:
+              args:
                 name: "{{ .app_name }}-storage"
                 size: "{{ .storage_size }}"
             stop:
               tool: "x_storage-mock_storage_volume_delete"
-              arguments:
+              args:
                 volume_id: "vol-{{ .app_name }}-storage-standard"
 
 steps:
@@ -135,7 +135,7 @@ steps:
     args:
       serviceClassName: "web-application"
       name: "test-web-app"
-      parameters:
+      args:
         app_name: "my-web-app"
         storage_size: "20Gi"
         port: 9000

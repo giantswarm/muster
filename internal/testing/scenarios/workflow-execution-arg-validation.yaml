@@ -1,7 +1,7 @@
 name: "workflow-execution-parameter-validation"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "execution", "tracking", "parameters", "validation"]
+tags: ["workflow", "execution", "tracking", "args", "validation"]
 timeout: "3m"
 
 steps:
@@ -11,7 +11,7 @@ steps:
     name: "parameter-tracking-workflow"
     inputSchema:
       type: "object"
-      properties:
+      args:
         required_param:
           type: "string"
           description: "Required parameter"

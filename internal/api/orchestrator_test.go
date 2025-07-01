@@ -210,7 +210,7 @@ func (m *mockOrchestratorHandler) GetTools() []ToolMetadata {
 		{
 			Name:        "test_orchestrator_tool",
 			Description: "Test orchestrator tool for mock",
-			Parameters:  []ParameterMetadata{},
+			Args:        []ArgMetadata{},
 		},
 	}
 }

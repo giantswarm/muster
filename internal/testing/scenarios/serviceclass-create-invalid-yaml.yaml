@@ -1,4 +1,4 @@
-name: "serviceclass-create-invalid-parameters"
+name: "serviceclass-create-invalid-args"
 category: "behavioral"
 concept: "serviceclass"
 tags: ["serviceclass", "create", "error-handling", "validation", "core-api"]
