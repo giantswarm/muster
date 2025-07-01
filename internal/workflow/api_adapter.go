@@ -207,7 +207,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_create",
-			Description: "Create a new workflow",
+			Description: "Create a new workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
@@ -277,7 +277,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Arguments to pass to the tool (optional)",
+									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",
@@ -298,7 +298,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_update",
-			Description: "Update an existing workflow",
+			Description: "Update an existing workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
@@ -368,7 +368,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Arguments to pass to the tool (optional)",
+									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",
@@ -401,7 +401,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_validate",
-			Description: "Validate a workflow definition",
+			Description: "Validate a workflow definition. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input parameters.",
 			Parameters: []api.ParameterMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
 				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
@@ -471,7 +471,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
-									"description": "Arguments to pass to the tool (optional)",
+									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",

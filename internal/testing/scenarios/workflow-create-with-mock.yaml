@@ -10,9 +10,18 @@ pre_configuration:
       config:
         tools:
           - name: "toola"
+            description: "A tool that returns a string"
+            input_schema:
+              type: "object"
+              properties:
+                text:
+                  type: "string"
+              required:
+                - text
             responses:
               - response:
                   status: "created"
+                  content: "{{ .text }}"
 
 steps:
 - id: "create-workflow-with-mcp-tool"
@@ -21,11 +30,14 @@ steps:
     name: "test-workflow"
     inputSchema:
       type: "object"
-      properties: {}
-      required: []
+      properties:
+        text:
+          type: "string"
+      required: ["text"]
     steps:
       - id: "run-toola"
         tool: "x_test-mock_toola"
+        args: { text: "{{ .input.text }}" }
   expected:
     success: true
 
@@ -37,3 +49,12 @@ steps:
     success: true
     json_path:
       available: true
+
+- id: "run-workflow"
+  tool: "workflow_test-workflow"
+  args:
+    text: "Hello, world!"
+  expected:
+    success: true
+    json_path:
+      content: "Hello, world!"
