@@ -1,0 +1,109 @@
+name: "workflow-conditional-service-check"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "conditional", "service", "core-api"]
+timeout: "1m"
+
+pre_configuration:
+  service_classes:
+  - name: "test-sc"
+    config:
+      name: "test-sc"
+      version: "1.0.0"
+      serviceConfig:
+        args:
+          echo:
+            type: "string"
+            description: "Echo text"
+            required: true
+        lifecycleTools:
+          start: 
+            tool: "x_echo-provider_echo"
+            args: { text: "service started {{.echo}}" }
+          stop:
+            tool: "x_echo-provider_echo"
+            args: { text: "service stopped {{.echo}}" }
+        outputs:
+          status: "Service is running"
+            
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create-conditional-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "conditional-workflow"
+    args:
+      service_name: 
+        type: "string"
+        required: true
+    steps:
+      - id: "check-service-exists"
+        condition:
+          tool: "core_service_get"
+          args:
+            name: "{{.input.service_name}}"
+          expect:
+            success: true
+            json_path:
+              name: "{{.input.service_name}}"
+              health: "healthy"
+              state: "running"
+              "args.echo": "existing-service"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "Service {{.input.service_name}} exists!"
+        # If condition is true: step executes and succeeds
+        # If condition is false: step is skipped, workflow continues
+      - id: "always-execute"
+        tool: "x_echo-provider_echo"
+        args:
+          text: "This step always runs"
+  expected:
+    success: true
+  cleanup:
+    - id: "delete-conditional-workflow"
+      tool: "core_workflow_delete"
+      args:
+        name: "conditional-workflow"
+
+- id: "create-test-service"
+  tool: "core_service_create"
+  args:
+    name: "existing-service"
+    serviceClassName: "test-sc"
+    args:
+      echo: "existing-service"
+  expected:
+    success: true
+
+- id: "run-conditional-workflow-service-exists"
+  tool: "workflow_conditional-workflow"
+  args:
+    service_name: "existing-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "conditional-workflow"
+      "results.check-service-exists.status": "completed"
+      "results.check-service-exists.condition_result": true
+      "results.always-execute.status": "completed"
+
+- id: "run-conditional-workflow-service-missing"
+  tool: "workflow_conditional-workflow"
+  args:
+    service_name: "non-existent-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "conditional-workflow"
+      "results.check-service-exists.status": "skipped"
+      "results.check-service-exists.condition_result": false
+      "results.always-execute.status": "completed" 

@@ -236,6 +236,36 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"type":        "string",
 									"description": "Name of the tool to execute for this step",
 								},
+								"condition": map[string]interface{}{
+									"type":        "object",
+									"description": "Optional condition that determines whether this step should execute (optional)",
+									"properties": map[string]interface{}{
+										"tool": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the tool to use for condition evaluation",
+										},
+										"args": map[string]interface{}{
+											"type":        "object",
+											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
+										},
+										"expect": map[string]interface{}{
+											"type":        "object",
+											"description": "Expected result for condition to be considered true",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
+												},
+											},
+											"required": []string{"success"},
+										},
+									},
+									"required": []string{"tool", "expect"},
+								},
 								"args": map[string]interface{}{
 									"type":        "object",
 									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
@@ -287,6 +317,36 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"tool": map[string]interface{}{
 									"type":        "string",
 									"description": "Name of the tool to execute for this step",
+								},
+								"condition": map[string]interface{}{
+									"type":        "object",
+									"description": "Optional condition that determines whether this step should execute (optional)",
+									"properties": map[string]interface{}{
+										"tool": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the tool to use for condition evaluation",
+										},
+										"args": map[string]interface{}{
+											"type":        "object",
+											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
+										},
+										"expect": map[string]interface{}{
+											"type":        "object",
+											"description": "Expected result for condition to be considered true",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
+												},
+											},
+											"required": []string{"success"},
+										},
+									},
+									"required": []string{"tool", "expect"},
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
@@ -351,6 +411,36 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 								"tool": map[string]interface{}{
 									"type":        "string",
 									"description": "Name of the tool to execute for this step",
+								},
+								"condition": map[string]interface{}{
+									"type":        "object",
+									"description": "Optional condition that determines whether this step should execute (optional)",
+									"properties": map[string]interface{}{
+										"tool": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the tool to use for condition evaluation",
+										},
+										"args": map[string]interface{}{
+											"type":        "object",
+											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
+										},
+										"expect": map[string]interface{}{
+											"type":        "object",
+											"description": "Expected result for condition to be considered true",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
+												},
+											},
+											"required": []string{"success"},
+										},
+									},
+									"required": []string{"tool", "expect"},
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
@@ -1029,6 +1119,15 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 			return nil, fmt.Errorf("step %d: tool is required", i)
 		}
 
+		// Condition (optional)
+		if conditionParam, ok := stepMap["condition"].(map[string]interface{}); ok {
+			condition, err := convertWorkflowCondition(conditionParam)
+			if err != nil {
+				return nil, fmt.Errorf("step %d: invalid condition: %v", i, err)
+			}
+			step.Condition = &condition
+		}
+
 		// Args (optional)
 		if args, ok := stepMap["args"].(map[string]interface{}); ok {
 			step.Args = args
@@ -1048,4 +1147,53 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 	}
 
 	return steps, nil
+}
+
+// convertWorkflowCondition converts a condition map to api.WorkflowCondition
+func convertWorkflowCondition(conditionParam map[string]interface{}) (api.WorkflowCondition, error) {
+	var condition api.WorkflowCondition
+
+	// Tool is required
+	if tool, ok := conditionParam["tool"].(string); ok {
+		condition.Tool = tool
+	} else {
+		return condition, fmt.Errorf("condition tool is required")
+	}
+
+	// Args (optional)
+	if args, ok := conditionParam["args"].(map[string]interface{}); ok {
+		condition.Args = args
+	}
+
+	// Expect is required
+	if expectParam, ok := conditionParam["expect"].(map[string]interface{}); ok {
+		expect, err := convertWorkflowConditionExpectation(expectParam)
+		if err != nil {
+			return condition, fmt.Errorf("invalid expect: %v", err)
+		}
+		condition.Expect = expect
+	} else {
+		return condition, fmt.Errorf("condition expect is required")
+	}
+
+	return condition, nil
+}
+
+// convertWorkflowConditionExpectation converts an expect map to api.WorkflowConditionExpectation
+func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (api.WorkflowConditionExpectation, error) {
+	var expect api.WorkflowConditionExpectation
+
+	// Success is required
+	if success, ok := expectParam["success"].(bool); ok {
+		expect.Success = success
+	} else {
+		return expect, fmt.Errorf("success field is required and must be a boolean")
+	}
+
+	// JsonPath (optional)
+	if jsonPathParam, ok := expectParam["json_path"].(map[string]interface{}); ok {
+		expect.JsonPath = jsonPathParam
+	}
+
+	return expect, nil
 }

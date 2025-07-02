@@ -78,6 +78,42 @@ type OperationDefinition struct {
 	Requires []string `yaml:"requires" json:"requires"`
 }
 
+// WorkflowCondition defines a condition that determines whether a workflow step should execute.
+// Conditions allow for dynamic workflow execution based on runtime state evaluation.
+type WorkflowCondition struct {
+	// Tool specifies the name of the tool to execute for condition evaluation.
+	// Must correspond to an available tool in the aggregator.
+	Tool string `yaml:"tool" json:"tool"`
+
+	// Args provides the arguments to pass to the condition tool.
+	// Can include templated values that are resolved at runtime.
+	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Expect defines the expected result for the condition to be considered true.
+	// If the condition tool result matches these expectations, the step will execute.
+	// If not, the step will be skipped.
+	Expect WorkflowConditionExpectation `yaml:"expect" json:"expect"`
+}
+
+// WorkflowConditionExpectation defines what result is expected from a condition tool
+// for the condition to be considered true.
+type WorkflowConditionExpectation struct {
+	// Success indicates whether the condition tool should succeed (true) or fail (false)
+	// for the condition to be met.
+	Success bool `yaml:"success" json:"success"`
+
+	// JsonPath defines optional JSON path expressions that must match specific values
+	// in the condition tool's response. All specified paths must match for the condition
+	// to be considered true. This allows for content-based condition validation beyond
+	// just success/failure status.
+	JsonPath map[string]interface{} `yaml:"json_path,omitempty" json:"json_path,omitempty"`
+
+	// TODO: Future enhancements could include:
+	// - Content expectations (specific return values) - partially implemented via JsonPath
+	// - JSONPath expressions for complex result validation - implemented via JsonPath
+	// - Multiple condition combinations (AND/OR logic)
+}
+
 // WorkflowStep defines a single step in a workflow execution.
 // Each step represents a tool call with its arguments, result processing,
 // and conditional execution logic.
@@ -85,6 +121,11 @@ type WorkflowStep struct {
 	// ID is a unique identifier for this step within the workflow.
 	// Used for step referencing, error reporting, and execution flow control.
 	ID string `yaml:"id" json:"id"`
+
+	// Condition defines an optional condition that determines whether this step should execute.
+	// If specified, the condition tool is executed first. If the condition is not met,
+	// the step is skipped and marked as "skipped" in the execution results.
+	Condition *WorkflowCondition `yaml:"condition,omitempty" json:"condition,omitempty"`
 
 	// Tool specifies the name of the tool to execute for this step.
 	// Must correspond to an available tool in the aggregator.

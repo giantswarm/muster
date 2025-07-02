@@ -20,9 +20,12 @@ type ToolCaller interface {
 
 // stepMetadata holds metadata about an executed step for tracking purposes
 type stepMetadata struct {
-	ID    string // Original step ID from workflow definition
-	Tool  string // Tool name used in the step
-	Store string // Variable name where result was stored (if any)
+	ID              string // Original step ID from workflow definition
+	Tool            string // Tool name used in the step
+	Store           string // Variable name where result was stored (if any)
+	Status          string // Step execution status: "completed", "skipped", "failed"
+	ConditionResult *bool  // Result of condition evaluation (nil if no condition)
+	ConditionTool   string // Tool used for condition evaluation (empty if no condition)
 }
 
 // WorkflowExecutor executes workflow steps
@@ -72,6 +75,70 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	for i, step := range workflow.Steps {
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
+		// Check if step has a condition
+		var conditionResult *bool
+		var conditionTool string
+
+		if step.Condition != nil {
+			logging.Debug("WorkflowExecutor", "Step %s has condition, evaluating...", step.ID)
+			conditionTool = step.Condition.Tool
+
+			// Resolve template variables in condition arguments
+			resolvedConditionArgs, err := we.resolveArguments(step.Condition.Args, execCtx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve condition arguments for step %s: %w", step.ID, err)
+			}
+			logging.Debug("WorkflowExecutor", "Step %s condition resolved args: %+v", step.ID, resolvedConditionArgs)
+
+			// Execute the condition tool
+			conditionToolResult, err := we.toolCaller.CallToolInternal(ctx, step.Condition.Tool, resolvedConditionArgs)
+			if err != nil {
+				// Condition tool failed - this means condition is false
+				logging.Debug("WorkflowExecutor", "Step %s condition tool failed: %v", step.ID, err)
+				conditionPassed := false
+				conditionResult = &conditionPassed
+			} else {
+				// Check if condition result matches expectation
+				conditionPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
+
+				// Also check JSON path expectations if provided
+				if conditionPassed && len(step.Condition.Expect.JsonPath) > 0 {
+					jsonPathPassed, err := we.validateJsonPath(conditionToolResult, step.Condition.Expect.JsonPath, execCtx)
+					if err != nil {
+						logging.Debug("WorkflowExecutor", "Step %s JSON path validation error: %v", step.ID, err)
+						conditionPassed = false
+					} else {
+						conditionPassed = jsonPathPassed
+					}
+					logging.Debug("WorkflowExecutor", "Step %s JSON path validation result: %v", step.ID, jsonPathPassed)
+				}
+
+				conditionResult = &conditionPassed
+				logging.Debug("WorkflowExecutor", "Step %s condition result: tool_success=%v, expect_success=%v, condition_passed=%v",
+					step.ID, !conditionToolResult.IsError, step.Condition.Expect.Success, conditionPassed)
+			}
+
+			// If condition failed, skip this step
+			if !*conditionResult {
+				logging.Debug("WorkflowExecutor", "Step %s condition failed, skipping step", step.ID)
+
+				// Record the skipped step metadata
+				execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+					ID:              step.ID,
+					Tool:            step.Tool,
+					Store:           step.Store,
+					Status:          "skipped",
+					ConditionResult: conditionResult,
+					ConditionTool:   conditionTool,
+				})
+
+				// Continue to next step
+				continue
+			}
+
+			logging.Debug("WorkflowExecutor", "Step %s condition passed, executing step", step.ID)
+		}
+
 		// Resolve template variables in step arguments
 		resolvedArgs, err := we.resolveArguments(step.Args, execCtx)
 		if err != nil {
@@ -86,15 +153,50 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 			// Record the failed step metadata
 			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-				ID:    step.ID,
-				Tool:  step.Tool,
-				Store: step.Store,
+				ID:              step.ID,
+				Tool:            step.Tool,
+				Store:           step.Store,
+				Status:          "failed",
+				ConditionResult: conditionResult,
+				ConditionTool:   conditionTool,
 			})
+
+			// Enhance results with step-level information for partial results too
+			enhancedPartialResults := make(map[string]interface{})
+
+			// Copy existing stored results
+			for k, v := range execCtx.results {
+				enhancedPartialResults[k] = v
+			}
+
+			// Add step metadata to results including the failed step
+			for _, stepMeta := range execCtx.stepMetadata {
+				stepInfo := map[string]interface{}{
+					"status": stepMeta.Status,
+				}
+
+				// Include condition result if present
+				if stepMeta.ConditionResult != nil {
+					stepInfo["condition_result"] = *stepMeta.ConditionResult
+				}
+
+				// Include condition tool if present
+				if stepMeta.ConditionTool != "" {
+					stepInfo["condition_tool"] = stepMeta.ConditionTool
+				}
+
+				// Include stored result if available
+				if stepMeta.Store != "" && execCtx.results[stepMeta.Store] != nil {
+					stepInfo["result"] = execCtx.results[stepMeta.Store]
+				}
+
+				enhancedPartialResults[stepMeta.ID] = stepInfo
+			}
 
 			// Create partial result with steps completed so far, including the failed step
 			partialResult := map[string]interface{}{
 				"workflow":     workflow.Name,
-				"results":      execCtx.results,
+				"results":      enhancedPartialResults,
 				"input":        execCtx.input,
 				"templateVars": execCtx.templateVars,
 				"stepMetadata": execCtx.stepMetadata,
@@ -153,9 +255,12 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 		// Record step metadata for execution tracking
 		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-			ID:    step.ID,
-			Tool:  step.Tool,
-			Store: step.Store,
+			ID:              step.ID,
+			Tool:            step.Tool,
+			Store:           step.Store,
+			Status:          "completed",
+			ConditionResult: conditionResult,
+			ConditionTool:   conditionTool,
 		})
 
 		// Check if result indicates an error
@@ -166,10 +271,42 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 	}
 
+	// Enhance results with step-level information for BDD testing access
+	enhancedResults := make(map[string]interface{})
+
+	// Copy existing stored results
+	for k, v := range execCtx.results {
+		enhancedResults[k] = v
+	}
+
+	// Add step metadata to results for easy access via JSON path (e.g., results.step-id.status)
+	for _, stepMeta := range execCtx.stepMetadata {
+		stepInfo := map[string]interface{}{
+			"status": stepMeta.Status,
+		}
+
+		// Include condition result if present
+		if stepMeta.ConditionResult != nil {
+			stepInfo["condition_result"] = *stepMeta.ConditionResult
+		}
+
+		// Include condition tool if present
+		if stepMeta.ConditionTool != "" {
+			stepInfo["condition_tool"] = stepMeta.ConditionTool
+		}
+
+		// Include stored result if available
+		if stepMeta.Store != "" && execCtx.results[stepMeta.Store] != nil {
+			stepInfo["result"] = execCtx.results[stepMeta.Store]
+		}
+
+		enhancedResults[stepMeta.ID] = stepInfo
+	}
+
 	// Return the final result
 	finalResult := map[string]interface{}{
 		"workflow":     workflow.Name,
-		"results":      execCtx.results,
+		"results":      enhancedResults,      // Enhanced results with step information
 		"input":        execCtx.input,        // Include input arguments
 		"templateVars": execCtx.templateVars, // Include template variables used
 		"stepMetadata": execCtx.stepMetadata, // Include step metadata for execution tracking
@@ -456,4 +593,86 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// validateJsonPath validates JSON path expectations against tool result
+func (we *WorkflowExecutor) validateJsonPath(toolResult *mcp.CallToolResult, jsonPathExpectations map[string]interface{}, execCtx *executionContext) (bool, error) {
+	// Parse the tool result as JSON
+	var resultData interface{}
+	if len(toolResult.Content) == 0 {
+		return false, fmt.Errorf("tool result has no content")
+	}
+
+	// Get the first content item and try to parse as JSON
+	if textContent, ok := toolResult.Content[0].(mcp.TextContent); ok {
+		if err := json.Unmarshal([]byte(textContent.Text), &resultData); err != nil {
+			return false, fmt.Errorf("failed to parse tool result as JSON: %w", err)
+		}
+	} else {
+		// If it's not text content, try to use it directly
+		resultData = toolResult.Content[0]
+	}
+
+	// Validate each JSON path expectation
+	for jsonPath, expectedValue := range jsonPathExpectations {
+		// Resolve the expected value template if it contains templating
+		resolvedExpectedValue, err := we.resolveValue(expectedValue, execCtx)
+		if err != nil {
+			return false, fmt.Errorf("failed to resolve expected value template for path %s: %w", jsonPath, err)
+		}
+
+		// Get the actual value from the result using simple path navigation
+		actualValue, err := we.getValueFromPath(resultData, jsonPath)
+		if err != nil {
+			logging.Debug("WorkflowExecutor", "Failed to get value from path %s: %v", jsonPath, err)
+			return false, nil // Path not found = condition fails
+		}
+
+		// Compare the values
+		if !we.valuesEqual(actualValue, resolvedExpectedValue) {
+			logging.Debug("WorkflowExecutor", "JSON path validation failed: path=%s, expected=%v, actual=%v",
+				jsonPath, resolvedExpectedValue, actualValue)
+			return false, nil
+		}
+
+		logging.Debug("WorkflowExecutor", "JSON path validation passed: path=%s, expected=%v, actual=%v",
+			jsonPath, resolvedExpectedValue, actualValue)
+	}
+
+	return true, nil
+}
+
+// getValueFromPath extracts a value from nested data using a simple path (e.g., "name", "data.field")
+func (we *WorkflowExecutor) getValueFromPath(data interface{}, path string) (interface{}, error) {
+	parts := strings.Split(path, ".")
+	current := data
+
+	for _, part := range parts {
+		switch v := current.(type) {
+		case map[string]interface{}:
+			if value, exists := v[part]; exists {
+				current = value
+			} else {
+				return nil, fmt.Errorf("path '%s' not found", path)
+			}
+		default:
+			return nil, fmt.Errorf("cannot navigate path '%s': not an object", path)
+		}
+	}
+
+	return current, nil
+}
+
+// valuesEqual compares two values for equality, handling type conversions
+func (we *WorkflowExecutor) valuesEqual(actual, expected interface{}) bool {
+	// Direct equality check first
+	if actual == expected {
+		return true
+	}
+
+	// Convert both to strings for comparison if they're different types
+	actualStr := fmt.Sprintf("%v", actual)
+	expectedStr := fmt.Sprintf("%v", expected)
+
+	return actualStr == expectedStr
 }
