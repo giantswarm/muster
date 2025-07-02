@@ -92,7 +92,11 @@ steps:
       status: "completed"
       workflow: "conditional-workflow"
       "results.check-service-exists.status": "completed"
-      "results.check-service-exists.condition_result": true
+      "results.check-service-exists.condition_evaluation": true
+      "results.check-service-exists.condition_result.name": "existing-service"
+      "results.check-service-exists.condition_result.health": "healthy"
+      "results.check-service-exists.condition_result.state": "running"
+      "results.check-service-exists.condition_result.args.echo": "existing-service"
       "results.always-execute.status": "completed"
 
 - id: "run-conditional-workflow-service-missing"
@@ -105,5 +109,5 @@ steps:
       status: "completed"
       workflow: "conditional-workflow"
       "results.check-service-exists.status": "skipped"
-      "results.check-service-exists.condition_result": false
+      "results.check-service-exists.condition_evaluation": false
       "results.always-execute.status": "completed" 

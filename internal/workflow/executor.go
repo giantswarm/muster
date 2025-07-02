@@ -20,12 +20,13 @@ type ToolCaller interface {
 
 // stepMetadata holds metadata about an executed step for tracking purposes
 type stepMetadata struct {
-	ID              string // Original step ID from workflow definition
-	Tool            string // Tool name used in the step
-	Store           string // Variable name where result was stored (if any)
-	Status          string // Step execution status: "completed", "skipped", "failed"
-	ConditionResult *bool  // Result of condition evaluation (nil if no condition)
-	ConditionTool   string // Tool used for condition evaluation (empty if no condition)
+	ID                  string      // Original step ID from workflow definition
+	Tool                string      // Tool name used in the step
+	Store               string      // Variable name where result was stored (if any)
+	Status              string      // Step execution status: "completed", "skipped", "failed"
+	ConditionEvaluation *bool       // Boolean result of condition evaluation (nil if no condition)
+	ConditionResult     interface{} // Actual result from condition tool call (nil if no condition)
+	ConditionTool       string      // Tool used for condition evaluation (empty if no condition)
 }
 
 // WorkflowExecutor executes workflow steps
@@ -76,7 +77,8 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
 		// Check if step has a condition
-		var conditionResult *bool
+		var conditionEvaluation *bool
+		var conditionResult interface{}
 		var conditionTool string
 
 		if step.Condition != nil {
@@ -96,8 +98,23 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				// Condition tool failed - this means condition is false
 				logging.Debug("WorkflowExecutor", "Step %s condition tool failed: %v", step.ID, err)
 				conditionPassed := false
-				conditionResult = &conditionPassed
+				conditionEvaluation = &conditionPassed
+				conditionResult = false // Store boolean false as the result when tool call fails
 			} else {
+				// Parse the tool result for storage
+				if len(conditionToolResult.Content) > 0 {
+					if textContent, ok := conditionToolResult.Content[0].(mcp.TextContent); ok {
+						// Try to parse as JSON first
+						var parsedResult interface{}
+						if err := json.Unmarshal([]byte(textContent.Text), &parsedResult); err != nil {
+							// If not JSON, store as string
+							conditionResult = textContent.Text
+						} else {
+							conditionResult = parsedResult
+						}
+					}
+				}
+
 				// Check if condition result matches expectation
 				conditionPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
 
@@ -113,23 +130,24 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					logging.Debug("WorkflowExecutor", "Step %s JSON path validation result: %v", step.ID, jsonPathPassed)
 				}
 
-				conditionResult = &conditionPassed
+				conditionEvaluation = &conditionPassed
 				logging.Debug("WorkflowExecutor", "Step %s condition result: tool_success=%v, expect_success=%v, condition_passed=%v",
 					step.ID, !conditionToolResult.IsError, step.Condition.Expect.Success, conditionPassed)
 			}
 
 			// If condition failed, skip this step
-			if !*conditionResult {
+			if !*conditionEvaluation {
 				logging.Debug("WorkflowExecutor", "Step %s condition failed, skipping step", step.ID)
 
 				// Record the skipped step metadata
 				execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-					ID:              step.ID,
-					Tool:            step.Tool,
-					Store:           step.Store,
-					Status:          "skipped",
-					ConditionResult: conditionResult,
-					ConditionTool:   conditionTool,
+					ID:                  step.ID,
+					Tool:                step.Tool,
+					Store:               step.Store,
+					Status:              "skipped",
+					ConditionEvaluation: conditionEvaluation,
+					ConditionResult:     conditionResult,
+					ConditionTool:       conditionTool,
 				})
 
 				// Continue to next step
@@ -153,12 +171,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 			// Record the failed step metadata
 			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-				ID:              step.ID,
-				Tool:            step.Tool,
-				Store:           step.Store,
-				Status:          "failed",
-				ConditionResult: conditionResult,
-				ConditionTool:   conditionTool,
+				ID:                  step.ID,
+				Tool:                step.Tool,
+				Store:               step.Store,
+				Status:              "failed",
+				ConditionEvaluation: conditionEvaluation,
+				ConditionResult:     conditionResult,
+				ConditionTool:       conditionTool,
 			})
 
 			// Enhance results with step-level information for partial results too
@@ -175,9 +194,12 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					"status": stepMeta.Status,
 				}
 
-				// Include condition result if present
+				// Include condition information if present
+				if stepMeta.ConditionEvaluation != nil {
+					stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
+				}
 				if stepMeta.ConditionResult != nil {
-					stepInfo["condition_result"] = *stepMeta.ConditionResult
+					stepInfo["condition_result"] = stepMeta.ConditionResult
 				}
 
 				// Include condition tool if present
@@ -255,12 +277,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 		// Record step metadata for execution tracking
 		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-			ID:              step.ID,
-			Tool:            step.Tool,
-			Store:           step.Store,
-			Status:          "completed",
-			ConditionResult: conditionResult,
-			ConditionTool:   conditionTool,
+			ID:                  step.ID,
+			Tool:                step.Tool,
+			Store:               step.Store,
+			Status:              "completed",
+			ConditionEvaluation: conditionEvaluation,
+			ConditionResult:     conditionResult,
+			ConditionTool:       conditionTool,
 		})
 
 		// Check if result indicates an error
@@ -285,9 +308,12 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			"status": stepMeta.Status,
 		}
 
-		// Include condition result if present
+		// Include condition information if present
+		if stepMeta.ConditionEvaluation != nil {
+			stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
+		}
 		if stepMeta.ConditionResult != nil {
-			stepInfo["condition_result"] = *stepMeta.ConditionResult
+			stepInfo["condition_result"] = stepMeta.ConditionResult
 		}
 
 		// Include condition tool if present
