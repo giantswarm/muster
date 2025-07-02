@@ -68,6 +68,13 @@ alwaysApply: true
   -   **ALWAYS retrieve handlers from the `api` package.**
   -   **Don't change schema.json manually** It is generated via `muster test --generate-schema` and changes are the result of the actual api of `muster serve`.
 
+- **BDD test scenarios**
+  - **Execute test scenarios like this**: `muster test --scenario <scenario> --verbose`
+  - **Make sure muster is up to date**: Use `go install`
+  - **Always update muster after a code change in go**
+  - **There is no need to start muster serve**: Each test scenario is executed in its own environment and its own instance of `muster serve`
+  - **Always treat the scenario as the defined and supposed user behavior**: If a scenario fails it is most likely a regression and the code needs to be fixed and not the scenario.
+
 - **Testing Standards**
   - **Minimum Coverage:** All new code **MUST** achieve at least **80% unit test coverage**.
   - **TUI Golden Files:** All TUI view changes **MUST** be verified with golden file snapshots.
@@ -84,6 +91,13 @@ alwaysApply: true
   - **Dependencies:** Before adding a new dependency with `go get`, use `web_search` to find its latest stable version.
   - **Error Handling:** Wrap errors with `fmt.Errorf("context: %w", err)` to preserve context.
   - **File Size:** Keep files focused and under **400 lines**. Refactor larger files.
+
+- **When ever you get a "Finish this up":**
+  - **Run the tests:** `make test`
+  - **Update the binary:** `go install`
+  - **Run the scenarios:** `muster test --parallel 20`
+  - **Format the code:** `goimports -w . && go fmt ./...`
+  - **Commit & Push & Pull Request**: Check the github workflow
 
 - **Documentation**
   - **Packages:** Every package **MUST** have a `doc.go` file explaining its purpose.

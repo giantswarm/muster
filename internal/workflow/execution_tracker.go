@@ -208,6 +208,16 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 		stepID, _ := stepMeta["ID"].(string)
 		tool, _ := stepMeta["Tool"].(string)
 		store, _ := stepMeta["Store"].(string)
+		stepStatusRaw, _ := stepMeta["Status"].(string)
+		conditionTool, _ := stepMeta["ConditionTool"].(string)
+
+		// Extract condition result if present
+		var conditionResult *bool
+		if conditionResultRaw, hasCondition := stepMeta["ConditionResult"]; hasCondition && conditionResultRaw != nil {
+			if conditionBool, ok := conditionResultRaw.(bool); ok {
+				conditionResult = &conditionBool
+			}
+		}
 
 		// Get the result if it was stored
 		var stepResult interface{}
@@ -215,21 +225,54 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 			stepResult = results[store]
 		}
 
-		// Determine step status and error
+		// Use the status from step metadata if available, otherwise determine from execution context
 		var stepStatus api.WorkflowExecutionStatus
 		var stepError *string
 
-		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', failedStepID='%s', match=%t", stepID, failedStepID, stepID == failedStepID)
+		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', metaStatus='%s', failedStepID='%s', conditionResult=%v",
+			stepID, stepStatusRaw, failedStepID, conditionResult)
 
-		if failedStepID != "" && stepID == failedStepID {
-			// This is the step that failed
-			logging.Debug("ExecutionTracker", "Setting step %s as failed with error: %s", stepID, workflowError)
+		switch stepStatusRaw {
+		case "skipped":
+			stepStatus = "skipped" // Custom status for skipped steps
+			stepError = nil
+		case "failed":
 			stepStatus = api.WorkflowExecutionFailed
-			stepError = &workflowError
-		} else {
-			// This step completed successfully (or we assume it did if it's before the failed step)
+			if failedStepID != "" && stepID == failedStepID {
+				stepError = &workflowError
+			}
+		case "completed":
 			stepStatus = api.WorkflowExecutionCompleted
 			stepError = nil
+		default:
+			// Fallback to legacy behavior
+			if failedStepID != "" && stepID == failedStepID {
+				logging.Debug("ExecutionTracker", "Setting step %s as failed with error: %s", stepID, workflowError)
+				stepStatus = api.WorkflowExecutionFailed
+				stepError = &workflowError
+			} else {
+				stepStatus = api.WorkflowExecutionCompleted
+				stepError = nil
+			}
+		}
+
+		// Create step result that includes condition information when present
+		var enhancedStepResult interface{}
+		if conditionResult != nil {
+			// For conditional steps, create a result that includes both the step result and condition info
+			enhancedResult := map[string]interface{}{
+				"condition_result": *conditionResult,
+				"status":           string(stepStatus),
+			}
+			if stepResult != nil {
+				enhancedResult["result"] = stepResult
+			}
+			if conditionTool != "" {
+				enhancedResult["condition_tool"] = conditionTool
+			}
+			enhancedStepResult = enhancedResult
+		} else {
+			enhancedStepResult = stepResult
 		}
 
 		// Create step record with actual metadata and correct status
@@ -241,12 +284,13 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 			CompletedAt: execution.CompletedAt,
 			DurationMs:  0,                        // Unknown duration for now
 			Input:       map[string]interface{}{}, // Unknown input for now
-			Result:      stepResult,
+			Result:      enhancedStepResult,
 			Error:       stepError,
 			StoredAs:    store,
 		}
 
-		logging.Debug("ExecutionTracker", "Created step: stepID='%s', status='%s', hasError=%t", stepID, stepStatus, stepError != nil)
+		logging.Debug("ExecutionTracker", "Created step: stepID='%s', status='%s', hasError=%t, hasCondition=%t",
+			stepID, stepStatus, stepError != nil, conditionResult != nil)
 		execution.Steps = append(execution.Steps, step)
 	}
 }
