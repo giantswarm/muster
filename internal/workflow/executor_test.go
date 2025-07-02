@@ -40,15 +40,12 @@ func TestWorkflowExecutor_ExecuteWorkflow(t *testing.T) {
 	workflow := &api.Workflow{
 		Name:        "test_workflow",
 		Description: "Test workflow",
-		InputSchema: api.WorkflowInputSchema{
-			Type: "object",
-			Properties: map[string]api.SchemaProperty{
-				"cluster": {
-					Type:        "string",
-					Description: "Cluster name",
-				},
+		Args: map[string]api.ArgDefinition{
+			"cluster": {
+				Type:        "string",
+				Required:    true,
+				Description: "Cluster name",
 			},
-			Required: []string{"cluster"},
 		},
 		Steps: []api.WorkflowStep{
 			{
@@ -81,34 +78,32 @@ func TestWorkflowExecutor_ExecuteWorkflow(t *testing.T) {
 func TestWorkflowExecutor_ValidateInputs(t *testing.T) {
 	executor := NewWorkflowExecutor(nil)
 
-	schema := api.WorkflowInputSchema{
-		Type: "object",
-		Properties: map[string]api.SchemaProperty{
-			"required_string": {
-				Type:        "string",
-				Description: "Required string field",
-			},
-			"optional_number": {
-				Type:        "number",
-				Description: "Optional number field",
-				Default:     float64(42),
-			},
+	argsDefinition := map[string]api.ArgDefinition{
+		"required_string": {
+			Type:        "string",
+			Required:    true,
+			Description: "Required string field",
 		},
-		Required: []string{"required_string"},
+		"optional_number": {
+			Type:        "number",
+			Required:    false,
+			Description: "Optional number field",
+			Default:     float64(42),
+		},
 	}
 
 	t.Run("valid inputs", func(t *testing.T) {
 		args := map[string]interface{}{
 			"required_string": "test",
 		}
-		err := executor.validateInputs(schema, args)
+		err := executor.validateInputs(argsDefinition, args)
 		assert.NoError(t, err)
 		assert.Equal(t, float64(42), args["optional_number"]) // Default applied
 	})
 
 	t.Run("missing required field", func(t *testing.T) {
 		args := map[string]interface{}{}
-		err := executor.validateInputs(schema, args)
+		err := executor.validateInputs(argsDefinition, args)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "required field 'required_string' is missing")
 	})
@@ -117,7 +112,7 @@ func TestWorkflowExecutor_ValidateInputs(t *testing.T) {
 		args := map[string]interface{}{
 			"required_string": 123, // Should be string
 		}
-		err := executor.validateInputs(schema, args)
+		err := executor.validateInputs(argsDefinition, args)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "field 'required_string' has wrong type")
 	})
@@ -151,7 +146,7 @@ func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
 		{
 			name:     "number value",
 			template: "{{ .input.port }}",
-			expected: float64(8080), // Numbers are preserved when parsed as JSON
+			expected: 8080, // Numbers are preserved as their original type
 		},
 		{
 			name:     "nested access",
@@ -176,10 +171,7 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 	workflow := &api.Workflow{
 		Name:        "test_workflow",
 		Description: "Test workflow with result storage",
-		InputSchema: api.WorkflowInputSchema{
-			Type:       "object",
-			Properties: map[string]api.SchemaProperty{},
-		},
+		Args:        map[string]api.ArgDefinition{},
 		Steps: []api.WorkflowStep{
 			{
 				ID:    "step1",
@@ -206,4 +198,23 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 
 	// Second call should have resolved the stored result
 	assert.Equal(t, "success", mock.calls[1].args["data"])
+}
+
+func TestWorkflowExecutor_ResolveTemplate_StringNumbers(t *testing.T) {
+	executor := NewWorkflowExecutor(nil)
+
+	// Test that string templates with numeric values don't get converted to float64
+	ctx := &executionContext{
+		input: map[string]interface{}{
+			"localPort": "18000", // This is a string, not a number
+		},
+		variables: make(map[string]interface{}),
+		results:   make(map[string]interface{}),
+	}
+
+	// This should return a string, not a float64
+	result, err := executor.resolveTemplate("{{.input.localPort}}", ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, "18000", result)
+	assert.IsType(t, "", result) // Should be string type, not float64
 }

@@ -1,0 +1,69 @@
+name: "workflow-execution-get-non-existent"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "get", "error", "non-existent"]
+timeout: "2m"
+
+steps:
+- id: "get-non-existent-execution"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "non-existent-execution-id"
+  expected:
+    success: false
+    error_contains: ["not found", "execution"]
+
+- id: "create-test-workflow-for-step-errors"
+  tool: "core_workflow_create"
+  args:
+    name: "step-error-workflow"
+    args: {}
+    steps:
+      - id: "valid_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "step-error-workflow" }
+
+- id: "execute-workflow-for-step-tests"
+  tool: "workflow_step-error-workflow"
+  args: {}
+  expected:
+    success: true
+  store: "step_test_execution"
+
+- id: "get-non-existent-step"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ step_test_execution.execution_id }}"
+    step_id: "non-existent-step"
+  expected:
+    success: false
+    error_contains: ["step not found", "non-existent-step"]
+
+- id: "get-empty-step-id"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ step_test_execution.execution_id }}"
+    step_id: ""
+  expected:
+    success: false
+    error_contains: ["step", "empty", "invalid"]
+
+- id: "get-execution-with-invalid-uuid"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "invalid-uuid-format"
+  expected:
+    success: false
+    error_contains: ["invalid-uuid-format", "not found"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "step-error-workflow" }
+  expected:
+    success: true 

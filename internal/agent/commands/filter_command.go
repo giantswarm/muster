@@ -118,26 +118,55 @@ func (f *FilterCommand) matchesPattern(name, pattern string, caseSensitive bool)
 		pattern = strings.ToLower(pattern)
 	}
 
-	// Simple wildcard matching
-	if strings.Contains(pattern, "*") {
-		// Replace * with regex equivalent and check
-		parts := strings.Split(pattern, "*")
-		current := name
-		for _, part := range parts {
-			if part == "" {
-				continue
-			}
-			index := strings.Index(current, part)
-			if index == -1 {
-				return false
-			}
-			current = current[index+len(part):]
-		}
+	return matchWildcard(name, pattern)
+}
+
+// matchWildcard implements proper sequential wildcard pattern matching
+func matchWildcard(text, pattern string) bool {
+	// Handle edge cases
+	if pattern == "*" {
 		return true
 	}
+	if pattern == "" {
+		return text == ""
+	}
+	if text == "" {
+		return pattern == ""
+	}
 
-	// Exact or substring match
-	return strings.Contains(name, pattern)
+	// If no wildcards, do substring matching (like the original behavior)
+	if !strings.Contains(pattern, "*") {
+		return strings.Contains(text, pattern)
+	}
+
+	// Split pattern by wildcards
+	parts := strings.Split(pattern, "*")
+	textPos := 0
+
+	for i, part := range parts {
+		// Skip empty parts between consecutive wildcards
+		if part == "" {
+			continue
+		}
+
+		if i == 0 && !strings.HasPrefix(pattern, "*") {
+			// First part must match from the beginning (no leading wildcard)
+			if !strings.HasPrefix(text[textPos:], part) {
+				return false
+			}
+			textPos += len(part)
+		} else {
+			// All other parts must exist in sequence
+			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
+			idx := strings.Index(text[textPos:], part)
+			if idx == -1 {
+				return false
+			}
+			textPos += idx + len(part)
+		}
+	}
+
+	return true
 }
 
 // containsDescription checks if description contains the filter text

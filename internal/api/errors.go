@@ -40,7 +40,7 @@ func (e *NotFoundError) Error() string {
 // This function provides a type-safe way to check for not found conditions
 // in error handling code, supporting wrapped errors.
 //
-// Parameters:
+// Args:
 //   - err: The error to check
 //
 // Returns:
@@ -61,7 +61,7 @@ func IsNotFound(err error) bool {
 // NewNotFoundError creates a new NotFoundError with the specified resource type and name.
 // This is the standard way to create not found errors throughout the API.
 //
-// Parameters:
+// Args:
 //   - resourceType: The category of resource (e.g., "workflow", "service")
 //   - resourceName: The specific identifier of the resource
 //
@@ -81,7 +81,7 @@ func NewNotFoundError(resourceType, resourceName string) *NotFoundError {
 // NewNotFoundErrorWithMessage creates a new NotFoundError with a custom message.
 // This is used when the default error format doesn't provide sufficient context.
 //
-// Parameters:
+// Args:
 //   - resourceType: The category of resource
 //   - resourceName: The specific identifier of the resource
 //   - message: Custom error message to use instead of the default format
@@ -106,7 +106,7 @@ func NewNotFoundErrorWithMessage(resourceType, resourceName, message string) *No
 var (
 	// NewWorkflowNotFoundError creates a workflow not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the workflow that was not found
 	//
 	// Returns:
@@ -117,7 +117,7 @@ var (
 
 	// NewServiceClassNotFoundError creates a service class not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service class that was not found
 	//
 	// Returns:
@@ -128,7 +128,7 @@ var (
 
 	// NewServiceNotFoundError creates a service not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the service that was not found
 	//
 	// Returns:
@@ -139,7 +139,7 @@ var (
 
 	// NewCapabilityNotFoundError creates a capability not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the capability that was not found
 	//
 	// Returns:
@@ -150,7 +150,7 @@ var (
 
 	// NewMCPServerNotFoundError creates an MCP server not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the MCP server that was not found
 	//
 	// Returns:
@@ -161,7 +161,7 @@ var (
 
 	// NewToolNotFoundError creates a tool not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the tool that was not found
 	//
 	// Returns:
@@ -172,7 +172,7 @@ var (
 
 	// NewResourceNotFoundError creates a resource not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the resource that was not found
 	//
 	// Returns:
@@ -183,7 +183,7 @@ var (
 
 	// NewPromptNotFoundError creates a prompt not found error.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the prompt that was not found
 	//
 	// Returns:
@@ -236,7 +236,7 @@ var (
 // All errors (including NotFoundError) are treated as error conditions for
 // compatibility with the test framework and consistent API behavior.
 //
-// Parameters:
+// Args:
 //   - err: The error to handle and format
 //
 // Returns:
@@ -258,7 +258,7 @@ func HandleError(err error) *CallToolResult {
 // This function is similar to HandleError but allows customizing the error message prefix
 // for more specific error context.
 //
-// Parameters:
+// Args:
 //   - err: The error to handle and format
 //   - prefix: Custom prefix to prepend to the error message
 //

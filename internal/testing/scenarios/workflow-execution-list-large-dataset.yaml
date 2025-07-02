@@ -1,0 +1,136 @@
+name: "workflow-execution-list-large-dataset"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "list", "performance", "large-dataset"]
+timeout: "5m"
+
+steps:
+- id: "create-performance-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "performance-workflow"
+    args:
+        batch_id:
+          type: "string"
+          default: "batch-1"
+    steps:
+      - id: "perf_step"
+        tool: "core_service_list"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "performance-workflow" }
+
+# Create multiple executions for performance testing
+- id: "execute-batch-1"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-1" }
+  expected:
+    success: true
+
+- id: "execute-batch-2"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-2" }
+  expected:
+    success: true
+
+- id: "execute-batch-3"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-3" }
+  expected:
+    success: true
+
+- id: "execute-batch-4"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-4" }
+  expected:
+    success: true
+
+- id: "execute-batch-5"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-5" }
+  expected:
+    success: true
+
+- id: "execute-batch-6"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-6" }
+  expected:
+    success: true
+
+- id: "execute-batch-7"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-7" }
+  expected:
+    success: true
+
+- id: "execute-batch-8"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-8" }
+  expected:
+    success: true
+
+- id: "execute-batch-9"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-9" }
+  expected:
+    success: true
+
+- id: "execute-batch-10"
+  tool: "workflow_performance-workflow"
+  args: { batch_id: "batch-10" }
+  expected:
+    success: true
+
+- id: "list-large-dataset-default"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "performance-workflow"
+  expected:
+    success: true
+    contains: ["performance-workflow"]
+
+- id: "list-large-dataset-with-limit"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "performance-workflow"
+    limit: 5
+  expected:
+    success: true
+    contains: ["performance-workflow"]
+
+- id: "list-large-dataset-with-pagination"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "performance-workflow"
+    limit: 3
+    offset: 3
+  expected:
+    success: true
+    contains: ["performance-workflow"]
+
+- id: "list-large-dataset-filter-completed"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "performance-workflow"
+    status: "completed"
+    limit: 20
+  expected:
+    success: true
+    contains: ["performance-workflow", "completed"]
+
+- id: "list-large-dataset-all-executions"
+  tool: "core_workflow_execution_list"
+  args:
+    limit: 50
+  expected:
+    success: true
+    contains: ["performance-workflow"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "performance-workflow" }
+  expected:
+    success: true 

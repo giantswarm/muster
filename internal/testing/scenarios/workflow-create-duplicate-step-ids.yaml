@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "duplicate-steps-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "duplicate-step"
         tool: "core_capability_list"

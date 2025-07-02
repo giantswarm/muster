@@ -1,10 +1,10 @@
 name: "service-create-missing-required-param"
 category: "behavioral"
 concept: "service"
-tags: ["service", "create", "parameters", "error-handling", "core-api"]
+tags: ["service", "create", "args", "error-handling", "core-api"]
 timeout: "1m"
-# NOTE: Parameter validation is not yet fully implemented
-# TODO: This test should fail when parameter validation is added
+# NOTE: Arg validation is not yet fully implemented
+# TODO: This test should fail when arg validation is added
 
 pre_configuration:
   service_classes:
@@ -13,7 +13,7 @@ pre_configuration:
       name: "sc-requires-param"
       version: "1.0.0"
       serviceConfig:
-        createParameters:
+        createArgs:
           message:
             required: true
         lifecycleTools:

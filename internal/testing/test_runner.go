@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -206,7 +207,7 @@ func (r *testRunner) collectInstanceLogs(instance *MusterInstance, result *TestS
 	}
 }
 
-// runScenario executes a single test scenario
+// runScenario executes a single test scenario with template variable support
 func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, config TestConfiguration) TestScenarioResult {
 	result := TestScenarioResult{
 		Scenario:    scenario,
@@ -217,6 +218,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Report scenario start
 	r.reporter.ReportScenarioStart(scenario)
+
+	// Create scenario context for template variable support
+	scenarioContext := NewScenarioContext()
 
 	// Apply scenario timeout if specified
 	scenarioCtx := ctx
@@ -337,7 +341,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
-		stepResult := r.runStepWithClient(scenarioCtx, step, config, scenarioClient)
+		stepResult := r.runStep(scenarioCtx, step, config, scenarioClient, scenarioContext)
 		result.StepResults = append(result.StepResults, stepResult)
 
 		// Report step result
@@ -354,7 +358,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Execute cleanup steps regardless of main scenario outcome using the isolated client
 	if len(scenario.Cleanup) > 0 {
 		for _, cleanupStep := range scenario.Cleanup {
-			stepResult := r.runStepWithClient(scenarioCtx, cleanupStep, config, scenarioClient)
+			stepResult := r.runStep(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext)
 			result.StepResults = append(result.StepResults, stepResult)
 			r.reporter.ReportStepResult(stepResult)
 
@@ -380,13 +384,8 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	return result
 }
 
-// runStep executes a single test step using the shared client (for backward compatibility)
-func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration) TestStepResult {
-	return r.runStepWithClient(ctx, step, config, r.client)
-}
-
-// runStepWithClient executes a single test step using the specified MCP client
-func (r *testRunner) runStepWithClient(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient) TestStepResult {
+// runStep executes a single test step using the specified MCP client with template variable support
+func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext) TestStepResult {
 	result := TestStepResult{
 		Step:      step,
 		StartTime: time.Now(),
@@ -401,16 +400,47 @@ func (r *testRunner) runStepWithClient(ctx context.Context, step TestStep, confi
 		defer cancel()
 	}
 
-	// Execute the tool call
-	response, err := client.CallTool(stepCtx, step.Tool, step.Args)
+	// Resolve template variables in step arguments if scenario context is available
+	resolvedArgs := step.Args
+	if scenarioContext != nil {
+		processor := NewTemplateProcessor(scenarioContext)
+
+		var err error
+		resolvedArgs, err = processor.ResolveArgs(step.Args)
+		if err != nil {
+			result.Result = ResultError
+			result.Error = fmt.Sprintf("template resolution failed: %v", err)
+			result.EndTime = time.Now()
+			result.Duration = result.EndTime.Sub(result.StartTime)
+			return result
+		}
+
+		if r.debug {
+			r.logger.Debug("🔧 Step %s: Template resolution completed\n", step.ID)
+		}
+	}
+
+	// Execute the tool call with resolved arguments
+	response, err := client.CallTool(stepCtx, step.Tool, resolvedArgs)
 
 	// Store response (even if there's an error)
 	result.Response = response
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
+	// Store result if requested and scenario context is available
+	if step.Store != "" && scenarioContext != nil && response != nil {
+		// Extract actual data from MCP CallToolResult for template variable access
+		storableResult := r.extractStorableResult(response)
+		scenarioContext.StoreResult(step.Store, storableResult)
+
+		if r.debug {
+			r.logger.Debug("💾 Step %s: Stored result as '%s': %v\n", step.ID, step.Store, storableResult)
+		}
+	}
+
 	// Validate expectations (always check, even with errors - they might be expected)
-	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, step.Args) {
+	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs) {
 		if err != nil {
 			result.Result = ResultError
 			result.Error = fmt.Sprintf("tool call failed: %v", err)
@@ -620,7 +650,8 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 
 			// Check each JSON path expectation
 			for jsonPath, expectedValue := range expected.JSONPath {
-				actualValue, exists := responseMap[jsonPath]
+				// Use enhanced path resolution that supports dot notation
+				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
 				if !exists {
 					if r.debug {
 						r.logger.Debug("❌ JSON path '%s' not found in response\n", jsonPath)
@@ -628,8 +659,8 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 					return false
 				}
 
-				// Compare values
-				if !compareValues(actualValue, expectedValue) {
+				// Enhanced value comparison with partial matching support
+				if !r.compareValuesEnhanced(actualValue, expectedValue) {
 					if r.debug {
 						r.logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
 					}
@@ -694,81 +725,37 @@ func toLower(s string) string {
 
 // extractJSONFromMCPResponse attempts to extract JSON from MCP CallToolResult
 func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string]interface{} {
-	// Try to handle MCP CallToolResult structure
-	responseStr := fmt.Sprintf("%+v", response)
-
-	// Look for patterns that indicate this is an MCP response with JSON content
-	if !containsText(responseStr, "Content:[") {
-		return nil
-	}
-
-	// Try to extract the JSON text from the response structure
-	// The format is usually: Content:[{...Text:{"json":"here"}...}]
-	// We'll use string parsing to extract the JSON content
-
-	// Find the Text: field in the string representation
-	textStart := -1
-	textEnd := -1
-
-	// Look for "Text:" pattern
-	textPattern := "Text:"
-	for i := 0; i <= len(responseStr)-len(textPattern); i++ {
-		if responseStr[i:i+len(textPattern)] == textPattern {
-			textStart = i + len(textPattern)
-			break
-		}
-	}
-
-	if textStart == -1 {
-		if r.debug {
-			r.logger.Debug("🔍 Could not find 'Text:' in response: %s\n", responseStr[:min(200, len(responseStr))])
-		}
-		return nil
-	}
-
-	// Find the end of the JSON text (look for the closing brace followed by '}')
-	braceCount := 0
-	inJson := false
-	for i := textStart; i < len(responseStr); i++ {
-		char := responseStr[i]
-		if char == '{' {
-			if !inJson {
-				inJson = true
-				textStart = i // Start from the actual JSON opening brace
-			}
-			braceCount++
-		} else if char == '}' {
-			braceCount--
-			if braceCount == 0 && inJson {
-				textEnd = i + 1
-				break
+	// Handle MCP CallToolResult structure properly
+	if mcpResult, ok := response.(*mcp.CallToolResult); ok {
+		// Extract text content from MCP result
+		for _, content := range mcpResult.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				// Try to parse the text content as JSON
+				var result map[string]interface{}
+				if err := json.Unmarshal([]byte(textContent.Text), &result); err == nil {
+					if r.debug {
+						r.logger.Debug("🔍 Successfully extracted JSON from MCP response: %+v\n", result)
+					}
+					return result
+				} else {
+					if r.debug {
+						r.logger.Debug("🔍 Failed to parse MCP text content as JSON: %v\n", err)
+						r.logger.Debug("🔍 Text content was: %s\n", textContent.Text)
+					}
+				}
 			}
 		}
 	}
 
-	if textEnd == -1 || !inJson {
-		if r.debug {
-			r.logger.Debug("🔍 Could not find complete JSON in response text\n")
-		}
-		return nil
+	// Try to handle other response types
+	if respMap, ok := response.(map[string]interface{}); ok {
+		return respMap
 	}
 
-	// Extract the JSON string
-	jsonStr := responseStr[textStart:textEnd]
 	if r.debug {
-		r.logger.Debug("🔍 Extracted JSON string: %s\n", jsonStr)
+		r.logger.Debug("🔍 Could not extract JSON from response type %T\n", response)
 	}
-
-	// Parse the JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		if r.debug {
-			r.logger.Debug("🔍 Failed to parse JSON: %v\n", err)
-		}
-		return nil
-	}
-
-	return result
+	return nil
 }
 
 // min returns the minimum of two integers
@@ -781,14 +768,68 @@ func min(a, b int) int {
 
 // compareValues compares two values for equality, handling type conversions
 func compareValues(actual, expected interface{}) bool {
-	// Direct equality check first
-	if actual == expected {
+	// Handle nil cases first
+	if actual == nil || expected == nil {
+		return actual == expected
+	}
+
+	// Handle slice/array comparisons to prevent panic
+	actualVal := reflect.ValueOf(actual)
+	expectedVal := reflect.ValueOf(expected)
+
+	// Check if both are slices or arrays
+	if actualVal.Kind() == reflect.Slice || actualVal.Kind() == reflect.Array {
+		if expectedVal.Kind() == reflect.Slice || expectedVal.Kind() == reflect.Array {
+			// Compare lengths first
+			if actualVal.Len() != expectedVal.Len() {
+				return false
+			}
+
+			// Compare each element
+			for i := 0; i < actualVal.Len(); i++ {
+				actualItem := actualVal.Index(i).Interface()
+				expectedItem := expectedVal.Index(i).Interface()
+				if !compareValues(actualItem, expectedItem) {
+					return false
+				}
+			}
+			return true
+		}
+		// One is slice/array, other is not - not equal
+		return false
+	}
+
+	// Handle map comparisons
+	if actualVal.Kind() == reflect.Map && expectedVal.Kind() == reflect.Map {
+		actualKeys := actualVal.MapKeys()
+		expectedKeys := expectedVal.MapKeys()
+
+		// Compare number of keys
+		if len(actualKeys) != len(expectedKeys) {
+			return false
+		}
+
+		// Check each key-value pair
+		for _, key := range expectedKeys {
+			actualValue := actualVal.MapIndex(key)
+			expectedValue := expectedVal.MapIndex(key)
+
+			if !actualValue.IsValid() {
+				return false // Key doesn't exist in actual
+			}
+
+			if !compareValues(actualValue.Interface(), expectedValue.Interface()) {
+				return false
+			}
+		}
 		return true
 	}
 
-	// Handle nil cases
-	if actual == nil || expected == nil {
-		return actual == expected
+	// Direct equality check for comparable types (but not slices/arrays)
+	if actualVal.Type().Comparable() && expectedVal.Type().Comparable() {
+		if actual == expected {
+			return true
+		}
 	}
 
 	// Handle boolean comparisons
@@ -854,4 +895,197 @@ func (r *testRunner) updateCounters(suiteResult *TestSuiteResult, scenarioResult
 	case ResultError:
 		suiteResult.ErrorScenarios++
 	}
+}
+
+// extractStorableResult extracts a storable result from a response
+func (r *testRunner) extractStorableResult(response interface{}) interface{} {
+	// Handle different response types
+	switch resp := response.(type) {
+	case *mcp.CallToolResult:
+		// Extract text content from MCP result
+		var textParts []string
+		for _, content := range resp.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				textParts = append(textParts, textContent.Text)
+			}
+		}
+
+		if len(textParts) == 0 {
+			return response // Return original if no text content
+		}
+
+		// Join all text parts
+		combinedText := strings.Join(textParts, " ")
+
+		// Try to parse as JSON first
+		var jsonResult interface{}
+		if err := json.Unmarshal([]byte(combinedText), &jsonResult); err == nil {
+			// Successfully parsed as JSON, return the structured data
+			if r.debug {
+				r.logger.Debug("🔍 Extracted JSON result for template variables: %v\n", jsonResult)
+			}
+			return jsonResult
+		}
+
+		// If not JSON, return as string
+		if r.debug {
+			r.logger.Debug("🔍 Extracted text result for template variables: %s\n", combinedText)
+		}
+		return combinedText
+	default:
+		// For other response types, return as-is
+		return response
+	}
+}
+
+// resolveJSONPath resolves a JSON path in a map, supporting dot notation
+func (r *testRunner) resolveJSONPath(obj map[string]interface{}, path string) (interface{}, bool) {
+	// Handle direct key access first (no dots)
+	if !strings.Contains(path, ".") {
+		if val, exists := obj[path]; exists {
+			return val, true
+		}
+		return nil, false
+	}
+
+	// Split the path into segments
+	segments := strings.Split(path, ".")
+	current := obj
+
+	// Traverse the map based on the segments
+	for i, segment := range segments {
+		if val, exists := current[segment]; exists {
+			// If this is the last segment, return the value
+			if i == len(segments)-1 {
+				return val, true
+			}
+			// Otherwise, continue traversing if it's a map
+			if m, ok := val.(map[string]interface{}); ok {
+				current = m
+			} else {
+				// Value exists but is not a map, and we have more segments to traverse
+				return nil, false
+			}
+		} else {
+			return nil, false
+		}
+	}
+
+	// This should not be reached, but return the current object if all segments were traversed
+	return current, true
+}
+
+// compareValuesEnhanced compares two values for equality with partial matching support
+func (r *testRunner) compareValuesEnhanced(actual, expected interface{}) bool {
+	// Handle nil cases first
+	if actual == nil || expected == nil {
+		return actual == expected
+	}
+
+	// Handle slice/array comparisons to prevent panic
+	actualVal := reflect.ValueOf(actual)
+	expectedVal := reflect.ValueOf(expected)
+
+	// Check if both are slices or arrays
+	if actualVal.Kind() == reflect.Slice || actualVal.Kind() == reflect.Array {
+		if expectedVal.Kind() == reflect.Slice || expectedVal.Kind() == reflect.Array {
+			// Compare lengths first
+			if actualVal.Len() != expectedVal.Len() {
+				return false
+			}
+
+			// Compare each element
+			for i := 0; i < actualVal.Len(); i++ {
+				actualItem := actualVal.Index(i).Interface()
+				expectedItem := expectedVal.Index(i).Interface()
+				if !r.compareValuesEnhanced(actualItem, expectedItem) {
+					return false
+				}
+			}
+			return true
+		}
+		// One is slice/array, other is not - not equal
+		return false
+	}
+
+	// Handle map comparisons with partial matching support
+	if actualVal.Kind() == reflect.Map && expectedVal.Kind() == reflect.Map {
+		expectedKeys := expectedVal.MapKeys()
+
+		// For partial matching, we only check that all expected keys exist and match
+		// We don't require that the actual map has the same number of keys
+		// This allows the actual map to have additional fields not specified in expected
+
+		// Check each expected key-value pair
+		for _, key := range expectedKeys {
+			actualValue := actualVal.MapIndex(key)
+			expectedValue := expectedVal.MapIndex(key)
+
+			if !actualValue.IsValid() {
+				return false // Key doesn't exist in actual
+			}
+
+			if !r.compareValuesEnhanced(actualValue.Interface(), expectedValue.Interface()) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Direct equality check for comparable types (but not slices/arrays)
+	if actualVal.Type().Comparable() && expectedVal.Type().Comparable() {
+		if actual == expected {
+			return true
+		}
+	}
+
+	// Handle boolean comparisons
+	if expectedBool, ok := expected.(bool); ok {
+		if actualBool, ok := actual.(bool); ok {
+			return actualBool == expectedBool
+		}
+		// Convert string to bool if needed
+		if actualStr, ok := actual.(string); ok {
+			if actualStr == "true" {
+				return expectedBool == true
+			}
+			if actualStr == "false" {
+				return expectedBool == false
+			}
+		}
+	}
+
+	// Handle string comparisons
+	if expectedStr, ok := expected.(string); ok {
+		if actualStr, ok := actual.(string); ok {
+			return actualStr == expectedStr
+		}
+		// Convert other types to string for comparison
+		actualStr := fmt.Sprintf("%v", actual)
+		return actualStr == expectedStr
+	}
+
+	// Handle numeric comparisons (int, float64, etc.)
+	if expectedFloat, ok := expected.(float64); ok {
+		if actualFloat, ok := actual.(float64); ok {
+			return actualFloat == expectedFloat
+		}
+		if actualInt, ok := actual.(int); ok {
+			return float64(actualInt) == expectedFloat
+		}
+	}
+
+	if expectedInt, ok := expected.(int); ok {
+		if actualInt, ok := actual.(int); ok {
+			return actualInt == expectedInt
+		}
+		if actualFloat, ok := actual.(float64); ok {
+			return actualFloat == float64(expectedInt)
+		}
+	}
+
+	// For other types, convert both to strings and compare
+	actualStr := fmt.Sprintf("%v", actual)
+	expectedStr := fmt.Sprintf("%v", expected)
+	return actualStr == expectedStr
 }

@@ -34,7 +34,7 @@
 // ## ServiceClass-Based Services (Dynamic)
 //   - GenericServiceInstance: Runtime-configurable services driven by ServiceClass definitions
 //   - Tool-driven lifecycle management through aggregator integration
-//   - Template-based parameter handling and response mapping
+//   - Template-based arg handling and response mapping
 //   - Configurable health checking and monitoring
 //
 // # Service Interface
@@ -83,7 +83,7 @@
 //
 //   - Loads service behavior from ServiceClass definitions
 //   - Executes lifecycle operations through aggregator tools
-//   - Supports template-based parameter substitution
+//   - Supports template-based arg substitution
 //   - Handles response mapping and data extraction
 //   - Provides configurable health checking
 //   - Manages comprehensive state and event tracking
@@ -98,7 +98,7 @@
 //	    "service-label",
 //	    "serviceclass-name",
 //	    toolCaller,
-//	    parameters,
+//	    args,
 //	)
 //
 //	// Lifecycle managed through ServiceClass tools
@@ -122,7 +122,7 @@
 // 3. Instance Creation: GenericServiceInstance created with ServiceClass reference
 // 4. Registration: Instance registered with ServiceRegistry
 // 5. Tool-Driven Operations: Lifecycle managed through tool execution:
-//   - Start: Executes ServiceClass create tool with templated parameters
+//   - Start: Executes ServiceClass create tool with templated args
 //   - Health: Periodic execution of ServiceClass health check tool
 //   - Stop: Executes ServiceClass delete tool for cleanup
 //
@@ -134,7 +134,7 @@
 // ServiceClass-based services integrate with the aggregator tool system:
 //
 //   - Tool Execution: Operations executed through ToolCaller interface
-//   - Parameter Templates: Dynamic parameter substitution using template engine
+//   - Arg Templates: Dynamic arg substitution using template engine
 //   - Response Mapping: Structured extraction of data from tool responses
 //   - Error Handling: Tool execution errors properly mapped to service states
 //

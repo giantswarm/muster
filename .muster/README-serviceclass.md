@@ -161,15 +161,15 @@ serviceConfig:
     interval: "60s"
     failureThreshold: 3
   
-  createParameters:
+  createArgs:
     app_name:
-      toolParameter: "app_name"
+      toolArg: "app_name"
       required: true
     environment:
-      toolParameter: "environment"
+      toolArg: "environment"
       required: true
     version:
-      toolParameter: "image_tag"
+      toolArg: "image_tag"
       required: true
 
 operations:
@@ -182,7 +182,7 @@ operations:
         - tool: api_service_orchestrator_create_service
           args:
             capability_name: "app_deployment"
-            parameters:
+            args:
               app_name: "{{ .app_name }}"
               environment: "{{ .environment }}"
               version: "{{ .version }}"

@@ -1,27 +1,23 @@
 name: portforward-workflow
 description: "Set up port forwarding for a service"
-icon: "🌐"
-agentModifiable: true
-createdBy: "user"
 version: 1
-inputSchema:
-  type: object
-  properties:
-    namespace:
-      type: string
-      description: "Kubernetes namespace containing the service"
-      default: "default"
-    service:
-      type: string
-      description: "Name of the service to forward"
-    port:
-      type: string
-      description: "Service port to forward"
-    localPort:
-      type: string
-      description: "Local port to bind to"
-      default: "8080"
-  required: ["service", "port"]
+args:
+  namespace:
+    type: string
+    description: "Kubernetes namespace containing the service"
+    default: "default"
+  service:
+    type: string
+    required: true
+    description: "Name of the service to forward"
+  port:
+    type: string
+    required: true
+    description: "Service port to forward"
+  localPort:
+    type: string
+    description: "Local port to bind to"
+    default: "8080"
 steps:
   - id: create_portforward
     tool: api_portforward_create

@@ -40,7 +40,7 @@ type ServerRegistry struct {
 // The registry uses the musterPrefix to ensure all exposed capabilities are
 // prefixed appropriately to distinguish them from other MCP tools in the environment.
 //
-// Parameters:
+// Args:
 //   - musterPrefix: Global prefix applied to all aggregated capabilities (default: "x")
 //
 // Returns a new, empty server registry ready for use.
@@ -63,7 +63,7 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 //
 // The method is thread-safe and can be called concurrently.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for initialization and capability queries
 //   - name: Unique identifier for the server
 //   - client: MCP client instance for communicating with the server
@@ -131,7 +131,7 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 //
 // The method is thread-safe and can be called concurrently.
 //
-// Parameters:
+// Args:
 //   - name: Unique identifier of the server to remove
 //
 // Returns an error if the server is not found in the registry.
@@ -162,7 +162,7 @@ func (r *ServerRegistry) Deregister(name string) error {
 // with a specific server. The client can be used to execute tools, read resources,
 // or retrieve prompts from the server.
 //
-// Parameters:
+// Args:
 //   - name: Unique identifier of the server
 //
 // Returns the MCP client interface and nil error if successful.
@@ -295,7 +295,7 @@ func (r *ServerRegistry) GetAllPrompts() []mcp.Prompt {
 // This method is used when a tool call is received to determine which server should
 // handle the request and what the original tool name was before prefixing.
 //
-// Parameters:
+// Args:
 //   - exposedName: The prefixed tool name as seen by clients
 //
 // Returns the server name, original tool name, and nil error if resolution succeeds.
@@ -316,7 +316,7 @@ func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, origin
 // This method is used when a prompt request is received to determine which server should
 // handle the request and what the original prompt name was before prefixing.
 //
-// Parameters:
+// Args:
 //   - exposedName: The prefixed prompt name as seen by clients
 //
 // Returns the server name, original prompt name, and nil error if resolution succeeds.
@@ -337,7 +337,7 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 // This method is used when a resource read request is received to determine which server
 // should handle the request and what the original resource URI was before prefixing.
 //
-// Parameters:
+// Args:
 //   - exposedURI: The prefixed resource URI as seen by clients
 //
 // Returns the server name, original resource URI, and nil error if resolution succeeds.
@@ -383,7 +383,7 @@ func (r *ServerRegistry) GetUpdateChannel() <-chan struct{} {
 // This method provides access to the complete ServerInfo structure for a given
 // server, including its client, cached capabilities, and connection status.
 //
-// Parameters:
+// Args:
 //   - name: Unique identifier of the server
 //
 // Returns the ServerInfo pointer and true if the server exists.
@@ -421,7 +421,7 @@ func (r *ServerRegistry) GetAllServers() map[string]*ServerInfo {
 // the cached information. It handles partial failures gracefully - if one type of capability
 // cannot be retrieved, the others are still updated.
 //
-// Parameters:
+// Args:
 //   - ctx: Context for the capability queries
 //   - info: ServerInfo structure to update with fresh capabilities
 //

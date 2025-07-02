@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-06-25T18:28:11+02:00",
+  "generated_at": "2025-07-01T23:36:55+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
       "properties": {
         "core_capability_check": {
-          "description": "Parameters for core_capability_check tool",
+          "description": "Arguments for core_capability_check tool",
           "properties": {
             "name": {
               "description": "Name of the capability to check",
@@ -20,7 +20,7 @@
           "type": "object"
         },
         "core_capability_create": {
-          "description": "Parameters for core_capability_create tool",
+          "description": "Arguments for core_capability_create tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -31,6 +31,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "args": {
+                    "additionalProperties": {
+                      "description": "Argument definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the argument"
+                        },
+                        "description": {
+                          "description": "Argument description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this argument is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Argument type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input arguments for this operation",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -51,7 +102,7 @@
           "type": "object"
         },
         "core_capability_delete": {
-          "description": "Parameters for core_capability_delete tool",
+          "description": "Arguments for core_capability_delete tool",
           "properties": {
             "name": {
               "description": "Name of the capability to delete",
@@ -64,7 +115,7 @@
           "type": "object"
         },
         "core_capability_get": {
-          "description": "Parameters for core_capability_get tool",
+          "description": "Arguments for core_capability_get tool",
           "properties": {
             "name": {
               "description": "Name of the capability to retrieve",
@@ -77,7 +128,7 @@
           "type": "object"
         },
         "core_capability_list": {
-          "description": "Parameters for core_capability_list tool",
+          "description": "Arguments for core_capability_list tool",
           "properties": {
             "available_only": {
               "default": false,
@@ -88,7 +139,7 @@
           "type": "object"
         },
         "core_capability_update": {
-          "description": "Parameters for core_capability_update tool",
+          "description": "Arguments for core_capability_update tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -99,6 +150,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "args": {
+                    "additionalProperties": {
+                      "description": "Argument definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the argument"
+                        },
+                        "description": {
+                          "description": "Argument description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this argument is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Argument type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input arguments for this operation",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -117,7 +219,7 @@
           "type": "object"
         },
         "core_capability_validate": {
-          "description": "Parameters for core_capability_validate tool",
+          "description": "Arguments for core_capability_validate tool",
           "properties": {
             "description": {
               "description": "Capability description",
@@ -128,6 +230,57 @@
               "type": "string"
             },
             "operations": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Operation definition",
+                "properties": {
+                  "args": {
+                    "additionalProperties": {
+                      "description": "Argument definition",
+                      "properties": {
+                        "default": {
+                          "description": "Default value for the argument"
+                        },
+                        "description": {
+                          "description": "Argument description",
+                          "type": "string"
+                        },
+                        "required": {
+                          "description": "Whether this argument is required",
+                          "type": "boolean"
+                        },
+                        "type": {
+                          "description": "Argument type (string, number, boolean, object, array)",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "Input arguments for this operation",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this operation does",
+                    "type": "string"
+                  },
+                  "requires": {
+                    "description": "List of tools this operation requires to be available",
+                    "items": {
+                      "description": "Tool name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "workflow": {
+                    "description": "Name of the workflow to execute for this operation (optional)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "description"
+                ],
+                "type": "object"
+              },
               "description": "Operations map with operation definitions",
               "type": "object"
             },
@@ -148,32 +301,32 @@
           "type": "object"
         },
         "core_config_get": {
-          "description": "Parameters for core_config_get tool",
+          "description": "Arguments for core_config_get tool",
           "properties": {},
           "type": "object"
         },
         "core_config_get_aggregator": {
-          "description": "Parameters for core_config_get_aggregator tool",
+          "description": "Arguments for core_config_get_aggregator tool",
           "properties": {},
           "type": "object"
         },
         "core_config_get_global_settings": {
-          "description": "Parameters for core_config_get_global_settings tool",
+          "description": "Arguments for core_config_get_global_settings tool",
           "properties": {},
           "type": "object"
         },
         "core_config_reload": {
-          "description": "Parameters for core_config_reload tool",
+          "description": "Arguments for core_config_reload tool",
           "properties": {},
           "type": "object"
         },
         "core_config_save": {
-          "description": "Parameters for core_config_save tool",
+          "description": "Arguments for core_config_save tool",
           "properties": {},
           "type": "object"
         },
         "core_config_update_aggregator": {
-          "description": "Parameters for core_config_update_aggregator tool",
+          "description": "Arguments for core_config_update_aggregator tool",
           "properties": {
             "aggregator": {
               "description": "Aggregator configuration",
@@ -186,7 +339,7 @@
           "type": "object"
         },
         "core_config_update_global_settings": {
-          "description": "Parameters for core_config_update_global_settings tool",
+          "description": "Arguments for core_config_update_global_settings tool",
           "properties": {
             "settings": {
               "description": "Global settings",
@@ -199,7 +352,7 @@
           "type": "object"
         },
         "core_mcpserver_create": {
-          "description": "Parameters for core_mcpserver_create tool",
+          "description": "Arguments for core_mcpserver_create tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -207,10 +360,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -218,6 +381,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -241,7 +408,7 @@
           "type": "object"
         },
         "core_mcpserver_delete": {
-          "description": "Parameters for core_mcpserver_delete tool",
+          "description": "Arguments for core_mcpserver_delete tool",
           "properties": {
             "name": {
               "description": "Name of the MCP server to delete",
@@ -254,7 +421,7 @@
           "type": "object"
         },
         "core_mcpserver_get": {
-          "description": "Parameters for core_mcpserver_get tool",
+          "description": "Arguments for core_mcpserver_get tool",
           "properties": {
             "name": {
               "description": "Name of the MCP server to retrieve",
@@ -267,12 +434,12 @@
           "type": "object"
         },
         "core_mcpserver_list": {
-          "description": "Parameters for core_mcpserver_list tool",
+          "description": "Arguments for core_mcpserver_list tool",
           "properties": {},
           "type": "object"
         },
         "core_mcpserver_update": {
-          "description": "Parameters for core_mcpserver_update tool",
+          "description": "Arguments for core_mcpserver_update tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -280,10 +447,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -291,6 +468,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -313,7 +494,7 @@
           "type": "object"
         },
         "core_mcpserver_validate": {
-          "description": "Parameters for core_mcpserver_validate tool",
+          "description": "Arguments for core_mcpserver_validate tool",
           "properties": {
             "autoStart": {
               "description": "Whether server should auto-start",
@@ -321,10 +502,20 @@
             },
             "command": {
               "description": "Command and arguments (for localCommand type)",
+              "items": {
+                "description": "Command executable or argument",
+                "type": "string"
+              },
+              "minItems": 1,
               "type": "array"
             },
             "containerPorts": {
               "description": "Port mappings (for container type)",
+              "items": {
+                "description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
+                "pattern": "^\\d+(:\\d+)?$",
+                "type": "string"
+              },
               "type": "array"
             },
             "description": {
@@ -332,6 +523,10 @@
               "type": "string"
             },
             "env": {
+              "additionalProperties": {
+                "description": "Environment variable value",
+                "type": "string"
+              },
               "description": "Environment variables",
               "type": "object"
             },
@@ -355,8 +550,15 @@
           "type": "object"
         },
         "core_service_create": {
-          "description": "Parameters for core_service_create tool",
+          "description": "Arguments for core_service_create tool",
           "properties": {
+            "args": {
+              "additionalProperties": {
+                "description": "Argument value - type depends on ServiceClass argument definition"
+              },
+              "description": "Arguments for service creation",
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether this instance should be started automatically on system startup (only applies if persist is true)",
               "type": "boolean"
@@ -364,10 +566,6 @@
             "name": {
               "description": "Unique name for the service instance",
               "type": "string"
-            },
-            "parameters": {
-              "description": "Parameters for service creation",
-              "type": "object"
             },
             "persist": {
               "description": "Whether to persist this service instance definition to YAML files for automatic recreation on startup",
@@ -385,7 +583,7 @@
           "type": "object"
         },
         "core_service_delete": {
-          "description": "Parameters for core_service_delete tool",
+          "description": "Arguments for core_service_delete tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass instance to delete",
@@ -398,7 +596,7 @@
           "type": "object"
         },
         "core_service_get": {
-          "description": "Parameters for core_service_get tool",
+          "description": "Arguments for core_service_get tool",
           "properties": {
             "name": {
               "description": "Name of the service to get",
@@ -411,12 +609,12 @@
           "type": "object"
         },
         "core_service_list": {
-          "description": "Parameters for core_service_list tool",
+          "description": "Arguments for core_service_list tool",
           "properties": {},
           "type": "object"
         },
         "core_service_restart": {
-          "description": "Parameters for core_service_restart tool",
+          "description": "Arguments for core_service_restart tool",
           "properties": {
             "name": {
               "description": "Service name to restart",
@@ -429,7 +627,7 @@
           "type": "object"
         },
         "core_service_start": {
-          "description": "Parameters for core_service_start tool",
+          "description": "Arguments for core_service_start tool",
           "properties": {
             "name": {
               "description": "Service name to start",
@@ -442,7 +640,7 @@
           "type": "object"
         },
         "core_service_status": {
-          "description": "Parameters for core_service_status tool",
+          "description": "Arguments for core_service_status tool",
           "properties": {
             "name": {
               "description": "Service name to get status for",
@@ -455,7 +653,7 @@
           "type": "object"
         },
         "core_service_stop": {
-          "description": "Parameters for core_service_stop tool",
+          "description": "Arguments for core_service_stop tool",
           "properties": {
             "name": {
               "description": "Service name to stop",
@@ -468,8 +666,15 @@
           "type": "object"
         },
         "core_service_validate": {
-          "description": "Parameters for core_service_validate tool",
+          "description": "Arguments for core_service_validate tool",
           "properties": {
+            "args": {
+              "additionalProperties": {
+                "description": "Argument value - type depends on ServiceClass argument definition"
+              },
+              "description": "Arguments for service creation",
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether this instance should auto-start",
               "type": "boolean"
@@ -481,10 +686,6 @@
             "name": {
               "description": "Service instance name",
               "type": "string"
-            },
-            "parameters": {
-              "description": "Parameters for service creation",
-              "type": "object"
             },
             "serviceClassName": {
               "description": "Name of the ServiceClass to instantiate",
@@ -498,7 +699,7 @@
           "type": "object"
         },
         "core_serviceclass_available": {
-          "description": "Parameters for core_serviceclass_available tool",
+          "description": "Arguments for core_serviceclass_available tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to check",
@@ -511,7 +712,7 @@
           "type": "object"
         },
         "core_serviceclass_create": {
-          "description": "Parameters for core_serviceclass_create tool",
+          "description": "Arguments for core_serviceclass_create tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -522,7 +723,220 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -537,7 +951,7 @@
           "type": "object"
         },
         "core_serviceclass_delete": {
-          "description": "Parameters for core_serviceclass_delete tool",
+          "description": "Arguments for core_serviceclass_delete tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to delete",
@@ -550,7 +964,7 @@
           "type": "object"
         },
         "core_serviceclass_get": {
-          "description": "Parameters for core_serviceclass_get tool",
+          "description": "Arguments for core_serviceclass_get tool",
           "properties": {
             "name": {
               "description": "Name of the ServiceClass to retrieve",
@@ -563,12 +977,12 @@
           "type": "object"
         },
         "core_serviceclass_list": {
-          "description": "Parameters for core_serviceclass_list tool",
+          "description": "Arguments for core_serviceclass_list tool",
           "properties": {},
           "type": "object"
         },
         "core_serviceclass_update": {
-          "description": "Parameters for core_serviceclass_update tool",
+          "description": "Arguments for core_serviceclass_update tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -579,7 +993,220 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -593,7 +1220,7 @@
           "type": "object"
         },
         "core_serviceclass_validate": {
-          "description": "Parameters for core_serviceclass_validate tool",
+          "description": "Arguments for core_serviceclass_validate tool",
           "properties": {
             "description": {
               "description": "ServiceClass description",
@@ -604,7 +1231,220 @@
               "type": "string"
             },
             "serviceConfig": {
+              "additionalProperties": false,
               "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool to check service health (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool to restart the service (optional)",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool to start the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool to stop the service",
+                      "properties": {
+                        "arguments": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "responseMapping": {
+                          "description": "Mapping of tool response fields to service fields",
+                          "properties": {
+                            "error": {
+                              "type": "string"
+                            },
+                            "health": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Health check timeout (e.g., '10s', '30s')",
+                      "type": "string"
+                    },
+                    "start": {
+                      "description": "Start operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "stop": {
+                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "serviceType",
+                "lifecycleTools"
+              ],
               "type": "object"
             },
             "version": {
@@ -618,51 +1458,78 @@
           ],
           "type": "object"
         },
-        "core_workflow_create": {
-          "description": "Parameters for core_workflow_create tool",
+        "core_workflow_available": {
+          "description": "Arguments for core_workflow_available tool",
           "properties": {
-            "agentModifiable": {
-              "description": "Whether workflow can be modified by agents",
-              "type": "boolean"
-            },
-            "createdBy": {
-              "description": "Creator of the workflow",
+            "name": {
+              "description": "Name of the workflow to check",
               "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_create": {
+          "description": "Arguments for core_workflow_create tool",
+          "properties": {
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
             },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "icon": {
-              "description": "Icon/emoji for display",
-              "type": "string"
-            },
-            "inputSchema": {
-              "description": "Input schema for the workflow",
-              "type": "object"
             },
             "name": {
               "description": "Workflow name",
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "number"
             }
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"
         },
         "core_workflow_delete": {
-          "description": "Parameters for core_workflow_delete tool",
+          "description": "Arguments for core_workflow_delete tool",
           "properties": {
             "name": {
               "description": "Name of the workflow to delete",
@@ -674,8 +1541,62 @@
           ],
           "type": "object"
         },
+        "core_workflow_execution_get": {
+          "description": "Arguments for core_workflow_execution_get tool",
+          "properties": {
+            "execution_id": {
+              "description": "Unique identifier of the workflow execution",
+              "type": "string"
+            },
+            "include_steps": {
+              "default": true,
+              "description": "Include detailed step results in the response (default: true)",
+              "type": "boolean"
+            },
+            "step_id": {
+              "description": "Get result for specific step only (optional)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "execution_id"
+          ],
+          "type": "object"
+        },
+        "core_workflow_execution_list": {
+          "description": "Arguments for core_workflow_execution_list tool",
+          "properties": {
+            "limit": {
+              "default": 50,
+              "description": "Maximum number of executions to return (default: 50)",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Number of executions to skip for pagination (default: 0)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "description": "Filter executions by status (optional)",
+              "enum": [
+                "inprogress",
+                "completed",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "workflow_name": {
+              "description": "Filter executions by workflow name (optional)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "core_workflow_get": {
-          "description": "Parameters for core_workflow_get tool",
+          "description": "Arguments for core_workflow_get tool",
           "properties": {
             "name": {
               "description": "Name of the workflow",
@@ -688,7 +1609,7 @@
           "type": "object"
         },
         "core_workflow_list": {
-          "description": "Parameters for core_workflow_list tool",
+          "description": "Arguments for core_workflow_list tool",
           "properties": {
             "include_system": {
               "default": true,
@@ -699,75 +1620,115 @@
           "type": "object"
         },
         "core_workflow_update": {
-          "description": "Parameters for core_workflow_update tool",
+          "description": "Arguments for core_workflow_update tool",
           "properties": {
-            "agentModifiable": {
-              "description": "Whether workflow can be modified by agents",
-              "type": "boolean"
-            },
-            "createdBy": {
-              "description": "Creator of the workflow",
-              "type": "string"
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
             },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "icon": {
-              "description": "Icon/emoji for display",
-              "type": "string"
-            },
-            "inputSchema": {
-              "description": "Input schema for the workflow",
-              "type": "object"
             },
             "name": {
               "description": "Name of the workflow to update",
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "number"
             }
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"
         },
         "core_workflow_validate": {
-          "description": "Parameters for core_workflow_validate tool",
+          "description": "Arguments for core_workflow_validate tool",
           "properties": {
+            "args": {
+              "description": "Simple argument definitions for workflow input validation",
+              "type": "object"
+            },
             "description": {
               "description": "Workflow description",
               "type": "string"
-            },
-            "inputSchema": {
-              "description": "Input schema for the workflow",
-              "type": "object"
             },
             "name": {
               "description": "Workflow name",
               "type": "string"
             },
             "steps": {
-              "description": "Array of workflow steps",
+              "description": "Array of workflow steps defining the execution sequence",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "args": {
+                    "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable description of what this step does (optional)",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "store": {
+                    "description": "Variable name to store the step result for use in later steps (optional)",
+                    "type": "string"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
               "type": "array"
-            },
-            "version": {
-              "description": "Workflow version",
-              "type": "string"
             }
           },
           "required": [
             "name",
-            "inputSchema",
             "steps"
           ],
           "type": "object"

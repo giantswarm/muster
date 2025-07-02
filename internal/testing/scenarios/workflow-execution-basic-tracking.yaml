@@ -1,0 +1,66 @@
+name: "workflow-execution-basic-tracking"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "basic"]
+timeout: "3m"
+
+steps:
+- id: "create-basic-tracking-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "basic-tracking-workflow"
+    args:
+      service_name:
+        type: "string"
+        description: "Name of the service"
+        default: "test-service"
+    steps:
+      - id: "list_services"
+        tool: "core_service_list"
+        store: "services_result"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "basic-tracking-workflow" }
+
+- id: "execute-workflow-first-time"
+  tool: "workflow_basic-tracking-workflow"
+  args:
+    service_name: "api-service"
+  expected:
+    success: true
+  store: "first_execution"
+
+- id: "verify-execution-tracked"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "basic-tracking-workflow"
+    limit: 5
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "basic-tracking-workflow", "status"]
+
+- id: "get-execution-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ first_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "status", "started_at", "completed_at", "duration_ms", "input", "result", "steps"]
+
+- id: "verify-execution-data-integrity"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ first_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["api-service", "list_services", "services_result"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "basic-tracking-workflow" }
+  expected:
+    success: true 

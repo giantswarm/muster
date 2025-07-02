@@ -5,7 +5,7 @@
 //
 // The mock MCP server functionality allows test scenarios to define:
 // - Mock tools with configurable responses
-// - Conditional responses based on input parameters
+// - Conditional responses based on input args
 // - Simulated delays and error conditions
 // - Template-based response generation
 //
@@ -15,7 +15,7 @@
 // It can be configured with a set of tools and their expected behaviors.
 //
 // ToolHandler: Handles individual tool calls with configurable responses based
-// on input parameters and conditions.
+// on input args and conditions.
 //
 // ToolConfig & ToolResponse: Configuration structures that define how mock tools
 // should behave, including input schemas, response conditions, and template-based
@@ -53,7 +53,7 @@
 //	        response: "Special response for param1=special"
 //	      - response: "Default response: {{.param1}}"
 //
-// The responses support Go template syntax and can reference input parameters.
+// The responses support Go template syntax and can reference input args.
 // Conditional responses allow different behaviors based on input values.
 //
 // Integration:

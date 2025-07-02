@@ -1,7 +1,7 @@
 name: "workflow-parameter-templating-scenarios"
 category: "behavioral"
 concept: "workflow"
-tags: ["workflow", "parameters", "templating", "core-api"]
+tags: ["workflow", "args", "templating", "core-api"]
 timeout: "5m"
 
 pre_configuration:
@@ -9,15 +9,14 @@ pre_configuration:
     - name: "param-templating-workflow"
       config:
         name: "param-templating-workflow"
-        inputSchema:
-          type: "object"
-          properties:
-            service_name:
-              type: "string"
-            message:
-              type: "string"
-              default: "default message"
-          required: ["service_name"]
+        args:
+          service_name:
+            type: "string"
+            required: true
+          message:
+            type: "string"
+            default: "default message"
+            required: false
         steps:
           - id: "echo-step"
             tool: "x_mock-echo_echo"
@@ -30,9 +29,11 @@ pre_configuration:
       config:
         tools:
           - name: "echo"
-            inputSchema:
+            input_schema:
               type: "object"
-              properties: { text: { type: "string" } }
+              properties:
+                text:
+                  type: "string"
             responses:
               - response:
                   # The response also uses templating based on its *own* inputs

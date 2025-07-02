@@ -54,7 +54,7 @@ func (a *Adapter) GetServiceClass(name string) (*api.ServiceClass, error) {
 }
 
 // GetStartTool returns start tool information for a service class
-func (a *Adapter) GetStartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -77,11 +77,11 @@ func (a *Adapter) GetStartTool(name string) (toolName string, arguments map[stri
 		"error":  startTool.ResponseMapping.Error,
 	}
 
-	return startTool.Tool, startTool.Arguments, respMapping, nil
+	return startTool.Tool, startTool.Args, respMapping, nil
 }
 
 // GetStopTool returns stop tool information for a service class
-func (a *Adapter) GetStopTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -104,11 +104,11 @@ func (a *Adapter) GetStopTool(name string) (toolName string, arguments map[strin
 		"error":  stopTool.ResponseMapping.Error,
 	}
 
-	return stopTool.Tool, stopTool.Arguments, respMapping, nil
+	return stopTool.Tool, stopTool.Args, respMapping, nil
 }
 
 // GetRestartTool returns restart tool information for a service class
-func (a *Adapter) GetRestartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -132,11 +132,11 @@ func (a *Adapter) GetRestartTool(name string) (toolName string, arguments map[st
 		"error":  restartTool.ResponseMapping.Error,
 	}
 
-	return restartTool.Tool, restartTool.Arguments, respMapping, nil
+	return restartTool.Tool, restartTool.Args, respMapping, nil
 }
 
 // GetHealthCheckTool returns health check tool information for a service class
-func (a *Adapter) GetHealthCheckTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -163,7 +163,7 @@ func (a *Adapter) GetHealthCheckTool(name string) (toolName string, arguments ma
 		"error":  healthTool.ResponseMapping.Error,
 	}
 
-	return healthTool.Tool, healthTool.Arguments, respMapping, nil
+	return healthTool.Tool, healthTool.Args, respMapping, nil
 }
 
 // GetHealthCheckConfig returns health check configuration for a service class
@@ -222,7 +222,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_get",
 			Description: "Get detailed information about a specific ServiceClass definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -234,7 +234,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_available",
 			Description: "Check if a ServiceClass is available (all required tools present)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -246,9 +246,189 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_validate",
 			Description: "Validate a serviceclass definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "ServiceClass name"},
-				{Name: "serviceConfig", Type: "object", Required: true, Description: "Service configuration with lifecycle tools"},
+				{
+					Name:        "serviceConfig",
+					Type:        "object",
+					Required:    true,
+					Description: "Service configuration with lifecycle tools",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Service configuration with lifecycle tools and management settings",
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to start the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"stop": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to stop the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"restart": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to restart the service (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to check service health (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+								},
+								"required": []string{"start", "stop"},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval (e.g., '30s', '1m')",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "string",
+										"description": "Start operation timeout (e.g., '30s', '2m')",
+									},
+									"stop": map[string]interface{}{
+										"type":        "string",
+										"description": "Stop operation timeout (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required":             []string{"serviceType", "lifecycleTools"},
+						"additionalProperties": false,
+					},
+				},
 				{Name: "description", Type: "string", Required: false, Description: "ServiceClass description"},
 				{Name: "version", Type: "string", Required: false, Description: "ServiceClass version"},
 			},
@@ -256,9 +436,189 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_create",
 			Description: "Create a new service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "ServiceClass name"},
-				{Name: "serviceConfig", Type: "object", Required: true, Description: "Service configuration with lifecycle tools"},
+				{
+					Name:        "serviceConfig",
+					Type:        "object",
+					Required:    true,
+					Description: "Service configuration with lifecycle tools",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Service configuration with lifecycle tools and management settings",
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to start the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"stop": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to stop the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"restart": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to restart the service (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to check service health (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+								},
+								"required": []string{"start", "stop"},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval (e.g., '30s', '1m')",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "string",
+										"description": "Start operation timeout (e.g., '30s', '2m')",
+									},
+									"stop": map[string]interface{}{
+										"type":        "string",
+										"description": "Stop operation timeout (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required":             []string{"serviceType", "lifecycleTools"},
+						"additionalProperties": false,
+					},
+				},
 				{Name: "description", Type: "string", Required: false, Description: "ServiceClass description"},
 				{Name: "version", Type: "string", Required: false, Description: "ServiceClass version"},
 			},
@@ -266,9 +626,189 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_update",
 			Description: "Update an existing service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the ServiceClass to update"},
-				{Name: "serviceConfig", Type: "object", Required: false, Description: "Service configuration with lifecycle tools"},
+				{
+					Name:        "serviceConfig",
+					Type:        "object",
+					Required:    false,
+					Description: "Service configuration with lifecycle tools",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Service configuration with lifecycle tools and management settings",
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to start the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"stop": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to stop the service",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+										"required": []string{"tool"},
+									},
+									"restart": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to restart the service (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "object",
+										"description": "Tool to check service health (optional)",
+										"properties": map[string]interface{}{
+											"tool": map[string]interface{}{
+												"type":        "string",
+												"description": "Name of the tool to call",
+											},
+											"arguments": map[string]interface{}{
+												"type":        "object",
+												"description": "Arguments to pass to the tool",
+											},
+											"responseMapping": map[string]interface{}{
+												"type":        "object",
+												"description": "Mapping of tool response fields to service fields",
+												"properties": map[string]interface{}{
+													"name":   map[string]interface{}{"type": "string"},
+													"status": map[string]interface{}{"type": "string"},
+													"health": map[string]interface{}{"type": "string"},
+													"error":  map[string]interface{}{"type": "string"},
+												},
+											},
+										},
+									},
+								},
+								"required": []string{"start", "stop"},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval (e.g., '30s', '1m')",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"start": map[string]interface{}{
+										"type":        "string",
+										"description": "Start operation timeout (e.g., '30s', '2m')",
+									},
+									"stop": map[string]interface{}{
+										"type":        "string",
+										"description": "Stop operation timeout (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required":             []string{"serviceType", "lifecycleTools"},
+						"additionalProperties": false,
+					},
+				},
 				{Name: "description", Type: "string", Required: false, Description: "ServiceClass description"},
 				{Name: "version", Type: "string", Required: false, Description: "ServiceClass version"},
 			},
@@ -276,7 +816,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "serviceclass_delete",
 			Description: "Delete a service class",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the ServiceClass to delete"},
 			},
 		},
@@ -325,7 +865,7 @@ func (a *Adapter) handleServiceClassGet(args map[string]interface{}) (*api.CallT
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -345,7 +885,7 @@ func (a *Adapter) handleServiceClassAvailable(args map[string]interface{}) (*api
 	name, ok := args["name"].(string)
 	if !ok {
 		return &api.CallToolResult{
-			Content: []interface{}{"name parameter is required"},
+			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
 	}
@@ -479,7 +1019,7 @@ func (a *Adapter) handleServiceClassUpdate(args map[string]interface{}) (*api.Ca
 func (a *Adapter) handleServiceClassDelete(args map[string]interface{}) (*api.CallToolResult, error) {
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
-		return simpleError("name parameter is required")
+		return simpleError("name argument is required")
 	}
 
 	if err := a.manager.DeleteServiceClass(name); err != nil {

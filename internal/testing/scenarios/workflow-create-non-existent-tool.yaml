@@ -9,15 +9,18 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "bad-tool-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "step1"
         tool: "this_tool_is_not_real"
   expected:
     success: true  # Creation succeeds, execution would fail
-  cleanup:
-  - tool: "core_workflow_delete"
-    args: { name: "bad-tool-workflow" } 
+
+- id: "check-workflow-availability"
+  tool: "core_workflow_available"
+  args:
+    name: "bad-tool-workflow"
+  expected:
+    success: true
+    json_path:
+      available: false

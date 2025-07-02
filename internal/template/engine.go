@@ -1,21 +1,25 @@
 package template
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
+	"text/template"
+
+	"github.com/Masterminds/sprig/v3"
 )
 
-// Engine handles parameter templating for capability operations
+// Engine handles arg templating for capability operations
 type Engine struct {
-	// Pattern to match template variables like {{ variableName }}
+	// Pattern to match template variables like {{ variableName }} or {{ variable.property.subproperty }}
 	templatePattern *regexp.Regexp
 }
 
 // New creates a new template engine
 func New() *Engine {
 	return &Engine{
-		templatePattern: regexp.MustCompile(`\{\{\s*\.?([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`),
+		templatePattern: regexp.MustCompile(`\{\{\s*\.?([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}`),
 	}
 }
 
@@ -48,10 +52,12 @@ func (e *Engine) replaceStringTemplates(template string, context map[string]inte
 			continue
 		}
 
-		varName := match[1]
-		replacement, exists := context[varName]
-		if !exists {
-			missingVars = append(missingVars, varName)
+		varPath := match[1]
+
+		// Resolve the variable path (supports dot notation)
+		replacement, err := e.resolvePath(varPath, context)
+		if err != nil {
+			missingVars = append(missingVars, varPath)
 			continue
 		}
 
@@ -71,17 +77,17 @@ func (e *Engine) replaceStringTemplates(template string, context map[string]inte
 		}
 
 		// Replace all occurrences of this variable (with and without dot prefix)
-		placeholder := fmt.Sprintf("{{ %s }}", varName)
+		placeholder := fmt.Sprintf("{{ %s }}", varPath)
 		result = strings.ReplaceAll(result, placeholder, replacementStr)
 
-		placeholderWithDot := fmt.Sprintf("{{ .%s }}", varName)
+		placeholderWithDot := fmt.Sprintf("{{ .%s }}", varPath)
 		result = strings.ReplaceAll(result, placeholderWithDot, replacementStr)
 
 		// Also handle version without spaces
-		placeholderNoSpace := fmt.Sprintf("{{%s}}", varName)
+		placeholderNoSpace := fmt.Sprintf("{{%s}}", varPath)
 		result = strings.ReplaceAll(result, placeholderNoSpace, replacementStr)
 
-		placeholderNoSpaceWithDot := fmt.Sprintf("{{.%s}}", varName)
+		placeholderNoSpaceWithDot := fmt.Sprintf("{{.%s}}", varPath)
 		result = strings.ReplaceAll(result, placeholderNoSpaceWithDot, replacementStr)
 	}
 
@@ -173,4 +179,70 @@ func (e *Engine) ValidateContext(value interface{}, context map[string]interface
 	}
 
 	return nil
+}
+
+// resolvePath resolves a dot-notation path like "variable_name.property.subproperty"
+func (e *Engine) resolvePath(path string, context map[string]interface{}) (interface{}, error) {
+	parts := strings.Split(path, ".")
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty template path")
+	}
+
+	// Get root variable from context
+	rootName := parts[0]
+	currentValue, exists := context[rootName]
+	if !exists {
+		return nil, fmt.Errorf("variable '%s' not found in context", rootName)
+	}
+
+	// Navigate nested properties
+	for i, part := range parts[1:] {
+		var err error
+		currentValue, err = e.getProperty(currentValue, part)
+		if err != nil {
+			return nil, fmt.Errorf("failed to access property '%s' at position %d in path '%s': %w", part, i+1, path, err)
+		}
+	}
+
+	return currentValue, nil
+}
+
+// getProperty extracts a property from an object
+func (e *Engine) getProperty(obj interface{}, property string) (interface{}, error) {
+	switch v := obj.(type) {
+	case map[string]interface{}:
+		if value, exists := v[property]; exists {
+			return value, nil
+		}
+		return nil, fmt.Errorf("property '%s' not found in object", property)
+	default:
+		return nil, fmt.Errorf("cannot access property '%s' on non-object type %T", property, obj)
+	}
+}
+
+// RenderGoTemplate renders a full Go template with Sprig template functions
+// This is used for complex expressions like {{ eq .input.var "value" }}
+func (e *Engine) RenderGoTemplate(templateStr string, context map[string]interface{}) (interface{}, error) {
+	tmpl, err := template.New("template").Funcs(sprig.TxtFuncMap()).Option("missingkey=error").Parse(templateStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, context); err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+
+	result := buf.String()
+
+	// Try to parse as boolean first (common for eq/ne functions)
+	if result == "true" {
+		return true, nil
+	}
+	if result == "false" {
+		return false, nil
+	}
+
+	// Return as string for other results
+	return result, nil
 }

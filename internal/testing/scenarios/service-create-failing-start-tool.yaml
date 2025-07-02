@@ -33,9 +33,9 @@ pre_configuration:
       version: "1.0.0"
       type: "data"
       serviceConfig:
-        createParameters:
+        createArgs:
           name:
-            toolParameter: "db_name"
+            toolArg: "db_name"
             required: true
         lifecycleTools:
           start: { tool: "x_unreliable-database-provider_create_database" }
@@ -47,9 +47,9 @@ pre_configuration:
       version: "1.0.0"
       type: "data"
       serviceConfig:
-        createParameters:
+        createArgs:
           name:
-            toolParameter: "cache_name"
+            toolArg: "cache_name"
             required: true
         lifecycleTools:
           start: { tool: "x_working-provider_create_cache" }
@@ -62,7 +62,7 @@ steps:
   args:
     serviceClassName: "database-service"
     name: "my-app-database"
-    parameters:
+    args:
       name: "my_app_db"
   expected:
     success: false
@@ -92,7 +92,7 @@ steps:
   args:
     serviceClassName: "cache-service"
     name: "my-app-cache"
-    parameters:
+    args:
       name: "my_app_cache"
   expected:
     success: true

@@ -13,11 +13,11 @@ import (
 
 // CapabilityCreateRequest represents a request to create a new capability definition.
 // This is used when defining new capabilities through the API, providing all necessary
-// configuration including operations, parameters, and metadata.
+// configuration including operations, args, and metadata.
 //
 // Capabilities define reusable operations that can be performed by the system,
 // such as authentication, database operations, or external service integrations.
-// Each capability can have multiple operations with their own parameter requirements.
+// Each capability can have multiple operations with their own arg requirements.
 //
 // Example:
 //
@@ -29,7 +29,7 @@ import (
 //	    Operations: map[string]OperationDefinition{
 //	        "backup": {
 //	            Description: "Create a database backup",
-//	            Parameters: map[string]Parameter{
+//	            Args: map[string]Arg{
 //	                "database_name": {
 //	                    Type:        "string",
 //	                    Required:    true,
@@ -60,7 +60,7 @@ type CapabilityCreateRequest struct {
 	Description string `json:"description,omitempty"`
 
 	// Operations defines the available operations within this capability (required).
-	// Each operation specifies its parameters, requirements, and associated workflow.
+	// Each operation specifies its args, requirements, and associated workflow.
 	// Must contain at least one operation for the capability to be useful.
 	Operations map[string]OperationDefinition `json:"operations" validate:"required"`
 }
@@ -112,7 +112,7 @@ type CapabilityValidateRequest struct {
 
 // ServiceClassCreateRequest represents a request to create a new ServiceClass definition.
 // ServiceClasses serve as templates for creating service instances with predefined
-// lifecycle tools, parameter validation, and configuration.
+// lifecycle tools, arg validation, and configuration.
 //
 // Example:
 //
@@ -335,22 +335,19 @@ type MCPServerValidateRequest struct {
 
 // WorkflowCreateRequest represents a request to create a new workflow definition.
 // Workflows define multi-step processes that orchestrate tool calls with
-// parameter templating and conditional logic.
+// arg templating and conditional logic.
 //
 // Example:
 //
 //	request := WorkflowCreateRequest{
 //	    Name: "deploy-service",
 //	    Description: "Deploy a service to production",
-//	    InputSchema: WorkflowInputSchema{
-//	        Type: "object",
-//	        Properties: map[string]SchemaProperty{
-//	            "service_name": {
-//	                Type:        "string",
-//	                Description: "Name of the service to deploy",
-//	            },
+//	    Args: map[string]ArgDefinition{
+//	        "service_name": {
+//	            Type:        "string",
+//	            Required:    true,
+//	            Description: "Name of the service to deploy",
 //	        },
-//	        Required: []string{"service_name"},
 //	    },
 //	    Steps: []WorkflowStep{
 //	        {
@@ -375,10 +372,10 @@ type WorkflowCreateRequest struct {
 	// Should explain the workflow's purpose and expected outcomes.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema defines the expected input parameters for workflow execution.
-	// Used for parameter validation and documentation generation.
-	// If not specified, the workflow accepts any parameters.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	// Args defines the expected input arguments for workflow execution.
+	// Used for arg validation and documentation generation.
+	// If not specified, the workflow accepts any args.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to perform (required).
 	// Each step executes a tool with specified arguments and processing logic.
@@ -387,7 +384,7 @@ type WorkflowCreateRequest struct {
 }
 
 // WorkflowUpdateRequest represents a request to update an existing workflow definition.
-// This allows modification of workflow steps, input schema, and metadata.
+// This allows modification of workflow steps, input args, and metadata.
 type WorkflowUpdateRequest struct {
 	// Name of the workflow to update (required).
 	Name string `json:"name" validate:"required"`
@@ -398,9 +395,9 @@ type WorkflowUpdateRequest struct {
 	// Description can be updated to improve documentation.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema can be modified to change parameter requirements.
+	// Args can be modified to change arg requirements.
 	// Changes may affect existing callers of this workflow.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps can be added, modified, or reordered.
 	// Changes affect workflow execution behavior.
@@ -408,7 +405,7 @@ type WorkflowUpdateRequest struct {
 }
 
 // WorkflowValidateRequest represents a request to validate a workflow definition
-// without creating it. Validates step configuration, tool availability, and parameter schemas.
+// without creating it. Validates step configuration, tool availability, and arg schemas.
 type WorkflowValidateRequest struct {
 	// Name for validation (required).
 	Name string `json:"name" validate:"required"`
@@ -419,8 +416,8 @@ type WorkflowValidateRequest struct {
 	// Description for validation.
 	Description string `json:"description,omitempty"`
 
-	// InputSchema for validation.
-	InputSchema WorkflowInputSchema `json:"inputSchema,omitempty"`
+	// Args for validation.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// Steps for validation (required). All referenced tools will be checked for availability.
 	Steps []WorkflowStep `json:"steps" validate:"required"`
@@ -428,8 +425,8 @@ type WorkflowValidateRequest struct {
 
 // Service Request Types
 
-// ServiceValidateRequest represents a request to validate service creation parameters
-// against a ServiceClass definition. This is useful for validating parameters
+// ServiceValidateRequest represents a request to validate service creation args
+// against a ServiceClass definition. This is useful for validating args
 // before actually creating a service instance.
 //
 // Example:
@@ -437,7 +434,7 @@ type WorkflowValidateRequest struct {
 //	request := ServiceValidateRequest{
 //	    Name: "my-database",
 //	    ServiceClassName: "postgres-database",
-//	    Parameters: map[string]interface{}{
+//	    Args: map[string]interface{}{
 //	        "database_name": "myapp",
 //	        "username":      "dbuser",
 //	        "port":          5432,
@@ -452,9 +449,9 @@ type ServiceValidateRequest struct {
 	// Must reference an existing ServiceClass.
 	ServiceClassName string `json:"serviceClassName" validate:"required"`
 
-	// Parameters provides the configuration for service creation.
-	// Must match the parameter definitions in the ServiceClass.
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	// Args provides the configuration for service creation.
+	// Must match the argument definitions in the ServiceClass.
+	Args map[string]interface{} `json:"args,omitempty"`
 
 	// AutoStart determines if the service should start automatically after creation.
 	AutoStart bool `json:"autoStart,omitempty"`
@@ -465,12 +462,12 @@ type ServiceValidateRequest struct {
 
 // ParseRequest converts a map[string]interface{} to a typed request struct.
 // This uses JSON marshaling/unmarshaling for type conversion and validation,
-// providing strict parameter checking and type safety.
+// providing strict arg checking and type safety.
 //
-// The function validates that no unknown parameters are present and performs
+// The function validates that no unknown args are present and performs
 // basic type validation according to the target struct's field types and tags.
 //
-// Parameters:
+// Args:
 //   - args: The input arguments to parse and validate
 //   - request: Pointer to the target request struct to populate
 //
@@ -490,8 +487,8 @@ type ServiceValidateRequest struct {
 //	    return fmt.Errorf("invalid request: %w", err)
 //	}
 func ParseRequest[T any](args map[string]interface{}, request *T) error {
-	// First validate that no unknown parameters are present
-	if err := validateStrictParameters(args, request); err != nil {
+	// First validate that no unknown args are present
+	if err := validateStrictArgs(args, request); err != nil {
 		return err
 	}
 
@@ -533,25 +530,25 @@ func validateRequest(request interface{}) error {
 	return nil
 }
 
-// ValidateStrictParameters ensures no unknown parameters are present in the request.
-// This function provides strict parameter validation by checking the provided arguments
+// ValidateStrictArgs ensures no unknown args are present in the request.
+// This function provides strict arg validation by checking the provided arguments
 // against a list of allowed field names.
 //
-// Parameters:
+// Args:
 //   - args: The arguments to validate
-//   - allowedFields: List of parameter names that are allowed
+//   - allowedFields: List of arg names that are allowed
 //
 // Returns:
-//   - error: Error listing unknown parameters if any are found
+//   - error: Error listing unknown args if any are found
 //
 // Example:
 //
 //	allowed := []string{"name", "type", "description"}
-//	err := ValidateStrictParameters(args, allowed)
+//	err := ValidateStrictArgs(args, allowed)
 //	if err != nil {
-//	    return fmt.Errorf("parameter validation failed: %w", err)
+//	    return fmt.Errorf("arg validation failed: %w", err)
 //	}
-func ValidateStrictParameters(args map[string]interface{}, allowedFields []string) error {
+func ValidateStrictArgs(args map[string]interface{}, allowedFields []string) error {
 	allowedMap := make(map[string]bool)
 	for _, field := range allowedFields {
 		allowedMap[field] = true
@@ -565,23 +562,23 @@ func ValidateStrictParameters(args map[string]interface{}, allowedFields []strin
 	}
 
 	if len(unknownFields) > 0 {
-		return fmt.Errorf("unknown parameters: %v. Allowed parameters: %v", unknownFields, allowedFields)
+		return fmt.Errorf("unknown args: %v. Allowed args: %v", unknownFields, allowedFields)
 	}
 
 	return nil
 }
 
-// validateStrictParameters ensures no unknown parameters are present by comparing
+// validateStrictArgs ensures no unknown args are present by comparing
 // against the JSON tags of the target struct. This provides automatic validation
 // based on the struct definition without requiring manual field lists.
 //
-// Parameters:
+// Args:
 //   - args: The arguments to validate
 //   - request: The target struct to validate against
 //
 // Returns:
-//   - error: Error listing unknown parameters if any are found
-func validateStrictParameters(args map[string]interface{}, request interface{}) error {
+//   - error: Error listing unknown args if any are found
+func validateStrictArgs(args map[string]interface{}, request interface{}) error {
 	// Get the struct type
 	structType := reflect.TypeOf(request).Elem()
 
@@ -603,7 +600,7 @@ func validateStrictParameters(args map[string]interface{}, request interface{}) 
 		}
 	}
 
-	// Check for unknown parameters
+	// Check for unknown args
 	var unknownParams []string
 	for paramName := range args {
 		if !allowedFields[paramName] {
@@ -616,7 +613,7 @@ func validateStrictParameters(args map[string]interface{}, request interface{}) 
 		for name := range allowedFields {
 			allowedNames = append(allowedNames, name)
 		}
-		return fmt.Errorf("unknown parameters: %v. Allowed parameters: %v", unknownParams, allowedNames)
+		return fmt.Errorf("unknown args: %v. Allowed args: %v", unknownParams, allowedNames)
 	}
 
 	return nil

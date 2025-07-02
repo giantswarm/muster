@@ -80,7 +80,7 @@ for muster by creating clean, isolated instances of muster serve for each test s
 
 This command validates all core muster concepts including:
 - ServiceClass management and templating
-- Workflow execution and parameter resolution
+- Workflow execution and arg resolution
 - MCPServer registration and tool aggregation
 - Capability definitions and API abstraction
 - Service lifecycle management and dependencies
@@ -100,7 +100,7 @@ Test Categories:
 
 Core Concepts:
 - serviceclass: ServiceClass management and dynamic instantiation
-- workflow: Workflow execution and parameter templating
+- workflow: Workflow execution and arg templating
 - mcpserver: MCP server registration and tool aggregation
 - capability: Capability definitions and API operations
 - service: Service lifecycle and dependency management
@@ -515,10 +515,11 @@ func generateAPISchema(ctx context.Context, client testing.MCPTestClient, verbos
 func convertMCPToolToSchema(tool mcp.Tool, verbose, debug bool) map[string]interface{} {
 	schema := map[string]interface{}{
 		"type":        "object",
-		"description": fmt.Sprintf("Parameters for %s tool", tool.Name),
+		"description": fmt.Sprintf("Arguments for %s tool", tool.Name),
 		"properties":  make(map[string]interface{}),
 	}
 
+	// Handle both old InputSchema format and new args format
 	if tool.InputSchema.Properties != nil {
 		// Copy properties from the tool's input schema
 		schema["properties"] = tool.InputSchema.Properties
@@ -529,7 +530,10 @@ func convertMCPToolToSchema(tool mcp.Tool, verbose, debug bool) map[string]inter
 	}
 
 	if verbose || debug {
-		propertiesCount := len(tool.InputSchema.Properties)
+		var propertiesCount int
+		if tool.InputSchema.Properties != nil {
+			propertiesCount = len(tool.InputSchema.Properties)
+		}
 		fmt.Printf("  📝 Tool %s has %d properties\n", tool.Name, propertiesCount)
 	}
 

@@ -86,7 +86,7 @@ var destructiveTools = map[string]bool{
 // The check is performed using the original tool name (before any prefixing)
 // to ensure consistent behavior regardless of how the tool is exposed.
 //
-// Parameters:
+// Args:
 //   - toolName: The original tool name (without prefixes) to check
 //
 // Returns:

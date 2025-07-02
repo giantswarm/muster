@@ -28,9 +28,9 @@ type ServiceInstance struct {
 	// This is populated from the ServiceClass configuration and used for categorization.
 	ServiceClassType string `json:"serviceClassType,omitempty" yaml:"serviceClassType,omitempty"`
 
-	// Parameters contains the configuration values provided when creating this service instance.
-	// These values are validated against the ServiceClass parameter definitions.
-	Parameters map[string]interface{} `yaml:"parameters" json:"parameters"`
+	// Args contains the configuration values provided when creating this service instance.
+	// These values are validated against the ServiceClass arg definitions.
+	Args map[string]interface{} `yaml:"args" json:"args"`
 
 	// Dependencies lists other service instances that must be running before this instance can start.
 	// The orchestrator uses this for proper startup ordering.
@@ -67,6 +67,11 @@ type ServiceInstance struct {
 	// This might include connection information, status details, or other service-specific data.
 	ServiceData map[string]interface{} `json:"serviceData,omitempty" yaml:"-"`
 
+	// Outputs contains the resolved outputs from the ServiceClass outputs definition.
+	// These are generated during service creation by resolving templates with service args and runtime data.
+	// Outputs are available for workflows and other consumers that need access to service-generated values.
+	Outputs map[string]interface{} `json:"outputs,omitempty" yaml:"-"`
+
 	// CreatedAt records when this service instance was initially created.
 	// This timestamp is persisted and used for auditing and lifecycle management.
 	CreatedAt time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
@@ -100,10 +105,10 @@ type CreateServiceInstanceRequest struct {
 	// This name must be unique across all service instances in the system.
 	Name string `json:"name"`
 
-	// Parameters contains the configuration values for the new service instance.
-	// These parameters are validated against the ServiceClass parameter definitions
+	// Args contains the configuration values for the new service instance.
+	// These args are validated against the ServiceClass arg definitions
 	// and used to customize the service behavior.
-	Parameters map[string]interface{} `json:"parameters"`
+	Args map[string]interface{} `json:"args"`
 
 	// Persist determines whether this service instance definition should be saved to YAML files.
 	// When true, the instance configuration will be persisted and survive system restarts.

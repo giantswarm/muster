@@ -92,9 +92,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	arguments := map[string]interface{}{
+	toolArgs := map[string]interface{}{
 		"name": resourceName,
 	}
 
-	return executor.Execute(ctx, toolName, arguments)
+	return executor.Execute(ctx, toolName, toolArgs)
 }

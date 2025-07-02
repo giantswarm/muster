@@ -50,7 +50,7 @@ type Logger struct {
 // and more detailed information about operations, including protocol
 // details and internal state changes.
 //
-// Parameters:
+// Args:
 //   - verbose: Whether to enable verbose output
 //
 // This is useful for debugging and development scenarios where you need
@@ -64,7 +64,7 @@ func (l *Logger) SetVerbose(verbose bool) {
 // to write to files, buffers, or other destinations for testing
 // or log aggregation purposes.
 //
-// Parameters:
+// Args:
 //   - w: The io.Writer to use for log output
 //
 // Example:
@@ -102,7 +102,7 @@ func NewDevNullLogger() *Logger {
 // This is the primary constructor for logger instances with customizable
 // behavior for different use cases.
 //
-// Parameters:
+// Args:
 //   - verbose: Enable detailed debug output and operation tracking
 //   - useColor: Use ANSI color codes for enhanced terminal readability
 //   - jsonRPCMode: Enable complete JSON-RPC protocol message logging
@@ -130,7 +130,7 @@ func NewLogger(verbose, useColor, jsonRPCMode bool) *Logger {
 // This allows for flexible output routing while maintaining all the logging
 // configuration options.
 //
-// Parameters:
+// Args:
 //   - verbose: Enable detailed debug output and operation tracking
 //   - useColor: Use ANSI color codes (may not be appropriate for file output)
 //   - jsonRPCMode: Enable complete JSON-RPC protocol message logging
@@ -163,7 +163,7 @@ func NewLoggerWithWriter(verbose, useColor, jsonRPCMode bool, writer io.Writer) 
 // Unlike other logging methods, Output always writes to stdout regardless
 // of the configured writer, ensuring user-facing content is properly displayed.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 //
@@ -176,7 +176,7 @@ func (l *Logger) Output(format string, args ...interface{}) {
 // OutputLine writes user-facing output with a newline.
 // This is a convenience wrapper around Output that automatically adds a newline.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 func (l *Logger) OutputLine(format string, args ...interface{}) {
@@ -192,7 +192,7 @@ func (l *Logger) timestamp() string {
 // colorize applies ANSI color codes to text if colors are enabled.
 // This method handles color formatting consistently across all logging methods.
 //
-// Parameters:
+// Args:
 //   - text: The text to colorize
 //   - colorCode: ANSI color code constant
 //
@@ -209,7 +209,7 @@ func (l *Logger) colorize(text, colorCode string) string {
 // This is used for general status updates and operational information
 // that should be visible in normal operation.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 //
@@ -223,7 +223,7 @@ func (l *Logger) Info(format string, args ...interface{}) {
 // This is used for detailed operation tracking and troubleshooting
 // information that would be too noisy for normal operation.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 //
@@ -241,7 +241,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 // This is used for error conditions, failures, and other problems
 // that need immediate attention.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 //
@@ -255,7 +255,7 @@ func (l *Logger) Error(format string, args ...interface{}) {
 // This is used for successful operations, completed tasks, and
 // positive status updates.
 //
-// Parameters:
+// Args:
 //   - format: Printf-style format string
 //   - args: Arguments for the format string
 //
@@ -269,9 +269,9 @@ func (l *Logger) Success(format string, args ...interface{}) {
 // The behavior depends on the logging mode: simple mode shows user-friendly
 // messages, while JSON-RPC mode shows complete protocol details.
 //
-// Parameters:
+// Args:
 //   - method: The MCP method name (e.g., "tools/list", "initialize")
-//   - params: The request parameters (logged in JSON-RPC mode only)
+//   - params: The request args (logged in JSON-RPC mode only)
 //
 // In simple mode, this maps method names to user-friendly messages.
 // In JSON-RPC mode, this shows complete request details with proper formatting.
@@ -311,7 +311,7 @@ func (l *Logger) Request(method string, params interface{}) {
 // The behavior depends on the logging mode: simple mode shows user-friendly
 // summaries, while JSON-RPC mode shows complete response details.
 //
-// Parameters:
+// Args:
 //   - method: The MCP method name this response corresponds to
 //   - result: The response result (logged in JSON-RPC mode only)
 //
@@ -380,9 +380,9 @@ func (l *Logger) Response(method string, result interface{}) {
 // Notifications are typically sent by the server to indicate capability changes
 // or other events that the client should be aware of.
 //
-// Parameters:
+// Args:
 //   - method: The notification method name (e.g., "notifications/tools/list_changed")
-//   - params: The notification parameters (logged in JSON-RPC mode only)
+//   - params: The notification args (logged in JSON-RPC mode only)
 //
 // Some notifications like keepalive are filtered in simple mode unless
 // verbose output is enabled. JSON-RPC mode shows all notification details.
@@ -427,7 +427,7 @@ func (l *Logger) Notification(method string, params interface{}) {
 // This method handles the complexity of JSON-RPC message formatting
 // and provides fallback formatting for complex structures.
 //
-// Parameters:
+// Args:
 //   - v: The value to format as JSON
 //
 // Returns:
@@ -480,7 +480,7 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 // This is used by the simple logging mode to provide meaningful summary
 // information instead of raw protocol details.
 //
-// Parameters:
+// Args:
 //   - result: The response result from a tools/list operation
 //
 // Returns:
@@ -515,7 +515,7 @@ func (l *Logger) countTools(result interface{}) int {
 // This is used by the simple logging mode to provide meaningful summary
 // information instead of raw protocol details.
 //
-// Parameters:
+// Args:
 //   - result: The response result from a resources/list operation
 //
 // Returns:
@@ -550,7 +550,7 @@ func (l *Logger) countResources(result interface{}) int {
 // This is used by the simple logging mode to provide meaningful summary
 // information instead of raw protocol details.
 //
-// Parameters:
+// Args:
 //   - result: The response result from a prompts/list operation
 //
 // Returns:

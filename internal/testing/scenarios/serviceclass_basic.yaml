@@ -20,7 +20,7 @@ pre_configuration:
                 name:
                   type: string
                   required: true
-                parameters:
+                args:
                   type: object
             responses:
               - response:
@@ -53,7 +53,7 @@ steps:
       name: "test-basic-serviceclass"
       version: "1.0.0"
       serviceConfig:
-        createParameters:
+        createArgs:
           replicas:
             default: 1
           image:

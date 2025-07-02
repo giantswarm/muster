@@ -40,7 +40,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_list",
 			Description: "List all capability definitions",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "available_only",
 					Type:        "boolean",
@@ -53,7 +53,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_get",
 			Description: "Get details of a specific capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -65,7 +65,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_check",
 			Description: "Check if a capability is available (all required tools are available)",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -77,29 +77,145 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_create",
 			Description: "Create a new capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Capability name"},
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: true, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    true,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Input arguments for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Argument definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this argument is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the argument",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required":             []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 		{
 			Name:        "capability_update",
 			Description: "Update an existing capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Name of the capability to update"},
 				{Name: "type", Type: "string", Required: false, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: false, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    false,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Input arguments for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Argument definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this argument is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the argument",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required":             []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 		{
 			Name:        "capability_delete",
 			Description: "Delete a capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
 					Type:        "string",
@@ -111,12 +227,70 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "capability_validate",
 			Description: "Validate a capability definition",
-			Parameters: []api.ParameterMetadata{
+			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "Capability name"},
 				{Name: "type", Type: "string", Required: true, Description: "Capability type identifier"},
 				{Name: "version", Type: "string", Required: false, Description: "Capability version"},
 				{Name: "description", Type: "string", Required: false, Description: "Capability description"},
-				{Name: "operations", Type: "object", Required: true, Description: "Operations map with operation definitions"},
+				{
+					Name:        "operations",
+					Type:        "object",
+					Required:    true,
+					Description: "Operations map with operation definitions",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Operations map with operation definitions",
+						"additionalProperties": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation definition",
+							"properties": map[string]interface{}{
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable description of what this operation does",
+								},
+								"args": map[string]interface{}{
+									"type":        "object",
+									"description": "Input arguments for this operation",
+									"additionalProperties": map[string]interface{}{
+										"type":        "object",
+										"description": "Argument definition",
+										"properties": map[string]interface{}{
+											"type": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument type (string, number, boolean, object, array)",
+											},
+											"required": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether this argument is required",
+											},
+											"description": map[string]interface{}{
+												"type":        "string",
+												"description": "Argument description",
+											},
+											"default": map[string]interface{}{
+												"description": "Default value for the argument",
+											},
+										},
+									},
+								},
+								"requires": map[string]interface{}{
+									"type":        "array",
+									"description": "List of tools this operation requires to be available",
+									"items": map[string]interface{}{
+										"type":        "string",
+										"description": "Tool name",
+									},
+								},
+								"workflow": map[string]interface{}{
+									"type":        "string",
+									"description": "Name of the workflow to execute for this operation (optional)",
+								},
+							},
+							"required":             []string{"description"},
+							"additionalProperties": false,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -139,7 +313,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}
@@ -149,7 +323,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}
@@ -165,7 +339,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 		name, ok := args["name"].(string)
 		if !ok {
 			return &api.CallToolResult{
-				Content: []interface{}{"name parameter is required"},
+				Content: []interface{}{"name argument is required"},
 				IsError: true,
 			}, nil
 		}

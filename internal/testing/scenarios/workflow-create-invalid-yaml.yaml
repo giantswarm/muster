@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "invalid-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: ""  # Invalid empty step id
         tool: "core_capability_list"

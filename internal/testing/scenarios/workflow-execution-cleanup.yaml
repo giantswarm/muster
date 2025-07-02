@@ -1,0 +1,108 @@
+name: "workflow-execution-cleanup"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "cleanup", "history"]
+timeout: "3m"
+
+steps:
+- id: "create-cleanup-test-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "cleanup-test-workflow"
+    args:
+      test_id:
+        type: "string"
+        default: "cleanup-1"
+    steps:
+      - id: "cleanup_step"
+        tool: "core_service_list"
+        store: "cleanup_result"
+  expected:
+    success: true
+  cleanup:
+    - id: "cleanup-workflow-after-create"
+      tool: "core_workflow_delete"
+      args: { name: "cleanup-test-workflow" }
+
+# Execute multiple workflows to create execution history
+- id: "execute-cleanup-workflow-1"
+  tool: "workflow_cleanup-test-workflow"
+  args:
+    test_id: "cleanup-test-1"
+  expected:
+    success: true
+  store: "cleanup_execution_1"
+
+- id: "execute-cleanup-workflow-2"
+  tool: "workflow_cleanup-test-workflow"
+  args:
+    test_id: "cleanup-test-2"
+  expected:
+    success: true
+  store: "cleanup_execution_2"
+
+- id: "execute-cleanup-workflow-3"
+  tool: "workflow_cleanup-test-workflow"
+  args:
+    test_id: "cleanup-test-3"
+  expected:
+    success: true
+  store: "cleanup_execution_3"
+
+- id: "verify-all-executions-exist"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "cleanup-test-workflow"
+  expected:
+    success: true
+    contains: ["cleanup-test-workflow"]
+
+- id: "verify-first-execution-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ cleanup_execution_1.execution_id }}"
+  expected:
+    success: true
+    contains: ["cleanup-test-1", "cleanup_result"]
+
+- id: "verify-second-execution-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ cleanup_execution_2.execution_id }}"
+  expected:
+    success: true
+    contains: ["cleanup-test-2", "cleanup_result"]
+
+- id: "verify-third-execution-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ cleanup_execution_3.execution_id }}"
+  expected:
+    success: true
+    contains: ["cleanup-test-3", "cleanup_result"]
+
+- id: "test-execution-history-persistence"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "cleanup-test-workflow"
+    limit: 10
+  expected:
+    success: true
+    contains: ["cleanup-test-workflow"]
+
+- id: "verify-execution-ordering"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "cleanup-test-workflow"
+    limit: 3
+    offset: 0
+  expected:
+    success: true
+    contains: ["cleanup-test-workflow"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "cleanup-test-workflow" }
+  expected:
+    success: true 

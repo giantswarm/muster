@@ -1,14 +1,13 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
-	"text/template"
 
 	"muster/internal/api"
+	"muster/internal/template"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,25 +18,41 @@ type ToolCaller interface {
 	CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 }
 
+// stepMetadata holds metadata about an executed step for tracking purposes
+type stepMetadata struct {
+	ID    string // Original step ID from workflow definition
+	Tool  string // Tool name used in the step
+	Store string // Variable name where result was stored (if any)
+}
+
 // WorkflowExecutor executes workflow steps
 type WorkflowExecutor struct {
 	toolCaller ToolCaller
+	template   *template.Engine
 }
 
 // NewWorkflowExecutor creates a new workflow executor
 func NewWorkflowExecutor(toolCaller ToolCaller) *WorkflowExecutor {
 	return &WorkflowExecutor{
 		toolCaller: toolCaller,
+		template:   template.New(),
 	}
 }
 
 // ExecuteWorkflow executes a workflow with the given arguments
 func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.Workflow, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	logging.Error("WorkflowExecutor", fmt.Errorf("workflow execution started"), "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, workflow.InputSchema.Required)
+	// Log required args for debugging
+	var requiredArgs []string
+	for name, arg := range workflow.Args {
+		if arg.Required {
+			requiredArgs = append(requiredArgs, name)
+		}
+	}
+	logging.Error("WorkflowExecutor", fmt.Errorf("workflow execution started"), "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, requiredArgs)
 	logging.Debug("WorkflowExecutor", "Executing workflow %s with %d steps", workflow.Name, len(workflow.Steps))
 
-	// Validate inputs against schema
-	if err := we.validateInputs(workflow.InputSchema, args); err != nil {
+	// Validate inputs against args definition
+	if err := we.validateInputs(workflow.Args, args); err != nil {
 		logging.Error("WorkflowExecutor", err, "Input validation failed for workflow %s", workflow.Name)
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
@@ -48,6 +63,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		variables:    make(map[string]interface{}),
 		results:      make(map[string]interface{}),
 		templateVars: make([]string, 0),
+		stepMetadata: make([]stepMetadata, 0),
 	}
 	logging.Debug("WorkflowExecutor", "Initial execution context: input=%+v, results=%+v", execCtx.input, execCtx.results)
 
@@ -56,7 +72,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	for i, step := range workflow.Steps {
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
-		// Resolve template variables in arguments
+		// Resolve template variables in step arguments
 		resolvedArgs, err := we.resolveArguments(step.Args, execCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve arguments for step %s: %w", step.ID, err)
@@ -67,7 +83,43 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		result, err := we.toolCaller.CallToolInternal(ctx, step.Tool, resolvedArgs)
 		if err != nil {
 			logging.Error("WorkflowExecutor", err, "Step %s failed", step.ID)
-			return nil, fmt.Errorf("step %s failed: %w", step.ID, err)
+
+			// Record the failed step metadata
+			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+				ID:    step.ID,
+				Tool:  step.Tool,
+				Store: step.Store,
+			})
+
+			// Create partial result with steps completed so far, including the failed step
+			partialResult := map[string]interface{}{
+				"workflow":     workflow.Name,
+				"results":      execCtx.results,
+				"input":        execCtx.input,
+				"templateVars": execCtx.templateVars,
+				"stepMetadata": execCtx.stepMetadata,
+				"status":       "failed",
+				"error":        err.Error(),
+				"failedStep":   step.ID,
+			}
+
+			// Return partial result as JSON for execution tracking
+			partialJSON, jsonErr := json.Marshal(partialResult)
+			if jsonErr != nil {
+				// If JSON marshaling fails, return the original error without partial results
+				return nil, fmt.Errorf("step %s failed: %w", step.ID, err)
+			}
+
+			// Return partial result with the original error
+			// This allows execution tracking to capture successful steps before failure
+			partialMCPResult := &mcp.CallToolResult{
+				Content: []mcp.Content{
+					mcp.NewTextContent(string(partialJSON)),
+				},
+				IsError: true, // Mark as error result
+			}
+
+			return partialMCPResult, fmt.Errorf("step %s failed: %w", step.ID, err)
 		}
 		logging.Debug("WorkflowExecutor", "Step %s result: %+v", step.ID, result)
 
@@ -75,6 +127,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		lastStepResult = result
 
 		// Store result if requested
+		// TODO: Implement step.Outputs processing for extracting specific fields
 		if step.Store != "" {
 			logging.Debug("WorkflowExecutor", "Processing result for step %s: %+v", step.ID, result)
 			var resultData interface{}
@@ -98,6 +151,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			logging.Debug("WorkflowExecutor", "Current execution context results: %+v", execCtx.results)
 		}
 
+		// Record step metadata for execution tracking
+		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+			ID:    step.ID,
+			Tool:  step.Tool,
+			Store: step.Store,
+		})
+
 		// Check if result indicates an error
 		if result.IsError {
 			logging.Error("WorkflowExecutor", fmt.Errorf("step returned error"), "Step %s returned error result", step.ID)
@@ -110,8 +170,9 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	finalResult := map[string]interface{}{
 		"workflow":     workflow.Name,
 		"results":      execCtx.results,
-		"input":        execCtx.input,        // Include input parameters
+		"input":        execCtx.input,        // Include input arguments
 		"templateVars": execCtx.templateVars, // Include template variables used
+		"stepMetadata": execCtx.stepMetadata, // Include step metadata for execution tracking
 		"status":       "completed",
 	}
 
@@ -156,48 +217,43 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 // executionContext holds the state during workflow execution
 type executionContext struct {
-	input        map[string]interface{} // Original input parameters
+	input        map[string]interface{} // Original input arguments
 	variables    map[string]interface{} // User-defined variables
 	results      map[string]interface{} // Results from previous steps
 	templateVars []string               // Track template variables used
+	stepMetadata []stepMetadata         // Track step metadata
 }
 
-// validateInputs validates the input arguments against the schema
-func (we *WorkflowExecutor) validateInputs(schema api.WorkflowInputSchema, args map[string]interface{}) error {
+// validateInputs validates the input arguments against the args definition
+func (we *WorkflowExecutor) validateInputs(argsDefinition map[string]api.ArgDefinition, args map[string]interface{}) error {
 	logging.Debug("WorkflowExecutor", "validateInputs called with args: %+v", args)
-	logging.Debug("WorkflowExecutor", "validateInputs schema properties: %+v", schema.Properties)
+	logging.Debug("WorkflowExecutor", "validateInputs args definition: %+v", argsDefinition)
 
-	// Check required fields
-	logging.Debug("WorkflowExecutor", "Checking required fields: %+v", schema.Required)
-	for _, required := range schema.Required {
-		if _, exists := args[required]; !exists {
-			logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args %+v", required, args)
-			return fmt.Errorf("required field '%s' is missing", required)
-		}
-	}
+	// Check required fields and apply defaults
+	for key, argDef := range argsDefinition {
+		value, exists := args[key]
 
-	// Validate each provided argument
-	for key, value := range args {
-		prop, exists := schema.Properties[key]
 		if !exists {
-			// Allow extra properties for flexibility
+			if argDef.Required {
+				logging.Error("WorkflowExecutor", fmt.Errorf("missing required field"), "Required field '%s' is missing from args %+v", key, args)
+				return fmt.Errorf("required field '%s' is missing", key)
+			}
+			// Apply default value if not provided
+			if argDef.Default != nil {
+				logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, argDef.Default)
+				args[key] = argDef.Default
+			}
 			continue
 		}
 
-		// Basic type validation
-		if !we.validateType(value, prop.Type) {
-			return fmt.Errorf("field '%s' has wrong type, expected %s", key, prop.Type)
+		// Basic type validation for provided values
+		if !we.validateType(value, argDef.Type) {
+			return fmt.Errorf("field '%s' has wrong type, expected %s", key, argDef.Type)
 		}
 	}
 
-	// Apply defaults for missing optional fields
-	for key, prop := range schema.Properties {
-		logging.Debug("WorkflowExecutor", "Checking property %s: exists=%v, default=%+v", key, args[key] != nil, prop.Default)
-		if _, exists := args[key]; !exists && prop.Default != nil {
-			logging.Debug("WorkflowExecutor", "Applying default value for %s: %v", key, prop.Default)
-			args[key] = prop.Default
-		}
-	}
+	// Check for unknown arguments - allow extra properties for flexibility
+	// This follows the same pattern as ServiceClass.ValidateServiceArgs
 
 	logging.Debug("WorkflowExecutor", "validateInputs final args: %+v", args)
 	return nil
@@ -331,32 +387,65 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 
 	logging.Debug("WorkflowExecutor", "Template context results (raw): %v", templateCtx["results"])
 
-	// Parse and execute template with strict mode options
-	tmpl, err := template.New("arg").Option("missingkey=error").Parse(templateStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid template: %w", err)
+	// Check if this is a simple variable access pattern ({{ .input.key }} or {{ .results.key }})
+	// If so, try to preserve the original type
+	if we.isSimpleVariableAccess(templateStr) {
+		originalValue := we.getOriginalValue(templateStr, ctx)
+		if originalValue != nil {
+			// For simple variable access, return the original value with its type preserved
+			return originalValue, nil
+		}
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, templateCtx); err != nil {
-		// Check for missing key errors and provide more context
-		if strings.Contains(err.Error(), "executing") && strings.Contains(err.Error(), "no such key") {
-			return nil, fmt.Errorf("failed to render arguments: template variable not found: %w", err)
-		}
+	// Parse and execute template with strict mode options
+	result, err := we.template.RenderGoTemplate(templateStr, templateCtx)
+	if err != nil {
 		return nil, fmt.Errorf("failed to render arguments: %w", err)
 	}
 
-	result := buf.String()
-	logging.Debug("WorkflowExecutor", "Template result: %s", result)
+	logging.Debug("WorkflowExecutor", "Template result: %v", result)
+	return result, nil
+}
 
-	// Try to parse as JSON first
-	var jsonResult interface{}
-	if err := json.Unmarshal([]byte(result), &jsonResult); err == nil {
-		return jsonResult, nil
+// isSimpleVariableAccess checks if the template is a simple variable access pattern
+func (we *WorkflowExecutor) isSimpleVariableAccess(templateStr string) bool {
+	// Remove whitespace and check if it matches {{ .input.key }} or {{ .results.key }} pattern
+	trimmed := strings.TrimSpace(templateStr)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return false
 	}
 
-	// If not valid JSON, return as string
-	return result, nil
+	// Extract the inner part
+	inner := strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+
+	// Check if it's a simple dot notation access
+	return strings.HasPrefix(inner, ".input.") || strings.HasPrefix(inner, ".results.") || strings.HasPrefix(inner, ".vars.")
+}
+
+// getOriginalValue extracts the original value from the context based on the template path
+func (we *WorkflowExecutor) getOriginalValue(templateStr string, ctx *executionContext) interface{} {
+	// Remove whitespace and extract the path
+	trimmed := strings.TrimSpace(templateStr)
+	if !strings.HasPrefix(trimmed, "{{") || !strings.HasSuffix(trimmed, "}}") {
+		return nil
+	}
+
+	// Extract the inner part
+	inner := strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+
+	// Parse the path and get the value
+	if strings.HasPrefix(inner, ".input.") {
+		key := inner[7:] // Remove ".input."
+		return ctx.input[key]
+	} else if strings.HasPrefix(inner, ".results.") {
+		key := inner[9:] // Remove ".results."
+		return ctx.results[key]
+	} else if strings.HasPrefix(inner, ".vars.") {
+		key := inner[6:] // Remove ".vars."
+		return ctx.variables[key]
+	}
+
+	return nil
 }
 
 // contains checks if a string slice contains a specific string

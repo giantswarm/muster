@@ -312,7 +312,7 @@
 //   - Protocol errors: MCP handshake and communication failures
 //   - Tool errors: Tool execution failures with context
 //   - Network errors: Transport-level failures with retry logic
-//   - Validation errors: Parameter and schema mismatches
+//   - Validation errors: Arg and schema mismatches
 //
 // ## Debugging Support
 //
@@ -464,7 +464,7 @@
 //	#!/bin/bash
 //	# Deploy services using muster agent
 //	muster agent --endpoint http://muster:8090/streamable-http --execute <<EOF
-//	call core_service_create '{"name": "web-app", "serviceclass": "webapp", "parameters": {"replicas": 3}}'
+//	call core_service_create '{"name": "web-app", "serviceclass": "webapp", "args": {"replicas": 3}}'
 //	call core_service_start '{"name": "web-app"}'
 //	EOF
 //

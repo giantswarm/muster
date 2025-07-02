@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "test-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "check_service"
         tool: "core_service_list"
@@ -28,10 +25,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "advanced-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "list_services"
         tool: "core_service_list"
@@ -50,3 +44,33 @@ steps:
   expected:
     success: true
     contains: ["test-workflow", "advanced-workflow"] 
+
+- id: "verify-workflow-availability"
+  tool: "core_workflow_available"
+  args:
+    name: "test-workflow"
+  expected:
+    success: true
+    json_path:
+      available: true
+
+- id: "verify-workflow-availability"
+  tool: "core_workflow_available"
+  args:
+    name: "advanced-workflow"
+  expected:
+    success: true
+    json_path:
+      available: true
+
+- id: "list-workflows"
+  tool: "core_workflow_list"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      workflows:
+        - name: "advanced-workflow"
+          available: true
+        - name: "test-workflow"
+          available: true

@@ -38,7 +38,7 @@ var (
 // Only one service registry handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: ServiceRegistryHandler implementation that manages service discovery and information
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -61,7 +61,7 @@ func RegisterServiceRegistry(h ServiceRegistryHandler) {
 // Only one service manager handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: ServiceManagerHandler implementation that manages service lifecycle operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -85,7 +85,7 @@ func RegisterServiceManager(h ServiceManagerHandler) {
 // Only one aggregator handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: AggregatorHandler implementation that manages tool execution and MCP server coordination
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -108,7 +108,7 @@ func RegisterAggregator(h AggregatorHandler) {
 // Only one configuration handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: ConfigHandler implementation that manages configuration operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -126,7 +126,7 @@ func RegisterConfigHandler(h ConfigHandler) {
 // RegisterConfig is an alias for RegisterConfigHandler for backward compatibility.
 // New code should prefer using RegisterConfigHandler for clarity.
 //
-// Parameters:
+// Args:
 //   - h: ConfigHandler implementation that manages configuration operations
 //
 // Thread-safe: Yes, delegates to RegisterConfigHandler.
@@ -254,7 +254,7 @@ func GetConfig() ConfigHandler {
 // Only one capability handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: CapabilityHandler implementation that manages capability operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -302,7 +302,7 @@ func GetCapability() CapabilityHandler {
 // Only one workflow handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: WorkflowHandler implementation that manages workflow operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -350,7 +350,7 @@ func GetWorkflow() WorkflowHandler {
 // Only one service class manager handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: ServiceClassManagerHandler implementation that manages ServiceClass operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -394,7 +394,7 @@ func GetServiceClassManager() ServiceClassManagerHandler {
 // This function bypasses normal registration and should only be used in test code
 // to provide mock implementations for unit testing.
 //
-// Parameters:
+// Args:
 //   - h: ServiceClassManagerHandler implementation for testing
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -490,7 +490,7 @@ func ToolNameToCapability(toolName string) (capabilityType, operation string, is
 // Only one MCP server manager handler can be registered at a time; subsequent
 // registrations will replace the previous handler.
 //
-// Parameters:
+// Args:
 //   - h: MCPServerManagerHandler implementation that manages MCP server operations
 //
 // Thread-safe: Yes, protected by handlerMutex.
@@ -538,7 +538,7 @@ func GetMCPServerManager() MCPServerManagerHandler {
 // Subscriber callbacks are executed in separate goroutines to prevent blocking
 // the event publishing mechanism.
 //
-// Parameters:
+// Args:
 //   - subscriber: ToolUpdateSubscriber that will receive tool update notifications
 //
 // Thread-safe: Yes, protected by toolUpdateMutex.
@@ -570,7 +570,7 @@ func SubscribeToToolUpdates(subscriber ToolUpdateSubscriber) {
 // receives the event in a separate goroutine to prevent blocking, ensuring
 // that slow or failing subscribers don't affect other subscribers or the publisher.
 //
-// Parameters:
+// Args:
 //   - event: ToolUpdateEvent containing details about the tool update
 //
 // Thread-safe: Yes, subscriber list is safely copied before notification.

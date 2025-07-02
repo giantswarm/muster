@@ -9,10 +9,7 @@ steps:
   tool: "core_workflow_validate"
   args:
     name: "invalid-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps: []  # Invalid: empty steps should cause validation to fail
   expected:
     success: false

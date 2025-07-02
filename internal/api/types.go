@@ -61,7 +61,7 @@ type CallToolResult struct {
 
 // ToolMetadata describes a tool that can be exposed through the MCP protocol.
 // This metadata is used for tool discovery, documentation generation, and
-// parameter validation during tool execution.
+// argument validation during tool execution.
 //
 // Tools are the primary mechanism for exposing functionality through muster,
 // allowing workflows, capabilities, and other components to be discoverable
@@ -75,35 +75,46 @@ type ToolMetadata struct {
 	// and how to use it effectively
 	Description string
 
-	// Parameters defines the input parameters accepted by this tool,
+	// Args defines the input arguments accepted by this tool,
 	// including validation rules and documentation
-	Parameters []ParameterMetadata
+	Args []ArgMetadata
 }
 
-// ParameterMetadata describes a single parameter for a tool.
+// ArgMetadata describes a single argument for a tool.
 // This is used for validation, documentation, and UI generation
-// for tool parameters in various interfaces.
+// for tool arguments in various interfaces.
 //
-// Parameter metadata enables automatic validation of tool calls
-// and helps generate helpful error messages when parameters are invalid.
-type ParameterMetadata struct {
-	// Name is the parameter identifier used in tool calls
+// Argument metadata enables automatic validation of tool calls
+// and helps generate helpful error messages when arguments are invalid.
+type ArgMetadata struct {
+	// Name is the argument identifier used in tool calls
 	Name string
 
-	// Type specifies the expected parameter type for validation.
+	// Type specifies the expected argument type for validation.
 	// Valid values: "string", "number", "boolean", "object", "array"
 	Type string
 
-	// Required indicates whether this parameter must be provided in tool calls
+	// Required indicates whether this argument must be provided in tool calls
 	Required bool
 
-	// Description provides human-readable documentation for this parameter,
+	// Description provides human-readable documentation for this argument,
 	// explaining its purpose and expected format
 	Description string
 
-	// Default specifies the default value used when the parameter is not provided.
+	// Default specifies the default value used when the argument is not provided.
 	// Only used when Required is false. Must match the specified Type.
 	Default interface{}
+
+	// Schema provides detailed JSON Schema definition for complex types.
+	// When specified, this takes precedence over the basic Type field for
+	// generating detailed MCP schemas. This is particularly useful for:
+	// - Object types that need property definitions and validation rules
+	// - Array types that need item type specifications
+	// - Advanced validation constraints (patterns, ranges, etc.)
+	//
+	// For simple types (string, number, boolean), this field can be omitted
+	// and the basic Type field will be used.
+	Schema map[string]interface{} `json:"schema,omitempty"`
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
@@ -133,7 +144,7 @@ type ToolProvider interface {
 	//	        {
 	//	            Name:        "my_operation",
 	//	            Description: "Performs my custom operation",
-	//	            Parameters: []ParameterMetadata{
+	//	            Args: []ArgMetadata{
 	//	                {
 	//	                    Name:        "input",
 	//	                    Type:        "string",
@@ -148,9 +159,9 @@ type ToolProvider interface {
 
 	// ExecuteTool executes a specific tool by name with the provided arguments.
 	// This is the main entry point for tool execution and must handle
-	// parameter validation, execution logic, and result formatting.
+	// arg validation, execution logic, and result formatting.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//   - toolName: The name of the tool to execute (must match a tool from GetTools)
 	//   - args: Arguments for the tool execution, should be validated against tool metadata
@@ -167,7 +178,7 @@ type ToolProvider interface {
 	//	        input, ok := args["input"].(string)
 	//	        if !ok {
 	//	            return &CallToolResult{
-	//	                Content: []interface{}{"input parameter must be a string"},
+	//	                Content: []interface{}{"input arg must be a string"},
 	//	                IsError: true,
 	//	            }, nil
 	//	        }
@@ -202,7 +213,7 @@ type ToolUpdateSubscriber interface {
 	// - Changes in available tools from existing servers
 	// - Tool configuration updates
 	//
-	// Parameters:
+	// Args:
 	//   - event: ToolUpdateEvent containing details about what changed
 	//
 	// Note: This method is called asynchronously and should not block.
@@ -239,9 +250,9 @@ type ToolCall struct {
 	// Must correspond to an available tool in the aggregator.
 	Tool string `yaml:"tool" json:"tool"`
 
-	// Arguments provides static arguments to pass to the tool.
-	// These can be combined with dynamic arguments from service parameters.
-	Arguments map[string]interface{} `yaml:"arguments" json:"arguments"`
+	// Args provides static arguments to pass to the tool.
+	// These can be combined with dynamic arguments from service args.
+	Args map[string]interface{} `yaml:"args" json:"args"`
 
 	// ResponseMapping defines how to extract information from tool responses.
 	// This allows ServiceClass lifecycle tools to provide structured information
@@ -280,7 +291,7 @@ const (
 
 // SchemaProperty defines a single property in a JSON schema.
 // This is used for input validation and documentation in workflows and capabilities,
-// providing structured parameter definition and validation rules.
+// providing structured arg definition and validation rules.
 //
 // Schema properties enable automatic validation of inputs and help generate
 // helpful error messages and documentation for users.
@@ -342,26 +353,26 @@ type HealthCheckConfig struct {
 	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
 }
 
-// ParameterMapping defines how service creation parameters map to tool arguments.
-// This is used in ServiceClass definitions to specify how user-provided parameters
+// ArgMapping defines how service creation arguments map to tool arguments.
+// This is used in ServiceClass definitions to specify how user-provided arguments
 // are transformed and passed to lifecycle tools.
 //
-// Parameter mapping enables ServiceClasses to provide a clean interface for
+// Argument mapping enables ServiceClasses to provide a clean interface for
 // service creation while translating to the specific tool arguments needed
 // for the underlying implementation.
-type ParameterMapping struct {
-	// ToolParameter specifies the name of the parameter in the tool call.
-	// This is how the parameter will be passed to the lifecycle tool.
-	ToolParameter string `yaml:"toolParameter" json:"toolParameter"`
+type ArgMapping struct {
+	// ToolArg specifies the name of the argument in the tool call.
+	// This is how the argument will be passed to the lifecycle tool.
+	ToolArg string `yaml:"toolArg" json:"toolArg"`
 
-	// Default specifies the default value used when the parameter is not provided.
+	// Default specifies the default value used when the argument is not provided.
 	// Only used when Required is false.
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
-	// Required indicates whether this parameter must be provided during service creation.
+	// Required indicates whether this argument must be provided during service creation.
 	Required bool `yaml:"required" json:"required"`
 
-	// Transform specifies an optional transformation to apply to the parameter value.
+	// Transform specifies an optional transformation to apply to the argument value.
 	// Can be used for format conversion or value mapping.
 	Transform string `yaml:"transform,omitempty" json:"transform,omitempty"`
 }
@@ -383,4 +394,184 @@ type ResponseMapping struct {
 	Health   string            `yaml:"health,omitempty" json:"health,omitempty"`
 	Error    string            `yaml:"error,omitempty" json:"error,omitempty"`
 	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+}
+
+// WorkflowExecutionStatus represents the status of a workflow execution
+type WorkflowExecutionStatus string
+
+const (
+	// WorkflowExecutionInProgress indicates the execution is currently running
+	WorkflowExecutionInProgress WorkflowExecutionStatus = "inprogress"
+
+	// WorkflowExecutionCompleted indicates the execution finished successfully
+	WorkflowExecutionCompleted WorkflowExecutionStatus = "completed"
+
+	// WorkflowExecutionFailed indicates the execution failed with an error
+	WorkflowExecutionFailed WorkflowExecutionStatus = "failed"
+)
+
+// WorkflowExecution represents a complete workflow execution record.
+// This provides comprehensive information about a workflow execution including
+// timing, results, errors, and detailed step-by-step execution information.
+//
+// Workflow executions are automatically tracked when workflows are executed
+// via the workflow_<name> tools, enabling debugging, auditing, and monitoring.
+type WorkflowExecution struct {
+	// ExecutionID is the unique identifier for this execution (UUID v4)
+	ExecutionID string `json:"execution_id"`
+
+	// WorkflowName is the name of the workflow that was executed
+	WorkflowName string `json:"workflow_name"`
+
+	// Status indicates the current state of the execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the total execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// Input contains the original arguments passed to the workflow
+	Input map[string]interface{} `json:"input"`
+
+	// Result contains the final result of the workflow execution (nil if failed or in progress)
+	Result interface{} `json:"result,omitempty"`
+
+	// Error contains error information if the execution failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+
+	// Steps contains detailed information about each step execution
+	Steps []WorkflowExecutionStep `json:"steps"`
+}
+
+// WorkflowExecutionStep represents a single step execution within a workflow.
+// This provides detailed information about individual step execution including
+// timing, arguments, results, and any errors that occurred.
+//
+// Step execution information enables granular debugging and understanding
+// of workflow execution flow and data transformation.
+type WorkflowExecutionStep struct {
+	// StepID is the unique identifier for this step within the workflow
+	StepID string `json:"step_id"`
+
+	// Tool is the name of the tool that was executed for this step
+	Tool string `json:"tool"`
+
+	// Status indicates the current state of the step execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the step execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the step execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the step execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// Input contains the resolved arguments passed to the tool for this step
+	Input map[string]interface{} `json:"input"`
+
+	// Result contains the result returned by the tool execution (nil if failed or in progress)
+	Result interface{} `json:"result,omitempty"`
+
+	// Error contains error information if the step failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+
+	// StoredAs is the variable name where the step result was stored (from workflow definition)
+	StoredAs string `json:"stored_as,omitempty"`
+}
+
+// ListWorkflowExecutionsRequest represents a request to list workflow executions
+// with optional filtering and pagination args.
+//
+// This request structure enables efficient querying of execution history
+// with support for filtering by workflow name and status, plus pagination
+// for handling large execution datasets.
+type ListWorkflowExecutionsRequest struct {
+	// WorkflowName filters executions to only those from the specified workflow (optional)
+	WorkflowName string `json:"workflow_name,omitempty"`
+
+	// Status filters executions to only those with the specified status (optional)
+	Status WorkflowExecutionStatus `json:"status,omitempty"`
+
+	// Limit is the maximum number of executions to return (default: 50, max: 1000)
+	Limit int `json:"limit,omitempty"`
+
+	// Offset is the number of executions to skip for pagination (default: 0)
+	Offset int `json:"offset,omitempty"`
+}
+
+// ListWorkflowExecutionsResponse represents the response from listing workflow executions.
+// This provides paginated execution results with metadata for navigation.
+//
+// The response includes both the execution data and pagination metadata
+// to enable efficient client-side handling of large execution datasets.
+type ListWorkflowExecutionsResponse struct {
+	// Executions contains the list of execution records (summary information only)
+	Executions []WorkflowExecutionSummary `json:"executions"`
+
+	// Total is the total number of executions matching the filter criteria
+	Total int `json:"total"`
+
+	// Limit is the maximum number of executions returned in this response
+	Limit int `json:"limit"`
+
+	// Offset is the number of executions skipped in this response
+	Offset int `json:"offset"`
+
+	// HasMore indicates whether there are more executions available
+	HasMore bool `json:"has_more"`
+}
+
+// WorkflowExecutionSummary represents a summary of a workflow execution
+// for use in list responses. This contains essential information without
+// the detailed step execution data to optimize performance.
+//
+// Summary information is sufficient for most listing and overview use cases,
+// with detailed information available via GetWorkflowExecution.
+type WorkflowExecutionSummary struct {
+	// ExecutionID is the unique identifier for this execution
+	ExecutionID string `json:"execution_id"`
+
+	// WorkflowName is the name of the workflow that was executed
+	WorkflowName string `json:"workflow_name"`
+
+	// Status indicates the current state of the execution
+	Status WorkflowExecutionStatus `json:"status"`
+
+	// StartedAt is the timestamp when the execution began
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is the timestamp when the execution finished (nil if still running)
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// DurationMs is the total execution duration in milliseconds
+	DurationMs int64 `json:"duration_ms"`
+
+	// StepCount is the total number of steps in the workflow
+	StepCount int `json:"step_count"`
+
+	// Error contains error information if the execution failed (nil if successful)
+	Error *string `json:"error,omitempty"`
+}
+
+// GetWorkflowExecutionRequest represents a request to get detailed information
+// about a specific workflow execution.
+//
+// This request structure enables flexible querying of execution details
+// with options to include/exclude step information and retrieve specific step results.
+type GetWorkflowExecutionRequest struct {
+	// ExecutionID is the unique identifier of the execution to retrieve
+	ExecutionID string `json:"execution_id"`
+
+	// IncludeSteps controls whether detailed step information is included (default: true)
+	IncludeSteps bool `json:"include_steps,omitempty"`
+
+	// StepID specifies a specific step to retrieve (optional, returns only that step)
+	StepID string `json:"step_id,omitempty"`
 }

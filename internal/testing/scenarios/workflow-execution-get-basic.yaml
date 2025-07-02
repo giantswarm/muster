@@ -1,0 +1,87 @@
+name: "workflow-execution-get-basic"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "get", "basic"]
+timeout: "3m"
+
+steps:
+- id: "create-get-test-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "get-test-workflow"
+    args:
+        test_input:
+          type: "string"
+          default: "test-value"
+    steps:
+      - id: "get_step"
+        tool: "core_service_list"
+        store: "service_list_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "get-test-workflow" }
+
+- id: "execute-workflow-for-get-test"
+  tool: "workflow_get-test-workflow"
+  args:
+    test_input: "get-test-input"
+  expected:
+    success: true
+  store: "test_execution"
+
+- id: "get-execution-basic"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "get-test-workflow", "status", "started_at", "completed_at", "duration_ms", "input", "result"]
+
+- id: "verify-execution-metadata"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["get-test-input"]
+
+- id: "verify-execution-includes-steps-by-default"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["steps", "get_step", "service_list_result"]
+
+- id: "verify-execution-step-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["step_id", "tool", "core_service_list", "status", "started_at", "completed_at", "duration_ms", "stored_as"]
+
+- id: "verify-execution-input-output"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["input", "result"]
+
+- id: "verify-timing-data"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ test_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["started_at", "completed_at", "duration_ms"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "get-test-workflow" }
+  expected:
+    success: true 

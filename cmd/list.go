@@ -18,6 +18,7 @@ var listResourceTypes = []string{
 	"serviceclass",
 	"mcpserver",
 	"workflow",
+	"workflow-execution",
 	"capability",
 }
 
@@ -28,15 +29,17 @@ var listCmd = &cobra.Command{
 	Long: `List resources in the muster environment.
 
 Available resource types:
-  service      - List all services with their status
-  serviceclass - List all ServiceClass definitions  
-  mcpserver    - List all MCP server definitions
-  workflow     - List all workflow definitions
-  capability   - List all capability definitions
+  service             - List all services with their status
+  serviceclass        - List all ServiceClass definitions  
+  mcpserver           - List all MCP server definitions
+  workflow            - List all workflow definitions
+  workflow-execution  - List all workflow execution history
+  capability          - List all capability definitions
 
 Examples:
   muster list service
   muster list workflow
+  muster list workflow-execution
   muster list serviceclass --output json
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
@@ -49,11 +52,12 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 // Resource type mappings
 var listResourceMappings = map[string]string{
-	"service":      "core_service_list",
-	"serviceclass": "core_serviceclass_list",
-	"mcpserver":    "core_mcpserver_list",
-	"workflow":     "core_workflow_list",
-	"capability":   "core_capability_list",
+	"service":            "core_service_list",
+	"serviceclass":       "core_serviceclass_list",
+	"mcpserver":          "core_mcpserver_list",
+	"workflow":           "core_workflow_list",
+	"workflow-execution": "core_workflow_execution_list",
+	"capability":         "core_capability_list",
 }
 
 func init() {
@@ -70,7 +74,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := listResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, capability", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, capability", resourceType)
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

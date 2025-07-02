@@ -26,15 +26,15 @@ func NewToolHandler(config ToolConfig, templateEngine *template.Engine, debug bo
 }
 
 // HandleCall processes a tool call and returns the configured response
-func (h *ToolHandler) HandleCall(arguments map[string]interface{}) (interface{}, error) {
+func (h *ToolHandler) HandleCall(args map[string]interface{}) (interface{}, error) {
 	if h.debug {
-		fmt.Fprintf(os.Stderr, "🔧 Mock tool '%s' called with arguments: %v\n", h.config.Name, arguments)
+		fmt.Fprintf(os.Stderr, "🔧 Mock tool '%s' called with args: %v\n", h.config.Name, args)
 	}
 
-	// Merge arguments with default values from input schema
-	mergedArgs := h.mergeWithDefaults(arguments)
+	// Merge args with default values from input schema
+	mergedArgs := h.mergeWithDefaults(args)
 
-	if h.debug && len(mergedArgs) != len(arguments) {
+	if h.debug && len(mergedArgs) != len(args) {
 		fmt.Fprintf(os.Stderr, "🔧 Mock tool '%s' merged with defaults: %v\n", h.config.Name, mergedArgs)
 	}
 
@@ -85,7 +85,7 @@ func (h *ToolHandler) HandleCall(arguments map[string]interface{}) (interface{},
 		return nil, fmt.Errorf("%s", errorStr)
 	}
 
-	// Render the response using the template engine with merged arguments
+	// Render the response using the template engine with merged args
 	renderedResponse, err := h.templateEngine.Replace(selectedResponse.Response, mergedArgs)
 	if err != nil {
 		if h.debug {
@@ -101,8 +101,8 @@ func (h *ToolHandler) HandleCall(arguments map[string]interface{}) (interface{},
 	return renderedResponse, nil
 }
 
-// mergeWithDefaults merges provided arguments with default values from input schema
-func (h *ToolHandler) mergeWithDefaults(arguments map[string]interface{}) map[string]interface{} {
+// mergeWithDefaults merges provided args with default values from input schema
+func (h *ToolHandler) mergeWithDefaults(args map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
 
 	// First, add default values from input schema
@@ -118,23 +118,23 @@ func (h *ToolHandler) mergeWithDefaults(arguments map[string]interface{}) map[st
 		}
 	}
 
-	// Then, override with provided arguments
-	for key, value := range arguments {
+	// Then, override with provided args
+	for key, value := range args {
 		merged[key] = value
 	}
 
 	return merged
 }
 
-// matchesCondition checks if the given arguments match the response condition
-func (h *ToolHandler) matchesCondition(condition map[string]interface{}, arguments map[string]interface{}) bool {
+// matchesCondition checks if the given args match the response condition
+func (h *ToolHandler) matchesCondition(condition map[string]interface{}, args map[string]interface{}) bool {
 	if len(condition) == 0 {
 		return true // No condition means it matches everything
 	}
 
 	for key, expectedValue := range condition {
-		actualValue, exists := arguments[key]
-		if !exists || actualValue != expectedValue {
+		actualValue, exists := args[key]
+		if !exists || !h.valuesEqual(expectedValue, actualValue) {
 			return false
 		}
 	}

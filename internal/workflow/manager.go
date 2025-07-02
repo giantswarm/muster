@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -15,13 +16,14 @@ import (
 
 // WorkflowManager manages workflows and their execution
 type WorkflowManager struct {
-	storage     *config.Storage          // Use the new Storage
-	workflows   map[string]*api.Workflow // In-memory workflow storage
-	executor    *WorkflowExecutor
-	toolChecker config.ToolAvailabilityChecker
-	configPath  string // Optional custom config path
-	mu          sync.RWMutex
-	stopped     bool
+	storage          *config.Storage          // Use the new Storage
+	workflows        map[string]*api.Workflow // In-memory workflow storage
+	executor         *WorkflowExecutor
+	executionTracker *ExecutionTracker // NEW: Execution tracking
+	toolChecker      config.ToolAvailabilityChecker
+	configPath       string // Optional custom config path
+	mu               sync.RWMutex
+	stopped          bool
 }
 
 // NewWorkflowManager creates a new workflow manager
@@ -31,16 +33,21 @@ func NewWorkflowManager(storage *config.Storage, toolCaller ToolCaller, toolChec
 	// Extract config path from storage if it has one
 	var configPath string
 	if storage != nil {
-		// We can't directly access the configPath from storage, so we'll pass it via parameter later
+		// We can't directly access the configPath from storage, so we'll pass it via arg later
 		// For now, leave it empty
 	}
 
+	// Initialize execution storage and tracker
+	executionStorage := NewExecutionStorage(configPath)
+	executionTracker := NewExecutionTracker(executionStorage)
+
 	wm := &WorkflowManager{
-		storage:     storage,
-		workflows:   make(map[string]*api.Workflow),
-		executor:    executor,
-		toolChecker: toolChecker,
-		configPath:  configPath,
+		storage:          storage,
+		workflows:        make(map[string]*api.Workflow),
+		executor:         executor,
+		executionTracker: executionTracker,
+		toolChecker:      toolChecker,
+		configPath:       configPath,
 	}
 
 	// Subscribe to tool update events for logging (workflows use dynamic checking)
@@ -55,6 +62,11 @@ func (wm *WorkflowManager) SetConfigPath(configPath string) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	wm.configPath = configPath
+
+	// Reinitialize execution storage and tracker with new config path
+	executionStorage := NewExecutionStorage(configPath)
+	wm.executionTracker = NewExecutionTracker(executionStorage)
+	logging.Debug("WorkflowManager", "Updated execution tracker with config path: %s", configPath)
 }
 
 // SetToolCaller sets the ToolCaller for workflow execution
@@ -144,31 +156,21 @@ func (wm *WorkflowManager) validateWorkflowDefinition(def *api.Workflow) error {
 		}
 	}
 
-	// Validate input schema if present
-	if def.InputSchema.Type != "" {
-		validTypes := []string{"object", "array", "string", "number", "boolean"}
-		if err := config.ValidateOneOf("inputSchema.type", def.InputSchema.Type, validTypes); err != nil {
-			errors = append(errors, err.(config.ValidationError))
-		}
+	// Validate args if present
+	if def.Args != nil {
+		validTypes := []string{"string", "integer", "boolean", "number"}
 
-		// Validate required fields if specified
-		for i, required := range def.InputSchema.Required {
-			if required == "" {
-				errors.Add(fmt.Sprintf("inputSchema.required[%d]", i), "required field name cannot be empty")
-			}
-		}
-
-		// Validate properties if specified
-		for propName, prop := range def.InputSchema.Properties {
-			if propName == "" {
-				errors.Add("inputSchema.properties", "property name cannot be empty")
+		// Validate args if specified
+		for argName, arg := range def.Args {
+			if argName == "" {
+				errors.Add("args", "argument name cannot be empty")
 				continue
 			}
 
-			if prop.Type == "" {
-				errors.Add(fmt.Sprintf("inputSchema.properties.%s.type", propName), "property type is required")
+			if arg.Type == "" {
+				errors.Add(fmt.Sprintf("args.%s.type", argName), "argument type is required")
 			} else {
-				if err := config.ValidateOneOf(fmt.Sprintf("inputSchema.properties.%s.type", propName), prop.Type, validTypes); err != nil {
+				if err := config.ValidateOneOf(fmt.Sprintf("args.%s.type", argName), arg.Type, validTypes); err != nil {
 					errors = append(errors, err.(config.ValidationError))
 				}
 			}
@@ -288,7 +290,7 @@ func (wm *WorkflowManager) GetWorkflows() []mcp.Tool {
 	return tools
 }
 
-// ExecuteWorkflow executes a workflow by name
+// ExecuteWorkflow executes a workflow by name with automatic execution tracking
 func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
@@ -303,7 +305,97 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, name string, arg
 		return nil, fmt.Errorf("workflow %s is not available (missing required tools)", name)
 	}
 
-	return wm.executor.ExecuteWorkflow(ctx, workflow, args)
+	// Execute workflow with automatic tracking
+	result, execution, err := wm.executionTracker.TrackExecution(ctx, name, args, func() (*mcp.CallToolResult, error) {
+		return wm.executor.ExecuteWorkflow(ctx, workflow, args)
+	})
+
+	// Include execution_id in the response for test scenarios and API consumers
+	// This should happen even for failed workflows since they still have execution tracking
+	if execution != nil {
+		if result != nil {
+			result = wm.enhanceResultWithExecutionID(result, execution.ExecutionID)
+		} else if err != nil {
+			// For failed workflows with no result, create a minimal result with execution_id
+			result = &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s", "error": "%s"}`, execution.ExecutionID, err.Error()))},
+				IsError: true,
+			}
+		}
+	}
+
+	return result, err
+}
+
+// enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
+// This allows test scenarios and API consumers to access the execution_id for further operations
+func (wm *WorkflowManager) enhanceResultWithExecutionID(result *mcp.CallToolResult, executionID string) *mcp.CallToolResult {
+	if result == nil || len(result.Content) == 0 {
+		// Create a basic result with execution_id if no content exists
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID))},
+			IsError: result.IsError,
+		}
+	}
+
+	// Try to enhance the first content item with execution_id
+	firstContent := result.Content[0]
+	if textContent, ok := firstContent.(mcp.TextContent); ok {
+		// Try to parse the existing content as JSON
+		var contentData map[string]interface{}
+		if err := json.Unmarshal([]byte(textContent.Text), &contentData); err == nil {
+			// Successfully parsed as JSON - add execution_id
+			contentData["execution_id"] = executionID
+
+			// Re-marshal to JSON
+			enhancedJSON, marshalErr := json.Marshal(contentData)
+			if marshalErr == nil {
+				// Create new result with enhanced content
+				enhancedResult := &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.NewTextContent(string(enhancedJSON))},
+					IsError: result.IsError,
+				}
+
+				// Add any additional content items
+				if len(result.Content) > 1 {
+					enhancedResult.Content = append(enhancedResult.Content, result.Content[1:]...)
+				}
+
+				return enhancedResult
+			}
+		}
+
+		// If JSON parsing fails, try to create a wrapper object
+		// This handles cases where the content is not JSON
+		wrapperData := map[string]interface{}{
+			"execution_id": executionID,
+			"result":       textContent.Text,
+		}
+
+		wrapperJSON, marshalErr := json.Marshal(wrapperData)
+		if marshalErr == nil {
+			enhancedResult := &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.NewTextContent(string(wrapperJSON))},
+				IsError: result.IsError,
+			}
+
+			// Add any additional content items
+			if len(result.Content) > 1 {
+				enhancedResult.Content = append(enhancedResult.Content, result.Content[1:]...)
+			}
+
+			return enhancedResult
+		}
+	}
+
+	// Final fallback: prepend execution_id as new content item if we can't enhance existing content
+	executionContent := mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID))
+	enhancedResult := &mcp.CallToolResult{
+		Content: append([]mcp.Content{executionContent}, result.Content...),
+		IsError: result.IsError,
+	}
+
+	return enhancedResult
 }
 
 // Stop gracefully stops the workflow manager
@@ -315,23 +407,28 @@ func (wm *WorkflowManager) Stop() {
 
 // workflowToTool converts a workflow definition to an MCP tool
 func (wm *WorkflowManager) workflowToTool(workflow api.Workflow) mcp.Tool {
-	// Convert workflow input schema to MCP tool input schema
+	// Convert workflow args to MCP tool input schema
 	properties := make(map[string]interface{})
-	required := workflow.InputSchema.Required
+	var required []string
 
-	for name, prop := range workflow.InputSchema.Properties {
+	for name, arg := range workflow.Args {
 		propSchema := map[string]interface{}{
-			"type":        prop.Type,
-			"description": prop.Description,
+			"type":        arg.Type,
+			"description": arg.Description,
 		}
-		if prop.Default != nil {
-			propSchema["default"] = prop.Default
+		if arg.Default != nil {
+			propSchema["default"] = arg.Default
 		}
 		properties[name] = propSchema
+
+		// Add to required list if the argument is required
+		if arg.Required {
+			required = append(required, name)
+		}
 	}
 
 	inputSchema := mcp.ToolInputSchema{
-		Type:       workflow.InputSchema.Type,
+		Type:       "object",
 		Properties: properties,
 		Required:   required,
 	}

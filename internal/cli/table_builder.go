@@ -34,7 +34,7 @@ func NewTableBuilder() *TableBuilder {
 //   - Arrays and objects get compact representation
 //   - Long text gets truncated with ellipsis
 //
-// Parameters:
+// Args:
 //   - column: The column name/type to determine formatting rules
 //   - value: The raw value to format
 //
@@ -50,15 +50,22 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 
 	// Handle different column types with enhanced formatting
 	switch colLower {
-	case "name", "label", "id", "workflow", "capability":
+	case "name", "label", "id", "workflow", "capability", "execution_id":
 		// Primary identifiers - make them prominent
 		return text.FgHiCyan.Sprint(strValue)
+	case "workflow_name":
+		// Workflow name in executions - make it distinct
+		return text.FgHiWhite.Sprint(strValue)
 	case "health", "status":
 		return b.formatHealthStatus(strValue)
 	case "available":
 		return b.formatAvailableStatus(value)
 	case "state":
 		return b.formatState(strValue)
+	case "started_at", "completed_at":
+		return b.formatTimestamp(strValue)
+	case "duration_ms":
+		return b.formatDuration(value)
 	case "metadata":
 		return b.formatMetadata(value)
 	case "requiredtools", "tools":
@@ -89,7 +96,7 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 // This provides immediate visual feedback about the health state of services
 // and components.
 //
-// Parameters:
+// Args:
 //   - status: The health status string to format
 //
 // Returns:
@@ -116,7 +123,7 @@ func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 // formatAvailableStatus formats boolean availability with clear visual indicators.
 // This is commonly used for capabilities and services to show their availability status.
 //
-// Parameters:
+// Args:
 //   - value: The availability value (boolean or string)
 //
 // Returns:
@@ -141,7 +148,7 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 // formatState formats service state with descriptive icons.
 // This provides clear visual indication of service lifecycle states.
 //
-// Parameters:
+// Args:
 //   - state: The service state string to format
 //
 // Returns:
@@ -165,7 +172,7 @@ func (b *TableBuilder) formatState(state string) interface{} {
 // Metadata objects often contain nested information that needs to be summarized
 // for table display. This function extracts the most relevant fields.
 //
-// Parameters:
+// Args:
 //   - value: The metadata object to format
 //
 // Returns:
@@ -212,7 +219,7 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 // Instead of showing "[N items]", this shows actual tool names up to a limit,
 // then indicates how many more tools are available.
 //
-// Parameters:
+// Args:
 //   - value: The tools array to format
 //
 // Returns:
@@ -252,7 +259,7 @@ func (b *TableBuilder) formatToolsList(value interface{}) interface{} {
 // Many muster tools have predictable prefixes that add noise to table display.
 // This function strips common prefixes to improve readability.
 //
-// Parameters:
+// Args:
 //   - toolName: The full tool name to simplify
 //
 // Returns:
@@ -272,7 +279,7 @@ func (b *TableBuilder) SimplifyToolName(toolName string) string {
 // Descriptions can be very long and need to be truncated to fit in table columns
 // while still providing useful information.
 //
-// Parameters:
+// Args:
 //   - desc: The description string to format
 //
 // Returns:
@@ -287,7 +294,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 // formatType adds subtle styling to type information.
 // Type fields are important for identifying resource types and get consistent styling.
 //
-// Parameters:
+// Args:
 //   - typ: The type string to format
 //
 // Returns:
@@ -300,7 +307,7 @@ func (b *TableBuilder) formatType(typ string) interface{} {
 // Workflow steps are typically arrays that are better represented as counts
 // rather than the full step details in table format.
 //
-// Parameters:
+// Args:
 //   - value: The steps array to format
 //
 // Returns:
@@ -325,7 +332,7 @@ func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 // This handles arrays that don't fit into specific categories,
 // providing a balance between information and readability.
 //
-// Parameters:
+// Args:
 //   - arr: The array to format
 //
 // Returns:
@@ -352,7 +359,7 @@ func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 // This handles nested objects by looking for common display fields
 // or showing a summary of the object's structure.
 //
-// Parameters:
+// Args:
 //   - obj: The object map to format
 //
 // Returns:
@@ -378,7 +385,7 @@ func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 // This provides consistent ordering in tables, making it easier for users
 // to find specific resources.
 //
-// Parameters:
+// Args:
 //   - data: Array of data objects to sort
 //   - columns: Column names, with the first used for sorting
 //
@@ -405,7 +412,7 @@ func (b *TableBuilder) SortDataByName(data []interface{}, columns []string) []in
 // Different muster resource types get different colored icons for easy
 // visual identification in tables and summaries.
 //
-// Parameters:
+// Args:
 //   - resourceType: The type of resource (services, workflows, etc.)
 //
 // Returns:
@@ -420,6 +427,8 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 		return text.FgRed.Sprint("🔴")
 	case "workflows":
 		return text.FgBlue.Sprint("🔵")
+	case "executions":
+		return text.FgCyan.Sprint("🔄")
 	case "capabilities":
 		return text.FgMagenta.Sprint("🟣")
 	default:
@@ -431,7 +440,7 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 // This is used for generating consistent plural forms in table summaries
 // and resource counting.
 //
-// Parameters:
+// Args:
 //   - word: The word to potentially pluralize
 //
 // Returns:
@@ -441,4 +450,82 @@ func (b *TableBuilder) Pluralize(word string) string {
 		return word
 	}
 	return word + "s"
+}
+
+// formatTimestamp formats timestamp strings for better readability.
+// It simplifies ISO 8601 timestamps by removing microseconds and timezone
+// information for cleaner table display.
+//
+// Args:
+//   - timestamp: The timestamp string to format
+//
+// Returns:
+//   - interface{}: Formatted timestamp string
+func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
+	if timestamp == "" || timestamp == "-" {
+		return text.FgHiBlack.Sprint("-")
+	}
+
+	// Remove microseconds and timezone for cleaner display
+	// Convert "2024-01-01T12:34:56.789Z" to "2024-01-01 12:34:56"
+	if strings.Contains(timestamp, "T") {
+		parts := strings.Split(timestamp, "T")
+		if len(parts) == 2 {
+			timePart := parts[1]
+			// Remove microseconds and timezone
+			if dotIndex := strings.Index(timePart, "."); dotIndex != -1 {
+				timePart = timePart[:dotIndex]
+			}
+			if strings.HasSuffix(timePart, "Z") {
+				timePart = strings.TrimSuffix(timePart, "Z")
+			}
+			return text.FgHiBlack.Sprint(parts[0] + " " + timePart)
+		}
+	}
+
+	return text.FgHiBlack.Sprint(timestamp)
+}
+
+// formatDuration formats duration in milliseconds to a human-readable format.
+// It converts milliseconds to appropriate units (ms, s, m, h) for better
+// understanding of execution times.
+//
+// Args:
+//   - value: The duration value (typically in milliseconds)
+//
+// Returns:
+//   - interface{}: Formatted duration string with appropriate units
+func (b *TableBuilder) formatDuration(value interface{}) interface{} {
+	if value == nil {
+		return text.FgHiBlack.Sprint("-")
+	}
+
+	// Convert to float64 for calculation
+	var durationMs float64
+	switch v := value.(type) {
+	case int:
+		durationMs = float64(v)
+	case int64:
+		durationMs = float64(v)
+	case float64:
+		durationMs = v
+	case string:
+		// Try to parse string as number
+		if parsed, err := fmt.Sscanf(v, "%f", &durationMs); parsed != 1 || err != nil {
+			return v // Return as-is if can't parse
+		}
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+
+	// Format based on duration
+	if durationMs < 1000 {
+		return text.FgGreen.Sprintf("%.0fms", durationMs)
+	} else if durationMs < 60000 {
+		return text.FgYellow.Sprintf("%.1fs", durationMs/1000)
+	} else if durationMs < 3600000 {
+		return text.FgCyan.Sprintf("%.1fm", durationMs/60000)
+	} else {
+		return text.FgRed.Sprintf("%.1fh", durationMs/3600000)
+	}
 }

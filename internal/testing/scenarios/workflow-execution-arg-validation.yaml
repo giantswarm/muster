@@ -1,0 +1,93 @@
+name: "workflow-execution-parameter-validation"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "tracking", "args", "validation"]
+timeout: "3m"
+
+steps:
+- id: "create-parameter-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "parameter-tracking-workflow"
+    args:
+      required_param:
+        type: "string"
+        description: "Required parameter"
+        required: true
+      optional_param:
+        type: "string"
+        description: "Optional parameter"
+        default: "default-value"
+        required: false
+      numeric_param:
+        type: "number"
+        description: "Numeric parameter"
+        default: 42
+        required: false
+    steps:
+      - id: "validate_params"
+        tool: "core_service_list"
+        store: "validation_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parameter-tracking-workflow" }
+
+- id: "execute-with-all-params"
+  tool: "workflow_parameter-tracking-workflow"
+  args:
+    required_param: "test-value"
+    optional_param: "custom-value"
+    numeric_param: 100
+  expected:
+    success: true
+  store: "full_params_execution"
+
+- id: "execute-with-minimal-params"
+  tool: "workflow_parameter-tracking-workflow"
+  args:
+    required_param: "minimal-test"
+  expected:
+    success: true
+  store: "minimal_params_execution"
+
+- id: "verify-full-params-tracked"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ full_params_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["test-value", "custom-value", "100", "input"]
+
+- id: "verify-default-params-tracked"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ minimal_params_execution.execution_id }}"
+  expected:
+    success: true
+    contains: ["minimal-test", "default-value", "42", "input"]
+
+- id: "list-executions-with-different-params"
+  tool: "core_workflow_execution_list"
+  args:
+    workflow_name: "parameter-tracking-workflow"
+    limit: 10
+  expected:
+    success: true
+    contains: ["parameter-tracking-workflow"]
+
+- id: "attempt-execution-missing-required-param"
+  tool: "workflow_parameter-tracking-workflow"
+  args:
+    optional_param: "will-fail"
+  expected:
+    success: false
+    error_contains: ["required", "required_param"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "parameter-tracking-workflow" }
+  expected:
+    success: true 

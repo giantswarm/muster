@@ -9,10 +9,7 @@ pre_configuration:
   - name: "get-test-workflow"
     config:
       name: "get-test-workflow"
-      inputSchema:
-        type: "object"
-        properties: {}
-        required: []
+      args: {}
       steps: [{id: "s1", tool: "core_service_list"}]
 steps:
 - id: "get-specific-workflow"

@@ -327,7 +327,7 @@ Test categories organize tests by **testing approach**:
 Test concepts organize tests by **what functionality** is being tested:
 
 - **`serviceclass`** - Tests ServiceClass creation, validation, and Service instantiation
-- **`workflow`** - Tests Workflow execution, parameter templating, and step dependencies  
+- **`workflow`** - Tests Workflow execution, arg templating, and step dependencies  
 - **`mcpserver`** - Tests MCP server registration, tool aggregation, and connection management
 - **`capability`** - Tests Capability definitions, operation mapping, and API abstractions
 - **`service`** - Tests Service lifecycle, dependency management, and state transitions
@@ -407,12 +407,12 @@ go build -o muster .
 
 ```bash
 # Run just the problematic step manually by examining the scenario YAML
-# Look at the test scenario to see what MCP tool and parameters are being used
+# Look at the test scenario to see what MCP tool and args are being used
 
 # Example: If "core_serviceclass_create" is failing, check:
 # - Is the YAML in the scenario valid?
 # - Are there any resource conflicts (names already exist)?
-# - Are all required parameters provided?
+# - Are all required args provided?
 ```
 
 ### Step 5: Common Issues and Solutions
@@ -482,7 +482,7 @@ You can examine what each test step is doing by looking at the scenario YAML fil
 # Example failing step
 - name: "create-test-serviceclass"
   tool: "core_serviceclass_create"     # This is the MCP tool being called
-  parameters:                          # These are the parameters sent
+  args:                          # These are the args sent
     yaml: |
       name: test-serviceclass
       # ... rest of YAML
@@ -493,7 +493,7 @@ You can examine what each test step is doing by looking at the scenario YAML fil
 
 To debug this step:
 1. Check if `core_serviceclass_create` tool should be available
-2. Verify the YAML parameters are valid
+2. Verify the YAML args are valid
 3. Look at the instance logs for detailed error messages
 4. Check if the response format has changed
 
@@ -699,7 +699,7 @@ Enable comprehensive debugging:
 Debug mode provides:
 - Detailed MCP protocol traces
 - Step-by-step execution logs
-- Parameter and response dumps
+- Arg and response dumps
 - Timing information for each operation
 - Resource usage statistics
 
@@ -716,7 +716,7 @@ Example log entry:
 ```
 2024-01-15T10:30:45Z INFO  [serviceclass-basic] Step 'create-test-serviceclass' started
 2024-01-15T10:30:45Z DEBUG [serviceclass-basic] Calling tool: core_serviceclass_create
-2024-01-15T10:30:45Z DEBUG [serviceclass-basic] Parameters: {"yaml": "name: test-serviceclass..."}
+2024-01-15T10:30:45Z DEBUG [serviceclass-basic] Args: {"yaml": "name: test-serviceclass..."}
 2024-01-15T10:30:47Z DEBUG [serviceclass-basic] Response: {"success": true, "message": "created successfully"}
 2024-01-15T10:30:47Z INFO  [serviceclass-basic] Step 'create-test-serviceclass' passed (2.1s)
 ```
@@ -862,7 +862,7 @@ export MUSTER_TEST_FAIL_FAST=true
 ./muster test
 ```
 
-## Configuration Parameters
+## Configuration Args
 
 ### Base Port Configuration
 
@@ -947,7 +947,7 @@ steps:
   - name: "descriptive-step-name"
     description: "What this step accomplishes"
     tool: "core_serviceclass_create"     # MCP tool to call
-    parameters:                          # Parameters for the tool
+    args:                          #  Args or the tool
       yaml: |
         name: test-resource
         # ... configuration
@@ -981,7 +981,7 @@ cleanup:
   - name: "cleanup-test-resource"
     description: "Remove test resource"
     tool: "core_serviceclass_delete"
-    parameters:
+    args:
       name: "test-resource"
     expected:
       success: true
@@ -990,7 +990,7 @@ cleanup:
   - name: "verify-cleanup"
     description: "Verify resource was removed"
     tool: "core_serviceclass_get"
-    parameters:
+    args:
       name: "test-resource"
     expected:
       success: false                   # Should fail because resource is gone
@@ -1016,22 +1016,22 @@ Before committing, validate your scenario works:
 ### Example: Complete ServiceClass Test Scenario
 
 ```yaml
-name: "serviceclass-parameter-validation"
+name: "serviceclass-arg-validation"
 category: "behavioral"
 concept: "serviceclass"
-description: "Verify ServiceClass parameter validation works correctly"
-tags: ["serviceclass", "validation", "parameters"]
+description: "Verify ServiceClass arg validation works correctly"
+tags: ["serviceclass", "validation", "args"]
 timeout: "5m"
 
 steps:
-  - name: "create-serviceclass-with-valid-parameters"
-    description: "Create ServiceClass with all valid parameters"
+  - name: "create-serviceclass-with-valid-args"
+    description: "Create ServiceClass with all valid args"
     tool: "core_serviceclass_create"
-    parameters:
+    args:
       yaml: |
         name: test-validation-serviceclass
-        description: "Test ServiceClass for parameter validation"
-        parameters:
+        description: "Test ServiceClass for arg validation"
+        args:
           app_name:
             type: string
             required: true
@@ -1051,7 +1051,7 @@ steps:
   - name: "verify-serviceclass-available"
     description: "Verify ServiceClass is available for use"
     tool: "core_serviceclass_available"
-    parameters:
+    args:
       name: "test-validation-serviceclass"
     expected:
       success: true
@@ -1060,12 +1060,12 @@ steps:
         name: "test-validation-serviceclass"
 
   - name: "test-valid-service-creation"
-    description: "Create service with valid parameters"
+    description: "Create service with valid args"
     tool: "core_service_create"
-    parameters:
+    args:
       serviceClassName: "test-validation-serviceclass"
       label: "test-valid-service"
-      parameters:
+      args:
         app_name: "my-app"
         replicas: 3
     expected:
@@ -1075,34 +1075,34 @@ steps:
   - name: "test-invalid-app-name"
     description: "Verify invalid app_name is rejected"
     tool: "core_service_create"
-    parameters:
+    args:
       serviceClassName: "test-validation-serviceclass"
       label: "test-invalid-name"
-      parameters:
+      args:
         app_name: "My-App"  # Invalid: contains uppercase
         replicas: 2
     expected:
       success: false
-      error_contains: ["invalid parameter", "app_name", "pattern"]
+      error_contains: ["invalid arg", "app_name", "pattern"]
 
   - name: "test-invalid-replicas"
     description: "Verify replicas outside valid range are rejected"
     tool: "core_service_create"
-    parameters:
+    args:
       serviceClassName: "test-validation-serviceclass"
       label: "test-invalid-replicas"
-      parameters:
+      args:
         app_name: "test-app"
         replicas: 15  # Invalid: exceeds maximum of 10
     expected:
       success: false
-      error_contains: ["invalid parameter", "replicas", "maximum"]
+      error_contains: ["invalid arg", "replicas", "maximum"]
 
 cleanup:
   - name: "delete-test-service"
     description: "Clean up valid test service"
     tool: "core_service_delete"
-    parameters:
+    args:
       label: "test-valid-service"
     expected:
       success: true
@@ -1111,7 +1111,7 @@ cleanup:
   - name: "delete-test-serviceclass"
     description: "Clean up test ServiceClass"
     tool: "core_serviceclass_delete"
-    parameters:
+    args:
       name: "test-validation-serviceclass"
     expected:
       success: true
@@ -1120,7 +1120,7 @@ cleanup:
   - name: "verify-serviceclass-deleted"
     description: "Verify ServiceClass was completely removed"
     tool: "core_serviceclass_get"
-    parameters:
+    args:
       name: "test-validation-serviceclass"
     expected:
       success: false
@@ -1133,7 +1133,7 @@ cleanup:
 #### Use Descriptive Names
 ```yaml
 # ✅ Good - describes what the test does
-name: "serviceclass-parameter-validation-with-constraints"
+name: "serviceclass-arg-validation-with-constraints"
 
 # ❌ Bad - generic and unclear  
 name: "test-serviceclass-1"
@@ -1153,12 +1153,12 @@ name: "test-serviceclass-1"
 #### Use Unique Resource Names
 ```yaml
 # ✅ Good - unique names prevent conflicts
-parameters:
+args:
   yaml: |
     name: "test-scenario-unique-serviceclass"
 
 # ❌ Bad - generic names cause conflicts
-parameters:
+args:
   yaml: |
     name: "test-serviceclass"
 ```
@@ -1190,11 +1190,11 @@ internal/testing/scenarios/
 ├── behavioral/
 │   ├── serviceclass/
 │   │   ├── basic-crud.yaml
-│   │   ├── parameter-validation.yaml          # ← Your new test here
+│   │   ├── arg-validation.yaml          # ← Your new test here
 │   │   └── tool-integration.yaml
 │   ├── workflow/
 │   │   ├── execution-flow.yaml
-│   │   └── parameter-templating.yaml
+│   │   └── arg-templating.yaml
 │   └── ...
 └── integration/
     ├── end-to-end/
@@ -1205,7 +1205,7 @@ internal/testing/scenarios/
 
 ```bash
 # Run your specific test
-./muster test --scenario=serviceclass-parameter-validation
+./muster test --scenario=serviceclass-arg-validation
 
 # Run all tests in your concept area
 ./muster test --concept=serviceclass

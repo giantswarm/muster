@@ -28,7 +28,7 @@ type Capability struct {
 	Description string `yaml:"description" json:"description"`
 
 	// Operations defines the available operations within this capability.
-	// Each operation specifies its parameters, requirements, and associated workflow.
+	// Each operation specifies its args, requirements, and associated workflow.
 	Operations map[string]OperationDefinition `yaml:"operations" json:"operations"`
 
 	// Runtime state fields (for API responses) - Dynamic runtime information
@@ -73,7 +73,7 @@ type CapabilityRequest struct {
 	// Features lists the specific features required from the capability
 	Features []string `json:"features"`
 
-	// Config provides configuration parameters for the capability request
+	// Config provides configuration args for the capability request
 	Config map[string]interface{} `json:"config"`
 
 	// Timeout specifies the maximum time to wait for capability fulfillment
@@ -134,7 +134,7 @@ type CapabilityRegistration struct {
 	// Features lists the specific features provided by this capability
 	Features []string `json:"features"`
 
-	// Config contains the configuration parameters for this capability
+	// Config contains the configuration args for this capability
 	Config map[string]interface{} `json:"config"`
 }
 
@@ -176,7 +176,7 @@ const (
 // This function allows flexible capability type definitions, enabling users
 // to define custom capability types like "database", "monitoring", "auth", etc.
 //
-// Parameters:
+// Args:
 //   - capType: The capability type string to validate
 //
 // Returns:
@@ -196,14 +196,14 @@ func IsValidCapabilityType(capType string) bool {
 type CapabilityHandler interface {
 	// Capability execution
 
-	// ExecuteCapability executes a specific capability operation with the provided parameters.
+	// ExecuteCapability executes a specific capability operation with the provided args.
 	// This is the primary method for invoking capability functionality.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//   - capabilityType: The type/category of capability to execute (e.g., "auth", "database")
 	//   - operation: The specific operation within the capability (e.g., "login", "backup")
-	//   - params: Parameters for the capability operation, validated against operation definition
+	//   - params: Args for the capability operation, validated against operation definition
 	//
 	// Returns:
 	//   - *CallToolResult: The result of the capability execution
@@ -229,7 +229,7 @@ type CapabilityHandler interface {
 	// GetCapability retrieves detailed information about a specific capability.
 	// This provides more comprehensive information than what's available in ListCapabilities.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the capability to retrieve
 	//
 	// Returns:
@@ -240,7 +240,7 @@ type CapabilityHandler interface {
 	// IsCapabilityAvailable checks if a specific capability operation is available for execution.
 	// This is useful for conditional logic that depends on capability availability.
 	//
-	// Parameters:
+	// Args:
 	//   - capabilityType: The type of capability to check (e.g., "auth", "database")
 	//   - operation: The specific operation within the capability (e.g., "login", "backup")
 	//

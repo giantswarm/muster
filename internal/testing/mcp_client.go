@@ -122,22 +122,22 @@ func (c *mcpTestClient) Connect(ctx context.Context, endpoint string) error {
 	return nil
 }
 
-// CallTool invokes an MCP tool with the given parameters
-func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, parameters map[string]interface{}) (interface{}, error) {
+// CallTool invokes an MCP tool with the given args
+func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("MCP client not connected")
 	}
 
-	// Convert parameters to the format expected by the MCP client
-	var args interface{}
-	if parameters != nil {
-		args = parameters
+	// Convert args to the format expected by the MCP client
+	var toolArgs interface{}
+	if args != nil {
+		toolArgs = args
 	}
 
 	if c.debug {
-		argsJSON, _ := json.MarshalIndent(parameters, "", "  ")
+		argsJSON, _ := json.MarshalIndent(toolArgs, "", "  ")
 		c.logger.Debug("🔧 Calling tool: %s\n", toolName)
-		c.logger.Debug("📋 Parameters: %s\n", string(argsJSON))
+		c.logger.Debug("📋 Args: %s\n", string(argsJSON))
 	}
 
 	// Create timeout context for the tool call
@@ -152,7 +152,7 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, parameter
 			Meta      *mcp.Meta `json:"_meta,omitempty"`
 		}{
 			Name:      toolName,
-			Arguments: args,
+			Arguments: toolArgs,
 		},
 	}
 

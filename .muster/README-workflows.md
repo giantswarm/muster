@@ -34,21 +34,16 @@ Workflow files define sequences of MCP tool calls that can be executed together:
 ```yaml
 name: my-workflow
 description: "Custom workflow description"
-icon: "⚡"
-agentModifiable: true
-createdBy: "user"
 version: 1
-inputSchema:
-  type: object
-  properties:
-    param1:
-      type: string
-      description: "First parameter"
-    param2:
-      type: string
-      description: "Second parameter"
-      default: "default-value"
-  required: ["param1"]
+args:
+  param1:
+    type: string
+    required: true
+    description: "First arg"
+  param2:
+    type: string
+    description: "Second arg"
+    default: "default-value"
 steps:
   - id: step1
     tool: api_some_tool
@@ -66,11 +61,8 @@ steps:
 
 - **name**: Unique identifier for the workflow
 - **description**: Human-readable description
-- **icon**: Optional emoji icon for UI display
-- **agentModifiable**: Whether AI agents can modify this workflow
-- **createdBy**: Creator identifier (user/agent)
 - **version**: Version number for tracking changes
-- **inputSchema**: JSON Schema defining input parameters
+- **args**: Argument definitions for workflow inputs
 - **steps**: Array of workflow steps to execute
 
 ### Step Schema
@@ -90,14 +82,14 @@ muster agent --mcp-server
 # then use: core_workflow_list
 
 # Execute a workflow
-# Use: core_workflow_execute with workflow name and parameters
+# Use: core_workflow_execute with workflow name and arguments
 ```
 
 ## Template Variables
 
 Workflows support Go template syntax for dynamic values:
 
-- `{{ .paramName }}` - Access input parameters
+- `{{ .argName }}` - Access input arguments
 - `{{ .stepId.field }}` - Access results from previous steps
 - `{{ .stepId.output }}` - Access the main output from a step
 

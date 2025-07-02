@@ -61,34 +61,34 @@ pre_configuration:
         version: "1.2.0"
         serviceConfig:
           serviceType: "dev-environment"
-          defaultLabel: "workspace-{{ .parameters.developer }}-{{ .parameters.project }}"
-          createParameters:
+          defaultLabel: "workspace-{{ .args.developer }}-{{ .args.project }}"
+          createArgs:
             developer:
-              toolParameter: "dev_name"
+              toolArg: "dev_name"
               required: true
             project:
-              toolParameter: "project_name"
+              toolArg: "project_name"
               required: true
             repository_url:
-              toolParameter: "repo_url"
+              toolArg: "repo_url"
               required: true
             database_needed:
-              toolParameter: "needs_db"
+              toolArg: "needs_db"
               required: false
               default: true
           lifecycleTools:
             start:
               tool: "x_git-provider_clone_repository"
-              arguments:
-                repo_url: "{{ .parameters.repository_url }}"
+              args:
+                repo_url: "{{ .args.repository_url }}"
                 branch: "main"
               responseMapping:
                 serviceId: "repo_path"
             stop:
               tool: "x_database-provider_delete_postgres_instance"
-              arguments:
+              args:
                 database_id: "{{ .service.metadata.database_id }}"
-              condition: "{{ .parameters.database_needed }}"
+              condition: "{{ .args.database_needed }}"
 
     - name: "postgres-database"
       config:
@@ -97,31 +97,31 @@ pre_configuration:
         version: "1.0.0"
         serviceConfig:
           serviceType: "database"
-          defaultLabel: "db-{{ .parameters.project }}-{{ .parameters.environment }}"
-          createParameters:
+          defaultLabel: "db-{{ .args.project }}-{{ .args.environment }}"
+          createArgs:
             project:
-              toolParameter: "project_name"
+              toolArg: "project_name"
               required: true
             developer:
-              toolParameter: "username"
+              toolArg: "username"
               required: true
             environment:
-              toolParameter: "env"
+              toolArg: "env"
               required: false
               default: "development"
           lifecycleTools:
             start:
               tool: "x_database-provider_create_postgres_instance"
-              arguments:
-                db_name: "{{ .parameters.project }}"
-                username: "{{ .parameters.developer }}"
-                environment: "{{ .parameters.environment }}"
+              args:
+                db_name: "{{ .args.project }}"
+                username: "{{ .args.developer }}"
+                environment: "{{ .args.environment }}"
               responseMapping:
                 serviceId: "database_id"
                 connectionString: "connection_string"
             stop:
               tool: "x_database-provider_delete_postgres_instance"
-              arguments:
+              args:
                 database_id: "{{ .service.id }}"
 
 steps:
@@ -160,7 +160,7 @@ steps:
     args:
       serviceClassName: "development-workspace"
       name: "my-ecommerce-workspace"
-      parameters:
+      args:
         developer: "alice"
         project: "ecommerce-api"
         repository_url: "https://github.com/company/ecommerce-api.git"
@@ -174,7 +174,7 @@ steps:
     args:
       serviceClassName: "postgres-database"
       name: "ecommerce-api-db"
-      parameters:
+      args:
         project: "ecommerce-api"
         developer: "alice"
         environment: "development"

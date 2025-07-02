@@ -137,7 +137,7 @@ func TestStateChangeCallback(t *testing.T) {
 
 	callback(testName, testOldState, testNewState, testHealth, nil)
 
-	// Verify the callback was called with correct parameters
+	// Verify the callback was called with correct args
 	if !called {
 		t.Error("Expected callback to be called")
 	}

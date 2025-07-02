@@ -227,10 +227,7 @@ func TestWorkflowManager_Storage_Integration(t *testing.T) {
 	testWorkflow := api.Workflow{
 		Name:        "dynamic-test-workflow",
 		Description: "Test workflow for storage",
-		InputSchema: api.WorkflowInputSchema{
-			Type:       "object",
-			Properties: map[string]api.SchemaProperty{},
-		},
+		Args:        map[string]api.ArgDefinition{},
 		Steps: []api.WorkflowStep{
 			{ID: "step1", Tool: "test-tool", Args: map[string]interface{}{"param": "value"}},
 		},

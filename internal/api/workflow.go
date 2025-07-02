@@ -10,7 +10,7 @@ import (
 // to provide a unified view of workflow information across configuration and runtime contexts.
 //
 // Workflows define multi-step processes that can be executed by the system,
-// orchestrating tool calls, parameter templating, and conditional logic.
+// orchestrating tool calls, arg templating, and conditional logic.
 // They provide a way to compose complex operations from simpler tool calls.
 type Workflow struct {
 	// Configuration fields (from YAML) - Static workflow definition
@@ -21,36 +21,21 @@ type Workflow struct {
 	// Description provides human-readable documentation for the workflow's purpose
 	Description string `yaml:"description" json:"description"`
 
-	// Version indicates the workflow definition version for compatibility tracking
-	Version int `yaml:"version" json:"version"`
-
-	// InputSchema defines the expected input parameters for workflow execution.
-	// This is used for parameter validation and documentation generation.
-	InputSchema WorkflowInputSchema `yaml:"inputSchema" json:"inputSchema"`
+	// Args defines the validation rules and metadata for workflow execution arguments.
+	// These definitions are used to validate arguments when executing workflows
+	// and to provide documentation for the workflow execution API.
+	Args map[string]ArgDefinition `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to be performed during workflow execution.
 	// Each step represents a tool call with its arguments and processing logic.
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`
-
-	// OutputSchema defines the expected output structure from workflow execution.
-	// This is used for result validation and documentation.
-	OutputSchema map[string]interface{} `yaml:"outputSchema,omitempty" json:"outputSchema,omitempty"`
 
 	// Runtime state fields (for API responses only) - Dynamic runtime information
 
 	// Available indicates whether this workflow is currently available for execution
 	Available bool `json:"available,omitempty" yaml:"-"`
 
-	// State represents the current operational state of the workflow
-	State string `json:"state,omitempty" yaml:"-"`
-
-	// Error contains error information if the workflow is in an error state
-	Error string `json:"error,omitempty" yaml:"-"`
-
 	// Metadata fields - Additional workflow information
-
-	// CreatedBy indicates who created this workflow definition
-	CreatedBy string `yaml:"createdBy,omitempty" json:"createdBy,omitempty"`
 
 	// CreatedAt indicates when this workflow was created
 	CreatedAt time.Time `yaml:"createdAt,omitempty" json:"createdAt"`
@@ -59,73 +44,38 @@ type Workflow struct {
 	LastModified time.Time `yaml:"lastModified,omitempty" json:"lastModified"`
 }
 
-// WorkflowConfig represents a configuration file containing multiple workflows.
-// This is used for loading workflow definitions from YAML files that contain
-// multiple workflow definitions in a single file.
-type WorkflowConfig struct {
-	// Workflows contains the list of workflow definitions in this configuration
-	Workflows []Workflow `yaml:"workflows" json:"workflows"`
-}
-
-// Parameter defines a parameter for operations and workflows.
+// Arg defines an argument for operations and workflows.
 // This provides a standardized way to define input validation and documentation
-// for both workflow inputs and operation parameters.
-type Parameter struct {
+// for both workflow inputs and operation arguments.
+type Arg struct {
 	// Type specifies the expected data type (string, number, boolean, object, array)
 	Type string `yaml:"type" json:"type"`
 
-	// Required indicates whether this parameter must be provided
+	// Required indicates whether this argument must be provided
 	Required bool `yaml:"required" json:"required"`
 
-	// Description provides human-readable documentation for the parameter
+	// Description provides human-readable documentation for the argument
 	Description string `yaml:"description" json:"description"`
 
-	// Default specifies the default value used when the parameter is not provided.
+	// Default specifies the default value used when the argument is not provided.
 	// Only applicable when Required is false.
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
 // OperationDefinition defines an operation that can be performed within a capability.
 // Operations represent discrete actions that can be invoked, with their own
-// parameter requirements and execution logic (either direct workflow calls or references).
+// argument requirements and execution logic (either direct workflow calls or references).
 type OperationDefinition struct {
 	// Description provides human-readable documentation for the operation's purpose
 	Description string `yaml:"description" json:"description"`
 
-	// Parameters defines the input parameters accepted by this operation.
+	// Args defines the input arguments accepted by this operation.
 	// Used for validation and documentation generation.
-	Parameters map[string]Parameter `yaml:"parameters" json:"parameters"`
+	Args map[string]Arg `yaml:"args" json:"args"`
 
 	// Requires lists the tools or capabilities that must be available for this operation.
 	// This is used for availability checking and dependency validation.
 	Requires []string `yaml:"requires" json:"requires"`
-
-	// Workflow specifies the workflow to execute for this operation.
-	// This can be either an inline workflow definition or a reference to an existing workflow.
-	Workflow *WorkflowReference `yaml:"workflow,omitempty" json:"workflow,omitempty"`
-}
-
-// WorkflowReference references a workflow for an operation.
-// This is simplified to avoid circular dependencies while still providing
-// the necessary information for workflow execution and capability integration.
-type WorkflowReference struct {
-	// Name identifies the workflow to execute (can be a reference to an existing workflow)
-	Name string `yaml:"name" json:"name"`
-
-	// Description provides documentation for this workflow reference
-	Description string `yaml:"description" json:"description"`
-
-	// AgentModifiable indicates whether AI agents can modify this workflow during execution.
-	// This enables dynamic workflow adaptation based on execution context.
-	AgentModifiable bool `yaml:"agentModifiable" json:"agentModifiable"`
-
-	// InputSchema defines the expected input parameters for this workflow reference.
-	// This may be a subset or transformation of the parent operation's parameters.
-	InputSchema map[string]interface{} `yaml:"inputSchema" json:"inputSchema"`
-
-	// Steps defines the workflow steps if this is an inline workflow definition.
-	// If empty, the workflow is resolved by Name from the workflow registry.
-	Steps []WorkflowStep `yaml:"steps" json:"steps"`
 }
 
 // WorkflowStep defines a single step in a workflow execution.
@@ -144,30 +94,32 @@ type WorkflowStep struct {
 	// Can include templated values that are resolved at runtime using previous step results.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// Outputs defines how step results should be stored and made available to subsequent steps.
+	// Maps output variable names to result field paths.
+	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+
 	// Store specifies the variable name where the step result should be stored.
 	// This allows subsequent steps to reference the result of this step.
 	Store string `yaml:"store,omitempty" json:"store,omitempty"`
-
-	// Condition specifies a conditional expression that determines whether this step should execute.
-	// Uses a simple expression language to evaluate conditions based on previous step results.
-	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
-// WorkflowInputSchema defines the input parameter schema for a workflow.
+// WorkflowInputSchema defines the input argument schema for a workflow.
 // This provides structured validation and documentation for workflow inputs,
-// following JSON Schema conventions for parameter definition.
+// following JSON Schema conventions for argument definition.
+//
+// DEPRECATED: Use Args map[string]ArgDefinition instead
 type WorkflowInputSchema struct {
 	// Type specifies the overall schema type (typically "object" for workflow inputs)
 	Type string `yaml:"type" json:"type"`
 
-	// Properties defines the individual input parameters and their schemas.
-	// Each property corresponds to a workflow input parameter.
-	Properties map[string]SchemaProperty `yaml:"properties" json:"properties"`
+	// Args defines the individual input arguments and their schemas.
+	// Each property corresponds to a workflow input argument.
+	Args map[string]SchemaProperty `yaml:"args" json:"args"`
 
-	// Required lists the parameter names that must be provided for workflow execution
+	// Required lists the argument names that must be provided for workflow execution
 	Required []string `yaml:"required,omitempty" json:"required,omitempty"`
 }
 
@@ -183,7 +135,7 @@ type WorkflowHandler interface {
 	// ExecuteWorkflow executes a workflow with the provided arguments.
 	// This is the primary method for invoking workflow functionality.
 	//
-	// Parameters:
+	// Args:
 	//   - ctx: Context for the operation, including cancellation and timeout
 	//   - workflowName: The name of the workflow to execute
 	//   - args: Arguments for the workflow execution, validated against input schema
@@ -201,6 +153,32 @@ type WorkflowHandler interface {
 	//	})
 	ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]interface{}) (*CallToolResult, error)
 
+	// Workflow execution tracking
+
+	// ListWorkflowExecutions returns paginated list of workflow executions with optional filtering.
+	// This enables users to view execution history and track workflow usage patterns.
+	//
+	// Args:
+	//   - ctx: Context for the operation, including cancellation and timeout
+	//   - req: Request args for filtering, pagination, and sorting
+	//
+	// Returns:
+	//   - *ListWorkflowExecutionsResponse: Paginated list of execution records
+	//   - error: Error if the request is invalid or operation fails
+	ListWorkflowExecutions(ctx context.Context, req *ListWorkflowExecutionsRequest) (*ListWorkflowExecutionsResponse, error)
+
+	// GetWorkflowExecution returns detailed information about a specific workflow execution.
+	// This enables users to examine execution results, step details, and debug failed executions.
+	//
+	// Args:
+	//   - ctx: Context for the operation, including cancellation and timeout
+	//   - req: Request args specifying execution ID and optional filtering
+	//
+	// Returns:
+	//   - *WorkflowExecution: Complete execution record with step details
+	//   - error: Error if the execution doesn't exist or operation fails
+	GetWorkflowExecution(ctx context.Context, req *GetWorkflowExecutionRequest) (*WorkflowExecution, error)
+
 	// Workflow information and discovery
 
 	// GetWorkflows returns information about all available workflows in the system.
@@ -213,7 +191,7 @@ type WorkflowHandler interface {
 	// GetWorkflow returns detailed information about a specific workflow.
 	// This provides comprehensive information including steps, input schema, and metadata.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the workflow to retrieve
 	//
 	// Returns:
@@ -223,22 +201,22 @@ type WorkflowHandler interface {
 
 	// Workflow lifecycle management
 
-	// CreateWorkflowFromStructured creates a new workflow from structured parameters.
+	// CreateWorkflowFromStructured creates a new workflow from structured args.
 	// This allows dynamic workflow creation at runtime.
 	//
-	// Parameters:
-	//   - args: Structured workflow definition parameters
+	// Args:
+	//   - args: Structured workflow definition args
 	//
 	// Returns:
 	//   - error: Error if the workflow definition is invalid or creation fails
 	CreateWorkflowFromStructured(args map[string]interface{}) error
 
-	// UpdateWorkflowFromStructured updates an existing workflow from structured parameters.
+	// UpdateWorkflowFromStructured updates an existing workflow from structured args.
 	// This allows runtime modification of workflow definitions.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the workflow to update
-	//   - args: Updated workflow definition parameters
+	//   - args: Updated workflow definition args
 	//
 	// Returns:
 	//   - error: Error if the workflow doesn't exist or update fails
@@ -246,7 +224,7 @@ type WorkflowHandler interface {
 
 	// DeleteWorkflow removes a workflow definition from the system.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The name of the workflow to delete
 	//
 	// Returns:
@@ -256,8 +234,8 @@ type WorkflowHandler interface {
 	// ValidateWorkflowFromStructured validates a workflow definition without creating it.
 	// This is useful for validation during workflow development and testing.
 	//
-	// Parameters:
-	//   - args: Workflow definition parameters to validate
+	// Args:
+	//   - args: Workflow definition args to validate
 	//
 	// Returns:
 	//   - error: Error if the workflow definition is invalid
@@ -278,8 +256,8 @@ type CreateWorkflowRequest struct {
 	// Description provides human-readable documentation for the workflow
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 
-	// InputSchema defines the expected input parameters for workflow execution
-	InputSchema map[string]interface{} `yaml:"inputSchema" json:"inputSchema"`
+	// Args defines the expected input arguments for workflow execution
+	Args map[string]ArgDefinition `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// Steps defines the sequence of operations to be performed during workflow execution
 	Steps []WorkflowStep `yaml:"steps" json:"steps"`

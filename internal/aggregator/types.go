@@ -29,8 +29,8 @@ type MCPClient interface {
 	ListTools(ctx context.Context) ([]mcp.Tool, error)
 
 	// CallTool executes a specific tool and returns the result.
-	// The name parameter should match one of the tools returned by ListTools.
-	// The args parameter contains the tool-specific arguments as key-value pairs.
+	// The name arg should match one of the tools returned by ListTools.
+	// The args arg contains the tool-specific arguments as key-value pairs.
 	CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)
 
 	// ListResources returns all available resources from the server.
@@ -126,7 +126,7 @@ func (s *ServerInfo) IsConnected() bool {
 	return s.Connected
 }
 
-// AggregatorConfig holds configuration parameters for the aggregator.
+// AggregatorConfig holds configuration args for the aggregator.
 // This structure defines how the aggregator should behave and
 // what endpoints it should expose.
 type AggregatorConfig struct {

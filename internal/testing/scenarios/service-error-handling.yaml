@@ -19,7 +19,7 @@ pre_configuration:
         name: "bad-sc-for-services"
         version: "1.0.0"
         serviceConfig:
-          createParameters:
+          createArgs:
             name:
               required: true
           lifecycleTools:
@@ -45,7 +45,7 @@ steps:
     success: false
     error_contains: ["not found"]
 
-- id: "create-service-missing-required-parameter"
+- id: "create-service-missing-required-arg"
   tool: "core_service_create"
   args:
     serviceClassName: "bad-sc-for-services"
@@ -59,7 +59,7 @@ steps:
   args:
     serviceClassName: "bad-sc-for-services"
     name: "my-failed-service-3"
-    parameters:
+    args:
       name: "test"
   expected:
     success: false

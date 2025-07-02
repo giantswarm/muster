@@ -43,7 +43,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -65,7 +65,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -87,7 +87,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -109,7 +109,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -131,7 +131,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -153,7 +153,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Parameters),
+						InputSchema: convertToMCPSchema(toolMeta.Args),
 					},
 					Handler: a.createToolHandler(provider, toolMeta.Name),
 				}
@@ -187,7 +187,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 //  2. Execution tools have intuitive names that match their purpose
 //  3. External tools are properly namespaced to avoid conflicts
 //
-// Parameters:
+// Args:
 //   - provider: The type of provider (workflow, capability, service, etc.)
 //   - toolName: The original tool name from the provider
 //
@@ -240,7 +240,7 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 //  3. Converts the result to MCP format
 //  4. Handles errors appropriately
 //
-// Parameters:
+// Args:
 //   - provider: The tool provider that will execute the tool
 //   - toolName: The original tool name (before prefixing)
 //
@@ -267,32 +267,55 @@ func (a *AggregatorServer) createToolHandler(provider api.ToolProvider, toolName
 	}
 }
 
-// convertToMCPSchema converts internal parameter metadata to MCP input schema format.
+// convertToMCPSchema converts internal arg metadata to MCP input schema format.
 //
-// This function bridges the gap between the internal tool parameter representation
+// This function bridges the gap between the internal tool arg representation
 // and the JSON Schema format expected by MCP clients. It handles:
-//   - Parameter types and descriptions
-//   - Required parameter specification
+//   - Arg types and descriptions
+//   - Required arg specification
 //   - Default value handling
 //   - Schema property generation
+//   - Detailed nested schemas for complex types (objects, arrays)
 //
-// The resulting schema allows MCP clients to understand what parameters a tool
+// When a arg has a detailed Schema field, that takes precedence over
+// the basic Type field, allowing for comprehensive validation rules and
+// nested structure definitions.
+//
+// The resulting schema allows MCP clients to understand what args a tool
 // expects and how to validate input before sending requests.
 //
-// Parameters:
-//   - params: Slice of parameter metadata from the tool provider
+// Args:
+//   - params: Slice of arg metadata from the tool provider
 //
 // Returns an MCP-compatible input schema with proper type information and validation rules.
-func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
+func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 	properties := make(map[string]interface{})
 	required := []string{}
 
 	for _, param := range params {
-		propSchema := map[string]interface{}{
-			"type":        param.Type,
-			"description": param.Description,
+		var propSchema map[string]interface{}
+
+		// Use detailed schema if available, otherwise fall back to basic type
+		if param.Schema != nil && len(param.Schema) > 0 {
+			// Use the detailed schema definition
+			propSchema = make(map[string]interface{})
+			for key, value := range param.Schema {
+				propSchema[key] = value
+			}
+
+			// Ensure description is included (override schema description if needed)
+			if param.Description != "" {
+				propSchema["description"] = param.Description
+			}
+		} else {
+			// Fall back to basic type-based schema
+			propSchema = map[string]interface{}{
+				"type":        param.Type,
+				"description": param.Description,
+			}
 		}
 
+		// Add default value if specified
 		if param.Default != nil {
 			propSchema["default"] = param.Default
 		}
@@ -322,7 +345,7 @@ func convertToMCPSchema(params []api.ParameterMetadata) mcp.ToolInputSchema {
 // This allows tools to return various types of data while ensuring compatibility
 // with MCP clients that expect specific content formats.
 //
-// Parameters:
+// Args:
 //   - result: Internal tool result from the tool provider
 //
 // Returns an MCP-compatible tool result with properly formatted content.

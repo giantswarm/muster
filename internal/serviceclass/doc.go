@@ -3,7 +3,7 @@
 // This package is responsible for loading, parsing, validating, and managing
 // ServiceClass definitions that describe how to create and manage dynamic
 // service instances. ServiceClass definitions are YAML-based blueprints that
-// specify service lifecycle operations, parameter mappings, and tool integrations.
+// specify service lifecycle operations, arg mappings, and tool integrations.
 //
 // # Architecture
 //
@@ -18,8 +18,8 @@
 //
 // A ServiceClass is a template that defines:
 //   - Metadata (name, type, version, description)
-//   - Service configuration (lifecycle tools, parameters, health checks)
-//   - Parameter mappings for service creation
+//   - Service configuration (lifecycle tools, args, health checks)
+//   - Arg mappings for service creation
 //   - Tool integrations for lifecycle management
 //
 // ServiceClass definitions are loaded from YAML files in the definitions directory

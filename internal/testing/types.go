@@ -238,6 +238,8 @@ type TestStep struct {
 	Args map[string]interface{} `yaml:"args"`
 	// Expected defines the expected outcome
 	Expected TestExpectation `yaml:"expected"`
+	// Store defines where to store the step result for template variable access
+	Store string `yaml:"store,omitempty"`
 	// Retry configuration for this step
 	Retry *RetryConfig `yaml:"retry,omitempty"`
 	// Timeout for this specific step
@@ -348,8 +350,8 @@ type TestRunner interface {
 type MCPTestClient interface {
 	// Connect establishes connection to the MCP aggregator
 	Connect(ctx context.Context, endpoint string) error
-	// CallTool invokes an MCP tool with the given parameters
-	CallTool(ctx context.Context, toolName string, parameters map[string]interface{}) (interface{}, error)
+	// CallTool invokes an MCP tool with the given args
+	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
 	// ListTools returns available MCP tools
 	ListTools(ctx context.Context) ([]string, error)
 	// ListToolsWithSchemas returns available MCP tools with their full schemas

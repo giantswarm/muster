@@ -26,7 +26,7 @@ import (
 //
 // Key features:
 //   - Interactive command execution with argument parsing
-//   - Tab completion for commands, tool names, and parameters
+//   - Tab completion for commands, tool names, and args
 //   - Persistent command history across sessions
 //   - Real-time notification display (SSE transport)
 //   - Graceful error handling and recovery
@@ -45,7 +45,7 @@ type REPL struct {
 // It initializes the command registry and registers all available commands
 // with their respective aliases and completion handlers.
 //
-// Parameters:
+// Args:
 //   - client: MCP client for server communication
 //   - logger: Logger instance for structured output and debugging
 //
@@ -139,7 +139,7 @@ func (t *transportAdapter) SupportsNotifications() bool {
 // This method handles the complete command execution pipeline including
 // parsing, alias resolution, validation, and error handling.
 //
-// Parameters:
+// Args:
 //   - input: Raw command input from the user
 //
 // The method performs:
@@ -201,7 +201,7 @@ func (r *REPL) executeCommand(input string) error {
 //
 // Key features:
 //   - Persistent command history across sessions
-//   - Context-aware tab completion for commands and parameters
+//   - Context-aware tab completion for commands and args
 //   - Real-time notification display (transport dependent)
 //   - Graceful shutdown handling for Ctrl+C and EOF
 //   - Transport capability adaptation

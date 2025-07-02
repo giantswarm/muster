@@ -9,7 +9,7 @@ import (
 // It handles marshaling errors gracefully by falling back to fmt.Sprintf.
 // This is the consolidated implementation used across all muster packages.
 //
-// Parameters:
+// Args:
 //   - v: The value to format as JSON (any type)
 //
 // Returns:

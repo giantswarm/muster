@@ -41,7 +41,7 @@ steps:
         type: "web-application"
         version: "1.0.0"
         description: "Example web application ServiceClass"
-        parameters:
+        args:
           replicas:
             type: integer
             default: 1
@@ -66,8 +66,8 @@ steps:
           metadata:
             name: "{{ .name }}-config"
           data:
-            replicas: "{{ .parameters.replicas }}"
-            image: "{{ .parameters.image }}"
+            replicas: "{{ .args.replicas }}"
+            image: "{{ .args.image }}"
     expected:
       success: true
       contains: ["created service class", "example-web-service"]
@@ -143,7 +143,7 @@ cleanup:
 # MCP Testing:
 # {
 #   "tool": "x_muster-test_test_run_scenarios",
-#   "parameters": {
+#   "args": {
 #     "scenario": "serviceclass-basic-crud-example",
 #     "verbose": true
 #   }

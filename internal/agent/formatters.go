@@ -32,7 +32,7 @@ func NewFormatters() *Formatters {
 // The output includes numbering, aligned columns, and descriptive text to
 // make it easy to browse available tools interactively.
 //
-// Parameters:
+// Args:
 //   - tools: Slice of tools to format
 //
 // Returns:
@@ -62,7 +62,7 @@ func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 // The output includes numbering, aligned columns for URIs, and descriptions to
 // make it easy to browse available resources interactively.
 //
-// Parameters:
+// Args:
 //   - resources: Slice of resources to format
 //
 // Returns:
@@ -97,7 +97,7 @@ func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 // The output includes numbering, aligned columns, and descriptions to
 // make it easy to browse available prompts interactively.
 //
-// Parameters:
+// Args:
 //   - prompts: Slice of prompts to format
 //
 // Returns:
@@ -127,7 +127,7 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 // This provides comprehensive information including the tool's input schema,
 // which is essential for understanding how to use the tool.
 //
-// Parameters:
+// Args:
 //   - tool: The tool to format detailed information for
 //
 // Returns:
@@ -155,7 +155,7 @@ func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
 // This provides comprehensive metadata about the resource including URI, name, description,
 // and MIME type when available.
 //
-// Parameters:
+// Args:
 //   - resource: The resource to format detailed information for
 //
 // Returns:
@@ -186,7 +186,7 @@ func (f *Formatters) FormatResourceDetail(resource mcp.Resource) string {
 // This provides comprehensive information including the prompt's arguments and their
 // requirements, which is essential for understanding how to use the prompt.
 //
-// Parameters:
+// Args:
 //   - prompt: The prompt to format detailed information for
 //
 // Returns:
@@ -222,7 +222,7 @@ func (f *Formatters) FormatPromptDetail(prompt mcp.Prompt) string {
 // This format is used for programmatic consumption, MCP server responses,
 // and integration with external tools that expect structured data.
 //
-// Parameters:
+// Args:
 //   - tools: Slice of tools to format
 //
 // Returns:
@@ -269,7 +269,7 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 // This format is used for programmatic consumption, MCP server responses,
 // and integration with external tools that expect structured data.
 //
-// Parameters:
+// Args:
 //   - resources: Slice of resources to format
 //
 // Returns:
@@ -327,7 +327,7 @@ func (f *Formatters) FormatResourcesListJSON(resources []mcp.Resource) (string, 
 // This format is used for programmatic consumption, MCP server responses,
 // and integration with external tools that expect structured data.
 //
-// Parameters:
+// Args:
 //   - prompts: Slice of prompts to format
 //
 // Returns:
@@ -374,7 +374,7 @@ func (f *Formatters) FormatPromptsListJSON(prompts []mcp.Prompt) (string, error)
 // This format includes the complete tool schema and is used for programmatic
 // consumption and tool introspection.
 //
-// Parameters:
+// Args:
 //   - tool: The tool to format detailed information for
 //
 // Returns:
@@ -407,7 +407,7 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 // This format includes all available resource metadata and is used for programmatic
 // consumption and resource introspection.
 //
-// Parameters:
+// Args:
 //   - resource: The resource to format detailed information for
 //
 // Returns:
@@ -442,7 +442,7 @@ func (f *Formatters) FormatResourceDetailJSON(resource mcp.Resource) (string, er
 // This format includes argument specifications and is used for programmatic
 // consumption and prompt introspection.
 //
-// Parameters:
+// Args:
 //   - prompt: The prompt to format detailed information for
 //
 // Returns:
@@ -493,7 +493,7 @@ func (f *Formatters) FormatPromptDetailJSON(prompt mcp.Prompt) (string, error) {
 // FindTool searches for a tool by name in the provided tool list.
 // This is a utility method for command implementations and internal lookups.
 //
-// Parameters:
+// Args:
 //   - tools: Slice of tools to search in
 //   - name: Exact name of the tool to find
 //
@@ -513,7 +513,7 @@ func (f *Formatters) FindTool(tools []mcp.Tool, name string) *mcp.Tool {
 // FindResource searches for a resource by URI in the provided resource list.
 // This is a utility method for command implementations and internal lookups.
 //
-// Parameters:
+// Args:
 //   - resources: Slice of resources to search in
 //   - uri: Exact URI of the resource to find
 //
@@ -533,7 +533,7 @@ func (f *Formatters) FindResource(resources []mcp.Resource, uri string) *mcp.Res
 // FindPrompt searches for a prompt by name in the provided prompt list.
 // This is a utility method for command implementations and internal lookups.
 //
-// Parameters:
+// Args:
 //   - prompts: Slice of prompts to search in
 //   - name: Exact name of the prompt to find
 //

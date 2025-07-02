@@ -9,10 +9,7 @@ pre_configuration:
     - name: "store-and-use-workflow"
       config:
         name: "store-and-use-workflow"
-        inputSchema:
-          type: "object"
-          properties: {}
-          required: []
+        args: {}
         steps:
           - id: "get_service_list"
             tool: "core_service_list"
@@ -33,7 +30,9 @@ pre_configuration:
           - name: "echo"
             input_schema:
               type: "object"
-              properties: { text: { type: "string" } }
+              properties:
+                text:
+                  type: "string"
             responses:
               - response: { echoed: "{{ .text }}" }
 
@@ -75,10 +74,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "empty-steps-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps: []
   expected:
     success: false
@@ -88,10 +84,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "overwrite-context-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "step1"
         tool: "x_mock-echo_echo"
@@ -124,10 +117,7 @@ steps:
   tool: "core_workflow_create"
   args:
     name: "bad-template-workflow"
-    inputSchema:
-      type: "object"
-      properties: {}
-      required: []
+    args: {}
     steps:
       - id: "bad-step"
         tool: "x_mock-echo_echo"

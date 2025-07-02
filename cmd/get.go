@@ -21,6 +21,7 @@ var getResourceTypes = []string{
 	"serviceclass",
 	"mcpserver",
 	"workflow",
+	"workflow-execution",
 	"capability",
 }
 
@@ -52,11 +53,12 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 
 	// Map resource types to tools
 	toolMap := map[string]string{
-		"service":      "core_service_list",
-		"serviceclass": "core_serviceclass_list",
-		"mcpserver":    "core_mcpserver_list",
-		"workflow":     "core_workflow_list",
-		"capability":   "core_capability_list",
+		"service":            "core_service_list",
+		"serviceclass":       "core_serviceclass_list",
+		"mcpserver":          "core_mcpserver_list",
+		"workflow":           "core_workflow_list",
+		"workflow-execution": "core_workflow_execution_list",
+		"capability":         "core_capability_list",
 	}
 
 	toolName, exists := toolMap[resourceType]
@@ -133,15 +135,17 @@ var getCmd = &cobra.Command{
 	Long: `Get detailed information about a specific resource by name.
 
 Available resource types:
-  service      - Get detailed status of a service
-  serviceclass - Get ServiceClass details and configuration
-  mcpserver    - Get MCP server details and configuration
-  workflow     - Get workflow definition and details
-  capability   - Get capability details and configuration
+  service             - Get detailed status of a service
+  serviceclass        - Get ServiceClass details and configuration
+  mcpserver           - Get MCP server details and configuration
+  workflow            - Get workflow definition and details
+  workflow-execution  - Get workflow execution details and results
+  capability          - Get capability details and configuration
 
 Examples:
   muster get service prometheus
   muster get workflow auth-flow
+  muster get workflow-execution abc123-def456-789
   muster get serviceclass kubernetes --output yaml
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
@@ -161,11 +165,12 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 // Resource type mappings for get operations
 var getResourceMappings = map[string]string{
-	"service":      "core_service_status",
-	"serviceclass": "core_serviceclass_get",
-	"mcpserver":    "core_mcpserver_get",
-	"workflow":     "core_workflow_get",
-	"capability":   "core_capability_get",
+	"service":            "core_service_status",
+	"serviceclass":       "core_serviceclass_get",
+	"mcpserver":          "core_mcpserver_get",
+	"workflow":           "core_workflow_get",
+	"workflow-execution": "core_workflow_execution_get",
+	"capability":         "core_capability_get",
 }
 
 func init() {
@@ -183,7 +188,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := getResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, capability", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, capability", resourceType)
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
@@ -201,10 +206,17 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prepare arguments based on resource type
-	var arguments map[string]interface{}
-	arguments = map[string]interface{}{
-		"name": resourceName,
+	var toolArgs map[string]interface{}
+	if resourceType == "workflow-execution" {
+		// workflow-execution uses execution_id instead of name
+		toolArgs = map[string]interface{}{
+			"execution_id": resourceName,
+		}
+	} else {
+		toolArgs = map[string]interface{}{
+			"name": resourceName,
+		}
 	}
 
-	return executor.Execute(ctx, toolName, arguments)
+	return executor.Execute(ctx, toolName, toolArgs)
 }

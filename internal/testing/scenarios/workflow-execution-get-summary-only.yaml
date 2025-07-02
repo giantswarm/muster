@@ -1,0 +1,97 @@
+name: "workflow-execution-get-summary-only"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "get", "summary"]
+timeout: "3m"
+
+steps:
+- id: "create-summary-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "summary-test-workflow"
+    args:
+        summary_param:
+          type: "string"
+          default: "summary-value"
+    steps:
+      - id: "summary_step_1"
+        tool: "core_service_list"
+        store: "summary_result_1"
+      - id: "summary_step_2"
+        tool: "core_workflow_list"
+        store: "summary_result_2"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "summary-test-workflow" }
+
+- id: "execute-summary-workflow"
+  tool: "workflow_summary-test-workflow"
+  args:
+    summary_param: "summary-execution"
+  expected:
+    success: true
+  store: "summary_execution"
+
+- id: "get-execution-summary-only"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["execution_id", "workflow_name", "summary-test-workflow", "status", "started_at", "completed_at", "duration_ms", "input", "result"]
+    not_contains: ["steps", "summary_step_1", "summary_step_2"]
+
+- id: "verify-summary-has-metadata"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["summary-execution", "summary_param"]
+
+- id: "verify-summary-excludes-step-details"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    not_contains: ["summary_result_1", "summary_result_2", "stored_as", "step_id"]
+
+- id: "verify-summary-includes-timing"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["started_at", "completed_at", "duration_ms"]
+
+- id: "verify-summary-includes-status"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["status", "completed"]
+
+- id: "verify-summary-includes-input-output"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ summary_execution.execution_id }}"
+    include_steps: false
+  expected:
+    success: true
+    contains: ["input", "result"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "summary-test-workflow" }
+  expected:
+    success: true 

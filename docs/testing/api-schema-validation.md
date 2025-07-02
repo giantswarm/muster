@@ -25,7 +25,7 @@ muster test --generate-schema --base-port=19000
 
 The generated schema contains:
 - All 43+ `core_*` API tools from muster serve
-- Parameter schemas inferred from tool names and error analysis
+- Arg schemas inferred from tool names and error analysis
 - Proper JSON Schema format for validation tools
 
 ### Example Schema Structure
@@ -77,7 +77,7 @@ muster test --validate-scenarios --config=path/to/scenarios
 muster test --mcp-server
 
 # Then call the validation tool:
-# mcp_muster-test_test_validate_scenario with parameters:
+# mcp_muster-test_test_validate_scenario with args:
 # - scenario_path: "/path/to/scenarios" (required)
 # - schema_path: "schema.json" (optional, enables API validation)
 # - category: "behavioral" (optional)
@@ -117,31 +117,31 @@ Detailed Results:
 | Error Type | Description | Action Required |
 |------------|-------------|-----------------|
 | `unknown_tool` | Tool name not found in API schema or invalid prefix | Check if tool name changed, was removed, or has invalid prefix |
-| `unexpected_argument` | Argument not defined in tool schema | Remove argument or check if parameter name changed |
-| `missing_required_argument` | Required parameter not provided | Add the missing required parameter |
+| `unexpected_argument` | Argument not defined in tool schema | Remove argument or check if arg name changed |
+| `missing_required_argument` | Required arg not provided | Add the missing required arg |
 
 ### Tool Validation Rules
 
 The validation system handles different tool prefixes according to their purpose:
 
 1. **`core_*` tools** - Core muster API tools
-   - ✅ **Validated against API schema**: Parameters and tool existence are checked
-   - ❌ **Fails if**: Tool doesn't exist in current API or has invalid parameters
+   - ✅ **Validated against API schema**:  Args nd tool existence are checked
+   - ❌ **Fails if**: Tool doesn't exist in current API or has invalid args
    - 📝 **Example**: `core_serviceclass_create`, `core_service_start`
 
 2. **`x_*` tools** - Mock MCP server tools  
    - ✅ **Always valid**: Part of test scenario setup (mock servers)
-   - ⚠️ **Not validated**: Parameters can't be verified (scenario-specific)
+   - ⚠️ **Not validated**:  Args an't be verified (scenario-specific)
    - 📝 **Example**: `x_kubernetes-mock_k8s_pod_list`, `x_storage-mock_create_volume`
 
 3. **`workflow_*` tools** - Workflow execution tools
    - ✅ **Always valid**: Workflow execution calls
-   - ⚠️ **Not validated**: Parameters depend on workflow definition  
+   - ⚠️ **Not validated**:  Args epend on workflow definition  
    - 📝 **Example**: `workflow_deploy-app`, `workflow_setup-environment`
 
 4. **`api_*` tools** - API tools
    - ✅ **Always valid**: API operation tools
-   - ⚠️ **Not validated**: Parameters are API-specific
+   - ⚠️ **Not validated**:  Args re API-specific
    - 📝 **Example**: `api_create_resource`, `api_update_config`
 
 5. **All other prefixes** - Invalid tools
@@ -159,13 +159,13 @@ steps:
       name: "my-service"
       type: "web"
     
-  # ✅ VALID: Mock tool - accepted but not parameter-validated  
+  # ✅ VALID: Mock tool - accepted but not arg-validated  
   - id: "setup-mock"
     tool: "x_kubernetes-mock_create_pod"
     args:
       namespace: "test"
       
-  # ✅ VALID: Workflow execution - accepted but not parameter-validated
+  # ✅ VALID: Workflow execution - accepted but not arg-validated
   - id: "run-workflow"
     tool: "workflow_deploy-application"
     args:
@@ -217,7 +217,7 @@ When the API changes:
 ### Regenerate Schema After API Changes
 
 ```bash
-# After adding new core tools or changing parameters
+# After adding new core tools or changing args
 muster test --generate-schema --verbose
 
 # Compare with previous schema
@@ -230,8 +230,8 @@ muster test --validate-scenarios --verbose
 ### Common Validation Fixes
 
 1. **Unknown tools**: Check if tool was renamed or moved
-2. **Missing arguments**: Add required parameters from schema
-3. **Extra arguments**: Remove deprecated or renamed parameters
+2. **Missing arguments**: Add required args from schema
+3. **Extra arguments**: Remove deprecated or renamed args
 4. **Mock tools**: Ensure mock configurations match expected tools
 
 ## Advanced Usage
@@ -260,7 +260,7 @@ with open('schema.json') as f:
 # Generate test cases for each tool
 for tool_name, tool_schema in schema['properties']['tools']['properties'].items():
     print(f"Tool: {tool_name}")
-    print(f"Parameters: {list(tool_schema.get('properties', {}).keys())}")
+    print(f"Args: {list(tool_schema.get('properties', {}).keys())}")
 ```
 
 ## Troubleshooting

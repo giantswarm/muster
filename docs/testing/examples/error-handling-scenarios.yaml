@@ -84,7 +84,7 @@ steps:
         type: "test-service"
         version: "1.0.0"
         description: "Test ServiceClass for duplicate testing"
-        parameters:
+        args:
           test_param:
             type: string
             required: true
@@ -106,7 +106,7 @@ steps:
         type: "test-service"
         version: "1.0.0"
         description: "Duplicate ServiceClass"
-        parameters:
+        args:
           test_param:
             type: string
             required: true
@@ -197,7 +197,7 @@ steps:
       yaml: |
         name: "invalid-yaml-test"
         type: "test"
-        parameters:
+        args:
           - invalid: "yaml structure"
             missing: "proper nesting"
         serviceConfig:
@@ -218,7 +218,7 @@ steps:
         type: "test-service"
         version: "1.0.0"
         description: "ServiceClass with missing tool references"
-        parameters:
+        args:
           test_param:
             type: string
             default: "test"
@@ -265,7 +265,7 @@ cleanup:
 # MCP Testing:
 # {
 #   "tool": "x_muster-test_test_run_scenarios",
-#   "parameters": {
+#   "args": {
 #     "scenario": "error-handling-scenarios",
 #     "verbose": true
 #   }

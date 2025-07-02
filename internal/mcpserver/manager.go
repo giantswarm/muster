@@ -36,7 +36,7 @@ func NewMCPServerManager(storage *config.Storage) (*MCPServerManager, error) {
 	// Extract config path from storage if it has one
 	var configPath string
 	if storage != nil {
-		// We can't directly access the configPath from storage, so we'll pass it via parameter later
+		// We can't directly access the configPath from storage, so we'll pass it via arg later
 		// For now, leave it empty
 	}
 

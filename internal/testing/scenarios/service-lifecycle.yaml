@@ -25,22 +25,22 @@ pre_configuration:
         name: "lifecycle-sc"
         version: "1.0.0"
         serviceConfig:
-          createParameters:
+          createArgs:
             message:
-              toolParameter: "msg"
+              toolArg: "msg"
               required: false
               default: "default message"
           lifecycleTools:
             start:
               tool: "x_service-tool-provider_create_it"
-              arguments:
+              args:
                 name: "{{ .name }}"
-                msg: "{{ .parameters.message }}"
+                msg: "{{ .args.message }}"
               responseMapping:
                 serviceId: "service_id"
             stop:
               tool: "x_service-tool-provider_delete_it"
-              arguments:
+              args:
                 id: "{{ .service.id }}"
 
 steps:
@@ -57,7 +57,7 @@ steps:
   args:
     serviceClassName: "lifecycle-sc"
     name: "my-app-backend"
-    parameters:
+    args:
       message: "Development environment for my-app backend"
   expected:
     success: true

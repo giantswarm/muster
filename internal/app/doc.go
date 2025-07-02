@@ -43,7 +43,7 @@
 // **Application Configuration (`config.go`)**:
 //   - Runtime settings: UI mode, debug flags, safety settings
 //   - Configuration loading behavior control
-//   - Bootstrap parameters and preferences
+//   - Bootstrap args and preferences
 //
 // **Configuration Adapter (`config_adapter.go`)**:
 //   - Implements `api.ConfigHandler` interface

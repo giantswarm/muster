@@ -1,7 +1,7 @@
 name: "serviceclass-parameter-validation-scenarios"
 category: "behavioral"
 concept: "serviceclass"
-tags: ["serviceclass", "parameters", "validation", "core-api"]
+tags: ["serviceclass", "args", "validation", "core-api"]
 timeout: "7m"
 
 pre_configuration:
@@ -10,7 +10,7 @@ pre_configuration:
       config:
         name: "param-validation-sc"
         version: "1.0.0"
-        parameters:
+        args:
           string_param:
             type: "string"
             required: true
@@ -31,7 +31,7 @@ steps:
   args:
     serviceClassName: "param-validation-sc"
     name: "service-all-params"
-    parameters:
+    args:
       string_param: "hello"
       int_param: 20
       bool_param: true
@@ -46,7 +46,7 @@ steps:
   args:
     serviceClassName: "param-validation-sc"
     name: "service-default-params"
-    parameters:
+    args:
       string_param: "world"
   expected:
     success: true
@@ -59,55 +59,55 @@ steps:
   args:
     serviceClassName: "param-validation-sc"
     name: "service-missing-param"
-    parameters:
+    args:
       int_param: 5
   expected:
     success: false
-    error_contains: ["missing required parameter", "string_param"]
+    error_contains: ["missing required argument", "string_param"]
 
 - id: "create-service-with-wrong-param-type-string"
   tool: "core_service_create"
   args:
     serviceClassName: "param-validation-sc"
     name: "service-wrong-type-string"
-    parameters:
+    args:
       string_param: 12345
   expected:
     success: false
-    error_contains: ["invalid type for parameter", "string_param"]
+    error_contains: ["invalid type for argument", "string_param"]
 
 - id: "create-service-with-wrong-param-type-int"
   tool: "core_service_create"
   args:
     serviceClassName: "param-validation-sc"
     name: "service-wrong-type-int"
-    parameters:
+    args:
       string_param: "hello"
       int_param: "not-an-int"
   expected:
     success: false
-    error_contains: ["invalid type for parameter", "int_param"]
+    error_contains: ["invalid type for argument", "int_param"]
 
 - id: "create-service-with-wrong-param-type-bool"
   tool: "core_service_create"
   args:
     serviceClassName: "param-validation-sc"
     name: "service-wrong-type-bool"
-    parameters:
+    args:
       string_param: "hello"
       bool_param: "not-a-bool"
   expected:
     success: false
-    error_contains: ["invalid type for parameter", "bool_param"]
+    error_contains: ["invalid type for argument", "bool_param"]
 
 - id: "create-service-with-extra-param"
   tool: "core_service_create"
   args:
     serviceClassName: "param-validation-sc"
     name: "service-extra-param"
-    parameters:
+    args:
       string_param: "hello"
       extra_param: "this should be ignored or fail"
   expected:
     success: false
-    error_contains: ["unknown parameter", "extra_param"] 
+    error_contains: ["unknown argument", "extra_param"] 

@@ -5,25 +5,25 @@ import (
 	"time"
 )
 
-// ParameterDefinition defines validation rules and metadata for a service creation parameter.
-// This structure provides comprehensive parameter validation capabilities for ServiceClass
+// ArgDefinition defines validation rules and metadata for a service creation argument.
+// This structure provides comprehensive argument validation capabilities for ServiceClass
 // templates, ensuring that service instances are created with valid configuration values.
-type ParameterDefinition struct {
-	// Type specifies the expected data type for this parameter.
+type ArgDefinition struct {
+	// Type specifies the expected data type for this arg.
 	// Valid types are "string", "integer", "boolean", and "number".
 	// This is used for runtime type validation during service creation.
 	Type string `yaml:"type" json:"type"`
 
-	// Required indicates whether this parameter must be provided when creating a service instance.
-	// Required parameters without default values will cause service creation to fail if not provided.
+	// Required indicates whether this arg must be provided when creating a service instance.
+	// Required args without default values will cause service creation to fail if not provided.
 	Required bool `yaml:"required" json:"required"`
 
-	// Default provides a default value to use if this parameter is not provided during service creation.
-	// The default value must match the specified Type. If no default is provided and the parameter
-	// is not required, the parameter will be omitted from the service configuration.
+	// Default provides a default value to use if this arg is not provided during service creation.
+	// The default value must match the specified Type. If no default is provided and the arg
+	// is not required, the arg will be omitted from the service configuration.
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 
-	// Description provides human-readable documentation for this parameter.
+	// Description provides human-readable documentation for this arg.
 	// This is used for generating help text, UI forms, and API documentation.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
@@ -32,9 +32,9 @@ type ParameterDefinition struct {
 // It consolidates ServiceClassDefinition, ServiceClassInfo, and ServiceClassConfig into a unified type
 // that serves as both a configuration blueprint and runtime information container.
 //
-// ServiceClasses are templates that define the structure, parameters, and lifecycle management
+// ServiceClasses are templates that define the structure, args, and lifecycle management
 // for services. They specify which tools should be called for various lifecycle events and
-// provide parameter validation for service instance creation.
+// provide arg validation for service instance creation.
 type ServiceClass struct {
 	// Name is the unique identifier for this ServiceClass.
 	// This name is used when creating service instances and for ServiceClass management operations.
@@ -48,14 +48,14 @@ type ServiceClass struct {
 	// and what kind of services can be created from it.
 	Description string `yaml:"description" json:"description"`
 
-	// Parameters defines the validation rules and metadata for service creation parameters.
-	// These definitions are used to validate parameters when creating service instances
+	// Args defines the validation rules and metadata for service creation arguments.
+	// These definitions are used to validate arguments when creating service instances
 	// and to provide documentation for the service creation API.
-	Parameters map[string]ParameterDefinition `yaml:"parameters,omitempty" json:"parameters,omitempty"`
+	Args map[string]ArgDefinition `yaml:"args,omitempty" json:"args,omitempty"`
 
 	// ServiceConfig contains the core configuration for service lifecycle management.
 	// This defines how services created from this class should be managed, including
-	// tool mappings, health checks, and operational parameters.
+	// tool mappings, health checks, and operational args.
 	ServiceConfig ServiceConfig `yaml:"serviceConfig" json:"serviceConfig"`
 
 	// Operations defines custom operations that can be performed on services created from this class.
@@ -109,7 +109,7 @@ type ServiceClass struct {
 
 // ServiceConfig defines the service lifecycle management configuration for a ServiceClass.
 // This structure specifies how services should be managed, including tool mappings for
-// lifecycle events, health check configuration, and parameter handling.
+// lifecycle events, health check configuration, and arg handling.
 type ServiceConfig struct {
 	// ServiceType categorizes the kind of service this configuration manages.
 	// This is used for grouping, filtering, and applying type-specific logic.
@@ -135,9 +135,14 @@ type ServiceConfig struct {
 	// These timeouts help prevent operations from hanging indefinitely.
 	Timeout TimeoutConfig `yaml:"timeout" json:"timeout"`
 
-	// CreateParameters defines how service creation parameters should be mapped to tool arguments.
-	// This allows ServiceClass parameters to be transformed and passed to the appropriate tools.
-	CreateParameters map[string]ParameterMapping `yaml:"createParameters" json:"createParameters"`
+	// CreateArgs defines how service creation args should be mapped to tool arguments.
+	// This allows ServiceClass args to be transformed and passed to the appropriate tools.
+	CreateArgs map[string]ArgMapping `yaml:"createArgs" json:"createArgs"`
+
+	// Outputs defines template-based outputs that should be generated when service instances are created.
+	// These templates are resolved using service instance arguments and runtime data (like sessionID).
+	// The resolved outputs are made available in service creation results and can be used by workflows.
+	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
 
 // LifecycleTools maps service lifecycle events to aggregator tools.
@@ -179,7 +184,7 @@ type ServiceClassManagerHandler interface {
 	// GetServiceClass retrieves detailed information about a specific ServiceClass.
 	// This includes configuration, runtime state, and tool availability information.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass to retrieve
 	//
 	// Returns:
@@ -190,7 +195,7 @@ type ServiceClassManagerHandler interface {
 	// IsServiceClassAvailable checks whether a ServiceClass can currently be used.
 	// This verifies that all required tools are available and dependencies are met.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass to check
 	//
 	// Returns:
@@ -200,7 +205,7 @@ type ServiceClassManagerHandler interface {
 	// GetStartTool retrieves the tool configuration for starting services of this class.
 	// This provides the orchestrator with the information needed to start service instances.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -208,12 +213,12 @@ type ServiceClassManagerHandler interface {
 	//   - arguments: Tool arguments to use
 	//   - responseMapping: How to interpret the tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetStartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error)
+	GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
 
 	// GetStopTool retrieves the tool configuration for stopping services of this class.
 	// This provides the orchestrator with the information needed to stop service instances.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -221,12 +226,12 @@ type ServiceClassManagerHandler interface {
 	//   - arguments: Tool arguments to use
 	//   - responseMapping: How to interpret the tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetStopTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error)
+	GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
 
 	// GetRestartTool retrieves the tool configuration for restarting services of this class.
 	// If no restart tool is configured, this may return an indication to use stop+start.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -234,12 +239,12 @@ type ServiceClassManagerHandler interface {
 	//   - arguments: Tool arguments to use
 	//   - responseMapping: How to interpret the tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetRestartTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error)
+	GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
 
 	// GetHealthCheckTool retrieves the tool configuration for health checking services of this class.
 	// This provides the health monitoring system with the information needed to check service health.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -247,12 +252,12 @@ type ServiceClassManagerHandler interface {
 	//   - arguments: Tool arguments to use
 	//   - responseMapping: How to interpret the tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetHealthCheckTool(name string) (toolName string, arguments map[string]interface{}, responseMapping map[string]string, err error)
+	GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
 
 	// GetHealthCheckConfig retrieves the health check configuration for services of this class.
 	// This provides the health monitoring system with timing and threshold information.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -266,7 +271,7 @@ type ServiceClassManagerHandler interface {
 	// GetServiceDependencies retrieves the list of dependencies for services of this class.
 	// This is used by the orchestrator to ensure proper startup ordering.
 	//
-	// Parameters:
+	// Args:
 	//   - name: The unique name of the ServiceClass
 	//
 	// Returns:
@@ -280,98 +285,98 @@ type ServiceClassManagerHandler interface {
 	ToolProvider
 }
 
-// ValidateServiceParameters validates service creation parameters against ServiceClass parameter definitions.
-// This method ensures that all required parameters are provided, that parameter types are correct,
-// and that no unknown parameters are specified. It also applies default values where appropriate.
+// ValidateServiceArgs validates service creation args against ServiceClass arg definitions.
+// This method ensures that all required args are provided, that arg types are correct,
+// and that no unknown args are specified. It also applies default values where appropriate.
 //
 // The validation process:
-// 1. Checks that all required parameters are provided
-// 2. Applies default values for missing optional parameters
-// 3. Validates parameter types match their definitions
-// 4. Rejects unknown parameters not defined in the ServiceClass
+// 1. Checks that all required args are provided
+// 2. Applies default values for missing optional args
+// 3. Validates arg types match their definitions
+// 4. Rejects unknown args not defined in the ServiceClass
 //
-// Parameters:
-//   - parameters: The parameter map to validate and potentially modify
+// Args:
+//   - args: The arg map to validate and potentially modify
 //
 // Returns:
 //   - error: nil if validation succeeds, or a descriptive error if validation fails
-func (sc *ServiceClass) ValidateServiceParameters(parameters map[string]interface{}) error {
-	if sc.Parameters == nil {
-		// If no parameter definitions, accept any parameters (backward compatibility)
+func (sc *ServiceClass) ValidateServiceArgs(args map[string]interface{}) error {
+	if sc.Args == nil {
+		// If no argument definitions, accept any arguments
 		return nil
 	}
 
-	// Check for required parameters
-	for paramName, paramDef := range sc.Parameters {
-		value, provided := parameters[paramName]
+	// Check for required arguments
+	for argName, argDef := range sc.Args {
+		value, provided := args[argName]
 
 		if !provided {
-			if paramDef.Required {
-				return fmt.Errorf("missing required parameter: %s", paramName)
+			if argDef.Required {
+				return fmt.Errorf("missing required argument: %s", argName)
 			}
 			// Apply default value if not provided
-			if paramDef.Default != nil {
-				parameters[paramName] = paramDef.Default
+			if argDef.Default != nil {
+				args[argName] = argDef.Default
 			}
 			continue
 		}
 
-		// Validate parameter type
-		if err := validateParameterType(paramName, value, paramDef.Type); err != nil {
+		// Validate argument type
+		if err := validateArgType(argName, value, argDef.Type); err != nil {
 			return err
 		}
 	}
 
-	// Check for unknown parameters
-	for paramName := range parameters {
-		if _, defined := sc.Parameters[paramName]; !defined {
-			return fmt.Errorf("unknown parameter: %s", paramName)
+	// Check for unknown arguments
+	for argName := range args {
+		if _, defined := sc.Args[argName]; !defined {
+			return fmt.Errorf("unknown argument: %s", argName)
 		}
 	}
 
 	return nil
 }
 
-// validateParameterType validates that a parameter value matches the expected type.
-// This function performs type checking for the supported parameter types: string, integer,
+// validateArgType validates that a arg value matches the expected type.
+// This function performs type checking for the supported arg types: string, integer,
 // boolean, and number. It handles type coercion where appropriate (e.g., float64 to int).
 //
-// Parameters:
-//   - paramName: The name of the parameter being validated (for error messages)
-//   - value: The actual parameter value to validate
-//   - expectedType: The expected type as defined in the ParameterDefinition
+// Args:
+//   - argName: The name of the arg being validated (for error messages)
+//   - value: The actual arg value to validate
+//   - expectedType: The expected type as defined in the ArgDefinition
 //
 // Returns:
 //   - error: nil if the type is valid, or an error describing the type mismatch
-func validateParameterType(paramName string, value interface{}, expectedType string) error {
+func validateArgType(argName string, value interface{}, expectedType string) error {
 	switch expectedType {
 	case "string":
 		if _, ok := value.(string); !ok {
-			return fmt.Errorf("invalid type for parameter '%s': expected string, got %T", paramName, value)
+			return fmt.Errorf("invalid type for argument '%s': expected string, got %T", argName, value)
 		}
 	case "integer":
 		switch value.(type) {
 		case int, int32, int64, float64:
 			// Accept numeric types that can represent integers
 			if f, ok := value.(float64); ok && f != float64(int64(f)) {
-				return fmt.Errorf("invalid type for parameter '%s': expected integer, got float", paramName)
+				return fmt.Errorf("invalid type for argument '%s': expected integer, got float", argName)
 			}
 		default:
-			return fmt.Errorf("invalid type for parameter '%s': expected integer, got %T", paramName, value)
+			return fmt.Errorf("invalid type for argument '%s': expected integer, got %T", argName, value)
 		}
 	case "boolean":
 		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("invalid type for parameter '%s': expected boolean, got %T", paramName, value)
+			return fmt.Errorf("invalid type for argument '%s': expected boolean, got %T", argName, value)
 		}
 	case "number":
 		switch value.(type) {
 		case int, int32, int64, float32, float64:
 			// Accept any numeric type
 		default:
-			return fmt.Errorf("invalid type for parameter '%s': expected number, got %T", paramName, value)
+			return fmt.Errorf("invalid type for argument '%s': expected number, got %T", argName, value)
 		}
 	default:
-		return fmt.Errorf("unknown parameter type '%s' for parameter '%s'", expectedType, paramName)
+		return fmt.Errorf("unknown argument type '%s' for argument '%s'", expectedType, argName)
 	}
 	return nil
 }

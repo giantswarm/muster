@@ -1,0 +1,84 @@
+name: "workflow-execution-get-specific-step"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "execution", "get", "step", "specific"]
+timeout: "3m"
+
+steps:
+- id: "create-specific-step-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "specific-step-workflow"
+    args:
+        step_param:
+          type: "string"
+          default: "step-value"
+    steps:
+      - id: "first_step"
+        tool: "core_service_list"
+        store: "first_result"
+      - id: "second_step"
+        tool: "core_workflow_list"
+        store: "second_result"
+      - id: "third_step"
+        tool: "core_config_get"
+        store: "third_result"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "specific-step-workflow" }
+
+- id: "execute-specific-step-workflow"
+  tool: "workflow_specific-step-workflow"
+  args:
+    step_param: "specific-test"
+  expected:
+    success: true
+  store: "specific_execution"
+
+- id: "get-first-step-only"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ specific_execution.execution_id }}"
+    step_id: "first_step"
+  expected:
+    success: true
+    contains: ["step_id", "first_step", "tool", "core_service_list", "status", "result", "stored_as", "first_result"]
+    not_contains: ["second_step", "third_step"]
+
+- id: "get-second-step-only"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ specific_execution.execution_id }}"
+    step_id: "second_step"
+  expected:
+    success: true
+    contains: ["step_id", "second_step", "tool", "core_workflow_list", "status", "result", "stored_as", "second_result"]
+    not_contains: ["first_step", "third_step"]
+
+- id: "get-third-step-only"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ specific_execution.execution_id }}"
+    step_id: "third_step"
+  expected:
+    success: true
+    contains: ["step_id", "third_step", "tool", "core_config_get", "status", "result", "stored_as", "third_result"]
+    not_contains: ["first_step", "second_step"]
+
+- id: "verify-step-timing-data"
+  tool: "core_workflow_execution_get"
+  args:
+    execution_id: "{{ specific_execution.execution_id }}"
+    step_id: "first_step"
+  expected:
+    success: true
+    contains: ["started_at", "completed_at", "duration_ms"]
+
+cleanup:
+- id: "final-cleanup-workflow"
+  tool: "core_workflow_delete"
+  args: { name: "specific-step-workflow" }
+  expected:
+    success: true 
