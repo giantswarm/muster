@@ -364,9 +364,31 @@ func (wm *WorkflowManager) enhanceResultWithExecutionID(result *mcp.CallToolResu
 				return enhancedResult
 			}
 		}
+
+		// If JSON parsing fails, try to create a wrapper object
+		// This handles cases where the content is not JSON
+		wrapperData := map[string]interface{}{
+			"execution_id": executionID,
+			"result":       textContent.Text,
+		}
+
+		wrapperJSON, marshalErr := json.Marshal(wrapperData)
+		if marshalErr == nil {
+			enhancedResult := &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.NewTextContent(string(wrapperJSON))},
+				IsError: result.IsError,
+			}
+
+			// Add any additional content items
+			if len(result.Content) > 1 {
+				enhancedResult.Content = append(enhancedResult.Content, result.Content[1:]...)
+			}
+
+			return enhancedResult
+		}
 	}
 
-	// Fallback: prepend execution_id as new content item if we can't enhance existing content
+	// Final fallback: prepend execution_id as new content item if we can't enhance existing content
 	executionContent := mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID))
 	enhancedResult := &mcp.CallToolResult{
 		Content: append([]mcp.Content{executionContent}, result.Content...),

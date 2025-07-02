@@ -822,14 +822,37 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			return nil, fmt.Errorf("workflow handler not available")
 		}
 		if provider, ok := handler.(api.ToolProvider); ok {
-			// Map workflow_ tools back to action_ for internal workflow handler
-			internalToolName := strings.Replace(originalToolName, "workflow_", "action_", 1)
-			logging.Debug("Aggregator", "Mapping workflow tool %s to internal name %s", originalToolName, internalToolName)
-			result, err := provider.ExecuteTool(ctx, internalToolName, args)
-			if err != nil {
-				return nil, err
+			// Check if this is a workflow management tool or a workflow execution tool
+			managementTools := []string{"workflow_list", "workflow_get", "workflow_create",
+				"workflow_update", "workflow_delete", "workflow_validate", "workflow_available",
+				"workflow_execution_list", "workflow_execution_get"}
+
+			isManagementTool := false
+			for _, mgmtTool := range managementTools {
+				if originalToolName == mgmtTool {
+					isManagementTool = true
+					break
+				}
 			}
-			return convertToMCPResult(result), nil
+
+			if isManagementTool {
+				// Use the original tool name for workflow management tools
+				logging.Debug("Aggregator", "Calling workflow management tool %s directly", originalToolName)
+				result, err := provider.ExecuteTool(ctx, originalToolName, args)
+				if err != nil {
+					return nil, err
+				}
+				return convertToMCPResult(result), nil
+			} else {
+				// This is a workflow execution tool - map workflow_ to action_
+				actionToolName := strings.Replace(originalToolName, "workflow_", "action_", 1)
+				logging.Debug("Aggregator", "Mapping workflow execution tool %s to action tool %s", originalToolName, actionToolName)
+				result, err := provider.ExecuteTool(ctx, actionToolName, args)
+				if err != nil {
+					return nil, err
+				}
+				return convertToMCPResult(result), nil
+			}
 		}
 
 	case strings.HasPrefix(originalToolName, "capability_") || strings.HasPrefix(originalToolName, "api_"):
