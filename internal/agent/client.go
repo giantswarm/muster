@@ -1020,3 +1020,134 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 	defer c.mu.Unlock()
 	c.timeout = timeout
 }
+
+// RefreshToolCache forces a refresh of the tool cache from the MCP server.
+func (c *Client) RefreshToolCache(ctx context.Context) error {
+	// Calling listTools with initial=false will trigger a cache refresh
+	// and log the differences if a logger is configured.
+	return c.listTools(ctx, false)
+}
+
+// RefreshResourceCache forces a refresh of the resource cache from the MCP server.
+func (c *Client) RefreshResourceCache(ctx context.Context) error {
+	return c.listResources(ctx, false)
+}
+
+// RefreshPromptCache forces a refresh of the prompt cache from the MCP server.
+func (c *Client) RefreshPromptCache(ctx context.Context) error {
+	return c.listPrompts(ctx, false)
+}
+
+func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
+	oldMap := make(map[string]mcp.Tool)
+	for _, tool := range oldTools {
+		oldMap[tool.Name] = tool
+	}
+
+	newMap := make(map[string]mcp.Tool)
+	for _, tool := range newTools {
+		newMap[tool.Name] = tool
+	}
+
+	var added, removed []string
+
+	for name := range newMap {
+		if _, exists := oldMap[name]; !exists {
+			added = append(added, name)
+		}
+	}
+
+	for name := range oldMap {
+		if _, exists := newMap[name]; !exists {
+			removed = append(removed, name)
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		return // Silently return if no changes
+	}
+
+	c.logger.Info("Tool changes detected:")
+	for _, name := range added {
+		c.logger.Success("+ Added: %s", name)
+	}
+	for _, name := range removed {
+		c.logger.Error("- Removed: %s", name)
+	}
+}
+
+func (c *Client) showResourceDiff(oldResources, newResources []mcp.Resource) {
+	oldMap := make(map[string]mcp.Resource)
+	for _, res := range oldResources {
+		oldMap[res.URI] = res
+	}
+
+	newMap := make(map[string]mcp.Resource)
+	for _, res := range newResources {
+		newMap[res.URI] = res
+	}
+
+	var added, removed []string
+
+	for uri := range newMap {
+		if _, exists := oldMap[uri]; !exists {
+			added = append(added, uri)
+		}
+	}
+
+	for uri := range oldMap {
+		if _, exists := newMap[uri]; !exists {
+			removed = append(removed, uri)
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		return // Silently return if no changes
+	}
+
+	c.logger.Info("Resource changes detected:")
+	for _, uri := range added {
+		c.logger.Success("+ Added: %s", uri)
+	}
+	for _, uri := range removed {
+		c.logger.Error("- Removed: %s", uri)
+	}
+}
+
+func (c *Client) showPromptDiff(oldPrompts, newPrompts []mcp.Prompt) {
+	oldMap := make(map[string]mcp.Prompt)
+	for _, p := range oldPrompts {
+		oldMap[p.Name] = p
+	}
+
+	newMap := make(map[string]mcp.Prompt)
+	for _, p := range newPrompts {
+		newMap[p.Name] = p
+	}
+
+	var added, removed []string
+
+	for name := range newMap {
+		if _, exists := oldMap[name]; !exists {
+			added = append(added, name)
+		}
+	}
+
+	for name := range oldMap {
+		if _, exists := newMap[name]; !exists {
+			removed = append(removed, name)
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		return // Silently return if no changes
+	}
+
+	c.logger.Info("Prompt changes detected:")
+	for _, name := range added {
+		c.logger.Success("+ Added: %s", name)
+	}
+	for _, name := range removed {
+		c.logger.Error("- Removed: %s", name)
+	}
+}

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,6 +22,11 @@ func NewFilterCommand(client ClientInterface, output OutputLogger, transport Tra
 
 // Execute filters tools based on patterns
 func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
+	if err := f.client.RefreshToolCache(ctx); err != nil {
+		f.output.Error("Failed to refresh tool cache: %v", err)
+		// Continue with the cached tools if refresh fails
+	}
+
 	parsed, err := f.parseArgs(args, 1, f.Usage())
 	if err != nil {
 		return err
@@ -118,55 +124,19 @@ func (f *FilterCommand) matchesPattern(name, pattern string, caseSensitive bool)
 		pattern = strings.ToLower(pattern)
 	}
 
-	return matchWildcard(name, pattern)
-}
-
-// matchWildcard implements proper sequential wildcard pattern matching
-func matchWildcard(text, pattern string) bool {
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return text == ""
-	}
-	if text == "" {
-		return pattern == ""
+	// If no wildcards are present in the pattern, perform a simple substring search.
+	// This makes the command more user-friendly for simple searches.
+	if !strings.ContainsAny(pattern, "*?") {
+		return strings.Contains(name, pattern)
 	}
 
-	// If no wildcards, do substring matching (like the original behavior)
-	if !strings.Contains(pattern, "*") {
-		return strings.Contains(text, pattern)
+	// Otherwise, use filepath matching for wildcard support.
+	matched, err := filepath.Match(pattern, name)
+	if err != nil {
+		f.output.Error("Invalid pattern: %v", err)
+		return false
 	}
-
-	// Split pattern by wildcards
-	parts := strings.Split(pattern, "*")
-	textPos := 0
-
-	for i, part := range parts {
-		// Skip empty parts between consecutive wildcards
-		if part == "" {
-			continue
-		}
-
-		if i == 0 && !strings.HasPrefix(pattern, "*") {
-			// First part must match from the beginning (no leading wildcard)
-			if !strings.HasPrefix(text[textPos:], part) {
-				return false
-			}
-			textPos += len(part)
-		} else {
-			// All other parts must exist in sequence
-			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
-			idx := strings.Index(text[textPos:], part)
-			if idx == -1 {
-				return false
-			}
-			textPos += idx + len(part)
-		}
-	}
-
-	return true
+	return matched
 }
 
 // containsDescription checks if description contains the filter text
