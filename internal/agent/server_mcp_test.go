@@ -7,10 +7,43 @@ import (
 	"sync"
 	"testing"
 
+	mcp_client "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// MockMCPGoClient is a mock implementation of the mcp-go MCPClient for testing
+type MockMCPGoClient struct {
+	mcp_client.MCPClient
+	tools []mcp.Tool
+}
+
+func (m *MockMCPGoClient) ListTools(ctx context.Context, req mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
+	return &mcp.ListToolsResult{
+		Tools: m.tools,
+	}, nil
+}
+func (m *MockMCPGoClient) Initialize(ctx context.Context, req mcp.InitializeRequest) (*mcp.InitializeResult, error) {
+	return &mcp.InitializeResult{}, nil
+}
+func (m *MockMCPGoClient) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return &mcp.CallToolResult{}, nil
+}
+func (m *MockMCPGoClient) ListResources(ctx context.Context, req mcp.ListResourcesRequest) (*mcp.ListResourcesResult, error) {
+	return &mcp.ListResourcesResult{}, nil
+}
+func (m *MockMCPGoClient) ReadResource(ctx context.Context, req mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	return &mcp.ReadResourceResult{}, nil
+}
+func (m *MockMCPGoClient) ListPrompts(ctx context.Context, req mcp.ListPromptsRequest) (*mcp.ListPromptsResult, error) {
+	return &mcp.ListPromptsResult{}, nil
+}
+func (m *MockMCPGoClient) GetPrompt(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	return &mcp.GetPromptResult{}, nil
+}
+func (m *MockMCPGoClient) OnNotification(handler func(notification mcp.JSONRPCNotification)) {}
+func (m *MockMCPGoClient) Close() error                                                      { return nil }
 
 // MockClient is a mock implementation of the agent Client for testing
 type MockClient struct {
@@ -61,24 +94,26 @@ func (m *MockClient) GetPrompt(ctx context.Context, name string, args map[string
 
 func TestMCPServerListTools(t *testing.T) {
 	// Create mock client with test data
-	mockClient := &MockClient{
-		toolCache: []mcp.Tool{
-			{
-				Name:        "test_tool_1",
-				Description: "Test tool 1 description",
-			},
-			{
-				Name:        "test_tool_2",
-				Description: "Test tool 2 description",
-			},
+	testTools := []mcp.Tool{
+		{
+			Name:        "test_tool_1",
+			Description: "Test tool 1 description",
+		},
+		{
+			Name:        "test_tool_2",
+			Description: "Test tool 2 description",
 		},
 	}
 
 	// Create MCP server with mock client
 	server := &MCPServer{
 		client: &Client{
-			toolCache: mockClient.toolCache,
+			toolCache: testTools,
 			mu:        sync.RWMutex{},
+			client: &MockMCPGoClient{
+				tools: testTools,
+			},
+			formatters: NewFormatters(),
 		},
 		logger: NewLogger(false, false, false),
 	}
@@ -130,8 +165,9 @@ func TestMCPServerDescribeTool(t *testing.T) {
 	// Create MCP server with mock client
 	server := &MCPServer{
 		client: &Client{
-			toolCache: mockClient.toolCache,
-			mu:        sync.RWMutex{},
+			toolCache:  mockClient.toolCache,
+			mu:         sync.RWMutex{},
+			formatters: NewFormatters(),
 		},
 		logger: NewLogger(false, false, false),
 	}
@@ -172,14 +208,15 @@ func TestMCPServerDescribeTool(t *testing.T) {
 // TestMCPServerHandlers tests the basic functionality of MCP server handlers
 func TestMCPServerHandlers(t *testing.T) {
 	// Create MCP server with minimal setup
+	testTools := []mcp.Tool{
+		{
+			Name:        "test_tool",
+			Description: "Test tool",
+		},
+	}
 	server := &MCPServer{
 		client: &Client{
-			toolCache: []mcp.Tool{
-				{
-					Name:        "test_tool",
-					Description: "Test tool",
-				},
-			},
+			toolCache: testTools,
 			resourceCache: []mcp.Resource{
 				{
 					URI:      "test://resource",
@@ -194,6 +231,10 @@ func TestMCPServerHandlers(t *testing.T) {
 				},
 			},
 			mu: sync.RWMutex{},
+			client: &MockMCPGoClient{
+				tools: testTools,
+			},
+			formatters: NewFormatters(),
 		},
 		logger: NewLogger(false, false, false),
 	}
@@ -204,6 +245,10 @@ func TestMCPServerHandlers(t *testing.T) {
 			client: &Client{
 				toolCache: []mcp.Tool{},
 				mu:        sync.RWMutex{},
+				client: &MockMCPGoClient{
+					tools: []mcp.Tool{},
+				},
+				formatters: NewFormatters(),
 			},
 			logger: NewLogger(false, false, false),
 		}

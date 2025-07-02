@@ -22,6 +22,9 @@ type ClientInterface interface {
 	GetToolCache() []mcp.Tool
 	GetResourceCache() []mcp.Resource
 	GetPromptCache() []mcp.Prompt
+	RefreshToolCache(ctx context.Context) error
+	RefreshResourceCache(ctx context.Context) error
+	RefreshPromptCache(ctx context.Context) error
 
 	// Core MCP operations for executing commands
 	CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)

@@ -29,12 +29,28 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	target := strings.ToLower(args[0])
 	switch target {
 	case "tools":
+		if err := l.client.RefreshToolCache(ctx); err != nil {
+			l.output.Error("Failed to refresh tool cache: %v", err)
+			// Continue with the cached tools if refresh fails
+		}
 		return l.listTools()
 	case "resources":
+		if err := l.client.RefreshResourceCache(ctx); err != nil {
+			l.output.Error("Failed to refresh resource cache: %v", err)
+			// Continue with the cached tools if refresh fails
+		}
 		return l.listResources()
 	case "prompts":
+		if err := l.client.RefreshPromptCache(ctx); err != nil {
+			l.output.Error("Failed to refresh prompt cache: %v", err)
+			// Continue with the cached tools if refresh fails
+		}
 		return l.listPrompts()
 	case "core-tools":
+		if err := l.client.RefreshToolCache(ctx); err != nil {
+			l.output.Error("Failed to refresh tool cache: %v", err)
+			// Continue with the cached tools if refresh fails
+		}
 		return l.listCoreTools(ctx)
 	default:
 		return l.validateTarget(target, []string{"tools", "resources", "prompts", "core-tools"})

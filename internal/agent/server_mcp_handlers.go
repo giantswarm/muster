@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,6 +23,9 @@ import (
 //   - JSON array of tool objects with name and description fields
 //   - Error message if formatting fails
 func (m *MCPServer) handleListTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := m.client.RefreshToolCache(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
+	}
 	m.client.mu.RLock()
 	tools := m.client.toolCache
 	m.client.mu.RUnlock()
@@ -47,6 +51,9 @@ func (m *MCPServer) handleListTools(ctx context.Context, request mcp.CallToolReq
 //   - JSON array of resource objects with complete metadata
 //   - Error message if formatting fails
 func (m *MCPServer) handleListResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := m.client.RefreshResourceCache(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh resource cache: %v", err)), nil
+	}
 	m.client.mu.RLock()
 	resources := m.client.resourceCache
 	m.client.mu.RUnlock()
@@ -72,6 +79,9 @@ func (m *MCPServer) handleListResources(ctx context.Context, request mcp.CallToo
 //   - JSON array of prompt objects with name and description fields
 //   - Error message if formatting fails
 func (m *MCPServer) handleListPrompts(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := m.client.RefreshPromptCache(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh prompt cache: %v", err)), nil
+	}
 	m.client.mu.RLock()
 	prompts := m.client.promptCache
 	m.client.mu.RUnlock()
@@ -423,6 +433,10 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 //   - JSON object with filter criteria, counts, and filtered tool list with full specifications
 //   - Error message if formatting fails
 func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := m.client.RefreshToolCache(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
+	}
+
 	// Get include_schema arg (defaults to true for full specifications)
 	args := request.GetArguments()
 	includeSchema := true
@@ -512,6 +526,10 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 //   - JSON object with filter criteria, statistics, and matching tools with full specifications
 //   - Error message if formatting fails
 func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := m.client.RefreshToolCache(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
+	}
+
 	// Get filter args from arguments with defaults
 	args := request.GetArguments()
 
@@ -570,7 +588,13 @@ func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolR
 			}
 
 			// Use proper wildcard pattern matching
-			matches = matches && matchWildcard(toolName, searchPattern)
+			var err error
+			matches, err = filepath.Match(searchPattern, toolName)
+			if err != nil {
+				// Handle potential bad pattern error, though it's unlikely with simple wildcards
+				m.logger.Error("bad pattern for filter: %v", err)
+				matches = false
+			}
 		}
 
 		// Check description filter with case sensitivity option
@@ -621,52 +645,4 @@ func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolR
 	}
 
 	return mcp.NewToolResultText(string(jsonData)), nil
-}
-
-// matchWildcard implements proper sequential wildcard pattern matching
-func matchWildcard(text, pattern string) bool {
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return text == ""
-	}
-	if text == "" {
-		return pattern == ""
-	}
-
-	// If no wildcards, do substring matching (like the original behavior)
-	if !strings.Contains(pattern, "*") {
-		return strings.Contains(text, pattern)
-	}
-
-	// Split pattern by wildcards
-	parts := strings.Split(pattern, "*")
-	textPos := 0
-
-	for i, part := range parts {
-		// Skip empty parts between consecutive wildcards
-		if part == "" {
-			continue
-		}
-
-		if i == 0 && !strings.HasPrefix(pattern, "*") {
-			// First part must match from the beginning (no leading wildcard)
-			if !strings.HasPrefix(text[textPos:], part) {
-				return false
-			}
-			textPos += len(part)
-		} else {
-			// All other parts must exist in sequence
-			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
-			idx := strings.Index(text[textPos:], part)
-			if idx == -1 {
-				return false
-			}
-			textPos += idx + len(part)
-		}
-	}
-
-	return true
 }

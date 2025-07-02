@@ -21,6 +21,11 @@ func NewFilterCommand(client ClientInterface, output OutputLogger, transport Tra
 
 // Execute filters tools based on patterns
 func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
+	if err := f.client.RefreshToolCache(ctx); err != nil {
+		f.output.Error("Failed to refresh tool cache: %v", err)
+		// Continue with the cached tools if refresh fails
+	}
+
 	parsed, err := f.parseArgs(args, 1, f.Usage())
 	if err != nil {
 		return err
@@ -118,11 +123,29 @@ func (f *FilterCommand) matchesPattern(name, pattern string, caseSensitive bool)
 		pattern = strings.ToLower(pattern)
 	}
 
-	return matchWildcard(name, pattern)
+	// Handle edge cases
+	if pattern == "*" {
+		return true
+	}
+	if pattern == "" {
+		return true // empty pattern should match everything
+	}
+	if name == "" {
+		return pattern == ""
+	}
+
+	// If no wildcards are present in the pattern, perform a simple substring search.
+	// This makes the command more user-friendly for simple searches.
+	if !strings.ContainsAny(pattern, "*?") {
+		return strings.Contains(name, pattern)
+	}
+
+	// For patterns with wildcards, use the original matchWildcard logic
+	return f.matchWildcard(name, pattern)
 }
 
 // matchWildcard implements proper sequential wildcard pattern matching
-func matchWildcard(text, pattern string) bool {
+func (f *FilterCommand) matchWildcard(text, pattern string) bool {
 	// Handle edge cases
 	if pattern == "*" {
 		return true
