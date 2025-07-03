@@ -74,12 +74,11 @@ alwaysApply: true
   - **Always update muster after a code change in go**
   - **There is no need to start muster serve**: Each test scenario is executed in its own environment and its own instance of `muster serve`
   - **Always treat the scenario as the defined and supposed user behavior**: If a scenario fails it is most likely a regression and the code needs to be fixed and not the scenario.
+  - **To see debug messages during test scenario execution**: You need to add a `--debug` flag: `muster test --scenario <scenario> --verbose --debug`
+  - **Never ever stop or commit with failing test scenarios**: You must fix them.
 
 - **Testing Standards**
   - **Minimum Coverage:** All new code **MUST** achieve at least **80% unit test coverage**.
-  - **TUI Golden Files:** All TUI view changes **MUST** be verified with golden file snapshots.
-    Run `NO_COLOR=true go test ./internal/tui/view/... -update` to update snapshots.
-    Manually review the `.golden` file changes in `internal/tui/view/testdata/` to ensure they are intentional.
   - **No Flaky Tests:** Tests **MUST** be deterministic. Do not use `time.Sleep` or other mechanisms that can lead to race conditions. Use dependency injection for things like clocks or timers to make code testable.
 
 - **Go Development & Style**

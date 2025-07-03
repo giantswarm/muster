@@ -1238,6 +1238,10 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 		condition.Args = args
 	}
 
+	// Track whether we have any expectations
+	hasExpect := false
+	hasExpectNot := false
+
 	// Expect (optional)
 	if expectParam, ok := conditionParam["expect"].(map[string]interface{}); ok {
 		expect, err := convertWorkflowConditionExpectation(expectParam)
@@ -1245,6 +1249,7 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 			return condition, fmt.Errorf("invalid expect: %v", err)
 		}
 		condition.Expect = expect
+		hasExpect = true
 	}
 
 	// ExpectNot (optional)
@@ -1254,11 +1259,11 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 			return condition, fmt.Errorf("invalid expect_not: %v", err)
 		}
 		condition.ExpectNot = expectNot
+		hasExpectNot = true
 	}
 
 	// At least one of expect or expect_not must be provided
-	if condition.Expect.Success == false && len(condition.Expect.JsonPath) == 0 &&
-		condition.ExpectNot.Success == false && len(condition.ExpectNot.JsonPath) == 0 {
+	if !hasExpect && !hasExpectNot {
 		return condition, fmt.Errorf("either expect or expect_not is required")
 	}
 
