@@ -14,14 +14,14 @@ pre_configuration:
           - id: "get_service_list"
             tool: "core_service_list"
             # The 'store' key saves the entire output of this step into the context
-            # with the key 'all_services'
-            store: "all_services"
+            # using the step ID as the key
+            store: true
           - id: "echo_service_list"
             tool: "x_mock-echo_echo"
             args:
               # We can then reference the stored output in subsequent steps
-              text: "Stored services: {{ .results.all_services }}"
-            store: "echo_result"
+              text: "Stored services: {{ .results.get_service_list }}"
+            store: true
 
   mcp_servers:
     - name: "mock-echo"
@@ -90,16 +90,16 @@ steps:
         tool: "x_mock-echo_echo"
         args:
           text: "first"
-        store: "my_value"
+        store: true
       - id: "step2"
         tool: "x_mock-echo_echo"
         args:
           text: "second"
-        store: "my_value"
+        store: true
       - id: "step3"
         tool: "x_mock-echo_echo"
         args:
-          text: "final value is {{ .context.my_value.echoed }}"
+          text: "final value is {{ .context.step2.echoed }}"
   expected:
     success: true
   cleanup:

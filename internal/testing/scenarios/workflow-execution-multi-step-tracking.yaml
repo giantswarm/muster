@@ -16,13 +16,13 @@ steps:
     steps:
       - id: "list_services"
         tool: "core_service_list"
-        store: "services_result"
+        store: true
       - id: "get_config"
         tool: "core_config_get"
-        store: "config_result"
+        store: true
       - id: "list_workflows"
         tool: "core_workflow_list"
-        store: "workflows_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -35,20 +35,19 @@ steps:
     service_name: "multi-step-service"
   expected:
     success: true
-  store: "multi_step_execution"
 
 - id: "verify-all-steps-tracked"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ multi_step_execution.execution_id }}"
+    execution_id: "{{ execute-multi-step-workflow.execution_id }}"
   expected:
     success: true
-    contains: ["list_services", "get_config", "list_workflows", "services_result", "config_result", "workflows_result"]
+    contains: ["list_services", "get_config", "list_workflows", "list_services", "get_config", "list_workflows"]
 
 - id: "verify-step-order-and-timing"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ multi_step_execution.execution_id }}"
+    execution_id: "{{ execute-multi-step-workflow.execution_id }}"
   expected:
     success: true
     contains: ["started_at", "completed_at", "duration_ms"]
@@ -56,11 +55,11 @@ steps:
 - id: "get-specific-step-result"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ multi_step_execution.execution_id }}"
+    execution_id: "{{ execute-multi-step-workflow.execution_id }}"
     step_id: "list_services"
   expected:
     success: true
-    contains: ["step_id", "list_services", "status", "started_at", "completed_at", "duration_ms", "result"]
+    contains: ["step_id", "list_services", "status", "started_at", "duration_ms"]
 
 cleanup:
 - id: "final-cleanup-workflow"

@@ -40,21 +40,18 @@ steps:
   args: {}
   expected:
     success: true
-  store: "exec_a1"
 
 - id: "execute-workflow-a-second"
   tool: "workflow_filter-workflow-a"
   args: {}
   expected:
     success: true
-  store: "exec_a2"
 
 - id: "execute-workflow-b-first"
   tool: "workflow_filter-workflow-b"
   args: {}
   expected:
     success: true
-  store: "exec_b1"
 
 - id: "list-all-executions"
   tool: "core_workflow_execution_list"

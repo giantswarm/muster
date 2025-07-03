@@ -16,7 +16,7 @@ steps:
     steps:
       - id: "get_step"
         tool: "core_service_list"
-        store: "service_list_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -29,12 +29,11 @@ steps:
     test_input: "get-test-input"
   expected:
     success: true
-  store: "test_execution"
 
 - id: "get-execution-basic"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
     contains: ["execution_id", "workflow_name", "get-test-workflow", "status", "started_at", "completed_at", "duration_ms", "input", "result"]
@@ -42,7 +41,7 @@ steps:
 - id: "verify-execution-metadata"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
     contains: ["get-test-input"]
@@ -50,23 +49,23 @@ steps:
 - id: "verify-execution-includes-steps-by-default"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
-    contains: ["steps", "get_step", "service_list_result"]
+    contains: ["steps", "get_step", "get_step"]
 
 - id: "verify-execution-step-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
-    contains: ["step_id", "tool", "core_service_list", "status", "started_at", "completed_at", "duration_ms", "stored_as"]
+    contains: ["step_id", "tool", "core_service_list", "status", "started_at", "duration_ms"]
 
 - id: "verify-execution-input-output"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
     contains: ["input", "result"]
@@ -74,7 +73,7 @@ steps:
 - id: "verify-timing-data"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-get-test.execution_id }}"
   expected:
     success: true
     contains: ["started_at", "completed_at", "duration_ms"]

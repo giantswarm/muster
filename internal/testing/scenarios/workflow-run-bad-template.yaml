@@ -13,7 +13,7 @@ pre_configuration:
         - id: "bad-step"
           tool: "x_echo-provider_echo"
           args: { text: "{{ .context.non_existent_value }}" }
-          store: "echo_result"
+          store: true
   mcp_servers:
   - name: "echo-provider"
     config:

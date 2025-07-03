@@ -37,7 +37,7 @@ pre_configuration:
             serviceClassName: "test-sc"
             args:
               text: "{{.input.message}}"
-          store: "test-sc-service"            
+          store: true            
   mcp_servers:
   - name: "echo-provider"
     config:
@@ -55,5 +55,5 @@ steps:
     json_path:
       status: "completed"
       workflow: "test-workflow"
-      "results.test-sc-service.outputs.omg": "OMG hello from test"
-      "results.test-sc-service.name": "test-sc-1"
+      "results.sc.result.outputs.omg": "OMG hello from test"
+      "results.sc.result.name": "test-sc-1"

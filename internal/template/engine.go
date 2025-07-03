@@ -19,7 +19,7 @@ type Engine struct {
 // New creates a new template engine
 func New() *Engine {
 	return &Engine{
-		templatePattern: regexp.MustCompile(`\{\{\s*\.?([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}`),
+		templatePattern: regexp.MustCompile(`\{\{\s*\.?([a-zA-Z_][a-zA-Z0-9_.-]*)\s*\}\}`),
 	}
 }
 

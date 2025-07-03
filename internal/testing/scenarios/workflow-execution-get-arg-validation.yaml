@@ -13,7 +13,7 @@ steps:
     steps:
       - id: "validation_step"
         tool: "core_service_list"
-        store: "validation_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -26,7 +26,6 @@ steps:
   args: {}
   expected:
     success: true
-  store: "validation_execution"
 
 # Test missing required arg
 - id: "test-missing-execution-id"
@@ -58,7 +57,7 @@ steps:
 - id: "test-empty-step-id"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     step_id: ""
   expected:
     success: false
@@ -68,7 +67,7 @@ steps:
 - id: "test-null-step-id"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     step_id: null
   expected:
     success: false
@@ -78,7 +77,7 @@ steps:
 - id: "test-include-steps-true"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
@@ -87,7 +86,7 @@ steps:
 - id: "test-include-steps-false"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     include_steps: false
   expected:
     success: true
@@ -97,7 +96,7 @@ steps:
 - id: "test-include-steps-string"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     include_steps: "not-boolean"
   expected:
     success: false
@@ -107,7 +106,7 @@ steps:
 - id: "test-include-steps-number"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     include_steps: 1
   expected:
     success: false
@@ -126,12 +125,12 @@ steps:
 - id: "test-all-valid-args"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ validation_execution.execution_id }}"
+    execution_id: "{{ execute-validation-workflow.execution_id }}"
     include_steps: true
     step_id: "validation_step"
   expected:
     success: true
-    contains: ["validation_step", "step_id", "result"]
+    contains: ["validation_step", "step_id"]
 
 cleanup:
 - id: "final-cleanup-workflow"

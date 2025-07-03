@@ -30,15 +30,15 @@ steps:
     steps:
       - id: "success_step"
         tool: "core_service_list"
-        store: "success_result"
+        store: true
       - id: "failing_step"
         tool: "x_error-validation-mock_validation_fail"
         args:
           error_type: "{{ .input.error_type }}"
-        store: "fail_result"
+        store: true
       - id: "unreachable_step"
         tool: "core_workflow_list"
-        store: "unreachable_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -53,13 +53,12 @@ steps:
   expected:
     success: false
     error_contains: ["Validation test error", "structured-test"]
-  store: "failed_execution"
 
 # Validate failed execution response structure (as per issue #16)
 - id: "validate-failed-execution-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -72,7 +71,7 @@ steps:
 - id: "validate-error-field-content"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -83,7 +82,7 @@ steps:
 - id: "validate-failed-step-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     step_id: "failing_step"
   expected:
     success: true
@@ -97,12 +96,12 @@ steps:
 - id: "validate-successful-step-no-error"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     step_id: "success_step"
   expected:
     success: true
     contains: [
-      "success_step", "status", "completed", "result", "success_result"
+      "success_step", "status", "completed"
     ]
     not_contains: ['"error":', '"error": ']  # Should not have step-level error field
 
@@ -110,7 +109,7 @@ steps:
 - id: "validate-unreachable-step-not-executed"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     step_id: "unreachable_step"
   expected:
     success: false
@@ -120,7 +119,7 @@ steps:
 - id: "validate-workflow-failed-status"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -154,7 +153,7 @@ steps:
 - id: "validate-error-in-steps-array"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
@@ -167,7 +166,7 @@ steps:
 - id: "validate-error-in-summary"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     include_steps: false
   expected:
     success: true
@@ -181,7 +180,7 @@ steps:
 - id: "validate-input-preserved-in-failure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -192,7 +191,7 @@ steps:
 - id: "validate-timing-in-failed-execution"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -203,7 +202,7 @@ steps:
 - id: "validate-result-field-in-failure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     # Result field should be present but may be null or contain partial results

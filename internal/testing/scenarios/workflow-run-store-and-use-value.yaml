@@ -10,13 +10,13 @@ pre_configuration:
     config:
       name: "store-and-use-workflow"
       steps:
-        - id: "get-list"
+        - id: "get_list"
           tool: "core_service_list"
-          store: "services"
+          store: true
         - id: "echo"
           tool: "x_echo-provider_echo"
-          args: { text: "Service list is: {{ .results.services }}" }
-          store: "echo_result"
+          args: { text: "Service list is: {{ .results.get_list }}" }
+          store: true
   mcp_servers:
   - name: "echo-provider"
     config:

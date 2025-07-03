@@ -27,7 +27,7 @@ steps:
     steps:
       - id: "validate_params"
         tool: "core_service_list"
-        store: "validation_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -42,7 +42,6 @@ steps:
     numeric_param: 100
   expected:
     success: true
-  store: "full_params_execution"
 
 - id: "execute-with-minimal-params"
   tool: "workflow_parameter-tracking-workflow"
@@ -50,12 +49,11 @@ steps:
     required_param: "minimal-test"
   expected:
     success: true
-  store: "minimal_params_execution"
 
 - id: "verify-full-params-tracked"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ full_params_execution.execution_id }}"
+    execution_id: "{{ execute-with-all-params.execution_id }}"
   expected:
     success: true
     contains: ["test-value", "custom-value", "100", "input"]
@@ -63,7 +61,7 @@ steps:
 - id: "verify-default-params-tracked"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ minimal_params_execution.execution_id }}"
+    execution_id: "{{ execute-with-minimal-params.execution_id }}"
   expected:
     success: true
     contains: ["minimal-test", "default-value", "42", "input"]

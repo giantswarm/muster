@@ -72,6 +72,62 @@ steps:
       args:
         name: "conditional-workflow"
 
+- id: "create-service-health-workflow"
+  tool: "core_workflow_create"
+  args:
+    name: "service-health-workflow"
+    args:
+      service_name: 
+        type: "string"
+        required: true
+    steps:
+      - id: "get-service-status"
+        tool: "core_service_get"
+        args:
+          name: "{{.input.service_name}}"
+        allow_failure: true
+        store: true
+        # This step is allowed to fail - result will be available for subsequent conditions
+      - id: "restart-unhealthy-service"
+        condition:
+          # Use result from previous step
+          from_step: "get-service-status"
+          expect:
+            success: true
+            json_path:
+              name: "{{.input.service_name}}"
+          expect_not:
+            json_path:
+              health: "healthy"
+        tool: "core_service_restart"
+        args:
+          name: "{{.input.service_name}}"
+      - id: "create-missing-service"
+        condition:
+          # Use result from previous step  
+          from_step: "get-service-status"
+          expect_not:
+            success: true
+          # This means: if get-service-status was NOT successful (service doesn't exist)
+        tool: "core_service_create"
+        args:
+          name: "{{.input.service_name}}"
+          serviceClassName: "test-sc"
+          args:
+            echo: "{{.input.service_name}}"
+      - id: "report-final-status"
+        tool: "core_service_get"
+        args:
+          name: "{{.input.service_name}}"
+        store: true
+  expected:
+    success: true
+  cleanup:
+    - id: "delete-service-health-workflow"
+      tool: "core_workflow_delete"
+      args:
+        name: "service-health-workflow"
+
 - id: "create-test-service"
   tool: "core_service_create"
   args:
@@ -110,4 +166,77 @@ steps:
       workflow: "conditional-workflow"
       "results.check-service-exists.status": "skipped"
       "results.check-service-exists.condition_evaluation": false
-      "results.always-execute.status": "completed" 
+      "results.always-execute.status": "completed"
+
+- id: "create-unhealthy-service"
+  tool: "core_service_create"
+  args:
+    name: "unhealthy-service"
+    serviceClassName: "test-sc"
+    args:
+      echo: "unhealthy-service"
+  expected:
+    success: true
+
+- id: "stop-service-to-make-unhealthy"
+  tool: "core_service_stop"
+  args:
+    name: "unhealthy-service"
+  expected:
+    success: true
+
+- id: "run-service-health-workflow-unhealthy"
+  tool: "workflow_service-health-workflow"
+  args:
+    service_name: "unhealthy-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "service-health-workflow"
+      "results.get-service-status.status": "completed"
+      "results.get-service-status.result.name": "unhealthy-service"
+      "results.get-service-status.result.health": "unknown"
+      "results.restart-unhealthy-service.status": "completed"
+      "results.restart-unhealthy-service.condition_evaluation": true
+      "results.create-missing-service.status": "skipped"
+      "results.create-missing-service.condition_evaluation": false
+      "results.report-final-status.status": "completed"
+      "results.report-final-status.result.health": "healthy"
+
+- id: "run-service-health-workflow-missing"
+  tool: "workflow_service-health-workflow"
+  args:
+    service_name: "totally-missing-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "service-health-workflow"
+      "results.get-service-status.status": "failed"
+      "results.get-service-status.allow_failure": true
+      "results.restart-unhealthy-service.status": "skipped"
+      "results.restart-unhealthy-service.condition_evaluation": false
+      "results.create-missing-service.status": "completed"
+      "results.create-missing-service.condition_evaluation": true
+      "results.report-final-status.status": "completed"
+      "results.report-final-status.result.health": "healthy"
+
+- id: "run-service-health-workflow-healthy"
+  tool: "workflow_service-health-workflow"
+  args:
+    service_name: "existing-service"
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      workflow: "service-health-workflow"
+      "results.get-service-status.status": "completed"
+      "results.get-service-status.result.name": "existing-service"
+      "results.get-service-status.result.health": "healthy"
+      "results.restart-unhealthy-service.status": "skipped"
+      "results.restart-unhealthy-service.condition_evaluation": false
+      "results.create-missing-service.status": "skipped"
+      "results.create-missing-service.condition_evaluation": false
+      "results.report-final-status.status": "completed"
+      "results.report-final-status.result.health": "healthy"

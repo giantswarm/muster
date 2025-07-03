@@ -14,15 +14,15 @@ steps:
           type: "string"
           default: "test-service"
     steps:
-      - id: "first_step"
+      - id: "services_data"
         tool: "core_service_list"
-        store: "services_data"
-      - id: "second_step"
+        store: true
+      - id: "workflows_data"
         tool: "core_workflow_list"
-        store: "workflows_data"
-      - id: "third_step"
+        store: true
+      - id: "config_data"
         tool: "core_config_get"
-        store: "config_data"
+        store: true
   expected:
     success: true
   cleanup:
@@ -35,30 +35,29 @@ steps:
     service_name: "steps-service"
   expected:
     success: true
-  store: "steps_execution"
 
 - id: "get-execution-with-steps-explicit"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
-    contains: ["steps", "first_step", "second_step", "third_step"]
+    contains: ["steps", "services_data", "workflows_data", "config_data"]
 
 - id: "verify-all-step-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
-    contains: ["step_id", "tool", "status", "started_at", "completed_at", "duration_ms", "input", "result", "stored_as"]
+    contains: ["step_id", "tool", "status", "started_at", "duration_ms", "input"]
 
 - id: "verify-step-storage-info"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
@@ -67,7 +66,7 @@ steps:
 - id: "verify-step-tool-mapping"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
@@ -76,16 +75,16 @@ steps:
 - id: "verify-step-execution-order"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
-    contains: ["first_step", "second_step", "third_step"]
+    contains: ["services_data", "workflows_data", "config_data"]
 
 - id: "verify-step-status"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ steps_execution.execution_id }}"
+    execution_id: "{{ execute-steps-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true

@@ -13,7 +13,7 @@ steps:
     steps:
       - id: "defaults_step"
         tool: "core_service_list"
-        store: "defaults_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -27,21 +27,18 @@ steps:
   args: {}
   expected:
     success: true
-  store: "execution_1"
 
 - id: "execute-workflow-2"
   tool: "workflow_defaults-workflow"
   args: {}
   expected:
     success: true
-  store: "execution_2"
 
 - id: "execute-workflow-3"
   tool: "workflow_defaults-workflow"
   args: {}
   expected:
     success: true
-  store: "execution_3"
 
 # Test default limit (should be 50 according to issue #16)
 - id: "test-default-limit-no-params"
@@ -85,19 +82,19 @@ steps:
 - id: "test-default-include-steps-no-param"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ execution_1.execution_id }}"
+    execution_id: "{{ execute-workflow-1.execution_id }}"
   expected:
     success: true
-    contains: ["steps", "defaults_step", "defaults_result"]
+    contains: ["steps", "defaults_step"]
 
 - id: "test-default-include-steps-explicit-true"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ execution_1.execution_id }}"
+    execution_id: "{{ execute-workflow-1.execution_id }}"
     include_steps: true
   expected:
     success: true
-    contains: ["steps", "defaults_step", "defaults_result"]
+    contains: ["steps", "defaults_step"]
 
 # Compare behavior: default vs explicit args
 - id: "compare-default-vs-explicit-limit"
@@ -130,7 +127,7 @@ steps:
 - id: "test-all-defaults-get"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ execution_1.execution_id }}"
+    execution_id: "{{ execute-workflow-1.execution_id }}"
     # Only required arg, others should use defaults
   expected:
     success: true

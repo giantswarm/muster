@@ -18,7 +18,7 @@ pre_configuration:
         - id: "echo"
           tool: "x_echo-provider_echo"
           args: { text: "{{ .input.message }}" }
-          store: "echo_result"
+          store: true
   mcp_servers:
   - name: "echo-provider"
     config:
@@ -34,4 +34,4 @@ steps:
     contains:
       - "default value"
       - "completed"
-      - "echo_result" 
+      - "echo" 

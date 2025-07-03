@@ -83,16 +83,27 @@ type OperationDefinition struct {
 type WorkflowCondition struct {
 	// Tool specifies the name of the tool to execute for condition evaluation.
 	// Must correspond to an available tool in the aggregator.
-	Tool string `yaml:"tool" json:"tool"`
+	// Optional when FromStep is used.
+	Tool string `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 	// Args provides the arguments to pass to the condition tool.
 	// Can include templated values that are resolved at runtime.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// FromStep specifies the step ID to reference for condition evaluation.
+	// When specified, the condition evaluates against the result of the referenced step
+	// instead of executing a new tool call.
+	FromStep string `yaml:"from_step,omitempty" json:"from_step,omitempty"`
+
 	// Expect defines the expected result for the condition to be considered true.
 	// If the condition tool result matches these expectations, the step will execute.
 	// If not, the step will be skipped.
-	Expect WorkflowConditionExpectation `yaml:"expect" json:"expect"`
+	Expect WorkflowConditionExpectation `yaml:"expect,omitempty" json:"expect,omitempty"`
+
+	// ExpectNot defines the negated expected result for the condition to be considered true.
+	// If the condition tool result does NOT match these expectations, the step will execute.
+	// If it matches, the step will be skipped.
+	ExpectNot WorkflowConditionExpectation `yaml:"expect_not,omitempty" json:"expect_not,omitempty"`
 }
 
 // WorkflowConditionExpectation defines what result is expected from a condition tool
@@ -135,13 +146,18 @@ type WorkflowStep struct {
 	// Can include templated values that are resolved at runtime using previous step results.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// AllowFailure indicates whether this step is allowed to fail without failing the workflow.
+	// When true, step failures are recorded but the workflow continues execution.
+	// The step result will be available for subsequent step conditions to reference.
+	AllowFailure bool `yaml:"allow_failure,omitempty" json:"allow_failure,omitempty"`
+
 	// Outputs defines how step results should be stored and made available to subsequent steps.
 	// Maps output variable names to result field paths.
 	Outputs map[string]interface{} `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 
-	// Store specifies the variable name where the step result should be stored.
-	// This allows subsequent steps to reference the result of this step.
-	Store string `yaml:"store,omitempty" json:"store,omitempty"`
+	// Store indicates whether the step result should be stored in workflow results.
+	// When true, the step result is stored and accessible in subsequent steps and conditions.
+	Store bool `yaml:"store,omitempty" json:"store,omitempty"`
 
 	// Description provides human-readable documentation for this step's purpose
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`

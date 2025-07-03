@@ -22,7 +22,7 @@ pre_configuration:
             tool: "x_mock-echo_echo"
             args:
               text: "Service {{ .input.service_name }} says: {{ .input.message }}"
-            store: "echo_result"
+            store: true
 
   mcp_servers:
     - name: "mock-echo"
