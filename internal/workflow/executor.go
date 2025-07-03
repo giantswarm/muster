@@ -194,7 +194,20 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				conditionPassed = false
 			} else {
 				// Check if we have an expect condition to evaluate
-				hasExpect := step.Condition.Expect.Success || len(step.Condition.Expect.JsonPath) > 0
+				// Since validation ensures at least one expectation is provided, we always
+				// try to evaluate both expect and expect_not sections if they might be present.
+				// An expect condition is present if there are JsonPath conditions OR
+				// if the condition passed validation (meaning expect was provided)
+				hasExpect := len(step.Condition.Expect.JsonPath) > 0
+				// Check if expect_not condition is present
+				hasExpectNot := len(step.Condition.ExpectNot.JsonPath) > 0
+
+				// If neither has JsonPath, then at least one must have a success condition
+				// since validation ensures at least one expectation section exists
+				if !hasExpect && !hasExpectNot {
+					hasExpect = true // Default to checking expect first
+				}
+
 				if hasExpect {
 					// Evaluate expect condition
 					expectPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
@@ -215,8 +228,6 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					logging.Debug("WorkflowExecutor", "Step %s expect condition result: %v", step.ID, expectPassed)
 				}
 
-				// Check if we have an expect_not condition to evaluate
-				hasExpectNot := step.Condition.ExpectNot.Success || len(step.Condition.ExpectNot.JsonPath) > 0
 				if hasExpectNot {
 					// Evaluate expect_not condition
 					expectNotPassed := true
@@ -242,12 +253,6 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					expectNotPassed = !expectNotPassed
 					conditionPassed = conditionPassed && expectNotPassed
 					logging.Debug("WorkflowExecutor", "Step %s expect_not condition result (negated): %v", step.ID, expectNotPassed)
-				}
-
-				// If neither expect nor expect_not are provided, default to checking success only
-				if !hasExpect && !hasExpectNot {
-					conditionPassed = !conditionToolResult.IsError
-					logging.Debug("WorkflowExecutor", "Step %s using default success condition: %v", step.ID, conditionPassed)
 				}
 			}
 

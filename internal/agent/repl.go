@@ -91,6 +91,7 @@ func NewREPL(client *Client, logger *Logger) *REPL {
 //   - prompt: Template-based prompt execution
 //   - filter: Advanced pattern-based tool filtering
 //   - notifications: Toggle and manage real-time updates
+//   - workflow: Execute workflows with parameters
 //   - exit: Graceful session termination
 //
 // Each command is provided with access to the client, logger, and transport
@@ -108,6 +109,7 @@ func (r *REPL) registerCommands() {
 	r.commandRegistry.Register("prompt", commands.NewPromptCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("filter", commands.NewFilterCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("notifications", commands.NewNotificationsCommand(r.client, r.logger, transport))
+	r.commandRegistry.Register("workflow", commands.NewWorkflowCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("exit", commands.NewExitCommand(r.client, r.logger, transport))
 }
 

@@ -106,8 +106,8 @@ steps:
         condition:
           # Use result from previous step  
           from_step: "get-service-status"
-          expect_not:
-            success: true
+          expect:
+            success: false
           # This means: if get-service-status was NOT successful (service doesn't exist)
         tool: "core_service_create"
         args:
