@@ -96,14 +96,14 @@ pre_configuration:
             tool: "x_kubernetes-mock_k8s_pod_list"
             args:
               namespace: "{{ .input.namespace }}"
-            store: "pods_list"
+            store: true
           - id: "create_application_pod"
             tool: "x_kubernetes-mock_k8s_pod_create"
             args:
               name: "{{ .input.app_name }}"
               image: "{{ .input.app_image }}"
               namespace: "{{ .input.namespace }}"
-            store: "created_pod"
+            store: true
 
 steps:
   - id: "verify-mock-server-tools"

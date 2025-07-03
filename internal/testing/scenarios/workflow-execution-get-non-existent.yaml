@@ -33,12 +33,11 @@ steps:
   args: {}
   expected:
     success: true
-  store: "step_test_execution"
 
 - id: "get-non-existent-step"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ step_test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-step-tests.execution_id }}"
     step_id: "non-existent-step"
   expected:
     success: false
@@ -47,7 +46,7 @@ steps:
 - id: "get-empty-step-id"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ step_test_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-for-step-tests.execution_id }}"
     step_id: ""
   expected:
     success: false

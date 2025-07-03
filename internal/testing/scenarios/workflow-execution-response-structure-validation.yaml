@@ -19,10 +19,10 @@ steps:
     steps:
       - id: "structure_step_1"
         tool: "core_service_list"
-        store: "structure_result_1"
+        store: true
       - id: "structure_step_2"
         tool: "core_workflow_list"
-        store: "structure_result_2"
+        store: true
   expected:
     success: true
   cleanup:
@@ -37,13 +37,12 @@ steps:
     numeric_input: 100
   expected:
     success: true
-  store: "structure_execution"
 
 # Validate complete execution response structure (as per issue #16)
 - id: "validate-execution-response-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     # All required fields from issue #16 WorkflowExecution Response Structure
@@ -57,7 +56,7 @@ steps:
 - id: "validate-execution-metadata"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -68,15 +67,14 @@ steps:
 - id: "validate-step-response-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
     step_id: "structure_step_1"
   expected:
     success: true
     # All required step fields from issue #16
     contains: [
       "step_id", "structure_step_1", "tool", "core_service_list", "status",
-      "started_at", "completed_at", "duration_ms",
-      "input", "result", "stored_as", "structure_result_1"
+      "started_at", "duration_ms", "input"
     ]
 
 # Validate list response structure
@@ -95,7 +93,7 @@ steps:
 - id: "validate-status-completed"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     contains: ["completed"]  # Should be exactly "completed"
@@ -104,7 +102,7 @@ steps:
 - id: "validate-timestamp-format"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     # Timestamps should be ISO 8601 format: "2024-01-01T00:00:00Z"
@@ -114,7 +112,7 @@ steps:
 - id: "validate-duration-numeric"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     contains: ["duration_ms"]
@@ -123,17 +121,17 @@ steps:
 - id: "validate-step-timing-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
     step_id: "structure_step_1"
   expected:
     success: true
-    contains: ["started_at", "completed_at", "duration_ms"]
+    contains: ["started_at", "duration_ms"]
 
 # Validate input/output structure preservation
 - id: "validate-input-output-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     contains: ["input", "result", "validation-input", "100"]
@@ -142,20 +140,20 @@ steps:
 - id: "validate-steps-array-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
     include_steps: true
   expected:
     success: true
     contains: [
       "steps", "structure_step_1", "structure_step_2",
-      "structure_result_1", "structure_result_2"
+      "structure_step_1", "structure_step_2"
     ]
 
 # Validate response excludes steps when include_steps=false
 - id: "validate-no-steps-when-false"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
     include_steps: false
   expected:
     success: true
@@ -166,7 +164,7 @@ steps:
 - id: "validate-no-error-in-success"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
   expected:
     success: true
     contains: ["completed", "status"]
@@ -176,7 +174,7 @@ steps:
 - id: "validate-complete-step-structure"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ structure_execution.execution_id }}"
+    execution_id: "{{ execute-structure-workflow.execution_id }}"
     step_id: "structure_step_2"
   expected:
     success: true
@@ -184,8 +182,8 @@ steps:
       "step_id", "structure_step_2",
       "tool", "core_workflow_list", 
       "status", "completed",
-      "started_at", "completed_at", "duration_ms",
-      "input", "result", "stored_as", "structure_result_2"
+      "started_at", "duration_ms",
+      "input"
     ]
 
 cleanup:

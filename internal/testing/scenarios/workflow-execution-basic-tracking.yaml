@@ -17,7 +17,7 @@ steps:
     steps:
       - id: "list_services"
         tool: "core_service_list"
-        store: "services_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -31,7 +31,6 @@ steps:
     service_name: "api-service"
   expected:
     success: true
-  store: "first_execution"
 
 - id: "verify-execution-tracked"
   tool: "core_workflow_execution_list"
@@ -45,7 +44,7 @@ steps:
 - id: "get-execution-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ first_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-first-time.execution_id }}"
   expected:
     success: true
     contains: ["execution_id", "workflow_name", "status", "started_at", "completed_at", "duration_ms", "input", "result", "steps"]
@@ -53,10 +52,10 @@ steps:
 - id: "verify-execution-data-integrity"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ first_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-first-time.execution_id }}"
   expected:
     success: true
-    contains: ["api-service", "list_services", "services_result"]
+    contains: ["api-service", "list_services"]
 
 cleanup:
 - id: "final-cleanup-workflow"

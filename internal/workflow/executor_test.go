@@ -177,13 +177,13 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 				ID:    "step1",
 				Tool:  "test_tool",
 				Args:  map[string]interface{}{},
-				Store: "step1_result",
+				Store: true,
 			},
 			{
 				ID:   "step2",
 				Tool: "test_tool",
 				Args: map[string]interface{}{
-					"data": "{{ .results.step1_result.status }}",
+					"data": "{{ .results.step1.status }}",
 				},
 			},
 		},

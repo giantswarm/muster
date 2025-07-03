@@ -17,7 +17,7 @@ steps:
     steps:
       - id: "special_step"
         tool: "core_service_list"
-        store: "special_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -31,7 +31,6 @@ steps:
     special_input: "edge-case-input_with_underscores-and-dashes"
   expected:
     success: true
-  store: "special_execution"
 
 # Test filtering with special characters
 - id: "list-executions-special-name"
@@ -118,7 +117,6 @@ steps:
   args: {}
   expected:
     success: true
-  store: "edge_execution"
 
 # Test filtering with long workflow names
 - id: "test-long-workflow-name-filtering"
@@ -133,7 +131,7 @@ steps:
 - id: "test-special-chars-step-id"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ special_execution.execution_id }}"
+    execution_id: "{{ execute-special-name-workflow.execution_id }}"
     step_id: "special_step"
   expected:
     success: true
@@ -169,7 +167,7 @@ steps:
 - id: "validate-special-chars-preservation"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ special_execution.execution_id }}"
+    execution_id: "{{ execute-special-name-workflow.execution_id }}"
   expected:
     success: true
     contains: [
@@ -202,7 +200,6 @@ steps:
     special_input: "concurrent-test-1"
   expected:
     success: true
-  store: "concurrent_execution_1"
 
 - id: "test-second-concurrent-execution"
   tool: "workflow_special-chars-workflow_123"
@@ -210,7 +207,6 @@ steps:
     special_input: "concurrent-test-2"
   expected:
     success: true
-  store: "concurrent_execution_2"
 
 # Verify both executions are tracked
 - id: "verify-concurrent-executions-tracked"

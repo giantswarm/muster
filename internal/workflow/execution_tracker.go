@@ -211,12 +211,20 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 		stepStatusRaw, _ := stepMeta["Status"].(string)
 		conditionTool, _ := stepMeta["ConditionTool"].(string)
 
-		// Extract condition result if present
-		var conditionResult *bool
-		if conditionResultRaw, hasCondition := stepMeta["ConditionResult"]; hasCondition && conditionResultRaw != nil {
-			if conditionBool, ok := conditionResultRaw.(bool); ok {
-				conditionResult = &conditionBool
+		// Extract condition information if present
+		var conditionEvaluation *bool
+		var conditionResult interface{}
+
+		// Extract condition evaluation (boolean result)
+		if conditionEvaluationRaw, hasConditionEvaluation := stepMeta["ConditionEvaluation"]; hasConditionEvaluation && conditionEvaluationRaw != nil {
+			if conditionBool, ok := conditionEvaluationRaw.(bool); ok {
+				conditionEvaluation = &conditionBool
 			}
+		}
+
+		// Extract condition result (actual tool result)
+		if conditionResultRaw, hasConditionResult := stepMeta["ConditionResult"]; hasConditionResult {
+			conditionResult = conditionResultRaw
 		}
 
 		// Get the result if it was stored
@@ -229,8 +237,8 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 		var stepStatus api.WorkflowExecutionStatus
 		var stepError *string
 
-		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', metaStatus='%s', failedStepID='%s', conditionResult=%v",
-			stepID, stepStatusRaw, failedStepID, conditionResult)
+		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', metaStatus='%s', failedStepID='%s', conditionEvaluation=%v",
+			stepID, stepStatusRaw, failedStepID, conditionEvaluation)
 
 		switch stepStatusRaw {
 		case "skipped":
@@ -258,12 +266,22 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 
 		// Create step result that includes condition information when present
 		var enhancedStepResult interface{}
-		if conditionResult != nil {
+		if conditionEvaluation != nil || conditionResult != nil {
 			// For conditional steps, create a result that includes both the step result and condition info
 			enhancedResult := map[string]interface{}{
-				"condition_result": *conditionResult,
-				"status":           string(stepStatus),
+				"status": string(stepStatus),
 			}
+
+			// Include condition evaluation (boolean) if present
+			if conditionEvaluation != nil {
+				enhancedResult["condition_evaluation"] = *conditionEvaluation
+			}
+
+			// Include condition result (actual tool result) if present
+			if conditionResult != nil {
+				enhancedResult["condition_result"] = conditionResult
+			}
+
 			if stepResult != nil {
 				enhancedResult["result"] = stepResult
 			}
@@ -290,7 +308,7 @@ func (et *ExecutionTracker) extractStepsFromMetadata(execution *api.WorkflowExec
 		}
 
 		logging.Debug("ExecutionTracker", "Created step: stepID='%s', status='%s', hasError=%t, hasCondition=%t",
-			stepID, stepStatus, stepError != nil, conditionResult != nil)
+			stepID, stepStatus, stepError != nil, conditionEvaluation != nil || conditionResult != nil)
 		execution.Steps = append(execution.Steps, step)
 	}
 }

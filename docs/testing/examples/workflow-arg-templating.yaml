@@ -117,7 +117,7 @@ pre_configuration:
               name: "{{ .input.app_name }}-storage"
               size: "{{ .input.storage_size }}"
               storage_class: "fast"
-            store: "storage_result"
+            store: true
             
           - id: "create_deployment"
             tool: "x_kubernetes-mock_create_deployment"  # Mock tool with x_ prefix
@@ -126,14 +126,14 @@ pre_configuration:
               image: "{{ .input.app_image }}"
               replicas: "{{ .input.replicas }}"
               namespace: "{{ .input.namespace }}"
-            store: "deployment_result"
+            store: true
             
           - id: "verify_deployment"
             tool: "x_kubernetes-mock_get_deployment_status"  # Mock tool with x_ prefix
             args:
               name: "{{ .input.app_name }}"
               namespace: "{{ .input.namespace }}"
-            store: "status_result"
+            store: true
 
 # Test steps using the configured instance
 steps:

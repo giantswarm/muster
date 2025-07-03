@@ -30,12 +30,12 @@ steps:
     steps:
       - id: "successful_step"
         tool: "core_service_list"
-        store: "success_result"
+        store: true
       - id: "failing_step"
         tool: "x_error-mock_always_fail"
         args:
           error_message: "{{ .input.error_message }}"
-        store: "failure_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -49,7 +49,6 @@ steps:
   expected:
     success: false
     error_contains: ["Expected test failure"]
-  store: "failed_execution"
 
 - id: "verify-failed-execution-tracked"
   tool: "core_workflow_execution_list"
@@ -63,7 +62,7 @@ steps:
 - id: "get-failed-execution-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: ["execution_id", "workflow_name", "status", "failed", "error", "Expected test failure"]
@@ -71,7 +70,7 @@ steps:
 - id: "verify-partial-step-execution"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
   expected:
     success: true
     contains: ["successful_step", "completed", "failing_step", "failed"]
@@ -79,16 +78,16 @@ steps:
 - id: "get-successful-step-from-failed-execution"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     step_id: "successful_step"
   expected:
     success: true
-    contains: ["successful_step", "completed", "success_result"]
+    contains: ["successful_step", "completed"]
 
 - id: "get-failed-step-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ failed_execution.execution_id }}"
+    execution_id: "{{ execute-failing-workflow.execution_id }}"
     step_id: "failing_step"
   expected:
     success: true

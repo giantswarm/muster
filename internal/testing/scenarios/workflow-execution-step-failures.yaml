@@ -39,19 +39,19 @@ steps:
     steps:
       - id: "step_1"
         tool: "core_service_list"
-        store: "step1_result"
+        store: true
       - id: "step_2"
         tool: "x_step-failure-mock_conditional_fail"
         args:
           should_fail: "{{ eq .input.fail_at_step \"step_2\" }}"
           error_msg: "Step 2 intentional failure"
-        store: "step2_result"
+        store: true
       - id: "step_3"
         tool: "x_step-failure-mock_conditional_fail"
         args:
           should_fail: "{{ eq .input.fail_at_step \"step_3\" }}"
           error_msg: "Step 3 intentional failure"
-        store: "step3_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -64,7 +64,6 @@ steps:
     fail_at_step: "none"
   expected:
     success: true
-  store: "success_execution"
 
 - id: "execute-workflow-fail-at-step-2"
   tool: "workflow_step-failure-workflow"
@@ -85,7 +84,7 @@ steps:
 - id: "verify-successful-execution-all-steps-completed"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ success_execution.execution_id }}"
+    execution_id: "{{ execute-workflow-no-failures.execution_id }}"
   expected:
     success: true
     contains: ["completed", "step_1", "step_2", "step_3"]

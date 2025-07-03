@@ -428,17 +428,6 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
-	// Store result if requested and scenario context is available
-	if step.Store != "" && scenarioContext != nil && response != nil {
-		// Extract actual data from MCP CallToolResult for template variable access
-		storableResult := r.extractStorableResult(response)
-		scenarioContext.StoreResult(step.Store, storableResult)
-
-		if r.debug {
-			r.logger.Debug("💾 Step %s: Stored result as '%s': %v\n", step.ID, step.Store, storableResult)
-		}
-	}
-
 	// Validate expectations (always check, even with errors - they might be expected)
 	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs) {
 		if err != nil {
@@ -453,6 +442,15 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 
 	// Success - expectations met, even if there was an error
 	result.Result = ResultPassed
+
+	// Store result in scenario context automatically for template variables
+	if scenarioContext != nil {
+		storableResult := r.extractStorableResult(response)
+		scenarioContext.StoreResult(step.ID, storableResult)
+		if r.debug {
+			r.logger.Debug("🔗 Stored result from step %s for template variables: %v\n", step.ID, storableResult)
+		}
+	}
 
 	return result
 }

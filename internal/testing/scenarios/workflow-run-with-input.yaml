@@ -17,7 +17,7 @@ pre_configuration:
           tool: "x_echo-provider_echo"
           args: 
             text: "{{ .input.message }}"
-          store: "echo_result"
+          store: true
   mcp_servers:
   - name: "echo-provider"
     config:
@@ -33,5 +33,5 @@ steps:
     success: true
     json_path:
       status: "completed"
-      results: { echo_result: { said: "hello from test" } }
+      results: { echo: { result: { said: "hello from test" } } }
       workflow: "input-test-workflow"

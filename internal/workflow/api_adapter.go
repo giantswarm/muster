@@ -242,7 +242,11 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"properties": map[string]interface{}{
 										"tool": map[string]interface{}{
 											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation",
+											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
+										},
+										"from_step": map[string]interface{}{
+											"type":        "string",
+											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
 										},
 										"args": map[string]interface{}{
 											"type":        "object",
@@ -250,25 +254,41 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 										},
 										"expect": map[string]interface{}{
 											"type":        "object",
-											"description": "Expected result for condition to be considered true",
+											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
 											"properties": map[string]interface{}{
 												"success": map[string]interface{}{
 													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
 												},
 												"json_path": map[string]interface{}{
 													"type":        "object",
 													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
 												},
 											},
-											"required": []string{"success"},
+										},
+										"expect_not": map[string]interface{}{
+											"type":        "object",
+											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+												},
+											},
 										},
 									},
-									"required": []string{"tool", "expect"},
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
 									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+								},
+								"allow_failure": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",
@@ -324,7 +344,11 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"properties": map[string]interface{}{
 										"tool": map[string]interface{}{
 											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation",
+											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
+										},
+										"from_step": map[string]interface{}{
+											"type":        "string",
+											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
 										},
 										"args": map[string]interface{}{
 											"type":        "object",
@@ -332,25 +356,41 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 										},
 										"expect": map[string]interface{}{
 											"type":        "object",
-											"description": "Expected result for condition to be considered true",
+											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
 											"properties": map[string]interface{}{
 												"success": map[string]interface{}{
 													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
 												},
 												"json_path": map[string]interface{}{
 													"type":        "object",
 													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
 												},
 											},
-											"required": []string{"success"},
+										},
+										"expect_not": map[string]interface{}{
+											"type":        "object",
+											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+												},
+											},
 										},
 									},
-									"required": []string{"tool", "expect"},
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
 									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+								},
+								"allow_failure": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",
@@ -418,7 +458,11 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 									"properties": map[string]interface{}{
 										"tool": map[string]interface{}{
 											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation",
+											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
+										},
+										"from_step": map[string]interface{}{
+											"type":        "string",
+											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
 										},
 										"args": map[string]interface{}{
 											"type":        "object",
@@ -426,25 +470,41 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 										},
 										"expect": map[string]interface{}{
 											"type":        "object",
-											"description": "Expected result for condition to be considered true",
+											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
 											"properties": map[string]interface{}{
 												"success": map[string]interface{}{
 													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
 												},
 												"json_path": map[string]interface{}{
 													"type":        "object",
 													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
 												},
 											},
-											"required": []string{"success"},
+										},
+										"expect_not": map[string]interface{}{
+											"type":        "object",
+											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
+											"properties": map[string]interface{}{
+												"success": map[string]interface{}{
+													"type":        "boolean",
+													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+												},
+												"json_path": map[string]interface{}{
+													"type":        "object",
+													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+												},
+											},
 										},
 									},
-									"required": []string{"tool", "expect"},
 								},
 								"args": map[string]interface{}{
 									"type":        "object",
 									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
+								},
+								"allow_failure": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
 								},
 								"store": map[string]interface{}{
 									"type":        "string",
@@ -1134,13 +1194,18 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 		}
 
 		// Store (optional)
-		if store, ok := stepMap["store"].(string); ok {
+		if store, ok := stepMap["store"].(bool); ok {
 			step.Store = store
 		}
 
 		// Description (optional)
 		if description, ok := stepMap["description"].(string); ok {
 			step.Description = description
+		}
+
+		// AllowFailure (optional)
+		if allowFailure, ok := stepMap["allow_failure"].(bool); ok {
+			step.AllowFailure = allowFailure
 		}
 
 		steps = append(steps, step)
@@ -1153,11 +1218,19 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 func convertWorkflowCondition(conditionParam map[string]interface{}) (api.WorkflowCondition, error) {
 	var condition api.WorkflowCondition
 
-	// Tool is required
+	// Tool (optional when from_step is used)
 	if tool, ok := conditionParam["tool"].(string); ok {
 		condition.Tool = tool
-	} else {
-		return condition, fmt.Errorf("condition tool is required")
+	}
+
+	// FromStep (optional)
+	if fromStep, ok := conditionParam["from_step"].(string); ok {
+		condition.FromStep = fromStep
+	}
+
+	// Either tool or from_step must be provided
+	if condition.Tool == "" && condition.FromStep == "" {
+		return condition, fmt.Errorf("either tool or from_step is required")
 	}
 
 	// Args (optional)
@@ -1165,15 +1238,28 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 		condition.Args = args
 	}
 
-	// Expect is required
+	// Expect (optional)
 	if expectParam, ok := conditionParam["expect"].(map[string]interface{}); ok {
 		expect, err := convertWorkflowConditionExpectation(expectParam)
 		if err != nil {
 			return condition, fmt.Errorf("invalid expect: %v", err)
 		}
 		condition.Expect = expect
-	} else {
-		return condition, fmt.Errorf("condition expect is required")
+	}
+
+	// ExpectNot (optional)
+	if expectNotParam, ok := conditionParam["expect_not"].(map[string]interface{}); ok {
+		expectNot, err := convertWorkflowConditionExpectation(expectNotParam)
+		if err != nil {
+			return condition, fmt.Errorf("invalid expect_not: %v", err)
+		}
+		condition.ExpectNot = expectNot
+	}
+
+	// At least one of expect or expect_not must be provided
+	if condition.Expect.Success == false && len(condition.Expect.JsonPath) == 0 &&
+		condition.ExpectNot.Success == false && len(condition.ExpectNot.JsonPath) == 0 {
+		return condition, fmt.Errorf("either expect or expect_not is required")
 	}
 
 	return condition, nil
@@ -1183,16 +1269,27 @@ func convertWorkflowCondition(conditionParam map[string]interface{}) (api.Workfl
 func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (api.WorkflowConditionExpectation, error) {
 	var expect api.WorkflowConditionExpectation
 
-	// Success is required
+	// Success (optional, defaults to false)
 	if success, ok := expectParam["success"].(bool); ok {
 		expect.Success = success
-	} else {
-		return expect, fmt.Errorf("success field is required and must be a boolean")
 	}
 
 	// JsonPath (optional)
 	if jsonPathParam, ok := expectParam["json_path"].(map[string]interface{}); ok {
 		expect.JsonPath = jsonPathParam
+	}
+
+	// At least one of success or json_path must be provided
+	if !expect.Success && len(expect.JsonPath) == 0 {
+		// If success was explicitly set to false, that's okay
+		if successVal, exists := expectParam["success"]; exists {
+			if successBool, ok := successVal.(bool); ok && !successBool {
+				// success=false is explicitly set, this is valid
+				return expect, nil
+			}
+		}
+		// Neither success nor json_path provided
+		return expect, fmt.Errorf("either success field or json_path must be provided")
 	}
 
 	return expect, nil

@@ -35,7 +35,6 @@ steps:
     test_param: "first-execution"
   expected:
     success: true
-  store: "first_execution"
 
 - id: "execute-workflow-second"
   tool: "workflow_list-test-workflow"
@@ -43,7 +42,6 @@ steps:
     test_param: "second-execution"
   expected:
     success: true
-  store: "second_execution"
 
 - id: "execute-workflow-third"
   tool: "workflow_list-test-workflow"
@@ -51,7 +49,6 @@ steps:
     test_param: "third-execution"
   expected:
     success: true
-  store: "third_execution"
 
 - id: "list-all-executions"
   tool: "core_workflow_execution_list"

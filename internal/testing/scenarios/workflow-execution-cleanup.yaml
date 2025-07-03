@@ -16,7 +16,7 @@ steps:
     steps:
       - id: "cleanup_step"
         tool: "core_service_list"
-        store: "cleanup_result"
+        store: true
   expected:
     success: true
   cleanup:
@@ -31,7 +31,6 @@ steps:
     test_id: "cleanup-test-1"
   expected:
     success: true
-  store: "cleanup_execution_1"
 
 - id: "execute-cleanup-workflow-2"
   tool: "workflow_cleanup-test-workflow"
@@ -39,7 +38,6 @@ steps:
     test_id: "cleanup-test-2"
   expected:
     success: true
-  store: "cleanup_execution_2"
 
 - id: "execute-cleanup-workflow-3"
   tool: "workflow_cleanup-test-workflow"
@@ -47,7 +45,6 @@ steps:
     test_id: "cleanup-test-3"
   expected:
     success: true
-  store: "cleanup_execution_3"
 
 - id: "verify-all-executions-exist"
   tool: "core_workflow_execution_list"
@@ -60,26 +57,26 @@ steps:
 - id: "verify-first-execution-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ cleanup_execution_1.execution_id }}"
+    execution_id: "{{ execute-cleanup-workflow-1.execution_id }}"
   expected:
     success: true
-    contains: ["cleanup-test-1", "cleanup_result"]
+    contains: ["cleanup-test-1", "cleanup_step"]
 
 - id: "verify-second-execution-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ cleanup_execution_2.execution_id }}"
+    execution_id: "{{ execute-cleanup-workflow-2.execution_id }}"
   expected:
     success: true
-    contains: ["cleanup-test-2", "cleanup_result"]
+    contains: ["cleanup-test-2", "cleanup_step"]
 
 - id: "verify-third-execution-details"
   tool: "core_workflow_execution_get"
   args:
-    execution_id: "{{ cleanup_execution_3.execution_id }}"
+    execution_id: "{{ execute-cleanup-workflow-3.execution_id }}"
   expected:
     success: true
-    contains: ["cleanup-test-3", "cleanup_result"]
+    contains: ["cleanup-test-3", "cleanup_step"]
 
 - id: "test-execution-history-persistence"
   tool: "core_workflow_execution_list"

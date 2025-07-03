@@ -20,12 +20,14 @@ type ToolCaller interface {
 
 // stepMetadata holds metadata about an executed step for tracking purposes
 type stepMetadata struct {
-	ID              string // Original step ID from workflow definition
-	Tool            string // Tool name used in the step
-	Store           string // Variable name where result was stored (if any)
-	Status          string // Step execution status: "completed", "skipped", "failed"
-	ConditionResult *bool  // Result of condition evaluation (nil if no condition)
-	ConditionTool   string // Tool used for condition evaluation (empty if no condition)
+	ID                  string      // Original step ID from workflow definition
+	Tool                string      // Tool name used in the step
+	Store               bool        // Whether the step result was stored in workflow results
+	Status              string      // Step execution status: "completed", "skipped", "failed"
+	AllowFailure        bool        // Whether this step is allowed to fail without failing the workflow
+	ConditionEvaluation *bool       // Boolean result of condition evaluation (nil if no condition)
+	ConditionResult     interface{} // Actual result from condition tool call (nil if no condition)
+	ConditionTool       string      // Tool used for condition evaluation (empty if no condition)
 }
 
 // WorkflowExecutor executes workflow steps
@@ -76,60 +78,196 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
 		// Check if step has a condition
-		var conditionResult *bool
+		var conditionEvaluation *bool
+		var conditionResult interface{}
 		var conditionTool string
 
 		if step.Condition != nil {
 			logging.Debug("WorkflowExecutor", "Step %s has condition, evaluating...", step.ID)
-			conditionTool = step.Condition.Tool
 
-			// Resolve template variables in condition arguments
-			resolvedConditionArgs, err := we.resolveArguments(step.Condition.Args, execCtx)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve condition arguments for step %s: %w", step.ID, err)
-			}
-			logging.Debug("WorkflowExecutor", "Step %s condition resolved args: %+v", step.ID, resolvedConditionArgs)
+			var conditionToolResult *mcp.CallToolResult
+			var conditionError error
 
-			// Execute the condition tool
-			conditionToolResult, err := we.toolCaller.CallToolInternal(ctx, step.Condition.Tool, resolvedConditionArgs)
-			if err != nil {
-				// Condition tool failed - this means condition is false
-				logging.Debug("WorkflowExecutor", "Step %s condition tool failed: %v", step.ID, err)
-				conditionPassed := false
-				conditionResult = &conditionPassed
-			} else {
-				// Check if condition result matches expectation
-				conditionPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
+			// Check if condition references a previous step result
+			if step.Condition.FromStep != "" {
+				logging.Debug("WorkflowExecutor", "Step %s condition references previous step: %s", step.ID, step.Condition.FromStep)
 
-				// Also check JSON path expectations if provided
-				if conditionPassed && len(step.Condition.Expect.JsonPath) > 0 {
-					jsonPathPassed, err := we.validateJsonPath(conditionToolResult, step.Condition.Expect.JsonPath, execCtx)
-					if err != nil {
-						logging.Debug("WorkflowExecutor", "Step %s JSON path validation error: %v", step.ID, err)
-						conditionPassed = false
-					} else {
-						conditionPassed = jsonPathPassed
+				// Find the referenced step result
+				var referencedStepResult interface{}
+				found := false
+
+				// Look for the step result in stored results first
+				for _, stepMeta := range execCtx.stepMetadata {
+					if stepMeta.ID == step.Condition.FromStep {
+						if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
+							referencedStepResult = execCtx.results[stepMeta.ID]
+							found = true
+							break
+						}
 					}
-					logging.Debug("WorkflowExecutor", "Step %s JSON path validation result: %v", step.ID, jsonPathPassed)
 				}
 
-				conditionResult = &conditionPassed
-				logging.Debug("WorkflowExecutor", "Step %s condition result: tool_success=%v, expect_success=%v, condition_passed=%v",
-					step.ID, !conditionToolResult.IsError, step.Condition.Expect.Success, conditionPassed)
+				// If not found in stored results, look for it in step metadata directly
+				if !found {
+					for _, stepMeta := range execCtx.stepMetadata {
+						if stepMeta.ID == step.Condition.FromStep {
+							// For failed steps, create a result structure
+							if stepMeta.Status == "failed" {
+								referencedStepResult = map[string]interface{}{
+									"error":   fmt.Sprintf("Step %s failed", stepMeta.ID),
+									"success": false,
+									"isError": true,
+									"status":  stepMeta.Status,
+								}
+								found = true
+								break
+							}
+						}
+					}
+				}
+
+				if !found {
+					return nil, fmt.Errorf("step %s condition references non-existent step result: %s", step.ID, step.Condition.FromStep)
+				}
+
+				// Create a mock CallToolResult from the referenced step result
+				resultJSON, err := json.Marshal(referencedStepResult)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal referenced step result for condition evaluation: %w", err)
+				}
+
+				conditionToolResult = &mcp.CallToolResult{
+					Content: []mcp.Content{
+						mcp.NewTextContent(string(resultJSON)),
+					},
+					IsError: false,
+				}
+
+				// Check if this was a failed step (error result)
+				if resultMap, ok := referencedStepResult.(map[string]interface{}); ok {
+					if isError, exists := resultMap["isError"].(bool); exists && isError {
+						conditionToolResult.IsError = true
+					}
+				}
+
+				conditionTool = fmt.Sprintf("from_step:%s", step.Condition.FromStep)
+				conditionResult = referencedStepResult
+			} else {
+				// Execute the condition tool as before
+				conditionTool = step.Condition.Tool
+
+				// Resolve template variables in condition arguments
+				resolvedConditionArgs, err := we.resolveArguments(step.Condition.Args, execCtx)
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve condition arguments for step %s: %w", step.ID, err)
+				}
+				logging.Debug("WorkflowExecutor", "Step %s condition resolved args: %+v", step.ID, resolvedConditionArgs)
+
+				// Execute the condition tool
+				conditionToolResult, conditionError = we.toolCaller.CallToolInternal(ctx, step.Condition.Tool, resolvedConditionArgs)
+				if conditionError != nil {
+					// Condition tool failed - this means condition is false
+					logging.Debug("WorkflowExecutor", "Step %s condition tool failed: %v", step.ID, conditionError)
+					conditionResult = false // Store boolean false as the result when tool call fails
+				} else {
+					// Parse the tool result for storage
+					if len(conditionToolResult.Content) > 0 {
+						if textContent, ok := conditionToolResult.Content[0].(mcp.TextContent); ok {
+							// Try to parse as JSON first
+							var parsedResult interface{}
+							if err := json.Unmarshal([]byte(textContent.Text), &parsedResult); err != nil {
+								// If not JSON, store as string
+								conditionResult = textContent.Text
+							} else {
+								conditionResult = parsedResult
+							}
+						}
+					}
+				}
 			}
 
+			// Evaluate condition expectations
+			var conditionPassed bool = true
+
+			if conditionError != nil {
+				// Condition tool failed
+				conditionPassed = false
+			} else {
+				// Check if we have an expect condition to evaluate
+				hasExpect := step.Condition.Expect.Success || len(step.Condition.Expect.JsonPath) > 0
+				if hasExpect {
+					// Evaluate expect condition
+					expectPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
+
+					// Also check JSON path expectations if provided
+					if expectPassed && len(step.Condition.Expect.JsonPath) > 0 {
+						jsonPathPassed, err := we.validateJsonPath(conditionToolResult, step.Condition.Expect.JsonPath, execCtx)
+						if err != nil {
+							logging.Debug("WorkflowExecutor", "Step %s expect JSON path validation error: %v", step.ID, err)
+							expectPassed = false
+						} else {
+							expectPassed = jsonPathPassed
+						}
+						logging.Debug("WorkflowExecutor", "Step %s expect JSON path validation result: %v", step.ID, jsonPathPassed)
+					}
+
+					conditionPassed = conditionPassed && expectPassed
+					logging.Debug("WorkflowExecutor", "Step %s expect condition result: %v", step.ID, expectPassed)
+				}
+
+				// Check if we have an expect_not condition to evaluate
+				hasExpectNot := step.Condition.ExpectNot.Success || len(step.Condition.ExpectNot.JsonPath) > 0
+				if hasExpectNot {
+					// Evaluate expect_not condition
+					expectNotPassed := true
+
+					// Check success condition if specified
+					if step.Condition.ExpectNot.Success {
+						expectNotPassed = (conditionToolResult.IsError == false) == step.Condition.ExpectNot.Success
+					}
+
+					// Also check JSON path expectations if provided
+					if expectNotPassed && len(step.Condition.ExpectNot.JsonPath) > 0 {
+						jsonPathPassed, err := we.validateJsonPath(conditionToolResult, step.Condition.ExpectNot.JsonPath, execCtx)
+						if err != nil {
+							logging.Debug("WorkflowExecutor", "Step %s expect_not JSON path validation error: %v", step.ID, err)
+							expectNotPassed = false
+						} else {
+							expectNotPassed = jsonPathPassed
+						}
+						logging.Debug("WorkflowExecutor", "Step %s expect_not JSON path validation result: %v", step.ID, jsonPathPassed)
+					}
+
+					// Negate the expect_not result
+					expectNotPassed = !expectNotPassed
+					conditionPassed = conditionPassed && expectNotPassed
+					logging.Debug("WorkflowExecutor", "Step %s expect_not condition result (negated): %v", step.ID, expectNotPassed)
+				}
+
+				// If neither expect nor expect_not are provided, default to checking success only
+				if !hasExpect && !hasExpectNot {
+					conditionPassed = !conditionToolResult.IsError
+					logging.Debug("WorkflowExecutor", "Step %s using default success condition: %v", step.ID, conditionPassed)
+				}
+			}
+
+			conditionEvaluation = &conditionPassed
+			logging.Debug("WorkflowExecutor", "Step %s final condition result: %v", step.ID, conditionPassed)
+
 			// If condition failed, skip this step
-			if !*conditionResult {
+			if !*conditionEvaluation {
 				logging.Debug("WorkflowExecutor", "Step %s condition failed, skipping step", step.ID)
 
 				// Record the skipped step metadata
 				execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-					ID:              step.ID,
-					Tool:            step.Tool,
-					Store:           step.Store,
-					Status:          "skipped",
-					ConditionResult: conditionResult,
-					ConditionTool:   conditionTool,
+					ID:                  step.ID,
+					Tool:                step.Tool,
+					Store:               step.Store,
+					Status:              "skipped",
+					AllowFailure:        step.AllowFailure,
+					ConditionEvaluation: conditionEvaluation,
+					ConditionResult:     conditionResult,
+					ConditionTool:       conditionTool,
 				})
 
 				// Continue to next step
@@ -153,13 +291,34 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 			// Record the failed step metadata
 			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-				ID:              step.ID,
-				Tool:            step.Tool,
-				Store:           step.Store,
-				Status:          "failed",
-				ConditionResult: conditionResult,
-				ConditionTool:   conditionTool,
+				ID:                  step.ID,
+				Tool:                step.Tool,
+				Store:               step.Store,
+				Status:              "failed",
+				AllowFailure:        step.AllowFailure,
+				ConditionEvaluation: conditionEvaluation,
+				ConditionResult:     conditionResult,
+				ConditionTool:       conditionTool,
 			})
+
+			// If step allows failure, continue execution
+			if step.AllowFailure {
+				logging.Debug("WorkflowExecutor", "Step %s failed but allow_failure is true, continuing execution", step.ID)
+
+				// Store the error result for subsequent steps to reference
+				if step.Store {
+					errorResult := map[string]interface{}{
+						"error":   err.Error(),
+						"success": false,
+						"isError": true,
+					}
+					execCtx.results[step.ID] = errorResult
+					logging.Debug("WorkflowExecutor", "Stored error result from step %s as %s: %+v", step.ID, step.ID, errorResult)
+				}
+
+				// Continue to next step
+				continue
+			}
 
 			// Enhance results with step-level information for partial results too
 			enhancedPartialResults := make(map[string]interface{})
@@ -175,9 +334,12 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					"status": stepMeta.Status,
 				}
 
-				// Include condition result if present
+				// Include condition information if present
+				if stepMeta.ConditionEvaluation != nil {
+					stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
+				}
 				if stepMeta.ConditionResult != nil {
-					stepInfo["condition_result"] = *stepMeta.ConditionResult
+					stepInfo["condition_result"] = stepMeta.ConditionResult
 				}
 
 				// Include condition tool if present
@@ -185,9 +347,14 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					stepInfo["condition_tool"] = stepMeta.ConditionTool
 				}
 
+				// Include allow_failure flag
+				if stepMeta.AllowFailure {
+					stepInfo["allow_failure"] = stepMeta.AllowFailure
+				}
+
 				// Include stored result if available
-				if stepMeta.Store != "" && execCtx.results[stepMeta.Store] != nil {
-					stepInfo["result"] = execCtx.results[stepMeta.Store]
+				if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
+					stepInfo["result"] = execCtx.results[stepMeta.ID]
 				}
 
 				enhancedPartialResults[stepMeta.ID] = stepInfo
@@ -230,7 +397,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 		// Store result if requested
 		// TODO: Implement step.Outputs processing for extracting specific fields
-		if step.Store != "" {
+		if step.Store {
 			logging.Debug("WorkflowExecutor", "Processing result for step %s: %+v", step.ID, result)
 			var resultData interface{}
 			if len(result.Content) > 0 {
@@ -248,24 +415,59 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					}
 				}
 			}
-			execCtx.results[step.Store] = resultData
-			logging.Debug("WorkflowExecutor", "Stored result from step %s as %s: %+v", step.ID, step.Store, resultData)
+			execCtx.results[step.ID] = resultData
+			logging.Debug("WorkflowExecutor", "Stored result from step %s as %s: %+v", step.ID, step.ID, resultData)
 			logging.Debug("WorkflowExecutor", "Current execution context results: %+v", execCtx.results)
 		}
 
 		// Record step metadata for execution tracking
 		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
-			ID:              step.ID,
-			Tool:            step.Tool,
-			Store:           step.Store,
-			Status:          "completed",
-			ConditionResult: conditionResult,
-			ConditionTool:   conditionTool,
+			ID:                  step.ID,
+			Tool:                step.Tool,
+			Store:               step.Store,
+			Status:              "completed",
+			AllowFailure:        step.AllowFailure,
+			ConditionEvaluation: conditionEvaluation,
+			ConditionResult:     conditionResult,
+			ConditionTool:       conditionTool,
 		})
 
 		// Check if result indicates an error
 		if result.IsError {
 			logging.Error("WorkflowExecutor", fmt.Errorf("step returned error"), "Step %s returned error result", step.ID)
+
+			// If step allows failure, treat as a normal step failure and continue
+			if step.AllowFailure {
+				logging.Debug("WorkflowExecutor", "Step %s returned error result but allow_failure is true, continuing execution", step.ID)
+
+				// Update the step metadata status to failed
+				if len(execCtx.stepMetadata) > 0 {
+					execCtx.stepMetadata[len(execCtx.stepMetadata)-1].Status = "failed"
+				}
+
+				// Store error result for from_step conditions if step.Store is true
+				if step.Store {
+					// Create a structured error result that conditions can evaluate
+					var errorMessage string
+					if len(result.Content) > 0 {
+						if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+							errorMessage = textContent.Text
+						}
+					}
+
+					errorResult := map[string]interface{}{
+						"success": false,
+						"isError": true,
+						"error":   errorMessage,
+					}
+					execCtx.results[step.ID] = errorResult
+					logging.Debug("WorkflowExecutor", "Stored error result from failed step %s: %+v", step.ID, errorResult)
+				}
+
+				// Continue to next step
+				continue
+			}
+
 			// Return the error result immediately
 			return result, nil
 		}
@@ -285,9 +487,12 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			"status": stepMeta.Status,
 		}
 
-		// Include condition result if present
+		// Include condition information if present
+		if stepMeta.ConditionEvaluation != nil {
+			stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
+		}
 		if stepMeta.ConditionResult != nil {
-			stepInfo["condition_result"] = *stepMeta.ConditionResult
+			stepInfo["condition_result"] = stepMeta.ConditionResult
 		}
 
 		// Include condition tool if present
@@ -295,9 +500,14 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			stepInfo["condition_tool"] = stepMeta.ConditionTool
 		}
 
+		// Include allow_failure flag
+		if stepMeta.AllowFailure {
+			stepInfo["allow_failure"] = stepMeta.AllowFailure
+		}
+
 		// Include stored result if available
-		if stepMeta.Store != "" && execCtx.results[stepMeta.Store] != nil {
-			stepInfo["result"] = execCtx.results[stepMeta.Store]
+		if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
+			stepInfo["result"] = execCtx.results[stepMeta.ID]
 		}
 
 		enhancedResults[stepMeta.ID] = stepInfo
@@ -316,7 +526,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	// If the last step wasn't stored, merge its result into the top level
 	if lastStepResult != nil && len(workflow.Steps) > 0 {
 		lastStep := workflow.Steps[len(workflow.Steps)-1]
-		if lastStep.Store == "" {
+		if !lastStep.Store {
 			logging.Debug("WorkflowExecutor", "Last step %s has no store, merging result into top level", lastStep.ID)
 			// Parse the last step's result and merge it
 			if len(lastStepResult.Content) > 0 {

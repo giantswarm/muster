@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-02T17:41:26+02:00",
+  "generated_at": "2025-07-03T11:31:43+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -1491,6 +1491,10 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_failure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
+                    "type": "boolean"
+                  },
                   "args": {
                     "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
@@ -1503,31 +1507,42 @@
                         "type": "object"
                       },
                       "expect": {
-                        "description": "Expected result for condition to be considered true",
+                        "description": "Expected result for condition to be considered true (optional when expect_not is used)",
                         "properties": {
                           "json_path": {
                             "description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
                             "type": "object"
                           },
                           "success": {
-                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
                             "type": "boolean"
                           }
                         },
-                        "required": [
-                          "success"
-                        ],
                         "type": "object"
                       },
+                      "expect_not": {
+                        "description": "Negated expected result for condition to be considered true (optional when expect is used)",
+                        "properties": {
+                          "json_path": {
+                            "description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "from_step": {
+                        "description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
+                        "type": "string"
+                      },
                       "tool": {
-                        "description": "Name of the tool to use for condition evaluation",
+                        "description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "tool",
-                      "expect"
-                    ],
                     "type": "object"
                   },
                   "description": {
@@ -1674,6 +1689,10 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_failure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
+                    "type": "boolean"
+                  },
                   "args": {
                     "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
@@ -1686,31 +1705,42 @@
                         "type": "object"
                       },
                       "expect": {
-                        "description": "Expected result for condition to be considered true",
+                        "description": "Expected result for condition to be considered true (optional when expect_not is used)",
                         "properties": {
                           "json_path": {
                             "description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
                             "type": "object"
                           },
                           "success": {
-                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
                             "type": "boolean"
                           }
                         },
-                        "required": [
-                          "success"
-                        ],
                         "type": "object"
                       },
+                      "expect_not": {
+                        "description": "Negated expected result for condition to be considered true (optional when expect is used)",
+                        "properties": {
+                          "json_path": {
+                            "description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "from_step": {
+                        "description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
+                        "type": "string"
+                      },
                       "tool": {
-                        "description": "Name of the tool to use for condition evaluation",
+                        "description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "tool",
-                      "expect"
-                    ],
                     "type": "object"
                   },
                   "description": {
@@ -1766,6 +1796,10 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "allow_failure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
+                    "type": "boolean"
+                  },
                   "args": {
                     "description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
                     "type": "object"
@@ -1778,31 +1812,42 @@
                         "type": "object"
                       },
                       "expect": {
-                        "description": "Expected result for condition to be considered true",
+                        "description": "Expected result for condition to be considered true (optional when expect_not is used)",
                         "properties": {
                           "json_path": {
                             "description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
                             "type": "object"
                           },
                           "success": {
-                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met",
+                            "description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
                             "type": "boolean"
                           }
                         },
-                        "required": [
-                          "success"
-                        ],
                         "type": "object"
                       },
+                      "expect_not": {
+                        "description": "Negated expected result for condition to be considered true (optional when expect is used)",
+                        "properties": {
+                          "json_path": {
+                            "description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "from_step": {
+                        "description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
+                        "type": "string"
+                      },
                       "tool": {
-                        "description": "Name of the tool to use for condition evaluation",
+                        "description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "tool",
-                      "expect"
-                    ],
                     "type": "object"
                   },
                   "description": {
