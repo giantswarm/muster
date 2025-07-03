@@ -335,6 +335,11 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 // Returns:
 //   - bool: true if the data appears to be workflow-related
 func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
+	// Check for workflow execution result first
+	if f.isWorkflowExecutionResult(data) {
+		return true
+	}
+
 	// Check for workflow-specific fields
 	if _, hasWorkflow := data["workflow"]; hasWorkflow {
 		return true
@@ -348,6 +353,17 @@ func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
 	return hasName && (hasSteps || hasInputSchema)
 }
 
+// isWorkflowExecutionResult checks if the data represents a workflow execution result
+func (f *TableFormatter) isWorkflowExecutionResult(data map[string]interface{}) bool {
+	// Check for execution-specific fields
+	hasExecutionID := f.keyExists(data, "execution_id")
+	hasStatus := f.keyExists(data, "status")
+	hasResults := f.keyExists(data, "results")
+	hasInput := f.keyExists(data, "input")
+
+	return hasExecutionID && hasStatus && (hasResults || hasInput)
+}
+
 // formatWorkflowDetails provides a clean, readable format for workflow data.
 // It creates a specialized layout for workflows, showing basic information,
 // input args, and workflow steps in an organized and readable format.
@@ -358,6 +374,11 @@ func (f *TableFormatter) isWorkflowData(data map[string]interface{}) bool {
 // Returns:
 //   - error: Formatting error, if any
 func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) error {
+	// Check if this is a workflow execution result
+	if f.isWorkflowExecutionResult(data) {
+		return f.formatWorkflowExecutionResult(data)
+	}
+
 	// Extract workflow data from the "workflow" field if it exists
 	var workflowData map[string]interface{}
 	if workflow, exists := data["workflow"]; exists {
@@ -399,6 +420,166 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 	return nil
 }
 
+// formatWorkflowExecutionResult formats workflow execution results in a user-friendly way
+func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface{}) error {
+	// Main execution info
+	fmt.Printf("%s %s\n",
+		text.FgGreen.Sprint("✅"),
+		text.FgHiGreen.Sprint("Workflow Execution Completed"))
+	fmt.Println()
+
+	// Create execution summary table
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{
+		text.FgHiCyan.Sprint("PROPERTY"),
+		text.FgHiCyan.Sprint("VALUE"),
+	})
+
+	// Add execution details
+	if executionID, exists := data["execution_id"]; exists {
+		t.AppendRow(table.Row{
+			text.FgYellow.Sprint("execution_id"),
+			text.FgHiWhite.Sprint(fmt.Sprintf("%v", executionID)),
+		})
+	}
+
+	if workflow, exists := data["workflow"]; exists {
+		t.AppendRow(table.Row{
+			text.FgYellow.Sprint("workflow"),
+			text.FgHiWhite.Sprint(fmt.Sprintf("%v", workflow)),
+		})
+	}
+
+	if status, exists := data["status"]; exists {
+		statusStr := fmt.Sprintf("%v", status)
+		var statusDisplay string
+		switch strings.ToLower(statusStr) {
+		case "completed":
+			statusDisplay = text.FgGreen.Sprint("✅ " + statusStr)
+		case "failed":
+			statusDisplay = text.FgRed.Sprint("❌ " + statusStr)
+		case "running":
+			statusDisplay = text.FgYellow.Sprint("⏳ " + statusStr)
+		default:
+			statusDisplay = text.FgHiWhite.Sprint(statusStr)
+		}
+		t.AppendRow(table.Row{
+			text.FgYellow.Sprint("status"),
+			statusDisplay,
+		})
+	}
+
+	t.Render()
+
+	// Show input parameters if they exist
+	if input, exists := data["input"]; exists {
+		if inputMap, ok := input.(map[string]interface{}); ok && len(inputMap) > 0 {
+			fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Parameters:"))
+
+			inputTable := table.NewWriter()
+			inputTable.SetOutputMirror(os.Stdout)
+			inputTable.SetStyle(table.StyleRounded)
+			inputTable.AppendHeader(table.Row{
+				text.FgHiCyan.Sprint("PARAMETER"),
+				text.FgHiCyan.Sprint("VALUE"),
+			})
+
+			// Sort parameters for consistent display
+			var paramNames []string
+			for paramName := range inputMap {
+				paramNames = append(paramNames, paramName)
+			}
+			sort.Strings(paramNames)
+
+			for _, paramName := range paramNames {
+				value := inputMap[paramName]
+				inputTable.AppendRow(table.Row{
+					text.FgYellow.Sprint(paramName),
+					text.FgHiWhite.Sprint(fmt.Sprintf("%v", value)),
+				})
+			}
+
+			inputTable.Render()
+		}
+	}
+
+	// Show step results if they exist
+	if results, exists := data["results"]; exists {
+		if resultsMap, ok := results.(map[string]interface{}); ok && len(resultsMap) > 0 {
+			fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("🔄 Step Results:"))
+
+			stepTable := table.NewWriter()
+			stepTable.SetOutputMirror(os.Stdout)
+			stepTable.SetStyle(table.StyleRounded)
+			stepTable.AppendHeader(table.Row{
+				text.FgHiCyan.Sprint("STEP"),
+				text.FgHiCyan.Sprint("STATUS"),
+				text.FgHiCyan.Sprint("DETAILS"),
+			})
+
+			// Sort step names for consistent display
+			var stepNames []string
+			for stepName := range resultsMap {
+				stepNames = append(stepNames, stepName)
+			}
+			sort.Strings(stepNames)
+
+			for _, stepName := range stepNames {
+				stepResult := resultsMap[stepName]
+				if stepMap, ok := stepResult.(map[string]interface{}); ok {
+					status := "unknown"
+					details := "-"
+
+					if stepStatus, exists := stepMap["status"]; exists {
+						status = fmt.Sprintf("%v", stepStatus)
+					}
+
+					// Try to extract meaningful details from the result
+					if result, exists := stepMap["result"]; exists {
+						if resultMap, ok := result.(map[string]interface{}); ok {
+							if name, exists := resultMap["name"]; exists {
+								details = fmt.Sprintf("Created: %v", name)
+							} else if len(resultMap) > 0 {
+								details = fmt.Sprintf("%d properties", len(resultMap))
+							}
+						} else {
+							details = fmt.Sprintf("%v", result)
+							if len(details) > 50 {
+								details = details[:47] + "..."
+							}
+						}
+					}
+
+					// Format status with color
+					var statusDisplay string
+					switch strings.ToLower(status) {
+					case "completed":
+						statusDisplay = text.FgGreen.Sprint("✅ " + status)
+					case "failed":
+						statusDisplay = text.FgRed.Sprint("❌ " + status)
+					case "skipped":
+						statusDisplay = text.FgYellow.Sprint("⏭️ " + status)
+					default:
+						statusDisplay = text.FgHiWhite.Sprint(status)
+					}
+
+					stepTable.AppendRow(table.Row{
+						text.FgHiWhite.Sprint(stepName),
+						statusDisplay,
+						text.FgCyan.Sprint(details),
+					})
+				}
+			}
+
+			stepTable.Render()
+		}
+	}
+
+	return nil
+}
+
 // displayWorkflowInputs shows the input args in a readable format.
 // It extracts input schema information and displays arg details
 // including types, descriptions, and requirement status in a structured table.
@@ -406,91 +587,104 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 // Args:
 //   - workflowData: Workflow data containing input schema information
 func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface{}) {
-	inputSchemaFields := []string{"InputSchema", "inputSchema", "inputs", "args"}
+	// First try to get args in the muster workflow format
+	var argsData map[string]interface{}
+	if args, exists := workflowData["args"]; exists && args != nil {
+		if argsMap, ok := args.(map[string]interface{}); ok {
+			argsData = argsMap
+		}
+	}
 
-	var inputSchema map[string]interface{}
-	for _, field := range inputSchemaFields {
-		if schema, exists := workflowData[field]; exists && schema != nil {
-			if schemaMap, ok := schema.(map[string]interface{}); ok {
-				inputSchema = schemaMap
-				break
+	// Fallback to legacy input schema formats if args not found
+	if argsData == nil {
+		inputSchemaFields := []string{"InputSchema", "inputSchema", "inputs"}
+		var inputSchema map[string]interface{}
+		for _, field := range inputSchemaFields {
+			if schema, exists := workflowData[field]; exists && schema != nil {
+				if schemaMap, ok := schema.(map[string]interface{}); ok {
+					inputSchema = schemaMap
+					break
+				}
+			}
+		}
+
+		if inputSchema == nil {
+			return
+		}
+
+		// Look for properties in the schema (legacy format)
+		if properties, exists := inputSchema["properties"]; exists {
+			if propsMap, ok := properties.(map[string]interface{}); ok {
+				argsData = propsMap
 			}
 		}
 	}
 
-	if inputSchema == nil {
+	if argsData == nil || len(argsData) == 0 {
 		return
 	}
 
 	fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Args:"))
 
-	// Look for properties in the schema
-	if properties, exists := inputSchema["properties"]; exists {
-		if propsMap, ok := properties.(map[string]interface{}); ok {
-			t := table.NewWriter()
-			t.SetOutputMirror(os.Stdout)
-			t.SetStyle(table.StyleRounded)
-			t.AppendHeader(table.Row{
-				text.FgHiCyan.Sprint("ARGUMENT"),
-				text.FgHiCyan.Sprint("TYPE"),
-				text.FgHiCyan.Sprint("DESCRIPTION"),
-				text.FgHiCyan.Sprint("REQUIRED"),
-			})
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleRounded)
+	t.AppendHeader(table.Row{
+		text.FgHiCyan.Sprint("ARGUMENT"),
+		text.FgHiCyan.Sprint("TYPE"),
+		text.FgHiCyan.Sprint("DESCRIPTION"),
+		text.FgHiCyan.Sprint("REQUIRED"),
+	})
 
-			// Get required fields
-			var required []string
-			if reqField, exists := inputSchema["required"]; exists {
-				if reqArray, ok := reqField.([]interface{}); ok {
-					for _, req := range reqArray {
-						if reqStr, ok := req.(string); ok {
-							required = append(required, reqStr)
-						}
-					}
-				}
-			}
-
-			// Sort arg names
-			var paramNames []string
-			for paramName := range propsMap {
-				paramNames = append(paramNames, paramName)
-			}
-			sort.Strings(paramNames)
-
-			for _, paramName := range paramNames {
-				if paramDef, ok := propsMap[paramName].(map[string]interface{}); ok {
-					paramType := "string"
-					if typ, exists := paramDef["type"]; exists {
-						paramType = fmt.Sprintf("%v", typ)
-					}
-
-					description := "-"
-					if desc, exists := paramDef["description"]; exists {
-						description = fmt.Sprintf("%v", desc)
-						if len(description) > 40 {
-							description = description[:37] + "..."
-						}
-					}
-
-					isRequired := "No"
-					for _, req := range required {
-						if req == paramName {
-							isRequired = text.FgYellow.Sprint("Yes")
-							break
-						}
-					}
-
-					t.AppendRow(table.Row{
-						text.FgHiWhite.Sprint(paramName),
-						text.FgCyan.Sprint(paramType),
-						description,
-						isRequired,
-					})
-				}
-			}
-
-			t.Render()
-		}
+	// Sort arg names
+	var paramNames []string
+	for paramName := range argsData {
+		paramNames = append(paramNames, paramName)
 	}
+	sort.Strings(paramNames)
+
+	for _, paramName := range paramNames {
+		paramDef, ok := argsData[paramName].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Handle muster workflow ArgDefinition format
+		paramType := "string"
+		if typ, exists := paramDef["type"]; exists {
+			paramType = fmt.Sprintf("%v", typ)
+		}
+
+		description := "-"
+		if desc, exists := paramDef["description"]; exists && desc != nil {
+			description = fmt.Sprintf("%v", desc)
+			if len(description) > 40 {
+				description = description[:37] + "..."
+			}
+		}
+
+		isRequired := "No"
+		if req, exists := paramDef["required"]; exists {
+			if reqBool, ok := req.(bool); ok && reqBool {
+				isRequired = text.FgYellow.Sprint("Yes")
+			}
+		}
+
+		// Show default value if available
+		defaultValue := ""
+		if def, exists := paramDef["default"]; exists && def != nil {
+			defaultValue = fmt.Sprintf(" (default: %v)", def)
+		}
+
+		t.AppendRow(table.Row{
+			text.FgHiWhite.Sprint(paramName),
+			text.FgCyan.Sprint(paramType),
+			description + defaultValue,
+			isRequired,
+		})
+	}
+
+	t.Render()
 }
 
 // displayWorkflowSteps shows the workflow steps in a readable format.
