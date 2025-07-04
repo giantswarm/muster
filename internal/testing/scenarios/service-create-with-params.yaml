@@ -17,11 +17,12 @@ pre_configuration:
     config:
       name: "sc-with-params"
       version: "1.0.0"
+      args:
+        message:
+          type: "string"
+          required: true
+          description: "Message to echo"
       serviceConfig:
-        createArgs:
-          message:
-            toolArg: "text"
-            required: true
         lifecycleTools:
           start:
             tool: "x_echo-provider_echo"

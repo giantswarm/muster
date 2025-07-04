@@ -58,10 +58,6 @@ type ServiceClass struct {
 	// tool mappings, health checks, and operational args.
 	ServiceConfig ServiceConfig `yaml:"serviceConfig" json:"serviceConfig"`
 
-	// Operations defines custom operations that can be performed on services created from this class.
-	// These operations extend the basic lifecycle management with service-specific functionality.
-	Operations map[string]OperationDefinition `yaml:"operations" json:"operations"`
-
 	// ServiceType indicates the general category of service that this class creates.
 	// This is runtime information derived from the ServiceConfig and used for categorization.
 	ServiceType string `json:"serviceType,omitempty" yaml:"-"`
@@ -134,10 +130,6 @@ type ServiceConfig struct {
 	// Timeout specifies timeout values for various service operations.
 	// These timeouts help prevent operations from hanging indefinitely.
 	Timeout TimeoutConfig `yaml:"timeout" json:"timeout"`
-
-	// CreateArgs defines how service creation args should be mapped to tool arguments.
-	// This allows ServiceClass args to be transformed and passed to the appropriate tools.
-	CreateArgs map[string]ArgMapping `yaml:"createArgs" json:"createArgs"`
 
 	// Outputs defines template-based outputs that should be generated when service instances are created.
 	// These templates are resolved using service instance arguments and runtime data (like sessionID).

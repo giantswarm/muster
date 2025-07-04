@@ -52,12 +52,14 @@ steps:
     args:
       name: "test-basic-serviceclass"
       version: "1.0.0"
+      args:
+        replicas:
+          type: "number"
+          default: 1
+        image:
+          type: "string"
+          required: true
       serviceConfig:
-        createArgs:
-          replicas:
-            default: 1
-          image:
-            required: true
         lifecycleTools:
           start:
             tool: "x_test-lifecycle-mock_service_create"

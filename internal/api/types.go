@@ -353,30 +353,6 @@ type HealthCheckConfig struct {
 	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
 }
 
-// ArgMapping defines how service creation arguments map to tool arguments.
-// This is used in ServiceClass definitions to specify how user-provided arguments
-// are transformed and passed to lifecycle tools.
-//
-// Argument mapping enables ServiceClasses to provide a clean interface for
-// service creation while translating to the specific tool arguments needed
-// for the underlying implementation.
-type ArgMapping struct {
-	// ToolArg specifies the name of the argument in the tool call.
-	// This is how the argument will be passed to the lifecycle tool.
-	ToolArg string `yaml:"toolArg" json:"toolArg"`
-
-	// Default specifies the default value used when the argument is not provided.
-	// Only used when Required is false.
-	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
-
-	// Required indicates whether this argument must be provided during service creation.
-	Required bool `yaml:"required" json:"required"`
-
-	// Transform specifies an optional transformation to apply to the argument value.
-	// Can be used for format conversion or value mapping.
-	Transform string `yaml:"transform,omitempty" json:"transform,omitempty"`
-}
-
 // ResponseMapping defines how to extract information from tool responses.
 // This allows ServiceClass lifecycle tools to provide structured information
 // about service status, health, and metadata in a consistent format.

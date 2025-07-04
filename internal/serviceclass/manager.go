@@ -282,26 +282,6 @@ func (scm *ServiceClassManager) validateServiceClassDefinition(def *api.ServiceC
 		errors.Add("serviceConfig.lifecycleTools.status.tool", "cannot be empty if status is specified")
 	}
 
-	// Validate operations if present (for compatibility)
-	for opName, op := range def.Operations {
-		if opName == "" {
-			errors.Add("operations", "operation name cannot be empty")
-			continue
-		}
-
-		// Validate operation description
-		if op.Description == "" {
-			errors.Add(fmt.Sprintf("operations.%s.description", opName), "is required for service class operation")
-		}
-
-		// Validate required tools
-		for i, tool := range op.Requires {
-			if tool == "" {
-				errors.Add(fmt.Sprintf("operations.%s.requires[%d]", opName, i), "tool name cannot be empty")
-			}
-		}
-	}
-
 	if errors.HasErrors() {
 		return config.FormatValidationError("service class", def.Name, errors)
 	}
@@ -350,13 +330,6 @@ func (scm *ServiceClassManager) getRequiredTools(def *api.ServiceClass) []string
 	}
 	if def.ServiceConfig.LifecycleTools.Status != nil && def.ServiceConfig.LifecycleTools.Status.Tool != "" {
 		tools[def.ServiceConfig.LifecycleTools.Status.Tool] = true
-	}
-
-	// Add tools from operations (existing capability system compatibility)
-	for _, op := range def.Operations {
-		for _, tool := range op.Requires {
-			tools[tool] = true
-		}
 	}
 
 	// Convert to slice
@@ -408,7 +381,6 @@ func (scm *ServiceClassManager) ListServiceClasses() []api.ServiceClass {
 			Version:                  def.Version,
 			Description:              def.Description,
 			ServiceConfig:            def.ServiceConfig,
-			Operations:               def.Operations,
 			ServiceType:              def.ServiceConfig.ServiceType,
 			Available:                available,
 			CreateToolAvailable:      scm.toolChecker != nil && scm.toolChecker.IsToolAvailable(def.ServiceConfig.LifecycleTools.Start.Tool),
