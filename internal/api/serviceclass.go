@@ -153,9 +153,9 @@ type LifecycleTools struct {
 	// If not provided, restart operations will use Stop followed by Start.
 	Restart *ToolCall `yaml:"restart,omitempty" json:"restart,omitempty"`
 
-	// HealthCheck specifies the tool to call for health monitoring.
-	// This tool should return information about the service's current health status.
-	HealthCheck *ToolCall `yaml:"healthCheck,omitempty" json:"healthCheck,omitempty"`
+	// HealthCheck specifies the tool to call for health monitoring with expectation evaluation.
+	// This tool supports condition matching similar to workflow step conditions.
+	HealthCheck *HealthCheckToolCall `yaml:"healthCheck,omitempty" json:"healthCheck,omitempty"`
 
 	// Status specifies the tool to call for retrieving detailed service status.
 	// This tool should return comprehensive information about the service's current state.
@@ -203,9 +203,9 @@ type ServiceClassManagerHandler interface {
 	// Returns:
 	//   - toolName: The name of the tool to call
 	//   - arguments: Tool arguments to use
-	//   - responseMapping: How to interpret the tool response
+	//   - outputs: JSON path mappings to extract values from tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
+	GetStartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error)
 
 	// GetStopTool retrieves the tool configuration for stopping services of this class.
 	// This provides the orchestrator with the information needed to stop service instances.
@@ -216,9 +216,9 @@ type ServiceClassManagerHandler interface {
 	// Returns:
 	//   - toolName: The name of the tool to call
 	//   - arguments: Tool arguments to use
-	//   - responseMapping: How to interpret the tool response
+	//   - outputs: JSON path mappings to extract values from tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
+	GetStopTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error)
 
 	// GetRestartTool retrieves the tool configuration for restarting services of this class.
 	// If no restart tool is configured, this may return an indication to use stop+start.
@@ -229,9 +229,9 @@ type ServiceClassManagerHandler interface {
 	// Returns:
 	//   - toolName: The name of the tool to call
 	//   - arguments: Tool arguments to use
-	//   - responseMapping: How to interpret the tool response
+	//   - outputs: JSON path mappings to extract values from tool response
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
+	GetRestartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error)
 
 	// GetHealthCheckTool retrieves the tool configuration for health checking services of this class.
 	// This provides the health monitoring system with the information needed to check service health.
@@ -242,9 +242,9 @@ type ServiceClassManagerHandler interface {
 	// Returns:
 	//   - toolName: The name of the tool to call
 	//   - arguments: Tool arguments to use
-	//   - responseMapping: How to interpret the tool response
+	//   - expectation: Health check expectation conditions for determining service health
 	//   - err: nil on success, or an error if the tool configuration could not be retrieved
-	GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error)
+	GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, expectation *HealthCheckExpectation, err error)
 
 	// GetHealthCheckConfig retrieves the health check configuration for services of this class.
 	// This provides the health monitoring system with timing and threshold information.

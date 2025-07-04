@@ -39,6 +39,7 @@ type GenericServiceInstance struct {
 	// Service data and tracking
 	creationArgs         map[string]interface{}
 	serviceData          map[string]interface{}
+	outputs              map[string]interface{} // ServiceClass-level outputs resolved during creation
 	createdAt            time.Time
 	updatedAt            time.Time
 	lastChecked          *time.Time
@@ -94,6 +95,7 @@ func NewGenericServiceInstance(
 		dependencies:         localDependencies,
 		creationArgs:         args,
 		serviceData:          make(map[string]interface{}),
+		outputs:              make(map[string]interface{}),
 		createdAt:            time.Now(),
 		updatedAt:            time.Now(),
 		healthCheckFailures:  0,
@@ -121,7 +123,7 @@ func (gsi *GenericServiceInstance) Start(ctx context.Context) error {
 		return err
 	}
 
-	toolName, args, responseMapping, err := serviceClassMgr.GetStartTool(gsi.serviceClassName)
+	toolName, args, outputs, err := serviceClassMgr.GetStartTool(gsi.serviceClassName)
 	if err != nil {
 		err = fmt.Errorf("failed to get start tool: %w", err)
 		gsi.updateStateInternal(StateFailed, HealthUnknown, err)
@@ -129,7 +131,7 @@ func (gsi *GenericServiceInstance) Start(ctx context.Context) error {
 	}
 
 	// Execute the start tool
-	return gsi.executeLifecycleTool(ctx, "start", toolName, args, responseMapping)
+	return gsi.executeLifecycleTool(ctx, "start", toolName, args, outputs)
 }
 
 // Stop implements the Service interface - stops the service using the stop tool
@@ -151,7 +153,7 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 		return err
 	}
 
-	toolName, args, responseMapping, err := serviceClassMgr.GetStopTool(gsi.serviceClassName)
+	toolName, args, outputs, err := serviceClassMgr.GetStopTool(gsi.serviceClassName)
 	if err != nil {
 		err = fmt.Errorf("failed to get stop tool: %w", err)
 		gsi.updateStateInternal(StateFailed, HealthUnknown, err)
@@ -159,7 +161,7 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 	}
 
 	// Execute the stop tool
-	err = gsi.executeLifecycleTool(ctx, "stop", toolName, args, responseMapping)
+	err = gsi.executeLifecycleTool(ctx, "stop", toolName, args, outputs)
 	if err != nil {
 		return err
 	}
@@ -188,11 +190,11 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 		return err
 	}
 
-	toolName, args, responseMapping, err := serviceClassMgr.GetRestartTool(gsi.serviceClassName)
+	toolName, args, outputs, err := serviceClassMgr.GetRestartTool(gsi.serviceClassName)
 	// If a restart tool is defined and available, use it
 	if err == nil && toolName != "" {
 		gsi.updateStateInternal(StateStarting, HealthChecking, nil) // A restart is a form of starting
-		return gsi.executeLifecycleTool(ctx, "restart", toolName, args, responseMapping)
+		return gsi.executeLifecycleTool(ctx, "restart", toolName, args, outputs)
 	}
 
 	// Otherwise, fallback to Stop() then Start()
@@ -305,7 +307,7 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 	}
 
 	// Get the health check tool configuration through API
-	toolName, toolArgs, responseMapping, err := serviceClassMgr.GetHealthCheckTool(gsi.serviceClassName)
+	toolName, toolArgs, expectation, err := serviceClassMgr.GetHealthCheckTool(gsi.serviceClassName)
 	if err != nil {
 		// No health check tool configured, return current health
 		return gsi.health, nil
@@ -343,21 +345,13 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 		return newHealth, fmt.Errorf("health check tool failed: %w", err)
 	}
 
-	// Process the response
-	if err := gsi.processToolResponse(response, responseMapping); err != nil {
+	// Process the response using expectation matching
+	isHealthy, err := EvaluateHealthCheckExpectation(response, expectation)
+	if err != nil {
 		gsi.updateHealthTracking(false, failureThreshold, successThreshold)
 		newHealth := gsi.determineHealthFromTracking(failureThreshold, successThreshold)
 		gsi.updateStateInternal(gsi.state, newHealth, err)
-		return newHealth, fmt.Errorf("failed to process health check tool response: %w", err)
-	}
-
-	// Determine health from response
-	isHealthy := true
-	if success, ok := response["success"].(bool); ok && !success {
-		isHealthy = false
-	}
-	if health, ok := response["healthy"].(bool); ok && !health {
-		isHealthy = false
+		return newHealth, fmt.Errorf("failed to evaluate health check expectation: %w", err)
 	}
 
 	// Update health tracking
@@ -409,6 +403,34 @@ func (gsi *GenericServiceInstance) GetServiceData() map[string]interface{} {
 	return data
 }
 
+// SetOutputs sets the ServiceClass-level outputs for this service instance
+func (gsi *GenericServiceInstance) SetOutputs(outputs map[string]interface{}) {
+	gsi.mu.Lock()
+	defer gsi.mu.Unlock()
+
+	if outputs == nil {
+		gsi.outputs = make(map[string]interface{})
+	} else {
+		gsi.outputs = make(map[string]interface{})
+		for k, v := range outputs {
+			gsi.outputs[k] = v
+		}
+	}
+}
+
+// GetOutputs returns the ServiceClass-level outputs for this service instance
+func (gsi *GenericServiceInstance) GetOutputs() map[string]interface{} {
+	gsi.mu.RLock()
+	defer gsi.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	outputs := make(map[string]interface{})
+	for k, v := range gsi.outputs {
+		outputs[k] = v
+	}
+	return outputs
+}
+
 // GetServiceClassName returns the service class name for this instance
 func (gsi *GenericServiceInstance) GetServiceClassName() string {
 	gsi.mu.RLock()
@@ -457,6 +479,20 @@ func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{}
 			"name":     gsi.name,        // Service name
 			"metadata": gsi.serviceData, // Service metadata for templates like {{ .service.metadata.database_id }}
 		},
+		// Add tool outputs for template access like {{ .start.sessionID }}
+		"start":   make(map[string]interface{}),
+		"stop":    make(map[string]interface{}),
+		"restart": make(map[string]interface{}),
+	}
+
+	// Populate tool outputs from service data
+	// This allows templates to reference outputs like {{ .start.sessionID }}
+	for key, value := range gsi.serviceData {
+		// For now, assume all outputs come from start tool
+		// TODO: Track which tool produced which outputs
+		if startOutputs, ok := serviceContext["start"].(map[string]interface{}); ok {
+			startOutputs[key] = value
+		}
 	}
 
 	// Merge with creation args at root level for direct template access
@@ -517,55 +553,13 @@ func (gsi *GenericServiceInstance) determineHealthFromTracking(failureThreshold,
 	return HealthChecking
 }
 
-// processToolResponse processes tool response using ResponseMapping
-// Must be called with mutex held
-func (gsi *GenericServiceInstance) processToolResponse(response map[string]interface{}, responseMapping map[string]string) error {
-	// Extract service data from response if configured
-	if serviceIDPath := responseMapping["serviceId"]; serviceIDPath != "" {
-		if serviceID := gsi.extractFromResponse(response, serviceIDPath); serviceID != nil {
-			gsi.serviceData["serviceId"] = serviceID
-		}
-	}
-
-	if statusPath := responseMapping["status"]; statusPath != "" {
-		if status := gsi.extractFromResponse(response, statusPath); status != nil {
-			gsi.serviceData["status"] = status
-		}
-	}
-
-	if healthPath := responseMapping["health"]; healthPath != "" {
-		if health := gsi.extractFromResponse(response, healthPath); health != nil {
-			gsi.serviceData["health"] = health
-		}
-	}
-
-	if errorPath := responseMapping["error"]; errorPath != "" {
-		if errorInfo := gsi.extractFromResponse(response, errorPath); errorInfo != nil {
-			gsi.serviceData["error"] = errorInfo
-		}
-	}
-
-	return nil
-}
-
-// extractFromResponse extracts a value from response using a JSON path
-// Must be called with mutex held
-func (gsi *GenericServiceInstance) extractFromResponse(response map[string]interface{}, path string) interface{} {
-	// For now, simple implementation - just direct key lookup
-	// In the future, this could be enhanced to support JSON path syntax
-	if value, exists := response[path]; exists {
-		return value
-	}
-	return nil
-}
-
 // executeLifecycleTool executes a generic lifecycle tool (start, stop, etc.)
 func (gsi *GenericServiceInstance) executeLifecycleTool(
 	ctx context.Context,
 	toolType string,
 	toolName string,
 	args map[string]interface{},
-	responseMapping map[string]string,
+	outputs map[string]string,
 ) error {
 	// Prepare the context for template substitution
 	templateContext := gsi.buildTemplateContext()
@@ -601,10 +595,19 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 		return fmt.Errorf("%s tool failed: %w", toolType, err)
 	}
 
-	// Process the response
-	if err := gsi.processToolResponse(response, responseMapping); err != nil {
-		gsi.updateStateInternal(StateFailed, HealthUnhealthy, err)
-		return fmt.Errorf("failed to process %s tool response: %w", toolType, err)
+	logging.Debug("GenericServiceInstance", "Tool %s response: %+v", toolName, response)
+	logging.Debug("GenericServiceInstance", "Tool %s outputs config: %+v", toolName, outputs)
+
+	// Process the response and extract outputs
+	extractedOutputs := ProcessToolOutputs(response, outputs)
+	logging.Debug("GenericServiceInstance", "Extracted outputs from %s tool: %+v", toolName, extractedOutputs)
+
+	// Store outputs in service data for later use in templates
+	if extractedOutputs != nil {
+		for outputName, value := range extractedOutputs {
+			gsi.serviceData[outputName] = value
+			logging.Debug("GenericServiceInstance", "Stored output %s=%v in serviceData", outputName, value)
+		}
 	}
 
 	// Check if tool call was successful

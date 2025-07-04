@@ -62,20 +62,33 @@ func generateArgDefinitionSchema() map[string]interface{} {
 	}
 }
 
-// generateResponseMappingSchema returns the schema for ResponseMapping type
-func generateResponseMappingSchema() map[string]interface{} {
+// generateOutputsSchema returns the schema for outputs mapping
+func generateOutputsSchema() map[string]interface{} {
 	return map[string]interface{}{
 		"type":        "object",
-		"description": "Mapping of tool response fields to service fields",
+		"description": "JSON path mappings to extract values from tool response",
+		"additionalProperties": map[string]interface{}{
+			"type":        "string",
+			"description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+		},
+	}
+}
+
+// generateHealthCheckExpectationSchema returns the schema for HealthCheckExpectation type
+func generateHealthCheckExpectationSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "object",
+		"description": "Conditions for determining service health status",
 		"properties": map[string]interface{}{
-			"name":   map[string]interface{}{"type": "string"},
-			"status": map[string]interface{}{"type": "string"},
-			"health": map[string]interface{}{"type": "string"},
-			"error":  map[string]interface{}{"type": "string"},
-			"metadata": map[string]interface{}{
-				"type": "object",
+			"success": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Whether the tool call should succeed (default: true)",
+			},
+			"json_path": map[string]interface{}{
+				"type":        "object",
+				"description": "Field values that must match in the tool response",
 				"additionalProperties": map[string]interface{}{
-					"type": "string",
+					"description": "Expected value for the field",
 				},
 			},
 		},
@@ -96,7 +109,28 @@ func generateToolCallSchema() map[string]interface{} {
 				"type":        "object",
 				"description": "Arguments to pass to the tool",
 			},
-			"responseMapping": generateResponseMappingSchema(),
+			"outputs": generateOutputsSchema(),
+		},
+		"required": []string{"tool"},
+	}
+}
+
+// generateHealthCheckToolCallSchema returns the schema for HealthCheckToolCall type
+func generateHealthCheckToolCallSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "object",
+		"description": "Tool configuration for health check operations with expectation evaluation",
+		"properties": map[string]interface{}{
+			"tool": map[string]interface{}{
+				"type":        "string",
+				"description": "Name of the tool to call",
+			},
+			"args": map[string]interface{}{
+				"type":        "object",
+				"description": "Arguments to pass to the tool",
+			},
+			"expect":     generateHealthCheckExpectationSchema(),
+			"expect_not": generateHealthCheckExpectationSchema(),
 		},
 		"required": []string{"tool"},
 	}
@@ -105,6 +139,7 @@ func generateToolCallSchema() map[string]interface{} {
 // generateLifecycleToolsSchema returns the schema for LifecycleTools type
 func generateLifecycleToolsSchema() map[string]interface{} {
 	toolCallSchema := generateToolCallSchema()
+	healthCheckToolCallSchema := generateHealthCheckToolCallSchema()
 
 	return map[string]interface{}{
 		"type":        "object",
@@ -113,7 +148,7 @@ func generateLifecycleToolsSchema() map[string]interface{} {
 			"start":       toolCallSchema,
 			"stop":        toolCallSchema,
 			"restart":     toolCallSchema,
-			"healthCheck": toolCallSchema,
+			"healthCheck": healthCheckToolCallSchema,
 			"status":      toolCallSchema,
 		},
 		"required": []string{"start", "stop"},
@@ -258,7 +293,7 @@ func (a *Adapter) GetServiceClass(name string) (*api.ServiceClass, error) {
 }
 
 // GetStartTool returns start tool information for a service class
-func (a *Adapter) GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -273,19 +308,11 @@ func (a *Adapter) GetStartTool(name string) (toolName string, args map[string]in
 		return "", nil, nil, fmt.Errorf("no start tool defined for service class %s", name)
 	}
 
-	// Convert response mapping to simple map
-	respMapping := map[string]string{
-		"name":   startTool.ResponseMapping.Name,
-		"status": startTool.ResponseMapping.Status,
-		"health": startTool.ResponseMapping.Health,
-		"error":  startTool.ResponseMapping.Error,
-	}
-
-	return startTool.Tool, startTool.Args, respMapping, nil
+	return startTool.Tool, startTool.Args, startTool.Outputs, nil
 }
 
 // GetStopTool returns stop tool information for a service class
-func (a *Adapter) GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetStopTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -300,19 +327,11 @@ func (a *Adapter) GetStopTool(name string) (toolName string, args map[string]int
 		return "", nil, nil, fmt.Errorf("no stop tool defined for service class %s", name)
 	}
 
-	// Convert response mapping to simple map
-	respMapping := map[string]string{
-		"name":   stopTool.ResponseMapping.Name,
-		"status": stopTool.ResponseMapping.Status,
-		"health": stopTool.ResponseMapping.Health,
-		"error":  stopTool.ResponseMapping.Error,
-	}
-
-	return stopTool.Tool, stopTool.Args, respMapping, nil
+	return stopTool.Tool, stopTool.Args, stopTool.Outputs, nil
 }
 
 // GetRestartTool returns restart tool information for a service class
-func (a *Adapter) GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetRestartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -328,19 +347,11 @@ func (a *Adapter) GetRestartTool(name string) (toolName string, args map[string]
 		return "", nil, nil, nil
 	}
 
-	// Convert response mapping to simple map
-	respMapping := map[string]string{
-		"name":   restartTool.ResponseMapping.Name,
-		"status": restartTool.ResponseMapping.Status,
-		"health": restartTool.ResponseMapping.Health,
-		"error":  restartTool.ResponseMapping.Error,
-	}
-
-	return restartTool.Tool, restartTool.Args, respMapping, nil
+	return restartTool.Tool, restartTool.Args, restartTool.Outputs, nil
 }
 
 // GetHealthCheckTool returns health check tool information for a service class
-func (a *Adapter) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (a *Adapter) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, expectation *api.HealthCheckExpectation, err error) {
 	if a.manager == nil {
 		return "", nil, nil, fmt.Errorf("service class manager not available")
 	}
@@ -359,15 +370,8 @@ func (a *Adapter) GetHealthCheckTool(name string) (toolName string, args map[str
 		return "", nil, nil, fmt.Errorf("no health check tool defined for service class %s", name)
 	}
 
-	// Convert response mapping to simple map
-	respMapping := map[string]string{
-		"name":   healthTool.ResponseMapping.Name,
-		"status": healthTool.ResponseMapping.Status,
-		"health": healthTool.ResponseMapping.Health,
-		"error":  healthTool.ResponseMapping.Error,
-	}
-
-	return healthTool.Tool, healthTool.Args, respMapping, nil
+	// Return the expectation from the health check tool
+	return healthTool.Tool, healthTool.Args, healthTool.Expect, nil
 }
 
 // GetHealthCheckConfig returns health check configuration for a service class

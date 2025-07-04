@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-04T13:44:02+02:00",
+  "generated_at": "2025-07-04T22:12:05+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -798,32 +798,42 @@
                   "description": "Tools for managing service lifecycle",
                   "properties": {
                     "healthCheck": {
-                      "description": "Tool configuration for lifecycle operations",
+                      "description": "Tool configuration for health check operations with expectation evaluation",
                       "properties": {
                         "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
+                            "json_path": {
                               "additionalProperties": {
-                                "type": "string"
+                                "description": "Expected value for the field"
                               },
+                              "description": "Field values that must match in the tool response",
                               "type": "object"
                             },
-                            "name": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
+                          "properties": {
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
@@ -845,28 +855,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -886,28 +880,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -927,28 +905,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -968,28 +930,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1174,32 +1120,42 @@
                   "description": "Tools for managing service lifecycle",
                   "properties": {
                     "healthCheck": {
-                      "description": "Tool configuration for lifecycle operations",
+                      "description": "Tool configuration for health check operations with expectation evaluation",
                       "properties": {
                         "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
+                            "json_path": {
                               "additionalProperties": {
-                                "type": "string"
+                                "description": "Expected value for the field"
                               },
+                              "description": "Field values that must match in the tool response",
                               "type": "object"
                             },
-                            "name": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
+                          "properties": {
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
@@ -1221,28 +1177,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1262,28 +1202,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1303,28 +1227,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1344,28 +1252,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1514,32 +1406,42 @@
                   "description": "Tools for managing service lifecycle",
                   "properties": {
                     "healthCheck": {
-                      "description": "Tool configuration for lifecycle operations",
+                      "description": "Tool configuration for health check operations with expectation evaluation",
                       "properties": {
                         "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
+                            "json_path": {
                               "additionalProperties": {
-                                "type": "string"
+                                "description": "Expected value for the field"
                               },
+                              "description": "Field values that must match in the tool response",
                               "type": "object"
                             },
-                            "name": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
+                          "properties": {
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
@@ -1561,28 +1463,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1602,28 +1488,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1643,28 +1513,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1684,28 +1538,12 @@
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "metadata": {
-                              "additionalProperties": {
-                                "type": "string"
-                              },
-                              "type": "object"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {

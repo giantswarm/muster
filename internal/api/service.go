@@ -273,6 +273,10 @@ type ServiceStatus struct {
 
 	// Metadata contains additional runtime information about the service
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// Outputs contains the resolved outputs from the ServiceClass outputs definition.
+	// Only populated for ServiceClass-based services that have outputs configured.
+	Outputs map[string]interface{} `json:"outputs,omitempty"`
 }
 
 // ServiceListResponse represents a list of services in API responses.

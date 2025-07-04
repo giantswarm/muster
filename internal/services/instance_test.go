@@ -81,21 +81,21 @@ type mockServiceClassManager struct {
 }
 
 type createToolInfo struct {
-	toolName        string
-	arguments       map[string]interface{}
-	responseMapping map[string]string
+	toolName  string
+	arguments map[string]interface{}
+	outputs   map[string]string
 }
 
 type deleteToolInfo struct {
-	toolName        string
-	arguments       map[string]interface{}
-	responseMapping map[string]string
+	toolName  string
+	arguments map[string]interface{}
+	outputs   map[string]string
 }
 
 type healthCheckToolInfo struct {
-	toolName        string
-	arguments       map[string]interface{}
-	responseMapping map[string]string
+	toolName    string
+	arguments   map[string]interface{}
+	expectation *api.HealthCheckExpectation
 }
 
 type healthCheckConfig struct {
@@ -124,27 +124,27 @@ func (m *mockServiceClassManager) GetServiceClass(name string) (*api.ServiceClas
 	return nil, fmt.Errorf("service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetStartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetStartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	if info, exists := m.createTools[name]; exists {
-		return info.toolName, info.arguments, info.responseMapping, nil
+		return info.toolName, info.arguments, info.outputs, nil
 	}
 	return "", nil, nil, fmt.Errorf("start tool for service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetStopTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetStopTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	if info, exists := m.deleteTools[name]; exists {
-		return info.toolName, info.arguments, info.responseMapping, nil
+		return info.toolName, info.arguments, info.outputs, nil
 	}
 	return "", nil, nil, fmt.Errorf("stop tool for service class %s not found", name)
 }
 
-func (m *mockServiceClassManager) GetRestartTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetRestartTool(name string) (toolName string, args map[string]interface{}, outputs map[string]string, err error) {
 	return "", nil, nil, nil // Optional tool
 }
 
-func (m *mockServiceClassManager) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, responseMapping map[string]string, err error) {
+func (m *mockServiceClassManager) GetHealthCheckTool(name string) (toolName string, args map[string]interface{}, expectation *api.HealthCheckExpectation, err error) {
 	if info, exists := m.healthCheckTools[name]; exists {
-		return info.toolName, info.arguments, info.responseMapping, nil
+		return info.toolName, info.arguments, info.expectation, nil
 	}
 	return "", nil, nil, fmt.Errorf("health check tool for service class %s not found", name)
 }
@@ -185,29 +185,29 @@ func (m *mockServiceClassManager) SetAvailable(name string, available bool) {
 }
 
 // SetStartTool configures the start tool for a service class
-func (m *mockServiceClassManager) SetStartTool(name, toolName string, args map[string]interface{}, respMapping map[string]string) {
+func (m *mockServiceClassManager) SetStartTool(name, toolName string, args map[string]interface{}, outputs map[string]string) {
 	m.createTools[name] = createToolInfo{
-		toolName:        toolName,
-		arguments:       args,
-		responseMapping: respMapping,
+		toolName:  toolName,
+		arguments: args,
+		outputs:   outputs,
 	}
 }
 
 // SetStopTool configures the stop tool for a service class
-func (m *mockServiceClassManager) SetStopTool(name, toolName string, args map[string]interface{}, respMapping map[string]string) {
+func (m *mockServiceClassManager) SetStopTool(name, toolName string, args map[string]interface{}, outputs map[string]string) {
 	m.deleteTools[name] = deleteToolInfo{
-		toolName:        toolName,
-		arguments:       args,
-		responseMapping: respMapping,
+		toolName:  toolName,
+		arguments: args,
+		outputs:   outputs,
 	}
 }
 
 // SetHealthCheckTool configures the health check tool for a service class
-func (m *mockServiceClassManager) SetHealthCheckTool(name, toolName string, args map[string]interface{}, respMapping map[string]string) {
+func (m *mockServiceClassManager) SetHealthCheckTool(name, toolName string, args map[string]interface{}, expectation *api.HealthCheckExpectation) {
 	m.healthCheckTools[name] = healthCheckToolInfo{
-		toolName:        toolName,
-		arguments:       args,
-		responseMapping: respMapping,
+		toolName:    toolName,
+		arguments:   args,
+		expectation: expectation,
 	}
 }
 
@@ -321,8 +321,8 @@ func TestGenericServiceInstance_Start_Success(t *testing.T) {
 			"type": "{{ .param2 }}",
 		},
 		map[string]string{
-			"name":   "$.name",
-			"status": "$.status",
+			"name":   "name",   // Changed from "$.name" to "name" to match ProcessToolOutputs expectation
+			"status": "status", // Changed from "$.status" to "status"
 		})
 
 	// Create tool caller with successful response
@@ -359,6 +359,11 @@ func TestGenericServiceInstance_Start_Success(t *testing.T) {
 	assert.Equal(t, "test_create_tool", calls[0].toolName)
 	assert.Equal(t, "test-name", calls[0].args["name"])
 	assert.Equal(t, "test-type", calls[0].args["type"])
+
+	// NEW: Verify that outputs were extracted and stored in serviceData
+	serviceData := instance.GetServiceData()
+	assert.Equal(t, "created-service-123", serviceData["name"])
+	assert.Equal(t, "running", serviceData["status"])
 }
 
 func TestGenericServiceInstance_Start_ToolCallError(t *testing.T) {
@@ -551,14 +556,18 @@ func TestGenericServiceInstance_CheckHealth_Success(t *testing.T) {
 	mockMgr.SetServiceClass("test-service", &api.ServiceClass{
 		Name: "test-service",
 	})
+	expectation := &api.HealthCheckExpectation{
+		Success: func() *bool { b := true; return &b }(),
+		JsonPath: map[string]interface{}{
+			"healthy": true,
+			"status":  "healthy",
+		},
+	}
 	mockMgr.SetHealthCheckTool("test-service", "test_health_tool",
 		map[string]interface{}{
 			"name": "{{ .name }}",
 		},
-		map[string]string{
-			"health": "$.healthy",
-			"status": "$.status",
-		})
+		expectation)
 	mockMgr.SetHealthCheckConfig("test-service", true, 10*time.Second, 3, 1)
 
 	// Create tool caller with healthy response

@@ -88,6 +88,13 @@ func (a *Adapter) GetServiceStatus(name string) (*api.ServiceStatus, error) {
 		}
 	}
 
+	// Add outputs if this is a ServiceClass-based service instance
+	if genericInstance, ok := service.(*services.GenericServiceInstance); ok {
+		if outputs := genericInstance.GetOutputs(); len(outputs) > 0 {
+			status.Outputs = outputs
+		}
+	}
+
 	return status, nil
 }
 
@@ -112,6 +119,13 @@ func (a *Adapter) GetAllServices() []api.ServiceStatus {
 		if provider, ok := service.(services.ServiceDataProvider); ok {
 			if data := provider.GetServiceData(); data != nil {
 				status.Metadata = data
+			}
+		}
+
+		// Add outputs if this is a ServiceClass-based service instance
+		if genericInstance, ok := service.(*services.GenericServiceInstance); ok {
+			if outputs := genericInstance.GetOutputs(); len(outputs) > 0 {
+				status.Outputs = outputs
 			}
 		}
 
