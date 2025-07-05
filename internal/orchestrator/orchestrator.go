@@ -461,10 +461,16 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		templateContext["name"] = req.Name
 
 		// Add runtime data from the service instance if available
-		if serviceData := instance.GetServiceData(); serviceData != nil {
-			for key, value := range serviceData {
-				templateContext[key] = value
-			}
+		// Get the tool outputs that were extracted during service creation
+		serviceData := instance.GetServiceData()
+		logging.Debug("Orchestrator", "Tool outputs from service instance %s: %+v", req.Name, serviceData)
+
+		// Add tool outputs under their respective tool names (e.g., "start", "stop")
+		// For now, we'll add the start tool outputs under "start" key
+		// This assumes the start tool was called - we could track which tools were called
+		if serviceData != nil && len(serviceData) > 0 {
+			templateContext["start"] = serviceData
+			logging.Debug("Orchestrator", "Added start tool outputs to template context: %+v", serviceData)
 		}
 
 		logging.Debug("Orchestrator", "Template context for outputs: %+v", templateContext)
@@ -481,6 +487,9 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 			if outputsMap, ok := resolvedResult.(map[string]interface{}); ok {
 				resolvedOutputs = outputsMap
 				logging.Debug("Orchestrator", "Successfully resolved outputs for service instance %s: %+v", req.Name, resolvedOutputs)
+
+				// Store the resolved outputs in the service instance for later retrieval
+				instance.SetOutputs(resolvedOutputs)
 			} else {
 				logging.Error("Orchestrator", fmt.Errorf("outputs resolution returned non-map type"), "Invalid outputs format for service instance %s", req.Name)
 				resolvedOutputs = nil
@@ -602,7 +611,7 @@ func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *servi
 		CreatedAt:        instance.GetCreatedAt(),
 		ServiceData:      instance.GetServiceData(),
 		CreationArgs:     instance.GetCreationArgs(),
-		Outputs:          nil, // Outputs are only available during creation, not stored in GenericServiceInstance
+		Outputs:          instance.GetOutputs(), // Now available from the instance
 	}
 }
 

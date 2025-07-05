@@ -147,6 +147,11 @@ type ServiceClassCreateRequest struct {
 	// Should explain what type of service this class creates and its purpose.
 	Description string `json:"description,omitempty"`
 
+	// Args defines the validation rules and metadata for service creation arguments.
+	// These definitions are used to validate arguments when creating service instances
+	// and to provide documentation for the service creation API.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
+
 	// ServiceConfig defines the service lifecycle management configuration (required).
 	// Specifies how services created from this class should be managed.
 	ServiceConfig ServiceConfig `json:"serviceConfig" validate:"required"`
@@ -164,6 +169,11 @@ type ServiceClassUpdateRequest struct {
 	// Description can be updated to improve documentation.
 	Description string `json:"description,omitempty"`
 
+	// Args defines the validation rules and metadata for service creation arguments.
+	// These definitions are used to validate arguments when creating service instances
+	// and to provide documentation for the service creation API.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
+
 	// ServiceConfig can be updated to modify lifecycle behavior.
 	// Changes may affect existing service instances.
 	ServiceConfig ServiceConfig `json:"serviceConfig,omitempty"`
@@ -180,6 +190,11 @@ type ServiceClassValidateRequest struct {
 
 	// Description for validation.
 	Description string `json:"description,omitempty"`
+
+	// Args defines the validation rules and metadata for service creation arguments.
+	// These definitions are used to validate arguments when creating service instances
+	// and to provide documentation for the service creation API.
+	Args map[string]ArgDefinition `json:"args,omitempty"`
 
 	// ServiceConfig to validate (required). All lifecycle tools will be checked
 	// for availability and proper configuration.

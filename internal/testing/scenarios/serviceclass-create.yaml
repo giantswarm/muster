@@ -5,6 +5,44 @@ concept: "serviceclass"
 tags: ["serviceclass", "create", "core-api"]
 timeout: "1m"
 
+pre_configuration:
+  mcp_servers:
+    - name: "test-mock"
+      config:
+        tools:
+          - name: "serviceconnection_start"
+            input_schema:
+              args:
+                port:
+                  type: "string"
+                  default: "18000"
+            responses:
+              - response:
+                  status: "started"
+                  connection:
+                    sessionID: "mock-session-12345"
+
+          - name: "serviceconnection_stop"
+            input_schema:
+              args:
+                sessionID:
+                  type: "string"
+              required:
+                - sessionID
+            responses:
+              - response:
+                  status: "stopped"
+
+          - name: "serviceconnection_check"
+            input_schema:
+              args:
+                sessionID:
+                  type: "string"
+              required:
+                - sessionID
+            responses:
+              - response:
+                  status: "healthy"
 steps:
 - id: "create-basic-serviceclass"
   description: "Create a basic ServiceClass with lifecycle tools"
@@ -12,15 +50,77 @@ steps:
   args:
     name: "basic-create-sc"
     version: "1.0.0"
+    args:
+      port:
+        type: "string"
+        description: "local port for serviceconnection"
+        required: true
     serviceConfig:
-      serviceType: "test-service"
       lifecycleTools:
         start:
-          tool: "core_service_list"
+          tool: "x_test-mock_serviceconnection_start"
+          args:
+            port: "{{.port}}"
+          outputs:
+            sessionID: "connection.sessionID"
         stop:
-          tool: "core_service_list"
+          tool: "x_test-mock_serviceconnection_stop"
+          args:
+            sessionID: "{{.start.sessionID}}"
+          outputs:
+            status: "status"
+        healthCheck:
+          tool: "x_test-mock_serviceconnection_check"
+          args:
+            sessionID: "{{.start.sessionID}}"
+          expect:
+            success: true
+            json_path:
+              status: "healthy"
+      outputs:
+        sessionID: "{{.start.sessionID}}"
+        url: "http://localhost:{{.port}}"
   expected:
     success: true
+
+- id: "test-serviceconnection"
+  description: "Test the serviceconnection"
+  tool: "core_service_create"
+  args:
+    name: "test-serviceconnection"
+    serviceClassName: "basic-create-sc"
+    args:
+      port: "18001"    
+  expected:
+    success: true
+    json_path:
+      "outputs.sessionID": "mock-session-12345"
+      "outputs.url": "http://localhost:18001"
+
+- id: "check-serviceconnection"
+  description: "Check the serviceconnection"
+  tool: "core_service_status"
+  args:
+    name: "test-serviceconnection"
+  expected:
+    success: true
+    json_path:
+      "outputs.sessionID": "mock-session-12345"
+      "health": "healthy"
+
+- id: "test-serviceconnection2"
+  description: "Test the serviceconnection2"
+  tool: "core_service_create"
+  args:
+    name: "test-serviceconnection2"
+    serviceClassName: "basic-create-sc"
+    args:
+      port: "18002"
+  expected:
+    success: true
+    json_path:
+      "outputs.sessionID": "mock-session-12345"
+      "outputs.url": "http://localhost:18002"
 
 cleanup:
 - id: "delete-created-serviceclass"

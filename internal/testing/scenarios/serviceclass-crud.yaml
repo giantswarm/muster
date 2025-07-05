@@ -38,12 +38,13 @@ steps:
     args:
       name: "correct-sc"
       version: "1.0.1"
+      args:
+        name:
+          type: "string"
+          required: true
+          description: "Resource name"
       serviceConfig:
         serviceType: "mock-resource"
-        createArgs:
-          name:
-            toolArg: "resource_name"
-            required: true
         lifecycleTools:
           start:
             tool: "x_lifecycle-provider_create_resource"
@@ -81,12 +82,13 @@ steps:
     args:
       name: "correct-sc"
       version: "1.0.2"
+      args:
+        name:
+          type: "string"
+          required: true
+          description: "Resource name"
       serviceConfig:
         serviceType: "mock-resource"
-        createArgs:
-          name:
-            toolArg: "resource_name"
-            required: true
         lifecycleTools:
           start:
             tool: "x_lifecycle-provider_create_resource"

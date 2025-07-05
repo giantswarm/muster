@@ -196,16 +196,16 @@ serviceConfig:
       arguments:
         clusterName: "{{ .cluster_name }}"
         context: "{{ .context | default .cluster_name }}"
-      responseMapping:
-        name: "$.name"
-        status: "$.status"
-        health: "$.connected"
+      outputs:
+        name: "name"
+        status: "status"
+        health: "connected"
     stop:
       tool: "api_kubernetes_disconnect"
       arguments:
         name: "{{ .name }}"
-      responseMapping:
-        status: "$.status"
+      outputs:
+        status: "status"
   
   createArgs:
     cluster_name:
@@ -298,15 +298,15 @@ serviceConfig:
       arguments:
         namespace: "{{ .namespace }}"
         service: "{{ .service_name }}"
-      responseMapping:
-        serviceId: "$.forwardId"
-        status: "$.status"
+      outputs:
+        serviceId: "forwardId"
+        status: "status"
     stop:
       tool: "api_k8s_port_forward_stop"
       arguments:
         forwardId: "{{ .service_id }}"
-      responseMapping:
-        status: "$.status"
+      outputs:
+        status: "status"
 
 operations:
   create_portforward:
@@ -380,15 +380,15 @@ serviceConfig:
       tool: "test_create_tool"
       arguments:
         name: "{{ .name }}"
-      responseMapping:
-        serviceId: "$.id"
-        status: "$.status"
+      outputs:
+        serviceId: "id"
+        status: "status"
     stop:
       tool: "test_delete_tool"
       arguments:
         serviceId: "{{ .service_id }}"
-      responseMapping:
-        status: "$.status"
+      outputs:
+        status: "status"
 
 metadata:
   provider: "test"

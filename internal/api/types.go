@@ -240,7 +240,7 @@ type ToolUpdateSubscriber interface {
 
 // ToolCall defines how to call an aggregator tool for a lifecycle event.
 // This is used in ServiceClass definitions to specify which tools should be
-// called for service lifecycle operations (start, stop, health check, etc.).
+// called for service lifecycle operations (start, stop, restart, etc.).
 //
 // ToolCall provides the declarative configuration for how ServiceClass
 // lifecycle operations map to actual tool executions, including argument
@@ -254,10 +254,41 @@ type ToolCall struct {
 	// These can be combined with dynamic arguments from service args.
 	Args map[string]interface{} `yaml:"args" json:"args"`
 
-	// ResponseMapping defines how to extract information from tool responses.
-	// This allows ServiceClass lifecycle tools to provide structured information
-	// about service status, health, and metadata.
-	ResponseMapping ResponseMapping `yaml:"responseMapping" json:"responseMapping"`
+	// Outputs defines how to extract values from tool responses using JSON paths.
+	// These outputs can be referenced in subsequent tool calls via templating.
+	// Format: outputName: "json.path.to.value"
+	Outputs map[string]string `yaml:"outputs,omitempty" json:"outputs,omitempty"`
+}
+
+// HealthCheckToolCall defines how to call a health check tool with condition evaluation.
+// This extends ToolCall with expectation matching similar to workflow conditions.
+type HealthCheckToolCall struct {
+	// Tool specifies the name of the tool to call.
+	// Must correspond to an available tool in the aggregator.
+	Tool string `yaml:"tool" json:"tool"`
+
+	// Args provides static arguments to pass to the tool.
+	// These can be combined with dynamic arguments from service args.
+	Args map[string]interface{} `yaml:"args" json:"args"`
+
+	// Expect defines conditions that must be met for the service to be considered healthy.
+	// Similar to workflow step conditions, this supports success checks and JSON path matching.
+	Expect *HealthCheckExpectation `yaml:"expect,omitempty" json:"expect,omitempty"`
+
+	// ExpectNot defines conditions that must NOT be met for the service to be considered healthy.
+	// If any of these conditions are met, the service is considered unhealthy.
+	ExpectNot *HealthCheckExpectation `yaml:"expect_not,omitempty" json:"expect_not,omitempty"`
+}
+
+// HealthCheckExpectation defines the expected conditions for health check evaluation.
+// This mirrors the structure used in workflow step conditions.
+type HealthCheckExpectation struct {
+	// Success indicates whether the tool call itself should succeed (default: true)
+	Success *bool `yaml:"success,omitempty" json:"success,omitempty"`
+
+	// JsonPath defines specific field values that should match in the tool response.
+	// Format: fieldPath: expectedValue
+	JsonPath map[string]interface{} `yaml:"json_path,omitempty" json:"json_path,omitempty"`
 }
 
 // HealthStatus represents the health status of a service, capability, or other component.
@@ -351,49 +382,6 @@ type HealthCheckConfig struct {
 	// SuccessThreshold is the number of consecutive successes before marking healthy.
 	// Higher values reduce false positives but increase recovery time.
 	SuccessThreshold int `yaml:"successThreshold" json:"successThreshold"`
-}
-
-// ArgMapping defines how service creation arguments map to tool arguments.
-// This is used in ServiceClass definitions to specify how user-provided arguments
-// are transformed and passed to lifecycle tools.
-//
-// Argument mapping enables ServiceClasses to provide a clean interface for
-// service creation while translating to the specific tool arguments needed
-// for the underlying implementation.
-type ArgMapping struct {
-	// ToolArg specifies the name of the argument in the tool call.
-	// This is how the argument will be passed to the lifecycle tool.
-	ToolArg string `yaml:"toolArg" json:"toolArg"`
-
-	// Default specifies the default value used when the argument is not provided.
-	// Only used when Required is false.
-	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
-
-	// Required indicates whether this argument must be provided during service creation.
-	Required bool `yaml:"required" json:"required"`
-
-	// Transform specifies an optional transformation to apply to the argument value.
-	// Can be used for format conversion or value mapping.
-	Transform string `yaml:"transform,omitempty" json:"transform,omitempty"`
-}
-
-// ResponseMapping defines how to extract information from tool responses.
-// This allows ServiceClass lifecycle tools to provide structured information
-// about service status, health, and metadata in a consistent format.
-//
-// Response mapping enables the orchestrator to understand tool responses
-// and update service state appropriately without knowing the specific
-// response format of each tool.
-type ResponseMapping struct {
-	// Name specifies the JSON path to extract the service name from the response.
-	// Used to verify the correct service was operated on.
-	Name string `yaml:"name,omitempty" json:"name,omitempty"`
-
-	// Status specifies the JSON path to extract the service status from the response.
-	Status   string            `yaml:"status,omitempty" json:"status,omitempty"`
-	Health   string            `yaml:"health,omitempty" json:"health,omitempty"`
-	Error    string            `yaml:"error,omitempty" json:"error,omitempty"`
-	Metadata map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 
 // WorkflowExecutionStatus represents the status of a workflow execution

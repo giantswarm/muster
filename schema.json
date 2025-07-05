@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-03T11:31:43+02:00",
+  "generated_at": "2025-07-04T22:12:05+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -714,6 +714,41 @@
         "core_serviceclass_create": {
           "description": "Arguments for core_serviceclass_create tool",
           "properties": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "description": "Argument definitions for service creation validation",
+              "type": "object"
+            },
             "description": {
               "description": "ServiceClass description",
               "type": "string"
@@ -749,7 +784,7 @@
                       "type": "integer"
                     },
                     "interval": {
-                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "description": "Health check interval as duration string (e.g., '30s', '1m')",
                       "type": "string"
                     },
                     "successThreshold": {
@@ -763,90 +798,42 @@
                   "description": "Tools for managing service lifecycle",
                   "properties": {
                     "healthCheck": {
-                      "description": "Tool to check service health (optional)",
+                      "description": "Tool configuration for health check operations with expectation evaluation",
                       "properties": {
-                        "arguments": {
+                        "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
                         },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "restart": {
-                      "description": "Tool to restart the service (optional)",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "start": {
-                      "description": "Tool to start the service",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
@@ -861,29 +848,94 @@
                       ],
                       "type": "object"
                     },
-                    "stop": {
-                      "description": "Tool to stop the service",
+                    "restart": {
+                      "description": "Tool configuration for lifecycle operations",
                       "properties": {
-                        "arguments": {
+                        "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -917,16 +969,16 @@
                 "timeout": {
                   "description": "Timeout configuration for service operations",
                   "properties": {
+                    "create": {
+                      "description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "delete": {
+                      "description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
                     "healthCheck": {
-                      "description": "Health check timeout (e.g., '10s', '30s')",
-                      "type": "string"
-                    },
-                    "start": {
-                      "description": "Start operation timeout (e.g., '30s', '2m')",
-                      "type": "string"
-                    },
-                    "stop": {
-                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "description": "Health check timeout as duration string (e.g., '10s', '30s')",
                       "type": "string"
                     }
                   },
@@ -984,244 +1036,41 @@
         "core_serviceclass_update": {
           "description": "Arguments for core_serviceclass_update tool",
           "properties": {
-            "description": {
-              "description": "ServiceClass description",
-              "type": "string"
-            },
-            "name": {
-              "description": "Name of the ServiceClass to update",
-              "type": "string"
-            },
-            "serviceConfig": {
-              "additionalProperties": false,
-              "description": "Service configuration with lifecycle tools",
-              "properties": {
-                "defaultName": {
-                  "description": "Default name pattern for service instances",
-                  "type": "string"
-                },
-                "dependencies": {
-                  "description": "List of ServiceClass names that must be available",
-                  "items": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
                     "type": "string"
                   },
-                  "type": "array"
-                },
-                "healthCheck": {
-                  "description": "Health check configuration",
-                  "properties": {
-                    "enabled": {
-                      "description": "Whether health checks are enabled",
-                      "type": "boolean"
-                    },
-                    "failureThreshold": {
-                      "description": "Number of consecutive failures before marking unhealthy",
-                      "type": "integer"
-                    },
-                    "interval": {
-                      "description": "Health check interval (e.g., '30s', '1m')",
-                      "type": "string"
-                    },
-                    "successThreshold": {
-                      "description": "Number of consecutive successes to mark healthy",
-                      "type": "integer"
-                    }
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
                   },
-                  "type": "object"
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number"
+                    ],
+                    "type": "string"
+                  }
                 },
-                "lifecycleTools": {
-                  "description": "Tools for managing service lifecycle",
-                  "properties": {
-                    "healthCheck": {
-                      "description": "Tool to check service health (optional)",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "restart": {
-                      "description": "Tool to restart the service (optional)",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "start": {
-                      "description": "Tool to start the service",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "tool"
-                      ],
-                      "type": "object"
-                    },
-                    "stop": {
-                      "description": "Tool to stop the service",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "tool"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "start",
-                    "stop"
-                  ],
-                  "type": "object"
-                },
-                "outputs": {
-                  "additionalProperties": {
-                    "description": "Output value template using Go text/template syntax"
-                  },
-                  "description": "Template-based outputs that should be generated when service instances are created",
-                  "type": "object"
-                },
-                "serviceType": {
-                  "description": "Type of service this configuration manages",
-                  "type": "string"
-                },
-                "timeout": {
-                  "description": "Timeout configuration for service operations",
-                  "properties": {
-                    "healthCheck": {
-                      "description": "Health check timeout (e.g., '10s', '30s')",
-                      "type": "string"
-                    },
-                    "start": {
-                      "description": "Start operation timeout (e.g., '30s', '2m')",
-                      "type": "string"
-                    },
-                    "stop": {
-                      "description": "Stop operation timeout (e.g., '30s', '2m')",
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                }
+                "required": [
+                  "type"
+                ],
+                "type": "object"
               },
-              "required": [
-                "serviceType",
-                "lifecycleTools"
-              ],
+              "description": "Argument definitions for service creation validation",
               "type": "object"
             },
-            "version": {
-              "description": "ServiceClass version",
-              "type": "string"
-            }
-          },
-          "required": [
-            "name"
-          ],
-          "type": "object"
-        },
-        "core_serviceclass_validate": {
-          "description": "Arguments for core_serviceclass_validate tool",
-          "properties": {
             "description": {
               "description": "ServiceClass description",
               "type": "string"
@@ -1257,7 +1106,7 @@
                       "type": "integer"
                     },
                     "interval": {
-                      "description": "Health check interval (e.g., '30s', '1m')",
+                      "description": "Health check interval as duration string (e.g., '30s', '1m')",
                       "type": "string"
                     },
                     "successThreshold": {
@@ -1271,90 +1120,42 @@
                   "description": "Tools for managing service lifecycle",
                   "properties": {
                     "healthCheck": {
-                      "description": "Tool to check service health (optional)",
+                      "description": "Tool configuration for health check operations with expectation evaluation",
                       "properties": {
-                        "arguments": {
+                        "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
                         },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "restart": {
-                      "description": "Tool to restart the service (optional)",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
                           "properties": {
-                            "error": {
-                              "type": "string"
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
                             },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "tool": {
-                          "description": "Name of the tool to call",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "start": {
-                      "description": "Tool to start the service",
-                      "properties": {
-                        "arguments": {
-                          "description": "Arguments to pass to the tool",
-                          "type": "object"
-                        },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
                             }
                           },
                           "type": "object"
@@ -1369,29 +1170,94 @@
                       ],
                       "type": "object"
                     },
-                    "stop": {
-                      "description": "Tool to stop the service",
+                    "restart": {
+                      "description": "Tool configuration for lifecycle operations",
                       "properties": {
-                        "arguments": {
+                        "args": {
                           "description": "Arguments to pass to the tool",
                           "type": "object"
                         },
-                        "responseMapping": {
-                          "description": "Mapping of tool response fields to service fields",
-                          "properties": {
-                            "error": {
-                              "type": "string"
-                            },
-                            "health": {
-                              "type": "string"
-                            },
-                            "name": {
-                              "type": "string"
-                            },
-                            "status": {
-                              "type": "string"
-                            }
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
                           },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "start": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "stop": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
                           "type": "object"
                         },
                         "tool": {
@@ -1425,16 +1291,302 @@
                 "timeout": {
                   "description": "Timeout configuration for service operations",
                   "properties": {
-                    "healthCheck": {
-                      "description": "Health check timeout (e.g., '10s', '30s')",
+                    "create": {
+                      "description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
                       "type": "string"
+                    },
+                    "delete": {
+                      "description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "healthCheck": {
+                      "description": "Health check timeout as duration string (e.g., '10s', '30s')",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "version": {
+              "description": "ServiceClass version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_serviceclass_validate": {
+          "description": "Arguments for core_serviceclass_validate tool",
+          "properties": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "description": "Argument definitions for service creation validation",
+              "type": "object"
+            },
+            "description": {
+              "description": "ServiceClass description",
+              "type": "string"
+            },
+            "name": {
+              "description": "ServiceClass name",
+              "type": "string"
+            },
+            "serviceConfig": {
+              "additionalProperties": false,
+              "description": "Service configuration with lifecycle tools",
+              "properties": {
+                "defaultName": {
+                  "description": "Default name pattern for service instances",
+                  "type": "string"
+                },
+                "dependencies": {
+                  "description": "List of ServiceClass names that must be available",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "healthCheck": {
+                  "description": "Health check configuration",
+                  "properties": {
+                    "enabled": {
+                      "description": "Whether health checks are enabled",
+                      "type": "boolean"
+                    },
+                    "failureThreshold": {
+                      "description": "Number of consecutive failures before marking unhealthy",
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "description": "Health check interval as duration string (e.g., '30s', '1m')",
+                      "type": "string"
+                    },
+                    "successThreshold": {
+                      "description": "Number of consecutive successes to mark healthy",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "lifecycleTools": {
+                  "description": "Tools for managing service lifecycle",
+                  "properties": {
+                    "healthCheck": {
+                      "description": "Tool configuration for health check operations with expectation evaluation",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "expect": {
+                          "description": "Conditions for determining service health status",
+                          "properties": {
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
+                            },
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "expect_not": {
+                          "description": "Conditions for determining service health status",
+                          "properties": {
+                            "json_path": {
+                              "additionalProperties": {
+                                "description": "Expected value for the field"
+                              },
+                              "description": "Field values that must match in the tool response",
+                              "type": "object"
+                            },
+                            "success": {
+                              "description": "Whether the tool call should succeed (default: true)",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "restart": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
                     },
                     "start": {
-                      "description": "Start operation timeout (e.g., '30s', '2m')",
-                      "type": "string"
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
                     },
                     "stop": {
-                      "description": "Stop operation timeout (e.g., '30s', '2m')",
+                      "description": "Tool configuration for lifecycle operations",
+                      "properties": {
+                        "args": {
+                          "description": "Arguments to pass to the tool",
+                          "type": "object"
+                        },
+                        "outputs": {
+                          "additionalProperties": {
+                            "description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+                            "type": "string"
+                          },
+                          "description": "JSON path mappings to extract values from tool response",
+                          "type": "object"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to call",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "stop"
+                  ],
+                  "type": "object"
+                },
+                "outputs": {
+                  "additionalProperties": {
+                    "description": "Output value template using Go text/template syntax"
+                  },
+                  "description": "Template-based outputs that should be generated when service instances are created",
+                  "type": "object"
+                },
+                "serviceType": {
+                  "description": "Type of service this configuration manages",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Timeout configuration for service operations",
+                  "properties": {
+                    "create": {
+                      "description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "delete": {
+                      "description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+                      "type": "string"
+                    },
+                    "healthCheck": {
+                      "description": "Health check timeout as duration string (e.g., '10s', '30s')",
                       "type": "string"
                     }
                   },
