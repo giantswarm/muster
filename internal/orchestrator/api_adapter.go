@@ -205,6 +205,7 @@ func (a *Adapter) convertToAPIServiceInstance(internalInfo *ServiceInstanceInfo)
 		Health:           api.HealthStatus(internalInfo.Health),
 		LastError:        internalInfo.LastError,
 		CreatedAt:        internalInfo.CreatedAt,
+		UpdatedAt:        internalInfo.UpdatedAt,
 		LastChecked:      internalInfo.LastChecked,
 		ServiceData:      internalInfo.ServiceData,
 		Args:             internalInfo.CreationArgs,

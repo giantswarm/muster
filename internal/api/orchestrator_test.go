@@ -265,13 +265,13 @@ func (m *mockOrchestratorHandler) GetAllServices() []ServiceStatus {
 // ServiceClass-based dynamic service instance management methods (for test compatibility)
 func (m *mockOrchestratorHandler) CreateServiceClassInstance(ctx context.Context, req CreateServiceInstanceRequest) (*ServiceInstance, error) {
 	return &ServiceInstance{
-		ID:               "test-service-id",
 		Name:             req.Name,
 		ServiceClassName: req.ServiceClassName,
 		ServiceClassType: "test",
 		State:            StateStopped,
 		Health:           HealthUnknown,
 		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      make(map[string]interface{}),
 	}, nil
 }
@@ -282,26 +282,26 @@ func (m *mockOrchestratorHandler) DeleteServiceClassInstance(ctx context.Context
 
 func (m *mockOrchestratorHandler) GetServiceClassInstance(serviceID string) (*ServiceInstance, error) {
 	return &ServiceInstance{
-		ID:               serviceID,
 		Name:             "test-name",
 		ServiceClassName: "test-class",
 		ServiceClassType: "test",
 		State:            StateRunning,
 		Health:           HealthHealthy,
 		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      make(map[string]interface{}),
 	}, nil
 }
 
 func (m *mockOrchestratorHandler) GetServiceClassInstanceByName(name string) (*ServiceInstance, error) {
 	return &ServiceInstance{
-		ID:               "test-service-id",
 		Name:             name,
 		ServiceClassName: "test-class",
 		ServiceClassType: "test",
 		State:            StateRunning,
 		Health:           HealthHealthy,
 		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      make(map[string]interface{}),
 	}, nil
 }
@@ -309,13 +309,13 @@ func (m *mockOrchestratorHandler) GetServiceClassInstanceByName(name string) (*S
 func (m *mockOrchestratorHandler) ListServiceClassInstances() []ServiceInstance {
 	return []ServiceInstance{
 		{
-			ID:               "test-service-id-1",
 			Name:             "test-name-1",
 			ServiceClassName: "test-class",
 			ServiceClassType: "test",
 			State:            StateRunning,
 			Health:           HealthHealthy,
 			CreatedAt:        time.Now(),
+			UpdatedAt:        time.Now(),
 			ServiceData:      make(map[string]interface{}),
 		},
 	}
@@ -329,26 +329,26 @@ func (m *mockOrchestratorHandler) SubscribeToServiceInstanceEvents() <-chan Serv
 // Add missing ServiceManagerHandler methods
 func (m *mockOrchestratorHandler) GetService(name string) (*ServiceInstance, error) {
 	return &ServiceInstance{
-		ID:               "test-service-id",
 		Name:             name,
 		ServiceClassName: "test-class",
 		ServiceClassType: "test",
 		State:            StateRunning,
 		Health:           HealthHealthy,
 		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      make(map[string]interface{}),
 	}, nil
 }
 
 func (m *mockOrchestratorHandler) CreateService(ctx context.Context, req CreateServiceInstanceRequest) (*ServiceInstance, error) {
 	return &ServiceInstance{
-		ID:               "test-service-id",
 		Name:             req.Name,
 		ServiceClassName: req.ServiceClassName,
 		ServiceClassType: "test",
 		State:            StateRunning,
 		Health:           HealthHealthy,
 		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      make(map[string]interface{}),
 	}, nil
 }

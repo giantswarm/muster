@@ -12,10 +12,6 @@ import (
 // The struct is designed to support both YAML serialization for persistence and JSON serialization
 // for API responses, with some fields excluded from YAML when they represent transient runtime state.
 type ServiceInstance struct {
-	// ID is the unique identifier for this service instance.
-	// This is typically generated automatically when the instance is created.
-	ID string `json:"id" yaml:"id"`
-
 	// Name is the human-readable name for this service instance.
 	// If not provided, it may be derived from the ServiceClass defaultName or ID.
 	Name string `json:"name,omitempty" yaml:"name"`
