@@ -147,13 +147,15 @@ steps:
     json_path:
       status: "completed"
       workflow: "conditional-workflow"
-      "results.check-service-exists.status": "completed"
-      "results.check-service-exists.condition_evaluation": true
-      "results.check-service-exists.condition_result.name": "existing-service"
-      "results.check-service-exists.condition_result.health": "healthy"
-      "results.check-service-exists.condition_result.state": "running"
-      "results.check-service-exists.condition_result.args.echo": "existing-service"
-      "results.always-execute.status": "completed"
+      steps.0.id: "check-service-exists"
+      steps.0.status: "completed"
+      steps.0.condition_evaluation: true
+      steps.0.condition_result.name: "existing-service"
+      steps.0.condition_result.health: "healthy"
+      steps.0.condition_result.state: "running"
+      steps.0.condition_result.args.echo: "existing-service"
+      steps.1.id: "always-execute"
+      steps.1.status: "completed"
 
 - id: "run-conditional-workflow-service-missing"
   tool: "workflow_conditional-workflow"
@@ -164,9 +166,11 @@ steps:
     json_path:
       status: "completed"
       workflow: "conditional-workflow"
-      "results.check-service-exists.status": "skipped"
-      "results.check-service-exists.condition_evaluation": false
-      "results.always-execute.status": "completed"
+      steps.0.id: "check-service-exists"
+      steps.0.status: "skipped"
+      steps.0.condition_evaluation: false
+      steps.1.id: "always-execute"
+      steps.1.status: "completed"
 
 - id: "create-unhealthy-service"
   tool: "core_service_create"
@@ -194,15 +198,19 @@ steps:
     json_path:
       status: "completed"
       workflow: "service-health-workflow"
-      "results.get-service-status.status": "completed"
-      "results.get-service-status.result.name": "unhealthy-service"
-      "results.get-service-status.result.health": "unknown"
-      "results.restart-unhealthy-service.status": "completed"
-      "results.restart-unhealthy-service.condition_evaluation": true
-      "results.create-missing-service.status": "skipped"
-      "results.create-missing-service.condition_evaluation": false
-      "results.report-final-status.status": "completed"
-      "results.report-final-status.result.health": "healthy"
+      steps.0.id: "get-service-status"
+      steps.0.status: "completed"
+      steps.0.result.name: "unhealthy-service"
+      steps.0.result.health: "unknown"
+      steps.1.id: "restart-unhealthy-service"
+      steps.1.status: "completed"
+      steps.1.condition_evaluation: true
+      steps.2.id: "create-missing-service"
+      steps.2.status: "skipped"
+      steps.2.condition_evaluation: false
+      steps.3.id: "report-final-status"
+      steps.3.status: "completed"
+      steps.3.result.health: "healthy"
 
 - id: "run-service-health-workflow-missing"
   tool: "workflow_service-health-workflow"
@@ -213,14 +221,18 @@ steps:
     json_path:
       status: "completed"
       workflow: "service-health-workflow"
-      "results.get-service-status.status": "failed"
-      "results.get-service-status.allow_failure": true
-      "results.restart-unhealthy-service.status": "skipped"
-      "results.restart-unhealthy-service.condition_evaluation": false
-      "results.create-missing-service.status": "completed"
-      "results.create-missing-service.condition_evaluation": true
-      "results.report-final-status.status": "completed"
-      "results.report-final-status.result.health": "healthy"
+      steps.0.id: "get-service-status"
+      steps.0.status: "failed"
+      steps.0.allow_failure: true
+      steps.1.id: "restart-unhealthy-service"
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+      steps.2.id: "create-missing-service"
+      steps.2.status: "completed"
+      steps.2.condition_evaluation: true
+      steps.3.id: "report-final-status"
+      steps.3.status: "completed"
+      steps.3.result.health: "healthy"
 
 - id: "run-service-health-workflow-healthy"
   tool: "workflow_service-health-workflow"
@@ -231,12 +243,16 @@ steps:
     json_path:
       status: "completed"
       workflow: "service-health-workflow"
-      "results.get-service-status.status": "completed"
-      "results.get-service-status.result.name": "existing-service"
-      "results.get-service-status.result.health": "healthy"
-      "results.restart-unhealthy-service.status": "skipped"
-      "results.restart-unhealthy-service.condition_evaluation": false
-      "results.create-missing-service.status": "skipped"
-      "results.create-missing-service.condition_evaluation": false
-      "results.report-final-status.status": "completed"
-      "results.report-final-status.result.health": "healthy"
+      steps.0.id: "get-service-status"
+      steps.0.status: "completed"
+      steps.0.result.name: "existing-service"
+      steps.0.result.health: "healthy"
+      steps.1.id: "restart-unhealthy-service"
+      steps.1.status: "skipped"
+      steps.1.condition_evaluation: false
+      steps.2.id: "create-missing-service"
+      steps.2.status: "skipped"
+      steps.2.condition_evaluation: false
+      steps.3.id: "report-final-status"
+      steps.3.status: "completed"
+      steps.3.result.health: "healthy"

@@ -325,56 +325,16 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				continue
 			}
 
-			// Enhance results with step-level information for partial results too
-			enhancedPartialResults := make(map[string]interface{})
+			// Build clean partial result for failed workflows
+			steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, step.ID, err.Error())
 
-			// Copy existing stored results
-			for k, v := range execCtx.results {
-				enhancedPartialResults[k] = v
-			}
-
-			// Add step metadata to results including the failed step
-			for _, stepMeta := range execCtx.stepMetadata {
-				stepInfo := map[string]interface{}{
-					"status": stepMeta.Status,
-				}
-
-				// Include condition information if present
-				if stepMeta.ConditionEvaluation != nil {
-					stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
-				}
-				if stepMeta.ConditionResult != nil {
-					stepInfo["condition_result"] = stepMeta.ConditionResult
-				}
-
-				// Include condition tool if present
-				if stepMeta.ConditionTool != "" {
-					stepInfo["condition_tool"] = stepMeta.ConditionTool
-				}
-
-				// Include allow_failure flag
-				if stepMeta.AllowFailure {
-					stepInfo["allow_failure"] = stepMeta.AllowFailure
-				}
-
-				// Include stored result if available
-				if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
-					stepInfo["result"] = execCtx.results[stepMeta.ID]
-				}
-
-				enhancedPartialResults[stepMeta.ID] = stepInfo
-			}
-
-			// Create partial result with steps completed so far, including the failed step
 			partialResult := map[string]interface{}{
-				"workflow":     workflow.Name,
-				"results":      enhancedPartialResults,
-				"input":        execCtx.input,
-				"templateVars": execCtx.templateVars,
-				"stepMetadata": execCtx.stepMetadata,
-				"status":       "failed",
-				"error":        err.Error(),
-				"failedStep":   step.ID,
+				"execution_id":  "", // Will be filled by manager
+				"workflow":      workflow.Name,
+				"status":        "failed",
+				"input":         execCtx.input,
+				"steps":         steps,
+				"template_vars": execCtx.templateVars,
 			}
 
 			// Return partial result as JSON for execution tracking
@@ -385,7 +345,6 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			}
 
 			// Return partial result with the original error
-			// This allows execution tracking to capture successful steps before failure
 			partialMCPResult := &mcp.CallToolResult{
 				Content: []mcp.Content{
 					mcp.NewTextContent(string(partialJSON)),
@@ -401,7 +360,6 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		lastStepResult = result
 
 		// Store result if requested
-		// TODO: Implement step.Outputs processing for extracting specific fields
 		if step.Store {
 			logging.Debug("WorkflowExecutor", "Processing result for step %s: %+v", step.ID, result)
 			var resultData interface{}
@@ -478,54 +436,16 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 	}
 
-	// Enhance results with step-level information for BDD testing access
-	enhancedResults := make(map[string]interface{})
+	// Build clean final result with consolidated step information
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "")
 
-	// Copy existing stored results
-	for k, v := range execCtx.results {
-		enhancedResults[k] = v
-	}
-
-	// Add step metadata to results for easy access via JSON path (e.g., results.step-id.status)
-	for _, stepMeta := range execCtx.stepMetadata {
-		stepInfo := map[string]interface{}{
-			"status": stepMeta.Status,
-		}
-
-		// Include condition information if present
-		if stepMeta.ConditionEvaluation != nil {
-			stepInfo["condition_evaluation"] = *stepMeta.ConditionEvaluation
-		}
-		if stepMeta.ConditionResult != nil {
-			stepInfo["condition_result"] = stepMeta.ConditionResult
-		}
-
-		// Include condition tool if present
-		if stepMeta.ConditionTool != "" {
-			stepInfo["condition_tool"] = stepMeta.ConditionTool
-		}
-
-		// Include allow_failure flag
-		if stepMeta.AllowFailure {
-			stepInfo["allow_failure"] = stepMeta.AllowFailure
-		}
-
-		// Include stored result if available
-		if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
-			stepInfo["result"] = execCtx.results[stepMeta.ID]
-		}
-
-		enhancedResults[stepMeta.ID] = stepInfo
-	}
-
-	// Return the final result
 	finalResult := map[string]interface{}{
-		"workflow":     workflow.Name,
-		"results":      enhancedResults,      // Enhanced results with step information
-		"input":        execCtx.input,        // Include input arguments
-		"templateVars": execCtx.templateVars, // Include template variables used
-		"stepMetadata": execCtx.stepMetadata, // Include step metadata for execution tracking
-		"status":       "completed",
+		"execution_id":  "", // Will be filled by manager
+		"workflow":      workflow.Name,
+		"status":        "completed",
+		"input":         execCtx.input,
+		"steps":         steps,
+		"template_vars": execCtx.templateVars,
 	}
 
 	// If the last step wasn't stored, merge its result into the top level
@@ -565,6 +485,49 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			mcp.NewTextContent(string(resultJSON)),
 		},
 	}, nil
+}
+
+// buildStepsArray creates a consolidated steps array from step metadata and results
+func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results map[string]interface{}, failedStepID string, errorMessage string) []map[string]interface{} {
+	var steps []map[string]interface{}
+
+	for _, stepMeta := range stepMetadata {
+		step := map[string]interface{}{
+			"id":     stepMeta.ID,
+			"tool":   stepMeta.Tool,
+			"status": stepMeta.Status,
+		}
+
+		// Add condition information if present
+		if stepMeta.ConditionEvaluation != nil {
+			step["condition_evaluation"] = *stepMeta.ConditionEvaluation
+		}
+		if stepMeta.ConditionResult != nil {
+			step["condition_result"] = stepMeta.ConditionResult
+		}
+		if stepMeta.ConditionTool != "" {
+			step["condition_tool"] = stepMeta.ConditionTool
+		}
+
+		// Add allow_failure flag if true
+		if stepMeta.AllowFailure {
+			step["allow_failure"] = stepMeta.AllowFailure
+		}
+
+		// Add result if available
+		if stepMeta.Store && results[stepMeta.ID] != nil {
+			step["result"] = results[stepMeta.ID]
+		}
+
+		// Add error if this is the failed step
+		if failedStepID != "" && stepMeta.ID == failedStepID {
+			step["error"] = errorMessage
+		}
+
+		steps = append(steps, step)
+	}
+
+	return steps
 }
 
 // executionContext holds the state during workflow execution

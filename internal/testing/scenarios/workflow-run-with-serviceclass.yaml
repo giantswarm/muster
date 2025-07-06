@@ -55,5 +55,6 @@ steps:
     json_path:
       status: "completed"
       workflow: "test-workflow"
-      "results.sc.result.outputs.omg": "OMG hello from test"
-      "results.sc.result.name": "test-sc-1"
+      steps.0.id: "sc"
+      steps.0.result.outputs.omg: "OMG hello from test"
+      steps.0.result.name: "test-sc-1"

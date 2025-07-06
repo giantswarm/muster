@@ -45,7 +45,8 @@ steps:
     success: true
     json_path:
       status: "completed"
-      results.echo2.status: "completed"
-      results.echo2.result.workflow: "input-test-workflow"
-      results.echo2.result.results.echo.result.said: "hello from test"
       workflow: "input-test-workflow-2"
+      steps.0.id: "echo2"
+      steps.0.status: "completed"
+      steps.0.result.workflow: "input-test-workflow"
+      steps.0.result.steps.0.result.said: "hello from test"
