@@ -33,5 +33,7 @@ steps:
     success: true
     json_path:
       status: "completed"
-      results: { echo: { result: { said: "hello from test" } } }
+      steps.0.id: "echo"
+      steps.0.status: "completed"
+      steps.0.result.said: "hello from test"
       workflow: "input-test-workflow"

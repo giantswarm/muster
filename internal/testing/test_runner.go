@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv" // Added for strconv.Atoi
 	"strings"
 	"sync"
 	"time"
@@ -936,7 +937,7 @@ func (r *testRunner) extractStorableResult(response interface{}) interface{} {
 	}
 }
 
-// resolveJSONPath resolves a JSON path in a map, supporting dot notation
+// resolveJSONPath resolves a JSON path in a map, supporting dot notation and array indexing
 func (r *testRunner) resolveJSONPath(obj map[string]interface{}, path string) (interface{}, bool) {
 	// Handle direct key access first (no dots)
 	if !strings.Contains(path, ".") {
@@ -948,23 +949,42 @@ func (r *testRunner) resolveJSONPath(obj map[string]interface{}, path string) (i
 
 	// Split the path into segments
 	segments := strings.Split(path, ".")
-	current := obj
+	current := interface{}(obj)
 
-	// Traverse the map based on the segments
+	// Traverse the data based on the segments
 	for i, segment := range segments {
-		if val, exists := current[segment]; exists {
-			// If this is the last segment, return the value
-			if i == len(segments)-1 {
-				return val, true
-			}
-			// Otherwise, continue traversing if it's a map
-			if m, ok := val.(map[string]interface{}); ok {
-				current = m
+		switch currentData := current.(type) {
+		case map[string]interface{}:
+			if val, exists := currentData[segment]; exists {
+				// If this is the last segment, return the value
+				if i == len(segments)-1 {
+					return val, true
+				}
+				// Continue traversing
+				current = val
 			} else {
-				// Value exists but is not a map, and we have more segments to traverse
 				return nil, false
 			}
-		} else {
+		case []interface{}:
+			// Handle array indexing - segment should be a numeric index
+			if index, err := strconv.Atoi(segment); err == nil {
+				if index >= 0 && index < len(currentData) {
+					// If this is the last segment, return the array element
+					if i == len(segments)-1 {
+						return currentData[index], true
+					}
+					// Continue traversing
+					current = currentData[index]
+				} else {
+					// Index out of bounds
+					return nil, false
+				}
+			} else {
+				// Not a valid array index
+				return nil, false
+			}
+		default:
+			// Value exists but is not a map or array, and we have more segments to traverse
 			return nil, false
 		}
 	}

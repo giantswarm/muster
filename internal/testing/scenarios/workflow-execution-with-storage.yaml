@@ -73,9 +73,12 @@ steps:
     json_path:
       status: "completed"
       workflow: "storage-tracking-workflow"
-      "results.initial_services.status": "completed"
-      "results.config_data.status": "completed"
-      "results.workflows_data.status": "completed"
+      steps.0.id: "initial_services"
+      steps.0.status: "completed"
+      steps.1.id: "config_data"
+      steps.1.status: "completed"
+      steps.2.id: "workflows_data"
+      steps.2.status: "completed"
 
 - id: "execute-non-storage-workflow"
   tool: "workflow_non-storage-workflow"
@@ -86,9 +89,12 @@ steps:
     json_path:
       status: "completed"
       workflow: "non-storage-workflow"
-      "results.initial_services.status": "completed"
-      "results.config_data.status": "completed"
-      "results.workflows_data.status": "completed"
+      steps.0.id: "initial_services"
+      steps.0.status: "completed"
+      steps.1.id: "config_data"
+      steps.1.status: "completed"
+      steps.2.id: "workflows_data"
+      steps.2.status: "completed"
 
 - id: "verify-stored-values-tracked"
   tool: "core_workflow_execution_get"

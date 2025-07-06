@@ -135,8 +135,7 @@ func (et *ExecutionTracker) executeWithStepTracking(ctx context.Context, executi
 }
 
 // extractStepInformation attempts to extract step information from workflow results.
-// This provides basic step tracking based on the workflow result structure
-// until more detailed step tracking can be implemented.
+// This provides step tracking based on the new consolidated workflow result structure.
 func (et *ExecutionTracker) extractStepInformation(execution *api.WorkflowExecution, result *mcp.CallToolResult) {
 	if len(result.Content) == 0 {
 		return
@@ -149,38 +148,153 @@ func (et *ExecutionTracker) extractStepInformation(execution *api.WorkflowExecut
 			return // Can't parse, skip step extraction
 		}
 
-		// Look for step metadata in the workflow result
-		stepMetadataRaw, hasStepMetadata := resultData["stepMetadata"]
-		resultsRaw, hasResults := resultData["results"].(map[string]interface{})
+		// Look for steps array in the new consolidated structure
+		stepsRaw, hasSteps := resultData["steps"]
 
 		// Check if the workflow result indicates an error
 		var workflowError string
-		var failedStepID string
 		if errorRaw, hasError := resultData["error"]; hasError {
 			if errorStr, ok := errorRaw.(string); ok {
 				workflowError = errorStr
 			}
 		}
 
-		// Check for explicit failed step information
-		if failedStepRaw, hasFailedStep := resultData["failedStep"]; hasFailedStep {
-			if failedStepStr, ok := failedStepRaw.(string); ok {
-				failedStepID = failedStepStr
+		if hasSteps {
+			// Use new consolidated steps structure
+			et.extractStepsFromNewStructure(execution, stepsRaw, workflowError)
+		} else {
+			// Legacy format handling - this should be removed in future versions
+			logging.Debug("ExecutionTracker", "No steps array found, workflow result may be from legacy format")
+		}
+	}
+}
+
+// extractStepsFromNewStructure extracts step information from the new consolidated structure
+func (et *ExecutionTracker) extractStepsFromNewStructure(execution *api.WorkflowExecution, stepsRaw interface{}, workflowError string) {
+	stepsList, ok := stepsRaw.([]interface{})
+	if !ok {
+		return
+	}
+
+	logging.Debug("ExecutionTracker", "extractStepsFromNewStructure: workflowError='%s'", workflowError)
+
+	for _, stepRaw := range stepsList {
+		stepData, ok := stepRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		stepID, _ := stepData["id"].(string)
+		tool, _ := stepData["tool"].(string)
+		stepStatusRaw, _ := stepData["status"].(string)
+
+		// Extract condition information if present
+		var conditionEvaluation *bool
+		var conditionResult interface{}
+		var conditionTool string
+
+		// Extract condition evaluation (boolean result)
+		if conditionEvaluationRaw, hasConditionEvaluation := stepData["condition_evaluation"]; hasConditionEvaluation && conditionEvaluationRaw != nil {
+			if conditionBool, ok := conditionEvaluationRaw.(bool); ok {
+				conditionEvaluation = &conditionBool
 			}
 		}
 
-		// If no explicit failed step but we have an error, try to extract from error message
-		if failedStepID == "" && workflowError != "" {
-			failedStepID = et.extractStepIDFromError(workflowError)
+		// Extract condition result (actual tool result)
+		if conditionResultRaw, hasConditionResult := stepData["condition_result"]; hasConditionResult {
+			conditionResult = conditionResultRaw
 		}
 
-		if hasStepMetadata && hasResults {
-			// Use enhanced step metadata approach
-			et.extractStepsFromMetadata(execution, stepMetadataRaw, resultsRaw, workflowError, failedStepID)
-		} else {
-			// Fallback to legacy approach for backwards compatibility
-			et.extractStepsLegacy(execution, resultsRaw)
+		// Extract condition tool
+		if conditionToolRaw, hasConditionTool := stepData["condition_tool"]; hasConditionTool {
+			if conditionToolStr, ok := conditionToolRaw.(string); ok {
+				conditionTool = conditionToolStr
+			}
 		}
+
+		// Extract allow_failure flag
+		allowFailure, _ := stepData["allow_failure"].(bool)
+
+		// Get the step result if available
+		var stepResult interface{}
+		if resultRaw, hasResult := stepData["result"]; hasResult {
+			stepResult = resultRaw
+		}
+
+		// Get step error if available
+		var stepError *string
+		if errorRaw, hasError := stepData["error"]; hasError {
+			if errorStr, ok := errorRaw.(string); ok {
+				stepError = &errorStr
+			}
+		}
+
+		// Use the status from step data
+		var stepStatus api.WorkflowExecutionStatus
+
+		logging.Debug("ExecutionTracker", "Processing step: stepID='%s', status='%s', conditionEvaluation=%v",
+			stepID, stepStatusRaw, conditionEvaluation)
+
+		switch stepStatusRaw {
+		case "skipped":
+			stepStatus = "skipped" // Custom status for skipped steps
+		case "failed":
+			stepStatus = api.WorkflowExecutionFailed
+		case "completed":
+			stepStatus = api.WorkflowExecutionCompleted
+		default:
+			stepStatus = api.WorkflowExecutionCompleted
+		}
+
+		// Create enhanced step result that includes condition information when present
+		var enhancedStepResult interface{}
+		if conditionEvaluation != nil || conditionResult != nil || conditionTool != "" {
+			// For conditional steps, create a result that includes both the step result and condition info
+			enhancedResult := map[string]interface{}{
+				"status": string(stepStatus),
+			}
+
+			// Include condition evaluation (boolean) if present
+			if conditionEvaluation != nil {
+				enhancedResult["condition_evaluation"] = *conditionEvaluation
+			}
+
+			// Include condition result (actual tool result) if present
+			if conditionResult != nil {
+				enhancedResult["condition_result"] = conditionResult
+			}
+
+			if stepResult != nil {
+				enhancedResult["result"] = stepResult
+			}
+			if conditionTool != "" {
+				enhancedResult["condition_tool"] = conditionTool
+			}
+			if allowFailure {
+				enhancedResult["allow_failure"] = allowFailure
+			}
+			enhancedStepResult = enhancedResult
+		} else {
+			enhancedStepResult = stepResult
+		}
+
+		// Create step record with correct status and metadata
+		step := api.WorkflowExecutionStep{
+			StepID:      stepID,
+			Tool:        tool,
+			Status:      stepStatus,
+			StartedAt:   execution.StartedAt, // Approximate timing
+			CompletedAt: execution.CompletedAt,
+			DurationMs:  0,                        // Unknown duration for now
+			Input:       map[string]interface{}{}, // Unknown input for now
+			Result:      enhancedStepResult,
+			Error:       stepError,
+			StoredAs:    stepID, // In new structure, step ID is used as storage key
+		}
+
+		logging.Debug("ExecutionTracker", "Created step: stepID='%s', status='%s', hasError=%t, hasCondition=%t",
+			stepID, stepStatus, stepError != nil, conditionEvaluation != nil || conditionResult != nil)
+		execution.Steps = append(execution.Steps, step)
 	}
 }
 
@@ -512,12 +626,12 @@ func (et *ExecutionTracker) filterStepDataFromResult(result interface{}) interfa
 		return nil
 	}
 
-	// If result is a map, remove step-related fields
+	// If result is a map, remove step-related fields for summary mode
 	if resultMap, ok := result.(map[string]interface{}); ok {
 		filteredResult := make(map[string]interface{})
 		for key, value := range resultMap {
-			// Exclude step metadata and step results from summary
-			if key != "stepMetadata" && key != "results" && key != "templateVars" {
+			// For summary mode, exclude step-related fields (keeping only workflow metadata)
+			if key != "steps" && key != "template_vars" {
 				filteredResult[key] = value
 			}
 		}
