@@ -57,6 +57,7 @@ type ServiceInstanceInfo struct {
 	Health           string                 `json:"health"`
 	LastError        string                 `json:"lastError,omitempty"`
 	CreatedAt        time.Time              `json:"createdAt"`
+	UpdatedAt        time.Time              `json:"updatedAt"`
 	LastChecked      *time.Time             `json:"lastChecked,omitempty"`
 	ServiceData      map[string]interface{} `json:"serviceData,omitempty"`
 	CreationArgs     map[string]interface{} `json:"creationArgs"`
@@ -503,7 +504,8 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		ServiceClassType: "serviceclass", // Default since Type field removed from API in Phase 3
 		State:            string(instance.GetState()),
 		Health:           string(instance.GetHealth()),
-		CreatedAt:        time.Now(),
+		CreatedAt:        instance.GetCreatedAt(),
+		UpdatedAt:        time.Now(),
 		ServiceData:      instance.GetServiceData(),
 		CreationArgs:     req.Args,
 		Outputs:          resolvedOutputs,
@@ -609,6 +611,7 @@ func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *servi
 		Health:           string(instance.GetHealth()),
 		LastError:        "",
 		CreatedAt:        instance.GetCreatedAt(),
+		UpdatedAt:        instance.GetUpdatedAt(),
 		ServiceData:      instance.GetServiceData(),
 		CreationArgs:     instance.GetCreationArgs(),
 		Outputs:          instance.GetOutputs(), // Now available from the instance

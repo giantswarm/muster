@@ -458,6 +458,13 @@ func (gsi *GenericServiceInstance) GetCreatedAt() time.Time {
 	return gsi.createdAt
 }
 
+// GetUpdatedAt returns the last update time for this instance
+func (gsi *GenericServiceInstance) GetUpdatedAt() time.Time {
+	gsi.mu.RLock()
+	defer gsi.mu.RUnlock()
+	return gsi.updatedAt
+}
+
 // UpdateState implements the StateUpdater interface
 func (gsi *GenericServiceInstance) UpdateState(state ServiceState, health HealthStatus, err error) {
 	gsi.mu.Lock()
