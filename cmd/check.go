@@ -10,6 +10,7 @@ import (
 var (
 	checkOutputFormat string
 	checkQuiet        bool
+	checkConfigPath   string
 )
 
 // Available resource types for check operations
@@ -77,6 +78,7 @@ func init() {
 	// Add flags to the command
 	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
+	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -90,8 +92,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(checkOutputFormat),
-		Quiet:  checkQuiet,
+		Format:     cli.OutputFormat(checkOutputFormat),
+		Quiet:      checkQuiet,
+		ConfigPath: checkConfigPath,
 	})
 	if err != nil {
 		return err

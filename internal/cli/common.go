@@ -58,6 +58,47 @@ func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error
 	return endpoint, nil
 }
 
+// DetectAggregatorEndpointFromPath detects and returns the aggregator endpoint URL from a specific configuration path.
+// If configPath is empty, it uses the default configuration loading.
+//
+// Args:
+//   - configPath: Optional custom configuration directory path. If empty, uses default loading
+//
+// Returns:
+//   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
+//   - error: Always nil (kept for future compatibility)
+func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
+	var actualCfg config.MusterConfig
+	var err error
+
+	if configPath != "" {
+		// Load configuration from custom path
+		actualCfg, err = config.LoadConfigFromPath(configPath)
+	} else {
+		// Load configuration using default method
+		actualCfg, err = config.LoadConfig()
+	}
+
+	if err != nil {
+		// Use default if config cannot be loaded
+		endpoint := "http://localhost:8090/mcp"
+		return endpoint, nil
+	}
+
+	// Build endpoint from config
+	host := actualCfg.Aggregator.Host
+	if host == "" {
+		host = "localhost"
+	}
+	port := actualCfg.Aggregator.Port
+	if port == 0 {
+		port = 8090
+	}
+	endpoint := fmt.Sprintf("http://%s:%d/mcp", host, port)
+
+	return endpoint, nil
+}
+
 // CheckServerRunning verifies that the muster aggregator server is running and responsive.
 // It performs a health check by sending a GET request to the MCP endpoint and validates
 // the response status code. This is typically used before attempting to execute commands

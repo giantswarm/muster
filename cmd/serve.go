@@ -21,8 +21,8 @@ var serveSilent bool
 var serveYolo bool
 
 // configPath specifies a custom configuration directory path.
-// When set, disables layered configuration and loads all config from this single directory.
-// The directory should contain config.yaml and subdirectories: mcpserver/, workflow/, capability/, serviceclass/, service/
+// When set, loads all config from this directory instead of the default ~/.config/muster.
+// The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, capabilities/, serviceclasses/, services/
 var serveConfigPath string
 
 // serveCmd defines the serve command structure.
@@ -43,18 +43,15 @@ To connect to muster in your IDE, you can use the following command:
 muster agent --mcp-server
 
 Configuration:
-  muster loads configuration from .muster/config.yaml in the current directory or user config directory.
-  By default, it uses layered configuration loading (user config overridden by project config).
+  muster loads configuration from ~/.config/muster by default.
   
-  Use --config-path to specify a single directory containing all configuration files:
+  Use --config-path to specify a custom directory containing all configuration files:
   - config.yaml (main configuration)
   - mcpservers/ (MCP server definitions)
   - workflows/ (workflow definitions)  
   - capabilities/ (capability definitions)
   - serviceclasses/ (service class definitions)
-  - services/ (service instance definitions)
-  
-  When --config-path is used, layered configuration is disabled.`,
+  - services/ (service instance definitions)`,
 	Args: cobra.NoArgs, // No arguments required
 	RunE: runServe,
 }
@@ -87,5 +84,5 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
 	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
-	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", "", "Custom configuration directory path (disables layered config)")
+	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", "", "Custom configuration directory path")
 }

@@ -206,18 +206,16 @@ func (scm *ServiceClassManager) OnUpdate(callback func(def *api.ServiceClass)) {
 	scm.onUpdate = append(scm.onUpdate, callback)
 }
 
-// GetDefinitionsPath returns the paths where service class definitions are loaded from
+// GetDefinitionsPath returns the path where service class definitions are loaded from
 func (scm *ServiceClassManager) GetDefinitionsPath() string {
-	userDir, projectDir, err := config.GetConfigurationPaths()
+	configDir, err := config.GetConfigurationPaths()
 	if err != nil {
-		logging.Error("ServiceClassManager", err, "Failed to get configuration paths")
-		return "error determining paths"
+		logging.Error("ServiceClassManager", err, "Failed to get configuration path")
+		return "error determining path"
 	}
 
-	userPath := filepath.Join(userDir, "serviceclasses")
-	projectPath := filepath.Join(projectDir, "serviceclasses")
-
-	return fmt.Sprintf("User: %s, Project: %s", userPath, projectPath)
+	configPath := filepath.Join(configDir, "serviceclasses")
+	return fmt.Sprintf("Configuration: %s", configPath)
 }
 
 // GetAllDefinitions returns all service class definitions (for internal use)

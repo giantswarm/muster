@@ -229,18 +229,16 @@ func (cm *CapabilityManager) RefreshAvailability() {
 	cm.updateAvailableCapabilities()
 }
 
-// GetDefinitionsPath returns the paths where capability definitions are loaded from
+// GetDefinitionsPath returns the path where capability definitions are loaded from
 func (cm *CapabilityManager) GetDefinitionsPath() string {
-	userDir, projectDir, err := config.GetConfigurationPaths()
+	configDir, err := config.GetConfigurationPaths()
 	if err != nil {
-		logging.Error("CapabilityManager", err, "Failed to get configuration paths")
-		return "error determining paths"
+		logging.Error("CapabilityManager", err, "Failed to get configuration path")
+		return "error determining path"
 	}
 
-	userPath := fmt.Sprintf("%s/capabilities", userDir)
-	projectPath := fmt.Sprintf("%s/capabilities", projectDir)
-
-	return fmt.Sprintf("User: %s, Project: %s", userPath, projectPath)
+	configPath := fmt.Sprintf("%s/capabilities", configDir)
+	return fmt.Sprintf("Configuration: %s", configPath)
 }
 
 // updateAvailableCapabilities checks tool availability and updates exposed capabilities

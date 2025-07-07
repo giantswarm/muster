@@ -11,13 +11,13 @@ import (
 )
 
 // Storage provides generic storage functionality for dynamic entities
-// with context-aware path resolution that prefers project over user paths
+// using a single configuration directory approach
 type Storage struct {
 	mu         sync.RWMutex
-	configPath string // Optional custom config path - when set, disables layered loading
+	configPath string // Optional custom config path - when set, uses this path; otherwise uses default ~/.config/muster
 }
 
-// NewStorage creates a new Storage instance
+// NewStorage creates a new Storage instance using the default configuration directory
 func NewStorage() *Storage {
 	return &Storage{}
 }
@@ -81,44 +81,23 @@ func (ds *Storage) Load(entityType string, name string) ([]byte, error) {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 
-	// Use custom config path if provided
-	if ds.configPath != "" {
-		filePath := filepath.Join(ds.configPath, entityType, ds.sanitizeFilename(name)+".yaml")
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("entity %s/%s not found in custom path", entityType, name)
-			}
-			return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
-		}
-		logging.Info("Storage", "Loaded %s/%s from custom path: %s", entityType, name, filePath)
-		return data, nil
-	}
-
-	// Try both user and project paths
-	userDir, projectDir, err := GetConfigurationPaths()
+	// Get the configuration directory
+	configDir, err := ds.getConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration paths: %w", err)
+		return nil, fmt.Errorf("failed to get configuration directory: %w", err)
 	}
 
-	// Check project path first (preferred)
-	projectPath := filepath.Join(projectDir, entityType, ds.sanitizeFilename(name)+".yaml")
-	if data, err := os.ReadFile(projectPath); err == nil {
-		logging.Info("Storage", "Loaded %s/%s from project path: %s", entityType, name, projectPath)
-		return data, nil
-	}
-
-	// Fallback to user path
-	userPath := filepath.Join(userDir, entityType, ds.sanitizeFilename(name)+".yaml")
-	data, err := os.ReadFile(userPath)
+	// Load from the single configuration directory
+	filePath := filepath.Join(configDir, entityType, ds.sanitizeFilename(name)+".yaml")
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("entity %s/%s not found in user or project paths", entityType, name)
+			return nil, fmt.Errorf("entity %s/%s not found", entityType, name)
 		}
-		return nil, fmt.Errorf("failed to read file %s: %w", userPath, err)
+		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
-	logging.Info("Storage", "Loaded %s/%s from user path: %s", entityType, name, userPath)
+	logging.Info("Storage", "Loaded %s/%s from %s", entityType, name, filePath)
 	return data, nil
 }
 
@@ -134,61 +113,29 @@ func (ds *Storage) Delete(entityType string, name string) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	// Use custom config path if provided
-	if ds.configPath != "" {
-		filename := ds.sanitizeFilename(name) + ".yaml"
-		filePath := filepath.Join(ds.configPath, entityType, filename)
-
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return fmt.Errorf("entity %s/%s not found in custom path", entityType, name)
-		}
-
-		if err := os.Remove(filePath); err != nil {
-			return fmt.Errorf("failed to delete file %s: %w", filePath, err)
-		}
-
-		logging.Info("Storage", "Deleted %s/%s from custom path: %s", entityType, name, filePath)
-		return nil
-	}
-
-	// Try both user and project paths
-	userDir, projectDir, err := GetConfigurationPaths()
+	// Get the configuration directory
+	configDir, err := ds.getConfigDir()
 	if err != nil {
-		return fmt.Errorf("failed to get configuration paths: %w", err)
+		return fmt.Errorf("failed to get configuration directory: %w", err)
 	}
 
+	// Delete from the single configuration directory
 	filename := ds.sanitizeFilename(name) + ".yaml"
-	deleted := false
+	filePath := filepath.Join(configDir, entityType, filename)
 
-	// Try to delete from project path
-	projectPath := filepath.Join(projectDir, entityType, filename)
-	if _, err := os.Stat(projectPath); err == nil {
-		if err := os.Remove(projectPath); err != nil {
-			return fmt.Errorf("failed to delete file %s: %w", projectPath, err)
-		}
-		logging.Info("Storage", "Deleted %s/%s from project path: %s", entityType, name, projectPath)
-		deleted = true
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("entity %s/%s not found", entityType, name)
 	}
 
-	// Try to delete from user path
-	userPath := filepath.Join(userDir, entityType, filename)
-	if _, err := os.Stat(userPath); err == nil {
-		if err := os.Remove(userPath); err != nil {
-			return fmt.Errorf("failed to delete file %s: %w", userPath, err)
-		}
-		logging.Info("Storage", "Deleted %s/%s from user path: %s", entityType, name, userPath)
-		deleted = true
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("failed to delete file %s: %w", filePath, err)
 	}
 
-	if !deleted {
-		return fmt.Errorf("entity %s/%s not found in user or project paths", entityType, name)
-	}
-
+	logging.Info("Storage", "Deleted %s/%s from %s", entityType, name, filePath)
 	return nil
 }
 
 // List returns all available names for the given entity type
-// Returns names from both user and project directories, with project overriding user
 func (ds *Storage) List(entityType string) ([]string, error) {
 	if entityType == "" {
 		return nil, fmt.Errorf("entityType cannot be empty")
@@ -197,86 +144,46 @@ func (ds *Storage) List(entityType string) ([]string, error) {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 
-	// Use custom config path if provided
-	if ds.configPath != "" {
-		customPath := filepath.Join(ds.configPath, entityType)
-		names, err := ds.listFilesInDirectory(customPath)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to list custom %s: %w", entityType, err)
-		}
-		logging.Info("Storage", "Listed %d %s entities from custom path", len(names), entityType)
-		return names, nil
-	}
-
-	userDir, projectDir, err := GetConfigurationPaths()
+	// Get the configuration directory
+	configDir, err := ds.getConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration paths: %w", err)
+		return nil, fmt.Errorf("failed to get configuration directory: %w", err)
 	}
 
-	nameMap := make(map[string]bool)
-	var names []string
-
-	// Load from user directory first
-	userPath := filepath.Join(userDir, entityType)
-	userNames, err := ds.listFilesInDirectory(userPath)
+	// List from the single configuration directory
+	entityPath := filepath.Join(configDir, entityType)
+	names, err := ds.listFilesInDirectory(entityPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("failed to list user %s: %w", entityType, err)
+		return nil, fmt.Errorf("failed to list %s: %w", entityType, err)
 	}
 
-	for _, name := range userNames {
-		names = append(names, name)
-		nameMap[name] = true
-	}
-
-	// Load from project directory (overrides user)
-	projectPath := filepath.Join(projectDir, entityType)
-	projectNames, err := ds.listFilesInDirectory(projectPath)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("failed to list project %s: %w", entityType, err)
-	}
-
-	// Add project names, they override user names with same name
-	for _, name := range projectNames {
-		if !nameMap[name] {
-			names = append(names, name)
-		}
-		nameMap[name] = true
-	}
-
-	logging.Info("Storage", "Listed %d unique %s entities (%d user, %d project)",
-		len(names), entityType, len(userNames), len(projectNames))
-
+	logging.Info("Storage", "Listed %d %s entities", len(names), entityType)
 	return names, nil
 }
 
-// resolveEntityDir determines the target directory for saving based on context
-// Prefers project directory if .muster exists in current directory
-func (ds *Storage) resolveEntityDir(entityType string) (string, error) {
-	// Use custom config path if provided
+// getConfigDir returns the configuration directory to use
+func (ds *Storage) getConfigDir() (string, error) {
 	if ds.configPath != "" {
-		return filepath.Join(ds.configPath, entityType), nil
+		return ds.configPath, nil
 	}
 
-	userDir, projectDir, err := GetConfigurationPaths()
+	return GetUserConfigDir()
+}
+
+// resolveEntityDir determines the target directory for saving
+func (ds *Storage) resolveEntityDir(entityType string) (string, error) {
+	configDir, err := ds.getConfigDir()
 	if err != nil {
 		return "", err
 	}
 
-	// Check if project config directory exists (indicating we're in a project)
-	// projectDir includes .muster, so check if .muster directory exists
-	if _, err := os.Stat(projectDir); err == nil {
-		// Use project directory
-		return filepath.Join(projectDir, entityType), nil
-	}
-
-	// Fallback to user directory
-	return filepath.Join(userDir, entityType), nil
+	return filepath.Join(configDir, entityType), nil
 }
 
 // listFilesInDirectory lists all .yaml files in a directory and returns their base names
 func (ds *Storage) listFilesInDirectory(dirPath string) ([]string, error) {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		return nil, nil // Directory doesn't exist, return empty
+		return []string{}, nil // Directory doesn't exist, return empty slice
 	}
 
 	// Load .yaml files
@@ -317,9 +224,10 @@ func (ds *Storage) sanitizeFilename(name string) string {
 	sanitized = strings.ReplaceAll(sanitized, "<", "_")
 	sanitized = strings.ReplaceAll(sanitized, ">", "_")
 	sanitized = strings.ReplaceAll(sanitized, "|", "_")
+	sanitized = strings.ReplaceAll(sanitized, ".", "_")
 
-	// Remove leading/trailing spaces and dots
-	sanitized = strings.Trim(sanitized, " .")
+	// Remove leading/trailing spaces and underscores
+	sanitized = strings.Trim(sanitized, " _")
 
 	// Replace spaces with underscores
 	sanitized = strings.ReplaceAll(sanitized, " ", "_")

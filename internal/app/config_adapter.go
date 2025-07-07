@@ -200,37 +200,24 @@ func (a *ConfigAdapter) ExecuteTool(ctx context.Context, toolName string, args m
 }
 
 // saveConfig is an internal helper that persists the current configuration to disk.
-// It automatically determines the config file path if not already set, preferring
-// project-local configuration (./.muster/config.yaml) over user configuration
-// (~/.config/muster/config.yaml). The method creates necessary directories
+// It automatically determines the config file path if not already set, using
+// the standard configuration directory (~/.config/muster/config.yaml) unless
+// a custom path is provided. The method creates necessary directories
 // and handles YAML marshaling with appropriate file permissions.
 func (a *ConfigAdapter) saveConfig() error {
 	if a.configPath == "" {
-		// Try to determine the config path - check project dir first, then user dir
-		projectPath, err := getProjectConfigPath()
-		if err == nil {
-			// Create directory if it doesn't exist
-			dir := filepath.Dir(projectPath)
-			if err := os.MkdirAll(dir, 0755); err == nil {
-				a.configPath = projectPath
-			}
+		// Use the standard user configuration path
+		userConfigDir, err := config.GetUserConfigDir()
+		if err != nil {
+			return fmt.Errorf("unable to determine user config directory: %w", err)
 		}
 
-		// If we still don't have a path, try user config
-		if a.configPath == "" {
-			userPath, err := getUserConfigPath()
-			if err == nil {
-				// Create directory if it doesn't exist
-				dir := filepath.Dir(userPath)
-				if err := os.MkdirAll(dir, 0755); err == nil {
-					a.configPath = userPath
-				}
-			}
+		// Create directory if it doesn't exist
+		if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory %s: %w", userConfigDir, err)
 		}
 
-		if a.configPath == "" {
-			return fmt.Errorf("unable to determine config file path")
-		}
+		a.configPath = filepath.Join(userConfigDir, "config.yaml")
 	}
 
 	// Marshal config to YAML
@@ -245,26 +232,6 @@ func (a *ConfigAdapter) saveConfig() error {
 	}
 
 	return nil
-}
-
-// getUserConfigPath returns the path to the user's configuration file.
-// The path follows the XDG Base Directory specification: ~/.config/muster/config.yaml
-func getUserConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(homeDir, ".config", "muster", "config.yaml"), nil
-}
-
-// getProjectConfigPath returns the path to the project's configuration file.
-// The path is relative to the current working directory: ./.muster/config.yaml
-func getProjectConfigPath() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(wd, ".muster", "config.yaml"), nil
 }
 
 // Handler implementations for MCP tool execution

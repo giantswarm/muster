@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
-	// For direct use in tests if needed, or mocking
 )
 
 // Helper function to create a temporary config file
@@ -25,122 +24,138 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content Mus
 func TestLoadConfig_DefaultOnly(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Mock paths to prevent loading any existing config files
-	originalGetUserConfigPath := getUserConfigPath
-	originalGetProjectConfigPath := getProjectConfigPath
+	// Mock osUserHomeDir to point to a temp directory without config
+	originalOsUserHomeDir := osUserHomeDir
 	defer func() {
-		getUserConfigPath = originalGetUserConfigPath
-		getProjectConfigPath = originalGetProjectConfigPath
+		osUserHomeDir = originalOsUserHomeDir
 	}()
 
-	// Point to non-existent files in temp directory
-	getUserConfigPath = func() (string, error) {
-		return filepath.Join(tempDir, "non-existent-user-config.yaml"), nil
-	}
-	getProjectConfigPath = func() (string, error) {
-		return filepath.Join(tempDir, "non-existent-project-config.yaml"), nil
-	}
+	osUserHomeDir = func() (string, error) { return tempDir, nil }
 
-	tc := GetDefaultConfigWithRoles()
-
+	// LoadConfig should return default config when no config file exists
+	expectedConfig := GetDefaultConfigWithRoles()
 	loadedConfig, err := LoadConfig()
 	assert.NoError(t, err)
 
-	// DeepEqual might be too strict if order changes in slices, but for default config it should be stable.
-	assert.True(t, reflect.DeepEqual(tc.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
-	// MCPServers are now managed by MCPServerManager, not loaded via config system
-	// Port forwards and clusters have been removed as part of the generic orchestrator refactoring
+	// Compare the loaded config with the default config
+	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
+	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
 }
 
-func TestLoadConfig_UserOverride(t *testing.T) {
+func TestLoadConfig_WithUserConfig(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Mock user config dir
-	originalGetUserConfigPath := getUserConfigPath
-	originalOsUserHomeDir := osUserHomeDir // Mock our package-level variable
+	// Mock osUserHomeDir to point to our temp directory
+	originalOsUserHomeDir := osUserHomeDir
 	defer func() {
-		getUserConfigPath = originalGetUserConfigPath
-		osUserHomeDir = originalOsUserHomeDir // Restore
+		osUserHomeDir = originalOsUserHomeDir
 	}()
 
-	osUserHomeDir = func() (string, error) { return tempDir, nil } // Assign to our var
-	getUserConfigPath = func() (string, error) {
-		// This can now also use the mocked osUserHomeDir if needed, or be self-contained
-		// For this test, it directly returns the temp path based on the mocked home dir.
-		return filepath.Join(tempDir, userConfigDir, configFileName), nil
-	}
+	osUserHomeDir = func() (string, error) { return tempDir, nil }
 
-	// Create a user config file
+	// Create the user config directory
 	userConfDir := filepath.Join(tempDir, userConfigDir)
 	err := os.MkdirAll(userConfDir, 0755)
 	assert.NoError(t, err)
 
-	userOverride := MusterConfig{
+	// Create a user config file with custom settings
+	userConfig := MusterConfig{
 		GlobalSettings: GlobalSettings{
 			DefaultContainerRuntime: "podman",
 		},
-		// MCPServers removed - now managed by MCPServerManager via directory-based config
+		Aggregator: AggregatorConfig{
+			Port: 9090,
+			Host: "0.0.0.0",
+		},
 	}
-	createTempConfigFile(t, userConfDir, configFileName, userOverride)
+	createTempConfigFile(t, userConfDir, configFileName, userConfig)
 
 	loadedConfig, err := LoadConfig()
 	assert.NoError(t, err)
 
-	// Check global settings override
+	// Check that the custom settings were loaded
 	assert.Equal(t, "podman", loadedConfig.GlobalSettings.DefaultContainerRuntime)
-
-	// MCPServers are now managed by MCPServerManager, not tested here
+	assert.Equal(t, 9090, loadedConfig.Aggregator.Port)
+	assert.Equal(t, "0.0.0.0", loadedConfig.Aggregator.Host)
 }
 
-func TestLoadConfig_ProjectOverride(t *testing.T) {
+func TestLoadConfigFromPath(t *testing.T) {
 	tempDir := t.TempDir()
 
-	originalGetProjectConfigPath := getProjectConfigPath
-	originalOsGetwd := osGetwd // Mock our package-level variable
+	// Create a custom config file
+	customConfig := MusterConfig{
+		GlobalSettings: GlobalSettings{
+			DefaultContainerRuntime: "cri-o",
+		},
+		Aggregator: AggregatorConfig{
+			Port: 8888,
+			Host: "custom-host",
+		},
+	}
+	createTempConfigFile(t, tempDir, configFileName, customConfig)
+
+	// Load config from the custom path
+	loadedConfig, err := LoadConfigFromPath(tempDir)
+	assert.NoError(t, err)
+
+	// Check that the custom settings were loaded
+	assert.Equal(t, "cri-o", loadedConfig.GlobalSettings.DefaultContainerRuntime)
+	assert.Equal(t, 8888, loadedConfig.Aggregator.Port)
+	assert.Equal(t, "custom-host", loadedConfig.Aggregator.Host)
+}
+
+func TestLoadConfigFromPath_NonExistentPath(t *testing.T) {
+	tempDir := t.TempDir()
+	nonExistentPath := filepath.Join(tempDir, "non-existent")
+
+	// Loading from non-existent path should return default config
+	expectedConfig := GetDefaultConfigWithRoles()
+	loadedConfig, err := LoadConfigFromPath(nonExistentPath)
+	assert.NoError(t, err)
+
+	// Should match default config
+	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
+	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
+}
+
+func TestLoadConfigFromPath_NoConfigFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Directory exists but no config.yaml file
+	loadedConfig, err := LoadConfigFromPath(tempDir)
+	assert.NoError(t, err)
+
+	// Should return default config
+	expectedConfig := GetDefaultConfigWithRoles()
+	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
+	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
+}
+
+func TestLoadConfigFromPath_InvalidYAML(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create an invalid YAML file
+	invalidYAMLPath := filepath.Join(tempDir, configFileName)
+	err := os.WriteFile(invalidYAMLPath, []byte("invalid: yaml: content: ["), 0644)
+	assert.NoError(t, err)
+
+	// Should return an error for invalid YAML
+	_, err = LoadConfigFromPath(tempDir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "error loading config")
+}
+
+func TestGetUserConfigDir(t *testing.T) {
+	// Mock osUserHomeDir
+	originalOsUserHomeDir := osUserHomeDir
 	defer func() {
-		getProjectConfigPath = originalGetProjectConfigPath
-		osGetwd = originalOsGetwd // Restore
+		osUserHomeDir = originalOsUserHomeDir
 	}()
 
-	osGetwd = func() (string, error) { return tempDir, nil } // Assign to our var
-	getProjectConfigPath = func() (string, error) {
-		// Similar to user config, this can use mocked osGetwd or be self-contained.
-		return filepath.Join(tempDir, projectConfigDir, configFileName), nil
-	}
+	testHome := "/test/home"
+	osUserHomeDir = func() (string, error) { return testHome, nil }
 
-	projectConfDir := filepath.Join(tempDir, projectConfigDir)
-	err := os.MkdirAll(projectConfDir, 0755)
+	configDir, err := GetUserConfigDir()
 	assert.NoError(t, err)
-
-	projectOverride := MusterConfig{
-		GlobalSettings: GlobalSettings{DefaultContainerRuntime: "cri-o"},
-		// MCPServers removed - now managed by MCPServerManager via directory-based config
-	}
-	createTempConfigFile(t, projectConfDir, configFileName, projectOverride)
-
-	loadedConfig, err := LoadConfig()
-	assert.NoError(t, err)
-	assert.Equal(t, "cri-o", loadedConfig.GlobalSettings.DefaultContainerRuntime)
-
-	// MCPServers are now managed by MCPServerManager, not tested here
+	assert.Equal(t, filepath.Join(testHome, userConfigDir), configDir)
 }
-
-func TestLoadConfig_ContextResolution(t *testing.T) {
-	// This test is no longer relevant since PortForwards functionality was removed
-	t.Skip("PortForwards functionality removed as part of generic orchestrator refactoring")
-}
-
-func TestResolveKubeContextPlaceholders(t *testing.T) {
-	// This test is no longer relevant since PortForwards functionality was removed
-	t.Skip("PortForwards functionality removed as part of generic orchestrator refactoring")
-}
-
-// TODO: Add more tests:
-// - Test with user config but no project config (covered by TestLoadConfig_UserOverride if project path doesn't exist).
-// - Test with project config but no user config (covered by TestLoadConfig_ProjectOverride if user path doesn't exist).
-// - Test with both user and project config, ensuring project takes precedence for same-name items.
-// - Test with empty config files.
-// - Test with malformed YAML in config files.
-// - Test merge strategy for GlobalSettings more thoroughly if more fields are added.
-
-// </rewritten_file>

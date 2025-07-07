@@ -16,35 +16,20 @@ func TestNewStorage(t *testing.T) {
 	}
 }
 
+func TestNewStorageWithPath(t *testing.T) {
+	customPath := "/custom/config/path"
+	ds := NewStorageWithPath(customPath)
+	if ds == nil {
+		t.Fatal("NewStorageWithPath returned nil")
+	}
+	if ds.configPath != customPath {
+		t.Errorf("Expected configPath %s, got %s", customPath, ds.configPath)
+	}
+}
+
 func TestStorage_Save(t *testing.T) {
-	// Save original functions
-	originalUserHomeDir := osUserHomeDir
-	originalGetwd := osGetwd
-	defer func() {
-		osUserHomeDir = originalUserHomeDir
-		osGetwd = originalGetwd
-	}()
-
-	// Create temporary directories for testing
 	tempDir := t.TempDir()
-	userDir := filepath.Join(tempDir, "user")
-	projectDir := filepath.Join(tempDir, "project")
-
-	// Mock functions
-	osUserHomeDir = func() (string, error) {
-		return userDir, nil
-	}
-	osGetwd = func() (string, error) {
-		return projectDir, nil
-	}
-
-	// Create project config directory to indicate we're in a project
-	musterDir := filepath.Join(projectDir, ".muster")
-	if err := os.MkdirAll(musterDir, 0755); err != nil {
-		t.Fatalf("Failed to create project .muster directory: %v", err)
-	}
-
-	ds := NewStorage()
+	ds := NewStorageWithPath(tempDir)
 
 	tests := []struct {
 		name        string
@@ -113,8 +98,8 @@ func TestStorage_Save(t *testing.T) {
 				return
 			}
 
-			// Verify file was created in project directory
-			expectedDir := filepath.Join(projectDir, ".muster", tt.entityType)
+			// Verify file was created in the config directory
+			expectedDir := filepath.Join(tempDir, tt.entityType)
 			sanitizedName := ds.sanitizeFilename(tt.itemName)
 			expectedPath := filepath.Join(expectedDir, sanitizedName+".yaml")
 
@@ -135,59 +120,20 @@ func TestStorage_Save(t *testing.T) {
 }
 
 func TestStorage_Load(t *testing.T) {
-	// Save original functions
-	originalUserHomeDir := osUserHomeDir
-	originalGetwd := osGetwd
-	defer func() {
-		osUserHomeDir = originalUserHomeDir
-		osGetwd = originalGetwd
-	}()
-
-	// Create temporary directories for testing
 	tempDir := t.TempDir()
-	userDir := filepath.Join(tempDir, "user")
-	projectDir := filepath.Join(tempDir, "project")
-
-	// Mock functions
-	osUserHomeDir = func() (string, error) {
-		return userDir, nil
-	}
-	osGetwd = func() (string, error) {
-		return projectDir, nil
-	}
-
-	ds := NewStorage()
+	ds := NewStorageWithPath(tempDir)
 
 	// Create test files
-	userWorkflowDir := filepath.Join(userDir, ".config", "muster", "workflows")
-	projectWorkflowDir := filepath.Join(projectDir, ".muster", "workflows")
-
-	if err := os.MkdirAll(userWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create user workflow directory: %v", err)
-	}
-	if err := os.MkdirAll(projectWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create project workflow directory: %v", err)
+	workflowDir := filepath.Join(tempDir, "workflows")
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
+		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
-	// Create user file
-	userContent := []byte("name: user-workflow\nsteps: []")
-	userFilePath := filepath.Join(userWorkflowDir, "test-workflow.yaml")
-	if err := os.WriteFile(userFilePath, userContent, 0644); err != nil {
-		t.Fatalf("Failed to create user test file: %v", err)
-	}
-
-	// Create project file (should override user)
-	projectContent := []byte("name: project-workflow\nsteps: []\nversion: 2")
-	projectFilePath := filepath.Join(projectWorkflowDir, "test-workflow.yaml")
-	if err := os.WriteFile(projectFilePath, projectContent, 0644); err != nil {
-		t.Fatalf("Failed to create project test file: %v", err)
-	}
-
-	// Create user-only file
-	userOnlyContent := []byte("name: user-only-workflow\nsteps: []")
-	userOnlyFilePath := filepath.Join(userWorkflowDir, "user-only.yaml")
-	if err := os.WriteFile(userOnlyFilePath, userOnlyContent, 0644); err != nil {
-		t.Fatalf("Failed to create user-only test file: %v", err)
+	// Create test file
+	testContent := []byte("name: test-workflow\nsteps: []")
+	testFilePath := filepath.Join(workflowDir, "test-workflow.yaml")
+	if err := os.WriteFile(testFilePath, testContent, 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	tests := []struct {
@@ -199,17 +145,10 @@ func TestStorage_Load(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:       "load from project (overrides user)",
+			name:       "load existing file",
 			entityType: "workflows",
 			itemName:   "test-workflow",
-			wantData:   projectContent,
-			wantErr:    false,
-		},
-		{
-			name:       "load from user (fallback)",
-			entityType: "workflows",
-			itemName:   "user-only",
-			wantData:   userOnlyContent,
+			wantData:   testContent,
 			wantErr:    false,
 		},
 		{
@@ -217,7 +156,7 @@ func TestStorage_Load(t *testing.T) {
 			entityType:  "workflows",
 			itemName:    "nonexistent",
 			wantErr:     true,
-			errContains: "not found in user or project paths",
+			errContains: "not found",
 		},
 		{
 			name:        "empty entity type",
@@ -263,58 +202,19 @@ func TestStorage_Load(t *testing.T) {
 }
 
 func TestStorage_Delete(t *testing.T) {
-	// Save original functions
-	originalUserHomeDir := osUserHomeDir
-	originalGetwd := osGetwd
-	defer func() {
-		osUserHomeDir = originalUserHomeDir
-		osGetwd = originalGetwd
-	}()
-
-	// Create temporary directories for testing
 	tempDir := t.TempDir()
-	userDir := filepath.Join(tempDir, "user")
-	projectDir := filepath.Join(tempDir, "project")
-
-	// Mock functions
-	osUserHomeDir = func() (string, error) {
-		return userDir, nil
-	}
-	osGetwd = func() (string, error) {
-		return projectDir, nil
-	}
-
-	ds := NewStorage()
+	ds := NewStorageWithPath(tempDir)
 
 	// Create test files
-	userWorkflowDir := filepath.Join(userDir, ".config", "muster", "workflows")
-	projectWorkflowDir := filepath.Join(projectDir, ".muster", "workflows")
-
-	if err := os.MkdirAll(userWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create user workflow directory: %v", err)
-	}
-	if err := os.MkdirAll(projectWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create project workflow directory: %v", err)
+	workflowDir := filepath.Join(tempDir, "workflows")
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
+		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
-	// Create files to delete
-	userFilePath := filepath.Join(userWorkflowDir, "user-workflow.yaml")
-	if err := os.WriteFile(userFilePath, []byte("user data"), 0644); err != nil {
-		t.Fatalf("Failed to create user test file: %v", err)
-	}
-
-	projectFilePath := filepath.Join(projectWorkflowDir, "project-workflow.yaml")
-	if err := os.WriteFile(projectFilePath, []byte("project data"), 0644); err != nil {
-		t.Fatalf("Failed to create project test file: %v", err)
-	}
-
-	bothUserPath := filepath.Join(userWorkflowDir, "both-locations.yaml")
-	bothProjectPath := filepath.Join(projectWorkflowDir, "both-locations.yaml")
-	if err := os.WriteFile(bothUserPath, []byte("user data"), 0644); err != nil {
-		t.Fatalf("Failed to create user both-locations file: %v", err)
-	}
-	if err := os.WriteFile(bothProjectPath, []byte("project data"), 0644); err != nil {
-		t.Fatalf("Failed to create project both-locations file: %v", err)
+	// Create file to delete
+	testFilePath := filepath.Join(workflowDir, "test-workflow.yaml")
+	if err := os.WriteFile(testFilePath, []byte("test data"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	tests := []struct {
@@ -323,35 +223,21 @@ func TestStorage_Delete(t *testing.T) {
 		itemName    string
 		wantErr     bool
 		errContains string
-		checkFiles  []string // Files that should not exist after deletion
+		checkFile   string // File that should not exist after deletion
 	}{
 		{
-			name:       "delete from user directory",
+			name:       "delete existing file",
 			entityType: "workflows",
-			itemName:   "user-workflow",
+			itemName:   "test-workflow",
 			wantErr:    false,
-			checkFiles: []string{userFilePath},
-		},
-		{
-			name:       "delete from project directory",
-			entityType: "workflows",
-			itemName:   "project-workflow",
-			wantErr:    false,
-			checkFiles: []string{projectFilePath},
-		},
-		{
-			name:       "delete from both locations",
-			entityType: "workflows",
-			itemName:   "both-locations",
-			wantErr:    false,
-			checkFiles: []string{bothUserPath, bothProjectPath},
+			checkFile:  testFilePath,
 		},
 		{
 			name:        "file not found",
 			entityType:  "workflows",
 			itemName:    "nonexistent",
 			wantErr:     true,
-			errContains: "not found in user or project paths",
+			errContains: "not found",
 		},
 		{
 			name:        "empty entity type",
@@ -389,10 +275,10 @@ func TestStorage_Delete(t *testing.T) {
 				return
 			}
 
-			// Check that files were deleted
-			for _, filePath := range tt.checkFiles {
-				if _, err := os.Stat(filePath); !os.IsNotExist(err) {
-					t.Errorf("File %s should have been deleted but still exists", filePath)
+			// Check that file was deleted
+			if tt.checkFile != "" {
+				if _, err := os.Stat(tt.checkFile); !os.IsNotExist(err) {
+					t.Errorf("File %s should have been deleted but still exists", tt.checkFile)
 				}
 			}
 		})
@@ -400,55 +286,21 @@ func TestStorage_Delete(t *testing.T) {
 }
 
 func TestStorage_List(t *testing.T) {
-	// Save original functions
-	originalUserHomeDir := osUserHomeDir
-	originalGetwd := osGetwd
-	defer func() {
-		osUserHomeDir = originalUserHomeDir
-		osGetwd = originalGetwd
-	}()
-
-	// Create temporary directories for testing
 	tempDir := t.TempDir()
-	userDir := filepath.Join(tempDir, "user")
-	projectDir := filepath.Join(tempDir, "project")
-
-	// Mock functions
-	osUserHomeDir = func() (string, error) {
-		return userDir, nil
-	}
-	osGetwd = func() (string, error) {
-		return projectDir, nil
-	}
-
-	ds := NewStorage()
+	ds := NewStorageWithPath(tempDir)
 
 	// Create test files
-	userWorkflowDir := filepath.Join(userDir, ".config", "muster", "workflows")
-	projectWorkflowDir := filepath.Join(projectDir, ".muster", "workflows")
-
-	if err := os.MkdirAll(userWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create user workflow directory: %v", err)
-	}
-	if err := os.MkdirAll(projectWorkflowDir, 0755); err != nil {
-		t.Fatalf("Failed to create project workflow directory: %v", err)
+	workflowDir := filepath.Join(tempDir, "workflows")
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
+		t.Fatalf("Failed to create workflow directory: %v", err)
 	}
 
-	// Create user files
-	userFiles := []string{"user-only.yaml", "common.yaml", "user-with-yml.yml"}
-	for _, file := range userFiles {
-		filePath := filepath.Join(userWorkflowDir, file)
-		if err := os.WriteFile(filePath, []byte("user data"), 0644); err != nil {
-			t.Fatalf("Failed to create user file %s: %v", file, err)
-		}
-	}
-
-	// Create project files (common.yaml should override user version)
-	projectFiles := []string{"project-only.yaml", "common.yaml"}
-	for _, file := range projectFiles {
-		filePath := filepath.Join(projectWorkflowDir, file)
-		if err := os.WriteFile(filePath, []byte("project data"), 0644); err != nil {
-			t.Fatalf("Failed to create project file %s: %v", file, err)
+	// Create test files with different extensions
+	testFiles := []string{"workflow1.yaml", "workflow2.yaml", "workflow3.yml"}
+	for _, file := range testFiles {
+		filePath := filepath.Join(workflowDir, file)
+		if err := os.WriteFile(filePath, []byte("test data"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", file, err)
 		}
 	}
 
@@ -460,11 +312,10 @@ func TestStorage_List(t *testing.T) {
 		errContains string
 	}{
 		{
-			name:       "list workflows with override",
+			name:       "list workflows",
 			entityType: "workflows",
-			// common appears once (project overrides user), plus user-only, project-only, user-with-yml
-			want:    []string{"user-only", "common", "user-with-yml", "project-only"},
-			wantErr: false,
+			want:       []string{"workflow1", "workflow2", "workflow3"},
+			wantErr:    false,
 		},
 		{
 			name:       "list empty directory",
@@ -500,94 +351,76 @@ func TestStorage_List(t *testing.T) {
 				return
 			}
 
-			// Handle nil vs empty slice comparison
-			if got == nil && len(tt.want) == 0 {
-				// Both are effectively empty, pass
-			} else if len(got) == 0 && len(tt.want) == 0 {
-				// Both are empty, pass
-			} else {
-				// Sort both slices for comparison
-				sort.Strings(got)
-				sort.Strings(tt.want)
+			// Sort both slices for comparison
+			sort.Strings(got)
+			sort.Strings(tt.want)
 
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("List() = %v, want %v", got, tt.want)
-				}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("List() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestStorage_resolveEntityDir(t *testing.T) {
-	// Save original functions
+func TestStorage_DefaultBehavior(t *testing.T) {
+	// Save original function
 	originalUserHomeDir := osUserHomeDir
-	originalGetwd := osGetwd
 	defer func() {
 		osUserHomeDir = originalUserHomeDir
-		osGetwd = originalGetwd
 	}()
 
-	// Create temporary directories for testing
 	tempDir := t.TempDir()
-	userDir := filepath.Join(tempDir, "user")
-	projectDir := filepath.Join(tempDir, "project")
-
-	// Mock functions
 	osUserHomeDir = func() (string, error) {
-		return userDir, nil
+		return tempDir, nil
 	}
 
+	// Test default storage behavior (should use ~/.config/muster)
 	ds := NewStorage()
 
-	tests := []struct {
-		name         string
-		entityType   string
-		setupProject bool   // Whether to create .muster directory
-		wantContains string // What the resolved path should contain
-	}{
-		{
-			name:         "prefer project when .muster exists",
-			entityType:   "workflows",
-			setupProject: true,
-			wantContains: ".muster/workflows",
-		},
-		{
-			name:         "fallback to user when no .muster",
-			entityType:   "workflows",
-			setupProject: false,
-			wantContains: ".config/muster/workflows",
-		},
+	// Create config directory structure
+	configDir := filepath.Join(tempDir, userConfigDir, "workflows")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("Failed to create config directory: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Set current directory
-			osGetwd = func() (string, error) {
-				return projectDir, nil
-			}
+	// Test save
+	testData := []byte("name: test\nsteps: []")
+	err := ds.Save("workflows", "test-workflow", testData)
+	if err != nil {
+		t.Errorf("Save() error = %v", err)
+	}
 
-			if tt.setupProject {
-				// Create .muster directory to indicate project context
-				musterDir := filepath.Join(projectDir, ".muster")
-				if err := os.MkdirAll(musterDir, 0755); err != nil {
-					t.Fatalf("Failed to create .muster directory: %v", err)
-				}
-			} else {
-				// Remove .muster directory if it exists
-				musterDir := filepath.Join(projectDir, ".muster")
-				os.RemoveAll(musterDir)
-			}
+	// Verify file was created in the correct location
+	expectedPath := filepath.Join(configDir, "test-workflow.yaml")
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Errorf("Expected file %s was not created", expectedPath)
+	}
 
-			got, err := ds.resolveEntityDir(tt.entityType)
-			if err != nil {
-				t.Errorf("resolveEntityDir() error = %v", err)
-				return
-			}
+	// Test load
+	data, err := ds.Load("workflows", "test-workflow")
+	if err != nil {
+		t.Errorf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(data, testData) {
+		t.Errorf("Load() data = %s, want %s", string(data), string(testData))
+	}
 
-			if !strings.Contains(got, tt.wantContains) {
-				t.Errorf("resolveEntityDir() = %v, want path containing %s", got, tt.wantContains)
-			}
-		})
+	// Test list
+	names, err := ds.List("workflows")
+	if err != nil {
+		t.Errorf("List() error = %v", err)
+	}
+	if len(names) != 1 || names[0] != "test-workflow" {
+		t.Errorf("List() = %v, want [test-workflow]", names)
+	}
+
+	// Test delete
+	err = ds.Delete("workflows", "test-workflow")
+	if err != nil {
+		t.Errorf("Delete() error = %v", err)
+	}
+	if _, err := os.Stat(expectedPath); !os.IsNotExist(err) {
+		t.Errorf("File %s should have been deleted but still exists", expectedPath)
 	}
 }
 
@@ -600,29 +433,34 @@ func TestStorage_sanitizeFilename(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "normal filename",
-			input: "normal-filename",
-			want:  "normal-filename",
+			name:  "clean filename",
+			input: "clean-filename",
+			want:  "clean-filename",
 		},
 		{
 			name:  "filename with problematic characters",
-			input: "test/file:with*problematic?chars\"<>|",
-			want:  "test_file_with_problematic_chars",
+			input: "test/workflow:with*problematic?chars<>|\"",
+			want:  "test_workflow_with_problematic_chars",
 		},
 		{
-			name:  "filename with spaces and dots",
-			input: " . test . ",
-			want:  "test",
+			name:  "filename with spaces",
+			input: "test workflow with spaces",
+			want:  "test_workflow_with_spaces",
+		},
+		{
+			name:  "filename with dots and leading/trailing spaces",
+			input: " .test.workflow. ",
+			want:  "test_workflow",
 		},
 		{
 			name:  "empty after sanitization",
-			input: " . / : * ? \" < > | ",
+			input: ":::***",
 			want:  "unnamed",
 		},
 		{
-			name:  "windows path separators",
-			input: "test\\file\\path",
-			want:  "test_file_path",
+			name:  "consecutive underscores",
+			input: "test___workflow___name",
+			want:  "test_workflow_name",
 		},
 	}
 

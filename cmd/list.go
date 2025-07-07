@@ -10,6 +10,7 @@ import (
 var (
 	listOutputFormat string
 	listQuiet        bool
+	listConfigPath   string
 )
 
 // Available resource types for autocompletion
@@ -66,6 +67,7 @@ func init() {
 	// Add flags to the command
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
+	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -78,8 +80,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(listOutputFormat),
-		Quiet:  listQuiet,
+		Format:     cli.OutputFormat(listOutputFormat),
+		Quiet:      listQuiet,
+		ConfigPath: listConfigPath,
 	})
 	if err != nil {
 		return err

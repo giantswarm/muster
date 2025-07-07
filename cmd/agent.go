@@ -15,14 +15,15 @@ import (
 )
 
 var (
-	agentEndpoint  string
-	agentTimeout   time.Duration
-	agentVerbose   bool
-	agentNoColor   bool
-	agentJSONRPC   bool
-	agentREPL      bool
-	agentMCPServer bool
-	agentTransport string
+	agentEndpoint   string
+	agentTimeout    time.Duration
+	agentVerbose    bool
+	agentNoColor    bool
+	agentJSONRPC    bool
+	agentREPL       bool
+	agentMCPServer  bool
+	agentTransport  string
+	agentConfigPath string
 )
 
 // agentCmd represents the agent command
@@ -77,6 +78,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentREPL, "repl", false, "Start interactive REPL mode")
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
+	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", "", "Custom configuration directory path")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -110,7 +112,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	endpoint := agentEndpoint
 	if endpoint == "" {
 		// Use the same endpoint detection logic as CLI commands
-		detectedEndpoint, err := cli.DetectAggregatorEndpoint()
+		detectedEndpoint, err := cli.DetectAggregatorEndpointFromPath(agentConfigPath)
 		if err != nil {
 			// Use fallback default that matches system defaults
 			endpoint = "http://localhost:8090/mcp"
