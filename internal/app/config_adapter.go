@@ -376,15 +376,6 @@ func (a *ConfigAdapter) handleConfigReload(ctx context.Context) (*api.CallToolRe
 		return nil, err
 	}
 
-	// Trigger capability definitions reload if capability handler exists
-	if capHandler := api.GetCapability(); capHandler != nil {
-		if reloader, ok := capHandler.(interface{ ReloadDefinitions() error }); ok {
-			if err := reloader.ReloadDefinitions(); err != nil {
-				return nil, fmt.Errorf("failed to reload capability definitions: %w", err)
-			}
-		}
-	}
-
 	// Trigger workflow definitions reload if workflow handler exists
 	if wfHandler := api.GetWorkflow(); wfHandler != nil {
 		if reloader, ok := wfHandler.(interface{ ReloadWorkflows() error }); ok {

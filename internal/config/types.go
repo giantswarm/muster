@@ -29,19 +29,6 @@ const (
 	MCPTransportStdio = "stdio"
 )
 
-// CapabilityType defines the type of capability that an MCP server can provide.
-type CapabilityType string
-
-const (
-	CapabilityTypeAuthProvider        CapabilityType = "auth_provider"
-	CapabilityTypeDiscoveryProvider   CapabilityType = "discovery_provider"
-	CapabilityTypePortforwardProvider CapabilityType = "portforward_provider"
-	CapabilityTypeClusterProvider     CapabilityType = "cluster_provider"
-)
-
-// CapabilityType is kept for reference but capabilities are now defined in YAML files
-// and MCP servers just provide tools without capability awareness
-
 // Use MCPServerDefinition from mcpserver package to avoid duplication
 
 // AggregatorConfig defines the configuration for the MCP aggregator service.

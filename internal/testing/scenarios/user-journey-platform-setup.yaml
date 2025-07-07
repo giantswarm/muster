@@ -57,33 +57,32 @@ steps:
       success: true
       # Should only contain default/system services
     
-  - id: "check-initial-capabilities"
-    tool: "core_capability_list"
+  - id: "check-initial-mcpservers"
+    tool: "core_mcpserver_list"
     expected:
       success: true
       
-  # Phase 2: Platform Engineer creates foundational capabilities
-  - id: "create-kubernetes-capability"
-    tool: "core_capability_create"
+  # Phase 2: Platform Engineer creates foundational service classes
+  - id: "create-kubernetes-serviceclass"
+    tool: "core_serviceclass_create"
     args:
       name: "kubernetes-management"
-      type: "kubernetes"
       version: "1.0.0"
-      operations:
-        create_namespace:
-          description: "Create a Kubernetes namespace"
-          requires: []
-        delete_namespace:
-          description: "Delete a Kubernetes namespace"
-          requires: []
+      serviceConfig:
+        serviceType: "kubernetes"
+        lifecycleTools:
+          start:
+            tool: "core_config_get"
+          stop:
+            tool: "core_config_get"
     expected:
       success: true
     cleanup:
-      - tool: "core_capability_delete"
+      - tool: "core_serviceclass_delete"
         args: { name: "kubernetes-management" }
       
-  - id: "verify-capability-availability"
-    tool: "core_capability_check"
+  - id: "verify-serviceclass-availability"
+    tool: "core_serviceclass_available"
     args:
       name: "kubernetes-management"
     expected:
@@ -250,10 +249,10 @@ cleanup:
       success: true  # ServiceClass exists and can be deleted
     continue_on_failure: true
 
-  - id: "cleanup-capability"
-    tool: "core_capability_delete"
+  - id: "cleanup-kubernetes-serviceclass"
+    tool: "core_serviceclass_delete"
     args:
       name: "kubernetes-management"
     expected:
-      success: true  # Capability exists and can be deleted
+      success: true  # ServiceClass exists and can be deleted
     continue_on_failure: true 

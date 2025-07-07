@@ -136,7 +136,7 @@ steps:
 
 - **name**: Must be unique across all scenarios, use kebab-case
 - **category**: Must be either "behavioral" or "integration"
-- **concept**: Must be one of the supported concepts (serviceclass, workflow, mcpserver, capability, service)
+- **concept**: Must be one of the supported concepts (serviceclass, workflow, mcpserver, service)
 - **description**: Human-readable description of the test purpose
 - **steps**: At least one test step must be defined
 

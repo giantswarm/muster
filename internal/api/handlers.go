@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"muster/pkg/logging"
-	"strings"
 	"sync"
 )
 
@@ -17,7 +16,6 @@ var (
 	mcpServerManagerHandler    MCPServerManagerHandler
 	aggregatorHandler          AggregatorHandler
 	configHandler              ConfigHandler
-	capabilityHandler          CapabilityHandler
 	workflowHandler            WorkflowHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
@@ -246,54 +244,6 @@ func GetConfig() ConfigHandler {
 	return GetConfigHandler()
 }
 
-// RegisterCapability registers the capability handler implementation.
-// This handler provides capability definition management and execution functionality,
-// allowing components to define and execute reusable operations through the system.
-//
-// The registration is thread-safe and should be called during system initialization.
-// Only one capability handler can be registered at a time; subsequent
-// registrations will replace the previous handler.
-//
-// Args:
-//   - h: CapabilityHandler implementation that manages capability operations
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Example:
-//
-//	adapter := &capability.Adapter{manager: myCapabilityManager}
-//	api.RegisterCapability(adapter)
-func RegisterCapability(h CapabilityHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	logging.Debug("API", "Registering capability handler: %v", h != nil)
-	capabilityHandler = h
-}
-
-// GetCapability returns the registered capability handler.
-// This provides access to capability definition management and execution functionality.
-//
-// Returns nil if no handler has been registered yet. Callers should always
-// check for nil before using the returned handler.
-//
-// Returns:
-//   - CapabilityHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, protected by handlerMutex read lock.
-//
-// Example:
-//
-//	capability := api.GetCapability()
-//	if capability == nil {
-//	    return fmt.Errorf("capability handler not available")
-//	}
-//	result, err := capability.ExecuteCapability(ctx, "auth", "login", params)
-func GetCapability() CapabilityHandler {
-	handlerMutex.RLock()
-	defer handlerMutex.RUnlock()
-	return capabilityHandler
-}
-
 // RegisterWorkflow registers the workflow handler implementation.
 // This handler provides workflow definition management and execution functionality,
 // allowing components to define and execute multi-step processes through the system.
@@ -412,15 +362,6 @@ func SetServiceClassManagerForTesting(h ServiceClassManagerHandler) {
 	serviceClassManagerHandler = h
 }
 
-// ExecuteCapability is a convenience function for executing capabilities
-func ExecuteCapability(ctx context.Context, capabilityType, operation string, params map[string]interface{}) (*CallToolResult, error) {
-	handler := GetCapability()
-	if handler == nil {
-		return nil, fmt.Errorf("capability handler not registered")
-	}
-	return handler.ExecuteCapability(ctx, capabilityType, operation, params)
-}
-
 // ExecuteWorkflow is a convenience function for executing workflows
 func ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]interface{}) (*CallToolResult, error) {
 	handler := GetWorkflow()
@@ -430,24 +371,6 @@ func ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]i
 	return handler.ExecuteWorkflow(ctx, workflowName, args)
 }
 
-// IsCapabilityAvailable checks if a capability operation is available
-func IsCapabilityAvailable(capabilityType, operation string) bool {
-	handler := GetCapability()
-	if handler == nil {
-		return false
-	}
-	return handler.IsCapabilityAvailable(capabilityType, operation)
-}
-
-// ListCapabilities returns information about all available capabilities
-func ListCapabilities() []Capability {
-	handler := GetCapability()
-	if handler == nil {
-		return nil
-	}
-	return handler.ListCapabilities()
-}
-
 // GetWorkflowInfo returns information about all workflows
 func GetWorkflowInfo() []Workflow {
 	handler := GetWorkflow()
@@ -455,31 +378,6 @@ func GetWorkflowInfo() []Workflow {
 		return nil
 	}
 	return handler.GetWorkflows()
-}
-
-// ToolNameToCapability converts a tool name to capability type and operation
-func ToolNameToCapability(toolName string) (capabilityType, operation string, isCapability bool) {
-	// Remove prefix if present
-	toolName = strings.TrimPrefix(toolName, "x_")
-
-	// Check if it's a capability tool (format: type_operation)
-	parts := strings.SplitN(toolName, "_", 2)
-	if len(parts) != 2 {
-		return "", "", false
-	}
-
-	// Check if this capability exists
-	capabilities := ListCapabilities()
-	for _, cap := range capabilities {
-		if cap.Type == parts[0] {
-			// Check if the operation exists in the operations map
-			if _, exists := cap.Operations[parts[1]]; exists {
-				return parts[0], parts[1], true
-			}
-		}
-	}
-
-	return "", "", false
 }
 
 // RegisterMCPServerManager registers the MCP server manager handler implementation.

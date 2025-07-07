@@ -67,7 +67,7 @@
 // Features:
 //   - Multi-transport support (SSE, stdio, streamable-http)
 //   - Dynamic capability discovery and updates
-//   - Core tool integration (workflow, capability, config management)
+//   - Core tool integration (workflow, config management)
 //   - Thread-safe concurrent operations
 //   - Intelligent request routing to backend servers
 //

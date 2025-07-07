@@ -128,7 +128,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 
 **Args**:
 - `category` (string, optional): Filter by category ("behavioral", "integration")
-- `concept` (string, optional): Filter by concept ("serviceclass", "workflow", "mcpserver", "capability", "service")
+- `concept` (string, optional): Filter by concept ("serviceclass", "workflow", "mcpserver", "service")
 - `scenario` (string, optional): Run specific scenario by name
 - `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
 - `parallel` (number, optional): Number of parallel workers (default: 1)
@@ -208,7 +208,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 - `scenario_path` (string, required): Path to scenario file or directory
 - `schema_path` (string, optional): Path to API schema file for API validation
 - `category` (string, optional): Filter by category when using schema validation ("behavioral", "integration")  
-- `concept` (string, optional): Filter by concept when using schema validation ("serviceclass", "workflow", "mcpserver", "capability", "service")
+- `concept` (string, optional): Filter by concept when using schema validation ("serviceclass", "workflow", "mcpserver", "service")
 
 **Response Format (YAML validation)**:
 ```json
@@ -878,7 +878,7 @@ const testResult = await mcp.callTool("mcp_muster-test_test_run_scenarios", {
 name: scenario-name
 description: "Description of what this scenario tests"
 category: behavioral  # or integration
-concept: serviceclass  # serviceclass, workflow, mcpserver, capability, service
+concept: serviceclass  # serviceclass, workflow, mcpserver, service
 
 # Pre-configuration for isolated muster instance
 pre_configuration:

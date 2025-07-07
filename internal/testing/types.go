@@ -28,8 +28,7 @@ const (
 	ConceptWorkflow TestConcept = "workflow"
 	// ConceptMCPServer represents MCPServer management tests
 	ConceptMCPServer TestConcept = "mcpserver"
-	// ConceptCapability represents Capability definition tests
-	ConceptCapability TestConcept = "capability"
+
 	// ConceptService represents Service lifecycle tests
 	ConceptService TestConcept = "service"
 )
@@ -128,8 +127,7 @@ type MusterPreConfiguration struct {
 	MCPServers []MCPServerConfig `yaml:"mcp_servers,omitempty"`
 	// Workflows defines workflow definitions to load
 	Workflows []WorkflowConfig `yaml:"workflows,omitempty"`
-	// Capabilities defines capability definitions to load
-	Capabilities []CapabilityConfig `yaml:"capabilities,omitempty"`
+
 	// ServiceClasses defines service class definitions to load
 	ServiceClasses []ServiceClassConfig `yaml:"service_classes,omitempty"`
 	// Services defines service instance definitions to load
@@ -151,14 +149,6 @@ type WorkflowConfig struct {
 	// Name is the unique identifier for the workflow
 	Name string `yaml:"name"`
 	// Config contains the workflow definition
-	Config map[string]interface{} `yaml:"config"`
-}
-
-// CapabilityConfig represents a capability configuration
-type CapabilityConfig struct {
-	// Name is the unique identifier for the capability
-	Name string `yaml:"name"`
-	// Config contains the capability definition
 	Config map[string]interface{} `yaml:"config"`
 }
 

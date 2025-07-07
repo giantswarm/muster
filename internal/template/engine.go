@@ -10,7 +10,7 @@ import (
 	"github.com/Masterminds/sprig/v3"
 )
 
-// Engine handles arg templating for capability operations
+// Engine handles arg templating for service operations
 type Engine struct {
 	// Pattern to match template variables like {{ variableName }} or {{ variable.property.subproperty }}
 	templatePattern *regexp.Regexp

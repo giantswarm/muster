@@ -9,105 +9,6 @@ import (
 
 // Request types for all core API operations
 
-// Capability Request Types
-
-// CapabilityCreateRequest represents a request to create a new capability definition.
-// This is used when defining new capabilities through the API, providing all necessary
-// configuration including operations, args, and metadata.
-//
-// Capabilities define reusable operations that can be performed by the system,
-// such as authentication, database operations, or external service integrations.
-// Each capability can have multiple operations with their own arg requirements.
-//
-// Example:
-//
-//	request := CapabilityCreateRequest{
-//	    Name: "database",
-//	    Type: "database",
-//	    Version: "1.0",
-//	    Description: "Database management operations",
-//	    Operations: map[string]OperationDefinition{
-//	        "backup": {
-//	            Description: "Create a database backup",
-//	            Args: map[string]Arg{
-//	                "database_name": {
-//	                    Type:        "string",
-//	                    Required:    true,
-//	                    Description: "Name of database to backup",
-//	                },
-//	            },
-//	        },
-//	    },
-//	}
-type CapabilityCreateRequest struct {
-	// Name is the unique identifier for the capability (required).
-	// Must be unique across all capabilities in the system.
-	// Should follow naming conventions: lowercase, alphanumeric with underscores.
-	Name string `json:"name" validate:"required"`
-
-	// Type categorizes the capability (e.g., "auth", "database", "monitoring") (required).
-	// Used for logical grouping and discovery of related capabilities.
-	Type string `json:"type" validate:"required"`
-
-	// Version indicates the capability definition version for compatibility tracking.
-	// Follows semantic versioning (e.g., "1.0.0", "2.1.3").
-	// Optional; defaults to "1.0.0" if not specified.
-	Version string `json:"version,omitempty"`
-
-	// Description provides human-readable documentation for the capability.
-	// Should explain the overall purpose and scope of this capability.
-	// Optional but recommended for discoverability.
-	Description string `json:"description,omitempty"`
-
-	// Operations defines the available operations within this capability (required).
-	// Each operation specifies its args, requirements, and associated workflow.
-	// Must contain at least one operation for the capability to be useful.
-	Operations map[string]OperationDefinition `json:"operations" validate:"required"`
-}
-
-// CapabilityUpdateRequest represents a request to update an existing capability definition.
-// This allows modification of capability metadata and operations after creation.
-//
-// Note: Updating capabilities may affect existing workflows or services that depend
-// on them. Consider versioning for breaking changes.
-type CapabilityUpdateRequest struct {
-	// Name is the unique identifier of the capability to update (required).
-	Name string `json:"name" validate:"required"`
-
-	// Type categorizes the capability. Can be changed to reorganize capabilities.
-	Type string `json:"type,omitempty"`
-
-	// Version can be updated to reflect changes. Consider semantic versioning.
-	Version string `json:"version,omitempty"`
-
-	// Description can be updated to improve documentation.
-	Description string `json:"description,omitempty"`
-
-	// Operations can be added, modified, or removed. Existing operations not
-	// specified will be retained unless explicitly removed.
-	Operations map[string]OperationDefinition `json:"operations,omitempty"`
-}
-
-// CapabilityValidateRequest represents a request to validate a capability definition
-// without actually creating it. This is useful for validation during development
-// and before committing changes.
-type CapabilityValidateRequest struct {
-	// Name is the unique identifier for the capability (required for validation).
-	Name string `json:"name" validate:"required"`
-
-	// Type categorizes the capability (required for validation).
-	Type string `json:"type" validate:"required"`
-
-	// Version to validate. Optional for validation.
-	Version string `json:"version,omitempty"`
-
-	// Description to validate. Optional for validation.
-	Description string `json:"description,omitempty"`
-
-	// Operations to validate (required). Must contain at least one operation.
-	Operations map[string]OperationDefinition `json:"operations" validate:"required"`
-}
-
 // ServiceClass Request Types
 
 // ServiceClassCreateRequest represents a request to create a new ServiceClass definition.
@@ -491,7 +392,7 @@ type ServiceValidateRequest struct {
 //
 // Example:
 //
-//	var req CapabilityCreateRequest
+//	var req ServiceClassCreateRequest
 //	args := map[string]interface{}{
 //	    "name": "auth",
 //	    "type": "authentication",

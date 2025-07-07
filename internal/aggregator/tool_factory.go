@@ -18,7 +18,6 @@ import (
 // This method discovers and integrates tools from various muster components that implement
 // the ToolProvider interface, including:
 //   - Workflow manager (for workflow execution and management)
-//   - Capability manager (for capability operations)
 //   - Service manager (for service lifecycle operations)
 //   - Config manager (for configuration management)
 //   - ServiceClass manager (for service class operations)
@@ -37,28 +36,6 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
 				mcpToolName := a.prefixToolName("workflow", toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := server.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate capability management tools
-	if capabilityHandler := api.GetCapability(); capabilityHandler != nil {
-		if provider, ok := capabilityHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("capability", toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -172,12 +149,11 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 // types and applies appropriate prefixes:
 //
 // Management Tools (get "core_" prefix):
-//   - service_*, serviceclass_*, mcpserver_*, workflow_*, capability_*, config_* operations
+//   - service_*, serviceclass_*, mcpserver_*, workflow_*, config_* operations
 //   - These are administrative tools for managing muster components
 //
 // Execution Tools (get transformed prefixes):
 //   - action_* tools become workflow_* tools (for workflow execution)
-//   - api_* tools remain unchanged (for capability operations)
 //
 // External Tools (get configurable prefix):
 //   - Tools from external MCP servers get the configured muster prefix
@@ -188,7 +164,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 //  3. External tools are properly namespaced to avoid conflicts
 //
 // Args:
-//   - provider: The type of provider (workflow, capability, service, etc.)
+//   - provider: The type of provider (workflow, service, etc.)
 //   - toolName: The original tool name from the provider
 //
 // Returns the appropriately prefixed tool name for exposure through the aggregator.
@@ -199,7 +175,6 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 		"serviceclass_", // ServiceClass management operations
 		"mcpserver_",    // MCP server management operations
 		"workflow_",     // workflow management (not execution) operations
-		"capability_",   // capability management operations
 		"config_",       // configuration management operations
 		"mcp_",          // MCP service management operations
 	}
@@ -218,11 +193,8 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 		// This makes workflow execution tools more intuitive
 		workflowName := strings.Replace(toolName, "action_", "workflow_", 1)
 		return workflowName
-	case strings.HasPrefix(toolName, "api_"):
-		// Keep api_* tools unchanged (they're already correct for capability operations)
-		return toolName
 	default:
-		// For other tools (external MCP servers, capability operations), use the configurable prefix
+		// For other tools (external MCP servers), use the configurable prefix
 		prefix := a.config.MusterPrefix + "_"
 		return prefix + toolName
 	}

@@ -23,7 +23,6 @@ var getResourceTypes = []string{
 	"mcpserver",
 	"workflow",
 	"workflow-execution",
-	"capability",
 }
 
 // Dynamic completion function for resource names
@@ -60,7 +59,6 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 		"mcpserver":          "core_mcpserver_list",
 		"workflow":           "core_workflow_list",
 		"workflow-execution": "core_workflow_execution_list",
-		"capability":         "core_capability_list",
 	}
 
 	toolName, exists := toolMap[resourceType]
@@ -142,7 +140,6 @@ Available resource types:
   mcpserver           - Get MCP server details and configuration
   workflow            - Get workflow definition and details
   workflow-execution  - Get workflow execution details and results
-  capability          - Get capability details and configuration
 
 Examples:
   muster get service prometheus
@@ -172,7 +169,6 @@ var getResourceMappings = map[string]string{
 	"mcpserver":          "core_mcpserver_get",
 	"workflow":           "core_workflow_get",
 	"workflow-execution": "core_workflow_execution_get",
-	"capability":         "core_capability_get",
 }
 
 func init() {
@@ -191,7 +187,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := getResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, capability", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

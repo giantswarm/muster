@@ -129,7 +129,7 @@
 //
 // **ScenarioFilter**: Test selection and filtering criteria
 //   - Category-based filtering (behavioral, integration)
-//   - Concept-based filtering (serviceclass, workflow, mcpserver, capability, service)
+//   - Concept-based filtering (serviceclass, workflow, mcpserver, service)
 //   - Tag-based filtering for fine-grained test selection
 //   - Name pattern matching for specific scenario selection
 //
@@ -167,12 +167,7 @@
 // - **Connection Management**: Test connection lifecycle and error recovery
 // - **Protocol Compliance**: Validate MCP protocol adherence
 //
-// ## Capability Testing
-// - **API Abstraction**: Test capability definition and operation mapping
-// - **Operation Validation**: Validate capability operation execution
-// - **Integration**: Test capability interaction with underlying tools
-// - **Error Handling**: Validate capability error responses and fallback logic
-//
+
 // ## Service Testing
 // - **Lifecycle Management**: Test service creation, management, and deletion
 // - **Dependency Management**: Validate service dependency resolution

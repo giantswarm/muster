@@ -10,7 +10,7 @@ steps:
   args:
     steps:
       - id: "step1"
-        tool: "core_capability_list"
+        tool: "core_serviceclass_list"
   expected:
     success: false
     error_contains: ["name", "required"] 

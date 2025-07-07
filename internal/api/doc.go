@@ -40,7 +40,7 @@
 // ## Specialized Handlers
 //   - **ServiceClassManagerHandler**: ServiceClass definition and lifecycle management
 //   - **MCPServerManagerHandler**: MCP server definition and process management
-//   - **CapabilityHandler**: User-defined capability operations and execution
+
 //   - **WorkflowHandler**: Multi-step workflow execution and orchestration
 //
 // # Core Operations
@@ -68,12 +68,12 @@
 //   - Tool aggregation, namespace management, and conflict resolution
 //   - Dynamic MCP server registration and tool discovery
 //
-// ## Capability System
-//   - User-defined capability definition management with operation validation
-//   - Capability operation execution with arg validation
-//   - Dynamic capability availability checking based on underlying tools
+// ## Service Class System
+//   - User-defined service class definition management with operation validation
+//   - Service class operation execution with arg validation
+//   - Dynamic service class availability checking based on underlying tools
 //   - Integration with tool provider system for extensible operations
-//   - Capability namespace management and conflict resolution
+//   - Service class namespace management and conflict resolution
 //
 // ## Workflow Management
 //   - Workflow definition management (create, update, delete, validate)
@@ -207,8 +207,7 @@
 //	    classes, err := serviceClassMgr.ListServiceClasses(ctx)
 //	}
 //
-//	// Execute capabilities and workflows through convenience functions
-//	result, err := api.ExecuteCapability(ctx, "auth", "login", params)
+//	// Execute workflows through convenience functions
 //	result, err := api.ExecuteWorkflow(ctx, "deploy-app", args)
 //
 // ## Request Validation and Parsing
@@ -224,21 +223,12 @@
 //	api.ParseRequest(args, &validateReq)
 //	// Perform validation logic...
 //
-// # Capability and Workflow Integration
+// # Workflow Integration
 //
-// The API provides convenient functions for capability and workflow operations:
-//
-//	// Check capability availability
-//	available := api.IsCapabilityAvailable("database", "backup")
-//
-//	// List all capabilities with their operations
-//	capabilities := api.ListCapabilities()
+// The API provides convenient functions for workflow operations:
 //
 //	// Get workflow information and input schemas
 //	workflows := api.GetWorkflowInfo()
-//
-//	// Tool name parsing for capability operations
-//	capType, operation, isCapability := api.ToolNameToCapability("auth_login")
 //
 // # Health Check System
 //
@@ -292,7 +282,7 @@
 //   - Handler availability checking with nil safety
 //   - Service and ServiceClass validation with detailed error messages
 //   - Tool execution error propagation with context preservation
-//   - Capability and workflow execution error handling
+//   - Workflow execution error handling
 //   - Request parsing validation with field-level error reporting
 //   - Comprehensive error context and recovery mechanisms
 //
