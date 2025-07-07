@@ -35,7 +35,7 @@ type ToolAvailabilityChecker interface {
 // ManagerConfig provides common configuration for all managers
 type ManagerConfig struct {
 	ToolChecker ToolAvailabilityChecker
-	ConfigDir   string // For legacy support and agent workflows
+	ConfigDir   string // Custom config directory path, if empty uses default ~/.config/muster
 }
 
 // CommonManager provides shared functionality for all definition managers
@@ -50,7 +50,15 @@ type CommonManager[T any] struct {
 
 // NewCommonManager creates a new common manager base
 func NewCommonManager[T any](subDirectory string, config ManagerConfig) (*CommonManager[T], error) {
-	loader, err := NewConfigurationLoader()
+	var loader *ConfigurationLoader
+	var err error
+
+	if config.ConfigDir != "" {
+		loader, err = NewConfigurationLoaderFromPath(config.ConfigDir)
+	} else {
+		loader, err = NewConfigurationLoader()
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create configuration loader: %w", err)
 	}
@@ -64,17 +72,15 @@ func NewCommonManager[T any](subDirectory string, config ManagerConfig) (*Common
 	}, nil
 }
 
-// GetDefinitionsPath returns the paths where definitions are loaded from
+// GetDefinitionsPath returns the path where definitions are loaded from
 func (cm *CommonManager[T]) GetDefinitionsPath() string {
-	userDir, projectDir, err := GetConfigurationPaths()
+	configDir, err := GetConfigurationPaths()
 	if err != nil {
-		return "error determining paths"
+		return "error determining path"
 	}
 
-	userPath := filepath.Join(userDir, cm.subDirectory)
-	projectPath := filepath.Join(projectDir, cm.subDirectory)
-
-	return fmt.Sprintf("User: %s, Project: %s", userPath, projectPath)
+	configPath := filepath.Join(configDir, cm.subDirectory)
+	return fmt.Sprintf("Configuration: %s", configPath)
 }
 
 // GetDefinition returns a definition by name

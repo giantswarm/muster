@@ -1,27 +1,17 @@
 // Package config provides configuration management for muster.
 //
-// This package implements a layered configuration system that allows users to
-// customize muster's behavior through YAML files. Configuration is loaded from
-// multiple sources and merged in a specific order, with later sources overriding
-// earlier ones.
+// This package implements a simple configuration system that loads configuration
+// from a single directory. The default configuration directory is ~/.config/muster,
+// but users can specify a custom directory using the --config-path flag in commands.
 //
-// # Configuration Layers
+// # Configuration Directory
 //
-// Configuration is loaded and merged in the following order:
+// Configuration is loaded from a single directory containing:
+//   - config.yaml (main configuration file)
+//   - subdirectories for entity definitions (workflows/, capabilities/, serviceclasses/, mcpservers/)
 //
-//  1. Default Configuration (embedded in binary)
-//     - Provides minimal defaults (no k8s connections, no MCP servers, no port forwarding)
-//     - Aggregator service is enabled by default on port 8090
-//     - Users must configure what they need via YAML files
-//
-//  2. User Configuration (~/.config/muster/config.yaml)
-//     - User-specific settings that apply to all projects
-//     - Useful for personal preferences and common overrides
-//
-//  3. Project Configuration (./.muster/config.yaml)
-//     - Project-specific settings in the current directory
-//     - Allows teams to share configuration via version control
-//     - Note: This file is git-ignored by default
+// Default location: ~/.config/muster
+// Custom location: Specified via --config-path flag
 //
 // # Entity Storage System
 //
@@ -32,26 +22,20 @@
 //
 // ## Storage Locations
 //
-// Entities are stored in YAML files in type-specific subdirectories:
-//   - User directory: ~/.config/muster/{entityType}/
-//   - Project directory: .muster/{entityType}/
+// Entities are stored in YAML files in type-specific subdirectories within the
+// configuration directory:
+//   - Default: ~/.config/muster/{entityType}/
+//   - Custom: {customConfigPath}/{entityType}/
 //
 // Where {entityType} is one of: workflows, capabilities, serviceclasses, mcpservers
-//
-// ## Storage Precedence
-//
-// The storage system follows a consistent precedence model:
-//  1. Project entities override user entities with the same name
-//  2. When saving, entities are saved to project directory if .muster/ exists
-//  3. Otherwise, entities are saved to user directory
 //
 // ## Supported Operations
 //
 // The Storage interface provides CRUD operations:
 //   - Save: Store entity data as YAML file
 //   - Load: Retrieve entity data from file
-//   - Delete: Remove entity file from both locations
-//   - List: Get all available entity names (merged from both locations)
+//   - Delete: Remove entity file
+//   - List: Get all available entity names
 //
 // ## File Format
 //
@@ -60,8 +44,11 @@
 //
 // ## Usage Example
 //
-//	// Create storage instance
+//	// Create storage instance (uses default ~/.config/muster)
 //	storage := config.NewStorage()
+//
+//	// Create storage instance with custom path
+//	storage := config.NewStorageWithPath("/custom/config/path")
 //
 //	// Save a workflow
 //	workflowYAML := []byte(`name: "my-workflow"
@@ -82,115 +69,15 @@
 //
 // The configuration file uses YAML format with the following main sections:
 //
-//	clusters:
-//	  - name: "mc-example"
-//	    context: "gs-example"
-//	    role: "observability"  # or "target", "custom"
-//	    displayName: "MC: example"
-//	    icon: "🏢"
+//	globalSettings:
+//	  defaultContainerRuntime: "docker"  # or "podman"
 //
-//	activeClusters:
-//	  observability: "mc-example"
-//	  target: "wc-myworkload"
-//
-//	portForwards:
-//	  - name: "mc-prometheus"
-//	    enabledByDefault: true
-//	    clusterRole: "observability"  # or "target", or use clusterName
-//	    namespace: "mimir"
-//	    targetType: "service"  # or "pod", "deployment", "statefulset"
-//	    targetName: "mimir-query-frontend"
-//	    localPort: "8080"
-//	    remotePort: "8080"
-//
-//	mcpServers:
-//	  - name: "kubernetes"
-//	    type: "localCommand"  # or "container"
-//	    enabledByDefault: true
-//	    command: ["npx", "mcp-server-kubernetes"]
-//	    requiresClusterRole: "target"
-//	    env:
-//	      KEY: "value"
-//
-// # Cluster Configuration
-//
-// Clusters define available Kubernetes contexts and their roles:
-//
-//   - name: Unique identifier for the cluster
-//   - context: Kubernetes context name from kubeconfig
-//   - role: The cluster's purpose (observability, target, custom)
-//   - displayName: Human-friendly name for UI display
-//   - icon: Optional emoji/icon for UI
-//
-// # Port Forward Configuration
-//
-// Port forwards define kubectl port-forward tunnels to expose cluster services locally:
-//
-//   - name: Unique identifier for the port forward
-//   - enabledByDefault: Whether this port forward should be started automatically
-//   - clusterRole: Which cluster role to use (references activeClusters)
-//   - clusterName: Specific cluster name (overrides clusterRole)
-//   - namespace: Kubernetes namespace containing the target
-//   - targetType: Type of Kubernetes resource (service, pod, deployment, statefulset)
-//   - targetName: Name of the Kubernetes resource
-//   - localPort: Local port to bind to
-//   - remotePort: Remote port on the target
-//
-// # MCP Server Configuration
-//
-// MCP servers can be configured as local commands or Docker containers:
-//
-// Local Command:
-//   - type: "localCommand"
-//   - command: Array of command and arguments
-//   - env: Environment variables to set
-//   - requiresClusterRole: Which cluster role this server needs
-//   - requiresPortForwards: Array of port forward names this server depends on
-//
-// Container:
-//   - type: "container"
-//   - image: Docker image to use
-//   - containerPorts: Port mappings (host:container format)
-//   - containerVolumes: Volume mounts
-//   - containerEnv: Environment variables
-//
-// # Environment Variable Expansion
-//
-// Configuration values support environment variable expansion:
-//
-//	env:
-//	  API_KEY: "${MY_API_KEY}"
-//	  HOME_DIR: "${HOME}/data"
-//	  WITH_DEFAULT: "${MISSING:-default_value}"
-//
-// # Usage Example
-//
-//	// Load configuration (returns minimal defaults if no config files exist)
-//	cfg, err := config.LoadConfig("", "")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Access cluster configurations
-//	for _, cluster := range cfg.Clusters {
-//	    fmt.Printf("Cluster %s: %s (role: %s)\n",
-//	        cluster.Name, cluster.Context, cluster.Role)
-//	}
-//
-//	// Access MCP server configurations
-//	for _, mcp := range cfg.MCPServers {
-//	    if mcp.Enabled {
-//	        fmt.Printf("MCP server %s: %v\n",
-//	            mcp.Name, mcp.Command)
-//	    }
-//	}
-//
-// # Active Clusters
-//
-// The active clusters mapping specifies which cluster is currently active for each role:
-//   - One cluster per role can be active at a time
-//   - Services will use the active cluster for their configured role
-//   - Active clusters can be changed at runtime through the TUI or API
+//	aggregator:
+//	  port: 8090                          # Port for the aggregator service (default: 8090)
+//	  host: "localhost"                   # Host to bind to (default: localhost)
+//	  transport: "streamable-http"        # Transport to use (default: streamable-http)
+//	  enabled: true                       # Whether the aggregator is enabled (default: true)
+//	  musterPrefix: "x"                   # Pre-prefix for all tools (default: "x")
 //
 // # Configuration API
 //
@@ -198,4 +85,21 @@
 // The API adapter (ConfigAdapter) is located in the app package rather than here to avoid
 // circular import dependencies, as the adapter needs to import the api package for registration,
 // while the api package imports this package for type definitions.
+//
+// # Usage Examples
+//
+//	// Load configuration from default location
+//	cfg, err := config.LoadConfig()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Load configuration from custom path
+//	cfg, err := config.LoadConfigFromPath("/custom/config/path")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	// Access aggregator configuration
+//	fmt.Printf("Aggregator running on %s:%d\n", cfg.Aggregator.Host, cfg.Aggregator.Port)
 package config

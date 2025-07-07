@@ -260,16 +260,14 @@ func (wm *WorkflowManager) RefreshAvailability() {
 
 // GetDefinitionsPath returns the paths where workflow definitions are loaded from (implements common manager interface)
 func (wm *WorkflowManager) GetDefinitionsPath() string {
-	userDir, projectDir, err := config.GetConfigurationPaths()
+	configDir, err := config.GetConfigurationPaths()
 	if err != nil {
 		logging.Error("WorkflowManager", err, "Failed to get configuration paths")
 		return "error determining paths"
 	}
 
-	userPath := fmt.Sprintf("%s/workflows", userDir)
-	projectPath := fmt.Sprintf("%s/workflows", projectDir)
-
-	return fmt.Sprintf("User: %s, Project: %s", userPath, projectPath)
+	configPath := fmt.Sprintf("%s/workflows", configDir)
+	return fmt.Sprintf("Configuration: %s", configPath)
 }
 
 // GetWorkflows returns all available workflows as MCP tools

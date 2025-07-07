@@ -7,15 +7,14 @@ import (
 
 // ConfigurationError represents a structured error that occurs during configuration loading
 type ConfigurationError struct {
-	FilePath    string   `json:"filePath"`    // Full path to the file that caused the error
-	FileName    string   `json:"fileName"`    // Base name of the file
-	Source      string   `json:"source"`      // "user" or "project"
-	Category    string   `json:"category"`    // Configuration category (serviceclasses, capabilities, workflows)
-	ErrorType   string   `json:"errorType"`   // Type of error (parse, validation, io, etc.)
-	Message     string   `json:"message"`     // Human-readable error message
-	Details     string   `json:"details"`     // Additional details about the error
-	LineNumber  int      `json:"lineNumber"`  // Line number where error occurred (if available)
-	Suggestions []string `json:"suggestions"` // Actionable suggestions to fix the error
+	FilePath   string `json:"filePath"`   // Full path to the file that caused the error
+	FileName   string `json:"fileName"`   // Base name of the file
+	Source     string `json:"source"`     // "user" or "project"
+	Category   string `json:"category"`   // Configuration category (serviceclasses, capabilities, workflows)
+	ErrorType  string `json:"errorType"`  // Type of error (parse, validation, io, etc.)
+	Message    string `json:"message"`    // Human-readable error message
+	Details    string `json:"details"`    // Additional details about the error
+	LineNumber int    `json:"lineNumber"` // Line number where error occurred (if available)
 }
 
 // Error implements the error interface
@@ -41,13 +40,6 @@ func (ce ConfigurationError) DetailedError() string {
 
 	if ce.Details != "" {
 		parts = append(parts, fmt.Sprintf("  Details: %s", ce.Details))
-	}
-
-	if len(ce.Suggestions) > 0 {
-		parts = append(parts, "  Suggestions:")
-		for _, suggestion := range ce.Suggestions {
-			parts = append(parts, fmt.Sprintf("    - %s", suggestion))
-		}
 	}
 
 	return strings.Join(parts, "\n")
@@ -187,16 +179,15 @@ func NewConfigurationError(filePath, fileName, source, category, errorType, mess
 }
 
 // NewConfigurationErrorWithDetails creates a new configuration error with additional details
-func NewConfigurationErrorWithDetails(filePath, fileName, source, category, errorType, message, details string, suggestions []string) ConfigurationError {
+func NewConfigurationErrorWithDetails(filePath, fileName, source, category, errorType, message, details string) ConfigurationError {
 	return ConfigurationError{
-		FilePath:    filePath,
-		FileName:    fileName,
-		Source:      source,
-		Category:    category,
-		ErrorType:   errorType,
-		Message:     message,
-		Details:     details,
-		Suggestions: suggestions,
+		FilePath:  filePath,
+		FileName:  fileName,
+		Source:    source,
+		Category:  category,
+		ErrorType: errorType,
+		Message:   message,
+		Details:   details,
 	}
 }
 

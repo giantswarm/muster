@@ -41,6 +41,8 @@ var (
 	// New flag for scenario validation
 	testValidateScenarios bool
 	testSchemaInput       string
+	// Muster configuration path flag
+	testMusterConfigPath string
 )
 
 // completeCategoryFlag provides shell completion for the category flag
@@ -182,6 +184,9 @@ func init() {
 	testCmd.Flags().BoolVar(&testValidateScenarios, "validate-scenarios", false, "Validate test scenarios against API schema")
 	testCmd.Flags().StringVar(&testSchemaInput, "schema-input", "schema.json", "Input schema file for validation")
 
+	// Muster configuration path flag
+	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", "", "Custom configuration directory path")
+
 	// Shell completion for test flags
 	_ = testCmd.RegisterFlagCompletionFunc("category", completeCategoryFlag)
 	_ = testCmd.RegisterFlagCompletionFunc("concept", completeConceptFlag)
@@ -261,7 +266,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	if testMCPServer {
 		// For MCP server mode, we still need an endpoint for existing functionality
 		endpoint := "http://localhost:8090/mcp"
-		detectedEndpoint, err := cli.DetectAggregatorEndpoint()
+		detectedEndpoint, err := cli.DetectAggregatorEndpointFromPath(testMusterConfigPath)
 		if err == nil {
 			endpoint = detectedEndpoint
 		}

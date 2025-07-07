@@ -37,6 +37,8 @@ type ExecutorOptions struct {
 	Format OutputFormat
 	// Quiet suppresses progress indicators and non-essential output
 	Quiet bool
+	// ConfigPath specifies a custom configuration directory path
+	ConfigPath string
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -68,10 +70,19 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		return nil, err
 	}
 
-	cfg, err := config.LoadConfig()
+	var cfg config.MusterConfig
+	var err error
+
+	if options.ConfigPath != "" {
+		cfg, err = config.LoadConfigFromPath(options.ConfigPath)
+	} else {
+		cfg, err = config.LoadConfig()
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	logger := agent.NewLogger(false, false, false)
 
 	transport := agent.TransportType(cfg.Aggregator.Transport)

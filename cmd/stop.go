@@ -10,6 +10,7 @@ import (
 var (
 	stopOutputFormat string
 	stopQuiet        bool
+	stopConfigPath   string
 )
 
 // Available resource types for stop operations
@@ -66,6 +67,7 @@ func init() {
 	// Add flags to the command
 	stopCmd.PersistentFlags().StringVarP(&stopOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	stopCmd.PersistentFlags().BoolVarP(&stopQuiet, "quiet", "q", false, "Suppress non-essential output")
+	stopCmd.PersistentFlags().StringVar(&stopConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
@@ -79,8 +81,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(stopOutputFormat),
-		Quiet:  stopQuiet,
+		Format:     cli.OutputFormat(stopOutputFormat),
+		Quiet:      stopQuiet,
+		ConfigPath: stopConfigPath,
 	})
 	if err != nil {
 		return err

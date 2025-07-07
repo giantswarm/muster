@@ -173,18 +173,16 @@ func (msm *MCPServerManager) ListAvailableDefinitions() []api.MCPServer {
 	return msm.ListDefinitions()
 }
 
-// GetDefinitionsPath returns the paths where MCP server definitions are loaded from
+// GetDefinitionsPath returns the path where MCP server definitions are loaded from
 func (msm *MCPServerManager) GetDefinitionsPath() string {
-	userDir, projectDir, err := config.GetConfigurationPaths()
+	configDir, err := config.GetConfigurationPaths()
 	if err != nil {
-		logging.Error("MCPServerManager", err, "Failed to get configuration paths")
-		return "error determining paths"
+		logging.Error("MCPServerManager", err, "Failed to get configuration path")
+		return "error determining path"
 	}
 
-	userPath := filepath.Join(userDir, "mcpservers")
-	projectPath := filepath.Join(projectDir, "mcpservers")
-
-	return fmt.Sprintf("User: %s, Project: %s", userPath, projectPath)
+	configPath := filepath.Join(configDir, "mcpservers")
+	return fmt.Sprintf("Configuration: %s", configPath)
 }
 
 // GetAllDefinitions returns all MCP server definitions (for internal use)

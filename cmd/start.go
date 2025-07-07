@@ -13,6 +13,7 @@ import (
 var (
 	startOutputFormat string
 	startQuiet        bool
+	startConfigPath   string
 )
 
 // Available resource types for start operations
@@ -39,8 +40,9 @@ func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete s
 
 	// Get workflow names using the same pattern as getResourceNameCompletion
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormatJSON,
-		Quiet:  true,
+		Format:     cli.OutputFormatJSON,
+		Quiet:      true,
+		ConfigPath: startConfigPath,
 	})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -121,6 +123,7 @@ func init() {
 	// Add flags to the command
 	startCmd.PersistentFlags().StringVarP(&startOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	startCmd.PersistentFlags().BoolVarP(&startQuiet, "quiet", "q", false, "Suppress non-essential output")
+	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 // parseWorkflowParameters extracts workflow parameters from raw command line arguments
@@ -191,8 +194,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 	resourceName := args[1]
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(startOutputFormat),
-		Quiet:  startQuiet,
+		Format:     cli.OutputFormat(startOutputFormat),
+		Quiet:      startQuiet,
+		ConfigPath: startConfigPath,
 	})
 	if err != nil {
 		return err

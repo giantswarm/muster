@@ -13,6 +13,7 @@ import (
 var (
 	getOutputFormat string
 	getQuiet        bool
+	getConfigPath   string
 )
 
 // Available resource types for autocompletion
@@ -35,8 +36,9 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 
 	// Try to get available resources from the server
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormatJSON,
-		Quiet:  true,
+		Format:     cli.OutputFormatJSON,
+		Quiet:      true,
+		ConfigPath: getConfigPath,
 	})
 	if err != nil {
 		// Fallback if server not available
@@ -179,6 +181,7 @@ func init() {
 	// Add flags to the command
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
+	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
@@ -192,8 +195,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(getOutputFormat),
-		Quiet:  getQuiet,
+		Format:     cli.OutputFormat(getOutputFormat),
+		Quiet:      getQuiet,
+		ConfigPath: getConfigPath,
 	})
 	if err != nil {
 		return err

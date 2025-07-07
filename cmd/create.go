@@ -13,6 +13,7 @@ import (
 var (
 	createOutputFormat string
 	createQuiet        bool
+	createConfigPath   string
 )
 
 // Available resource types for create operations
@@ -31,8 +32,9 @@ func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toCompl
 
 	// Get ServiceClass names using the same pattern as getResourceNameCompletion
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormatJSON,
-		Quiet:  true,
+		Format:     cli.OutputFormatJSON,
+		Quiet:      true,
+		ConfigPath: createConfigPath,
 	})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -112,6 +114,7 @@ func init() {
 	// Add flags to the command
 	createCmd.PersistentFlags().StringVarP(&createOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	createCmd.PersistentFlags().BoolVarP(&createQuiet, "quiet", "q", false, "Suppress non-essential output")
+	createCmd.PersistentFlags().StringVar(&createConfigPath, "config-path", "", "Custom configuration directory path")
 }
 
 // parseServiceParameters extracts service parameters from raw command line arguments
@@ -181,8 +184,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format: cli.OutputFormat(createOutputFormat),
-		Quiet:  createQuiet,
+		Format:     cli.OutputFormat(createOutputFormat),
+		Quiet:      createQuiet,
+		ConfigPath: createConfigPath,
 	})
 	if err != nil {
 		return err

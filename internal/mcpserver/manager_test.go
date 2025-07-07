@@ -211,8 +211,7 @@ func TestMCPServerManager_GetDefinitionsPath(t *testing.T) {
 	path := manager.GetDefinitionsPath()
 	assert.NotEmpty(t, path)
 	assert.Contains(t, path, "mcpservers")
-	assert.Contains(t, path, "User:")
-	assert.Contains(t, path, "Project:")
+	assert.Contains(t, path, "Configuration:")
 }
 
 func TestMCPServerManager_GetAllDefinitions(t *testing.T) {
