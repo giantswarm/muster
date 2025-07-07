@@ -101,13 +101,7 @@ func TestPrefixToolName_NewNamingConvention(t *testing.T) {
 			expectedName: "core_workflow_list",
 			description:  "workflow management tools get core_ prefix",
 		},
-		{
-			name:         "capability management",
-			provider:     "capability",
-			toolName:     "capability_info",
-			expectedName: "core_capability_info",
-			description:  "capability management tools get core_ prefix",
-		},
+
 		{
 			name:         "config management",
 			provider:     "config",
@@ -144,21 +138,6 @@ func TestPrefixToolName_NewNamingConvention(t *testing.T) {
 			expectedName: "workflow_backup",
 			description:  "action tools are transformed to workflow execution tools",
 		},
-		// API tools stay unchanged
-		{
-			name:         "api capability operation",
-			provider:     "capability",
-			toolName:     "api_auth_login",
-			expectedName: "api_auth_login",
-			description:  "api_* tools stay unchanged",
-		},
-		{
-			name:         "api cluster connect",
-			provider:     "capability",
-			toolName:     "api_cluster_connect",
-			expectedName: "api_cluster_connect",
-			description:  "api_* capability operations remain unchanged",
-		},
 		// External MCP server tools get external prefix
 		{
 			name:         "external mcp tool",
@@ -168,26 +147,11 @@ func TestPrefixToolName_NewNamingConvention(t *testing.T) {
 			description:  "external tools get configurable prefix",
 		},
 		{
-			name:         "custom capability operation",
+			name:         "custom external operation",
 			provider:     "external",
 			toolName:     "prometheus_query",
 			expectedName: "x_prometheus_query",
-			description:  "external capability tools get external prefix",
-		},
-		// Legacy tools (will be removed but need to work for now)
-		{
-			name:         "legacy portforward management",
-			provider:     "portforward",
-			toolName:     "portforward_list",
-			expectedName: "x_portforward_list",
-			description:  "legacy portforward tools get x_ prefix (not in management patterns)",
-		},
-		{
-			name:         "legacy k8s management",
-			provider:     "k8s",
-			toolName:     "k8s_connection_list",
-			expectedName: "x_k8s_connection_list",
-			description:  "legacy K8s tools get x_ prefix (not in management patterns)",
+			description:  "external tools get external prefix",
 		},
 	}
 

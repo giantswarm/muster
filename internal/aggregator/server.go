@@ -371,7 +371,7 @@ func (a *AggregatorServer) monitorRegistryUpdates() {
 // publishToolUpdateEvent publishes a tool update event to notify dependent managers.
 //
 // This method creates and publishes an event containing the current set of available
-// tools, which notifies other muster components (like ServiceClass and Capability
+// tools, which notifies other muster components (like ServiceClass
 // managers) that the tool landscape has changed. This ensures system-wide consistency
 // when tools become available or unavailable.
 //
@@ -389,7 +389,7 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 		Timestamp:  time.Now(),
 	}
 
-	// Publish the event - this will notify ServiceClass and Capability managers
+	// Publish the event - this will notify ServiceClass managers
 	api.PublishToolUpdateEvent(event)
 
 	logging.Debug("Aggregator", "Published tool update event with %d tools", len(tools))
@@ -499,7 +499,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 //
 // The process includes:
 //   - Processing each connected backend server for new capabilities
-//   - Integrating core tools from muster components (workflow, capability, etc.)
+//   - Integrating core tools from muster components (workflow, etc.)
 //   - Creating MCP-compatible handlers for all new items
 //   - Batch registration to minimize client notifications
 //
@@ -526,7 +526,7 @@ func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 		resourcesToAdd = append(resourcesToAdd, processResourcesForServer(a, serverName, info)...)
 	}
 
-	// Add tools from core muster components (workflow, capability, etc.)
+	// Add tools from core muster components (workflow, etc.)
 	toolsToAdd = append(toolsToAdd, a.createToolsFromProviders()...)
 
 	// Register all new items in batches to minimize client notifications
@@ -790,7 +790,6 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 //
 // Tool Routing Logic:
 //   - workflow_*: Routed to the workflow manager for workflow operations
-//   - capability_*, api_*: Routed to the capability manager for capability operations
 //   - service_*: Routed to the service manager for service lifecycle operations
 //   - config_*: Routed to the config manager for configuration operations
 //   - serviceclass_*: Routed to the service class manager for service class operations
@@ -853,20 +852,6 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 				}
 				return convertToMCPResult(result), nil
 			}
-		}
-
-	case strings.HasPrefix(originalToolName, "capability_") || strings.HasPrefix(originalToolName, "api_"):
-		// Capability management and API operations
-		handler := api.GetCapability()
-		if handler == nil {
-			return nil, fmt.Errorf("capability handler not available")
-		}
-		if provider, ok := handler.(api.ToolProvider); ok {
-			result, err := provider.ExecuteTool(ctx, originalToolName, args)
-			if err != nil {
-				return nil, err
-			}
-			return convertToMCPResult(result), nil
 		}
 
 	case strings.HasPrefix(originalToolName, "service_"):
@@ -966,7 +951,7 @@ func (a *AggregatorServer) createWorkflowAdapter() interface {
 //
 // This method is used by:
 //   - Workflow manager for validating workflow step tools
-//   - Capability manager for dependency checking
+
 //   - Service class manager for tool availability validation
 //
 // Args:
@@ -1007,7 +992,7 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 //
 // This method is used by:
 //   - Workflow manager for populating available tool lists
-//   - Capability manager for building capability dependencies
+
 //   - Service class manager for tool validation
 //   - Administrative interfaces for tool discovery
 //

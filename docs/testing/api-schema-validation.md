@@ -107,8 +107,7 @@ Detailed Results:
 ❌ serviceclass-create
    unexpected_argument: Step create-test-serviceclass: Argument 'description' not expected for tool 'core_serviceclass_create'
 
-❌ capability-check-available
-   unknown_tool: Step check-is-available: Tool 'core_capability_available' not found in API schema
+
       💡 Check available tools in the schema
 ```
 
@@ -139,14 +138,9 @@ The validation system handles different tool prefixes according to their purpose
    - ⚠️ **Not validated**:  Args epend on workflow definition  
    - 📝 **Example**: `workflow_deploy-app`, `workflow_setup-environment`
 
-4. **`api_*` tools** - API tools
-   - ✅ **Always valid**: API operation tools
-   - ⚠️ **Not validated**:  Args re API-specific
-   - 📝 **Example**: `api_create_resource`, `api_update_config`
-
-5. **All other prefixes** - Invalid tools
+4. **All other prefixes** - Invalid tools
    - ❌ **Always fails**: Unknown tool type
-   - 📝 **Fix**: Use proper prefix (`core_`, `x_`, `workflow_`, or `api_`)
+   - 📝 **Fix**: Use proper prefix (`core_`, `x_`, or `workflow_`)
 
 ### Validation Examples
 

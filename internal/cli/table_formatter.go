@@ -193,7 +193,7 @@ func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string
 	sort.Strings(allKeys)
 
 	// Always prioritize name/ID fields first
-	nameFields := []string{"name", "label", "id", "workflow", "capability"}
+	nameFields := []string{"name", "label", "id", "workflow"}
 	var columns []string
 
 	// Add the primary identifier first (Name/ID/Label)
@@ -211,8 +211,8 @@ func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string
 		"mcpServers":     {"state", "serverType", "description"},
 		"workflows":      {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
-		"capabilities":   {"available", "capabilityType", "description"},
-		"generic":        {"status", "type", "description", "available"},
+
+		"generic": {"status", "type", "description", "available"},
 	}
 
 	// Detect resource type and use optimized columns
@@ -277,9 +277,7 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 		(f.keyExists(sample, "name") && f.keyExists(sample, "version") && f.keyExists(sample, "description")) {
 		return "workflows"
 	}
-	if f.keyExists(sample, "capabilityType") {
-		return "capabilities"
-	}
+
 	return "generic"
 }
 

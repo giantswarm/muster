@@ -22,7 +22,7 @@ var serveYolo bool
 
 // configPath specifies a custom configuration directory path.
 // When set, loads all config from this directory instead of the default ~/.config/muster.
-// The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, capabilities/, serviceclasses/, services/
+// The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, serviceclasses/, services/
 var serveConfigPath string
 
 // serveCmd defines the serve command structure.
@@ -49,7 +49,7 @@ Configuration:
   - config.yaml (main configuration)
   - mcpservers/ (MCP server definitions)
   - workflows/ (workflow definitions)  
-  - capabilities/ (capability definitions)
+
   - serviceclasses/ (service class definitions)
   - services/ (service instance definitions)`,
 	Args: cobra.NoArgs, // No arguments required

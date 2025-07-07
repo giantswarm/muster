@@ -62,7 +62,7 @@ type Arg struct {
 	Default interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 }
 
-// OperationDefinition defines an operation that can be performed within a capability.
+// OperationDefinition defines an operation that can be performed within a workflow.
 // Operations represent discrete actions that can be invoked, with their own
 // argument requirements and execution logic (either direct workflow calls or references).
 type OperationDefinition struct {

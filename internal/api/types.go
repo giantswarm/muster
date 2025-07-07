@@ -118,7 +118,7 @@ type ArgMetadata struct {
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
-// to the MCP ecosystem. This interface is implemented by workflow, capability, and
+// to the MCP ecosystem. This interface is implemented by workflow, serviceclass, and
 // other tool-providing packages.
 //
 // Components implementing this interface can expose their functionality as MCP tools

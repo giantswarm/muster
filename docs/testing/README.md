@@ -30,7 +30,7 @@
 - **Schema Generation**: Generate JSON schemas from live muster serve instances (`--generate-schema`)
 - **Scenario Validation**: Validate test scenarios against API schemas (`--validate-scenarios`) 
 - **Unified Validation**: Both CLI and MCP server provide identical validation functionality
-- **Tool Prefix Validation**: Smart validation rules for `core_*`, `x_*`, `workflow_*`, and `api_*` tools
+- **Tool Prefix Validation**: Smart validation rules for `core_*`, `x_*`, and `workflow_*` tools
 - **CI/CD Integration**: Automated schema validation to catch API compatibility issues
 
 ### Improved Debugging
@@ -265,7 +265,7 @@ The framework organizes tests by **category** and **concept** to help you run ex
 ./muster test --concept=serviceclass     # All ServiceClass tests
 ./muster test --concept=workflow         # All Workflow tests
 ./muster test --concept=mcpserver        # All MCP Server tests
-./muster test --concept=capability       # All Capability tests
+
 ./muster test --concept=service          # All Service tests
 
 # Specific scenario
@@ -329,7 +329,7 @@ Test concepts organize tests by **what functionality** is being tested:
 - **`serviceclass`** - Tests ServiceClass creation, validation, and Service instantiation
 - **`workflow`** - Tests Workflow execution, arg templating, and step dependencies  
 - **`mcpserver`** - Tests MCP server registration, tool aggregation, and connection management
-- **`capability`** - Tests Capability definitions, operation mapping, and API abstractions
+
 - **`service`** - Tests Service lifecycle, dependency management, and state transitions
 
 ### Practical Examples
@@ -926,7 +926,7 @@ Before writing YAML, think through:
 ```yaml
 name: "my-new-test-scenario"
 category: "behavioral"           # or "integration"
-concept: "serviceclass"          # serviceclass, workflow, mcpserver, capability, service
+concept: "serviceclass"          # serviceclass, workflow, mcpserver, service
 description: "Clear description of what this test verifies"
 ```
 

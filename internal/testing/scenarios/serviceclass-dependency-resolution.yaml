@@ -18,11 +18,11 @@ pre_configuration:
             responses: [ { response: { status: "ok" } } ]
 
 steps:
-- id: "create-sc-with-capability-dependency"
-  description: "Create ServiceClass with capability dependency"
+- id: "create-sc-with-tool-dependency"
+  description: "Create ServiceClass with tool dependency"
   tool: "core_serviceclass_create"
   args:
-    name: "sc-with-capability-dep"
+    name: "sc-with-tool-dep"
     version: "1.0.0"
     serviceConfig:
       serviceType: "test-service"
@@ -37,14 +37,14 @@ steps:
 - id: "check-sc-availability"
   tool: "core_serviceclass_available"
   args:
-    name: "sc-with-capability-dep"
+    name: "sc-with-tool-dep"
   expected:
     success: true
     json_path:
       available: true
 
-- id: "create-sc-with-unmet-capability-dependency"
-  description: "Create ServiceClass with unmet dependency"
+- id: "create-sc-with-unmet-tool-dependency"
+  description: "Create ServiceClass with unmet tool dependency"
   tool: "core_serviceclass_create"
   args:
     name: "sc-with-unmet-dep"
@@ -71,7 +71,7 @@ steps:
 - id: "cleanup-created-serviceclasses"
   tool: "core_serviceclass_delete"
   args:
-    name: "sc-with-capability-dep"
+    name: "sc-with-tool-dep"
   expected:
     success: true
 

@@ -251,7 +251,7 @@ operations:
         - id: create_service
           tool: api_service_orchestrator_create_service
           args:
-            capability_name: "database_management"
+            serviceClassName: "database_management"
             label: "db-{{ .database_name }}"
             args:
               database_name: "{{ .database_name }}"

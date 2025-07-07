@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-// DefinitionManager defines the common interface for all definition managers (ServiceClass, Capability, Workflow)
+// DefinitionManager defines the common interface for all definition managers (ServiceClass, Workflow)
 // This ensures NO DIFFERENCE in management patterns across packages
 type DefinitionManager[T any] interface {
 	// Loading and initialization

@@ -143,13 +143,6 @@ func (r *testReporter) ReportScenarioStart(scenario TestScenario) {
 				}
 			}
 
-			if len(scenario.PreConfiguration.Capabilities) > 0 {
-				fmt.Printf("      ⚡ Capabilities (%d):\n", len(scenario.PreConfiguration.Capabilities))
-				for _, cap := range scenario.PreConfiguration.Capabilities {
-					fmt.Printf("         • %s\n", cap.Name)
-				}
-			}
-
 			if len(scenario.PreConfiguration.Services) > 0 {
 				fmt.Printf("      📦 Services (%d):\n", len(scenario.PreConfiguration.Services))
 				for _, svc := range scenario.PreConfiguration.Services {

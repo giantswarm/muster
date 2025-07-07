@@ -50,7 +50,7 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 
 	// Handle different column types with enhanced formatting
 	switch colLower {
-	case "name", "label", "id", "workflow", "capability", "execution_id":
+	case "name", "label", "id", "workflow", "execution_id":
 		// Primary identifiers - make them prominent
 		return text.FgHiCyan.Sprint(strValue)
 	case "workflow_name":
@@ -72,7 +72,7 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 		return b.formatToolsList(value)
 	case "description":
 		return b.formatDescription(strValue)
-	case "type", "service_type", "servicetype", "servertype", "capabilitytype":
+	case "type", "service_type", "servicetype", "servertype":
 		return b.formatType(strValue)
 	case "steps":
 		return b.formatSteps(value)
@@ -429,8 +429,7 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 		return text.FgBlue.Sprint("🔵")
 	case "executions":
 		return text.FgCyan.Sprint("🔄")
-	case "capabilities":
-		return text.FgMagenta.Sprint("🟣")
+
 	default:
 		return text.FgHiBlack.Sprint("⚫")
 	}

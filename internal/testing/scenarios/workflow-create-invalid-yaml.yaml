@@ -12,7 +12,7 @@ steps:
     args: {}
     steps:
       - id: ""  # Invalid empty step id
-        tool: "core_capability_list"
+        tool: "core_serviceclass_list"
   expected:
     success: false
     error_contains: ["validation failed", "steps"] 

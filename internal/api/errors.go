@@ -13,7 +13,7 @@ import (
 // supports custom error messages for specific use cases.
 type NotFoundError struct {
 	// ResourceType categorizes the type of resource that was not found
-	// (e.g., "workflow", "serviceclass", "service", "capability")
+	// (e.g., "workflow", "serviceclass", "service")
 	ResourceType string
 
 	// ResourceName is the specific identifier of the resource that was not found
@@ -137,17 +137,6 @@ var (
 		return NewNotFoundError("service", name)
 	}
 
-	// NewCapabilityNotFoundError creates a capability not found error.
-	//
-	// Args:
-	//   - name: The name of the capability that was not found
-	//
-	// Returns:
-	//   - *NotFoundError: A NotFoundError for the specified capability
-	NewCapabilityNotFoundError = func(name string) *NotFoundError {
-		return NewNotFoundError("capability", name)
-	}
-
 	// NewMCPServerNotFoundError creates an MCP server not found error.
 	//
 	// Args:
@@ -213,9 +202,6 @@ var (
 
 	// ErrConfigServiceNotRegistered indicates the config service handler is not registered
 	ErrConfigServiceNotRegistered = errors.New("config service handler not registered")
-
-	// ErrCapabilityNotRegistered indicates the capability handler is not registered
-	ErrCapabilityNotRegistered = errors.New("capability handler not registered")
 
 	// ErrWorkflowNotRegistered indicates the workflow handler is not registered
 	ErrWorkflowNotRegistered = errors.New("workflow handler not registered")

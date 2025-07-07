@@ -17,7 +17,6 @@ var (
 var checkResourceTypes = []string{
 	"serviceclass",
 	"mcpserver",
-	"capability",
 	"workflow",
 }
 
@@ -40,12 +39,10 @@ var checkCmd = &cobra.Command{
 Available resource types:
   serviceclass - Check if a ServiceClass is available for use
   mcpserver    - Check MCP server status
-  capability   - Check if a capability is available
   workflow     - Check if a workflow is available (all required tools present)
 
 Examples:
   muster check serviceclass kubernetes
-  muster check capability cluster-auth
   muster check mcpserver prometheus
   muster check workflow my-deployment
 
@@ -68,7 +65,6 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 var checkResourceMappings = map[string]string{
 	"serviceclass": "core_serviceclass_available",
 	"mcpserver":    "core_service_status",
-	"capability":   "core_capability_available",
 	"workflow":     "core_workflow_available",
 }
 
@@ -88,7 +84,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := checkResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, mcpserver, capability, workflow", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, mcpserver, workflow", resourceType)
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

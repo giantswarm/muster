@@ -20,7 +20,6 @@ var listResourceTypes = []string{
 	"mcpserver",
 	"workflow",
 	"workflow-execution",
-	"capability",
 }
 
 // listCmd represents the list command
@@ -35,7 +34,6 @@ Available resource types:
   mcpserver           - List all MCP server definitions
   workflow            - List all workflow definitions
   workflow-execution  - List all workflow execution history
-  capability          - List all capability definitions
 
 Examples:
   muster list service
@@ -58,7 +56,6 @@ var listResourceMappings = map[string]string{
 	"mcpserver":          "core_mcpserver_list",
 	"workflow":           "core_workflow_list",
 	"workflow-execution": "core_workflow_execution_list",
-	"capability":         "core_capability_list",
 }
 
 func init() {
@@ -76,7 +73,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := listResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, capability", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

@@ -19,7 +19,6 @@ var (
 // Available resource types for create operations
 var createResourceTypes = []string{
 	"serviceclass",
-	"capability",
 	"workflow",
 	"service", // Added service creation
 }
@@ -72,13 +71,11 @@ var createCmd = &cobra.Command{
 
 Available resource types:
   serviceclass  - Create a ServiceClass definition
-  capability    - Create a Capability definition
   workflow      - Create a Workflow definition
   service       - Create a service instance from a ServiceClass
 
 Examples:
   muster create serviceclass example-service
-  muster create capability example-capability
   muster create workflow example-workflow
   muster create service my-service-instance mimir-port-forward --managementCluster=gazelle --localPort=18009
 
@@ -103,7 +100,6 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 // Resource type mappings for create operations
 var createResourceMappings = map[string]string{
 	"serviceclass": "core_serviceclass_create",
-	"capability":   "core_capability_create",
 	"workflow":     "core_workflow_create",
 	// Note: service creation uses core_service_create, handled separately
 }
@@ -220,7 +216,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return executor.Execute(ctx, "core_service_create", toolArgs)
 	}
 
-	// Handle other resource types (serviceclass, capability, workflow)
+	// Handle other resource types (serviceclass, workflow)
 	if len(args) < 2 {
 		return fmt.Errorf("resource name is required")
 	}
@@ -228,7 +224,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	resourceName := args[1]
 	toolName, exists := createResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, capability, workflow, service", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, workflow, service", resourceType)
 	}
 
 	toolArgs := map[string]interface{}{

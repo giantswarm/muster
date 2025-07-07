@@ -23,9 +23,6 @@ func TestConfigReloadIntegration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	capabilityDir := filepath.Join(tmpDir, "capability", "definitions")
-	err = os.MkdirAll(capabilityDir, 0755)
-	assert.NoError(t, err)
 
 	// Create initial configuration
 	initialConfig := &config.MusterConfig{

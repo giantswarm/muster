@@ -123,7 +123,7 @@ func collectItemsFromServersAndProviders(servers map[string]*ServerInfo, registr
 	// Start with regular server items
 	result := collectItemsFromServers(servers, registry)
 
-	// Add core tools from providers (workflow, capability, orchestrator, config, mcp)
+	// Add core tools from providers (workflow, orchestrator, config, mcp)
 	// These are the tools that get added by createToolsFromProviders()
 	coreTools := a.createToolsFromProviders()
 	for _, tool := range coreTools {

@@ -43,12 +43,11 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 			config.Concept = testing.ConceptWorkflow
 		case "mcpserver":
 			config.Concept = testing.ConceptMCPServer
-		case "capability":
-			config.Concept = testing.ConceptCapability
+
 		case "service":
 			config.Concept = testing.ConceptService
 		default:
-			return mcp.NewToolResultError(fmt.Sprintf("Invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, capability, service", concept)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, service", concept)), nil
 		}
 	}
 
@@ -165,8 +164,6 @@ func (t *TestMCPServer) handleListScenarios(ctx context.Context, request mcp.Cal
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver":
 			testConfig.Concept = testing.ConceptMCPServer
-		case "capability":
-			testConfig.Concept = testing.ConceptCapability
 		case "service":
 			testConfig.Concept = testing.ConceptService
 		default:
@@ -360,8 +357,6 @@ func (t *TestMCPServer) handleAPISchemaValidation(ctx context.Context, scenarioP
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver":
 			testConfig.Concept = testing.ConceptMCPServer
-		case "capability":
-			testConfig.Concept = testing.ConceptCapability
 		case "service":
 			testConfig.Concept = testing.ConceptService
 		default:

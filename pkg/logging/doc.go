@@ -109,7 +109,7 @@
 //   - **Orchestrator**: Service lifecycle management
 //   - **Aggregator**: MCP tool aggregation and management
 //   - **ServiceClass**: ServiceClass definition and instance management
-//   - **Capability**: Capability system operations
+
 //   - **Workflow**: Workflow execution and management
 //   - **Agent**: MCP agent and client operations
 //   - **TUI**: Terminal user interface operations

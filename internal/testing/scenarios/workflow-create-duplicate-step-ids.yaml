@@ -12,7 +12,7 @@ steps:
     args: {}
     steps:
       - id: "duplicate-step"
-        tool: "core_capability_list"
+        tool: "core_serviceclass_list"
       - id: "duplicate-step"
         tool: "core_mcpserver_list"
   expected:

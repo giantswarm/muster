@@ -27,13 +27,13 @@
 //
 // # Separation of Concerns
 //
-// This package is deliberately separated from the capability system to provide
+// This package is deliberately separated from the workflow system to provide
 // a clean architectural boundary between:
-//   - Capability operations (what can be done)
+//   - Service operations (what can be done)
 //   - Service lifecycle management (how services are created and managed)
 //
 // The ServiceClassManager handles all aspects of service blueprint management,
-// while the capability system focuses on operational workflows and tool orchestration.
+// while the workflow system focuses on operational workflows and tool orchestration.
 //
 // # API Integration
 //

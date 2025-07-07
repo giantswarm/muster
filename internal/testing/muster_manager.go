@@ -388,10 +388,9 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	expectedServiceClasses := m.extractExpectedServiceClassesFromInstance(instance)
 	expectedServices := m.extractExpectedServicesFromInstance(instance)
 	expectedWorkflows := m.extractExpectedWorkflowsFromInstance(instance)
-	expectedCapabilities := m.extractExpectedCapabilitiesFromInstance(instance)
 
 	if len(expectedTools) == 0 && len(expectedServiceClasses) == 0 && len(expectedServices) == 0 &&
-		len(expectedWorkflows) == 0 && len(expectedCapabilities) == 0 {
+		len(expectedWorkflows) == 0 {
 		if m.debug {
 			m.logger.Debug("ℹ️  No expected resources specified, waiting for basic service readiness\n")
 		}
@@ -413,9 +412,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		if len(expectedWorkflows) > 0 {
 			m.logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
 		}
-		if len(expectedCapabilities) > 0 {
-			m.logger.Debug("🎯 Waiting for %d expected Capabilities: %v\n", len(expectedCapabilities), expectedCapabilities)
-		}
+
 	}
 
 	// Wait for all expected resources to be available
@@ -517,32 +514,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 						if !found {
 							allReady = false
 							notReadyReasons = append(notReadyReasons, fmt.Sprintf("Workflow %s not available", workflowName))
-						}
-					}
-				}
-			}
-
-			// Check Capability availability (if any expected)
-			if len(expectedCapabilities) > 0 {
-				availableCapabilities, err := m.checkCapabilitiesAvailability(mcpClient, resourceCtx)
-				if err != nil {
-					if m.debug {
-						m.logger.Debug("🔍 Failed to list capabilities: %v\n", err)
-					}
-					allReady = false
-					notReadyReasons = append(notReadyReasons, "capabilities check failed")
-				} else {
-					for _, capabilityName := range expectedCapabilities {
-						found := false
-						for _, available := range availableCapabilities {
-							if available == capabilityName {
-								found = true
-								break
-							}
-						}
-						if !found {
-							allReady = false
-							notReadyReasons = append(notReadyReasons, fmt.Sprintf("Capability %s not available", capabilityName))
 						}
 					}
 				}
@@ -833,7 +804,7 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 	musterConfigPath := filepath.Join(configPath, "muster")
 
 	// Create subdirectories under muster
-	dirs := []string{"mcpservers", "workflows", "capabilities", "serviceclasses", "services"}
+	dirs := []string{"mcpservers", "workflows", "serviceclasses", "services"}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(filepath.Join(musterConfigPath, dir), 0755); err != nil {
 			return fmt.Errorf("failed to create %s directory: %w", dir, err)
@@ -930,14 +901,6 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 			filename := filepath.Join(musterConfigPath, "workflows", workflow.Name+".yaml")
 			if err := m.writeYAMLFile(filename, workflow.Config); err != nil {
 				return fmt.Errorf("failed to write workflow config %s: %w", workflow.Name, err)
-			}
-		}
-
-		// Generate capability configs in muster subdirectory
-		for _, capability := range config.Capabilities {
-			filename := filepath.Join(musterConfigPath, "capabilities", capability.Name+".yaml")
-			if err := m.writeYAMLFile(filename, capability.Config); err != nil {
-				return fmt.Errorf("failed to write capability config %s: %w", capability.Name, err)
 			}
 		}
 
@@ -1049,13 +1012,6 @@ func (m *musterInstanceManager) extractExpectedServicesFromInstance(instance *Mu
 
 // extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration
 func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(instance *MusterInstance) []string {
-	// For now, we'll extract this from the instance configuration stored during CreateInstance
-	// In a future enhancement, we could store this information in the MusterInstance struct
-	return []string{} // TODO: Extract from stored configuration
-}
-
-// extractExpectedCapabilitiesFromInstance extracts expected Capability names from instance configuration
-func (m *musterInstanceManager) extractExpectedCapabilitiesFromInstance(instance *MusterInstance) []string {
 	// For now, we'll extract this from the instance configuration stored during CreateInstance
 	// In a future enhancement, we could store this information in the MusterInstance struct
 	return []string{} // TODO: Extract from stored configuration
@@ -1193,33 +1149,4 @@ func (m *musterInstanceManager) checkWorkflowsAvailability(client MCPTestClient,
 	}
 
 	return workflows, nil
-}
-
-// checkCapabilitiesAvailability returns the list of available capabilities
-func (m *musterInstanceManager) checkCapabilitiesAvailability(client MCPTestClient, ctx context.Context) ([]string, error) {
-	// Use core_capability_list to get available capabilities
-	result, err := client.CallTool(ctx, "core_capability_list", map[string]interface{}{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call core_capability_list: %w", err)
-	}
-
-	var capabilities []string
-	// Parse the response to extract capability names
-	if resultData, ok := result.(map[string]interface{}); ok {
-		if capabilityList, exists := resultData["capabilities"]; exists {
-			if capabilityArray, ok := capabilityList.([]interface{}); ok {
-				for _, capability := range capabilityArray {
-					if capabilityMap, ok := capability.(map[string]interface{}); ok {
-						if name, exists := capabilityMap["name"]; exists {
-							if nameStr, ok := name.(string); ok {
-								capabilities = append(capabilities, nameStr)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return capabilities, nil
 }

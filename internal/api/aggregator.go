@@ -10,7 +10,7 @@ import (
 )
 
 // ToolCaller implements tool calling interfaces using the API layer.
-// It serves as an adapter that allows different subsystems (capabilities, workflows)
+// It serves as an adapter that allows different subsystems (serviceclasses,workflows)
 // to call tools through the aggregator without directly coupling to the aggregator implementation.
 // This follows the service locator pattern to maintain architectural boundaries.
 type ToolCaller struct{}
@@ -26,8 +26,8 @@ func NewToolCaller() *ToolCaller {
 }
 
 // AggregatorHandler provides aggregator-specific functionality for managing MCP server tools
-// and capabilities. It acts as the central coordinator for tool availability, execution,
-// and capability management across all registered MCP servers.
+// It acts as the central coordinator for tool availability, execution,
+// and tool management across all registered MCP servers.
 type AggregatorHandler interface {
 	// GetServiceData returns runtime data and configuration information about the aggregator service.
 	// This includes connection details, registered servers, and operational metrics.
@@ -79,7 +79,7 @@ type AggregatorHandler interface {
 	CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 
 	// IsToolAvailable checks whether a specific tool is currently available for execution.
-	// This is used for validation before attempting tool calls and for capability reporting.
+	// This is used for validation before attempting tool calls.
 	//
 	// Args:
 	//   - toolName: The name of the tool to check
@@ -89,7 +89,7 @@ type AggregatorHandler interface {
 	IsToolAvailable(toolName string) bool
 
 	// GetAvailableTools returns a list of all currently available tool names.
-	// This is used for tool discovery, validation, and capability reporting.
+	// This is used for tool discovery and validation.
 	//
 	// Returns:
 	//   - []string: Slice of available tool names (empty if no tools available)
@@ -100,10 +100,10 @@ type AggregatorHandler interface {
 	UpdateCapabilities()
 }
 
-// CallTool implements the capability ToolCaller interface by delegating to the aggregator handler.
-// It provides a standardized way for capabilities to execute tools with proper error handling
+// CallTool implements the ToolCaller interface by delegating to the aggregator handler.
+// It provides a standardized way to execute tools with proper error handling
 // and result formatting. The method converts the aggregator's result format to the format
-// expected by the capability system.
+// expected by the workflow system.
 func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (map[string]interface{}, error) {
 	aggregatorHandler := GetAggregator()
 	if aggregatorHandler == nil {
@@ -128,7 +128,7 @@ func (atc *ToolCaller) CallTool(ctx context.Context, toolName string, args map[s
 		return nil, fmt.Errorf("tool %s returned nil result", toolName)
 	}
 
-	// Convert CallToolResult to map format for capability interface
+	// Convert CallToolResult to map format
 	responseData := make(map[string]interface{})
 
 	// Handle different types of content

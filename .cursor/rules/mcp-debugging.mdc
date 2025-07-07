@@ -83,7 +83,6 @@ alwaysApply: false
     mcp_mcp-debug_call_tool(name="core_mcpserver_list", arguments={})
     mcp_mcp-debug_call_tool(name="core_serviceclass_list", arguments={})
     mcp_mcp-debug_call_tool(name="core_workflow_list", arguments={})
-    mcp_mcp-debug_call_tool(name="core_capability_list", arguments={})
     mcp_mcp-debug_call_tool(name="core_service_list", arguments={})
     ```
     Key Checks:
@@ -130,11 +129,11 @@ alwaysApply: false
   - **Root Cause:** Usually failed MCP server initialization
 
 - **Cleanup Protocol**
-  - **✅ DO:** Always clean up test ServiceClasses, Workflows, Capabilities, MCP servers and Services after debugging
+  - **✅ DO:** Always clean up test ServiceClasses, Workflows, MCP servers and Services after debugging
   - **✅ DO:** Use unique, identifiable labels for test instances (e.g., "debug-test-<timestamp>")
-  - **❌ DON'T:** Leave test ServiceClasses, Workflows, Capabilities, MCP servers and Services
+  - **❌ DON'T:** Leave test ServiceClasses, Workflows, MCP servers and Services
 
-- **When Debugging ServiceClasses, Workflows, Capabilities, MCP servers and Services**
+- **When Debugging ServiceClasses, Workflows, MCP servers and Services**
   - Document the issue in the debugging session
   - Update the debugging workflow if new issues are discovered
   - Add specific examples to the common issues section

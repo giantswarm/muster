@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"muster/internal/aggregator"
 	"muster/internal/api"
-	"muster/internal/capability"
 	"muster/internal/config"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
@@ -34,7 +33,7 @@ import (
 // The services are initialized in a specific order to handle dependencies:
 //  1. Storage and tool interfaces (shared dependencies)
 //  2. Service adapters and API registrations
-//  3. Manager instances (ServiceClass, Capability, Workflow, MCPServer)
+//  3. Manager instances (ServiceClass, Workflow, MCPServer)
 //  4. Concrete service instances
 //  5. Aggregator service (when enabled)
 type Services struct {
@@ -68,7 +67,7 @@ type Services struct {
 //  3. **Orchestrator**: Initializes the core service orchestrator
 //  4. **Service Registry**: Sets up the service registry for dependency injection
 //  5. **API Adapters**: Creates and registers all service adapters with the API layer
-//  6. **Manager Initialization**: Creates managers for ServiceClass, Capability, Workflow, MCPServer
+//  6. **Manager Initialization**: Creates managers for ServiceClass, Workflow, MCPServer
 //  7. **Definition Loading**: Loads component definitions from configuration directories
 //  8. **Service Creation**: Creates concrete service instances based on definitions
 //  9. **Aggregator Setup**: Initializes MCP aggregator service (when enabled)
@@ -158,22 +157,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	if err := serviceClassManager.LoadDefinitions(); err != nil {
 		// Log warning but don't fail - ServiceClass is optional
 		logging.Warn("Services", "Failed to load ServiceClass definitions: %v", err)
-	}
-
-	// Initialize and register Capability adapter
-	capabilityAdapter, err := capability.NewAdapter(toolChecker, toolCaller, storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Capability adapter: %w", err)
-	}
-	capabilityAdapter.Register()
-
-	// Load Capability definitions
-	if cfg.ConfigPath != "" {
-		capabilityAdapter.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := capabilityAdapter.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - Capability is optional
-		logging.Warn("Services", "Failed to load Capability definitions: %v", err)
 	}
 
 	// Create and register Workflow adapter

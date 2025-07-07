@@ -52,7 +52,7 @@ func completeCategoryFlag(cmd *cobra.Command, args []string, toComplete string) 
 
 // completeConceptFlag provides shell completion for the concept flag
 func completeConceptFlag(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return []string{"serviceclass", "workflow", "mcpserver", "capability", "service"}, cobra.ShellCompDirectiveDefault
+	return []string{"serviceclass", "workflow", "mcpserver", "service"}, cobra.ShellCompDirectiveDefault
 }
 
 // completeScenarioFlag provides shell completion for the scenario flag by loading available scenarios
@@ -84,7 +84,7 @@ This command validates all core muster concepts including:
 - ServiceClass management and templating
 - Workflow execution and arg resolution
 - MCPServer registration and tool aggregation
-- Capability definitions and API abstraction
+
 - Service lifecycle management and dependencies
 
 Test execution modes:
@@ -104,7 +104,7 @@ Core Concepts:
 - serviceclass: ServiceClass management and dynamic instantiation
 - workflow: Workflow execution and arg templating
 - mcpserver: MCP server registration and tool aggregation
-- capability: Capability definitions and API operations
+
 - service: Service lifecycle and dependency management
 
 Schema Generation and Validation:
@@ -157,7 +157,7 @@ func init() {
 
 	// Test selection and filtering
 	testCmd.Flags().StringVar(&testCategory, "category", "", "Run tests for specific category (behavioral, integration)")
-	testCmd.Flags().StringVar(&testConcept, "concept", "", "Run tests for specific concept (serviceclass, workflow, mcpserver, capability, service)")
+	testCmd.Flags().StringVar(&testConcept, "concept", "", "Run tests for specific concept (serviceclass, workflow, mcpserver, service)")
 	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run specific test scenario by name")
 
 	// Test configuration and reporting
@@ -344,12 +344,10 @@ func runTest(cmd *cobra.Command, args []string) error {
 			testConfig.Concept = testing.ConceptWorkflow
 		case "mcpserver":
 			testConfig.Concept = testing.ConceptMCPServer
-		case "capability":
-			testConfig.Concept = testing.ConceptCapability
 		case "service":
 			testConfig.Concept = testing.ConceptService
 		default:
-			return fmt.Errorf("invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, capability, service", testConcept)
+			return fmt.Errorf("invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, service", testConcept)
 		}
 	}
 

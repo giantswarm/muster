@@ -74,7 +74,7 @@
 //  3. **Orchestrator Setup**: Core service lifecycle manager initialization
 //  4. **Service Registry**: Dependency injection and service discovery setup
 //  5. **API Adapter Registration**: Register all service adapters with API layer (CRITICAL)
-//  6. **Manager Creation**: ServiceClass, Capability, Workflow, MCPServer managers
+//  6. **Manager Creation**: ServiceClass, Workflow, MCPServer managers
 //  7. **Definition Loading**: Load component definitions from configuration directories
 //  8. **Service Instantiation**: Create concrete service instances from definitions
 //  9. **Aggregator Service**: MCP aggregator for external tool access (when enabled)
@@ -91,7 +91,7 @@
 //   - MCP Server services (external MCP protocol servers)
 //   - Aggregator service (tool aggregation and MCP endpoint)
 //   - Workflow execution services
-//   - Capability management services
+
 //   - ServiceClass-based services
 //
 // ## Execution Modes (modes.go)
@@ -170,8 +170,8 @@
 // **Fail-Fast Approach**: Critical components (storage, orchestrator, API registration)
 // cause immediate initialization failure if they cannot be set up properly.
 //
-// **Graceful Degradation**: Optional components (ServiceClass definitions, Capability
-// definitions, Workflow definitions) log warnings but don't halt initialization.
+// **Graceful Degradation**: Optional components (ServiceClass definitions,
+// Workflow definitions) log warnings but don't halt initialization.
 //
 // **Configuration Recovery**: Config reload functionality allows recovery from
 // configuration errors without application restart.
@@ -203,7 +203,7 @@
 //
 // **Service Components**:
 //   - `internal/serviceclass`: ServiceClass definition management
-//   - `internal/capability`: Capability definition management
+
 //   - `internal/workflow`: Workflow definition and execution
 //   - `internal/mcpserver`: MCP server process management
 //
