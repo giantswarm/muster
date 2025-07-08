@@ -16,7 +16,7 @@ import (
 //
 // The Application follows a two-phase initialization pattern:
 //  1. Bootstrap phase: Load configuration, initialize logging, setup services
-//  2. Execution phase: Run in either CLI (non-interactive) or TUI (interactive) mode
+//  2. Execution phase: Run the orchestrator
 //
 // Example usage:
 //
@@ -105,29 +105,13 @@ func NewApplication(cfg *Config) (*Application, error) {
 	}, nil
 }
 
-// Run executes the application in the appropriate mode based on configuration.
-// The execution mode is determined by the NoTUI flag in the application configuration:
+// Run executes the application
 //
-//   - NoTUI = true: Runs in CLI mode (non-interactive, suitable for scripting)
-//   - NoTUI = false: Runs in TUI mode (interactive terminal interface)
-//
-// Both modes handle graceful shutdown via context cancellation and system signals.
+// Handles graceful shutdown via context cancellation and system signals.
 // The method blocks until the application is terminated or encounters an error.
 //
 // Returns an error if the selected execution mode fails to start or encounters
 // a runtime error during execution.
 func (a *Application) Run(ctx context.Context) error {
-	return a.runCLIMode(ctx)
-}
-
-// runCLIMode runs the application in non-interactive CLI mode.
-// This is an internal method that handles CLI-specific initialization and execution.
-func (a *Application) runCLIMode(ctx context.Context) error {
-	return runCLIMode(ctx, a.config, a.services)
-}
-
-// runTUIMode runs the application in interactive TUI mode.
-// This is an internal method that handles TUI-specific initialization and execution.
-func (a *Application) runTUIMode(ctx context.Context) error {
-	return runTUIMode(ctx, a.config, a.services)
+	return runOrchestrator(ctx, a.services)
 }

@@ -107,9 +107,7 @@ type ServiceClassValidateRequest struct {
 // MCPServerCreateRequest represents a request to create a new MCP server definition.
 // MCP servers provide tools that can be aggregated and exposed through the muster system.
 //
-// Supports two types of MCP servers:
-// - "localCommand": Executes a local command/process
-// - "container": Runs in a Docker container
+// Supports local command MCP servers that execute local command/process.
 //
 // Example for local command:
 //
@@ -123,22 +121,13 @@ type ServiceClassValidateRequest struct {
 //	    },
 //	}
 //
-// Example for container:
-//
-//	request := MCPServerCreateRequest{
-//	    Name: "kubernetes-tools",
-//	    Type: "container",
-//	    Image: "kubernetes/kubectl:latest",
-//	    ContainerEnv: map[string]string{
-//	        "KUBECONFIG": "/config/kubeconfig",
-//	    },
-//	}
+
 type MCPServerCreateRequest struct {
 	// Name is the unique identifier for the MCP server (required).
 	Name string `json:"name" validate:"required"`
 
 	// Type specifies the MCP server type (required).
-	// Valid values: "localCommand", "container"
+	// Valid value: "localCommand"
 	Type string `json:"type" validate:"required"`
 
 	// AutoStart determines if the server should start automatically on system startup.
@@ -154,29 +143,6 @@ type MCPServerCreateRequest struct {
 
 	// Env provides environment variables for "localCommand" type servers.
 	Env map[string]string `json:"env,omitempty"`
-
-	// Image specifies the Docker image for "container" type servers.
-	// Required for container type, ignored for localCommand type.
-	Image string `json:"image,omitempty"`
-
-	// ContainerPorts specifies ports to expose from the container.
-	// Format: ["host:container", "port"] (e.g., ["8080:80", "443"])
-	ContainerPorts []string `json:"containerPorts,omitempty"`
-
-	// ContainerEnv provides environment variables for container servers.
-	ContainerEnv map[string]string `json:"containerEnv,omitempty"`
-
-	// ContainerVolumes specifies volume mounts for the container.
-	// Format: ["host:container:mode"] (e.g., ["/data:/app/data:rw"])
-	ContainerVolumes []string `json:"containerVolumes,omitempty"`
-
-	// Entrypoint overrides the default container entrypoint.
-	// Only applicable for container type servers.
-	Entrypoint []string `json:"entrypoint,omitempty"`
-
-	// ContainerUser specifies the user to run the container as.
-	// Can be username or UID:GID format.
-	ContainerUser string `json:"containerUser,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -199,24 +165,6 @@ type MCPServerUpdateRequest struct {
 
 	// Env can be updated for localCommand servers.
 	Env map[string]string `json:"env,omitempty"`
-
-	// Image can be updated for container servers.
-	Image string `json:"image,omitempty"`
-
-	// ContainerPorts can be modified for container servers.
-	ContainerPorts []string `json:"containerPorts,omitempty"`
-
-	// ContainerEnv can be updated for container servers.
-	ContainerEnv map[string]string `json:"containerEnv,omitempty"`
-
-	// ContainerVolumes can be modified for container servers.
-	ContainerVolumes []string `json:"containerVolumes,omitempty"`
-
-	// Entrypoint can be updated for container servers.
-	Entrypoint []string `json:"entrypoint,omitempty"`
-
-	// ContainerUser can be modified for container servers.
-	ContainerUser string `json:"containerUser,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -234,14 +182,8 @@ type MCPServerValidateRequest struct {
 	// Command for validation (localCommand type).
 	Command []string `json:"command,omitempty"`
 
-	// Image for validation (container type).
-	Image string `json:"image,omitempty"`
-
 	// Env for validation.
 	Env map[string]string `json:"env,omitempty"`
-
-	// ContainerPorts for validation.
-	ContainerPorts []string `json:"containerPorts,omitempty"`
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`

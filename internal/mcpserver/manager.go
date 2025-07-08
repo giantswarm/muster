@@ -105,27 +105,16 @@ func (msm *MCPServerManager) validateDefinition(def *api.MCPServer) error {
 		errors = append(errors, err.(config.ValidationError))
 	} else {
 		// Validate specific type
-		validTypes := []string{string(api.MCPServerTypeLocalCommand), string(api.MCPServerTypeContainer)}
+		validTypes := []string{string(api.MCPServerTypeLocalCommand)}
 		if err := config.ValidateOneOf("type", string(def.Type), validTypes); err != nil {
 			errors = append(errors, err.(config.ValidationError))
 		}
 	}
 
 	// Validate type-specific requirements
-	switch def.Type {
-	case api.MCPServerTypeLocalCommand:
+	if def.Type == api.MCPServerTypeLocalCommand {
 		if len(def.Command) == 0 {
 			errors.Add("command", "is required for localCommand type")
-		}
-		if def.Image != "" {
-			errors.Add("image", "cannot be specified for localCommand type")
-		}
-	case api.MCPServerTypeContainer:
-		if def.Image == "" {
-			errors.Add("image", "is required for container type")
-		}
-		if len(def.Command) > 0 {
-			errors.Add("command", "cannot be specified for container type (use entrypoint instead)")
 		}
 	}
 

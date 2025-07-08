@@ -30,7 +30,7 @@ var serveConfigPath string
 // and sets up the necessary MCP servers for development.
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the muster aggregator server with an interactive TUI or CLI mode.",
+	Short: "Start the muster aggregator server.",
 	Long: `Starts the muster aggregator server and manages MCP servers for AI assistant access.
 
    - Starts configured MCP servers and services in the background.

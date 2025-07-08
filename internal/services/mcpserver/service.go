@@ -137,16 +137,11 @@ func (s *Service) ValidateConfiguration() error {
 	}
 
 	// Type-specific validation
-	switch s.definition.Type {
-	case api.MCPServerTypeLocalCommand:
+	if s.definition.Type == api.MCPServerTypeLocalCommand {
 		if len(s.definition.Command) == 0 {
 			return fmt.Errorf("command is required for localCommand type")
 		}
-	case api.MCPServerTypeContainer:
-		if s.definition.Image == "" {
-			return fmt.Errorf("image is required for container type")
-		}
-	default:
+	} else {
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
 	}
 
@@ -176,8 +171,6 @@ func (s *Service) GetServiceData() map[string]interface{} {
 
 	if s.definition.Type == api.MCPServerTypeLocalCommand {
 		data["command"] = s.definition.Command
-	} else if s.definition.Type == api.MCPServerTypeContainer {
-		data["image"] = s.definition.Image
 	}
 
 	if s.GetLastError() != nil {
@@ -285,12 +278,6 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		s.client = client
 		s.LogDebug("MCP client initialized successfully for %s", s.GetName())
 		return nil
-
-	case api.MCPServerTypeContainer:
-		// TODO: Implement container client that also manages container lifecycle
-		// This would be similar to stdio client but using container-based MCP communication
-		s.LogWarn("Container MCP client creation not yet implemented")
-		return fmt.Errorf("container MCP client not implemented")
 
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)

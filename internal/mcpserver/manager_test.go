@@ -40,15 +40,7 @@ func TestMCPServerManager_validateDefinition(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "valid container server",
-			def: &api.MCPServer{
-				Name:  "test-container",
-				Type:  api.MCPServerTypeContainer,
-				Image: "nginx:latest",
-			},
-			wantErr: false,
-		},
+
 		{
 			name: "empty name",
 			def: &api.MCPServer{
@@ -65,7 +57,7 @@ func TestMCPServerManager_validateDefinition(t *testing.T) {
 				Type: "invalid-type",
 			},
 			wantErr: true,
-			errMsg:  "field 'type': must be one of: localCommand, container",
+			errMsg:  "field 'type': must be one of: localCommand",
 		},
 		{
 			name: "local command without command",
@@ -75,15 +67,6 @@ func TestMCPServerManager_validateDefinition(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "field 'command': is required for localCommand type",
-		},
-		{
-			name: "container without image",
-			def: &api.MCPServer{
-				Name: "test-server",
-				Type: api.MCPServerTypeContainer,
-			},
-			wantErr: true,
-			errMsg:  "field 'image': is required for container type",
 		},
 	}
 
@@ -143,8 +126,8 @@ func TestMCPServerManager_ListDefinitions(t *testing.T) {
 	}
 	testDef2 := &api.MCPServer{
 		Name:      "server2",
-		Type:      api.MCPServerTypeContainer,
-		Image:     "nginx:latest",
+		Type:      api.MCPServerTypeLocalCommand,
+		Command:   []string{"echo", "world"},
 		AutoStart: false,
 	}
 
@@ -178,8 +161,8 @@ func TestMCPServerManager_ListAvailableDefinitions(t *testing.T) {
 	}
 	testDef2 := &api.MCPServer{
 		Name:      "server2",
-		Type:      api.MCPServerTypeContainer,
-		Image:     "nginx:latest",
+		Type:      api.MCPServerTypeLocalCommand,
+		Command:   []string{"echo", "world"},
 		AutoStart: false,
 	}
 
@@ -232,8 +215,8 @@ func TestMCPServerManager_GetAllDefinitions(t *testing.T) {
 	}
 	testDef2 := &api.MCPServer{
 		Name:      "server2",
-		Type:      api.MCPServerTypeContainer,
-		Image:     "nginx:latest",
+		Type:      api.MCPServerTypeLocalCommand,
+		Command:   []string{"echo", "world"},
 		AutoStart: false,
 	}
 
@@ -293,9 +276,9 @@ func TestMCPServerManager_List(t *testing.T) {
 	}
 
 	def2 := api.MCPServer{
-		Name:  "server-2",
-		Type:  api.MCPServerTypeContainer,
-		Image: "image2",
+		Name:    "server-2",
+		Type:    api.MCPServerTypeLocalCommand,
+		Command: []string{"cmd2"},
 	}
 
 	manager.CreateMCPServer(def1)

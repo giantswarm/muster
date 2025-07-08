@@ -81,7 +81,7 @@ agent: "Show me failing pods in default namespace"
 - **Lifecycle Control**: Start, stop, restart MCP servers on demand
 - **Health Monitoring**: Automatic health checks and recovery
 - **Configuration Management**: Hot-reload server configurations
-- **Two Deployment Modes**: Local processes (`localCommand`) or containerized (`container`) (coming soon!)
+- **Local Process Deployment**: Local processes (`localCommand`) for MCP server execution
 
 ### 🛡️ Smart Access Control  
 - **Tool Filtering**: Block destructive tools by default (override with `--yolo`)

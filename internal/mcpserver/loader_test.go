@@ -41,31 +41,6 @@ env:
 	}
 }
 
-func TestLoadDefinitionFromFileContainer(t *testing.T) {
-	content := `
-name: test-container-server
-type: container
-image: test/server:latest
-`
-
-	tmpDir := t.TempDir()
-	testFile := filepath.Join(tmpDir, "test-container.yaml")
-
-	err := os.WriteFile(testFile, []byte(content), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-
-	def, err := LoadDefinitionFromFile(testFile)
-	if err != nil {
-		t.Fatalf("Failed to load MCP server: %v", err)
-	}
-
-	if def.Type != api.MCPServerTypeContainer {
-		t.Errorf("Expected type %s, got %s", api.MCPServerTypeContainer, def.Type)
-	}
-}
-
 func TestLoadDefinitionFromFileInvalidType(t *testing.T) {
 	content := `
 name: test-invalid-server

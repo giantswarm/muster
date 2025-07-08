@@ -69,9 +69,6 @@
 //
 // The configuration file uses YAML format with the following main sections:
 //
-//	globalSettings:
-//	  defaultContainerRuntime: "docker"  # or "podman"
-//
 //	aggregator:
 //	  port: 8090                          # Port for the aggregator service (default: 8090)
 //	  host: "localhost"                   # Host to bind to (default: localhost)

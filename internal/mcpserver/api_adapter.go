@@ -40,7 +40,6 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 			AutoStart:   def.AutoStart,
 			Description: def.Description,
 			Command:     def.Command,
-			Image:       def.Image,
 			Env:         def.Env,
 			Error:       def.Error,
 		}
@@ -66,7 +65,6 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 		AutoStart:   def.AutoStart,
 		Description: def.Description,
 		Command:     def.Command,
-		Image:       def.Image,
 		Env:         def.Env,
 		Error:       def.Error,
 	}, nil
@@ -104,7 +102,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Validate an mcpserver definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand or container)"},
+				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
 				{
 					Name:        "command",
@@ -121,7 +119,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"minItems": 1,
 					},
 				},
-				{Name: "image", Type: "string", Required: false, Description: "Container image (for container type)"},
 				{
 					Name:        "env",
 					Type:        "object",
@@ -133,21 +130,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"additionalProperties": map[string]interface{}{
 							"type":        "string",
 							"description": "Environment variable value",
-						},
-					},
-				},
-				{
-					Name:        "containerPorts",
-					Type:        "array",
-					Required:    false,
-					Description: "Port mappings (for container type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Port mappings for container type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
-							"pattern":     "^\\d+(:\\d+)?$",
 						},
 					},
 				},
@@ -159,7 +141,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Create a new MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand or container)"},
+				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
 				{
 					Name:        "command",
@@ -176,7 +158,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"minItems": 1,
 					},
 				},
-				{Name: "image", Type: "string", Required: false, Description: "Container image (for container type)"},
 				{
 					Name:        "env",
 					Type:        "object",
@@ -188,21 +169,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"additionalProperties": map[string]interface{}{
 							"type":        "string",
 							"description": "Environment variable value",
-						},
-					},
-				},
-				{
-					Name:        "containerPorts",
-					Type:        "array",
-					Required:    false,
-					Description: "Port mappings (for container type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Port mappings for container type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
-							"pattern":     "^\\d+(:\\d+)?$",
 						},
 					},
 				},
@@ -214,7 +180,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Update an existing MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: false, Description: "MCP server type (localCommand or container)"},
+				{Name: "type", Type: "string", Required: false, Description: "MCP server type (localCommand)"},
 				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
 				{
 					Name:        "command",
@@ -231,7 +197,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"minItems": 1,
 					},
 				},
-				{Name: "image", Type: "string", Required: false, Description: "Container image (for container type)"},
 				{
 					Name:        "env",
 					Type:        "object",
@@ -243,21 +208,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 						"additionalProperties": map[string]interface{}{
 							"type":        "string",
 							"description": "Environment variable value",
-						},
-					},
-				},
-				{
-					Name:        "containerPorts",
-					Type:        "array",
-					Required:    false,
-					Description: "Port mappings (for container type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Port mappings for container type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Port mapping in format 'hostPort:containerPort' or just 'port'",
-							"pattern":     "^\\d+(:\\d+)?$",
 						},
 					},
 				},
@@ -347,13 +297,11 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 
 	// Build internal api.MCPServer from structured args
 	def := api.MCPServer{
-		Name:           req.Name,
-		Type:           api.MCPServerType(req.Type),
-		AutoStart:      req.AutoStart,
-		Image:          req.Image,
-		Command:        req.Command,
-		Env:            req.Env,
-		ContainerPorts: req.ContainerPorts,
+		Name:      req.Name,
+		Type:      api.MCPServerType(req.Type),
+		AutoStart: req.AutoStart,
+		Command:   req.Command,
+		Env:       req.Env,
 	}
 
 	// Validate without persisting
@@ -467,18 +415,12 @@ func simpleOK(msg string) (*api.CallToolResult, error) {
 // convertRequestToMCPServer converts a typed request to api.MCPServer
 func convertRequestToMCPServer(req api.MCPServerUpdateRequest) (api.MCPServer, error) {
 	def := api.MCPServer{
-		Name:             req.Name,
-		Type:             api.MCPServerType(req.Type),
-		AutoStart:        req.AutoStart,
-		ToolPrefix:       req.ToolPrefix,
-		Image:            req.Image,
-		Command:          req.Command,
-		Env:              req.Env,
-		ContainerPorts:   req.ContainerPorts,
-		ContainerEnv:     req.ContainerEnv,
-		ContainerVolumes: req.ContainerVolumes,
-		Entrypoint:       req.Entrypoint,
-		ContainerUser:    req.ContainerUser,
+		Name:       req.Name,
+		Type:       api.MCPServerType(req.Type),
+		AutoStart:  req.AutoStart,
+		ToolPrefix: req.ToolPrefix,
+		Command:    req.Command,
+		Env:        req.Env,
 	}
 
 	return def, nil
@@ -487,18 +429,12 @@ func convertRequestToMCPServer(req api.MCPServerUpdateRequest) (api.MCPServer, e
 // convertCreateRequestToMCPServer converts a typed request to api.MCPServer
 func convertCreateRequestToMCPServer(req api.MCPServerCreateRequest) (api.MCPServer, error) {
 	def := api.MCPServer{
-		Name:             req.Name,
-		Type:             api.MCPServerType(req.Type),
-		AutoStart:        req.AutoStart,
-		ToolPrefix:       req.ToolPrefix,
-		Image:            req.Image,
-		Command:          req.Command,
-		Env:              req.Env,
-		ContainerPorts:   req.ContainerPorts,
-		ContainerEnv:     req.ContainerEnv,
-		ContainerVolumes: req.ContainerVolumes,
-		Entrypoint:       req.Entrypoint,
-		ContainerUser:    req.ContainerUser,
+		Name:       req.Name,
+		Type:       api.MCPServerType(req.Type),
+		AutoStart:  req.AutoStart,
+		ToolPrefix: req.ToolPrefix,
+		Command:    req.Command,
+		Env:        req.Env,
 	}
 
 	return def, nil

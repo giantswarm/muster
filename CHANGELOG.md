@@ -205,23 +205,13 @@ All notable changes to this project will be documented in this file.
 ## [Previous]
 
 ### Added
-- Support for containerized MCP servers (#41)
-  - New `container` type for MCP server configuration
-  - Docker-based execution with automatic container lifecycle management
-  - Container-specific configuration fields: image, ports, volumes, environment
-  - Automatic port detection from container logs
-  - Health check support for containers
-  - Example Dockerfiles for kubernetes, prometheus, and grafana MCP servers
-  - GitHub Actions workflow for building and publishing container images
+- Enhanced MCP server configuration and management capabilities
 
 ### Changed
-- MCP server configuration now supports both `localCommand` and `container` types
-- Updated documentation with containerized MCP server guide
+- MCP server configuration now only supports `localCommand` type for simplicity and reliability
 
 ### Technical Details
-- Added `containerizer` package for container runtime abstraction
-- Implemented Docker runtime with support for pull, start, stop, logs operations
-- Extended MCP server startup logic to handle containerized servers
-- Added container ID tracking in managed server info 
+- Streamlined MCP server architecture by removing container support
+- Simplified MCP server lifecycle management 
 
 ## [0.6.0] - 2025-01-15 
