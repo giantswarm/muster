@@ -63,7 +63,6 @@
 //
 // ## MCP Server Management
 //   - MCP server definition management (create, update, delete, validate)
-//   - Support for local command and container-based MCP servers
 //   - MCP server lifecycle management and health monitoring
 //   - Tool aggregation, namespace management, and conflict resolution
 //   - Dynamic MCP server registration and tool discovery

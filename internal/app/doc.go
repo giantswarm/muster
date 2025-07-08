@@ -96,19 +96,13 @@
 //
 // ## Execution Modes (modes.go)
 //
-// ### CLI Mode (Non-Interactive)
-// Activated with `NoTUI=true`:
-//   - **Purpose**: Automation, scripting, headless environments, containers
+// ### Server Mode
+// Activated by default:
+//   - **Purpose**: Separation of concerns between client integration and actual application logic
 //   - **Logging**: Text-based output to stdout/stderr
 //   - **Lifecycle**: Start services → Wait for signals → Graceful shutdown
 //   - **Signals**: SIGINT (Ctrl+C), SIGTERM handled for graceful shutdown
-//   - **Use Cases**: systemd services, Docker containers, CI/CD pipelines
-//
-// ### TUI Mode (Interactive) - Currently Disabled
-// Activated with `NoTUI=false`:
-//   - **Status**: Implementation temporarily removed from codebase
-//   - **Behavior**: Currently logs notification and returns immediately
-//   - **Planned Features**: Real-time monitoring, interactive controls, live logs
+//   - **Use Cases**: systemd services, run in a Kubernetes cluster
 //
 // # Configuration Persistence Strategy
 //

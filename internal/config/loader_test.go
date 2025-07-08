@@ -38,7 +38,6 @@ func TestLoadConfig_DefaultOnly(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Compare the loaded config with the default config
-	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
 	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
 }
 
@@ -60,9 +59,6 @@ func TestLoadConfig_WithUserConfig(t *testing.T) {
 
 	// Create a user config file with custom settings
 	userConfig := MusterConfig{
-		GlobalSettings: GlobalSettings{
-			DefaultContainerRuntime: "podman",
-		},
 		Aggregator: AggregatorConfig{
 			Port: 9090,
 			Host: "0.0.0.0",
@@ -74,7 +70,6 @@ func TestLoadConfig_WithUserConfig(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that the custom settings were loaded
-	assert.Equal(t, "podman", loadedConfig.GlobalSettings.DefaultContainerRuntime)
 	assert.Equal(t, 9090, loadedConfig.Aggregator.Port)
 	assert.Equal(t, "0.0.0.0", loadedConfig.Aggregator.Host)
 }
@@ -84,9 +79,6 @@ func TestLoadConfigFromPath(t *testing.T) {
 
 	// Create a custom config file
 	customConfig := MusterConfig{
-		GlobalSettings: GlobalSettings{
-			DefaultContainerRuntime: "cri-o",
-		},
 		Aggregator: AggregatorConfig{
 			Port: 8888,
 			Host: "custom-host",
@@ -99,7 +91,6 @@ func TestLoadConfigFromPath(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check that the custom settings were loaded
-	assert.Equal(t, "cri-o", loadedConfig.GlobalSettings.DefaultContainerRuntime)
 	assert.Equal(t, 8888, loadedConfig.Aggregator.Port)
 	assert.Equal(t, "custom-host", loadedConfig.Aggregator.Host)
 }
@@ -114,7 +105,6 @@ func TestLoadConfigFromPath_NonExistentPath(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should match default config
-	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
 	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
 }
 
@@ -127,7 +117,6 @@ func TestLoadConfigFromPath_NoConfigFile(t *testing.T) {
 
 	// Should return default config
 	expectedConfig := GetDefaultConfigWithRoles()
-	assert.True(t, reflect.DeepEqual(expectedConfig.GlobalSettings, loadedConfig.GlobalSettings), "GlobalSettings should match default")
 	assert.True(t, reflect.DeepEqual(expectedConfig.Aggregator, loadedConfig.Aggregator), "Aggregator should match default")
 }
 

@@ -81,25 +81,6 @@ type ConfigAPI interface {
 	//	fmt.Printf("Aggregator endpoint: %s:%d\n", aggConfig.Host, aggConfig.Port)
 	GetAggregatorConfig(ctx context.Context) (*config.AggregatorConfig, error)
 
-	// GetGlobalSettings returns the global system settings section.
-	// These settings affect the behavior of the entire muster system.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//
-	// Returns:
-	//   - *config.GlobalSettings: The global settings configuration
-	//   - error: Error if configuration cannot be retrieved
-	//
-	// Example:
-	//
-	//	globals, err := configAPI.GetGlobalSettings(ctx)
-	//	if err != nil {
-	//	    return err
-	//	}
-	//	fmt.Printf("Log level: %s\n", globals.LogLevel)
-	GetGlobalSettings(ctx context.Context) (*config.GlobalSettings, error)
-
 	// Configuration update methods
 
 	// UpdateAggregatorConfig updates the aggregator configuration section.
@@ -124,28 +105,6 @@ type ConfigAPI interface {
 	//	// Don't forget to save!
 	//	err = configAPI.SaveConfig(ctx)
 	UpdateAggregatorConfig(ctx context.Context, aggregator config.AggregatorConfig) error
-
-	// UpdateGlobalSettings updates the global system settings.
-	// Changes take effect immediately but are not persisted until SaveConfig is called.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//   - settings: The new global settings to apply
-	//
-	// Returns:
-	//   - error: Error if the update fails or settings are invalid
-	//
-	// Note: Changes are not persisted to disk until SaveConfig is called.
-	//
-	// Example:
-	//
-	//	settings.LogLevel = "debug"
-	//	err := configAPI.UpdateGlobalSettings(ctx, settings)
-	//	if err != nil {
-	//	    return fmt.Errorf("failed to update global settings: %w", err)
-	//	}
-	//	err = configAPI.SaveConfig(ctx) // Persist changes
-	UpdateGlobalSettings(ctx context.Context, settings config.GlobalSettings) error
 
 	// Configuration persistence methods
 
@@ -273,17 +232,6 @@ type ConfigHandler interface {
 	//   - error: Error if configuration cannot be retrieved
 	GetAggregatorConfig(ctx context.Context) (*config.AggregatorConfig, error)
 
-	// GetGlobalSettings returns the global system settings.
-	// These settings control system-wide behavior like logging, timeouts, and defaults.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//
-	// Returns:
-	//   - *config.GlobalSettings: The global settings
-	//   - error: Error if configuration cannot be retrieved
-	GetGlobalSettings(ctx context.Context) (*config.GlobalSettings, error)
-
 	// Configuration update methods
 
 	// UpdateAggregatorConfig updates the aggregator configuration section.
@@ -298,19 +246,6 @@ type ConfigHandler interface {
 	//
 	// Note: Changes are applied immediately but not persisted until SaveConfig is called.
 	UpdateAggregatorConfig(ctx context.Context, aggregator config.AggregatorConfig) error
-
-	// UpdateGlobalSettings updates the global system settings.
-	// Settings are validated for consistency and correctness before being applied.
-	//
-	// Args:
-	//   - ctx: Context for the operation
-	//   - settings: The new global settings to apply
-	//
-	// Returns:
-	//   - error: Error if the update fails, validation fails, or settings are invalid
-	//
-	// Note: Changes are applied immediately but not persisted until SaveConfig is called.
-	UpdateGlobalSettings(ctx context.Context, settings config.GlobalSettings) error
 
 	// Configuration persistence methods
 
@@ -372,15 +307,6 @@ func (c *configAPI) GetAggregatorConfig(ctx context.Context) (*config.Aggregator
 	return handler.GetAggregatorConfig(ctx)
 }
 
-// GetGlobalSettings returns the global settings through the registered ConfigHandler.
-func (c *configAPI) GetGlobalSettings(ctx context.Context) (*config.GlobalSettings, error) {
-	handler := GetConfigHandler()
-	if handler == nil {
-		return nil, fmt.Errorf("config handler not registered")
-	}
-	return handler.GetGlobalSettings(ctx)
-}
-
 // UpdateAggregatorConfig updates the aggregator configuration through the registered ConfigHandler.
 func (c *configAPI) UpdateAggregatorConfig(ctx context.Context, aggregator config.AggregatorConfig) error {
 	handler := GetConfigHandler()
@@ -388,15 +314,6 @@ func (c *configAPI) UpdateAggregatorConfig(ctx context.Context, aggregator confi
 		return fmt.Errorf("config handler not registered")
 	}
 	return handler.UpdateAggregatorConfig(ctx, aggregator)
-}
-
-// UpdateGlobalSettings updates the global settings through the registered ConfigHandler.
-func (c *configAPI) UpdateGlobalSettings(ctx context.Context, settings config.GlobalSettings) error {
-	handler := GetConfigHandler()
-	if handler == nil {
-		return fmt.Errorf("config handler not registered")
-	}
-	return handler.UpdateGlobalSettings(ctx, settings)
 }
 
 // SaveConfig persists the configuration through the registered ConfigHandler.

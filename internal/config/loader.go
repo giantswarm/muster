@@ -292,11 +292,6 @@ func loadConfigFromFile(filePath string) (MusterConfig, error) {
 func mergeConfigs(base, overlay MusterConfig) MusterConfig {
 	mergedConfig := base
 
-	// Merge GlobalSettings (overlay overrides base)
-	if overlay.GlobalSettings.DefaultContainerRuntime != "" {
-		mergedConfig.GlobalSettings.DefaultContainerRuntime = overlay.GlobalSettings.DefaultContainerRuntime
-	}
-
 	// Merge Aggregator settings
 	if overlay.Aggregator.Port != 0 {
 		mergedConfig.Aggregator.Port = overlay.Aggregator.Port

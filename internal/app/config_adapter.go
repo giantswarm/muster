@@ -63,17 +63,6 @@ func (a *ConfigAdapter) GetAggregatorConfig(ctx context.Context) (*config.Aggreg
 	return &a.config.Aggregator, nil
 }
 
-// GetGlobalSettings returns the global settings section of the configuration.
-func (a *ConfigAdapter) GetGlobalSettings(ctx context.Context) (*config.GlobalSettings, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.config == nil {
-		return nil, fmt.Errorf("configuration not loaded")
-	}
-	return &a.config.GlobalSettings, nil
-}
-
 // UpdateAggregatorConfig updates the aggregator configuration section.
 // Changes are immediately saved to disk if a valid config path is available.
 func (a *ConfigAdapter) UpdateAggregatorConfig(ctx context.Context, aggregator config.AggregatorConfig) error {
@@ -85,20 +74,6 @@ func (a *ConfigAdapter) UpdateAggregatorConfig(ctx context.Context, aggregator c
 	}
 
 	a.config.Aggregator = aggregator
-	return a.saveConfig()
-}
-
-// UpdateGlobalSettings updates the global settings section of the configuration.
-// Changes are immediately saved to disk if a valid config path is available.
-func (a *ConfigAdapter) UpdateGlobalSettings(ctx context.Context, settings config.GlobalSettings) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.config == nil {
-		return fmt.Errorf("configuration not loaded")
-	}
-
-	a.config.GlobalSettings = settings
 	return a.saveConfig()
 }
 
@@ -137,10 +112,7 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 			Name:        "config_get_aggregator",
 			Description: "Get aggregator configuration",
 		},
-		{
-			Name:        "config_get_global_settings",
-			Description: "Get global settings",
-		},
+
 		{
 			Name:        "config_update_aggregator",
 			Description: "Update aggregator configuration",
@@ -150,18 +122,6 @@ func (a *ConfigAdapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    true,
 					Description: "Aggregator configuration",
-				},
-			},
-		},
-		{
-			Name:        "config_update_global_settings",
-			Description: "Update global settings",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "settings",
-					Type:        "object",
-					Required:    true,
-					Description: "Global settings",
 				},
 			},
 		},
@@ -184,12 +144,8 @@ func (a *ConfigAdapter) ExecuteTool(ctx context.Context, toolName string, args m
 		return a.handleConfigGet(ctx)
 	case "config_get_aggregator":
 		return a.handleConfigGetAggregator(ctx)
-	case "config_get_global_settings":
-		return a.handleConfigGetGlobalSettings(ctx)
 	case "config_update_aggregator":
 		return a.handleConfigUpdateAggregator(ctx, args)
-	case "config_update_global_settings":
-		return a.handleConfigUpdateGlobalSettings(ctx, args)
 	case "config_save":
 		return a.handleConfigSave(ctx)
 	case "config_reload":
@@ -270,23 +226,6 @@ func (a *ConfigAdapter) handleConfigGetAggregator(ctx context.Context) (*api.Cal
 	}, nil
 }
 
-// handleConfigGetGlobalSettings handles the 'config_get_global_settings' tool call.
-// Returns only the global settings configuration section as a tool result.
-func (a *ConfigAdapter) handleConfigGetGlobalSettings(ctx context.Context) (*api.CallToolResult, error) {
-	settings, err := a.GetGlobalSettings(ctx)
-	if err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to get global settings: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{settings},
-		IsError: false,
-	}, nil
-}
-
 // handleConfigUpdateAggregator handles the 'config_update_aggregator' tool call.
 // Updates the aggregator configuration section and persists changes to disk.
 func (a *ConfigAdapter) handleConfigUpdateAggregator(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
@@ -316,39 +255,6 @@ func (a *ConfigAdapter) handleConfigUpdateAggregator(ctx context.Context, args m
 
 	return &api.CallToolResult{
 		Content: []interface{}{"Successfully updated aggregator configuration"},
-		IsError: false,
-	}, nil
-}
-
-// handleConfigUpdateGlobalSettings handles the 'config_update_global_settings' tool call.
-// Updates the global settings configuration section and persists changes to disk.
-func (a *ConfigAdapter) handleConfigUpdateGlobalSettings(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	settingsData, ok := args["settings"]
-	if !ok {
-		return &api.CallToolResult{
-			Content: []interface{}{"settings is required"},
-			IsError: true,
-		}, nil
-	}
-
-	// Convert to config.GlobalSettings
-	var settings config.GlobalSettings
-	if err := convertToStruct(settingsData, &settings); err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to parse global settings: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	if err := a.UpdateGlobalSettings(ctx, settings); err != nil {
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Failed to update global settings: %v", err)},
-			IsError: true,
-		}, nil
-	}
-
-	return &api.CallToolResult{
-		Content: []interface{}{"Successfully updated global settings"},
 		IsError: false,
 	}, nil
 }

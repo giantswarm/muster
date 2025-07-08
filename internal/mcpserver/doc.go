@@ -1,9 +1,8 @@
 // Package mcpserver provides Model Context Protocol (MCP) server management for muster.
 //
 // This package handles the lifecycle of MCP servers, which provide AI assistants
-// with structured access to Kubernetes clusters and monitoring services. It supports
-// both local process execution and containerized deployments through a unified
-// management interface.
+// with structured access to Kubernetes clusters and monitoring services through
+// local process execution.
 //
 // # Overview
 //
@@ -17,7 +16,7 @@
 //
 // # Server Types
 //
-// The package supports two deployment models:
+// The package supports local command deployment:
 //
 // ## Local Command
 //   - Runs MCP servers as local processes
@@ -25,13 +24,6 @@
 //   - Environment variable configuration
 //   - Process lifecycle management
 //   - Standard input/output handling
-//
-// ## Container
-//   - Runs MCP servers in Docker containers
-//   - Isolated execution environment
-//   - Volume and port mapping support
-//   - Automatic image management
-//   - Container health monitoring
 //
 // # Core Components
 //
@@ -56,13 +48,6 @@
 //   - Handle graceful shutdown
 //   - Environment variable injection
 //
-// ## Container Management
-//   - Pull required images
-//   - Create and start containers
-//   - Map ports and volumes
-//   - Clean up on termination
-//   - Container health monitoring
-//
 // ## Proxy Server
 //   - HTTP proxy for MCP protocol
 //   - SSE (Server-Sent Events) support
@@ -74,8 +59,8 @@
 //
 // MCP servers are configured through YAML definitions with:
 //   - **Name**: Unique identifier for the server
-//   - **Type**: "localCommand" or "container"
-//   - **Command/Image**: Execution details based on type
+//   - **Type**: "localCommand"
+//   - **Command**: Execution command and arguments
 //   - **Environment**: Variables to set for the server
 //   - **Dependencies**: Required services or conditions
 //   - **Metadata**: Additional descriptive information
@@ -89,16 +74,6 @@
 //	  KUBECONFIG: "/home/user/.kube/config"
 //	  NAMESPACE_FILTER: "default,kube-system"
 //
-// ## Container Configuration
-//
-//	name: "prometheus"
-//	type: "container"
-//	image: "ghcr.io/org/mcp-prometheus:latest"
-//	ports: ["8002:8000"]
-//	env:
-//	  PROMETHEUS_URL: "http://localhost:9090"
-//	volumes: ["/host/data:/container/data"]
-//
 // # Definition Storage
 //
 // MCP server definitions are stored as YAML files in:
@@ -110,7 +85,7 @@
 // # Health Monitoring
 //
 // Server health is determined by:
-//   - Process/container running status
+//   - Process running status
 //   - Proxy server availability
 //   - MCP protocol responsiveness
 //   - Tool availability checks
@@ -144,21 +119,6 @@
 //	}
 //
 //	if err := manager.CreateMCPServer(localServer); err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Container-based MCP server
-//	containerServer := api.MCPServer{
-//	    Name:    "prometheus",
-//	    Type:    api.MCPServerTypeContainer,
-//	    Image:   "ghcr.io/org/mcp-prometheus:latest",
-//	    Ports:   []string{"8002:8000"},
-//	    Env: map[string]string{
-//	        "PROMETHEUS_URL": "http://localhost:9090",
-//	    },
-//	}
-//
-//	if err := manager.CreateMCPServer(containerServer); err != nil {
 //	    log.Fatal(err)
 //	}
 //
@@ -220,7 +180,6 @@
 //   - **Name validation**: Ensures unique and valid identifiers
 //   - **Type validation**: Verifies server type is supported
 //   - **Command validation**: For local command servers, ensures command is specified
-//   - **Image validation**: For container servers, ensures image is specified
 //   - **Environment validation**: Validates environment variable format
 //   - **Cross-type validation**: Prevents invalid combinations of fields
 //
@@ -229,7 +188,6 @@
 // The package handles various error scenarios:
 //   - Binary not found for local command servers
 //   - Port already in use
-//   - Container runtime issues
 //   - Network connectivity problems
 //   - Protocol errors
 //   - Definition validation failures

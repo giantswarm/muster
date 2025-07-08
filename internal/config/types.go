@@ -2,14 +2,7 @@ package config
 
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
-	GlobalSettings GlobalSettings   `yaml:"globalSettings"`
-	Aggregator     AggregatorConfig `yaml:"aggregator"`
-}
-
-// GlobalSettings might include things like default log levels, container runtime preferences, etc.
-type GlobalSettings struct {
-	DefaultContainerRuntime string `yaml:"defaultContainerRuntime,omitempty"` // e.g., "docker", "podman"
-	// Add other global settings here
+	Aggregator AggregatorConfig `yaml:"aggregator"`
 }
 
 // MCPServerType defines the type of MCP server.
@@ -17,7 +10,6 @@ type MCPServerType string
 
 const (
 	MCPServerTypeLocalCommand MCPServerType = "localCommand"
-	MCPServerTypeContainer    MCPServerType = "container"
 )
 
 const (
