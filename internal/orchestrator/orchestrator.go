@@ -6,6 +6,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/config"
 	"muster/internal/services"
+	"muster/internal/services/mcpserver"
 	"muster/internal/template"
 	"muster/pkg/logging"
 	"sync"
@@ -192,24 +193,27 @@ func (o *Orchestrator) processServiceClassRequirements(ctx context.Context) erro
 	}
 
 	// Get MCPServerManager through API to access MCP server definitions
+	// Note: Using the new unified client approach through the API
 	mcpServerMgr := api.GetMCPServerManager()
 	if mcpServerMgr == nil {
-		logging.Debug("Orchestrator", "MCPServerManager not available through API, skipping ServiceClass processing")
+		logging.Debug("Orchestrator", "MCPServerManager not available through API, skipping MCPServer service creation")
 		return nil
 	}
 
-	// Get all MCP server definitions from the manager
+	// Get all MCP server definitions from the unified client
 	mcpServers := mcpServerMgr.ListMCPServers()
+	logging.Info("Orchestrator", "Found %d MCPServer definitions for auto-start processing", len(mcpServers))
 
-	// Process each MCP Server to identify required ServiceClasses
+	// Process each MCP Server to create services with auto-start enabled
 	for _, mcpServerInfo := range mcpServers {
 		// Only process auto-start servers
 		if !mcpServerInfo.AutoStart {
+			logging.Debug("Orchestrator", "Skipping MCPServer %s: AutoStart=false", mcpServerInfo.Name)
 			continue
 		}
 
-		if err := o.processMCPServerServiceClasses(ctx, mcpServerInfo, serviceClassMgr); err != nil {
-			logging.Error("Orchestrator", err, "Failed to process ServiceClasses for MCP Server: %s", mcpServerInfo.Name)
+		if err := o.createMCPServerService(ctx, mcpServerInfo); err != nil {
+			logging.Error("Orchestrator", err, "Failed to create MCPServer service: %s", mcpServerInfo.Name)
 			// Continue processing other servers
 		}
 	}
@@ -217,64 +221,46 @@ func (o *Orchestrator) processServiceClassRequirements(ctx context.Context) erro
 	return nil
 }
 
-// processMCPServerServiceClasses processes ServiceClass requirements for a single MCP Server
-func (o *Orchestrator) processMCPServerServiceClasses(ctx context.Context, mcpServerInfo api.MCPServerInfo, serviceClassMgr api.ServiceClassManagerHandler) error {
-	// Extract ServiceClass requirements from MCP server configuration
-	// This logic will depend on how ServiceClasses are specified in the config
-	serviceClassNames := o.extractServiceClassNames(mcpServerInfo)
+// createMCPServerService creates an MCPServer service from MCPServerInfo and registers it
+func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo api.MCPServerInfo) error {
+	logging.Info("Orchestrator", "Creating MCPServer service: %s", mcpServerInfo.Name)
 
-	for _, serviceClassName := range serviceClassNames {
-		// Check if we already have an instance for this service class + server combination
-		name := fmt.Sprintf("%s-%s", mcpServerInfo.Name, serviceClassName)
-
-		o.mu.RLock()
-		_, exists := o.instances[name]
-		o.mu.RUnlock()
-
-		if exists {
-			logging.Debug("Orchestrator", "ServiceClass instance already exists: %s", name)
-			continue
-		}
-
-		// Verify ServiceClass is available
-		if !serviceClassMgr.IsServiceClassAvailable(serviceClassName) {
-			logging.Warn("Orchestrator", "ServiceClass %s not available for MCP Server %s", serviceClassName, mcpServerInfo.Name)
-			continue
-		}
-
-		// Create service instance
-		req := CreateServiceRequest{
-			ServiceClassName: serviceClassName,
-			Name:             name,
-			Args:             o.buildServiceArgs(mcpServerInfo, serviceClassName),
-		}
-
-		if _, err := o.CreateServiceClassInstance(ctx, req); err != nil {
-			logging.Error("Orchestrator", err, "Failed to create ServiceClass instance %s for MCP Server %s", serviceClassName, mcpServerInfo.Name)
-			// Continue with other service classes
-		}
+	// Convert MCPServerInfo to api.MCPServer format expected by the service
+	apiDef := &api.MCPServer{
+		Name:        mcpServerInfo.Name,
+		Type:        api.MCPServerType(mcpServerInfo.Type),
+		AutoStart:   mcpServerInfo.AutoStart,
+		Command:     mcpServerInfo.Command,
+		Env:         mcpServerInfo.Env,
+		Description: mcpServerInfo.Description,
 	}
 
+	// Create MCPServer service using the service package
+	mcpService, err := mcpserver.NewService(apiDef, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create MCPServer service: %w", err)
+	}
+
+	// Set up state change notifications for the service
+	mcpService.SetStateChangeCallback(o.createStateChangeCallback())
+
+	// Register the service with the registry so it's managed by the orchestrator
+	if err := o.registry.Register(mcpService); err != nil {
+		return fmt.Errorf("failed to register MCPServer service: %w", err)
+	}
+
+	// Start the service immediately since the orchestrator's Start() method
+	// has already started static services and won't start newly registered ones
+	go func() {
+		if err := mcpService.Start(ctx); err != nil {
+			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
+		} else {
+			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.Name)
+		}
+	}()
+
+	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
 	return nil
-}
-
-// extractServiceClassNames extracts ServiceClass names from MCP Server configuration
-// This is a placeholder - the actual implementation will depend on how ServiceClasses
-// are specified in the MCP server configuration
-func (o *Orchestrator) extractServiceClassNames(mcpServerInfo api.MCPServerInfo) []string {
-	// For now, return empty slice - this will be implemented when we know
-	// how ServiceClasses are specified in the configuration
-	return []string{}
-}
-
-// buildServiceArgs builds args for ServiceClass instantiation based on MCP Server config
-func (o *Orchestrator) buildServiceArgs(mcpServerInfo api.MCPServerInfo, serviceClassName string) map[string]interface{} {
-	return map[string]interface{}{
-		"mcpServerName": mcpServerInfo.Name,
-		"mcpServerType": mcpServerInfo.Type,
-		"serviceClass":  serviceClassName,
-		// Add other relevant args from MCP server config
-	}
 }
 
 // loadPersistedServiceInstances loads and starts persisted service instances from YAML files
@@ -396,7 +382,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 	}
 
 	// Set up state change callback
-	instance.SetStateChangeCallback(o.createDynamicServiceStateChangeCallback(req.Name))
+	instance.SetStateChangeCallback(o.createDynamicServiceStateChangeCallback())
 
 	// Store the instance using service name as key
 	o.instances[req.Name] = instance
@@ -561,7 +547,7 @@ func (o *Orchestrator) GetServiceClassInstance(name string) (*ServiceInstanceInf
 		return nil, fmt.Errorf("ServiceClass instance %s not found", name)
 	}
 
-	return o.serviceInstanceToInfo(name, instance), nil
+	return o.serviceInstanceToInfo(instance), nil
 }
 
 // ListServiceClassInstances returns information about all ServiceClass-based service instances
@@ -570,8 +556,8 @@ func (o *Orchestrator) ListServiceClassInstances() []ServiceInstanceInfo {
 	defer o.mu.RUnlock()
 
 	result := make([]ServiceInstanceInfo, 0, len(o.instances))
-	for serviceName, instance := range o.instances {
-		result = append(result, *o.serviceInstanceToInfo(serviceName, instance))
+	for _, instance := range o.instances {
+		result = append(result, *o.serviceInstanceToInfo(instance))
 	}
 
 	return result
@@ -602,7 +588,7 @@ func (o *Orchestrator) validateCreateRequest(req CreateServiceRequest) error {
 }
 
 // serviceInstanceToInfo converts a GenericServiceInstance to ServiceInstanceInfo
-func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *services.GenericServiceInstance) *ServiceInstanceInfo {
+func (o *Orchestrator) serviceInstanceToInfo(instance *services.GenericServiceInstance) *ServiceInstanceInfo {
 	return &ServiceInstanceInfo{
 		Name:             instance.GetName(), // Use the instance's actual name
 		ServiceClassName: instance.GetServiceClassName(),
@@ -619,7 +605,7 @@ func (o *Orchestrator) serviceInstanceToInfo(serviceName string, instance *servi
 }
 
 // createDynamicServiceStateChangeCallback creates a state change callback for ServiceClass-based services
-func (o *Orchestrator) createDynamicServiceStateChangeCallback(name string) services.StateChangeCallback {
+func (o *Orchestrator) createDynamicServiceStateChangeCallback() services.StateChangeCallback {
 	return func(name string, oldState, newState services.ServiceState, health services.HealthStatus, err error) {
 		// Publish to both static service subscribers and dynamic service subscribers
 		o.publishStateChangeEvent(name, oldState, newState, health, err)

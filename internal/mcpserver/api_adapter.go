@@ -4,18 +4,41 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"muster/internal/api"
+	"muster/internal/client"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
-// Adapter provides MCP server management functionality
+// Adapter provides MCP server management functionality using the unified client
 type Adapter struct {
-	manager *MCPServerManager
+	client    client.MusterClient
+	namespace string
 }
 
-// NewAdapter creates a new MCP server API adapter
-func NewAdapter(manager *MCPServerManager) *Adapter {
+// NewAdapter creates a new MCP server API adapter with unified client support
+func NewAdapter() (*Adapter, error) {
+	musterClient, err := client.NewMusterClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client: %w", err)
+	}
+
 	return &Adapter{
-		manager: manager,
+		client:    musterClient,
+		namespace: "default", // TODO: Make configurable
+	}, nil
+}
+
+// NewAdapterWithClient creates a new adapter with a specific client (for testing)
+func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *Adapter {
+	if namespace == "" {
+		namespace = "default"
+	}
+	return &Adapter{
+		client:    musterClient,
+		namespace: namespace,
 	}
 }
 
@@ -24,25 +47,28 @@ func (a *Adapter) Register() {
 	api.RegisterMCPServerManager(a)
 }
 
+// Close performs cleanup for the adapter
+func (a *Adapter) Close() error {
+	if a.client != nil {
+		return a.client.Close()
+	}
+	return nil
+}
+
 // ListMCPServers returns all MCP server definitions
 func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
-	if a.manager == nil {
+	ctx := context.Background()
+
+	servers, err := a.client.ListMCPServers(ctx, a.namespace)
+	if err != nil {
+		// Log error and return empty list
+		fmt.Printf("Warning: Failed to list MCPServers: %v\n", err)
 		return []api.MCPServerInfo{}
 	}
 
-	definitions := a.manager.ListDefinitions()
-	result := make([]api.MCPServerInfo, len(definitions))
-
-	for i, def := range definitions {
-		result[i] = api.MCPServerInfo{
-			Name:        def.Name,
-			Type:        string(def.Type),
-			AutoStart:   def.AutoStart,
-			Description: def.Description,
-			Command:     def.Command,
-			Env:         def.Env,
-			Error:       def.Error,
-		}
+	result := make([]api.MCPServerInfo, len(servers))
+	for i, server := range servers {
+		result[i] = convertCRDToInfo(&server)
 	}
 
 	return result
@@ -50,30 +76,54 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 
 // GetMCPServer returns information about a specific MCP server
 func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
-	if a.manager == nil {
-		return nil, fmt.Errorf("MCP server manager not available")
+	ctx := context.Background()
+
+	server, err := a.client.GetMCPServer(ctx, name, a.namespace)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, api.NewMCPServerNotFoundError(name)
+		}
+		return nil, fmt.Errorf("failed to get MCPServer %s: %w", name, err)
 	}
 
-	def, exists := a.manager.GetDefinition(name)
-	if !exists {
-		return nil, api.NewMCPServerNotFoundError(name)
-	}
-
-	return &api.MCPServerInfo{
-		Name:        def.Name,
-		Type:        string(def.Type),
-		AutoStart:   def.AutoStart,
-		Description: def.Description,
-		Command:     def.Command,
-		Env:         def.Env,
-		Error:       def.Error,
-	}, nil
+	info := convertCRDToInfo(server)
+	return &info, nil
 }
 
-// GetManager returns the underlying MCPServerManager (for internal use)
-// This should only be used by other internal packages that need direct access
-func (a *Adapter) GetManager() *MCPServerManager {
-	return a.manager
+// convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
+func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
+	return api.MCPServerInfo{
+		Name:        server.Spec.Name,
+		Type:        server.Spec.Type,
+		AutoStart:   server.Spec.AutoStart,
+		Description: server.Spec.Description,
+		Command:     server.Spec.Command,
+		Env:         server.Spec.Env,
+		Error:       server.Status.LastError,
+	}
+}
+
+// convertInfoToCRD converts MCPServerInfo to a MCPServer CRD
+func (a *Adapter) convertRequestToCRD(name, serverType string, autoStart bool, toolPrefix string, command []string, env map[string]string, description string) *musterv1alpha1.MCPServer {
+	return &musterv1alpha1.MCPServer{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "muster.giantswarm.io/v1alpha1",
+			Kind:       "MCPServer",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: a.namespace,
+		},
+		Spec: musterv1alpha1.MCPServerSpec{
+			Name:        name,
+			Type:        serverType,
+			AutoStart:   autoStart,
+			ToolPrefix:  toolPrefix,
+			Command:     command,
+			Env:         env,
+			Description: description,
+		},
+	}
 }
 
 // ToolProvider implementation
@@ -257,6 +307,7 @@ func (a *Adapter) handleMCPServerList() (*api.CallToolResult, error) {
 	result := map[string]interface{}{
 		"mcpServers": mcpServers,
 		"total":      len(mcpServers),
+		"mode":       getClientMode(a.client),
 	}
 
 	return &api.CallToolResult{
@@ -295,17 +346,11 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		}, nil
 	}
 
-	// Build internal api.MCPServer from structured args
-	def := api.MCPServer{
-		Name:      req.Name,
-		Type:      api.MCPServerType(req.Type),
-		AutoStart: req.AutoStart,
-		Command:   req.Command,
-		Env:       req.Env,
-	}
+	// Create MCPServer CRD for validation
+	server := a.convertRequestToCRD(req.Name, req.Type, req.AutoStart, "", req.Command, req.Env, req.Description)
 
-	// Validate without persisting
-	if err := a.manager.ValidateDefinition(&def); err != nil {
+	// Basic validation (more comprehensive validation would be done by the CRD schema)
+	if err := a.validateMCPServer(server); err != nil {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Validation failed: %v", err)},
 			IsError: true,
@@ -313,7 +358,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 	}
 
 	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf("Validation successful for mcpserver %s", def.Name)},
+		Content: []interface{}{fmt.Sprintf("Validation successful for mcpserver %s", req.Name)},
 		IsError: false,
 	}, nil
 }
@@ -327,28 +372,24 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Convert typed request to api.MCPServer
-	def, err := convertCreateRequestToMCPServer(req)
-	if err != nil {
-		return simpleError(err.Error())
-	}
+	// Create MCPServer CRD
+	server := a.convertRequestToCRD(req.Name, req.Type, req.AutoStart, req.ToolPrefix, req.Command, req.Env, "")
 
 	// Validate the definition
-	if err := a.manager.ValidateDefinition(&def); err != nil {
+	if err := a.validateMCPServer(server); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Check if it already exists
-	if _, exists := a.manager.GetDefinition(def.Name); exists {
-		return simpleError(fmt.Sprintf("MCP server '%s' already exists", def.Name))
-	}
-
-	// Create the new MCP server
-	if err := a.manager.CreateMCPServer(def); err != nil {
+	// Create the new MCP server using the unified client
+	ctx := context.Background()
+	if err := a.client.CreateMCPServer(ctx, server); err != nil {
+		if errors.IsAlreadyExists(err) {
+			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
+		}
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
 	}
 
-	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", def.Name))
+	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name))
 }
 
 func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallToolResult, error) {
@@ -360,24 +401,38 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Convert typed request to api.MCPServer
-	def, err := convertRequestToMCPServer(req)
+	// Get existing server first
+	ctx := context.Background()
+	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
 	if err != nil {
-		return simpleError(err.Error())
+		if errors.IsNotFound(err) {
+			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server"), nil
+		}
+		return simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
+	}
+
+	// Update fields from request
+	if req.Type != "" {
+		existing.Spec.Type = req.Type
+	}
+	existing.Spec.AutoStart = req.AutoStart
+	if req.ToolPrefix != "" {
+		existing.Spec.ToolPrefix = req.ToolPrefix
+	}
+	if req.Command != nil {
+		existing.Spec.Command = req.Command
+	}
+	if req.Env != nil {
+		existing.Spec.Env = req.Env
 	}
 
 	// Validate the definition
-	if err := a.manager.ValidateDefinition(&def); err != nil {
+	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
-	// Check if it exists
-	if _, exists := a.manager.GetDefinition(req.Name); !exists {
-		return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server"), nil
-	}
-
-	// Update the MCP server
-	if err := a.manager.UpdateMCPServer(req.Name, def); err != nil {
+	// Update the MCP server using the unified client
+	if err := a.client.UpdateMCPServer(ctx, existing); err != nil {
 		return api.HandleErrorWithPrefix(err, "Failed to update MCP server"), nil
 	}
 
@@ -390,17 +445,37 @@ func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallT
 		return simpleError("name argument is required")
 	}
 
-	// Check if it exists
-	if _, exists := a.manager.GetDefinition(name); !exists {
-		return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
-	}
-
-	// Delete the MCP server
-	if err := a.manager.DeleteMCPServer(name); err != nil {
+	// Delete the MCP server using the unified client
+	ctx := context.Background()
+	if err := a.client.DeleteMCPServer(ctx, name, a.namespace); err != nil {
+		if errors.IsNotFound(err) {
+			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
+		}
 		return api.HandleErrorWithPrefix(err, "Failed to delete MCP server"), nil
 	}
 
 	return simpleOK(fmt.Sprintf("MCP server '%s' deleted successfully", name))
+}
+
+// validateMCPServer performs basic validation on an MCP server
+func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
+	if server.Spec.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	if server.Spec.Type == "" {
+		return fmt.Errorf("type is required")
+	}
+
+	if server.Spec.Type != "localCommand" {
+		return fmt.Errorf("type must be 'localCommand'")
+	}
+
+	if server.Spec.Type == "localCommand" && len(server.Spec.Command) == 0 {
+		return fmt.Errorf("command is required for localCommand type")
+	}
+
+	return nil
 }
 
 // helper to create simple error CallToolResult
@@ -412,30 +487,10 @@ func simpleOK(msg string) (*api.CallToolResult, error) {
 	return &api.CallToolResult{Content: []interface{}{msg}, IsError: false}, nil
 }
 
-// convertRequestToMCPServer converts a typed request to api.MCPServer
-func convertRequestToMCPServer(req api.MCPServerUpdateRequest) (api.MCPServer, error) {
-	def := api.MCPServer{
-		Name:       req.Name,
-		Type:       api.MCPServerType(req.Type),
-		AutoStart:  req.AutoStart,
-		ToolPrefix: req.ToolPrefix,
-		Command:    req.Command,
-		Env:        req.Env,
+// getClientMode returns a string indicating whether we're in Kubernetes or filesystem mode
+func getClientMode(client client.MusterClient) string {
+	if client.IsKubernetesMode() {
+		return "kubernetes"
 	}
-
-	return def, nil
-}
-
-// convertCreateRequestToMCPServer converts a typed request to api.MCPServer
-func convertCreateRequestToMCPServer(req api.MCPServerCreateRequest) (api.MCPServer, error) {
-	def := api.MCPServer{
-		Name:       req.Name,
-		Type:       api.MCPServerType(req.Type),
-		AutoStart:  req.AutoStart,
-		ToolPrefix: req.ToolPrefix,
-		Command:    req.Command,
-		Env:        req.Env,
-	}
-
-	return def, nil
+	return "filesystem"
 }

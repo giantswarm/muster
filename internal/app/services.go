@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"muster/internal/aggregator"
 	"muster/internal/api"
+	"muster/internal/client"
 	"muster/internal/config"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
 	"muster/internal/serviceclass"
 	"muster/internal/services"
 	aggregatorService "muster/internal/services/aggregator"
-	"muster/internal/services/mcpserver"
 	"muster/internal/workflow"
 	"muster/pkg/logging"
 )
@@ -177,44 +177,25 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		logging.Warn("Services", "Failed to load Workflow definitions: %v", err)
 	}
 
-	// Initialize and register MCPServer manager (new unified configuration approach)
-	mcpServerManager, err := mcpserverPkg.NewMCPServerManager(storage)
+	// Initialize and register MCPServer adapter using the new unified client
+	// Pass the config path so the filesystem client uses the correct base directory
+	mcpServerAdapter, err := createMCPServerAdapter(cfg.ConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP server manager: %w", err)
+		return nil, fmt.Errorf("failed to create MCP server adapter: %w", err)
 	}
-
-	// Create and register MCPServer adapter
-	mcpServerAdapter := mcpserverPkg.NewAdapter(mcpServerManager)
 	mcpServerAdapter.Register()
 
-	// Load MCP server definitions
-	if cfg.ConfigPath != "" {
-		mcpServerManager.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := mcpServerManager.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - MCP servers are optional
-		logging.Warn("Services", "Failed to load MCP server definitions: %v", err)
-	}
+	// The new adapter uses the unified client instead of the manager
+	// MCPServer operations now work through CRDs (Kubernetes) or filesystem fallback
+	// Note: Definition loading is now handled by the unified client automatically
 
 	// Step 2: Create APIs that use the registered handlers
 	orchestratorAPI := api.NewOrchestratorAPI()
 	configAPI := api.NewConfigServiceAPI()
 
 	// Step 3: Create and register actual services
-	// Create MCP server services
-	mcpServerDefinitions := mcpServerManager.ListDefinitions()
-	for _, mcpDef := range mcpServerDefinitions {
-		if mcpDef.AutoStart {
-			mcpService, err := mcpserver.NewService(&mcpDef, mcpServerManager)
-			if err != nil {
-				logging.Warn("Services", "Failed to create MCP server service %s: %v", mcpDef.Name, err)
-				continue
-			}
-			if mcpService != nil {
-				registry.Register(mcpService)
-			}
-		}
-	}
+	// Note: Service creation (including MCPServer services) is handled by the orchestrator
+	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
 	// Create aggregator service - enable by default unless explicitly disabled
 	// This ensures the aggregator starts even with no MCP servers configured
@@ -283,3 +264,30 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		AggregatorPort:  cfg.MusterConfig.Aggregator.Port,
 	}, nil
 }
+
+// Note: MCPServer service creation moved back to orchestrator for proper dependency management
+
+// createMCPServerAdapter creates an MCPServer adapter with the correct config path for filesystem client
+func createMCPServerAdapter(configPath string) (*mcpserverPkg.Adapter, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return mcpserverPkg.NewAdapter()
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath: configPath,
+		Namespace:      "default",
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	// Create adapter with the configured client
+	return mcpserverPkg.NewAdapterWithClient(musterClient, "default"), nil
+}
+
+// Note: MCPServer service creation moved to orchestrator

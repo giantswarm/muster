@@ -804,7 +804,7 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 	musterConfigPath := filepath.Join(configPath, "muster")
 
 	// Create subdirectories under muster
-	dirs := []string{"mcpservers", "workflows", "serviceclasses", "services"}
+	dirs := []string{"workflows", "serviceclasses", "services"}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(filepath.Join(musterConfigPath, dir), 0755); err != nil {
 			return fmt.Errorf("failed to create %s directory: %w", dir, err)
@@ -849,7 +849,7 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 
 	// Generate configuration files if config is provided
 	if config != nil {
-		// Generate MCP server configs
+		// Generate MCP server CRDs for the new unified client
 		for _, mcpServer := range config.MCPServers {
 			// Check if this is a mock server (has tools in config)
 			if tools, hasMockTools := mcpServer.Config["tools"]; hasMockTools {
@@ -859,24 +859,40 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 					return fmt.Errorf("failed to get muster binary path: %w", err)
 				}
 
-				// Create the localCommand server definition for muster serve
+				// Create MCPServer CRD for the unified client (filesystem mode)
 				mockConfigFile := filepath.Join(configPath, "mocks", mcpServer.Name+".yaml")
-				serverDef := map[string]interface{}{
-					"name":      mcpServer.Name,
-					"type":      "localCommand",
-					"autoStart": true,
-					"command":   []string{musterPath, "test", "--mock-mcp-server", "--mock-config", mockConfigFile},
+
+				// Create MCPServer CRD structure
+				mcpServerCRD := map[string]interface{}{
+					"apiVersion": "muster.giantswarm.io/v1alpha1",
+					"kind":       "MCPServer",
+					"metadata": map[string]interface{}{
+						"name":      mcpServer.Name,
+						"namespace": "default",
+					},
+					"spec": map[string]interface{}{
+						"name":      mcpServer.Name,
+						"type":      "localCommand",
+						"autoStart": true,
+						"command":   []string{musterPath, "test", "--mock-mcp-server", "--mock-config", mockConfigFile},
+					},
 				}
 
 				if m.debug {
-					m.logger.Debug("🧪 ServerDef for %s: %+v\n", mcpServer.Name, serverDef)
+					m.logger.Debug("🧪 MCPServer CRD for %s: %+v\n", mcpServer.Name, mcpServerCRD)
 					m.logger.Debug("🧪 Tools config for %s: %+v\n", mcpServer.Name, mcpServer.Config)
 				}
 
-				// Save server definition to mcpservers directory (what muster serve loads)
-				filename := filepath.Join(musterConfigPath, "mcpservers", mcpServer.Name+".yaml")
-				if err := m.writeYAMLFile(filename, serverDef); err != nil {
-					return fmt.Errorf("failed to write mock MCP server config %s: %w", mcpServer.Name, err)
+				// Create directory structure for CRDs: mcpservers/default/
+				crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
+				if err := os.MkdirAll(crdDir, 0755); err != nil {
+					return fmt.Errorf("failed to create CRD directory %s: %w", crdDir, err)
+				}
+
+				// Save MCPServer CRD (what the unified client reads)
+				filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
+				if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+					return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
 				}
 
 				// Save mock tools config to mocks directory (what mock server reads)
@@ -885,13 +901,31 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 				}
 
 				if m.debug {
-					m.logger.Debug("🧪 Created mock server %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
+					m.logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
 				}
 			} else {
-				// For regular servers, use the Config field directly
-				filename := filepath.Join(musterConfigPath, "mcpservers", mcpServer.Name+".yaml")
-				if err := m.writeYAMLFile(filename, mcpServer.Config); err != nil {
-					return fmt.Errorf("failed to write MCP server config %s: %w", mcpServer.Name, err)
+				// For regular servers, convert Config to MCPServer CRD format
+				mcpServerCRD := map[string]interface{}{
+					"apiVersion": "muster.giantswarm.io/v1alpha1",
+					"kind":       "MCPServer",
+					"metadata": map[string]interface{}{
+						"name":      mcpServer.Name,
+						"namespace": "default",
+					},
+					"spec": mcpServer.Config,
+				}
+
+				// Note: spec.name mirrors metadata.name for CRD validation requirements
+
+				// Create directory structure for CRDs: mcpservers/default/
+				crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
+				if err := os.MkdirAll(crdDir, 0755); err != nil {
+					return fmt.Errorf("failed to create CRD directory %s: %w", crdDir, err)
+				}
+
+				filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
+				if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+					return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
 				}
 			}
 		}
