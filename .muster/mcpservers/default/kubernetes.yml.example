@@ -1,0 +1,11 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: kubernetes
+  namespace: default
+spec:
+  name: kubernetes
+  type: localCommand
+  autoStart: true
+  command: ["mcp-kubernetes"]
+  description: "Kubernetes cluster management MCP server"

@@ -1,7 +1,7 @@
 muster
 dist/
 .muster/config.yaml
-.muster/mcpservers/*.yaml
+.muster/mcpservers/default/*.yaml
 .muster/serviceclasses/*.yaml
 .muster/capabilities/*.yaml
 .muster/workflows/*.yaml
