@@ -9,7 +9,6 @@ steps:
   tool: "core_serviceclass_validate"
   args:
     name: "test-validate-sc"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:

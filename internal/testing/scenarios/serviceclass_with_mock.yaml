@@ -84,32 +84,28 @@ pre_configuration:
 
   service_classes:
     - name: "web-application"
-      config:
-        name: "web-application"
-        type: "stateful"
-        version: "1.0.0"
-        args:
-          app_name:
-            type: "string"
-            required: true
-          storage_size:
-            type: "string"
-            default: "10Gi"
-          port:
-            type: "integer"
-            default: 8080
+      args:
+        app_name:
+          type: "string"
+          required: true
+        storage_size:
+          type: "string"
+          default: "10Gi"
+        port:
+          type: "integer"
+          default: 8080
 
-        serviceConfig:
-          lifecycleTools:
-            start:
-              tool: "x_storage-mock_storage_volume_create"
-              args:
-                name: "{{ .app_name }}-storage"
-                size: "{{ .storage_size }}"
-            stop:
-              tool: "x_storage-mock_storage_volume_delete"
-              args:
-                volume_id: "vol-{{ .app_name }}-storage-standard"
+      serviceConfig:
+        lifecycleTools:
+          start:
+            tool: "x_storage-mock_storage_volume_create"
+            args:
+              name: "{{ .app_name }}-storage"
+              size: "{{ .storage_size }}"
+          stop:
+            tool: "x_storage-mock_storage_volume_delete"
+            args:
+              volume_id: "vol-{{ .app_name }}-storage-standard"
 
 steps:
   - id: verify-mock-servers-available

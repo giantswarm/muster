@@ -7,16 +7,12 @@ timeout: "3m"
 pre_configuration:
   service_classes:
   - name: "state-sc"
-    config:
-      name: "state-sc"
-      version: "1.0.0"
-      serviceConfig:
-        serviceType: "test-service"
-        lifecycleTools:
-          start:
-            tool: "core_config_get"
-          stop:
-            tool: "core_config_get"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "core_config_get"
+        stop:
+          tool: "core_config_get"
 
 steps:
 - id: "create-service-for-state-testing"

@@ -8,14 +8,10 @@ timeout: "1m"
 pre_configuration:
   service_classes:
   - name: "sc-for-delete"
-    config:
-      name: "sc-for-delete"
-      version: "1.0.0"
-      serviceConfig:
-        serviceType: "test-service"
-        lifecycleTools:
-          start: { tool: "core_config_get" }
-          stop: { tool: "core_config_get" }
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "core_config_get" }
+        stop: { tool: "core_config_get" }
 
 steps:
 - id: "create-service-for-delete"

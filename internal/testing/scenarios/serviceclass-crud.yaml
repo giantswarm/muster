@@ -37,14 +37,12 @@ steps:
     tool: "core_serviceclass_create"
     args:
       name: "correct-sc"
-      version: "1.0.1"
       args:
         name:
           type: "string"
           required: true
           description: "Resource name"
       serviceConfig:
-        serviceType: "mock-resource"
         lifecycleTools:
           start:
             tool: "x_lifecycle-provider_create_resource"
@@ -66,7 +64,6 @@ steps:
       success: true
       json_path:
         name: "correct-sc"
-        version: "1.0.1"
 
   - id: "check-availability-of-new-serviceclass"
     tool: "core_serviceclass_available"
@@ -81,14 +78,13 @@ steps:
     tool: "core_serviceclass_update"
     args:
       name: "correct-sc"
-      version: "1.0.2"
+      description: "Resource name"
       args:
         name:
           type: "string"
           required: true
           description: "Resource name"
       serviceConfig:
-        serviceType: "mock-resource"
         lifecycleTools:
           start:
             tool: "x_lifecycle-provider_create_resource"
@@ -108,7 +104,7 @@ steps:
     expected:
       success: true
       json_path:
-        version: "1.0.2"
+        description: "Resource name"
 
   - id: "delete-created-serviceclass"
     tool: "core_serviceclass_delete"

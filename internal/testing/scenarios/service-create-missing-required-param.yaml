@@ -3,22 +3,18 @@ category: "behavioral"
 concept: "service"
 tags: ["service", "create", "args", "error-handling", "core-api"]
 timeout: "1m"
-# NOTE: Arg validation is not yet fully implemented
-# TODO: This test should fail when arg validation is added
 
 pre_configuration:
   service_classes:
   - name: "sc-requires-param"
-    config:
-      name: "sc-requires-param"
-      version: "1.0.0"
-      serviceConfig:
-        createArgs:
-          message:
-            required: true
-        lifecycleTools:
-          start: { tool: "core_config_get" }
-          stop: { tool: "core_config_get" }
+    args:
+      message:
+        type: "string"
+        required: true
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "core_config_get" }
+        stop: { tool: "core_config_get" }
 steps:
 - id: "create-missing-param"
   tool: "core_service_create"
@@ -26,8 +22,6 @@ steps:
     serviceClassName: "sc-requires-param"
     name: "my-failed-service"
   expected:
-    success: true  # Currently succeeds because validation not implemented
-  cleanup:
-  - tool: "core_service_delete"
-    args: { name: "my-failed-service" }
+    success: false
+    error_contains: ["missing required argument"]
  

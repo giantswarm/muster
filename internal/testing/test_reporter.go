@@ -119,19 +119,7 @@ func (r *testReporter) ReportScenarioStart(scenario TestScenario) {
 			if len(scenario.PreConfiguration.ServiceClasses) > 0 {
 				fmt.Printf("      🏗️  Service Classes (%d):\n", len(scenario.PreConfiguration.ServiceClasses))
 				for _, sc := range scenario.PreConfiguration.ServiceClasses {
-					fmt.Printf("         • %s", sc.Name)
-					if sc.Config != nil {
-						if version, exists := sc.Config["version"]; exists {
-							if versionStr, ok := version.(string); ok && versionStr != "" {
-								fmt.Printf(" (v%s)", versionStr)
-							}
-						}
-						if scType, exists := sc.Config["type"]; exists {
-							if typeStr, ok := scType.(string); ok && typeStr != "" {
-								fmt.Printf(" [%s]", typeStr)
-							}
-						}
-					}
+					fmt.Printf("         • %s", sc["name"])
 					fmt.Printf("\n")
 				}
 			}

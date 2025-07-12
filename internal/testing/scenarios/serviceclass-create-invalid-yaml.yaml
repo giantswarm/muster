@@ -18,9 +18,7 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "missing-lifecycle-sc"
-    version: "1.0.0"
     serviceConfig:
-      serviceType: "test"
       # missing lifecycleTools
   expected:
     success: false
@@ -30,7 +28,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "invalid-ops-sc"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:

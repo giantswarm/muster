@@ -64,6 +64,55 @@ func (r *testRunner) Run(ctx context.Context, config TestConfiguration, scenario
 	filteredScenarios := r.loader.FilterScenarios(scenarios, config)
 	result.TotalScenarios = len(filteredScenarios)
 
+	// Check if a specific scenario was requested but not found
+	if len(filteredScenarios) == 0 && config.Scenario != "" {
+		// Get available scenario names for helpful error message
+		var availableScenarios []string
+		for _, scenario := range scenarios {
+			availableScenarios = append(availableScenarios, scenario.Name)
+		}
+
+		// Check if the user accidentally added .yaml extension
+		scenarioWithoutExt := strings.TrimSuffix(config.Scenario, ".yaml")
+		scenarioWithoutExt = strings.TrimSuffix(scenarioWithoutExt, ".yml")
+
+		// Check if the scenario exists without the extension
+		var suggestions []string
+		for _, name := range availableScenarios {
+			if name == scenarioWithoutExt {
+				suggestions = append(suggestions, fmt.Sprintf("Did you mean '%s' instead of '%s'?", name, config.Scenario))
+			}
+		}
+
+		// If no direct match, look for similar names
+		if len(suggestions) == 0 {
+			for _, name := range availableScenarios {
+				if strings.Contains(name, scenarioWithoutExt) || strings.Contains(scenarioWithoutExt, name) {
+					suggestions = append(suggestions, name)
+				}
+			}
+		}
+
+		errorMsg := fmt.Sprintf("scenario '%s' not found", config.Scenario)
+		if len(suggestions) > 0 {
+			if len(suggestions) == 1 && strings.HasPrefix(suggestions[0], "Did you mean") {
+				errorMsg += fmt.Sprintf("\n%s", suggestions[0])
+			} else {
+				errorMsg += fmt.Sprintf("\n\nSimilar scenarios found:\n")
+				for _, suggestion := range suggestions {
+					errorMsg += fmt.Sprintf("  • %s\n", suggestion)
+				}
+			}
+		} else {
+			errorMsg += fmt.Sprintf("\n\nAvailable scenarios:\n")
+			for _, name := range availableScenarios {
+				errorMsg += fmt.Sprintf("  • %s\n", name)
+			}
+		}
+
+		return result, fmt.Errorf("%s", errorMsg)
+	}
+
 	if len(filteredScenarios) == 0 {
 		r.reporter.ReportSuiteResult(*result)
 		return result, nil

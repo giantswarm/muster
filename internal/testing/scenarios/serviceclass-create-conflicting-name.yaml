@@ -8,13 +8,10 @@ timeout: "1m"
 pre_configuration:
   service_classes:
     - name: "existing-sc"
-      config:
-        name: "existing-sc"
-        version: "1.0.0"
-        serviceConfig:
-          lifecycleTools:
-            start: { tool: "core_service_list" }
-            stop: { tool: "core_service_list" }
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_service_list" }
+          stop: { tool: "core_service_list" }
 
 steps:
 - id: "attempt-conflicting-create"
@@ -22,7 +19,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "existing-sc"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:

@@ -23,9 +23,7 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "sc-with-tool-dep"
-    version: "1.0.0"
     serviceConfig:
-      serviceType: "test-service"
       lifecycleTools:
         start:
           tool: "x_tool-provider-a_tool-a"
@@ -48,9 +46,7 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "sc-with-unmet-dep"
-    version: "1.0.0"
     serviceConfig:
-      serviceType: "test-service"
       lifecycleTools:
         start:
           tool: "x_tool-provider-a_tool-a"

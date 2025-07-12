@@ -7,23 +7,20 @@ timeout: "7m"
 pre_configuration:
   service_classes:
     - name: "param-validation-sc"
-      config:
-        name: "param-validation-sc"
-        version: "1.0.0"
-        args:
-          string_param:
-            type: "string"
-            required: true
-          int_param:
-            type: "integer"
-            default: 10
-          bool_param:
-            type: "boolean"
-            default: false
-        serviceConfig:
-          lifecycleTools:
-            start: { tool: "core_service_list" }
-            stop: { tool: "core_service_list" }
+      args:
+        string_param:
+          type: "string"
+          required: true
+        int_param:
+          type: "integer"
+          default: 10
+        bool_param:
+          type: "boolean"
+          default: false
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_service_list" }
+          stop: { tool: "core_service_list" }
 
 steps:
 - id: "create-service-with-all-params"

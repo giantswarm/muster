@@ -2,35 +2,29 @@ package mcpserver
 
 import (
 	"context"
-	"muster/internal/config"
 	"testing"
 )
 
 func TestNewAPIAdapter(t *testing.T) {
-	storage := config.NewStorage()
-	manager, err := NewMCPServerManager(storage)
+	adapter, err := NewAdapter()
 	if err != nil {
-		t.Fatalf("Failed to create MCP server manager: %v", err)
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
-
-	adapter := NewAdapter(manager)
 	if adapter == nil {
 		t.Fatal("NewAdapter returned nil")
 	}
 
-	if adapter.manager != manager {
-		t.Error("Adapter manager not set correctly")
+	// Verify the adapter has a client
+	if adapter.client == nil {
+		t.Error("Adapter client not initialized")
 	}
 }
 
 func TestAdapterListMCPServers(t *testing.T) {
-	storage := config.NewStorage()
-	manager, err := NewMCPServerManager(storage)
+	adapter, err := NewAdapter()
 	if err != nil {
-		t.Fatalf("Failed to create MCP server manager: %v", err)
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
-
-	adapter := NewAdapter(manager)
 
 	servers := adapter.ListMCPServers()
 	if servers == nil {
@@ -44,13 +38,10 @@ func TestAdapterListMCPServers(t *testing.T) {
 }
 
 func TestAdapterGetMCPServer(t *testing.T) {
-	storage := config.NewStorage()
-	manager, err := NewMCPServerManager(storage)
+	adapter, err := NewAdapter()
 	if err != nil {
-		t.Fatalf("Failed to create MCP server manager: %v", err)
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
-
-	adapter := NewAdapter(manager)
 
 	// Test getting non-existent server
 	server, err := adapter.GetMCPServer("nonexistent")
@@ -63,20 +54,17 @@ func TestAdapterGetMCPServer(t *testing.T) {
 }
 
 func TestAdapterGetTools(t *testing.T) {
-	storage := config.NewStorage()
-	manager, err := NewMCPServerManager(storage)
+	adapter, err := NewAdapter()
 	if err != nil {
-		t.Fatalf("Failed to create MCP server manager: %v", err)
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
-
-	adapter := NewAdapter(manager)
 
 	tools := adapter.GetTools()
 	if tools == nil {
 		t.Error("GetTools returned nil")
 	}
 
-	// Should have the expected tools (availability tool removed)
+	// Should have the expected tools
 	expectedTools := []string{
 		"mcpserver_list",
 		"mcpserver_get",
@@ -98,13 +86,11 @@ func TestAdapterGetTools(t *testing.T) {
 }
 
 func TestAdapterExecuteTool(t *testing.T) {
-	storage := config.NewStorage()
-	manager, err := NewMCPServerManager(storage)
+	adapter, err := NewAdapter()
 	if err != nil {
-		t.Fatalf("Failed to create MCP server manager: %v", err)
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
 
-	adapter := NewAdapter(manager)
 	ctx := context.Background()
 
 	// Test mcpserver_list tool
@@ -126,23 +112,51 @@ func TestAdapterExecuteTool(t *testing.T) {
 	}
 }
 
-func TestAdapterNilManager(t *testing.T) {
-	adapter := NewAdapter(nil)
-
-	// Test various methods with nil manager
-	servers := adapter.ListMCPServers()
-	if len(servers) != 0 {
-		t.Error("Expected empty servers list with nil manager")
+func TestAdapterErrorHandling(t *testing.T) {
+	adapter, err := NewAdapter()
+	if err != nil {
+		t.Fatalf("Failed to create adapter: %v", err)
 	}
 
-	server, err := adapter.GetMCPServer("test")
-	if err == nil {
-		t.Error("Expected error with nil manager")
-	}
-	if server != nil {
-		t.Error("Expected nil server with nil manager")
+	ctx := context.Background()
+
+	// Test error handling for various scenarios
+	tests := []struct {
+		name     string
+		toolName string
+		args     map[string]interface{}
+		wantErr  bool
+	}{
+		{
+			name:     "unknown tool",
+			toolName: "unknown_tool",
+			args:     nil,
+			wantErr:  true,
+		},
+		{
+			name:     "get non-existent server",
+			toolName: "mcpserver_get",
+			args:     map[string]interface{}{"name": "nonexistent"},
+			wantErr:  false, // Should return empty result, not error
+		},
+		{
+			name:     "create with invalid args",
+			toolName: "mcpserver_create",
+			args:     map[string]interface{}{"invalid": "data"},
+			wantErr:  false, // Validation happens at runtime, not at tool execution level
+		},
 	}
 
-	// Phase 1: LoadDefinitions and GetDefinitionsPath methods removed
-	// These methods are no longer available as loading is transparent
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := adapter.ExecuteTool(ctx, tt.toolName, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ExecuteTool() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err == nil && result == nil {
+				t.Error("ExecuteTool() returned nil result without error")
+			}
+		})
+	}
 }

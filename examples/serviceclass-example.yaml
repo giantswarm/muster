@@ -1,0 +1,60 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: ServiceClass
+metadata:
+  name: postgres-database
+  namespace: default
+spec:
+  name: postgres-database
+  description: "PostgreSQL database service with lifecycle management"
+  args:
+    database_name:
+      type: string
+      required: true
+      description: "Name of the database to create"
+    port:
+      type: integer
+      required: false
+      default: 5432
+      description: "Port number for the database"
+    replicas:
+      type: integer
+      required: false
+      default: 1
+      description: "Number of database replicas"
+  serviceConfig:
+    defaultName: "postgres-{{.database_name}}"
+    dependencies: []
+    lifecycleTools:
+      start:
+        tool: "docker_run"
+        args:
+          image: "postgres:13"
+          env:
+            POSTGRES_DB: "{{.database_name}}"
+            POSTGRES_PORT: "{{.port}}"
+        outputs:
+          containerId: "result.container_id"
+      stop:
+        tool: "docker_stop"
+        args:
+          container_id: "{{.containerId}}"
+      healthCheck:
+        tool: "postgres_health_check"
+        args:
+          port: "{{.port}}"
+        expect:
+          success: true
+          jsonPath:
+            status: "healthy"
+    healthCheck:
+      enabled: true
+      interval: "30s"
+      failureThreshold: 3
+      successThreshold: 1
+    timeout:
+      create: "5m"
+      delete: "2m"
+      healthCheck: "10s"
+    outputs:
+      connection_string: "postgresql://user:pass@localhost:{{.port}}/{{.database_name}}"
+      port: "{{.port}}" 

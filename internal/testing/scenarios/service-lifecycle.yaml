@@ -21,27 +21,24 @@ pre_configuration:
 
   service_classes:
     - name: "lifecycle-sc"
-      config:
-        name: "lifecycle-sc"
-        version: "1.0.0"
-        serviceConfig:
-          createArgs:
-            message:
-              toolArg: "msg"
-              required: false
-              default: "default message"
-          lifecycleTools:
-            start:
-              tool: "x_service-tool-provider_create_it"
-              args:
-                name: "{{ .name }}"
-                msg: "{{ .args.message }}"
-              responseMapping:
-                serviceId: "service_id"
-            stop:
-              tool: "x_service-tool-provider_delete_it"
-              args:
-                id: "{{ .service.id }}"
+      args:
+        message:
+          type: "string"
+          required: false
+          default: "default message"
+      serviceConfig:
+        lifecycleTools:
+          start:
+            tool: "x_service-tool-provider_create_it"
+            args:
+              name: "{{ .name }}"
+              msg: "{{ .args.message }}"
+            responseMapping:
+              serviceId: "service_id"
+          stop:
+            tool: "x_service-tool-provider_delete_it"
+            args:
+              id: "{{ .service.id }}"
 
 steps:
 # Phase 1: Developer Environment Assessment (Given)

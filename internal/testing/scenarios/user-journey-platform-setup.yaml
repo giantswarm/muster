@@ -67,9 +67,7 @@ steps:
     tool: "core_serviceclass_create"
     args:
       name: "kubernetes-management"
-      version: "1.0.0"
       serviceConfig:
-        serviceType: "kubernetes"
         lifecycleTools:
           start:
             tool: "core_config_get"
@@ -94,9 +92,7 @@ steps:
     tool: "core_serviceclass_create"
     args:
       name: "dev-namespace"
-      version: "1.0.0"
       serviceConfig:
-        serviceType: "namespace"
         lifecycleTools:
           start:
             tool: "core_config_get"
@@ -113,9 +109,7 @@ steps:
     tool: "core_serviceclass_create"
     args:
       name: "monitoring-stack"
-      version: "1.0.0"
       serviceConfig:
-        serviceType: "monitoring"
         lifecycleTools:
           start:
             tool: "core_config_get"

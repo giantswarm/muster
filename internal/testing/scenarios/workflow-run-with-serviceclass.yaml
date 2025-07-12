@@ -7,20 +7,20 @@ timeout: "1m"
 pre_configuration:
   service_classes:
   - name: "test-sc"
-    args: { text: "{{ .text }}" }
-    config:
-      name: "test-sc"
-      version: "1.0.0"
-      serviceConfig:
-        lifecycleTools:
-          start: 
-            tool: "x_echo-provider_echo"
-            args: { text: "{{ .text }}" }
-          stop:
-            tool: "x_echo-provider_echo"
-            args: { text: "{{ .text }}" }
-        outputs:
-          omg: "OMG {{ .text }}"
+    args:
+      text:
+        type: "string"
+        required: true
+    serviceConfig:
+      lifecycleTools:
+        start: 
+          tool: "x_echo-provider_echo"
+          args: { text: "{{ .args.text }}" }
+        stop:
+          tool: "x_echo-provider_echo"
+          args: { text: "{{ .args.text }}" }
+      outputs:
+        omg: "OMG {{ .args.text }}"
   workflows:
   - name: "test-workflow"
     config:

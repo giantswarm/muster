@@ -15,25 +15,20 @@ pre_configuration:
 
   service_classes:
     - name: "bad-sc-for-services"
-      config:
-        name: "bad-sc-for-services"
-        version: "1.0.0"
-        serviceConfig:
-          createArgs:
-            name:
-              required: true
-          lifecycleTools:
-            start: { tool: "x_failing-tool-provider_create_that_fails" }
-            stop: { tool: "core_service_list" } # A valid tool for stop
+      args:
+        name:
+          type: "string"
+          required: true
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "x_failing-tool-provider_create_that_fails" }
+          stop: { tool: "core_service_list" } # A valid tool for stop
 
     - name: "good-sc-for-services"
-      config:
-        name: "good-sc-for-services"
-        version: "1.0.0"
-        serviceConfig:
-          lifecycleTools:
-            start: { tool: "core_service_list" }
-            stop: { tool: "core_service_list" }
+      serviceConfig:
+        lifecycleTools:
+          start: { tool: "core_service_list" }
+          stop: { tool: "core_service_list" }
 
 steps:
 - id: "create-service-with-non-existent-sc"
@@ -51,8 +46,8 @@ steps:
     serviceClassName: "bad-sc-for-services"
     name: "my-failed-service-2"
   expected:
-    success: false  # Fails due to start tool failure
-    error_contains: ["underlying tool failed"]
+    success: false  # Fails due to missing required argument
+    error_contains: ["missing required argument"]
 
 - id: "create-service-with-failing-start-tool"
   tool: "core_service_create"
