@@ -93,7 +93,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	return api.MCPServerInfo{
-		Name:        server.Spec.Name,
+		Name:        server.ObjectMeta.Name,
 		Type:        server.Spec.Type,
 		AutoStart:   server.Spec.AutoStart,
 		Description: server.Spec.Description,
@@ -115,7 +115,6 @@ func (a *Adapter) convertRequestToCRD(name, serverType string, autoStart bool, t
 			Namespace: a.namespace,
 		},
 		Spec: musterv1alpha1.MCPServerSpec{
-			Name:        name,
 			Type:        serverType,
 			AutoStart:   autoStart,
 			ToolPrefix:  toolPrefix,
@@ -459,7 +458,7 @@ func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallT
 
 // validateMCPServer performs basic validation on an MCP server
 func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
-	if server.Spec.Name == "" {
+	if server.ObjectMeta.Name == "" {
 		return fmt.Errorf("name is required")
 	}
 

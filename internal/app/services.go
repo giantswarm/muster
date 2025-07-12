@@ -131,32 +131,22 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
 
-	// Initialize and register ServiceClass manager
-	// This needs to be done before orchestrator starts to handle ServiceClass-based services
-
-	// Get the service registry handler from the API
-	registryHandler := api.GetServiceRegistry()
-	if registryHandler == nil {
-		return nil, fmt.Errorf("service registry handler not available")
-	}
-
-	// Use the shared storage created earlier
-	serviceClassManager, err := serviceclass.NewServiceClassManager(toolChecker, storage)
+	// Initialize and register ServiceClass adapter using the new unified client
+	// Pass the config path so the filesystem client uses the correct base directory
+	serviceClassAdapter, err := createServiceClassAdapter(cfg.ConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create ServiceClass manager: %w", err)
+		return nil, fmt.Errorf("failed to create ServiceClass adapter: %w", err)
 	}
-
-	// Create and register ServiceClass adapter
-	serviceClassAdapter := serviceclass.NewAdapter(serviceClassManager)
 	serviceClassAdapter.Register()
 
-	// Load ServiceClass definitions
+	// Load ServiceClass definitions to ensure they're available
 	if cfg.ConfigPath != "" {
-		serviceClassManager.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := serviceClassManager.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - ServiceClass is optional
-		logging.Warn("Services", "Failed to load ServiceClass definitions: %v", err)
+		// Trigger ServiceClass loading by calling ListServiceClasses
+		// This ensures filesystem-based ServiceClasses are loaded into memory
+		serviceClasses := serviceClassAdapter.ListServiceClasses()
+		if len(serviceClasses) > 0 {
+			logging.Info("Services", "Loaded %d ServiceClass definitions from filesystem", len(serviceClasses))
+		}
 	}
 
 	// Create and register Workflow adapter
@@ -288,6 +278,29 @@ func createMCPServerAdapter(configPath string) (*mcpserverPkg.Adapter, error) {
 
 	// Create adapter with the configured client
 	return mcpserverPkg.NewAdapterWithClient(musterClient, "default"), nil
+}
+
+// createServiceClassAdapter creates a ServiceClass adapter with the correct config path for filesystem client
+func createServiceClassAdapter(configPath string) (*serviceclass.Adapter, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return serviceclass.NewAdapter()
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath: configPath,
+		Namespace:      "default",
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	// Create adapter with the configured client
+	return serviceclass.NewAdapterWithClient(musterClient, "default"), nil
 }
 
 // Note: MCPServer service creation moved to orchestrator

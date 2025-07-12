@@ -49,7 +49,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "basic-create-sc"
-    version: "1.0.0"
     args:
       port:
         type: "string"

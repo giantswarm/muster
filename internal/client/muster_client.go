@@ -26,6 +26,13 @@ type MusterClient interface {
 	UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error
 	DeleteMCPServer(ctx context.Context, name, namespace string) error
 
+	// ServiceClass operations
+	GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error)
+	ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error)
+	CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
+	UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
+	DeleteServiceClass(ctx context.Context, name, namespace string) error
+
 	// Future CRD methods will be added here as they're implemented
 	// ServiceClass operations (to be implemented in future)
 	// Service operations (to be implemented in future)

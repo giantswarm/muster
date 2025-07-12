@@ -98,13 +98,6 @@ spec:
                   Env contains environment variables to set for localCommand type servers.
                   These are passed to the process when it is started.
                 type: object
-              name:
-                description: |-
-                  Name is the unique identifier for this MCP server instance.
-                  This name is used for registration, lookup, and management operations.
-                maxLength: 63
-                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                type: string
               toolPrefix:
                 description: |-
                   ToolPrefix is an optional prefix that will be prepended to all tool names

@@ -153,12 +153,7 @@ type WorkflowConfig struct {
 }
 
 // ServiceClassConfig represents a service class configuration
-type ServiceClassConfig struct {
-	// Name is the unique identifier for the service class
-	Name string `yaml:"name"`
-	// Config contains the service class definition
-	Config map[string]interface{} `yaml:"config"`
-}
+type ServiceClassConfig map[string]interface{}
 
 // ServiceConfig represents a service instance configuration
 type ServiceConfig struct {

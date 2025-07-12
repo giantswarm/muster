@@ -4,7 +4,6 @@ metadata:
   name: kubernetes
   namespace: default
 spec:
-  name: kubernetes
   type: localCommand
   autoStart: true
   command: ["mcp-kubernetes"]

@@ -1,0 +1,84 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: ServiceClass
+metadata:
+  name: service-k8s-connection
+  namespace: default
+spec:
+  description: "Dynamic service capability for managing Kubernetes cluster connections with authentication"
+  args:
+    cluster_name:
+      type: "string"
+      required: true
+      description: "Name of the Kubernetes cluster"
+    role:
+      type: "string"
+      required: true
+      description: "Role for the connection (management, workload, etc.)"
+    region:
+      type: "string"
+      required: false
+      description: "AWS region or cloud region"
+    context:
+      type: "string"
+      required: false
+      description: "Kubernetes context name"
+    auth_provider:
+      type: "string"
+      required: false
+      description: "Authentication provider (teleport, aws, gcp, etc.)"
+      default:
+        raw: '"teleport"'
+  serviceConfig:
+    lifecycleTools:
+      start:
+        tool: "api_kubernetes_connect"
+        args:
+          clusterName:
+            raw: '"{{ .cluster_name }}"'
+          role:
+            raw: '"{{ .role }}"'
+          authProvider:
+            raw: '"{{ .auth_provider | default \"teleport\" }}"'
+          region:
+            raw: '"{{ .region }}"'
+          context:
+            raw: '"{{ .context }}"'
+        outputs:
+          serviceId: "connectionId"
+          status: "status"
+          auth_provider: "authProvider"
+      stop:
+        tool: "api_kubernetes_disconnect"
+        args:
+          connectionId:
+            raw: '"{{ .service_id }}"'
+        outputs:
+          status: "status"
+      healthCheck:
+        tool: "api_kubernetes_connection_status"
+        args:
+          connectionId:
+            raw: '"{{ .service_id }}"'
+        expect:
+          success: true
+          jsonPath:
+            health:
+              raw: 'true'
+      status:
+        tool: "api_kubernetes_connection_info"
+        args:
+          connectionId:
+            raw: '"{{ .service_id }}"'
+    healthCheck:
+      enabled: true
+      interval: "60s"
+      failureThreshold: 3
+      successThreshold: 2
+    timeout:
+      create: "120s"
+      delete: "60s"
+      healthCheck: "30s"
+    outputs:
+      connectionId: "{{ .start.serviceId }}"
+      status: "{{ .start.status }}"
+      authProvider: "{{ .start.auth_provider }}" 

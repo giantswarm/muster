@@ -9,7 +9,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "unavailable-sc"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start: { tool: "x_fake-provider_fake-tool" }
