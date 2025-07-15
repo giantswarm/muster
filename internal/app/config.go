@@ -45,8 +45,8 @@ type Config struct {
 // essential runtime args needed for application bootstrap and execution.
 //
 // Args:
-//   - noTUI: true for CLI mode, false for TUI mode
 //   - debug: enables debug logging and verbose output
+//   - silent: disables all output to the console
 //   - yolo: enables relaxed safety checks and reduced confirmations
 //   - configPath: custom config directory (empty string for default layered loading)
 //
@@ -54,11 +54,11 @@ type Config struct {
 //
 // Example:
 //
-//	// Standard TUI mode with debug enabled
-//	cfg := app.NewConfig(false, true, false, "")
+//	// Standard mode with debug enabled
+//	cfg := app.NewConfig(true, false, false, "")
 //
-//	// CLI mode with custom configuration path
-//	cfg := app.NewConfig(true, false, false, "/opt/muster/config")
+//	// Custom configuration path
+//	cfg := app.NewConfig(false, false, false, "/opt/muster/config")
 func NewConfig(debug, silent, yolo bool, configPath string) *Config {
 	return &Config{
 		Debug:      debug,

@@ -259,8 +259,8 @@ func GetConfig() ConfigHandler {
 //
 // Example:
 //
-//	adapter := &workflow.Adapter{manager: myWorkflowManager}
-//	api.RegisterWorkflow(adapter)
+//	adapter := workflow.NewAdapter(toolCaller, toolChecker)
+//	adapter.Register()
 func RegisterWorkflow(h WorkflowHandler) {
 	handlerMutex.Lock()
 	defer handlerMutex.Unlock()
@@ -307,8 +307,8 @@ func GetWorkflow() WorkflowHandler {
 //
 // Example:
 //
-//	adapter := &serviceclass.Adapter{manager: myServiceClassManager}
-//	api.RegisterServiceClassManager(adapter)
+//	adapter := serviceclass.NewAdapter(configPath)
+//	adapter.Register()
 func RegisterServiceClassManager(h ServiceClassManagerHandler) {
 	handlerMutex.Lock()
 	defer handlerMutex.Unlock()
@@ -395,8 +395,8 @@ func GetWorkflowInfo() []Workflow {
 //
 // Example:
 //
-//	adapter := &mcpserver.Adapter{manager: myMCPServerManager}
-//	api.RegisterMCPServerManager(adapter)
+//	adapter := mcpserver.NewAdapter(configPath)
+//	adapter.Register()
 func RegisterMCPServerManager(h MCPServerManagerHandler) {
 	handlerMutex.Lock()
 	defer handlerMutex.Unlock()
