@@ -17,19 +17,17 @@ import (
 type Service struct {
 	*services.BaseService
 	definition      *api.MCPServer
-	manager         *mcpserver.MCPServerManager
 	client          interface{} // MCP client that manages the process AND handles MCP communication
 	clientInitMutex sync.Mutex  // Protects client operations
 }
 
 // NewService creates a new MCP server service
-func NewService(definition *api.MCPServer, manager *mcpserver.MCPServerManager) (*Service, error) {
+func NewService(definition *api.MCPServer) (*Service, error) {
 	baseService := services.NewBaseService(definition.Name, services.TypeMCPServer, []string{})
 
 	service := &Service{
 		BaseService: baseService,
 		definition:  definition,
-		manager:     manager,
 	}
 
 	return service, nil

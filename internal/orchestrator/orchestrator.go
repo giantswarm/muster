@@ -92,9 +92,6 @@ type Orchestrator struct {
 	instances      map[string]*services.GenericServiceInstance // name -> instance
 	instanceEvents []chan<- ServiceInstanceEvent
 
-	// Service instance persistence
-	persistence *services.ServiceInstancePersistence
-
 	// Service tracking
 	stopReasons map[string]StopReason
 
@@ -112,26 +109,18 @@ type Orchestrator struct {
 type Config struct {
 	Aggregator config.AggregatorConfig
 	Yolo       bool
-	ToolCaller ToolCaller      // Optional: for ServiceClass-based services
-	Storage    *config.Storage // Required: for configuration and persistence
+	ToolCaller ToolCaller // Optional: for ServiceClass-based services
 }
 
 // New creates a new orchestrator.
 func New(cfg Config) *Orchestrator {
 	registry := services.NewRegistry()
 
-	// Initialize persistence helper
-	var persistence *services.ServiceInstancePersistence
-	if cfg.Storage != nil {
-		persistence = services.NewServiceInstancePersistence(cfg.Storage)
-	}
-
 	return &Orchestrator{
 		registry:               registry,
 		aggregator:             cfg.Aggregator,
 		yolo:                   cfg.Yolo,
 		toolCaller:             cfg.ToolCaller,
-		persistence:            persistence,
 		instances:              make(map[string]*services.GenericServiceInstance),
 		instanceEvents:         make([]chan<- ServiceInstanceEvent, 0),
 		stopReasons:            make(map[string]StopReason),
@@ -164,12 +153,6 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	if err := o.processServiceClassRequirements(ctx); err != nil {
 		logging.Error("Orchestrator", err, "Failed to process ServiceClass requirements")
 		// Don't fail the orchestrator start if ServiceClass processing fails
-	}
-
-	// Load and start persisted service instances
-	if err := o.loadPersistedServiceInstances(ctx); err != nil {
-		logging.Error("Orchestrator", err, "Failed to load persisted service instances")
-		// Don't fail the orchestrator start if persistence loading fails
 	}
 
 	logging.Info("Orchestrator", "Started orchestrator with unified service management (static: %d, dynamic: %d)",
@@ -236,7 +219,7 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	}
 
 	// Create MCPServer service using the service package
-	mcpService, err := mcpserver.NewService(apiDef, nil)
+	mcpService, err := mcpserver.NewService(apiDef)
 	if err != nil {
 		return fmt.Errorf("failed to create MCPServer service: %w", err)
 	}
@@ -260,65 +243,6 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	}()
 
 	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
-	return nil
-}
-
-// loadPersistedServiceInstances loads and starts persisted service instances from YAML files
-func (o *Orchestrator) loadPersistedServiceInstances(ctx context.Context) error {
-	if o.persistence == nil {
-		logging.Debug("Orchestrator", "No persistence configured, skipping persisted service instance loading")
-		return nil
-	}
-
-	if o.toolCaller == nil {
-		logging.Debug("Orchestrator", "No ToolCaller available, skipping persisted service instance loading")
-		return nil
-	}
-
-	// Load persisted definitions
-	definitions, err := o.persistence.LoadPersistedDefinitions()
-	if err != nil {
-		return fmt.Errorf("failed to load persisted service instance definitions: %w", err)
-	}
-
-	if len(definitions) == 0 {
-		logging.Debug("Orchestrator", "No persisted service instances found")
-		return nil
-	}
-
-	logging.Info("Orchestrator", "Loading %d persisted service instances", len(definitions))
-
-	// Create and start instances for enabled definitions
-	for _, def := range definitions {
-		if !def.Enabled {
-			logging.Debug("Orchestrator", "Skipping disabled persisted service instance: %s", def.Name)
-			continue
-		}
-
-		// Create the service instance
-		req := CreateServiceRequest{
-			ServiceClassName: def.ServiceClassName,
-			Name:             def.Name,
-			Args:             def.Args,
-			Persist:          false, // Already persisted, don't save again
-			AutoStart:        def.AutoStart,
-		}
-
-		instance, err := o.CreateServiceClassInstance(ctx, req)
-		if err != nil {
-			logging.Error("Orchestrator", err, "Failed to create persisted service instance: %s", def.Name)
-			continue
-		}
-
-		logging.Info("Orchestrator", "Successfully restored persisted service instance: %s", instance.Name)
-
-		// Start the instance if AutoStart is enabled
-		if def.AutoStart {
-			// The instance is already started by CreateServiceClassInstance, so we just log it
-			logging.Info("Orchestrator", "Auto-started persisted service instance: %s", instance.Name)
-		}
-	}
-
 	return nil
 }
 
@@ -412,24 +336,6 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		return nil, fmt.Errorf("failed to register ServiceClass instance in registry: %w", err)
 	}
 
-	// Persist the instance definition if requested
-	if req.Persist && o.persistence != nil {
-		definition := services.CreateDefinitionFromInstance(
-			req.Name,
-			req.ServiceClassName,
-			"serviceclass", // Default since Type field removed from API in Phase 3
-			req.Args,
-			req.AutoStart,
-		)
-
-		if err := o.persistence.SaveDefinition(definition); err != nil {
-			logging.Error("Orchestrator", err, "Failed to persist service instance definition: %s", req.Name)
-			// Don't fail the creation, just log the error
-		} else {
-			logging.Info("Orchestrator", "Persisted service instance definition: %s", req.Name)
-		}
-	}
-
 	// Process ServiceClass outputs if defined
 	var resolvedOutputs map[string]interface{}
 	if serviceClass.ServiceConfig.Outputs != nil && len(serviceClass.ServiceConfig.Outputs) > 0 {
@@ -518,16 +424,6 @@ func (o *Orchestrator) DeleteServiceClassInstance(ctx context.Context, name stri
 
 	// Remove from registry and tracking
 	o.registry.Unregister(instance.GetName())
-
-	// Check if this instance was persisted and remove from persistence
-	if o.persistence != nil {
-		// Try to remove from persistence - if it wasn't persisted, this will fail silently
-		if err := o.persistence.DeleteDefinition(instance.GetName()); err != nil {
-			logging.Debug("Orchestrator", "Service instance %s was not persisted (or failed to remove): %v", instance.GetName(), err)
-		} else {
-			logging.Info("Orchestrator", "Removed persisted definition for service instance: %s", instance.GetName())
-		}
-	}
 
 	o.mu.Lock()
 	delete(o.instances, name)

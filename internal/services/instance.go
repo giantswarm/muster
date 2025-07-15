@@ -205,7 +205,7 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 
 	// Wait a moment for the service to fully stop
 	// In a real scenario, we might poll for StateStopped, but a short sleep is simpler here
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	if err := gsi.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start service during restart: %w", err)
@@ -568,6 +568,11 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 	args map[string]interface{},
 	outputs map[string]string,
 ) error {
+	// Create a shorter timeout context for tool execution to prevent deadlocks
+	// when called from workflow execution context
+	toolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Prepare the context for template substitution
 	templateContext := gsi.buildTemplateContext()
 
@@ -594,9 +599,9 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 		return err
 	}
 
-	// Call the lifecycle tool
+	// Call the lifecycle tool with shorter timeout context
 	logging.Debug("GenericServiceInstance", "Calling %s tool %s for service %s", toolType, toolName, gsi.name)
-	response, err := gsi.toolCaller.CallTool(ctx, toolName, toolArgsMap)
+	response, err := gsi.toolCaller.CallTool(toolCtx, toolName, toolArgsMap)
 	if err != nil {
 		gsi.updateStateInternal(StateFailed, HealthUnhealthy, err)
 		return fmt.Errorf("%s tool failed: %w", toolType, err)

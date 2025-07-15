@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"muster/internal/api"
-	"muster/internal/mcpserver"
 	"muster/internal/services"
 
 	"github.com/stretchr/testify/assert"
@@ -20,8 +19,7 @@ func TestServiceInfo(t *testing.T) {
 		Command: []string{"echo", "hello"},
 	}
 
-	manager := &mcpserver.MCPServerManager{}
-	svc, err := NewService(def, manager)
+	svc, err := NewService(def)
 	require.NoError(t, err)
 
 	assert.Equal(t, "test-server", svc.GetName())
@@ -37,8 +35,7 @@ func TestStartStop(t *testing.T) {
 		Command: []string{"echo", "hello"},
 	}
 
-	manager := &mcpserver.MCPServerManager{}
-	svc, err := NewService(def, manager)
+	svc, err := NewService(def)
 	require.NoError(t, err)
 
 	// Test start with short timeout context (echo exits immediately and isn't an MCP server)
@@ -64,8 +61,7 @@ func TestRestart(t *testing.T) {
 		Command: []string{"echo", "hello"},
 	}
 
-	manager := &mcpserver.MCPServerManager{}
-	svc, err := NewService(def, manager)
+	svc, err := NewService(def)
 	require.NoError(t, err)
 
 	// Test restart with short timeout context
@@ -86,8 +82,7 @@ func TestDependencies(t *testing.T) {
 		Command: []string{"echo", "hello"},
 	}
 
-	manager := &mcpserver.MCPServerManager{}
-	svc, err := NewService(def, manager)
+	svc, err := NewService(def)
 	require.NoError(t, err)
 
 	deps := svc.GetDependencies()
@@ -101,8 +96,7 @@ func TestServiceData(t *testing.T) {
 		Command: []string{"echo", "hello"},
 	}
 
-	manager := &mcpserver.MCPServerManager{}
-	svc, err := NewService(def, manager)
+	svc, err := NewService(def)
 	require.NoError(t, err)
 
 	data := svc.GetServiceData()
