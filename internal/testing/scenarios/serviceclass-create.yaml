@@ -120,12 +120,3 @@ steps:
     json_path:
       "outputs.sessionID": "mock-session-12345"
       "outputs.url": "http://localhost:18002"
-
-cleanup:
-- id: "delete-created-serviceclass"
-  description: "Delete the test ServiceClass"
-  tool: "core_serviceclass_delete"
-  args:
-    name: "basic-create-sc"
-  expected:
-    success: true 

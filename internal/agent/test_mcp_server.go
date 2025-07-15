@@ -50,6 +50,7 @@ func NewTestMCPServer(endpoint string, logger *Logger, configPath string, debug 
 		debug, // debug - as specified by caller
 		18000, // base port
 		"",    // no report path for MCP mode
+		false, // keepTempConfig - default false for MCP server mode
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create test framework: %w", err)

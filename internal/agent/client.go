@@ -1021,6 +1021,44 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
+// SetTimeoutForComplexOperations sets a longer timeout specifically for complex operations
+// like workflow execution that may take longer than the default timeout.
+func (c *Client) SetTimeoutForComplexOperations() {
+	c.SetTimeout(120 * time.Second) // 2 minutes for complex operations
+}
+
+// CallToolWithTimeout executes a tool with a custom timeout
+func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
+	// Ensure client is connected before attempting tool execution
+	if c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	// Construct the MCP tool call request
+	req := mcp.CallToolRequest{
+		Params: struct {
+			Name      string    `json:"name"`
+			Arguments any       `json:"arguments,omitempty"`
+			Meta      *mcp.Meta `json:"_meta,omitempty"`
+		}{
+			Name:      name,
+			Arguments: args,
+		},
+	}
+
+	// Create timeout context with custom timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Send request
+	result, err := c.client.CallTool(timeoutCtx, req)
+	if err != nil {
+		return nil, fmt.Errorf("tool call failed: %w", err)
+	}
+
+	return result, nil
+}
+
 // RefreshToolCache forces a refresh of the tool cache from the MCP server.
 func (c *Client) RefreshToolCache(ctx context.Context) error {
 	// Calling listTools with initial=false will trigger a cache refresh

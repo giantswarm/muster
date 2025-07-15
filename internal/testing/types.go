@@ -95,6 +95,8 @@ type TestConfiguration struct {
 	ReportPath string `yaml:"report_path,omitempty"`
 	// BasePort is the starting port number for muster instances
 	BasePort int `yaml:"base_port,omitempty"`
+	// KeepTempConfig keeps temporary config directory after test execution
+	KeepTempConfig bool `yaml:"keep_temp_config,omitempty"`
 }
 
 // TestScenario defines a single test scenario

@@ -8,13 +8,14 @@ import (
 // DefaultTestConfiguration returns a default test configuration
 func DefaultTestConfiguration() TestConfiguration {
 	return TestConfiguration{
-		Timeout:    5 * time.Minute,
-		Parallel:   1,
-		FailFast:   false,
-		Verbose:    false,
-		Debug:      true,
-		ConfigPath: GetDefaultScenarioPath(),
-		BasePort:   18000, // Start from port 18000 for test instances
+		Timeout:        5 * time.Minute,
+		Parallel:       1,
+		FailFast:       false,
+		Verbose:        false,
+		Debug:          true,
+		ConfigPath:     GetDefaultScenarioPath(),
+		BasePort:       18000, // Start from port 18000 for test instances
+		KeepTempConfig: false,
 	}
 }
 
@@ -30,12 +31,17 @@ type TestFramework struct {
 
 // NewTestFramework creates a fully configured test framework
 func NewTestFramework(debug bool, basePort int) (*TestFramework, error) {
-	return NewTestFrameworkForMode(ExecutionModeCLI, false, debug, basePort, "")
+	return NewTestFrameworkForMode(ExecutionModeCLI, false, debug, basePort, "", false)
 }
 
 // NewTestFrameworkWithVerbose creates a fully configured test framework with verbose and debug control
 func NewTestFrameworkWithVerbose(verbose, debug bool, basePort int, reportPath string) (*TestFramework, error) {
-	return NewTestFrameworkForMode(ExecutionModeCLI, verbose, debug, basePort, reportPath)
+	return NewTestFrameworkForMode(ExecutionModeCLI, verbose, debug, basePort, reportPath, false)
+}
+
+// NewTestFrameworkWithConfig creates a fully configured test framework with all configuration options
+func NewTestFrameworkWithConfig(verbose, debug bool, basePort int, reportPath string, keepTempConfig bool) (*TestFramework, error) {
+	return NewTestFrameworkForMode(ExecutionModeCLI, verbose, debug, basePort, reportPath, keepTempConfig)
 }
 
 // NewTestFrameworkForMode creates a fully configured test framework for the specified execution mode
@@ -47,7 +53,7 @@ func NewTestFrameworkWithVerbose(verbose, debug bool, basePort int, reportPath s
 //
 // Note: In MCP server mode, verbose defaults to true and debug output is controlled by the
 // silent logger to prevent stdio contamination.
-func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort int, reportPath string) (*TestFramework, error) {
+func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort int, reportPath string, keepTempConfig bool) (*TestFramework, error) {
 	// Create logger based on execution mode
 	var logger TestLogger
 	switch mode {
@@ -60,7 +66,7 @@ func NewTestFrameworkForMode(mode ExecutionMode, verbose, debug bool, basePort i
 	}
 
 	// Create instance manager
-	instanceManager, err := NewMusterInstanceManagerWithLogger(debug, basePort, logger)
+	instanceManager, err := NewMusterInstanceManagerWithConfig(debug, basePort, logger, keepTempConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance manager: %w", err)
 	}

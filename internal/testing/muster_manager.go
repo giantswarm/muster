@@ -105,13 +105,14 @@ type managedProcess struct {
 
 // musterInstanceManager implements the MusterInstanceManager interface
 type musterInstanceManager struct {
-	debug      bool
-	basePort   int
-	portOffset int
-	tempDir    string
-	processes  map[string]*managedProcess // Track processes by instance ID
-	mu         sync.RWMutex
-	logger     TestLogger
+	debug          bool
+	basePort       int
+	portOffset     int
+	tempDir        string
+	processes      map[string]*managedProcess // Track processes by instance ID
+	mu             sync.RWMutex
+	logger         TestLogger
+	keepTempConfig bool
 
 	// Port reservation system for thread-safe parallel execution
 	portMu        sync.Mutex     // Protects port allocation
@@ -125,6 +126,11 @@ func NewMusterInstanceManager(debug bool, basePort int) (MusterInstanceManager, 
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
 func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLogger) (MusterInstanceManager, error) {
+	return NewMusterInstanceManagerWithConfig(debug, basePort, logger, false)
+}
+
+// NewMusterInstanceManagerWithConfig creates a new muster instance manager with custom logger and config options
+func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLogger, keepTempConfig bool) (MusterInstanceManager, error) {
 	// Create temporary directory for test configurations
 	tempDir, err := os.MkdirTemp("", "muster-test-*")
 	if err != nil {
@@ -132,12 +138,13 @@ func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLog
 	}
 
 	return &musterInstanceManager{
-		debug:         debug,
-		basePort:      basePort,
-		tempDir:       tempDir,
-		processes:     make(map[string]*managedProcess),
-		logger:        logger,
-		reservedPorts: make(map[int]string),
+		debug:          debug,
+		basePort:       basePort,
+		tempDir:        tempDir,
+		processes:      make(map[string]*managedProcess),
+		logger:         logger,
+		keepTempConfig: keepTempConfig,
+		reservedPorts:  make(map[int]string),
 	}, nil
 }
 
@@ -238,12 +245,18 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 	// Release the reserved port
 	m.releasePort(instance.Port, instance.ID)
 
-	// Clean up configuration directory
-	if err := os.RemoveAll(instance.ConfigPath); err != nil {
+	// Clean up configuration directory unless keepTempConfig is true
+	if m.keepTempConfig {
 		if m.debug {
-			m.logger.Debug("⚠️  Failed to remove config directory %s: %v\n", instance.ConfigPath, err)
+			m.logger.Debug("🔍 Keeping temporary config directory for debugging: %s\n", instance.ConfigPath)
 		}
-		return fmt.Errorf("failed to remove config directory: %w", err)
+	} else {
+		if err := os.RemoveAll(instance.ConfigPath); err != nil {
+			if m.debug {
+				m.logger.Debug("⚠️  Failed to remove config directory %s: %v\n", instance.ConfigPath, err)
+			}
+			return fmt.Errorf("failed to remove config directory: %w", err)
+		}
 	}
 
 	if m.debug {
@@ -790,17 +803,21 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 	// Create muster subdirectory - this is where muster serve will look for configs
 	musterConfigPath := filepath.Join(configPath, "muster")
 
-	// Create subdirectories under muster
-	dirs := []string{"workflows", "serviceclasses", "services"}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(filepath.Join(musterConfigPath, dir), 0755); err != nil {
-			return fmt.Errorf("failed to create %s directory: %w", dir, err)
-		}
+	// Validate that we're working with an absolute path to prevent directory creation in wrong location
+	if !filepath.IsAbs(musterConfigPath) {
+		return fmt.Errorf("muster config path is not absolute: %s", musterConfigPath)
 	}
 
-	// Create mocks directory for mock configurations
-	if err := os.MkdirAll(filepath.Join(configPath, "mocks"), 0755); err != nil {
-		return fmt.Errorf("failed to create mocks directory: %w", err)
+	// Only create the main muster config directory
+	if err := os.MkdirAll(musterConfigPath, 0755); err != nil {
+		return fmt.Errorf("failed to create muster config directory: %w", err)
+	}
+
+	// Create mocks directory for mock configurations (only if needed)
+	if config != nil && len(config.MCPServers) > 0 {
+		if err := os.MkdirAll(filepath.Join(configPath, "mocks"), 0755); err != nil {
+			return fmt.Errorf("failed to create mocks directory: %w", err)
+		}
 	}
 
 	// Generate main config.yaml in muster subdirectory
@@ -837,125 +854,154 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 	// Generate configuration files if config is provided
 	if config != nil {
 		// Generate MCP server CRDs for the new unified client
-		for _, mcpServer := range config.MCPServers {
-			// Check if this is a mock server (has tools in config)
-			if tools, hasMockTools := mcpServer.Config["tools"]; hasMockTools {
-				// Get the current working directory to build the muster command path
-				musterPath, err := m.getMusterBinaryPath()
-				if err != nil {
-					return fmt.Errorf("failed to get muster binary path: %w", err)
-				}
+		if len(config.MCPServers) > 0 {
+			// Create directory structure for CRDs: mcpservers/default/ only when needed
+			crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
+			if err := os.MkdirAll(crdDir, 0755); err != nil {
+				return fmt.Errorf("failed to create MCPServer CRD directory %s: %w", crdDir, err)
+			}
 
-				// Create MCPServer CRD for the unified client (filesystem mode)
-				mockConfigFile := filepath.Join(configPath, "mocks", mcpServer.Name+".yaml")
+			for _, mcpServer := range config.MCPServers {
+				// Check if this is a mock server (has tools in config)
+				if tools, hasMockTools := mcpServer.Config["tools"]; hasMockTools {
+					// Get the current working directory to build the muster command path
+					musterPath, err := m.getMusterBinaryPath()
+					if err != nil {
+						return fmt.Errorf("failed to get muster binary path: %w", err)
+					}
 
-				// Create MCPServer CRD structure
-				mcpServerCRD := map[string]interface{}{
-					"apiVersion": "muster.giantswarm.io/v1alpha1",
-					"kind":       "MCPServer",
-					"metadata": map[string]interface{}{
-						"name":      mcpServer.Name,
-						"namespace": "default",
-					},
-					"spec": map[string]interface{}{
-						"type":      "localCommand",
-						"autoStart": true,
-						"command":   []string{musterPath, "test", "--mock-mcp-server", "--mock-config", mockConfigFile},
-					},
-				}
+					// Create MCPServer CRD for the unified client (filesystem mode)
+					mockConfigFile := filepath.Join(configPath, "mocks", mcpServer.Name+".yaml")
 
-				if m.debug {
-					m.logger.Debug("🧪 MCPServer CRD for %s: %+v\n", mcpServer.Name, mcpServerCRD)
-					m.logger.Debug("🧪 Tools config for %s: %+v\n", mcpServer.Name, mcpServer.Config)
-				}
+					// Create MCPServer CRD structure
+					mcpServerCRD := map[string]interface{}{
+						"apiVersion": "muster.giantswarm.io/v1alpha1",
+						"kind":       "MCPServer",
+						"metadata": map[string]interface{}{
+							"name":      mcpServer.Name,
+							"namespace": "default",
+						},
+						"spec": map[string]interface{}{
+							"type":      "localCommand",
+							"autoStart": true,
+							"command":   []string{musterPath, "test", "--mock-mcp-server", "--mock-config", mockConfigFile},
+						},
+					}
 
-				// Create directory structure for CRDs: mcpservers/default/
-				crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
-				if err := os.MkdirAll(crdDir, 0755); err != nil {
-					return fmt.Errorf("failed to create CRD directory %s: %w", crdDir, err)
-				}
+					if m.debug {
+						m.logger.Debug("🧪 MCPServer CRD for %s: %+v\n", mcpServer.Name, mcpServerCRD)
+						m.logger.Debug("🧪 Tools config for %s: %+v\n", mcpServer.Name, mcpServer.Config)
+					}
 
-				// Save MCPServer CRD (what the unified client reads)
-				filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
-				if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
-					return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
-				}
+					// Save MCPServer CRD (what the unified client reads)
+					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
+					if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+						return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
+					}
 
-				// Save mock tools config to mocks directory (what mock server reads)
-				if err := m.writeYAMLFile(mockConfigFile, mcpServer.Config); err != nil {
-					return fmt.Errorf("failed to write mock config %s: %w", mcpServer.Name, err)
-				}
+					// Save mock tools config to mocks directory (what mock server reads)
+					if err := m.writeYAMLFile(mockConfigFile, mcpServer.Config); err != nil {
+						return fmt.Errorf("failed to write mock config %s: %w", mcpServer.Name, err)
+					}
 
-				if m.debug {
-					m.logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
-				}
-			} else {
-				// For regular servers, convert Config to MCPServer CRD format
-				mcpServerCRD := map[string]interface{}{
-					"apiVersion": "muster.giantswarm.io/v1alpha1",
-					"kind":       "MCPServer",
-					"metadata": map[string]interface{}{
-						"name":      mcpServer.Name,
-						"namespace": "default",
-					},
-					"spec": mcpServer.Config,
-				}
+					if m.debug {
+						m.logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
+					}
+				} else {
+					// For regular servers, convert Config to MCPServer CRD format
+					mcpServerCRD := map[string]interface{}{
+						"apiVersion": "muster.giantswarm.io/v1alpha1",
+						"kind":       "MCPServer",
+						"metadata": map[string]interface{}{
+							"name":      mcpServer.Name,
+							"namespace": "default",
+						},
+						"spec": mcpServer.Config,
+					}
 
-				// Create directory structure for CRDs: mcpservers/default/
-				crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
-				if err := os.MkdirAll(crdDir, 0755); err != nil {
-					return fmt.Errorf("failed to create CRD directory %s: %w", crdDir, err)
-				}
-
-				filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
-				if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
-					return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
+					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
+					if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+						return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
+					}
 				}
 			}
 		}
 
-		// Generate workflow configs in muster subdirectory
-		for _, workflow := range config.Workflows {
-			filename := filepath.Join(musterConfigPath, "workflows", workflow.Name+".yaml")
-			if err := m.writeYAMLFile(filename, workflow.Config); err != nil {
-				return fmt.Errorf("failed to write workflow config %s: %w", workflow.Name, err)
+		// Generate workflow CRDs in muster subdirectory (only if workflows exist)
+		if len(config.Workflows) > 0 {
+			// Create directory structure for CRDs: workflows/default/ only when needed
+			crdDir := filepath.Join(musterConfigPath, "workflows", "default")
+			if err := os.MkdirAll(crdDir, 0755); err != nil {
+				return fmt.Errorf("failed to create Workflow CRD directory %s: %w", crdDir, err)
+			}
+
+			for _, workflow := range config.Workflows {
+				// Create Workflow CRD structure with proper conversion
+				workflowCRD := map[string]interface{}{
+					"apiVersion": "muster.giantswarm.io/v1alpha1",
+					"kind":       "Workflow",
+					"metadata": map[string]interface{}{
+						"name":      workflow.Name,
+						"namespace": "default",
+					},
+					"spec": m.convertWorkflowConfigToCRDSpec(workflow.Config),
+				}
+
+				filename := filepath.Join(crdDir, workflow.Name+".yaml")
+				if err := m.writeYAMLFile(filename, workflowCRD); err != nil {
+					return fmt.Errorf("failed to write Workflow CRD %s: %w", workflow.Name, err)
+				}
+
+				if m.debug {
+					m.logger.Debug("📋 Created Workflow CRD %s\n", workflow.Name)
+				}
 			}
 		}
 
-		// Generate service class configs in muster subdirectory
-		for _, serviceClass := range config.ServiceClasses {
-			// Create ServiceClass CRD structure with proper conversion
-			serviceClassCRD := map[string]interface{}{
-				"apiVersion": "muster.giantswarm.io/v1alpha1",
-				"kind":       "ServiceClass",
-				"metadata": map[string]interface{}{
-					"name":      serviceClass["name"],
-					"namespace": "default",
-				},
-				"spec": m.convertServiceClassConfigToCRDSpec(serviceClass),
-			}
-
-			// Create directory structure for CRDs: serviceclasses/default/
+		// Generate service class configs in muster subdirectory (only if service classes exist)
+		if len(config.ServiceClasses) > 0 {
+			// Create directory structure for CRDs: serviceclasses/default/ only when needed
 			crdDir := filepath.Join(musterConfigPath, "serviceclasses", "default")
 			if err := os.MkdirAll(crdDir, 0755); err != nil {
 				return fmt.Errorf("failed to create ServiceClass CRD directory %s: %w", crdDir, err)
 			}
 
-			filename := filepath.Join(crdDir, serviceClass["name"].(string)+".yaml")
-			if err := m.writeYAMLFile(filename, serviceClassCRD); err != nil {
-				return fmt.Errorf("failed to write ServiceClass CRD %s: %w", serviceClass["name"], err)
-			}
+			for _, serviceClass := range config.ServiceClasses {
+				// Create ServiceClass CRD structure with proper conversion
+				serviceClassCRD := map[string]interface{}{
+					"apiVersion": "muster.giantswarm.io/v1alpha1",
+					"kind":       "ServiceClass",
+					"metadata": map[string]interface{}{
+						"name":      serviceClass["name"],
+						"namespace": "default",
+					},
+					"spec": m.convertServiceClassConfigToCRDSpec(serviceClass),
+				}
 
-			if m.debug {
-				m.logger.Debug("📋 Created ServiceClass CRD %s\n", serviceClass["name"])
+				filename := filepath.Join(crdDir, serviceClass["name"].(string)+".yaml")
+				if err := m.writeYAMLFile(filename, serviceClassCRD); err != nil {
+					return fmt.Errorf("failed to write ServiceClass CRD %s: %w", serviceClass["name"], err)
+				}
+
+				if m.debug {
+					m.logger.Debug("📋 Created ServiceClass CRD %s\n", serviceClass["name"])
+				}
 			}
 		}
 
-		// Generate service configs in muster subdirectory
-		for _, service := range config.Services {
-			filename := filepath.Join(musterConfigPath, "services", service.Name+".yaml")
-			if err := m.writeYAMLFile(filename, service.Config); err != nil {
-				return fmt.Errorf("failed to write service config %s: %w", service.Name, err)
+		// Generate service configs in muster subdirectory (only if services exist)
+		if len(config.Services) > 0 {
+			// Create services directory only when needed
+			servicesDir := filepath.Join(musterConfigPath, "services")
+			if err := os.MkdirAll(servicesDir, 0755); err != nil {
+				return fmt.Errorf("failed to create services directory: %w", err)
+			}
+
+			for _, service := range config.Services {
+				filename := filepath.Join(servicesDir, service.Name+".yaml")
+				if err := m.writeYAMLFile(filename, service.Config); err != nil {
+					return fmt.Errorf("failed to write service config %s: %w", service.Name, err)
+				}
 			}
 		}
 	}
@@ -1010,8 +1056,11 @@ func sanitizeFileName(name string) string {
 
 // Cleanup cleans up all temporary directories created by this manager
 func (m *musterInstanceManager) Cleanup() error {
-	if m.tempDir != "" {
+	if m.tempDir != "" && !m.keepTempConfig {
 		return os.RemoveAll(m.tempDir)
+	}
+	if m.keepTempConfig && m.debug {
+		m.logger.Debug("🔍 Keeping temporary directory for debugging: %s\n", m.tempDir)
 	}
 	return nil
 }
@@ -1545,4 +1594,32 @@ func (m *musterInstanceManager) convertValueToRawExtension(value interface{}, to
 	}
 
 	return jsonData
+}
+
+// convertWorkflowConfigToCRDSpec converts a raw Workflow config to a CRD spec format
+// This handles the conversion of args fields in steps to RawExtension format
+func (m *musterInstanceManager) convertWorkflowConfigToCRDSpec(config map[string]interface{}) map[string]interface{} {
+	spec := make(map[string]interface{})
+
+	if m.debug {
+		m.logger.Debug("📋 Converting Workflow config with %d fields: %v\n", len(config), config)
+	}
+
+	// For test scenarios, we can use a simpler conversion that preserves the structure
+	// without complex RawExtension processing which can cause stack overflow
+	for key, value := range config {
+		if m.debug {
+			m.logger.Debug("📋 Processing field %s (type: %T): %v\n", key, value, value)
+		}
+
+		// Copy fields as-is for test scenarios
+		// The actual CRD conversion with RawExtension happens in the workflow adapter
+		spec[key] = value
+	}
+
+	if m.debug {
+		m.logger.Debug("📋 Final converted workflow spec with %d fields: %v\n", len(spec), spec)
+	}
+
+	return spec
 }
