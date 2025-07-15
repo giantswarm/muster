@@ -66,6 +66,53 @@ func NewKubernetesClient(config *rest.Config) (MusterClient, error) {
 	return musterClient, nil
 }
 
+// GetWorkflow retrieves a specific Workflow from Kubernetes.
+func (k *kubernetesClient) GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
+	workflow := &musterv1alpha1.Workflow{}
+	key := client.ObjectKey{Name: name, Namespace: namespace}
+
+	if err := k.Get(ctx, key, workflow); err != nil {
+		return nil, err
+	}
+
+	return workflow, nil
+}
+
+// ListWorkflows lists all Workflows in a namespace from Kubernetes.
+func (k *kubernetesClient) ListWorkflows(ctx context.Context, namespace string) ([]musterv1alpha1.Workflow, error) {
+	workflowList := &musterv1alpha1.WorkflowList{}
+	listOptions := &client.ListOptions{
+		Namespace: namespace,
+	}
+
+	if err := k.List(ctx, workflowList, listOptions); err != nil {
+		return nil, err
+	}
+
+	return workflowList.Items, nil
+}
+
+// CreateWorkflow creates a new Workflow in Kubernetes.
+func (k *kubernetesClient) CreateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	return k.Create(ctx, workflow)
+}
+
+// UpdateWorkflow updates an existing Workflow in Kubernetes.
+func (k *kubernetesClient) UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	return k.Update(ctx, workflow)
+}
+
+// DeleteWorkflow deletes a Workflow from Kubernetes.
+func (k *kubernetesClient) DeleteWorkflow(ctx context.Context, name, namespace string) error {
+	workflow := &musterv1alpha1.Workflow{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+	return k.Delete(ctx, workflow)
+}
+
 // GetMCPServer retrieves a specific MCPServer resource.
 func (k *kubernetesClient) GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
 	server := &musterv1alpha1.MCPServer{}

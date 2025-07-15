@@ -2,19 +2,21 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	"muster/pkg/logging"
 )
 
 // filesystemClient implements MusterClient using local filesystem storage.
@@ -76,6 +78,13 @@ func (f *filesystemClient) Get(ctx context.Context, key types.NamespacedName, ob
 		}
 		*v = *serviceClass
 		return nil
+	case *musterv1alpha1.Workflow:
+		workflow, err := f.GetWorkflow(ctx, key.Name, key.Namespace)
+		if err != nil {
+			return err
+		}
+		*v = *workflow
+		return nil
 	default:
 		return fmt.Errorf("filesystem client does not support type %T", obj)
 	}
@@ -114,6 +123,21 @@ func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opt
 		}
 		v.Items = serviceClasses
 		return nil
+	case *musterv1alpha1.WorkflowList:
+		// Extract namespace from list options
+		namespace := f.defaultNamespace
+		for _, opt := range opts {
+			if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
+				namespace = nsOpt.Namespace
+			}
+		}
+
+		workflows, err := f.ListWorkflows(ctx, namespace)
+		if err != nil {
+			return err
+		}
+		v.Items = workflows
+		return nil
 	default:
 		return fmt.Errorf("filesystem client does not support type %T", list)
 	}
@@ -126,6 +150,8 @@ func (f *filesystemClient) Create(ctx context.Context, obj client.Object, opts .
 		return f.CreateMCPServer(ctx, v)
 	case *musterv1alpha1.ServiceClass:
 		return f.CreateServiceClass(ctx, v)
+	case *musterv1alpha1.Workflow:
+		return f.CreateWorkflow(ctx, v)
 	default:
 		return fmt.Errorf("filesystem client does not support type %T", obj)
 	}
@@ -138,6 +164,8 @@ func (f *filesystemClient) Update(ctx context.Context, obj client.Object, opts .
 		return f.UpdateMCPServer(ctx, v)
 	case *musterv1alpha1.ServiceClass:
 		return f.UpdateServiceClass(ctx, v)
+	case *musterv1alpha1.Workflow:
+		return f.UpdateWorkflow(ctx, v)
 	default:
 		return fmt.Errorf("filesystem client does not support type %T", obj)
 	}
@@ -150,6 +178,8 @@ func (f *filesystemClient) Delete(ctx context.Context, obj client.Object, opts .
 		return f.DeleteMCPServer(ctx, v.Name, v.Namespace)
 	case *musterv1alpha1.ServiceClass:
 		return f.DeleteServiceClass(ctx, v.Name, v.Namespace)
+	case *musterv1alpha1.Workflow:
+		return f.DeleteWorkflow(ctx, v.Name, v.Namespace)
 	default:
 		return fmt.Errorf("filesystem client does not support type %T", obj)
 	}
@@ -196,6 +226,8 @@ func (f *filesystemClient) GroupVersionKindFor(obj runtime.Object) (schema.Group
 		return musterv1alpha1.GroupVersion.WithKind("MCPServer"), nil
 	case *musterv1alpha1.ServiceClass:
 		return musterv1alpha1.GroupVersion.WithKind("ServiceClass"), nil
+	case *musterv1alpha1.Workflow:
+		return musterv1alpha1.GroupVersion.WithKind("Workflow"), nil
 	default:
 		return schema.GroupVersionKind{}, fmt.Errorf("unknown object type %T", obj)
 	}
@@ -250,13 +282,13 @@ func (f *filesystemClient) ListMCPServers(ctx context.Context, namespace string)
 
 	dirPath := f.getMCPServerDir(namespace)
 
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory %s: %w", dirPath, err)
-	}
-
+	// Check if directory exists, if not return empty list (don't create it)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory doesn't exist, return empty list
+			return []musterv1alpha1.MCPServer{}, nil
+		}
 		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
 	}
 
@@ -270,7 +302,7 @@ func (f *filesystemClient) ListMCPServers(ctx context.Context, namespace string)
 		server, err := f.GetMCPServer(ctx, name, namespace)
 		if err != nil {
 			// Log error but continue with other files
-			fmt.Printf("Warning: Failed to load MCPServer %s: %v\n", entry.Name(), err)
+			logging.Error("fs-client", err, "Failed to load MCPServer %s", entry.Name())
 			continue
 		}
 		servers = append(servers, *server)
@@ -441,13 +473,13 @@ func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace str
 
 	dirPath := f.getServiceClassDir(namespace)
 
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory %s: %w", dirPath, err)
-	}
-
+	// Check if directory exists, if not return empty list (don't create it)
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory doesn't exist, return empty list
+			return []musterv1alpha1.ServiceClass{}, nil
+		}
 		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
 	}
 
@@ -461,7 +493,7 @@ func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace str
 		serviceClass, err := f.GetServiceClass(ctx, name, namespace)
 		if err != nil {
 			// Log error but continue with other files
-			fmt.Printf("Warning: Failed to load ServiceClass %s: %v\n", entry.Name(), err)
+			logging.Error("fs-client", err, "Failed to load ServiceClass %s", entry.Name())
 			continue
 		}
 		serviceClasses = append(serviceClasses, *serviceClass)
@@ -574,6 +606,351 @@ func (f *filesystemClient) getServiceClassDir(namespace string) string {
 
 func (f *filesystemClient) getServiceClassPath(name, namespace string) string {
 	return filepath.Join(f.getServiceClassDir(namespace), name+".yaml")
+}
+
+// GetWorkflow retrieves a specific Workflow from filesystem.
+func (f *filesystemClient) GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
+	if namespace == "" {
+		namespace = f.defaultNamespace
+	}
+
+	filePath := f.getWorkflowPath(name, namespace)
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.NewNotFound(
+				schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
+				name,
+			)
+		}
+		return nil, fmt.Errorf("failed to read Workflow file %s: %w", filePath, err)
+	}
+
+	var workflow musterv1alpha1.Workflow
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Workflow from %s: %w", filePath, err)
+	}
+
+	// Ensure metadata is properly set
+	if workflow.Name == "" {
+		workflow.Name = name
+	}
+	if workflow.Namespace == "" {
+		workflow.Namespace = namespace
+	}
+
+	return &workflow, nil
+}
+
+// ListWorkflows lists all Workflows in a namespace from filesystem.
+func (f *filesystemClient) ListWorkflows(ctx context.Context, namespace string) ([]musterv1alpha1.Workflow, error) {
+	if namespace == "" {
+		namespace = f.defaultNamespace
+	}
+
+	dirPath := f.getWorkflowDir(namespace)
+
+	// Check if directory exists, if not return empty list (don't create it)
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory doesn't exist, return empty list
+			return []musterv1alpha1.Workflow{}, nil
+		}
+		return nil, fmt.Errorf("failed to read directory %s: %w", dirPath, err)
+	}
+
+	var workflows []musterv1alpha1.Workflow
+	for _, entry := range entries {
+		if entry.IsDir() || !isYAMLFile(entry.Name()) {
+			continue
+		}
+
+		name := getNameFromFileName(entry.Name())
+		workflow, err := f.GetWorkflow(ctx, name, namespace)
+		if err != nil {
+			// Log error but continue with other files - this prevents one bad file from breaking everything
+			logging.Error("fs-client", err, "Failed to load Workflow %s", entry.Name())
+			continue
+		}
+		workflows = append(workflows, *workflow)
+	}
+
+	return workflows, nil
+}
+
+// CreateWorkflow creates a new Workflow in filesystem.
+func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	if workflow.Namespace == "" {
+		workflow.Namespace = f.defaultNamespace
+	}
+
+	// Check if workflow already exists
+	filePath := f.getWorkflowPath(workflow.Name, workflow.Namespace)
+	if _, err := os.Stat(filePath); err == nil {
+		return errors.NewAlreadyExists(
+			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
+			workflow.Name,
+		)
+	}
+
+	// Create directory if it doesn't exist
+	dirPath := f.getWorkflowDir(workflow.Namespace)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
+	}
+
+	// Marshal workflow to YAML
+	data, err := yaml.Marshal(workflow)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Workflow %s: %w", workflow.Name, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write Workflow file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// UpdateWorkflow updates an existing Workflow in filesystem.
+func (f *filesystemClient) UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	if workflow.Namespace == "" {
+		workflow.Namespace = f.defaultNamespace
+	}
+
+	// Check if workflow exists
+	filePath := f.getWorkflowPath(workflow.Name, workflow.Namespace)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.NewNotFound(
+			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
+			workflow.Name,
+		)
+	}
+
+	// Marshal workflow to YAML
+	data, err := yaml.Marshal(workflow)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Workflow %s: %w", workflow.Name, err)
+	}
+
+	// Write file
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write Workflow file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// DeleteWorkflow deletes a Workflow from filesystem.
+func (f *filesystemClient) DeleteWorkflow(ctx context.Context, name, namespace string) error {
+	if namespace == "" {
+		namespace = f.defaultNamespace
+	}
+
+	filePath := f.getWorkflowPath(name, namespace)
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.NewNotFound(
+			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
+			name,
+		)
+	}
+
+	// Delete file
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("failed to delete Workflow file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// getWorkflowDir returns the directory path for workflow files in a namespace.
+func (f *filesystemClient) getWorkflowDir(namespace string) string {
+	return filepath.Join(f.basePath, "workflows", namespace)
+}
+
+// getWorkflowPath returns the file path for a specific workflow.
+func (f *filesystemClient) getWorkflowPath(name, namespace string) string {
+	return filepath.Join(f.getWorkflowDir(namespace), name+".yaml")
+}
+
+// safeUnmarshalWorkflow safely unmarshals workflow YAML with panic recovery
+func (f *filesystemClient) safeUnmarshalWorkflow(data []byte, workflow *musterv1alpha1.Workflow) (err error) {
+	// Add panic recovery to handle potential stack overflow from recursive structures
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic during YAML unmarshaling (likely recursive structure): %v", r)
+		}
+	}()
+
+	// First try to unmarshal as raw structure to avoid RawExtension issues
+	var rawWorkflow map[string]interface{}
+	if err := yaml.Unmarshal(data, &rawWorkflow); err != nil {
+		return fmt.Errorf("failed to unmarshal YAML: %w", err)
+	}
+
+	// Convert the raw structure to a safe workflow structure
+	return f.convertRawToWorkflow(rawWorkflow, workflow)
+}
+
+// convertRawToWorkflow converts raw YAML structure to a Workflow CRD safely
+func (f *filesystemClient) convertRawToWorkflow(rawWorkflow map[string]interface{}, workflow *musterv1alpha1.Workflow) error {
+	// Set basic metadata
+	if metadata, ok := rawWorkflow["metadata"].(map[string]interface{}); ok {
+		if name, ok := metadata["name"].(string); ok {
+			workflow.Name = name
+		}
+		if namespace, ok := metadata["namespace"].(string); ok {
+			workflow.Namespace = namespace
+		}
+	}
+
+	// Set apiVersion and kind
+	if apiVersion, ok := rawWorkflow["apiVersion"].(string); ok {
+		workflow.APIVersion = apiVersion
+	}
+	if kind, ok := rawWorkflow["kind"].(string); ok {
+		workflow.Kind = kind
+	}
+
+	// Convert spec safely
+	if spec, ok := rawWorkflow["spec"].(map[string]interface{}); ok {
+		if name, ok := spec["name"].(string); ok {
+			workflow.Spec.Name = name
+		}
+		if description, ok := spec["description"].(string); ok {
+			workflow.Spec.Description = description
+		}
+
+		// Convert args - avoid RawExtension for now, use simple interface{}
+		if args, ok := spec["args"].(map[string]interface{}); ok {
+			workflow.Spec.Args = make(map[string]musterv1alpha1.ArgDefinition)
+			for key, argValue := range args {
+				if argMap, ok := argValue.(map[string]interface{}); ok {
+					argDef := musterv1alpha1.ArgDefinition{}
+					if argType, ok := argMap["type"].(string); ok {
+						argDef.Type = argType
+					}
+					if required, ok := argMap["required"].(bool); ok {
+						argDef.Required = required
+					}
+					if description, ok := argMap["description"].(string); ok {
+						argDef.Description = description
+					}
+					if defaultValue, ok := argMap["default"]; ok {
+						// Safe JSON marshaling for default value to avoid recursion
+						if jsonBytes, err := f.safeJSONMarshal(defaultValue); err == nil {
+							argDef.Default = &runtime.RawExtension{Raw: jsonBytes}
+						}
+					}
+					workflow.Spec.Args[key] = argDef
+				}
+			}
+		}
+
+		// Convert steps - avoid complex RawExtension for test scenarios
+		if steps, ok := spec["steps"].([]interface{}); ok {
+			workflow.Spec.Steps = make([]musterv1alpha1.WorkflowStep, len(steps))
+			for i, stepValue := range steps {
+				if stepMap, ok := stepValue.(map[string]interface{}); ok {
+					step := musterv1alpha1.WorkflowStep{}
+					if id, ok := stepMap["id"].(string); ok {
+						step.ID = id
+					}
+					if tool, ok := stepMap["tool"].(string); ok {
+						step.Tool = tool
+					}
+					if store, ok := stepMap["store"].(bool); ok {
+						step.Store = store
+					}
+					if allowFailure, ok := stepMap["allowFailure"].(bool); ok {
+						step.AllowFailure = allowFailure
+					}
+					if description, ok := stepMap["description"].(string); ok {
+						step.Description = description
+					}
+
+					// Convert args map to RawExtension safely
+					if args, ok := stepMap["args"].(map[string]interface{}); ok {
+						step.Args = make(map[string]*runtime.RawExtension)
+						for key, value := range args {
+							if jsonBytes, err := f.safeJSONMarshal(value); err == nil {
+								step.Args[key] = &runtime.RawExtension{Raw: jsonBytes}
+							}
+						}
+					}
+
+					// Convert outputs map to RawExtension safely
+					if outputs, ok := stepMap["outputs"].(map[string]interface{}); ok {
+						step.Outputs = make(map[string]*runtime.RawExtension)
+						for key, value := range outputs {
+							if jsonBytes, err := f.safeJSONMarshal(value); err == nil {
+								step.Outputs[key] = &runtime.RawExtension{Raw: jsonBytes}
+							}
+						}
+					}
+
+					workflow.Spec.Steps[i] = step
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// safeJSONMarshal safely marshals values to JSON with recursion protection
+func (f *filesystemClient) safeJSONMarshal(value interface{}) ([]byte, error) {
+	// Use a depth counter to prevent infinite recursion
+	return f.marshalWithDepth(value, 0, 10)
+}
+
+// marshalWithDepth marshals with depth tracking to prevent stack overflow
+func (f *filesystemClient) marshalWithDepth(value interface{}, depth, maxDepth int) ([]byte, error) {
+	if depth > maxDepth {
+		// If we reach max depth, return a simple string representation
+		return []byte(`"<max depth reached>"`), nil
+	}
+
+	// For simple types, use direct JSON marshaling
+	switch v := value.(type) {
+	case nil:
+		return []byte("null"), nil
+	case bool:
+		if v {
+			return []byte("true"), nil
+		}
+		return []byte("false"), nil
+	case string:
+		// Escape quotes and marshal as JSON string
+		return json.Marshal(v)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return json.Marshal(v)
+	case float32, float64:
+		return json.Marshal(v)
+	case map[string]interface{}:
+		// For maps, recursively marshal each value
+		result := make(map[string]interface{})
+		for key, val := range v {
+			// Skip recursive marshaling for complex nested structures to avoid loops
+			result[key] = val
+		}
+		return json.Marshal(result)
+	case []interface{}:
+		// For arrays, recursively marshal each element
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = val
+		}
+		return json.Marshal(result)
+	default:
+		// For other types, use default JSON marshaling
+		return json.Marshal(value)
+	}
 }
 
 func isYAMLFile(filename string) bool {

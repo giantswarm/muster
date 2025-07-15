@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	"muster/pkg/logging"
 )
 
 // MusterClient provides a unified interface for accessing muster resources
@@ -33,10 +34,15 @@ type MusterClient interface {
 	UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
 	DeleteServiceClass(ctx context.Context, name, namespace string) error
 
+	// Workflow operations
+	GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error)
+	ListWorkflows(ctx context.Context, namespace string) ([]musterv1alpha1.Workflow, error)
+	CreateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+	UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+	DeleteWorkflow(ctx context.Context, name, namespace string) error
+
 	// Future CRD methods will be added here as they're implemented
-	// ServiceClass operations (to be implemented in future)
 	// Service operations (to be implemented in future)
-	// Workflow operations (to be implemented in future)
 	// WorkflowExecution operations (to be implemented in future)
 
 	// Utility methods
@@ -78,8 +84,11 @@ func NewMusterClientWithConfig(cfg *MusterClientConfig) (MusterClient, error) {
 			return k8sClient, nil
 		}
 		// Log the error but continue to filesystem fallback
-		// TODO: Add proper logging once logging is integrated
-		fmt.Printf("Warning: Failed to create Kubernetes client: %v, falling back to filesystem mode\n", err)
+		// This is expected behavior when CRDs are not installed
+		// Only show warning in debug mode since filesystem is the expected fallback
+		if cfg.Debug {
+			logging.Debug("client", "Failed to create Kubernetes client: %v, falling back to filesystem mode", err)
+		}
 	}
 
 	// Fall back to filesystem mode
@@ -96,6 +105,9 @@ type MusterClientConfig struct {
 
 	// ForceFilesystemMode forces filesystem mode even if Kubernetes is available
 	ForceFilesystemMode bool
+
+	// Debug enables debug-level logging and warnings
+	Debug bool
 }
 
 // detectKubernetesConfig attempts to detect and load Kubernetes configuration.
