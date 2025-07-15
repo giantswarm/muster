@@ -27,20 +27,6 @@
 //
 // # Core Components
 //
-// ## MCPServerManager
-// The central component for managing MCP server definitions:
-//   - **Definition Loading**: Load server configurations from YAML files
-//   - **Validation**: Comprehensive validation of server definitions
-//   - **CRUD Operations**: Create, read, update, and delete server definitions
-//   - **Availability Checking**: Verify server configuration completeness
-//   - **Storage Integration**: Unified storage for definition persistence
-//
-// ## Definition Management
-//   - **YAML-Based Storage**: Server definitions stored as YAML files
-//   - **User and Project Scope**: Support for both user and project configurations
-//   - **Validation**: Type-specific validation for different server types
-//   - **Hot Reloading**: Dynamic loading of definition changes
-//
 // ## Process Management
 //   - Start/stop MCP server processes
 //   - Monitor process health
@@ -74,14 +60,6 @@
 //	  KUBECONFIG: "/home/user/.kube/config"
 //	  NAMESPACE_FILTER: "default,kube-system"
 //
-// # Definition Storage
-//
-// MCP server definitions are stored as YAML files in:
-//   - User directory: ~/.config/muster/mcpservers/
-//   - Project directory: .muster/mcpservers/
-//
-// Project definitions take precedence over user definitions with the same name.
-//
 // # Health Monitoring
 //
 // Server health is determined by:
@@ -90,68 +68,6 @@
 //   - MCP protocol responsiveness
 //   - Tool availability checks
 //   - Connection health monitoring
-//
-// # Usage Examples
-//
-// ## Manager Initialization
-//
-//	storage := config.NewStorage()
-//	manager, err := mcpserver.NewMCPServerManager(storage)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Load definitions from YAML files
-//	if err := manager.LoadDefinitions(); err != nil {
-//	    log.Printf("Failed to load MCP server definitions: %v", err)
-//	}
-//
-// ## Creating MCP Server Definitions
-//
-//	// Local command MCP server
-//	localServer := api.MCPServer{
-//	    Name:    "kubernetes",
-//	    Type:    api.MCPServerTypeLocalCommand,
-//	    Command: []string{"npx", "mcp-server-kubernetes"},
-//	    Env: map[string]string{
-//	        "KUBECONFIG": "/home/user/.kube/config",
-//	    },
-//	}
-//
-//	if err := manager.CreateMCPServer(localServer); err != nil {
-//	    log.Fatal(err)
-//	}
-//
-// ## Querying MCP Server Definitions
-//
-//	// List all definitions
-//	servers := manager.ListDefinitions()
-//	for _, server := range servers {
-//	    fmt.Printf("Server: %s (type: %s)\n", server.Name, server.Type)
-//	}
-//
-//	// Get specific definition
-//	server, exists := manager.GetDefinition("kubernetes")
-//	if exists {
-//	    fmt.Printf("Found server: %s\n", server.Name)
-//	}
-//
-//	// List only available definitions
-//	available := manager.ListAvailableDefinitions()
-//	fmt.Printf("Available servers: %d\n", len(available))
-//
-// ## Updating and Deleting Definitions
-//
-//	// Update existing server
-//	server.Env["NEW_VAR"] = "new_value"
-//	if err := manager.UpdateMCPServer("kubernetes", server); err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Delete server definition
-//	if err := manager.DeleteMCPServer("kubernetes"); err != nil {
-//	    log.Fatal(err)
-//	}
 //
 // # Integration with AI Assistants
 //
@@ -192,7 +108,6 @@
 //   - Protocol errors
 //   - Definition validation failures
 //   - YAML parsing errors
-//   - Storage operation failures
 //
 // # API Integration
 //
