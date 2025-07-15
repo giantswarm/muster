@@ -855,8 +855,8 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 	if config != nil {
 		// Generate MCP server CRDs for the new unified client
 		if len(config.MCPServers) > 0 {
-			// Create directory structure for CRDs: mcpservers/default/ only when needed
-			crdDir := filepath.Join(musterConfigPath, "mcpservers", "default")
+			// Create directory structure for CRDs: mcpservers/ (no namespace subdirectory)
+			crdDir := filepath.Join(musterConfigPath, "mcpservers")
 			if err := os.MkdirAll(crdDir, 0755); err != nil {
 				return fmt.Errorf("failed to create MCPServer CRD directory %s: %w", crdDir, err)
 			}
@@ -929,8 +929,8 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 
 		// Generate workflow CRDs in muster subdirectory (only if workflows exist)
 		if len(config.Workflows) > 0 {
-			// Create directory structure for CRDs: workflows/default/ only when needed
-			crdDir := filepath.Join(musterConfigPath, "workflows", "default")
+			// Create directory structure for CRDs: workflows/ (no namespace subdirectory)
+			crdDir := filepath.Join(musterConfigPath, "workflows")
 			if err := os.MkdirAll(crdDir, 0755); err != nil {
 				return fmt.Errorf("failed to create Workflow CRD directory %s: %w", crdDir, err)
 			}
@@ -960,8 +960,8 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 
 		// Generate service class configs in muster subdirectory (only if service classes exist)
 		if len(config.ServiceClasses) > 0 {
-			// Create directory structure for CRDs: serviceclasses/default/ only when needed
-			crdDir := filepath.Join(musterConfigPath, "serviceclasses", "default")
+			// Create directory structure for CRDs: serviceclasses/ (no namespace subdirectory)
+			crdDir := filepath.Join(musterConfigPath, "serviceclasses")
 			if err := os.MkdirAll(crdDir, 0755); err != nil {
 				return fmt.Errorf("failed to create ServiceClass CRD directory %s: %w", crdDir, err)
 			}

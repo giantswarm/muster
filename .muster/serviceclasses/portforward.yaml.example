@@ -1,136 +1,71 @@
-# Port Forwarding ServiceClass Definition v2
-# This example demonstrates a ServiceClass for port forwarding, updated to the new spec.
-# Key Changes:
-# - Renamed lifecycle tools from 'create'/'delete' to 'start'/'stop' to align with the Service interface.
-# - Updated tool names to match the actual tools available in the aggregator.
-# - Removed 'healthCheck' and 'status' tools as no corresponding tools were found in the current environment.
-name: portforward
-type: portforward
-version: "2.0.0"
-description: "Port forwarding ServiceClass for Kubernetes resources"
-
-# ServiceClass configuration for lifecycle management
-serviceConfig:
-  # Service metadata
-  serviceType: "PortForward"
-  defaultLabel: "pf-{{ .resource_type }}-{{ .resource_name }}-{{ .local_port }}"
-  dependencies: []
-  
-  # Lifecycle tool mappings - defines which aggregator tools to call for each lifecycle event
-  lifecycleTools:
-    start:
-      tool: "x_kubernetes_port_forward"
-      arguments:
-        namespace: "{{ .namespace | default \"default\" }}"
-        resourceType: "{{ .resource_type }}"
-        resourceName: "{{ .resource_name }}"
-        ports: ["{{ .local_port }}:{{ .target_port }}"]
-      responseMapping:
-        serviceId: "$.id"
-        status: "$.status"
-        metadata:
-          namespace: "$.namespace"
-          resource_type: "$.resourceType"
-          resource_name: "$.resourceName"
-          local_port: "$.localPort"
-          remote_port: "$.targetPort"    
-    stop:
-      tool: "x_kubernetes_stop_port_forward_session"
-      arguments:
-        sessionID: "{{ .serviceId }}"
-      responseMapping:
-        status: "$.status"
-        
-  # Health check configuration
-  healthCheck:
-    enabled: true
-    interval: "30s"
-    failureThreshold: 3
-    successThreshold: 1
-  
-  # Timeout configuration
-  timeout:
-    create: "60s"
-    delete: "30s"
-    healthCheck: "10s"
-  
-  # Arg mapping for service creation
-  createArgs:
-    namespace:
-      toolArg: "namespace"
-      default: "default"
-      required: false
-    resource_type:
-      toolArg: "resourceType"
-      required: true
-    resource_name:
-      toolArg: "resourceName"
-      required: true
-    local_port:
-      toolArg: "localPort"
-      required: true
-    remote_port:
-      toolArg: "targetPort"
-      required: true
-
-# Arg definitions for create operation
-  createArgs:
-    local_port:
-      toolArg: "localPort"
-      default: "9090"
-      required: false
-  
-  # Args for other operations (empty for this ServiceClass)
-  deleteArgs: {}
-  statusArgs: {}
-  healthCheckArgs: {}
-
-# Metadata for additional information
+# Port Forwarding ServiceClass Definition
+# This example demonstrates a ServiceClass for port forwarding
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: ServiceClass
 metadata:
-  provider: "kubernetes"
-  category: "networking"
-  icon: "🔌"
-  tags: "port-forward, networking, kubernetes" 
-  
-# Usage examples and documentation
-documentation:
-  description: |
-    This ServiceClass provides easy access to Kubernetes pods and services
-    by setting up port forwarding to the them.
-    
-    Once the port forward is active, you can access it at:
-    http://localhost:<local_port>/
-    
-  examples:
-    - name: "Default promtheus connection"
-      description: "Connect to Mimir on default port 9090"
-      args:
-        local_port: "9090"
-        target_port: "9090"
-        namespace: "monitoring"
-
-# Validation rules for args
-validation:
-  rules:
-    - field: "local_port"
-      type: "port"
-      min: 1024
-      max: 65535
-      message: "Local port must be between 1024 and 65535"
-    - field: "target_port"
-      type: "port"
-      min: 1
-      max: 65535
-      message: "Remote port must be between 1 and 65535"
-    - field: "namespace"
+  name: portforward
+  namespace: default
+spec:
+  description: "Port forwarding ServiceClass for Kubernetes resources"
+  args:
+    namespace:
       type: "string"
-      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-      message: "Namespace must be a valid Kubernetes namespace name" 
-    - field: "resource_type"
+      required: false
+      description: "Kubernetes namespace"
+      default: "default"
+    resource_type:
       type: "string"
-      pattern: "^(pod|service)$"
-      message: "Resource type must be either 'pod' or 'service'" 
-    - field: "resource_name"
+      required: true
+      description: "Resource type (pod or service)"
+    resource_name:
       type: "string"
-      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-      message: "Resource name must be a valid Kubernetes resource name" 
+      required: true
+      description: "Resource name"
+    local_port:
+      type: "string"
+      required: true
+      description: "Local port for forwarding"
+    target_port:
+      type: "string"
+      required: true
+      description: "Target port on the resource"
+  serviceConfig:
+    lifecycleTools:
+      start:
+        tool: "x_kubernetes_port_forward"
+        args:
+          namespace: "{{ .namespace | default \"default\" }}"
+          resourceType: "{{ .resource_type }}"
+          resourceName: "{{ .resource_name }}"
+          ports: ["{{ .local_port }}:{{ .target_port }}"]
+        outputs:
+          serviceId: "id"
+          status: "status"
+          namespace: "namespace"
+          resource_type: "resourceType"
+          resource_name: "resourceName"
+          local_port: "localPort"
+          remote_port: "targetPort"
+      stop:
+        tool: "x_kubernetes_stop_port_forward_session"
+        args:
+          sessionID: "{{ .serviceId }}"
+        outputs:
+          status: "status"
+    healthCheck:
+      enabled: true
+      interval: "30s"
+      failureThreshold: 3
+      successThreshold: 1
+    timeout:
+      create: "60s"
+      delete: "30s"
+      healthCheck: "10s"
+    outputs:
+      serviceId: "{{ .start.serviceId }}"
+      status: "{{ .start.status }}"
+      namespace: "{{ .start.namespace }}"
+      resource_type: "{{ .start.resource_type }}"
+      resource_name: "{{ .start.resource_name }}"
+      local_port: "{{ .start.local_port }}"
+      remote_port: "{{ .start.remote_port }}" 

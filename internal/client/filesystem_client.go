@@ -24,9 +24,13 @@ import (
 // This implementation provides compatibility with the existing file-based YAML
 // storage while implementing the same interface as the Kubernetes client.
 // This enables seamless local development and testing.
+//
+// Files are organized directly in resource type folders without namespace subdirectories:
+// - MCPServers: {basePath}/mcpservers/{name}.yaml
+// - ServiceClasses: {basePath}/serviceclasses/{name}.yaml
+// - Workflows: {basePath}/workflows/{name}.yaml
 type filesystemClient struct {
-	basePath         string
-	defaultNamespace string
+	basePath string
 }
 
 // NewFilesystemClient creates a new filesystem-based muster client.
@@ -50,14 +54,8 @@ func NewFilesystemClient(cfg *MusterClientConfig) (MusterClient, error) {
 		basePath = "."
 	}
 
-	namespace := cfg.Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
-
 	return &filesystemClient{
-		basePath:         basePath,
-		defaultNamespace: namespace,
+		basePath: basePath,
 	}, nil
 }
 
@@ -92,16 +90,16 @@ func (f *filesystemClient) Get(ctx context.Context, key types.NamespacedName, ob
 
 // List retrieves a list of resources (implements client.Client interface).
 func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	// Extract namespace from list options
+	namespace := "default"
+	for _, opt := range opts {
+		if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
+			namespace = nsOpt.Namespace
+		}
+	}
+
 	switch v := list.(type) {
 	case *musterv1alpha1.MCPServerList:
-		// Extract namespace from list options
-		namespace := f.defaultNamespace
-		for _, opt := range opts {
-			if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
-				namespace = nsOpt.Namespace
-			}
-		}
-
 		servers, err := f.ListMCPServers(ctx, namespace)
 		if err != nil {
 			return err
@@ -109,14 +107,6 @@ func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opt
 		v.Items = servers
 		return nil
 	case *musterv1alpha1.ServiceClassList:
-		// Extract namespace from list options
-		namespace := f.defaultNamespace
-		for _, opt := range opts {
-			if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
-				namespace = nsOpt.Namespace
-			}
-		}
-
 		serviceClasses, err := f.ListServiceClasses(ctx, namespace)
 		if err != nil {
 			return err
@@ -124,14 +114,6 @@ func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opt
 		v.Items = serviceClasses
 		return nil
 	case *musterv1alpha1.WorkflowList:
-		// Extract namespace from list options
-		namespace := f.defaultNamespace
-		for _, opt := range opts {
-			if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
-				namespace = nsOpt.Namespace
-			}
-		}
-
 		workflows, err := f.ListWorkflows(ctx, namespace)
 		if err != nil {
 			return err
@@ -241,11 +223,7 @@ func (f *filesystemClient) IsObjectNamespaced(obj runtime.Object) (bool, error) 
 
 // GetMCPServer retrieves a specific MCPServer from filesystem.
 func (f *filesystemClient) GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	filePath := f.getMCPServerPath(name, namespace)
+	filePath := f.getMCPServerPath(name)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -267,20 +245,17 @@ func (f *filesystemClient) GetMCPServer(ctx context.Context, name, namespace str
 	if server.Name == "" {
 		server.Name = name
 	}
+	// Set namespace to default if not set
 	if server.Namespace == "" {
-		server.Namespace = namespace
+		server.Namespace = "default"
 	}
 
 	return &server, nil
 }
 
-// ListMCPServers lists all MCPServers in a namespace from filesystem.
+// ListMCPServers lists all MCPServers from filesystem.
 func (f *filesystemClient) ListMCPServers(ctx context.Context, namespace string) ([]musterv1alpha1.MCPServer, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	dirPath := f.getMCPServerDir(namespace)
+	dirPath := f.getMCPServerDir()
 
 	// Check if directory exists, if not return empty list (don't create it)
 	entries, err := os.ReadDir(dirPath)
@@ -301,7 +276,7 @@ func (f *filesystemClient) ListMCPServers(ctx context.Context, namespace string)
 		name := getNameFromFileName(entry.Name())
 		server, err := f.GetMCPServer(ctx, name, namespace)
 		if err != nil {
-			// Log error but continue with other files
+			// Log error but continue with other files - this prevents one bad file from breaking everything
 			logging.Error("fs-client", err, "Failed to load MCPServer %s", entry.Name())
 			continue
 		}
@@ -313,13 +288,8 @@ func (f *filesystemClient) ListMCPServers(ctx context.Context, namespace string)
 
 // CreateMCPServer creates a new MCPServer in filesystem.
 func (f *filesystemClient) CreateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error {
-	if server.Namespace == "" {
-		server.Namespace = f.defaultNamespace
-	}
-
-	filePath := f.getMCPServerPath(server.Name, server.Namespace)
-
-	// Check if file already exists
+	// Check if server already exists
+	filePath := f.getMCPServerPath(server.Name)
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.NewAlreadyExists(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
@@ -327,24 +297,24 @@ func (f *filesystemClient) CreateMCPServer(ctx context.Context, server *musterv1
 		)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+	// Create directory if it doesn't exist
+	dirPath := f.getMCPServerDir()
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
-	// Set proper metadata
-	if server.APIVersion == "" {
-		server.APIVersion = "muster.giantswarm.io/v1alpha1"
-	}
-	if server.Kind == "" {
-		server.Kind = "MCPServer"
+	// Set namespace to default if not set
+	if server.Namespace == "" {
+		server.Namespace = "default"
 	}
 
+	// Marshal server to YAML
 	data, err := yaml.Marshal(server)
 	if err != nil {
-		return fmt.Errorf("failed to marshal MCPServer: %w", err)
+		return fmt.Errorf("failed to marshal MCPServer %s: %w", server.Name, err)
 	}
 
+	// Write file
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write MCPServer file %s: %w", filePath, err)
 	}
@@ -354,13 +324,8 @@ func (f *filesystemClient) CreateMCPServer(ctx context.Context, server *musterv1
 
 // UpdateMCPServer updates an existing MCPServer in filesystem.
 func (f *filesystemClient) UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error {
-	if server.Namespace == "" {
-		server.Namespace = f.defaultNamespace
-	}
-
-	filePath := f.getMCPServerPath(server.Name, server.Namespace)
-
-	// Check if file exists
+	// Check if server exists
+	filePath := f.getMCPServerPath(server.Name)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
@@ -368,19 +333,18 @@ func (f *filesystemClient) UpdateMCPServer(ctx context.Context, server *musterv1
 		)
 	}
 
-	// Set proper metadata
-	if server.APIVersion == "" {
-		server.APIVersion = "muster.giantswarm.io/v1alpha1"
-	}
-	if server.Kind == "" {
-		server.Kind = "MCPServer"
+	// Set namespace to default if not set
+	if server.Namespace == "" {
+		server.Namespace = "default"
 	}
 
+	// Marshal server to YAML
 	data, err := yaml.Marshal(server)
 	if err != nil {
-		return fmt.Errorf("failed to marshal MCPServer: %w", err)
+		return fmt.Errorf("failed to marshal MCPServer %s: %w", server.Name, err)
 	}
 
+	// Write file
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write MCPServer file %s: %w", filePath, err)
 	}
@@ -390,53 +354,37 @@ func (f *filesystemClient) UpdateMCPServer(ctx context.Context, server *musterv1
 
 // DeleteMCPServer deletes an MCPServer from filesystem.
 func (f *filesystemClient) DeleteMCPServer(ctx context.Context, name, namespace string) error {
-	if namespace == "" {
-		namespace = f.defaultNamespace
+	filePath := f.getMCPServerPath(name)
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.NewNotFound(
+			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
+			name,
+		)
 	}
 
-	filePath := f.getMCPServerPath(name, namespace)
-
+	// Delete file
 	if err := os.Remove(filePath); err != nil {
-		if os.IsNotExist(err) {
-			return errors.NewNotFound(
-				schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
-				name,
-			)
-		}
 		return fmt.Errorf("failed to delete MCPServer file %s: %w", filePath, err)
 	}
 
 	return nil
 }
 
-// IsKubernetesMode returns false since this is the filesystem implementation.
-func (f *filesystemClient) IsKubernetesMode() bool {
-	return false
-}
-
-// Close performs cleanup for the filesystem client.
-func (f *filesystemClient) Close() error {
-	// Filesystem client doesn't require cleanup
-	return nil
-}
-
 // Helper methods
 
-func (f *filesystemClient) getMCPServerDir(namespace string) string {
-	return filepath.Join(f.basePath, "mcpservers", namespace)
+func (f *filesystemClient) getMCPServerDir() string {
+	return filepath.Join(f.basePath, "mcpservers")
 }
 
-func (f *filesystemClient) getMCPServerPath(name, namespace string) string {
-	return filepath.Join(f.getMCPServerDir(namespace), name+".yaml")
+func (f *filesystemClient) getMCPServerPath(name string) string {
+	return filepath.Join(f.getMCPServerDir(), name+".yaml")
 }
 
 // GetServiceClass retrieves a specific ServiceClass from filesystem.
 func (f *filesystemClient) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	filePath := f.getServiceClassPath(name, namespace)
+	filePath := f.getServiceClassPath(name)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -458,20 +406,17 @@ func (f *filesystemClient) GetServiceClass(ctx context.Context, name, namespace 
 	if serviceClass.Name == "" {
 		serviceClass.Name = name
 	}
+	// Set namespace to default if not set
 	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = namespace
+		serviceClass.Namespace = "default"
 	}
 
 	return &serviceClass, nil
 }
 
-// ListServiceClasses lists all ServiceClasses in a namespace from filesystem.
+// ListServiceClasses lists all ServiceClasses from filesystem.
 func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace string) ([]musterv1alpha1.ServiceClass, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	dirPath := f.getServiceClassDir(namespace)
+	dirPath := f.getServiceClassDir()
 
 	// Check if directory exists, if not return empty list (don't create it)
 	entries, err := os.ReadDir(dirPath)
@@ -492,7 +437,7 @@ func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace str
 		name := getNameFromFileName(entry.Name())
 		serviceClass, err := f.GetServiceClass(ctx, name, namespace)
 		if err != nil {
-			// Log error but continue with other files
+			// Log error but continue with other files - this prevents one bad file from breaking everything
 			logging.Error("fs-client", err, "Failed to load ServiceClass %s", entry.Name())
 			continue
 		}
@@ -504,13 +449,8 @@ func (f *filesystemClient) ListServiceClasses(ctx context.Context, namespace str
 
 // CreateServiceClass creates a new ServiceClass in filesystem.
 func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = f.defaultNamespace
-	}
-
-	filePath := f.getServiceClassPath(serviceClass.Name, serviceClass.Namespace)
-
-	// Check if file already exists
+	// Check if serviceClass already exists
+	filePath := f.getServiceClassPath(serviceClass.Name)
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.NewAlreadyExists(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
@@ -518,24 +458,24 @@ func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass 
 		)
 	}
 
-	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+	// Create directory if it doesn't exist
+	dirPath := f.getServiceClassDir()
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
-	// Set proper metadata
-	if serviceClass.APIVersion == "" {
-		serviceClass.APIVersion = "muster.giantswarm.io/v1alpha1"
-	}
-	if serviceClass.Kind == "" {
-		serviceClass.Kind = "ServiceClass"
+	// Set namespace to default if not set
+	if serviceClass.Namespace == "" {
+		serviceClass.Namespace = "default"
 	}
 
+	// Marshal serviceClass to YAML
 	data, err := yaml.Marshal(serviceClass)
 	if err != nil {
-		return fmt.Errorf("failed to marshal ServiceClass: %w", err)
+		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
 	}
 
+	// Write file
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
 	}
@@ -545,13 +485,8 @@ func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass 
 
 // UpdateServiceClass updates an existing ServiceClass in filesystem.
 func (f *filesystemClient) UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if serviceClass.Namespace == "" {
-		serviceClass.Namespace = f.defaultNamespace
-	}
-
-	filePath := f.getServiceClassPath(serviceClass.Name, serviceClass.Namespace)
-
-	// Check if file exists
+	// Check if serviceClass exists
+	filePath := f.getServiceClassPath(serviceClass.Name)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
@@ -559,19 +494,18 @@ func (f *filesystemClient) UpdateServiceClass(ctx context.Context, serviceClass 
 		)
 	}
 
-	// Set proper metadata
-	if serviceClass.APIVersion == "" {
-		serviceClass.APIVersion = "muster.giantswarm.io/v1alpha1"
-	}
-	if serviceClass.Kind == "" {
-		serviceClass.Kind = "ServiceClass"
+	// Set namespace to default if not set
+	if serviceClass.Namespace == "" {
+		serviceClass.Namespace = "default"
 	}
 
+	// Marshal serviceClass to YAML
 	data, err := yaml.Marshal(serviceClass)
 	if err != nil {
-		return fmt.Errorf("failed to marshal ServiceClass: %w", err)
+		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
 	}
 
+	// Write file
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
 	}
@@ -581,40 +515,35 @@ func (f *filesystemClient) UpdateServiceClass(ctx context.Context, serviceClass 
 
 // DeleteServiceClass deletes a ServiceClass from filesystem.
 func (f *filesystemClient) DeleteServiceClass(ctx context.Context, name, namespace string) error {
-	if namespace == "" {
-		namespace = f.defaultNamespace
+	filePath := f.getServiceClassPath(name)
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return errors.NewNotFound(
+			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
+			name,
+		)
 	}
 
-	filePath := f.getServiceClassPath(name, namespace)
-
+	// Delete file
 	if err := os.Remove(filePath); err != nil {
-		if os.IsNotExist(err) {
-			return errors.NewNotFound(
-				schema.GroupResource{Group: "muster.giantswarm.io", Resource: "serviceclasses"},
-				name,
-			)
-		}
 		return fmt.Errorf("failed to delete ServiceClass file %s: %w", filePath, err)
 	}
 
 	return nil
 }
 
-func (f *filesystemClient) getServiceClassDir(namespace string) string {
-	return filepath.Join(f.basePath, "serviceclasses", namespace)
+func (f *filesystemClient) getServiceClassDir() string {
+	return filepath.Join(f.basePath, "serviceclasses")
 }
 
-func (f *filesystemClient) getServiceClassPath(name, namespace string) string {
-	return filepath.Join(f.getServiceClassDir(namespace), name+".yaml")
+func (f *filesystemClient) getServiceClassPath(name string) string {
+	return filepath.Join(f.getServiceClassDir(), name+".yaml")
 }
 
 // GetWorkflow retrieves a specific Workflow from filesystem.
 func (f *filesystemClient) GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	filePath := f.getWorkflowPath(name, namespace)
+	filePath := f.getWorkflowPath(name)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -636,20 +565,17 @@ func (f *filesystemClient) GetWorkflow(ctx context.Context, name, namespace stri
 	if workflow.Name == "" {
 		workflow.Name = name
 	}
+	// Set namespace to default if not set
 	if workflow.Namespace == "" {
-		workflow.Namespace = namespace
+		workflow.Namespace = "default"
 	}
 
 	return &workflow, nil
 }
 
-// ListWorkflows lists all Workflows in a namespace from filesystem.
+// ListWorkflows lists all Workflows from filesystem.
 func (f *filesystemClient) ListWorkflows(ctx context.Context, namespace string) ([]musterv1alpha1.Workflow, error) {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	dirPath := f.getWorkflowDir(namespace)
+	dirPath := f.getWorkflowDir()
 
 	// Check if directory exists, if not return empty list (don't create it)
 	entries, err := os.ReadDir(dirPath)
@@ -682,12 +608,8 @@ func (f *filesystemClient) ListWorkflows(ctx context.Context, namespace string) 
 
 // CreateWorkflow creates a new Workflow in filesystem.
 func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
-	if workflow.Namespace == "" {
-		workflow.Namespace = f.defaultNamespace
-	}
-
 	// Check if workflow already exists
-	filePath := f.getWorkflowPath(workflow.Name, workflow.Namespace)
+	filePath := f.getWorkflowPath(workflow.Name)
 	if _, err := os.Stat(filePath); err == nil {
 		return errors.NewAlreadyExists(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
@@ -696,9 +618,14 @@ func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv
 	}
 
 	// Create directory if it doesn't exist
-	dirPath := f.getWorkflowDir(workflow.Namespace)
+	dirPath := f.getWorkflowDir()
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
+	}
+
+	// Set namespace to default if not set
+	if workflow.Namespace == "" {
+		workflow.Namespace = "default"
 	}
 
 	// Marshal workflow to YAML
@@ -717,17 +644,18 @@ func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv
 
 // UpdateWorkflow updates an existing Workflow in filesystem.
 func (f *filesystemClient) UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
-	if workflow.Namespace == "" {
-		workflow.Namespace = f.defaultNamespace
-	}
-
 	// Check if workflow exists
-	filePath := f.getWorkflowPath(workflow.Name, workflow.Namespace)
+	filePath := f.getWorkflowPath(workflow.Name)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return errors.NewNotFound(
 			schema.GroupResource{Group: "muster.giantswarm.io", Resource: "workflows"},
 			workflow.Name,
 		)
+	}
+
+	// Set namespace to default if not set
+	if workflow.Namespace == "" {
+		workflow.Namespace = "default"
 	}
 
 	// Marshal workflow to YAML
@@ -746,11 +674,7 @@ func (f *filesystemClient) UpdateWorkflow(ctx context.Context, workflow *musterv
 
 // DeleteWorkflow deletes a Workflow from filesystem.
 func (f *filesystemClient) DeleteWorkflow(ctx context.Context, name, namespace string) error {
-	if namespace == "" {
-		namespace = f.defaultNamespace
-	}
-
-	filePath := f.getWorkflowPath(name, namespace)
+	filePath := f.getWorkflowPath(name)
 
 	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -768,14 +692,14 @@ func (f *filesystemClient) DeleteWorkflow(ctx context.Context, name, namespace s
 	return nil
 }
 
-// getWorkflowDir returns the directory path for workflow files in a namespace.
-func (f *filesystemClient) getWorkflowDir(namespace string) string {
-	return filepath.Join(f.basePath, "workflows", namespace)
+// getWorkflowDir returns the directory path for workflow files.
+func (f *filesystemClient) getWorkflowDir() string {
+	return filepath.Join(f.basePath, "workflows")
 }
 
 // getWorkflowPath returns the file path for a specific workflow.
-func (f *filesystemClient) getWorkflowPath(name, namespace string) string {
-	return filepath.Join(f.getWorkflowDir(namespace), name+".yaml")
+func (f *filesystemClient) getWorkflowPath(name string) string {
+	return filepath.Join(f.getWorkflowDir(), name+".yaml")
 }
 
 // safeUnmarshalWorkflow safely unmarshals workflow YAML with panic recovery
@@ -1007,4 +931,15 @@ func (s *filesystemSubResourceClient) Update(ctx context.Context, obj client.Obj
 func (s *filesystemSubResourceClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	// For filesystem client, sub-resource patches are the same as regular patches
 	return s.client.Patch(ctx, obj, patch)
+}
+
+// IsKubernetesMode returns false since this is the filesystem implementation.
+func (f *filesystemClient) IsKubernetesMode() bool {
+	return false
+}
+
+// Close performs cleanup for the filesystem client.
+func (f *filesystemClient) Close() error {
+	// Filesystem client doesn't require cleanup
+	return nil
 }

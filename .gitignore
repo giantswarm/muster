@@ -1,9 +1,8 @@
 ./muster
 dist/
 .muster/config.yaml
-.muster/mcpservers/default/*.yaml
-.muster/serviceclasses/default/*.yaml
-.muster/capabilities/*.yaml
+.muster/mcpservers/*.yaml
+.muster/serviceclasses/*.yaml
 .muster/workflows/*.yaml
 .muster/workflow_executions/*.yaml
 .cursor/mcp.json
