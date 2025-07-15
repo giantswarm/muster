@@ -28,15 +28,6 @@
 //	    input: "{{step1.result}}"
 //	    environment: "{{.environment}}"
 //
-// # Storage and Loading
-//
-// Workflows are stored as YAML files and can be placed in:
-//   - **User configuration directory**: ~/.config/muster/workflows/
-//   - **Project configuration directory**: .muster/workflows/
-//
-// Project workflows take precedence over user workflows with the same name.
-// All workflows are automatically loaded on startup and when files are modified.
-//
 // # Tool Integration
 //
 // Each workflow is automatically registered as an MCP tool with the name pattern:
@@ -66,15 +57,17 @@
 //   - **Step outputs**: {{stepId.result}} or {{stepId.specificField}}
 //   - **Default values**: Via input schema default properties
 //
-// # Workflow Manager
+// # Workflow Adapter
 //
-// The WorkflowManager provides comprehensive workflow lifecycle management:
+// The Workflow Adapter provides comprehensive workflow lifecycle management through
+// the unified client interface with automatic backend selection (Kubernetes CRDs or filesystem):
 //
-//   - **Definition Loading**: Load workflows from YAML files
+//   - **Backend Selection**: Automatic choice between Kubernetes CRDs and filesystem storage
+//   - **Definition Management**: Load workflows from CRDs or YAML files
 //   - **Validation**: Comprehensive validation of workflow definitions
 //   - **CRUD Operations**: Create, read, update, and delete workflows
-//   - **Execution**: Execute workflows with arg validation
-//   - **Tool Integration**: Automatic registration as MCP tools
+//   - **Execution**: Execute workflows with arg validation and tracking
+//   - **Tool Integration**: Automatic registration as MCP tools via API layer
 //   - **Availability Checking**: Dynamic tool availability validation
 //
 // # Input Argument Support
@@ -104,7 +97,7 @@
 //
 // # Error Handling
 //
-// The workflow manager provides comprehensive error handling:
+// The workflow adapter provides comprehensive error handling:
 //   - Invalid workflow files are logged but don't prevent other workflows from loading
 //   - Missing tools are detected and reported during validation
 //   - Execution errors can be configured to stop or continue the workflow
@@ -120,20 +113,6 @@
 //   - Integration with tool update events for logging
 //
 // # Usage Examples
-//
-// ## Manager Setup
-//
-//	// Create a workflow manager
-//	storage := config.NewStorage()
-//	manager, err := workflow.NewWorkflowManager(storage, toolCaller, toolChecker)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	// Load workflow definitions
-//	if err := manager.LoadDefinitions(); err != nil {
-//	    log.Printf("Failed to load workflows: %v", err)
-//	}
 //
 // ## Creating Workflows
 //
@@ -172,14 +151,16 @@
 //	    },
 //	}
 //
-//	if err := manager.CreateWorkflow(workflow); err != nil {
+//	workflowHandler := api.GetWorkflow()
+//	if err := workflowHandler.CreateWorkflowFromStructured(workflowData); err != nil {
 //	    log.Fatal(err)
 //	}
 //
 // ## Executing Workflows
 //
-//	// Execute through manager
-//	result, err := manager.ExecuteWorkflow(ctx, "deploy-app", map[string]interface{}{
+//	// Execute through API handler
+//	workflowHandler := api.GetWorkflow()
+//	result, err := workflowHandler.ExecuteWorkflow(ctx, "deploy-app", map[string]interface{}{
 //	    "environment": "production",
 //	    "version":     "v1.2.3",
 //	})
@@ -197,35 +178,35 @@
 // ## Querying Workflows
 //
 //	// List all workflows
-//	workflows := manager.ListDefinitions()
+//	workflowHandler := api.GetWorkflow()
+//	workflows := workflowHandler.GetWorkflows()
 //	for _, wf := range workflows {
 //	    fmt.Printf("Workflow: %s - %s\n", wf.Name, wf.Description)
 //	}
 //
-//	// List available workflows (with all tools present)
-//	available := manager.ListAvailableDefinitions()
-//	fmt.Printf("Available workflows: %d\n", len(available))
-//
-//	// Check specific workflow availability
-//	if manager.IsAvailable("deploy-app") {
-//	    fmt.Println("Deploy workflow is ready to execute")
+//	// Get specific workflow
+//	workflow, err := workflowHandler.GetWorkflow("deploy-app")
+//	if err != nil {
+//	    log.Fatal(err)
 //	}
 //
-//	// Get workflows as MCP tools
-//	tools := manager.GetWorkflows()
-//	for _, tool := range tools {
-//	    fmt.Printf("MCP Tool: %s - %s\n", tool.Name, tool.Description)
+//	// Get workflows as MCP tools (through tool provider interface)
+//	if provider, ok := workflowHandler.(api.ToolProvider); ok {
+//	    tools := provider.GetTools()
+//	    for _, tool := range tools {
+//	        fmt.Printf("MCP Tool: %s - %s\n", tool.Name, tool.Description)
+//	    }
 //	}
 //
 // # File Management
 //
-// Workflows can be created, updated, and deleted at runtime:
-//   - **Create**: Save workflow YAML to the appropriate directory
-//   - **Update**: Modify existing workflow files
-//   - **Delete**: Remove workflow files
+// Workflows can be created, updated, and deleted at runtime through the unified client interface:
+//   - **Create**: Save workflow as CRD (Kubernetes) or YAML file (filesystem)
+//   - **Update**: Modify existing workflow CRDs or files
+//   - **Delete**: Remove workflow CRDs or files
 //
-// The manager automatically detects file changes and updates the available tools
-// accordingly.
+// The adapter automatically detects changes through the client interface and updates the available tools
+// accordingly. Storage backend is automatically selected based on environment (Kubernetes vs filesystem).
 //
 // # API Integration
 //

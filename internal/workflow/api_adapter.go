@@ -2,28 +2,82 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/client"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Adapter provides the API adapter for workflow management
 type Adapter struct {
-	manager *WorkflowManager
+	client           client.MusterClient
+	namespace        string
+	executor         *WorkflowExecutor
+	executionTracker *ExecutionTracker
+	toolChecker      ToolAvailabilityChecker
+
+	// Prevent circular dependency during tool generation
+	generatingTools bool
+	mu              sync.RWMutex
+}
+
+// ToolAvailabilityChecker interface for checking tool availability
+type ToolAvailabilityChecker interface {
+	IsToolAvailable(toolName string) bool
 }
 
 // NewAdapter creates a new workflow adapter
-func NewAdapter(manager *WorkflowManager, toolCaller *api.ToolCaller) *Adapter {
-	manager.SetToolCaller(toolCaller)
+func NewAdapter(toolCaller ToolCaller, toolChecker ToolAvailabilityChecker) (*Adapter, error) {
+	musterClient, err := client.NewMusterClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client: %w", err)
+	}
+
+	executor := NewWorkflowExecutor(toolCaller)
+
+	// Initialize execution storage and tracker
+	executionStorage := NewExecutionStorage("")
+	executionTracker := NewExecutionTracker(executionStorage)
+
 	return &Adapter{
-		manager: manager,
+		client:           musterClient,
+		namespace:        "default",
+		executor:         executor,
+		executionTracker: executionTracker,
+		toolChecker:      toolChecker,
+	}, nil
+}
+
+// NewAdapterWithClient creates a new workflow adapter with a pre-configured client
+func NewAdapterWithClient(musterClient client.MusterClient, namespace string, toolCaller ToolCaller, toolChecker ToolAvailabilityChecker) *Adapter {
+	executor := NewWorkflowExecutor(toolCaller)
+
+	// Initialize execution storage and tracker
+	executionStorage := NewExecutionStorage("")
+	executionTracker := NewExecutionTracker(executionStorage)
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	return &Adapter{
+		client:           musterClient,
+		namespace:        namespace,
+		executor:         executor,
+		executionTracker: executionTracker,
+		toolChecker:      toolChecker,
 	}
 }
 
@@ -37,14 +91,49 @@ func (a *Adapter) Register() {
 func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	logging.Debug("WorkflowAdapter", "Executing workflow: %s", workflowName)
 
-	// Get the MCP result
-	mcpResult, err := a.manager.ExecuteWorkflow(ctx, workflowName, args)
+	// Get the workflow CRD
+	workflowCRD, err := a.client.GetWorkflow(ctx, workflowName, a.namespace)
 	if err != nil {
-		// For failed workflows, we might still have execution tracking data in mcpResult
-		if mcpResult != nil {
-			// Convert the mcp result with execution data and error
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("workflow %s not found", workflowName)},
+			IsError: true,
+		}, nil
+	}
+
+	// Convert CRD to internal workflow format
+	workflow := a.convertCRDToWorkflow(workflowCRD)
+
+	// Check if workflow is available before execution
+	if !a.isWorkflowAvailable(workflow) {
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("workflow %s is not available (missing required tools)", workflowName)},
+			IsError: true,
+		}, nil
+	}
+
+	// Execute workflow with automatic tracking
+	result, execution, err := a.executionTracker.TrackExecution(ctx, workflowName, args, func() (*mcp.CallToolResult, error) {
+		return a.executor.ExecuteWorkflow(ctx, workflow, args)
+	})
+
+	// Include execution_id in the response for test scenarios and API consumers
+	if execution != nil {
+		if result != nil {
+			result = a.enhanceResultWithExecutionID(result, execution.ExecutionID)
+		} else if err != nil {
+			// For failed workflows with no result, create a minimal result with execution_id
+			result = &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s", "error": "%s"}`, execution.ExecutionID, err.Error()))},
+				IsError: true,
+			}
+		}
+	}
+
+	if err != nil {
+		// Convert mcp result to api result
+		if result != nil {
 			var content []interface{}
-			for _, mcpContent := range mcpResult.Content {
+			for _, mcpContent := range result.Content {
 				if textContent, ok := mcpContent.(mcp.TextContent); ok {
 					content = append(content, textContent.Text)
 				} else {
@@ -57,7 +146,6 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 			}, nil
 		}
 
-		// Fallback for errors without execution data
 		return &api.CallToolResult{
 			Content: []interface{}{err.Error()},
 			IsError: true,
@@ -66,7 +154,7 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 
 	// Convert mcp.CallToolResult to api.CallToolResult
 	var content []interface{}
-	for _, mcpContent := range mcpResult.Content {
+	for _, mcpContent := range result.Content {
 		if textContent, ok := mcpContent.(mcp.TextContent); ok {
 			content = append(content, textContent.Text)
 		} else {
@@ -76,45 +164,148 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 
 	return &api.CallToolResult{
 		Content: content,
-		IsError: mcpResult.IsError,
+		IsError: result.IsError,
 	}, nil
 }
 
 // GetWorkflows returns information about all workflows
 func (a *Adapter) GetWorkflows() []api.Workflow {
-	workflows := a.manager.ListDefinitions()
-	return workflows // Already using api.Workflow type
+	ctx := context.Background()
+	workflowCRDs, err := a.client.ListWorkflows(ctx, a.namespace)
+	if err != nil {
+		logging.Error("WorkflowAdapter", err, "Failed to list workflows")
+		return []api.Workflow{}
+	}
+
+	workflows := make([]api.Workflow, 0, len(workflowCRDs))
+	for _, workflowCRD := range workflowCRDs {
+		workflow := a.convertCRDToWorkflow(&workflowCRD)
+		workflow.Available = a.isWorkflowAvailable(workflow)
+		workflows = append(workflows, *workflow)
+	}
+
+	return workflows
 }
 
 // GetWorkflow returns a specific workflow definition
 func (a *Adapter) GetWorkflow(name string) (*api.Workflow, error) {
-	workflow, exists := a.manager.GetDefinition(name)
-	if !exists {
+	ctx := context.Background()
+	workflowCRD, err := a.client.GetWorkflow(ctx, name, a.namespace)
+	if err != nil {
 		return nil, api.NewWorkflowNotFoundError(name)
 	}
-	return &workflow, nil
+
+	workflow := a.convertCRDToWorkflow(workflowCRD)
+	workflow.Available = a.isWorkflowAvailable(workflow)
+	return workflow, nil
 }
 
 // CreateWorkflowFromStructured creates a new workflow from structured arguments
 func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) error {
+	// Validate the workflow before creating it
+	if err := a.ValidateWorkflowFromStructured(args); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
 	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return err
 	}
 
-	return a.manager.CreateWorkflow(wf)
+	// Create a simplified CRD for filesystem storage that avoids complex conversion
+	workflowCRD := &musterv1alpha1.Workflow{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "muster.giantswarm.io/v1alpha1",
+			Kind:       "Workflow",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wf.Name,
+			Namespace: a.namespace,
+		},
+		Spec: musterv1alpha1.WorkflowSpec{
+			Name:        wf.Name,
+			Description: wf.Description,
+			Args:        make(map[string]musterv1alpha1.ArgDefinition),
+			Steps:       make([]musterv1alpha1.WorkflowStep, len(wf.Steps)),
+		},
+	}
+
+	// Convert args safely
+	for key, argDef := range wf.Args {
+		crdArgDef := musterv1alpha1.ArgDefinition{
+			Type:        argDef.Type,
+			Required:    argDef.Required,
+			Description: argDef.Description,
+		}
+		// Convert default value if present
+		if argDef.Default != nil {
+			crdArgDef.Default = a.convertToRawExtension(argDef.Default)
+		}
+		workflowCRD.Spec.Args[key] = crdArgDef
+	}
+
+	// Convert steps safely
+	for i, step := range wf.Steps {
+		crdStep := musterv1alpha1.WorkflowStep{
+			ID:           step.ID,
+			Tool:         step.Tool,
+			Store:        step.Store,
+			AllowFailure: step.AllowFailure,
+			Description:  step.Description,
+			Args:         make(map[string]*runtime.RawExtension),
+		}
+
+		// Convert condition if present
+		if step.Condition != nil {
+			crdStep.Condition = a.convertWorkflowConditionToCRD(step.Condition)
+		}
+
+		// Convert args safely without causing recursion
+		for key, value := range step.Args {
+			if jsonBytes, err := json.Marshal(value); err == nil {
+				crdStep.Args[key] = &runtime.RawExtension{Raw: jsonBytes}
+			}
+		}
+
+		workflowCRD.Spec.Steps[i] = crdStep
+	}
+
+	// Create the CRD
+	ctx := context.Background()
+	if err := a.client.CreateWorkflow(ctx, workflowCRD); err != nil {
+		return fmt.Errorf("failed to create workflow: %w", err)
+	}
+
+	return nil
 }
 
 // UpdateWorkflowFromStructured updates an existing workflow from structured arguments
 func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]interface{}) error {
+	// Validate the workflow before updating it
+	if err := a.ValidateWorkflowFromStructured(args); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
 	// Convert structured arguments to api.Workflow
 	wf, err := convertToWorkflow(args)
 	if err != nil {
 		return err
 	}
 
-	return a.manager.UpdateWorkflow(name, wf)
+	// Ensure the name matches
+	wf.Name = name
+
+	// Convert to CRD
+	workflowCRD := a.convertWorkflowToCRD(&wf)
+
+	// Update the CRD
+	ctx := context.Background()
+	if err := a.client.UpdateWorkflow(ctx, workflowCRD); err != nil {
+		return fmt.Errorf("failed to update workflow: %w", err)
+	}
+
+	return nil
 }
 
 // ValidateWorkflowFromStructured validates a workflow definition from structured arguments
@@ -133,51 +324,378 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 		return fmt.Errorf("workflow must have at least one step")
 	}
 
+	// Step validation
+	stepIDs := make(map[string]bool)
+	for i, step := range wf.Steps {
+		// Check for empty step ID
+		if step.ID == "" {
+			return fmt.Errorf("step %d: step ID cannot be empty", i)
+		}
+
+		// Check for duplicate step IDs
+		if stepIDs[step.ID] {
+			return fmt.Errorf("duplicate step ID '%s' found", step.ID)
+		}
+		stepIDs[step.ID] = true
+
+		// Check for empty tool
+		if step.Tool == "" {
+			return fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
+		}
+	}
+
 	return nil
 }
 
 // DeleteWorkflow deletes a workflow
 func (a *Adapter) DeleteWorkflow(name string) error {
-	return a.manager.DeleteWorkflow(name)
+	ctx := context.Background()
+	return a.client.DeleteWorkflow(ctx, name, a.namespace)
 }
 
 // ListWorkflowExecutions returns paginated list of workflow executions with optional filtering
 func (a *Adapter) ListWorkflowExecutions(ctx context.Context, req *api.ListWorkflowExecutionsRequest) (*api.ListWorkflowExecutionsResponse, error) {
-	return a.manager.executionTracker.ListExecutions(ctx, req)
+	return a.executionTracker.ListExecutions(ctx, req)
 }
 
 // GetWorkflowExecution returns detailed information about a specific workflow execution
 func (a *Adapter) GetWorkflowExecution(ctx context.Context, req *api.GetWorkflowExecutionRequest) (*api.WorkflowExecution, error) {
-	return a.manager.executionTracker.GetExecution(ctx, req)
+	return a.executionTracker.GetExecution(ctx, req)
 }
 
 // CallToolInternal calls a tool internally - required by ToolCaller interface
 func (a *Adapter) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	if a.manager == nil {
-		return nil, fmt.Errorf("workflow manager not available")
+	if a.executor == nil {
+		return nil, fmt.Errorf("workflow executor not available")
 	}
 
-	// Delegate to the manager's tool caller (which should be the API-based one)
-	return a.manager.executor.toolCaller.CallToolInternal(ctx, toolName, args)
+	// Delegate to the executor's tool caller
+	return a.executor.toolCaller.CallToolInternal(ctx, toolName, args)
 }
 
 // Stop stops the workflow adapter
 func (a *Adapter) Stop() {
-	if a.manager != nil {
-		a.manager.Stop()
+	if a.client != nil {
+		a.client.Close()
 	}
 }
 
-// ReloadWorkflows reloads workflow definitions from disk
+// ReloadWorkflows reloads workflow definitions - not needed for CRD-based approach
 func (a *Adapter) ReloadWorkflows() error {
-	if a.manager != nil {
-		return a.manager.LoadDefinitions()
-	}
+	// CRDs are automatically refreshed, no need to reload
 	return nil
+}
+
+// convertCRDToWorkflow converts a Workflow CRD to internal API format
+func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *api.Workflow {
+	workflow := &api.Workflow{
+		Name:         workflowCRD.Spec.Name,
+		Description:  workflowCRD.Spec.Description,
+		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
+		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
+		CreatedAt:    workflowCRD.CreationTimestamp.Time,
+		LastModified: workflowCRD.CreationTimestamp.Time,
+	}
+
+	// Use modification time if available
+	if workflowCRD.Status.Conditions != nil {
+		for _, condition := range workflowCRD.Status.Conditions {
+			if condition.LastTransitionTime.After(workflow.LastModified) {
+				workflow.LastModified = condition.LastTransitionTime.Time
+			}
+		}
+	}
+
+	return workflow
+}
+
+// convertWorkflowToCRD converts an internal API workflow to CRD format
+func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.Workflow {
+	return &musterv1alpha1.Workflow{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      workflow.Name,
+			Namespace: a.namespace,
+		},
+		Spec: musterv1alpha1.WorkflowSpec{
+			Name:        workflow.Name,
+			Description: workflow.Description,
+			Args:        a.convertArgDefinitionsToCRD(workflow.Args),
+			Steps:       a.convertWorkflowStepsToCRD(workflow.Steps),
+		},
+	}
+}
+
+// convertArgDefinitions converts CRD ArgDefinitions to internal format
+func (a *Adapter) convertArgDefinitions(crdArgs map[string]musterv1alpha1.ArgDefinition) map[string]api.ArgDefinition {
+	args := make(map[string]api.ArgDefinition)
+	for name, crdArg := range crdArgs {
+		args[name] = api.ArgDefinition{
+			Type:        crdArg.Type,
+			Required:    crdArg.Required,
+			Description: crdArg.Description,
+			Default:     a.convertRawExtension(crdArg.Default),
+		}
+	}
+	return args
+}
+
+// convertArgDefinitionsToCRD converts internal ArgDefinitions to CRD format
+func (a *Adapter) convertArgDefinitionsToCRD(args map[string]api.ArgDefinition) map[string]musterv1alpha1.ArgDefinition {
+	crdArgs := make(map[string]musterv1alpha1.ArgDefinition)
+	for name, arg := range args {
+		crdArgs[name] = musterv1alpha1.ArgDefinition{
+			Type:        arg.Type,
+			Required:    arg.Required,
+			Description: arg.Description,
+			Default:     a.convertToRawExtension(arg.Default),
+		}
+	}
+	return crdArgs
+}
+
+// convertWorkflowSteps converts CRD WorkflowSteps to internal format
+func (a *Adapter) convertWorkflowSteps(crdSteps []musterv1alpha1.WorkflowStep) []api.WorkflowStep {
+	steps := make([]api.WorkflowStep, 0, len(crdSteps))
+	for _, crdStep := range crdSteps {
+		step := api.WorkflowStep{
+			ID:           crdStep.ID,
+			Tool:         crdStep.Tool,
+			Args:         a.convertRawExtensionMap(crdStep.Args),
+			Store:        crdStep.Store,
+			AllowFailure: crdStep.AllowFailure,
+			Outputs:      a.convertRawExtensionMap(crdStep.Outputs),
+			Description:  crdStep.Description,
+		}
+
+		if crdStep.Condition != nil {
+			step.Condition = a.convertWorkflowCondition(crdStep.Condition)
+		}
+
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+// convertWorkflowStepsToCRD converts internal WorkflowSteps to CRD format
+func (a *Adapter) convertWorkflowStepsToCRD(steps []api.WorkflowStep) []musterv1alpha1.WorkflowStep {
+	crdSteps := make([]musterv1alpha1.WorkflowStep, 0, len(steps))
+	for _, step := range steps {
+		crdStep := musterv1alpha1.WorkflowStep{
+			ID:           step.ID,
+			Tool:         step.Tool,
+			Args:         a.convertToRawExtensionMap(step.Args),
+			Store:        step.Store,
+			AllowFailure: step.AllowFailure,
+			Outputs:      a.convertToRawExtensionMap(step.Outputs),
+			Description:  step.Description,
+		}
+
+		if step.Condition != nil {
+			crdStep.Condition = a.convertWorkflowConditionToCRD(step.Condition)
+		}
+
+		crdSteps = append(crdSteps, crdStep)
+	}
+	return crdSteps
+}
+
+// convertWorkflowCondition converts CRD WorkflowCondition to internal format
+func (a *Adapter) convertWorkflowCondition(crdCondition *musterv1alpha1.WorkflowCondition) *api.WorkflowCondition {
+	condition := &api.WorkflowCondition{
+		Tool:     crdCondition.Tool,
+		Args:     a.convertRawExtensionMap(crdCondition.Args),
+		FromStep: crdCondition.FromStep,
+	}
+
+	if crdCondition.Expect != nil {
+		condition.Expect = a.convertWorkflowConditionExpectation(crdCondition.Expect)
+	}
+
+	if crdCondition.ExpectNot != nil {
+		condition.ExpectNot = a.convertWorkflowConditionExpectation(crdCondition.ExpectNot)
+	}
+
+	return condition
+}
+
+// convertWorkflowConditionToCRD converts internal WorkflowCondition to CRD format
+func (a *Adapter) convertWorkflowConditionToCRD(condition *api.WorkflowCondition) *musterv1alpha1.WorkflowCondition {
+	crdCondition := &musterv1alpha1.WorkflowCondition{
+		Tool:     condition.Tool,
+		Args:     a.convertToRawExtensionMap(condition.Args),
+		FromStep: condition.FromStep,
+	}
+
+	if condition.Expect.Success || len(condition.Expect.JsonPath) > 0 {
+		crdCondition.Expect = a.convertWorkflowConditionExpectationToCRD(condition.Expect)
+	}
+
+	if condition.ExpectNot.Success || len(condition.ExpectNot.JsonPath) > 0 {
+		crdCondition.ExpectNot = a.convertWorkflowConditionExpectationToCRD(condition.ExpectNot)
+	}
+
+	return crdCondition
+}
+
+// convertWorkflowConditionExpectation converts CRD WorkflowConditionExpectation to internal format
+func (a *Adapter) convertWorkflowConditionExpectation(crdExpectation *musterv1alpha1.WorkflowConditionExpectation) api.WorkflowConditionExpectation {
+	expectation := api.WorkflowConditionExpectation{
+		JsonPath: a.convertRawExtensionMap(crdExpectation.JsonPath),
+	}
+
+	if crdExpectation.Success != nil {
+		expectation.Success = *crdExpectation.Success
+	}
+
+	return expectation
+}
+
+// convertWorkflowConditionExpectationToCRD converts internal WorkflowConditionExpectation to CRD format
+func (a *Adapter) convertWorkflowConditionExpectationToCRD(expectation api.WorkflowConditionExpectation) *musterv1alpha1.WorkflowConditionExpectation {
+	crdExpectation := &musterv1alpha1.WorkflowConditionExpectation{
+		JsonPath: a.convertToRawExtensionMap(expectation.JsonPath),
+	}
+
+	if expectation.Success {
+		crdExpectation.Success = &expectation.Success
+	}
+
+	return crdExpectation
+}
+
+// convertRawExtension converts RawExtension to interface{}
+func (a *Adapter) convertRawExtension(rawExt *runtime.RawExtension) interface{} {
+	if rawExt == nil {
+		return nil
+	}
+
+	if len(rawExt.Raw) == 0 {
+		return nil
+	}
+
+	// For test scenarios, try to unmarshal as JSON first
+	var value interface{}
+	if err := json.Unmarshal(rawExt.Raw, &value); err == nil {
+		return value
+	}
+
+	// If JSON fails, return as string without any further conversion
+	return string(rawExt.Raw)
+}
+
+// convertToRawExtension converts interface{} to RawExtension
+func (a *Adapter) convertToRawExtension(value interface{}) *runtime.RawExtension {
+	if value == nil {
+		return &runtime.RawExtension{Raw: []byte("null")}
+	}
+
+	// Use simple JSON marshaling for all types to avoid recursion
+	raw, err := json.Marshal(value)
+	if err != nil {
+		// If marshaling fails, return as null
+		return &runtime.RawExtension{Raw: []byte("null")}
+	}
+
+	return &runtime.RawExtension{Raw: raw}
+}
+
+// convertRawExtensionMap converts map[string]*RawExtension to map[string]interface{}
+func (a *Adapter) convertRawExtensionMap(rawExtMap map[string]*runtime.RawExtension) map[string]interface{} {
+	if rawExtMap == nil {
+		return make(map[string]interface{})
+	}
+	result := make(map[string]interface{})
+	for key, rawExt := range rawExtMap {
+		if rawExt != nil {
+			if converted := a.convertRawExtension(rawExt); converted != nil {
+				result[key] = converted
+			}
+		}
+	}
+	return result
+}
+
+// convertToRawExtensionMap converts map[string]interface{} to map[string]*RawExtension
+func (a *Adapter) convertToRawExtensionMap(valueMap map[string]interface{}) map[string]*runtime.RawExtension {
+	if valueMap == nil {
+		return make(map[string]*runtime.RawExtension)
+	}
+	result := make(map[string]*runtime.RawExtension)
+	for key, value := range valueMap {
+		if value != nil {
+			if rawExt := a.convertToRawExtension(value); rawExt != nil {
+				result[key] = rawExt
+			}
+		}
+	}
+	return result
+}
+
+// isWorkflowAvailable checks if a workflow has all required tools available
+func (a *Adapter) isWorkflowAvailable(workflow *api.Workflow) bool {
+	a.mu.RLock()
+	if a.generatingTools {
+		a.mu.RUnlock()
+		// If we're in the middle of generating tools, assume available to avoid circular dependency
+		return true
+	}
+	a.mu.RUnlock()
+
+	if a.toolChecker == nil {
+		return true // Assume available if no tool checker
+	}
+
+	// Check each step's tool availability
+	for _, step := range workflow.Steps {
+		if !a.toolChecker.IsToolAvailable(step.Tool) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
+func (a *Adapter) enhanceResultWithExecutionID(result *mcp.CallToolResult, executionID string) *mcp.CallToolResult {
+	if result == nil {
+		return nil
+	}
+
+	// If there's only one text content, try to parse it as JSON and add execution_id
+	if len(result.Content) == 1 {
+		if textContent, ok := result.Content[0].(mcp.TextContent); ok {
+			var jsonData interface{}
+			if err := json.Unmarshal([]byte(textContent.Text), &jsonData); err == nil {
+				// Successfully parsed as JSON
+				if jsonMap, ok := jsonData.(map[string]interface{}); ok {
+					jsonMap["execution_id"] = executionID
+					if enhancedJSON, err := json.Marshal(jsonMap); err == nil {
+						result.Content[0] = mcp.NewTextContent(string(enhancedJSON))
+						return result
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback: append execution_id as separate content
+	result.Content = append(result.Content, mcp.NewTextContent(fmt.Sprintf(`{"execution_id": "%s"}`, executionID)))
+	return result
 }
 
 // GetTools returns all tools this provider offers
 func (a *Adapter) GetTools() []api.ToolMetadata {
+	// Set flag to prevent circular dependency during tool generation
+	a.mu.Lock()
+	a.generatingTools = true
+	a.mu.Unlock()
+
+	defer func() {
+		a.mu.Lock()
+		a.generatingTools = false
+		a.mu.Unlock()
+	}()
+
 	tools := []api.ToolMetadata{
 		// Workflow management tools
 		{
@@ -207,205 +725,61 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_create",
-			Description: "Create a new workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Description: "Create a new workflow",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
-				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
+				{
+					Name:        "name",
+					Type:        "string",
+					Required:    true,
+					Description: "Name of the workflow",
+				},
+				{
+					Name:        "description",
+					Type:        "string",
+					Required:    false,
+					Description: "Description of the workflow",
+				},
 				{
 					Name:        "args",
 					Type:        "object",
 					Required:    false,
-					Description: "Simple argument definitions for workflow input validation",
+					Description: "Workflow arguments definition",
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
-					Description: "Array of workflow steps defining the execution sequence",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Array of workflow steps defining the execution sequence",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"id": map[string]interface{}{
-									"type":        "string",
-									"description": "Unique identifier for this step within the workflow",
-								},
-								"tool": map[string]interface{}{
-									"type":        "string",
-									"description": "Name of the tool to execute for this step",
-								},
-								"condition": map[string]interface{}{
-									"type":        "object",
-									"description": "Optional condition that determines whether this step should execute (optional)",
-									"properties": map[string]interface{}{
-										"tool": map[string]interface{}{
-											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
-										},
-										"from_step": map[string]interface{}{
-											"type":        "string",
-											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
-										},
-										"args": map[string]interface{}{
-											"type":        "object",
-											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
-										},
-										"expect": map[string]interface{}{
-											"type":        "object",
-											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-										"expect_not": map[string]interface{}{
-											"type":        "object",
-											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-									},
-								},
-								"args": map[string]interface{}{
-									"type":        "object",
-									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
-								},
-								"allow_failure": map[string]interface{}{
-									"type":        "boolean",
-									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
-								},
-								"store": map[string]interface{}{
-									"type":        "string",
-									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"description": map[string]interface{}{
-									"type":        "string",
-									"description": "Human-readable description of what this step does (optional)",
-								},
-							},
-							"required":             []string{"id", "tool"},
-							"additionalProperties": false,
-						},
-						"minItems": 1,
-					},
+					Description: "Workflow steps",
 				},
 			},
 		},
 		{
 			Name:        "workflow_update",
-			Description: "Update an existing workflow. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Description: "Update an existing workflow",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Name of the workflow to update"},
-				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
+				{
+					Name:        "name",
+					Type:        "string",
+					Required:    true,
+					Description: "Name of the workflow to update",
+				},
+				{
+					Name:        "description",
+					Type:        "string",
+					Required:    false,
+					Description: "Description of the workflow",
+				},
 				{
 					Name:        "args",
 					Type:        "object",
 					Required:    false,
-					Description: "Simple argument definitions for workflow input validation",
+					Description: "Workflow arguments definition",
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
-					Description: "Array of workflow steps defining the execution sequence",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Array of workflow steps defining the execution sequence",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"id": map[string]interface{}{
-									"type":        "string",
-									"description": "Unique identifier for this step within the workflow",
-								},
-								"tool": map[string]interface{}{
-									"type":        "string",
-									"description": "Name of the tool to execute for this step",
-								},
-								"condition": map[string]interface{}{
-									"type":        "object",
-									"description": "Optional condition that determines whether this step should execute (optional)",
-									"properties": map[string]interface{}{
-										"tool": map[string]interface{}{
-											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
-										},
-										"from_step": map[string]interface{}{
-											"type":        "string",
-											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
-										},
-										"args": map[string]interface{}{
-											"type":        "object",
-											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
-										},
-										"expect": map[string]interface{}{
-											"type":        "object",
-											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-										"expect_not": map[string]interface{}{
-											"type":        "object",
-											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-									},
-								},
-								"args": map[string]interface{}{
-									"type":        "object",
-									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
-								},
-								"allow_failure": map[string]interface{}{
-									"type":        "boolean",
-									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
-								},
-								"store": map[string]interface{}{
-									"type":        "string",
-									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"description": map[string]interface{}{
-									"type":        "string",
-									"description": "Human-readable description of what this step does (optional)",
-								},
-							},
-							"required":             []string{"id", "tool"},
-							"additionalProperties": false,
-						},
-						"minItems": 1,
-					},
+					Description: "Workflow steps",
 				},
 			},
 		},
@@ -423,151 +797,75 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "workflow_validate",
-			Description: "Validate a workflow definition. IMPORTANT: To pass workflow inputs to tools in steps, use the 'args' field with template variables like '{{ .input.paramName }}'. For example: { \"args\": { \"text\": \"{{ .input.message }}\" } }. Without proper args mapping, tools will not receive workflow input arguments.",
+			Description: "Validate a workflow definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "Workflow name"},
-				{Name: "description", Type: "string", Required: false, Description: "Workflow description"},
+				{
+					Name:        "name",
+					Type:        "string",
+					Required:    true,
+					Description: "Name of the workflow",
+				},
+				{
+					Name:        "description",
+					Type:        "string",
+					Required:    false,
+					Description: "Description of the workflow",
+				},
 				{
 					Name:        "args",
 					Type:        "object",
 					Required:    false,
-					Description: "Simple argument definitions for workflow input validation",
+					Description: "Workflow arguments definition",
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
-					Description: "Array of workflow steps defining the execution sequence",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Array of workflow steps defining the execution sequence",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"id": map[string]interface{}{
-									"type":        "string",
-									"description": "Unique identifier for this step within the workflow",
-								},
-								"tool": map[string]interface{}{
-									"type":        "string",
-									"description": "Name of the tool to execute for this step",
-								},
-								"condition": map[string]interface{}{
-									"type":        "object",
-									"description": "Optional condition that determines whether this step should execute (optional)",
-									"properties": map[string]interface{}{
-										"tool": map[string]interface{}{
-											"type":        "string",
-											"description": "Name of the tool to use for condition evaluation (optional when from_step is used)",
-										},
-										"from_step": map[string]interface{}{
-											"type":        "string",
-											"description": "Reference to a previous step ID to use its result for condition evaluation (optional when tool is used)",
-										},
-										"args": map[string]interface{}{
-											"type":        "object",
-											"description": "Arguments to pass to the condition tool (optional). Use template variables: { \"param\": \"{{ .input.workflowParam }}\" }",
-										},
-										"expect": map[string]interface{}{
-											"type":        "object",
-											"description": "Expected result for condition to be considered true (optional when expect_not is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should succeed (true) or fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-										"expect_not": map[string]interface{}{
-											"type":        "object",
-											"description": "Negated expected result for condition to be considered true (optional when expect is used)",
-											"properties": map[string]interface{}{
-												"success": map[string]interface{}{
-													"type":        "boolean",
-													"description": "Whether the condition tool should NOT succeed (true) or NOT fail (false) for the condition to be met (optional, defaults to false)",
-												},
-												"json_path": map[string]interface{}{
-													"type":        "object",
-													"description": "Optional JSON path expressions that must NOT match specific values in the condition tool's response (optional)",
-												},
-											},
-										},
-									},
-								},
-								"args": map[string]interface{}{
-									"type":        "object",
-									"description": "Arguments to pass to the tool (optional). Use template variables to pass workflow inputs: { \"param\": \"{{ .input.workflowParam }}\" }. Template variables: {{ .input.* }} for workflow inputs, {{ .results.* }} for previous step results.",
-								},
-								"allow_failure": map[string]interface{}{
-									"type":        "boolean",
-									"description": "Whether this step is allowed to fail without failing the workflow. When true, step failures are recorded but workflow continues (optional, defaults to false)",
-								},
-								"store": map[string]interface{}{
-									"type":        "string",
-									"description": "Variable name to store the step result for use in later steps (optional)",
-								},
-								"description": map[string]interface{}{
-									"type":        "string",
-									"description": "Human-readable description of what this step does (optional)",
-								},
-							},
-							"required":             []string{"id", "tool"},
-							"additionalProperties": false,
-						},
-						"minItems": 1,
-					},
+					Description: "Workflow steps",
 				},
 			},
 		},
-		// Workflow execution tracking tools
+		{
+			Name:        "workflow_available",
+			Description: "Check if a workflow is available",
+			Args: []api.ArgMetadata{
+				{
+					Name:        "name",
+					Type:        "string",
+					Required:    true,
+					Description: "Name of the workflow",
+				},
+			},
+		},
 		{
 			Name:        "workflow_execution_list",
-			Description: "List workflow executions with filtering and pagination",
+			Description: "List workflow executions",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "workflow_name",
 					Type:        "string",
 					Required:    false,
-					Description: "Filter executions by workflow name (optional)",
+					Description: "Filter by workflow name",
 				},
 				{
 					Name:        "status",
 					Type:        "string",
 					Required:    false,
-					Description: "Filter executions by status (optional)",
-					Schema: map[string]interface{}{
-						"type": "string",
-						"enum": []string{"inprogress", "completed", "failed"},
-					},
+					Description: "Filter by execution status",
 				},
 				{
 					Name:        "limit",
-					Type:        "integer",
+					Type:        "number",
 					Required:    false,
-					Description: "Maximum number of executions to return (default: 50)",
+					Description: "Maximum number of executions to return",
 					Default:     50,
-					Schema: map[string]interface{}{
-						"type":    "integer",
-						"minimum": 1,
-						"maximum": 1000,
-						"default": 50,
-					},
 				},
 				{
 					Name:        "offset",
-					Type:        "integer",
+					Type:        "number",
 					Required:    false,
-					Description: "Number of executions to skip for pagination (default: 0)",
+					Description: "Number of executions to skip",
 					Default:     0,
-					Schema: map[string]interface{}{
-						"type":    "integer",
-						"minimum": 0,
-						"default": 0,
-					},
 				},
 			},
 		},
@@ -579,52 +877,34 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Name:        "execution_id",
 					Type:        "string",
 					Required:    true,
-					Description: "Unique identifier of the workflow execution",
+					Description: "ID of the execution",
 				},
 				{
 					Name:        "include_steps",
 					Type:        "boolean",
 					Required:    false,
-					Description: "Include detailed step results in the response (default: true)",
+					Description: "Include step details",
 					Default:     true,
 				},
 				{
 					Name:        "step_id",
 					Type:        "string",
 					Required:    false,
-					Description: "Get result for specific step only (optional)",
-				},
-			},
-		},
-		{
-			Name:        "workflow_available",
-			Description: "Check if a workflow is available (all required tools present)",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the workflow to check",
+					Description: "Get specific step details",
 				},
 			},
 		},
 	}
 
-	// Add a tool for each workflow
+	// Add workflow execution tools (action_*) dynamically
 	workflows := a.GetWorkflows()
-	logging.Info("WorkflowAdapter", "GetTools called: found %d workflows", len(workflows))
-
-	for _, wf := range workflows {
-		toolName := fmt.Sprintf("action_%s", wf.Name)
-		logging.Info("WorkflowAdapter", "Adding workflow tool: %s for workflow %s", toolName, wf.Name)
+	for _, workflow := range workflows {
 		tools = append(tools, api.ToolMetadata{
-			Name:        toolName,
-			Description: wf.Description,
-			Args:        a.convertWorkflowArgs(wf.Name),
+			Name:        "action_" + workflow.Name,
+			Description: workflow.Description,
+			Args:        a.convertWorkflowArgs(workflow.Name),
 		})
 	}
-
-	logging.Info("WorkflowAdapter", "GetTools returning %d total tools (7 management + %d workflow execution)", len(tools), len(workflows))
 
 	return tools
 }
@@ -687,16 +967,13 @@ func (a *Adapter) convertWorkflowArgs(workflowName string) []api.ArgMetadata {
 
 // Helper methods for handling management operations
 func (a *Adapter) handleList(args map[string]interface{}) (*api.CallToolResult, error) {
-	workflows := a.manager.ListDefinitions()
+	workflows := a.GetWorkflows()
 
 	var result []map[string]interface{}
 	for _, wf := range workflows {
-		// Populate the Available field by checking availability
-		available := a.manager.IsAvailable(wf.Name)
-
 		workflowInfo := map[string]interface{}{
 			"name":      wf.Name,
-			"available": available,
+			"available": wf.Available,
 		}
 
 		// Only include description if it's not empty
@@ -772,8 +1049,8 @@ func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
 	}
 
-	// Create workflow through manager
-	if err := a.manager.CreateWorkflow(wf); err != nil {
+	// Create workflow through adapter
+	if err := a.CreateWorkflowFromStructured(args); err != nil {
 		return nil, fmt.Errorf("failed to create workflow: %w", err)
 	}
 
@@ -857,7 +1134,14 @@ func (a *Adapter) handleWorkflowAvailable(args map[string]interface{}) (*api.Cal
 		}, nil
 	}
 
-	available := a.manager.IsAvailable(name)
+	workflow, err := a.GetWorkflow(name)
+	if err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{err.Error()},
+			IsError: true,
+		}, nil
+	}
+	available := a.isWorkflowAvailable(workflow)
 
 	result := map[string]interface{}{
 		"name":      name,
@@ -1089,7 +1373,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if argsParam, ok := args["args"].(map[string]interface{}); ok {
 		argsDefinition, err := convertArgsDefinition(argsParam)
 		if err != nil {
-			return wf, fmt.Errorf("invalid args: %v", err)
+			return wf, fmt.Errorf("validation failed: args: %v", err)
 		}
 		wf.Args = argsDefinition
 	}
@@ -1099,7 +1383,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if stepsParam, ok := args["steps"].([]interface{}); ok {
 		steps, err := convertWorkflowSteps(stepsParam)
 		if err != nil {
-			return wf, fmt.Errorf("invalid steps: %v", err)
+			return wf, fmt.Errorf("validation failed: steps: %v", err)
 		}
 		wf.Steps = steps
 	} else {
@@ -1167,6 +1451,9 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 
 		// ID is required
 		if id, ok := stepMap["id"].(string); ok {
+			if id == "" {
+				return nil, fmt.Errorf("step %d: id cannot be empty", i)
+			}
 			step.ID = id
 		} else {
 			return nil, fmt.Errorf("step %d: id is required", i)
@@ -1174,6 +1461,9 @@ func convertWorkflowSteps(stepsParam []interface{}) ([]api.WorkflowStep, error) 
 
 		// Tool is required
 		if tool, ok := stepMap["tool"].(string); ok {
+			if tool == "" {
+				return nil, fmt.Errorf("step %d: tool cannot be empty", i)
+			}
 			step.Tool = tool
 		} else {
 			return nil, fmt.Errorf("step %d: tool is required", i)
