@@ -1,0 +1,45 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: git-tools
+  namespace: default
+spec:
+  name: git-tools
+  type: localCommand
+  autoStart: true
+  toolPrefix: git
+  command: ["npx", "@modelcontextprotocol/server-git"]
+  env:
+    GIT_ROOT: "/workspace"
+    LOG_LEVEL: "info"
+  description: "Git tools MCP server for repository operations"
+---
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: filesystem-tools
+  namespace: default
+spec:
+  name: filesystem-tools
+  type: localCommand
+  autoStart: false
+  toolPrefix: fs
+  command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+  env:
+    LOG_LEVEL: "debug"
+  description: "Filesystem tools MCP server for file operations"
+---
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: python-tools
+  namespace: default
+spec:
+  name: python-tools
+  type: localCommand
+  autoStart: true
+  command: ["python", "-m", "mcp_server.example"]
+  env:
+    PYTHONPATH: "/usr/local/lib/python3.9/site-packages"
+    DEBUG: "true"
+  description: "Python-based MCP server providing custom tools" 

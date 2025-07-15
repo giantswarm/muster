@@ -1,0 +1,47 @@
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: Workflow
+metadata:
+  name: deploy-application
+  namespace: default
+  labels:
+    category: deployment
+    environment: production
+spec:
+  name: deploy-application
+  description: "Deploy application to production environment with validation"
+  args:
+    app_name:
+      type: string
+      required: true
+      description: "Name of the application to deploy"
+    environment:
+      type: string
+      default: "production"
+      description: "Target deployment environment"
+    replicas:
+      type: integer
+      default: 3
+      description: "Number of application replicas"
+  steps:
+    - id: build_image
+      tool: docker_build
+      args:
+        name: "{{.input.app_name}}"
+        tag: "{{.input.environment}}-latest"
+      store: true
+    
+    - id: deploy_service
+      tool: service_create
+      args:
+        name: "{{.input.app_name}}-{{.input.environment}}"
+        serviceClassName: "web-application"
+        args:
+          image: "{{.results.build_image.image_id}}"
+          replicas: "{{.input.replicas}}"
+      store: true
+    
+    - id: verify_deployment
+      tool: health_check
+      args:
+        service_name: "{{.results.deploy_service.name}}"
+        timeout: "5m" 

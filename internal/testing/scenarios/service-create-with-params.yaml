@@ -14,21 +14,18 @@ pre_configuration:
         responses: [ { response: { said: "{{ .text }}" } } ]
   service_classes:
   - name: "sc-with-params"
-    config:
-      name: "sc-with-params"
-      version: "1.0.0"
-      args:
-        message:
-          type: "string"
-          required: true
-          description: "Message to echo"
-      serviceConfig:
-        lifecycleTools:
-          start:
-            tool: "x_echo-provider_echo"
-            args:
-              text: "{{ .args.message }}"
-          stop: { tool: "core_config_get" }
+    args:
+      message:
+        type: "string"
+        required: true
+        description: "Message to echo"
+    serviceConfig:
+      lifecycleTools:
+        start:
+          tool: "x_echo-provider_echo"
+          args:
+            text: "{{ .args.message }}"
+        stop: { tool: "core_config_get" }
 steps:
 - id: "create-service-with-params"
   tool: "core_service_create"

@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"muster/internal/aggregator"
 	"muster/internal/api"
+	"muster/internal/client"
 	"muster/internal/config"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
 	"muster/internal/serviceclass"
 	"muster/internal/services"
 	aggregatorService "muster/internal/services/aggregator"
-	"muster/internal/services/mcpserver"
 	"muster/internal/workflow"
 	"muster/pkg/logging"
 )
@@ -91,14 +91,6 @@ type Services struct {
 //
 // Returns a fully initialized Services struct or an error if critical initialization fails.
 func InitializeServices(cfg *Config) (*Services, error) {
-	// Create storage for shared use across services including orchestrator persistence
-	var storage *config.Storage
-	if cfg.ConfigPath != "" {
-		storage = config.NewStorageWithPath(cfg.ConfigPath)
-	} else {
-		storage = config.NewStorage()
-	}
-
 	// Create API-based tool checker and caller
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
@@ -108,7 +100,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		Aggregator: cfg.MusterConfig.Aggregator,
 		Yolo:       cfg.Yolo,
 		ToolCaller: toolCaller,
-		Storage:    storage,
 	}
 
 	orch := orchestrator.New(orchConfig)
@@ -116,7 +107,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Get the service registry
 	registry := orch.GetServiceRegistry()
 
-	// Step 1: Create and register adapters BEFORE creating APIs
+	// Step 1: Create unified muster client once
+	// This avoids redundant Kubernetes connection attempts and CRD validation
+	musterClient, err := createMusterClient(cfg.ConfigPath, cfg.Debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client: %w", err)
+	}
+
+	// Step 2: Create and register adapters using the muster client
 	// This is critical - APIs need handlers to be registered first
 
 	// Register service registry adapter
@@ -131,90 +129,39 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
 
-	// Initialize and register ServiceClass manager
-	// This needs to be done before orchestrator starts to handle ServiceClass-based services
-
-	// Get the service registry handler from the API
-	registryHandler := api.GetServiceRegistry()
-	if registryHandler == nil {
-		return nil, fmt.Errorf("service registry handler not available")
-	}
-
-	// Use the shared storage created earlier
-	serviceClassManager, err := serviceclass.NewServiceClassManager(toolChecker, storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ServiceClass manager: %w", err)
-	}
-
-	// Create and register ServiceClass adapter
-	serviceClassAdapter := serviceclass.NewAdapter(serviceClassManager)
+	// Initialize and register ServiceClass adapter using the muster client
+	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, "default")
 	serviceClassAdapter.Register()
 
-	// Load ServiceClass definitions
+	// Load ServiceClass definitions to ensure they're available
 	if cfg.ConfigPath != "" {
-		serviceClassManager.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := serviceClassManager.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - ServiceClass is optional
-		logging.Warn("Services", "Failed to load ServiceClass definitions: %v", err)
-	}
-
-	// Create and register Workflow adapter
-	workflowManager, err := workflow.NewWorkflowManager(storage, nil, toolChecker)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Workflow manager: %w", err)
+		// Trigger ServiceClass loading by calling ListServiceClasses
+		// This ensures filesystem-based ServiceClasses are loaded into memory
+		serviceClasses := serviceClassAdapter.ListServiceClasses()
+		if len(serviceClasses) > 0 {
+			logging.Info("Services", "Loaded %d ServiceClass definitions from filesystem", len(serviceClasses))
+		}
 	}
 
-	workflowAdapter := workflow.NewAdapter(workflowManager, toolCaller)
+	// Create and register Workflow adapter using the muster client
+	workflowAdapter := workflow.NewAdapterWithClient(musterClient, "default", toolCaller, toolChecker)
 	workflowAdapter.Register()
 
-	// Load Workflow definitions
-	if cfg.ConfigPath != "" {
-		workflowManager.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := workflowManager.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - Workflow is optional
-		logging.Warn("Services", "Failed to load Workflow definitions: %v", err)
-	}
-
-	// Initialize and register MCPServer manager (new unified configuration approach)
-	mcpServerManager, err := mcpserverPkg.NewMCPServerManager(storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP server manager: %w", err)
-	}
-
-	// Create and register MCPServer adapter
-	mcpServerAdapter := mcpserverPkg.NewAdapter(mcpServerManager)
+	// Initialize and register MCPServer adapter using the muster client
+	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, "default")
 	mcpServerAdapter.Register()
 
-	// Load MCP server definitions
-	if cfg.ConfigPath != "" {
-		mcpServerManager.SetConfigPath(cfg.ConfigPath)
-	}
-	if err := mcpServerManager.LoadDefinitions(); err != nil {
-		// Log warning but don't fail - MCP servers are optional
-		logging.Warn("Services", "Failed to load MCP server definitions: %v", err)
-	}
+	// The new adapter uses the unified client instead of the manager
+	// MCPServer operations now work through CRDs (Kubernetes) or filesystem fallback
+	// Note: Definition loading is now handled by the unified client automatically
 
-	// Step 2: Create APIs that use the registered handlers
+	// Step 3: Create APIs that use the registered handlers
 	orchestratorAPI := api.NewOrchestratorAPI()
 	configAPI := api.NewConfigServiceAPI()
 
-	// Step 3: Create and register actual services
-	// Create MCP server services
-	mcpServerDefinitions := mcpServerManager.ListDefinitions()
-	for _, mcpDef := range mcpServerDefinitions {
-		if mcpDef.AutoStart {
-			mcpService, err := mcpserver.NewService(&mcpDef, mcpServerManager)
-			if err != nil {
-				logging.Warn("Services", "Failed to create MCP server service %s: %v", mcpDef.Name, err)
-				continue
-			}
-			if mcpService != nil {
-				registry.Register(mcpService)
-			}
-		}
-	}
+	// Step 4: Create and register actual services
+	// Note: Service creation (including MCPServer services) is handled by the orchestrator
+	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
 	// Create aggregator service - enable by default unless explicitly disabled
 	// This ensures the aggregator starts even with no MCP servers configured
@@ -283,3 +230,32 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		AggregatorPort:  cfg.MusterConfig.Aggregator.Port,
 	}, nil
 }
+
+// createMusterClient creates a single unified client that all adapters can use
+// This avoids redundant Kubernetes connection attempts and CRD validation
+func createMusterClient(configPath string, debug bool) (client.MusterClient, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return client.NewMusterClient()
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath:      configPath,
+		Namespace:           "default",
+		ForceFilesystemMode: false, // Let the client choose the best mode
+		Debug:               debug,
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	return musterClient, nil
+}
+
+// Note: Removed the individual adapter creation functions as they're now replaced by the unified muster client approach
+
+// Note: MCPServer service creation moved to orchestrator for proper dependency management

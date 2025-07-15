@@ -95,6 +95,8 @@ type TestConfiguration struct {
 	ReportPath string `yaml:"report_path,omitempty"`
 	// BasePort is the starting port number for muster instances
 	BasePort int `yaml:"base_port,omitempty"`
+	// KeepTempConfig keeps temporary config directory after test execution
+	KeepTempConfig bool `yaml:"keep_temp_config,omitempty"`
 }
 
 // TestScenario defines a single test scenario
@@ -153,12 +155,7 @@ type WorkflowConfig struct {
 }
 
 // ServiceClassConfig represents a service class configuration
-type ServiceClassConfig struct {
-	// Name is the unique identifier for the service class
-	Name string `yaml:"name"`
-	// Config contains the service class definition
-	Config map[string]interface{} `yaml:"config"`
-}
+type ServiceClassConfig map[string]interface{}
 
 // ServiceConfig represents a service instance configuration
 type ServiceConfig struct {

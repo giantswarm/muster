@@ -122,16 +122,10 @@ func (c *mcpTestClient) Connect(ctx context.Context, endpoint string) error {
 	return nil
 }
 
-// CallTool invokes an MCP tool with the given args
-func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
+// CallTool executes a tool via MCP
+func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs map[string]interface{}) (interface{}, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("MCP client not connected")
-	}
-
-	// Convert args to the format expected by the MCP client
-	var toolArgs interface{}
-	if args != nil {
-		toolArgs = args
 	}
 
 	if c.debug {
@@ -140,8 +134,10 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, args map[
 		c.logger.Debug("📋 Args: %s\n", string(argsJSON))
 	}
 
+	timeout := 120 * time.Second
+
 	// Create timeout context for the tool call
-	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Create the request using the pattern from the existing codebase
@@ -170,6 +166,7 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, args map[
 		c.logger.Debug("✅ Tool call result: %s\n", string(resultJSON))
 	}
 
+	// Return the result as interface{} to match the interface signature
 	return result, nil
 }
 

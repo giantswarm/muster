@@ -55,74 +55,64 @@ pre_configuration:
   # Pre-existing ServiceClasses that platform team has created
   service_classes:
     - name: "development-workspace"
-      config:
-        name: "development-workspace"
-        type: "development"
-        version: "1.2.0"
-        serviceConfig:
-          serviceType: "dev-environment"
-          defaultLabel: "workspace-{{ .args.developer }}-{{ .args.project }}"
-          createArgs:
-            developer:
-              toolArg: "dev_name"
-              required: true
-            project:
-              toolArg: "project_name"
-              required: true
-            repository_url:
-              toolArg: "repo_url"
-              required: true
-            database_needed:
-              toolArg: "needs_db"
-              required: false
-              default: true
-          lifecycleTools:
-            start:
-              tool: "x_git-provider_clone_repository"
-              args:
-                repo_url: "{{ .args.repository_url }}"
-                branch: "main"
-              responseMapping:
-                serviceId: "repo_path"
-            stop:
-              tool: "x_database-provider_delete_postgres_instance"
-              args:
-                database_id: "{{ .service.metadata.database_id }}"
-              condition: "{{ .args.database_needed }}"
+      args:
+        developer:
+          type: "string"
+          required: true
+        project:
+          type: "string"
+          required: true
+        repository_url:
+          type: "string"
+          required: true
+        database_needed:
+          type: "boolean"
+          required: false
+          default: true
+      serviceConfig:
+        defaultName: "workspace-{{ .args.developer }}-{{ .args.project }}"
+        lifecycleTools:
+          start:
+            tool: "x_git-provider_clone_repository"
+            args:
+              repo_url: "{{ .args.repository_url }}"
+              branch: "main"
+            responseMapping:
+              serviceId: "repo_path"
+          stop:
+            tool: "x_database-provider_delete_postgres_instance"
+            args:
+              database_id: "{{ .service.metadata.database_id }}"
+            condition: "{{ .args.database_needed }}"
 
     - name: "postgres-database"
-      config:
-        name: "postgres-database"
-        type: "database"
-        version: "1.0.0"
-        serviceConfig:
-          serviceType: "database"
-          defaultLabel: "db-{{ .args.project }}-{{ .args.environment }}"
-          createArgs:
-            project:
-              toolArg: "project_name"
-              required: true
-            developer:
-              toolArg: "username"
-              required: true
-            environment:
-              toolArg: "env"
-              required: false
-              default: "development"
-          lifecycleTools:
-            start:
-              tool: "x_database-provider_create_postgres_instance"
-              args:
-                db_name: "{{ .args.project }}"
-                username: "{{ .args.developer }}"
-                environment: "{{ .args.environment }}"
-              responseMapping:
-                serviceId: "database_id"
-                connectionString: "connection_string"
-            stop:
-              tool: "x_database-provider_delete_postgres_instance"
-              args:
-                database_id: "{{ .service.id }}"
+      args:
+        project:
+          type: "string"
+          required: true
+        developer:
+          type: "string"
+          required: true
+        environment:
+          type: "string"
+          required: false
+          default: "development"
+      serviceConfig:
+        defaultName: "db-{{ .args.project }}-{{ .args.environment }}"
+        lifecycleTools:
+          start:
+            tool: "x_database-provider_create_postgres_instance"
+            args:
+              db_name: "{{ .args.project }}"
+              username: "{{ .args.developer }}"
+              environment: "{{ .args.environment }}"
+            responseMapping:
+              serviceId: "database_id"
+              connectionString: "connection_string"
+          stop:
+            tool: "x_database-provider_delete_postgres_instance"
+            args:
+              database_id: "{{ .service.id }}"
 
 steps:
   # Phase 1: Developer Discovery (Given - What exists)
@@ -142,7 +132,6 @@ steps:
       success: true
       json_path:
         name: "development-workspace"
-        version: "1.2.0"
         
   - id: "developer-checks-database-options"
     tool: "core_serviceclass_get"
@@ -152,7 +141,6 @@ steps:
       success: true
       json_path:
         name: "postgres-database"
-        version: "1.0.0"
         
   # Phase 2: Developer Self-Service Provisioning (When - Actions)
   - id: "developer-creates-workspace"

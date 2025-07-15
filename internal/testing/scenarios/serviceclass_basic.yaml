@@ -51,7 +51,6 @@ steps:
     tool: "core_serviceclass_create"
     args:
       name: "test-basic-serviceclass"
-      version: "1.0.0"
       args:
         replicas:
           type: "number"

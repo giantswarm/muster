@@ -56,13 +56,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 	logging.Error("WorkflowExecutor", fmt.Errorf("workflow execution started"), "ExecuteWorkflow called with workflow=%s, args=%+v, required=%+v", workflow.Name, args, requiredArgs)
 	logging.Debug("WorkflowExecutor", "Executing workflow %s with %d steps", workflow.Name, len(workflow.Steps))
 
-	// Validate inputs against args definition
+	// Validate inputs against args definition (this applies default values to args)
 	if err := we.validateInputs(workflow.Args, args); err != nil {
 		logging.Error("WorkflowExecutor", err, "Input validation failed for workflow %s", workflow.Name)
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
 
-	// Create execution context with initial variables
+	// Create execution context with validated input (including default values)
 	execCtx := &executionContext{
 		input:        args,
 		variables:    make(map[string]interface{}),
@@ -102,6 +102,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 						if stepMeta.Store && execCtx.results[stepMeta.ID] != nil {
 							referencedStepResult = execCtx.results[stepMeta.ID]
 							found = true
+							logging.Debug("WorkflowExecutor", "Found stored result for step %s: %+v", step.Condition.FromStep, referencedStepResult)
 							break
 						}
 					}
@@ -120,6 +121,16 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 									"status":  stepMeta.Status,
 								}
 								found = true
+								logging.Debug("WorkflowExecutor", "Created error result for failed step %s", step.Condition.FromStep)
+								break
+							} else if stepMeta.Status == "completed" {
+								// For completed steps without stored results, create a basic success structure
+								referencedStepResult = map[string]interface{}{
+									"success": true,
+									"status":  stepMeta.Status,
+								}
+								found = true
+								logging.Debug("WorkflowExecutor", "Created basic success result for completed step %s", step.Condition.FromStep)
 								break
 							}
 						}
@@ -127,6 +138,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 				}
 
 				if !found {
+					logging.Error("WorkflowExecutor", fmt.Errorf("referenced step not found"), "Step %s condition references non-existent step result: %s. Available steps: %+v", step.ID, step.Condition.FromStep, execCtx.stepMetadata)
 					return nil, fmt.Errorf("step %s condition references non-existent step result: %s", step.ID, step.Condition.FromStep)
 				}
 
@@ -192,6 +204,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			if conditionError != nil {
 				// Condition tool failed
 				conditionPassed = false
+				logging.Debug("WorkflowExecutor", "Step %s condition failed due to tool error", step.ID)
 			} else {
 				// Check if we have an expect condition to evaluate
 				// Since validation ensures at least one expectation is provided, we always
@@ -232,27 +245,34 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					// Evaluate expect_not condition
 					expectNotPassed := true
 
-					// Check success condition if specified
-					if step.Condition.ExpectNot.Success {
-						expectNotPassed = (conditionToolResult.IsError == false) == step.Condition.ExpectNot.Success
+					// Only check success condition if ExpectNot.Success is explicitly set
+					// Check if the Success field was actually set in the configuration
+					if step.Condition.ExpectNot.Success != false || len(step.Condition.ExpectNot.JsonPath) == 0 {
+						// This means Success was explicitly set to true, or no JsonPath is provided
+						if len(step.Condition.ExpectNot.JsonPath) == 0 {
+							// Only success condition specified in expect_not
+							expectNotPassed = (conditionToolResult.IsError == false) == step.Condition.ExpectNot.Success
+						}
 					}
 
 					// Also check JSON path expectations if provided
-					if expectNotPassed && len(step.Condition.ExpectNot.JsonPath) > 0 {
+					if len(step.Condition.ExpectNot.JsonPath) > 0 {
 						jsonPathPassed, err := we.validateJsonPath(conditionToolResult, step.Condition.ExpectNot.JsonPath, execCtx)
 						if err != nil {
 							logging.Debug("WorkflowExecutor", "Step %s expect_not JSON path validation error: %v", step.ID, err)
-							expectNotPassed = false
+							// If JSON path validation fails, it means the path doesn't exist or there's an error
+							// For expect_not, this means the condition is satisfied (the expected value is not present)
+							expectNotPassed = true
 						} else {
-							expectNotPassed = jsonPathPassed
+							// If JSON path validation succeeds, it means the path exists and matches the expected value
+							// For expect_not, this means the condition is NOT satisfied (the expected value IS present)
+							expectNotPassed = !jsonPathPassed
 						}
-						logging.Debug("WorkflowExecutor", "Step %s expect_not JSON path validation result: %v", step.ID, jsonPathPassed)
+						logging.Debug("WorkflowExecutor", "Step %s expect_not JSON path validation result: %v, expectNotPassed: %v", step.ID, jsonPathPassed, expectNotPassed)
 					}
 
-					// Negate the expect_not result
-					expectNotPassed = !expectNotPassed
 					conditionPassed = conditionPassed && expectNotPassed
-					logging.Debug("WorkflowExecutor", "Step %s expect_not condition result (negated): %v", step.ID, expectNotPassed)
+					logging.Debug("WorkflowExecutor", "Step %s expect_not condition result: %v", step.ID, expectNotPassed)
 				}
 			}
 

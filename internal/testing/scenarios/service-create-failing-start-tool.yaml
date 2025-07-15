@@ -28,32 +28,24 @@ pre_configuration:
         
   service_classes:
   - name: "database-service"
-    config:
-      name: "database-service"
-      version: "1.0.0"
-      type: "data"
-      serviceConfig:
-        createArgs:
-          name:
-            toolArg: "db_name"
-            required: true
-        lifecycleTools:
-          start: { tool: "x_unreliable-database-provider_create_database" }
-          stop: { tool: "core_config_get" }
-          
+    args:
+      name:
+        type: "string"
+        required: true
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "x_unreliable-database-provider_create_database" }
+        stop: { tool: "core_config_get" }
+        
   - name: "cache-service"
-    config:
-      name: "cache-service"
-      version: "1.0.0"
-      type: "data"
-      serviceConfig:
-        createArgs:
-          name:
-            toolArg: "cache_name"
-            required: true
-        lifecycleTools:
-          start: { tool: "x_working-provider_create_cache" }
-          stop: { tool: "core_config_get" }
+    args:
+      name:
+        type: "string"
+        required: true
+    serviceConfig:
+      lifecycleTools:
+        start: { tool: "x_working-provider_create_cache" }
+        stop: { tool: "core_config_get" }
 
 steps:
 # Phase 1: Developer Attempts Service Creation (When)

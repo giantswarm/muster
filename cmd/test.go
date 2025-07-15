@@ -43,6 +43,8 @@ var (
 	testSchemaInput       string
 	// Muster configuration path flag
 	testMusterConfigPath string
+	// Flag to keep temporary config for debugging
+	testKeepTempConfig bool
 )
 
 // completeCategoryFlag provides shell completion for the category flag
@@ -187,6 +189,9 @@ func init() {
 	// Muster configuration path flag
 	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", "", "Custom configuration directory path")
 
+	// Flag to keep temporary config for debugging
+	testCmd.Flags().BoolVar(&testKeepTempConfig, "keep-temp-config", false, "Keep temporary config directory after test execution for debugging")
+
 	// Shell completion for test flags
 	_ = testCmd.RegisterFlagCompletionFunc("category", completeCategoryFlag)
 	_ = testCmd.RegisterFlagCompletionFunc("concept", completeConceptFlag)
@@ -199,6 +204,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "parallel")
 	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "generate-schema")
+	testCmd.MarkFlagsMutuallyExclusive("mcp-server", "keep-temp-config")
 
 	// Mark flags as mutually exclusive with mock MCP server mode
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "category")
@@ -207,6 +213,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "mcp-server")
 	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "generate-schema")
+	testCmd.MarkFlagsMutuallyExclusive("mock-mcp-server", "keep-temp-config")
 
 	// Mark flags as mutually exclusive with schema generation mode
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "category")
@@ -214,6 +221,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "scenario")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "parallel")
+	testCmd.MarkFlagsMutuallyExclusive("generate-schema", "keep-temp-config")
 
 	// Mark flags as mutually exclusive with scenario validation mode
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "category")
@@ -222,6 +230,7 @@ func init() {
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "fail-fast")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "parallel")
 	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "generate-schema")
+	testCmd.MarkFlagsMutuallyExclusive("validate-scenarios", "keep-temp-config")
 
 	// Validate parallel flag
 	testCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -313,14 +322,15 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Create test configuration
 	testConfig := testing.TestConfiguration{
-		Timeout:    testTimeout,
-		Parallel:   testParallel,
-		FailFast:   testFailFast,
-		Verbose:    testVerbose,
-		Debug:      testDebug,
-		ConfigPath: testConfigPath,
-		ReportPath: testReportPath,
-		BasePort:   testBasePort,
+		Timeout:        testTimeout,
+		Parallel:       testParallel,
+		FailFast:       testFailFast,
+		Verbose:        testVerbose,
+		Debug:          testDebug,
+		ConfigPath:     testConfigPath,
+		ReportPath:     testReportPath,
+		BasePort:       testBasePort,
+		KeepTempConfig: testKeepTempConfig,
 	}
 
 	// Parse category filter
@@ -355,7 +365,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	testConfig.Scenario = testScenario
 
 	// Create test framework with proper verbose and debug flags
-	framework, err := testing.NewTestFrameworkWithVerbose(testVerbose, testDebug, testBasePort, testReportPath)
+	framework, err := testing.NewTestFrameworkWithConfig(testVerbose, testDebug, testBasePort, testReportPath, testKeepTempConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create test framework: %w", err)
 	}

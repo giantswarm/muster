@@ -9,7 +9,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: ""  # Invalid empty name
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:
@@ -23,7 +22,6 @@ steps:
 - id: "create-sc-missing-name"
   tool: "core_serviceclass_create"
   args:
-    version: "1.0.0"  # Missing name field entirely
     serviceConfig:
       lifecycleTools:
         start:
@@ -38,7 +36,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "sc-missing-start"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         stop:
@@ -51,7 +48,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "sc-bad-tool-ref"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:
@@ -85,7 +81,6 @@ steps:
   tool: "core_serviceclass_update"
   args:
     name: "non-existent-update-sc"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:
@@ -108,7 +103,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "conflicting-name-serviceclass"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:
@@ -125,7 +119,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "conflicting-name-serviceclass"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:
@@ -149,7 +142,6 @@ steps:
   tool: "core_serviceclass_create"
   args:
     name: "missing-tools-serviceclass"
-    version: "1.0.0"
     serviceConfig:
       lifecycleTools:
         start:

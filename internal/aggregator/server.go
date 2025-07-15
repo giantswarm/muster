@@ -128,16 +128,6 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	a.server = mcpServer
 
-	// Initialize workflow adapter if config directory is provided
-	// This allows workflow definitions to be exposed as tools
-	if a.config.ConfigDir != "" {
-		workflowAdapter := a.createWorkflowAdapter()
-		if workflowAdapter != nil {
-			workflowAdapter.Register()
-			logging.Info("Aggregator", "Initialized workflow adapter")
-		}
-	}
-
 	// Start background monitoring for registry changes
 	a.wg.Add(1)
 	go a.monitorRegistryUpdates()
@@ -723,7 +713,7 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //
 // The method performs intelligent tool resolution:
 //  1. First attempts to resolve the tool through the server registry
-//  2. If not found, checks if it's a core tool from muster components
+//  2. If not found, checks if it's a core tool by name pattern
 //  3. Routes the call to the appropriate handler based on tool type
 //
 // This internal calling mechanism is essential for:
@@ -756,29 +746,38 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 	logging.Debug("Aggregator", "Tool %s not found in registry (error: %v), checking core tools", toolName, err)
 
-	// If not found in registry, check if it's a core tool from muster components
-	a.mu.RLock()
-	server := a.server
-	a.mu.RUnlock()
-
-	if server != nil {
-		// Check if this is a core tool by comparing with our core tool inventory
-		coreTools := a.createToolsFromProviders()
-		logging.Debug("Aggregator", "Created %d core tools, checking for %s", len(coreTools), toolName)
-		for _, tool := range coreTools {
-			logging.Debug("Aggregator", "Comparing tool %s with core tool %s", toolName, tool.Tool.Name)
-			if tool.Tool.Name == toolName {
-				logging.Debug("Aggregator", "Found core tool %s, calling directly", toolName)
-				// This is a core tool - call it directly through the provider
-				return a.callCoreToolDirectly(ctx, toolName, args)
-			}
-		}
-		logging.Debug("Aggregator", "Tool %s not found in %d core tools", toolName, len(coreTools))
-	} else {
-		logging.Debug("Aggregator", "Aggregator server is nil")
+	// If not found in registry, check if it's a core tool by name pattern
+	// This avoids the deadlock that can occur when calling createToolsFromProviders()
+	// during workflow execution
+	if a.isCoreToolByName(toolName) {
+		logging.Debug("Aggregator", "Tool %s matches core tool pattern, calling directly", toolName)
+		return a.callCoreToolDirectly(ctx, toolName, args)
 	}
 
+	logging.Debug("Aggregator", "Tool %s not found in registry or core tools", toolName)
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// isCoreToolByName checks if a tool name matches the pattern of core tools
+// without needing to recreate the tool list (which can cause deadlocks)
+func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
+	// Core tools have specific naming patterns based on their prefix
+	coreToolPrefixes := []string{
+		"core_workflow_",
+		"core_service_",
+		"core_config_",
+		"core_serviceclass_",
+		"core_mcpserver_",
+		"workflow_", // Direct workflow execution tools
+	}
+
+	for _, prefix := range coreToolPrefixes {
+		if strings.HasPrefix(toolName, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // callCoreToolDirectly routes core tool calls to the appropriate muster component providers.
@@ -914,44 +913,20 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 	return nil, fmt.Errorf("no handler found for core tool: %s", toolName)
 }
 
-// createWorkflowAdapter creates a workflow adapter for exposing workflow definitions as tools.
-//
-// This method is part of the legacy workflow integration pattern and is currently
-// disabled in favor of the unified component architecture. The aggregator uses
-// a different initialization pattern than the main services, making the standard
-// workflow adapter creation inappropriate.
-//
-// Current Implementation:
-// The method logs a warning and returns nil, indicating that workflow adapter
-// creation is skipped for the aggregator. Workflow tools are instead integrated
-// through the standard tool provider pattern via createToolsFromProviders().
-//
-// Returns nil (no workflow adapter created) with a warning log message.
-func (a *AggregatorServer) createWorkflowAdapter() interface {
-	Register()
-} {
-	// Use the new unified pattern instead of the deprecated factory
-	// Note: For aggregator, we can't use the full manager pattern since we need different initialization
-	// This is acceptable since aggregator has a different lifecycle than main services
-	logging.Warn("Aggregator", "Workflow adapter creation skipped - aggregator uses different initialization pattern")
-	return nil
-}
-
 // IsToolAvailable implements the ToolAvailabilityChecker interface.
 //
 // This method determines whether a specific tool is available through the aggregator,
 // checking both external backend servers (via the registry) and core muster tools
-// (via the tool providers). It provides a unified way for other components to
+// (via name pattern matching). It provides a unified way for other components to
 // verify tool availability before attempting to use them.
 //
 // The check process:
 //  1. Attempts to resolve the tool through the server registry
-//  2. If not found, checks the current core tool inventory
+//  2. If not found, checks if it matches core tool naming patterns
 //  3. Returns true if found in either location
 //
 // This method is used by:
 //   - Workflow manager for validating workflow step tools
-
 //   - Service class manager for tool availability validation
 //
 // Args:
@@ -965,12 +940,9 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 		return true // Found in registry
 	}
 
-	// Check if it's a core tool by recreating the core tools list
-	coreTools := a.createToolsFromProviders()
-	for _, tool := range coreTools {
-		if tool.Tool.Name == toolName {
-			return true // Found in core tools
-		}
+	// Check if it's a core tool by name pattern (avoid deadlock)
+	if a.isCoreToolByName(toolName) {
+		return true // Found in core tools
 	}
 
 	return false // Not found anywhere
@@ -992,7 +964,6 @@ func (a *AggregatorServer) IsToolAvailable(toolName string) bool {
 //
 // This method is used by:
 //   - Workflow manager for populating available tool lists
-
 //   - Service class manager for tool validation
 //   - Administrative interfaces for tool discovery
 //

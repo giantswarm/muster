@@ -7,24 +7,21 @@ timeout: "1m"
 pre_configuration:
   service_classes:
   - name: "test-sc"
-    config:
-      name: "test-sc"
-      version: "1.0.0"
-      serviceConfig:
-        args:
-          echo:
-            type: "string"
-            description: "Echo text"
-            required: true
-        lifecycleTools:
-          start: 
-            tool: "x_echo-provider_echo"
-            args: { text: "service started {{.echo}}" }
-          stop:
-            tool: "x_echo-provider_echo"
-            args: { text: "service stopped {{.echo}}" }
-        outputs:
-          status: "Service is running"
+    serviceConfig:
+      args:
+        echo:
+          type: "string"
+          description: "Echo text"
+          required: true
+      lifecycleTools:
+        start: 
+          tool: "x_echo-provider_echo"
+          args: { text: "service started {{.echo}}" }
+        stop:
+          tool: "x_echo-provider_echo"
+          args: { text: "service stopped {{.echo}}" }
+      outputs:
+        status: "Service is running"
             
   mcp_servers:
   - name: "echo-provider"
