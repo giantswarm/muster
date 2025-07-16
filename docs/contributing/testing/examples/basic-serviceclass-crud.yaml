@@ -1,0 +1,157 @@
+# Basic ServiceClass CRUD Operations Example
+# 
+# This example demonstrates:
+# - Creating a ServiceClass with proper validation
+# - Verifying ServiceClass availability
+# - Testing service instantiation from the ServiceClass
+# - Proper cleanup with comprehensive validation
+# - How instance logs provide debugging information
+#
+# Key Features of Enhanced Testing Framework:
+# - Each scenario runs against an isolated muster instance
+# - Instance logs are automatically captured (viewable with --debug)
+# - Graceful shutdown ensures clean test execution
+# - Parallel execution supported with port management
+
+name: "serviceclass-basic-crud-example"
+category: "behavioral"
+concept: "serviceclass"
+description: "Complete CRUD operations for ServiceClass with enhanced debugging"
+tags: ["basic", "crud", "serviceclass", "example"]
+timeout: "10m"
+
+# Test execution steps
+steps:
+  - id: "list-initial-serviceclasses"
+    description: "Verify no ServiceClasses exist initially"
+    tool: "core_serviceclass_list"
+    args: {}
+    expected:
+      success: true
+      json_path:
+        total: 0
+    timeout: "30s"
+
+  - id: "create-test-serviceclass"
+    description: "Create a basic ServiceClass for testing"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: example-web-service
+        type: "web-application"
+        version: "1.0.0"
+        description: "Example web application ServiceClass"
+        args:
+          replicas:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 10
+            description: "Number of service replicas"
+          image:
+            type: string
+            required: true
+            description: "Container image to deploy"
+        serviceConfig:
+          lifecycleTools:
+            start:
+              tool: "core_service_create"
+              description: "Create service instance"
+            stop:
+              tool: "core_service_delete"
+              description: "Delete service instance"
+        template: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ .name }}-config"
+          data:
+            replicas: "{{ .args.replicas }}"
+            image: "{{ .args.image }}"
+    expected:
+      success: true
+      contains: ["created service class", "example-web-service"]
+    timeout: "1m"
+
+  - id: "verify-serviceclass-created"
+    description: "Verify the ServiceClass was created correctly"
+    tool: "core_serviceclass_get"
+    args:
+      name: "example-web-service"
+    expected:
+      success: true
+      json_path:
+        name: "example-web-service"
+        type: "web-application"
+        version: "1.0.0"
+        description: "Example web application ServiceClass"
+    timeout: "30s"
+
+  - id: "check-serviceclass-availability"
+    description: "Check if ServiceClass is available for service creation"
+    tool: "core_serviceclass_available"
+    args:
+      name: "example-web-service"
+    expected:
+      success: true
+      json_path:
+        name: "example-web-service"
+        available: false  # Tools may not be available in test environment
+    timeout: "30s"
+
+  - id: "list-serviceclasses-with-new"
+    description: "Verify ServiceClass appears in list"
+    tool: "core_serviceclass_list"
+    args: {}
+    expected:
+      success: true
+      json_path:
+        total: 1
+      contains: ["example-web-service"]
+    timeout: "30s"
+
+# Cleanup operations (always executed, even if steps fail)
+cleanup:
+  - id: "delete-test-serviceclass"
+    description: "Remove the test ServiceClass"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "example-web-service"
+    expected:
+      success: true
+      contains: ["deleted service class", "example-web-service"]
+    timeout: "30s"
+    continue_on_failure: true
+
+  - id: "verify-serviceclass-deleted"
+    description: "Verify ServiceClass was completely removed"
+    tool: "core_serviceclass_get"
+    args:
+      name: "example-web-service"
+    expected:
+      success: false
+      error_contains: ["not found", "example-web-service"]
+    timeout: "30s"
+    continue_on_failure: true
+
+# Usage Examples:
+#
+# CLI Testing:
+# ./muster test --scenario=serviceclass-basic-crud-example --verbose
+# ./muster test --scenario=serviceclass-basic-crud-example --debug  # Shows instance logs
+#
+# MCP Testing:
+# {
+#   "tool": "x_muster-test_test_run_scenarios",
+#   "args": {
+#     "scenario": "serviceclass-basic-crud-example",
+#     "verbose": true
+#   }
+# }
+#
+# Debug Output (with --debug flag):
+# 📋 Captured instance logs: stdout=7977 chars, stderr=0 chars
+# 📄 Instance Logs:
+#    STDOUT:
+#       time=2025-06-19T11:07:19.565+02:00 level=INFO msg="Loaded configuration..."
+#       time=2025-06-19T11:07:19.565+02:00 level=INFO msg="Created service class example-web-service"

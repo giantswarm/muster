@@ -1,0 +1,280 @@
+# Error Handling Scenarios Example
+#
+# This example demonstrates:
+# - Testing expected error conditions
+# - Validating error messages and response codes
+# - Testing resource conflict scenarios
+# - Proper error recovery and cleanup
+# - Using mock servers to simulate failure conditions
+
+name: "error-handling-scenarios"
+category: "behavioral"
+concept: "serviceclass"
+description: "Comprehensive error handling validation for muster operations"
+tags: ["error", "validation", "robustness", "serviceclass"]
+timeout: "15m"
+
+# Pre-configuration with mock servers that can simulate errors
+pre_configuration:
+  mcp_servers:
+    - name: "error-mock"
+      config:
+        tools:
+          - name: "failing_operation"
+            description: "Operation that always fails for testing error handling"
+            input_schema:
+              type: "object"
+              properties:
+                operation_type:
+                  type: "string"
+                  required: true
+                error_message:
+                  type: "string"
+                  default: "Simulated failure"
+            responses:
+              - condition:
+                  operation_type: "timeout"
+                error: "Operation timed out after 30 seconds"
+                delay: "5s"
+              - condition:
+                  operation_type: "permission"
+                error: "Permission denied: insufficient privileges"
+              - condition:
+                  operation_type: "resource_limit"
+                error: "Resource limit exceeded: cannot create more instances"
+              - error: "{{ .error_message }}"
+
+          - name: "unreliable_operation"
+            description: "Operation that sometimes succeeds and sometimes fails"
+            input_schema:
+              type: "object"
+              properties:
+                attempt_id:
+                  type: "string"
+                  required: true
+            responses:
+              - condition:
+                  attempt_id: "success"
+                response:
+                  status: "completed"
+                  result: "Operation successful"
+              - error: "Temporary failure, retry recommended"
+
+# Test steps for error scenarios
+steps:
+  - id: "test-invalid-serviceclass-creation"
+    description: "Test creation of ServiceClass with invalid YAML"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: ""  # Invalid: empty name
+        type: "invalid-type"
+        # Missing required fields
+    expected:
+      success: false
+      error_contains: ["validation failed", "name cannot be empty"]
+    timeout: "30s"
+
+  - id: "test-duplicate-serviceclass-creation"
+    description: "Create a ServiceClass successfully first"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: "duplicate-test"
+        type: "test-service"
+        version: "1.0.0"
+        description: "Test ServiceClass for duplicate testing"
+        args:
+          test_param:
+            type: string
+            required: true
+        serviceConfig:
+          lifecycleTools:
+            start:
+              tool: "core_service_create"
+    expected:
+      success: true
+      contains: ["created service class", "duplicate-test"]
+    timeout: "1m"
+
+  - id: "test-duplicate-serviceclass-error"
+    description: "Try to create the same ServiceClass again (should fail)"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: "duplicate-test"
+        type: "test-service"
+        version: "1.0.0"
+        description: "Duplicate ServiceClass"
+        args:
+          test_param:
+            type: string
+            required: true
+        serviceConfig:
+          lifecycleTools:
+            start:
+              tool: "core_service_create"
+    expected:
+      success: false
+      error_contains: ["already exists", "duplicate-test"]
+    timeout: "30s"
+
+  - id: "test-nonexistent-serviceclass-get"
+    description: "Try to get a ServiceClass that doesn't exist"
+    tool: "core_serviceclass_get"
+    args:
+      name: "nonexistent-serviceclass"
+    expected:
+      success: false
+      error_contains: ["not found", "nonexistent-serviceclass"]
+    timeout: "30s"
+
+  - id: "test-nonexistent-serviceclass-delete"
+    description: "Try to delete a ServiceClass that doesn't exist"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "nonexistent-serviceclass"
+    expected:
+      success: false
+      error_contains: ["not found", "nonexistent-serviceclass"]
+    timeout: "30s"
+
+  - id: "test-mock-timeout-error"
+    description: "Test timeout error handling with mock server"
+    tool: "x_error-mock_failing_operation"
+    args:
+      operation_type: "timeout"
+      error_message: "Custom timeout error"
+    expected:
+      success: false
+      error_contains: ["timed out", "30 seconds"]
+    timeout: "10s"
+
+  - id: "test-mock-permission-error"
+    description: "Test permission error handling with mock server"
+    tool: "x_error-mock_failing_operation"
+    args:
+      operation_type: "permission"
+    expected:
+      success: false
+      error_contains: ["Permission denied", "insufficient privileges"]
+    timeout: "30s"
+
+  - id: "test-mock-resource-limit-error"
+    description: "Test resource limit error handling with mock server"
+    tool: "x_error-mock_failing_operation"
+    args:
+      operation_type: "resource_limit"
+    expected:
+      success: false
+      error_contains: ["Resource limit exceeded", "cannot create more instances"]
+    timeout: "30s"
+
+  - id: "test-unreliable-operation-failure"
+    description: "Test handling of unreliable operation that fails"
+    tool: "x_error-mock_unreliable_operation"
+    args:
+      attempt_id: "failure"
+    expected:
+      success: false
+      error_contains: ["Temporary failure", "retry recommended"]
+    timeout: "30s"
+
+  - id: "test-unreliable-operation-success"
+    description: "Test handling of unreliable operation that succeeds"
+    tool: "x_error-mock_unreliable_operation"
+    args:
+      attempt_id: "success"
+    expected:
+      success: true
+      contains: ["completed", "Operation successful"]
+    timeout: "30s"
+
+  - id: "test-invalid-yaml-format"
+    description: "Test ServiceClass creation with malformed YAML"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: "invalid-yaml-test"
+        type: "test"
+        args:
+          - invalid: "yaml structure"
+            missing: "proper nesting"
+        serviceConfig:
+          lifecycleTools:
+            start:
+              tool: "nonexistent_tool"  # This should also cause validation error
+    expected:
+      success: false
+      error_contains: ["validation failed", "yaml", "format"]
+    timeout: "30s"
+
+  - id: "test-serviceclass-with-missing-tools"
+    description: "Test ServiceClass that references non-existent tools"
+    tool: "core_serviceclass_create"
+    args:
+      yaml: |
+        name: "missing-tools-test"
+        type: "test-service"
+        version: "1.0.0"
+        description: "ServiceClass with missing tool references"
+        args:
+          test_param:
+            type: string
+            default: "test"
+        serviceConfig:
+          lifecycleTools:
+            start:
+              tool: "nonexistent_start_tool"
+            stop:
+              tool: "nonexistent_stop_tool"
+    expected:
+      success: false
+      error_contains: ["tool not found", "nonexistent"]
+    timeout: "30s"
+
+# Cleanup operations (always executed, even if steps fail)
+cleanup:
+  - id: "cleanup-duplicate-test-serviceclass"
+    description: "Remove the duplicate test ServiceClass if it exists"
+    tool: "core_serviceclass_delete"
+    args:
+      name: "duplicate-test"
+    expected:
+      success: true
+      contains: ["deleted service class", "duplicate-test"]
+    timeout: "30s"
+    continue_on_failure: true
+
+  - id: "cleanup-verify-no-test-serviceclasses"
+    description: "Verify all test ServiceClasses are cleaned up"
+    tool: "core_serviceclass_list"
+    args: {}
+    expected:
+      success: true
+      not_contains: ["duplicate-test", "invalid-yaml-test", "missing-tools-test"]
+    timeout: "30s"
+    continue_on_failure: true
+
+# Usage Examples:
+#
+# CLI Testing:
+# ./muster test --scenario=error-handling-scenarios --verbose
+# ./muster test --scenario=error-handling-scenarios --debug  # Shows detailed error information
+#
+# MCP Testing:
+# {
+#   "tool": "x_muster-test_test_run_scenarios",
+#   "args": {
+#     "scenario": "error-handling-scenarios",
+#     "verbose": true
+#   }
+# }
+#
+# This scenario tests:
+# - Invalid resource creation (empty names, malformed YAML)
+# - Duplicate resource handling
+# - Non-existent resource operations
+# - Mock server error simulation (timeouts, permissions, resource limits)
+# - Tool availability validation
+# - Proper error message formatting and content
