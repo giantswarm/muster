@@ -1,10 +1,9 @@
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: ServiceClass
 metadata:
-  name: web-application
+  name: complex-microservice
   namespace: default
 spec:
-  name: web-application
   description: "Web application service with load balancer and health monitoring"
   args:
     app_name:
@@ -36,65 +35,54 @@ spec:
     dependencies: ["postgres-database", "redis-cache"]
     lifecycleTools:
       start:
-        tool: "kubernetes_deploy"
+        tool: "k8s_deploy_app"
         args:
-          deployment_name: "{{.app_name}}"
+          name: "{{.app_name}}"
           image: "nginx:latest"
-          replicas: "{{.replicas}}"
           port: "{{.port}}"
-          env:
-            APP_NAME: "{{.app_name}}"
-            DOMAIN: "{{.domain}}"
-            SSL_ENABLED: "{{.enable_ssl}}"
+          replicas: "{{.replicas}}"
+          domain: "{{.domain}}"
+          ssl: "{{.enable_ssl}}"
         outputs:
-          deploymentId: "result.deployment.id"
-          serviceId: "result.service.id"
+          deployment_id: "result.deployment.id"
+          service_url: "result.service.url"
       stop:
-        tool: "kubernetes_delete"
+        tool: "k8s_delete_app"
         args:
-          deployment_name: "{{.app_name}}"
-          service_name: "{{.app_name}}-service"
-      restart:
-        tool: "kubernetes_restart"
-        args:
-          deployment_name: "{{.app_name}}"
-        outputs:
-          restartTime: "result.restart_timestamp"
+          deployment_id: "{{.deployment_id}}"
       healthCheck:
         tool: "http_health_check"
         args:
-          url: "http://{{.domain}}:{{.port}}/health"
-          timeout: "5s"
-          expected_status: 200
+          url: "{{.service_url}}/health"
+          timeout: "30s"
         expect:
           success: true
           jsonPath:
-            status: "ok"
+            status: "healthy"
             ready: true
-        expectNot:
-          jsonPath:
-            error: true
-            maintenance_mode: true
-      status:
-        tool: "kubernetes_status"
-        args:
-          deployment_name: "{{.app_name}}"
-        outputs:
-          readyReplicas: "result.ready_replicas"
-          totalReplicas: "result.total_replicas"
-          lastUpdated: "result.last_updated"
     healthCheck:
       enabled: true
-      interval: "15s"
-      failureThreshold: 5
-      successThreshold: 2
+      interval: "30s"
+      failureThreshold: 3
+      successThreshold: 1
+      initialDelay: "60s"
     timeout:
       create: "10m"
       delete: "5m"
       healthCheck: "30s"
+    scaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 10
+      targetCPU: 70
+    monitoring:
+      enabled: true
+      metrics:
+        - name: "request_rate"
+          path: "/metrics"
+        - name: "error_rate"
+          path: "/metrics"
     outputs:
-      app_url: "http{{if .enable_ssl}}s{{end}}://{{.domain}}{{if ne .port 80}}:{{.port}}{{end}}"
-      deployment_id: "{{.deploymentId}}"
-      service_id: "{{.serviceId}}"
-      replica_count: "{{.replicas}}"
-      health_endpoint: "{{.app_url}}/health" 
+      service_url: "{{.service_url}}"
+      deployment_id: "{{.deployment_id}}"
+      port: "{{.port}}" 

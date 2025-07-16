@@ -744,12 +744,14 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "Workflow arguments definition",
+					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
 					Description: "Workflow steps",
+					Schema:      getWorkflowStepsSchema(),
 				},
 			},
 		},
@@ -774,12 +776,14 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "Workflow arguments definition",
+					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
 					Description: "Workflow steps",
+					Schema:      getWorkflowStepsSchema(),
 				},
 			},
 		},
@@ -816,12 +820,14 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "Workflow arguments definition",
+					Schema:      getWorkflowArgsSchema(),
 				},
 				{
 					Name:        "steps",
 					Type:        "array",
 					Required:    true,
 					Description: "Workflow steps",
+					Schema:      getWorkflowStepsSchema(),
 				},
 			},
 		},
@@ -1588,4 +1594,117 @@ func convertWorkflowConditionExpectation(expectParam map[string]interface{}) (ap
 	}
 
 	return expect, nil
+}
+
+// getWorkflowArgsSchema returns the detailed schema definition for workflow arguments
+func getWorkflowArgsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "object",
+		"description": "Workflow arguments definition with validation rules",
+		"additionalProperties": map[string]interface{}{
+			"type":                 "object",
+			"description":          "Argument definition with validation rules",
+			"additionalProperties": false,
+			"properties": map[string]interface{}{
+				"type": map[string]interface{}{
+					"type":        "string",
+					"description": "Expected data type for validation",
+					"enum":        []string{"string", "integer", "boolean", "number", "object", "array"},
+				},
+				"required": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Whether this argument is required",
+				},
+				"default": map[string]interface{}{
+					"description": "Default value if argument is not provided",
+				},
+				"description": map[string]interface{}{
+					"type":        "string",
+					"description": "Human-readable documentation for this argument",
+				},
+			},
+			"required": []string{"type"},
+		},
+	}
+}
+
+// getWorkflowStepsSchema returns the detailed schema definition for workflow steps
+func getWorkflowStepsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": "Workflow steps defining the sequence of operations",
+		"items": map[string]interface{}{
+			"type":                 "object",
+			"description":          "Individual workflow step configuration",
+			"additionalProperties": false,
+			"properties": map[string]interface{}{
+				"id": map[string]interface{}{
+					"type":        "string",
+					"description": "Unique identifier for this step within the workflow",
+				},
+				"tool": map[string]interface{}{
+					"type":        "string",
+					"description": "Name of the tool to execute for this step",
+				},
+				"args": map[string]interface{}{
+					"type":        "object",
+					"description": "Arguments to pass to the tool, supporting templating with {{.argName}} for workflow args and {{stepId.field}} for step outputs",
+				},
+				"condition": map[string]interface{}{
+					"type":                 "object",
+					"description":          "Optional condition that determines whether this step should execute",
+					"additionalProperties": false,
+					"properties": map[string]interface{}{
+						"tool": map[string]interface{}{
+							"type":        "string",
+							"description": "Tool to call for condition evaluation",
+						},
+						"args": map[string]interface{}{
+							"type":        "object",
+							"description": "Arguments for the condition tool",
+						},
+						"expect": map[string]interface{}{
+							"type":        "object",
+							"description": "Expected results for condition evaluation",
+							"properties": map[string]interface{}{
+								"success": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether the tool call should succeed",
+								},
+								"json_path": map[string]interface{}{
+									"type":        "object",
+									"description": "JSON path expressions to evaluate against tool result",
+									"additionalProperties": map[string]interface{}{
+										"description": "Expected value for the JSON path",
+									},
+								},
+							},
+						},
+					},
+					"required": []string{"tool"},
+				},
+				"allow_failure": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Whether this step is allowed to fail without failing the workflow",
+				},
+				"outputs": map[string]interface{}{
+					"type":        "object",
+					"description": "Defines how step results should be stored and made available to subsequent steps",
+					"additionalProperties": map[string]interface{}{
+						"description": "Output variable assignment, can be a static value or template expression",
+					},
+				},
+				"store": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Whether the step result should be stored in workflow results",
+				},
+				"description": map[string]interface{}{
+					"type":        "string",
+					"description": "Human-readable documentation for this step's purpose",
+				},
+			},
+			"required": []string{"id", "tool"},
+		},
+		"minItems": 1,
+	}
 }

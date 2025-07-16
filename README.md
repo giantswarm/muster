@@ -25,6 +25,8 @@ As a platform engineer, you interact with countless services: Kubernetes, Promet
 
 Muster solves this by creating a **meta-MCP server** that manages all your MCP servers and provides your agent with **intelligent tool discovery** capabilities.
 
+> 📖 **Learn More**: [MCP Aggregation Deep Dive](docs/explanation/mcp-aggregation.md) | [System Architecture](docs/explanation/architecture.md)
+
 ### How It Works
 
 1. **`muster serve`** starts the control plane that manages your MCP server processes
@@ -59,6 +61,8 @@ graph TD
     MusterServe <--> Flux
 ```
 
+> 📖 **Learn More**: [Component Interaction Diagram](docs/explanation/diagrams/component-interaction.md) | [System Overview](docs/explanation/diagrams/system-overview.md)
+
 ## Core Capabilities
 
 ### 🧠 Intelligent Tool Discovery
@@ -77,16 +81,22 @@ agent: "Show me failing pods in default namespace"
 → call_tool(name="x_kubernetes_get_pods", args={"namespace": "default", "status": "failed"})
 ```
 
+> 📖 **Learn More**: [MCP Tools Reference](docs/reference/mcp-tools.md) | [Tool Discovery Guide](docs/how-to/mcp-server-management.md)
+
 ### 🚀 Dynamic MCP Server Management
 - **Lifecycle Control**: Start, stop, restart MCP servers on demand
 - **Health Monitoring**: Automatic health checks and recovery
 - **Configuration Management**: Hot-reload server configurations
 - **Local Process Deployment**: Local processes (`localCommand`) for MCP server execution
 
+> 📖 **Learn More**: [MCP Server Management](docs/how-to/mcp-server-management.md) | [Configuration Guide](docs/reference/configuration.md)
+
 ### 🛡️ Smart Access Control  
 - **Tool Filtering**: Block destructive tools by default (override with `--yolo`)
 - **Project-Based Control**: Different tool sets for different projects
 - **Context Optimization**: Only load tools when needed
+
+> 📖 **Learn More**: [Security Configuration](docs/operations/security.md)
 
 ### 🏗️ Advanced Orchestration
 
@@ -112,6 +122,8 @@ steps:
 - **Faster results** (no re-discovery)  
 - **Consistent debugging** across team members
 
+> 📖 **Learn More**: [Workflow Creation Guide](docs/how-to/workflow-creation.md) | [Workflow Component Architecture](docs/explanation/components/workflows.md)
+
 #### **ServiceClasses**: Handle Prerequisites Automatically
 Many MCP servers need setup (port-forwarding, authentication, etc.). ServiceClasses define these prerequisites:
 
@@ -132,15 +144,32 @@ healthCheck:
 3. **Workflow** orchestrates: setup → query → cleanup
 4. **Agent** executes everything seamlessly
 
+> 📖 **Learn More**: [ServiceClass Patterns](docs/how-to/serviceclass-patterns.md) | [Service Configuration](docs/how-to/service-configuration.md) | [Services Component Guide](docs/explanation/components/services.md)
+
 ## Quick Start
 
-### 1. Install Muster
+### 🤖 AI Agent Users (5 minutes)
+Connect Muster to your IDE for smart tool access:
+> 📖 **[AI Agent Setup Guide](docs/getting-started/ai-agent-integration.md)**
+
+### 🏗️ Platform Engineers (15 minutes)  
+Set up Muster for infrastructure management:
+> 📖 **[Platform Setup Guide](docs/getting-started/platform-setup.md)**
+
+### 👩‍💻 Contributors (10 minutes)
+Configure your development environment:
+> 📖 **[Development Setup](docs/contributing/development-setup.md)**
+
+### Manual Installation
+
 ```bash  
 git clone https://github.com/giantswarm/muster.git
 cd muster && go build .
 ```
 
-### 2. Configure MCP Servers
+> 📖 **Learn More**: [Installation Guide](docs/operations/installation.md) | [Local Demo](docs/getting-started/local-demo.md)
+
+#### Configure MCP Servers
 
 Create `kubernetes-server.yaml`:
 ```yaml
@@ -158,7 +187,7 @@ Register it:
 ./muster create mcpserver kubernetes.yaml
 ```
 
-### 3. Connect Your AI Agent
+#### Connect Your AI Agent
 
 Configure your IDE to use Muster's agent as an MCP server:
 
@@ -174,13 +203,17 @@ Configure your IDE to use Muster's agent as an MCP server:
 }
 ```
 
-### 4. Let Your Agent Discover Tools
+> 📖 **Learn More**: [AI Agent Integration](docs/getting-started/ai-agent-integration.md) | [Cursor Advanced Setup](docs/how-to/cursor-advanced-setup.md)
+
+#### Let Your Agent Discover Tools
 
 Your agent now has meta-capabilities:
 - **`list_tools`**: Show all available tools
 - **`filter_tools`**: Find tools by name/description  
 - **`describe_tool`**: Get detailed tool information
 - **`call_tool`**: Execute any tool dynamically
+
+> 📖 **Learn More**: [Complete MCP Tools Reference](docs/reference/mcp-tools.md) | [CLI Command Reference](docs/reference/cli/README.md)
 
 ## Advanced Platform Engineering Scenarios
 
@@ -268,6 +301,8 @@ steps:
         PROMETHEUS_URL: "http://localhost:9090"
 ```
 
+> 📖 **Learn More**: [Advanced Scenarios](docs/how-to/advanced-scenarios.md) | [Configuration Examples](docs/explanation/configuration-examples.md)
+
 ## Benefits for Platform Teams
 
 ### **Cost Optimization**
@@ -285,17 +320,49 @@ steps:
 - **Reduced context switching**: All tools through one interface
 - **Automated prerequisites**: ServiceClasses handle setup complexity
 
-## Documentation
+> 📖 **Learn More**: [Core Benefits](docs/explanation/benefits.md) | [Design Principles](docs/explanation/design-principles.md)
 
-- **[Architecture Guide](docs/architecture.md)**: Deep dive into Muster's design
-- **[MCP Server Integration](docs/mcp-servers.md)**: Adding your tools  
-- **[Workflow Orchestration](docs/workflows.md)**: Building deterministic processes
-- **[ServiceClass Guide](docs/serviceclasses.md)**: Managing prerequisites and dependencies
-- **[AI Agent Integration](docs/ai-integration.md)**: IDE setup and best practices
+## Documentation Hub
+
+### 🚀 Getting Started
+- [Quick Start Guide](docs/getting-started/quick-start.md) - Get up and running in minutes
+- [AI Agent Setup](docs/getting-started/ai-agent-integration.md) - IDE integration guide
+- [Platform Setup](docs/getting-started/platform-setup.md) - Infrastructure setup
+- [Local Demo](docs/getting-started/local-demo.md) - Try Muster locally
+
+### 🛠️ How-To Guides  
+- [Workflow Creation](docs/how-to/workflow-creation.md) - Build automation workflows
+- [ServiceClass Patterns](docs/how-to/serviceclass-patterns.md) - Manage service dependencies
+- [MCP Server Management](docs/how-to/mcp-server-management.md) - Configure external tools
+- [Troubleshooting](docs/how-to/troubleshooting.md) - Common issues and solutions
+- [AI Troubleshooting](docs/how-to/ai-troubleshooting.md) - AI-specific debugging
+
+### 📚 Reference Documentation
+- [CLI Commands](docs/reference/cli/README.md) - Complete command reference
+- [Configuration](docs/reference/configuration.md) - Configuration schemas
+- [API Reference](docs/reference/api.md) - REST and MCP APIs
+- [MCP Tools](docs/reference/mcp-tools.md) - Available tools catalog
+- [CRDs](docs/reference/crds.md) - Kubernetes Custom Resources
+
+### 🏗️ Architecture & Concepts
+- [System Architecture](docs/explanation/architecture.md) - How Muster works
+- [Component Overview](docs/explanation/components/README.md) - Individual components
+- [MCP Aggregation](docs/explanation/mcp-aggregation.md) - Core aggregation logic
+- [Design Decisions](docs/explanation/decisions/README.md) - Architecture decisions
+- [Problem Statement](docs/explanation/problem-statement.md) - Why Muster exists
+
+### 🚀 Operations & Deployment
+- [Installation](docs/operations/installation.md) - Production deployment
+- [Security Configuration](docs/operations/security.md) - Security best practices
+
+### 👥 Contributing
+- [Development Setup](docs/contributing/development-setup.md) - Dev environment
+- [Testing Framework](docs/contributing/testing/README.md) - Testing guidelines
+- [Code Guidelines](docs/contributing/README.md) - Development standards
 
 ## Community & Support
 
-- **[Contributing Guide](CONTRIBUTING.md)**: How to contribute to Muster
+- **[Contributing Guide](docs/contributing/README.md)**: How to contribute to Muster
 - **[Issue Tracker](https://github.com/giantswarm/muster/issues)**: Bug reports and feature requests
 - **[Discussions](https://github.com/giantswarm/muster/discussions)**: Community Q&A and use cases
 
