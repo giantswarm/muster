@@ -327,12 +327,122 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "ServiceClass arguments schema",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Argument definitions for service creation validation",
+						"additionalProperties": map[string]interface{}{
+							"type":                 "object",
+							"description":          "Argument definition with validation rules",
+							"additionalProperties": false,
+							"properties": map[string]interface{}{
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Expected data type for validation",
+									"enum":        []string{"string", "integer", "boolean", "number"},
+								},
+								"required": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this argument is required",
+								},
+								"default": map[string]interface{}{
+									"description": "Default value if argument is not provided",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable documentation for this argument",
+								},
+							},
+							"required": []string{"type"},
+						},
+					},
 				},
 				{
 					Name:        "serviceConfig",
 					Type:        "object",
 					Required:    true,
 					Description: "ServiceClass service configuration",
+					Schema: map[string]interface{}{
+						"type":                 "object",
+						"description":          "Service configuration with lifecycle tools",
+						"additionalProperties": false,
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"required":    []string{"start", "stop"},
+								"properties": map[string]interface{}{
+									"start":       getLifecycleToolSchema(),
+									"stop":        getLifecycleToolSchema(),
+									"restart":     getLifecycleToolSchema(),
+									"status":      getLifecycleToolSchema(),
+									"healthCheck": getHealthCheckToolSchema(),
+								},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval as duration string (e.g., '30s', '1m')",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"create": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
+									},
+									"delete": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout as duration string (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required": []string{"serviceType", "lifecycleTools"},
+					},
 				},
 			},
 		},
@@ -347,12 +457,122 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "ServiceClass arguments schema",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Argument definitions for service creation validation",
+						"additionalProperties": map[string]interface{}{
+							"type":                 "object",
+							"description":          "Argument definition with validation rules",
+							"additionalProperties": false,
+							"properties": map[string]interface{}{
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Expected data type for validation",
+									"enum":        []string{"string", "integer", "boolean", "number"},
+								},
+								"required": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this argument is required",
+								},
+								"default": map[string]interface{}{
+									"description": "Default value if argument is not provided",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable documentation for this argument",
+								},
+							},
+							"required": []string{"type"},
+						},
+					},
 				},
 				{
 					Name:        "serviceConfig",
 					Type:        "object",
 					Required:    true,
 					Description: "ServiceClass service configuration",
+					Schema: map[string]interface{}{
+						"type":                 "object",
+						"description":          "Service configuration with lifecycle tools",
+						"additionalProperties": false,
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"required":    []string{"start", "stop"},
+								"properties": map[string]interface{}{
+									"start":       getLifecycleToolSchema(),
+									"stop":        getLifecycleToolSchema(),
+									"restart":     getLifecycleToolSchema(),
+									"status":      getLifecycleToolSchema(),
+									"healthCheck": getHealthCheckToolSchema(),
+								},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval as duration string (e.g., '30s', '1m')",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"create": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
+									},
+									"delete": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout as duration string (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required": []string{"serviceType", "lifecycleTools"},
+					},
 				},
 			},
 		},
@@ -367,12 +587,122 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Type:        "object",
 					Required:    false,
 					Description: "ServiceClass arguments schema",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Argument definitions for service creation validation",
+						"additionalProperties": map[string]interface{}{
+							"type":                 "object",
+							"description":          "Argument definition with validation rules",
+							"additionalProperties": false,
+							"properties": map[string]interface{}{
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Expected data type for validation",
+									"enum":        []string{"string", "integer", "boolean", "number"},
+								},
+								"required": map[string]interface{}{
+									"type":        "boolean",
+									"description": "Whether this argument is required",
+								},
+								"default": map[string]interface{}{
+									"description": "Default value if argument is not provided",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Human-readable documentation for this argument",
+								},
+							},
+							"required": []string{"type"},
+						},
+					},
 				},
 				{
 					Name:        "serviceConfig",
 					Type:        "object",
 					Required:    false,
 					Description: "ServiceClass service configuration",
+					Schema: map[string]interface{}{
+						"type":                 "object",
+						"description":          "Service configuration with lifecycle tools",
+						"additionalProperties": false,
+						"properties": map[string]interface{}{
+							"serviceType": map[string]interface{}{
+								"type":        "string",
+								"description": "Type of service this configuration manages",
+							},
+							"defaultName": map[string]interface{}{
+								"type":        "string",
+								"description": "Default name pattern for service instances",
+							},
+							"dependencies": map[string]interface{}{
+								"type":        "array",
+								"description": "List of ServiceClass names that must be available",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+							},
+							"lifecycleTools": map[string]interface{}{
+								"type":        "object",
+								"description": "Tools for managing service lifecycle",
+								"required":    []string{"start", "stop"},
+								"properties": map[string]interface{}{
+									"start":       getLifecycleToolSchema(),
+									"stop":        getLifecycleToolSchema(),
+									"restart":     getLifecycleToolSchema(),
+									"status":      getLifecycleToolSchema(),
+									"healthCheck": getHealthCheckToolSchema(),
+								},
+							},
+							"healthCheck": map[string]interface{}{
+								"type":        "object",
+								"description": "Health check configuration",
+								"properties": map[string]interface{}{
+									"enabled": map[string]interface{}{
+										"type":        "boolean",
+										"description": "Whether health checks are enabled",
+									},
+									"interval": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check interval as duration string (e.g., '30s', '1m')",
+									},
+									"successThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive successes to mark healthy",
+									},
+									"failureThreshold": map[string]interface{}{
+										"type":        "integer",
+										"description": "Number of consecutive failures before marking unhealthy",
+									},
+								},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "object",
+								"description": "Timeout configuration for service operations",
+								"properties": map[string]interface{}{
+									"create": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource creation timeout as duration string (e.g., '30s', '2m')",
+									},
+									"delete": map[string]interface{}{
+										"type":        "string",
+										"description": "Resource deletion timeout as duration string (e.g., '30s', '2m')",
+									},
+									"healthCheck": map[string]interface{}{
+										"type":        "string",
+										"description": "Health check timeout as duration string (e.g., '10s', '30s')",
+									},
+								},
+							},
+							"outputs": map[string]interface{}{
+								"type":        "object",
+								"description": "Template-based outputs that should be generated when service instances are created",
+								"additionalProperties": map[string]interface{}{
+									"description": "Output value template using Go text/template syntax",
+								},
+							},
+						},
+						"required": []string{"serviceType", "lifecycleTools"},
+					},
 				},
 			},
 		},
@@ -669,4 +999,84 @@ func (a *Adapter) isToolAvailable(tool string, availableTools []string) bool {
 
 	// Check external tools
 	return contains(availableTools, tool)
+}
+
+// getLifecycleToolSchema returns the schema definition for lifecycle tools
+func getLifecycleToolSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "object",
+		"description": "Tool configuration for lifecycle operations",
+		"required":    []string{"tool"},
+		"properties": map[string]interface{}{
+			"tool": map[string]interface{}{
+				"type":        "string",
+				"description": "Name of the tool to call",
+			},
+			"args": map[string]interface{}{
+				"type":        "object",
+				"description": "Arguments to pass to the tool",
+			},
+			"outputs": map[string]interface{}{
+				"type":        "object",
+				"description": "JSON path mappings to extract values from tool response",
+				"additionalProperties": map[string]interface{}{
+					"type":        "string",
+					"description": "JSON path expression (e.g., 'result.sessionID', 'status')",
+				},
+			},
+		},
+	}
+}
+
+// getHealthCheckToolSchema returns the schema definition for health check tools
+func getHealthCheckToolSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "object",
+		"description": "Tool configuration for health check operations with expectation evaluation",
+		"required":    []string{"tool"},
+		"properties": map[string]interface{}{
+			"tool": map[string]interface{}{
+				"type":        "string",
+				"description": "Name of the tool to call",
+			},
+			"args": map[string]interface{}{
+				"type":        "object",
+				"description": "Arguments to pass to the tool",
+			},
+			"expect": map[string]interface{}{
+				"type":        "object",
+				"description": "Conditions for determining service health status",
+				"properties": map[string]interface{}{
+					"success": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether the tool call should succeed (default: true)",
+					},
+					"json_path": map[string]interface{}{
+						"type":        "object",
+						"description": "Field values that must match in the tool response",
+						"additionalProperties": map[string]interface{}{
+							"description": "Expected value for the field",
+						},
+					},
+				},
+			},
+			"expect_not": map[string]interface{}{
+				"type":        "object",
+				"description": "Conditions for determining service health status",
+				"properties": map[string]interface{}{
+					"success": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether the tool call should succeed (default: true)",
+					},
+					"json_path": map[string]interface{}{
+						"type":        "object",
+						"description": "Field values that must match in the tool response",
+						"additionalProperties": map[string]interface{}{
+							"description": "Expected value for the field",
+						},
+					},
+				},
+			},
+		},
+	}
 }
