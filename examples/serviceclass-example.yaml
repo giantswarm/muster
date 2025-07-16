@@ -1,10 +1,10 @@
+# Example ServiceClass Configuration
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: ServiceClass
 metadata:
   name: postgres-database
   namespace: default
 spec:
-  name: postgres-database
   description: "PostgreSQL database service with lifecycle management"
   args:
     database_name:

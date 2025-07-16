@@ -1,13 +1,9 @@
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
-  name: database-migration
-  namespace: platform
-  labels:
-    category: database
-    criticality: high
+  name: complex-deployment
+  namespace: default
 spec:
-  name: database-migration
   description: "Database migration workflow with rollback capability and validation"
   args:
     migration_version:
@@ -30,22 +26,22 @@ spec:
     - id: backup_database
       tool: db_backup
       args:
-        backup_name: "pre-migration-{{.input.migration_version}}"
-        retention: "{{.input.backup_retention}}"
+        backup_name: "pre-migration-{{.migration_version}}"
+        retention: "{{.backup_retention}}"
       store: true
     
     - id: validate_migration
       tool: db_validate_migration
       args:
-        version: "{{.input.migration_version}}"
-        dry_run: "{{.input.dry_run}}"
+        version: "{{.migration_version}}"
+        dry_run: "{{.dry_run}}"
       store: true
     
     - id: apply_migration
       tool: db_apply_migration
       args:
-        version: "{{.input.migration_version}}"
-        dry_run: "{{.input.dry_run}}"
+        version: "{{.migration_version}}"
+        dry_run: "{{.dry_run}}"
       store: true
       allowFailure: true
     
@@ -57,26 +53,4 @@ spec:
         fromStep: "apply_migration"
         expect:
           success: false
-status:
-  available: true
-  requiredTools: ["db_backup", "db_validate_migration", "db_apply_migration", "db_rollback"]
-  missingTools: []
-  stepValidation:
-    - stepId: "backup_database"
-      valid: true
-      toolAvailable: true
-    - stepId: "validate_migration"
-      valid: true
-      toolAvailable: true
-    - stepId: "apply_migration"
-      valid: true
-      toolAvailable: true
-    - stepId: "rollback_on_failure"
-      valid: true
-      toolAvailable: true
-  conditions:
-    - type: Available
-      status: "True"
-      reason: AllToolsAvailable
-      message: "All required tools are available"
-      lastTransitionTime: "2024-01-07T09:00:00Z" 
+      store: true 
