@@ -3,297 +3,153 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/giantswarm/muster)](https://goreportcard.com/report/github.com/giantswarm/muster)
 [![GoDoc](https://godoc.org/github.com/giantswarm/muster?status.svg)](https://godoc.org/github.com/giantswarm/muster)
 
-**In German, _Muster_ means "pattern" or "sample." This project provides the building blocks for AI agents to discover patterns and collect samples from any digital environment. It gives them a universal protocol to interact with the world.**
+**In German, _Muster_ means "pattern" or "sample."** This project gives AI agents the building blocks to discover patterns and collect samples from any digital environment, providing them with a universal protocol to interact with the world.
 
-Muster is a **universal control plane** built on the **Model Context Protocol (MCP)** that solves the MCP server management problem for platform engineers and AI agents.
+Muster is your go-to meta-server that manages all your MCP servers, making it easy for AI agents to discover and use the right tools without the hassle. It handles starting, stopping, and coordinating servers so you can focus on building awesome stuff. Built on the Model Context Protocol, it's designed to make platform engineering smoother and more efficient.
 
 ---
 
-## The Platform Engineer's Dilemma
+## Quick Start for Different Users
 
-As a platform engineer, you interact with countless services: Kubernetes, Prometheus, Grafana, Flux, ArgoCD, cloud providers, and custom tooling. While tools like Terraform and Kubernetes operators provide unified orchestration interfaces, **debugging and monitoring** still requires jumping between different tools and contexts.
+### 🤖 AI Agent Users (Cursor, VSCode, Claude)
+- **Goal**: Hook up Muster to your IDE for smart tool access
+- **Time**: About 5 minutes
+- **Guide**: [AI Agent Setup](docs/getting-started/ai-agent-integration.md)
 
-**The MCP Revolution**: LLM agents (in VSCode, Cursor, etc.) + MCP servers should solve this by giving agents direct access to your tools. There are already many excellent MCP servers available (Kubernetes, Prometheus, Grafana, Flux, etc.).
+### 🏗️ Platform Engineers
+- **Goal**: Get Muster running for your infrastructure tasks
+- **Time**: 15 minutes or so
+- **Guide**: [Platform Setup Guide](docs/getting-started/platform-engineering.md)
 
-**But there's a problem**: 
-- Adding all MCP servers to your agent **pollutes the context** and increases costs
-- **Turning servers on/off manually** is tedious and error-prone  
-- **Tool discovery** becomes overwhelming as your toolkit grows
-- **No coordination** between different MCP servers and their prerequisites
+### 👩‍💻 Contributors
+- **Goal**: Set up your dev environment to hack on Muster
+- **Time**: 10 minutes
+- **Guide**: [Development Setup](docs/contributing/development-setup.md)
 
-## The Solution: Intelligent MCP Aggregation
+## MCP Tools Reference
 
-Muster solves this by creating a **meta-MCP server** that manages all your MCP servers and provides your agent with **intelligent tool discovery** capabilities.
+Muster exposes different sets of MCP tools depending on how you're interacting with it:
 
-### How It Works
+### 🔧 Agent MCP Tools (IDE Integration)
+When you configure `muster agent --mcp-server` in your IDE (Cursor, VSCode, Claude), you get access to all tools through a unified interface:
 
-1. **`muster serve`** starts the control plane that manages your MCP server processes
-2. **Configure `muster agent`** as an MCP server in your IDE
-3. **Your agent gets meta-tools** like `list_tools`, `filter_tools`, `call_tool` 
-4. **Agent discovers and uses tools dynamically** based on the current task
+- **Core Management Tools**: All `core_*` tools for managing services, workflows, and configuration
+- **Workflow Execution Tools**: `workflow_<workflow-name>` tools for executing specific workflows  
+- **Aggregated External Tools**: All tools from configured MCP servers with prefixed names
 
-```mermaid
-graph TD
-    subgraph "Your IDE (VSCode/Cursor)"
-        Agent["🤖 AI Agent"]
-        IDE["IDE MCP Config"]
-    end
-    
-    subgraph "Muster Control Plane"
-        MusterAgent["🎯 muster agent<br/>(Meta-MCP Server)"]
-        MusterServe["⚙️ muster serve<br/>(Process Manager)"]
-        
-        subgraph "Managed MCP Servers"
-            K8s["🔷 Kubernetes<br/>(kubectl, helm)"]
-            Prom["📊 Prometheus<br/>(metrics, alerts)"] 
-            Grafana["📈 Grafana<br/>(dashboards)"]
-            Flux["🔄 Flux<br/>(GitOps)"]
-        end
-    end
+**Key Benefits**:
+- Single MCP server configuration in your IDE
+- Unified tool discovery across all managed servers
+- Automatic tool availability based on server status
 
-    Agent <-->|"MCP Protocol"| MusterAgent
-    MusterAgent <--> MusterServe
-    MusterServe <--> K8s
-    MusterServe <--> Prom
-    MusterServe <--> Grafana  
-    MusterServe <--> Flux
-```
+### ⚙️ Core API Tools (Aggregator Server)
+The `muster serve` aggregator exposes these core platform management tools via MCP protocol:
 
-## Core Capabilities
+**Service Instance Management**
+- `core_service_create` - Create new service instances from ServiceClasses
+- `core_service_delete` - Remove service instances
+- `core_service_get` - Get detailed service instance information
+- `core_service_list` - List all service instances
+- `core_service_start` - Start a stopped service instance
+- `core_service_stop` - Stop a running service instance  
+- `core_service_restart` - Restart a service instance
+- `core_service_status` - Get current status of a service instance
+- `core_service_validate` - Validate service instance configuration before creation
 
-### 🧠 Intelligent Tool Discovery
-Your agent can now:
-```bash
-# Discover available tools dynamically
-agent: "What Kubernetes tools are available?"
-→ filter_tools(pattern="kubernetes")
+**ServiceClass Management**  
+- `core_serviceclass_create` - Define new service templates
+- `core_serviceclass_delete` - Remove ServiceClass definitions
+- `core_serviceclass_get` - Get ServiceClass details and schema
+- `core_serviceclass_list` - List all available ServiceClasses
+- `core_serviceclass_update` - Modify existing ServiceClass definitions
+- `core_serviceclass_validate` - Validate ServiceClass configuration
+- `core_serviceclass_available` - Check if ServiceClass dependencies are available
 
-# Find the right tool for the task  
-agent: "I need to check pod logs"
-→ filter_tools(description="logs")
+**Workflow Management**
+- `core_workflow_create` - Define new workflow templates
+- `core_workflow_delete` - Remove workflow definitions  
+- `core_workflow_get` - Get workflow details and steps
+- `core_workflow_list` - List all available workflows
+- `core_workflow_update` - Modify existing workflow definitions
+- `core_workflow_validate` - Validate workflow configuration
+- `core_workflow_available` - Check if workflow dependencies are available
+- `core_workflow_execution_get` - Get details of workflow execution
+- `core_workflow_execution_list` - List workflow execution history
 
-# Execute tools on-demand
-agent: "Show me failing pods in default namespace"
-→ call_tool(name="x_kubernetes_get_pods", args={"namespace": "default", "status": "failed"})
-```
+**MCP Server Management**
+- `core_mcpserver_create` - Register new MCP servers
+- `core_mcpserver_delete` - Remove MCP server registrations
+- `core_mcpserver_get` - Get MCP server details and status
+- `core_mcpserver_list` - List all registered MCP servers
+- `core_mcpserver_update` - Modify MCP server configuration
+- `core_mcpserver_validate` - Validate MCP server configuration
 
-### 🚀 Dynamic MCP Server Management
-- **Lifecycle Control**: Start, stop, restart MCP servers on demand
-- **Health Monitoring**: Automatic health checks and recovery
-- **Configuration Management**: Hot-reload server configurations
-- **Local Process Deployment**: Local processes (`localCommand`) for MCP server execution
+**Configuration Management**
+- `core_config_get` - Get current system configuration
+- `core_config_save` - Persist configuration changes
+- `core_config_reload` - Reload configuration from disk
+- `core_config_get_aggregator` - Get aggregator-specific configuration
+- `core_config_update_aggregator` - Update aggregator configuration
 
-### 🛡️ Smart Access Control  
-- **Tool Filtering**: Block destructive tools by default (override with `--yolo`)
-- **Project-Based Control**: Different tool sets for different projects
-- **Context Optimization**: Only load tools when needed
+### 🔗 Aggregated External Tools
+Muster automatically aggregates tools from all configured MCP servers and exposes them with a consistent naming pattern:
 
-### 🏗️ Advanced Orchestration
+**Naming Convention**: `<prefix>_<mcpserver-name>_<original-tool-name>`
 
-#### **Workflows**: Deterministic Task Automation
-Once your agent discovers how to complete a task, **persist it as a workflow**:
-```yaml
-name: debug-failing-pods
-steps:
-  - id: find-pods
-    tool: x_kubernetes_get_pods
-    args:
-      namespace: "{{ .namespace }}"
-      status: "failed"
-  - id: get-logs  
-    tool: x_kubernetes_get_logs
-    args:
-      pod: "{{ steps.find-pods.podName }}"
-      lines: 100
-```
+**Common Prefixes**:
+- `x_` - General external tools prefix for discoverability
 
-**Benefits**:
-- **Reduce AI costs** (deterministic execution)
-- **Faster results** (no re-discovery)  
-- **Consistent debugging** across team members
+**Examples by Tool Category**:
+- **Filesystem Operations**: `x_filesystem_read_file`, `x_filesystem_write_file`, `x_filesystem_list_directory`
+- **Version Control**: `x_github_create_issue`, `x_github_list_prs`, `x_github_create_branch`  
+- **Container Platforms**: `x_kubernetes_get_pods`, `x_kubernetes_apply_yaml`, `x_kubernetes_get_logs`
+- **Cloud Infrastructure**: `x_aws_list_instances`, `x_gcp_create_vm`, `x_azure_get_resources`
+- **Databases**: `x_postgres_query`, `x_mongo_find`, `x_redis_get`
 
-#### **ServiceClasses**: Handle Prerequisites Automatically
-Many MCP servers need setup (port-forwarding, authentication, etc.). ServiceClasses define these prerequisites:
+**Dynamic Tool Discovery**: The exact tools available depend on which MCP servers are currently registered and running. Use `core_mcpserver_list` to see active servers and their tool inventories.
 
-```yaml
-name: prometheus-access
-startTool: x_kubernetes_port_forward
-args:
-  service: "prometheus-server"  
-  namespace: "monitoring"
-  localPort: 9090
-healthCheck:
-  url: "http://localhost:9090/api/v1/status"
-```
+**Workflow vs Action Tools**: 
+- In your IDE: Workflows appear as `workflow_<workflow-name>` tools
+- In the aggregator API: These same workflows are internally called `action_<workflow-name>`
+- The agent automatically maps between these naming conventions
 
-**Complete Integration Example**:
-1. **ServiceClass** creates port-forwarding to Prometheus
-2. **MCP Server** configuration uses the forwarded port
-3. **Workflow** orchestrates: setup → query → cleanup
-4. **Agent** executes everything seamlessly
+## Core Concepts (Quick Peek)
+- **MCP Aggregation**: [How Muster brings everything together](docs/explanation/mcp-aggregation.md)
+- **Tool Discovery**: [Finding the right tool for the job](docs/explanation/tool-discovery.md)
+- **Workflows & Services**: [Automating your tasks](docs/explanation/orchestration.md)
 
-## Quick Start
+## Documentation Navigation
 
-### 1. Install Muster
-```bash  
-git clone https://github.com/giantswarm/muster.git
-cd muster && go build .
-```
+### Learning (Tutorials)
+- [Getting Started Guides](docs/getting-started/) - Step-by-step introductions
+- [Interactive Tutorials](docs/getting-started/tutorials/) - Hands-on learning experiences
 
-### 2. Configure MCP Servers
+### Problem-Solving (How-To Guides)
+- [Common Tasks](docs/how-to/) - Solution-focused procedures
+- [Integration Patterns](docs/how-to/integrations/) - System integration approaches
+- [Troubleshooting](docs/how-to/troubleshooting/) - Problem resolution guides
 
-Create `kubernetes-server.yaml`:
-```yaml
-apiVersion: muster.io/v1
-kind: MCPServer  
-name: kubernetes
-spec:
-  type: localCommand
-  command: ["mcp-kubernetes"]
-  autoStart: true
-```
+### Reference Information
+- [CLI Commands](docs/reference/cli/) - Complete command reference
+- [Configuration](docs/reference/configuration/) - Configuration schemas and options
+- [API Reference](docs/reference/api/) - Comprehensive API documentation
 
-Register it:
-```bash
-./muster create mcpserver kubernetes.yaml
-```
+### Understanding (Explanation)
+- [Architecture](docs/explanation/architecture.md) - System design and principles
+- [Design Decisions](docs/explanation/decisions/) - Architecture Decision Records
+- [Core Concepts](docs/explanation/) - Conceptual foundations
 
-### 3. Connect Your AI Agent
+### Operations and Deployment
+- [Installation](docs/operations/installation.md) - Deployment procedures
+- [Deployment Patterns](docs/operations/deployment/) - Production deployment strategies
+- [Monitoring](docs/operations/monitoring.md) - Observability and alerting
 
-Configure your IDE to use Muster's agent as an MCP server:
+### Contributing
+- [Development Setup](docs/contributing/development-setup.md) - Environment configuration
+- [Code Guidelines](docs/contributing/code-style.md) - Development standards
+- [Testing Framework](docs/contributing/testing/) - Testing procedures and standards
 
-**Cursor/VSCode settings.json**:
-```json
-{
-  "mcpServers": {
-    "muster": {
-      "command": "muster",
-      "args": ["standalone"]
-    }
-  }
-}
-```
-
-### 4. Let Your Agent Discover Tools
-
-Your agent now has meta-capabilities:
-- **`list_tools`**: Show all available tools
-- **`filter_tools`**: Find tools by name/description  
-- **`describe_tool`**: Get detailed tool information
-- **`call_tool`**: Execute any tool dynamically
-
-## Advanced Platform Engineering Scenarios
-
-### Scenario 1: Multi-Cluster Debugging
-
-ServiceClass for cluster access
-
-```yaml
-name: cluster-login
-version: "1.0.0"
-serviceConfig:
-  serviceType: "auth"
-  args:
-    cluster:
-      type: "string"
-      required: true
-  lifecycleTools:
-    start: { tool: "x_teleport_kube_login" }
-```
-
-Workflow to compare pods on two clusters
-
-```yaml
-# Workflow for cross-cluster investigation  
-name: compare-pod-on-staging-prod
-input_schema:
-  type: "object"
-  properties:
-    namespace: { type: "string" }
-    pod: { type: "string" }
-  required: ["namespace", "pod"]
-steps:
-  - id: staging-context
-    tool: core_service_create
-    args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "staging"
-  - id: prod-context
-    tool: core_service_create
-    args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "production"
-  - id: wait-for-step
-  - id: compare-resources
-    tool: workflow_compare_pods_on_clusters
-    args:
-
-```
-
-### Scenario 2: Full Observability Stack
-```yaml
-# Prometheus access with port-forwarding
-name: prometheus-tunnel
-startTool: k8s_port_forward
-args:
-  service: "prometheus-server"
-  localPort: 9090
-    
----
-# Grafana dashboard access  
-name: grafana-tunnel  
-startTool: k8s_port_forward
-args:
-  service: "grafana"
-  localPort: 3000    
----
-# Complete monitoring workflow
-name: investigation-setup
-steps:
-  - id: setup-prometheus
-    serviceClass: prometheus-tunnel
-  - id: setup-grafana
-    serviceClass: grafana-tunnel  
-  - id: configure-prometheus-mcp
-    tool: core_mcpserver_create
-    args:
-      name: "prometheus"
-      type: "localCommand"
-      command: ["mcp-server-prometheus"]
-      env:
-        PROMETHEUS_URL: "http://localhost:9090"
-```
-
-## Benefits for Platform Teams
-
-### **Cost Optimization**
-- **Reduced AI token usage**: Tools loaded only when needed
-- **Deterministic workflows**: No re-discovery costs
-- **Efficient context**: Smart tool filtering
-
-### **Team Collaboration**  
-- **GitOps workflows**: Share debugging patterns via Git
-- **Consistent tooling**: Same tool access across team members
-- **Knowledge preservation**: Workflows capture tribal knowledge
-
-### **Operational Excellence**
-- **Faster incident response**: Pre-built investigation workflows  
-- **Reduced context switching**: All tools through one interface
-- **Automated prerequisites**: ServiceClasses handle setup complexity
-
-## Documentation
-
-- **[Architecture Guide](docs/architecture.md)**: Deep dive into Muster's design
-- **[MCP Server Integration](docs/mcp-servers.md)**: Adding your tools  
-- **[Workflow Orchestration](docs/workflows.md)**: Building deterministic processes
-- **[ServiceClass Guide](docs/serviceclasses.md)**: Managing prerequisites and dependencies
-- **[AI Agent Integration](docs/ai-integration.md)**: IDE setup and best practices
-
-## Community & Support
+## Community and Support
 
 - **[Contributing Guide](CONTRIBUTING.md)**: How to contribute to Muster
 - **[Issue Tracker](https://github.com/giantswarm/muster/issues)**: Bug reports and feature requests
