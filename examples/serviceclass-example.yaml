@@ -28,7 +28,7 @@ spec:
       start:
         tool: "docker_run"
         args:
-          image: "postgres:13"
+          image: "postgres:17"
           env:
             POSTGRES_DB: "{{.database_name}}"
             POSTGRES_PORT: "{{.port}}"
