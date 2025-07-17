@@ -138,21 +138,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Create agent client
 	client := agent.NewClient(endpoint, logger, transport)
 
-	// Connect to aggregator and load tools/resources/prompts
-	logger.Info("Connecting to aggregator at: %s using %s transport", endpoint, transport)
-
-	// For REPL mode with streamable-http, connect without running the full agent workflow
-	// This keeps the connection open for the REPL to use
-	err := client.Connect(ctx)
+	// Connect to aggregator and load tools/resources/prompts with retry logic
+	err := connectWithRetry(ctx, client, logger, endpoint, transport)
 	if err != nil {
-		return fmt.Errorf("failed to connect to aggregator: %w", err)
+		return err
 	}
 	defer client.Close()
-
-	// Load initial data for REPL
-	if err := client.InitializeAndLoadData(ctx); err != nil {
-		return fmt.Errorf("failed to load initial data: %w", err)
-	}
 
 	// Run in different modes
 	if agentMCPServer {
@@ -184,4 +175,48 @@ func runAgent(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+}
+
+// connectWithRetry attempts to connect to the aggregator with retry logic
+func connectWithRetry(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	const maxRetries = 3
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Don't wait on the first attempt
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+				// Simple 1 second delay between retries
+			}
+		}
+
+		// Attempt to connect
+		logger.Info("Connecting to aggregator at: %s using %s transport (attempt %d/%d)", endpoint, transport, attempt+1, maxRetries)
+
+		err := client.Connect(ctx)
+		if err == nil {
+			// Connection successful, now try to initialize
+			if err := client.InitializeAndLoadData(ctx); err != nil {
+				if attempt < maxRetries-1 {
+					logger.Info("Initialization failed, retrying: %v", err)
+					continue
+				}
+				return fmt.Errorf("failed to load initial data: %w", err)
+			}
+			return nil
+		}
+
+		// Retry on any error if we haven't exhausted our retries
+		if attempt < maxRetries-1 {
+			logger.Info("Connection attempt %d failed, retrying: %v", attempt+1, err)
+			continue
+		}
+
+		// If we've exhausted retries, return the error
+		return fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	return fmt.Errorf("failed to connect to aggregator after %d attempts", maxRetries)
 }

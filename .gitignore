@@ -22,4 +22,5 @@ logs
 *.sln
 *.sw?
 # OS specific
-.DS_Store 
+.DS_Store
+muster
