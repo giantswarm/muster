@@ -485,9 +485,6 @@ metadata:
   name: <workflow-name>
   namespace: <namespace>
 spec:
-  # Required: Unique workflow identifier
-  name: "<workflow-name>"
-  
   # Optional: Human-readable description
   description: "<description>"
   
@@ -539,7 +536,6 @@ status:
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `name` | `string` | Yes | Unique workflow identifier | Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`, Max 63 chars |
 | `description` | `string` | No | Human-readable description | Max 1000 characters |
 | `args` | `map[string]ArgDefinition` | No | Argument schema for execution validation | - |
 | `steps` | `[]WorkflowStep` | Yes | Sequence of workflow steps | Min 1 item |
