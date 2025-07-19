@@ -7,12 +7,6 @@ import (
 
 // WorkflowSpec defines the desired state of Workflow
 type WorkflowSpec struct {
-	// Name is the unique identifier for this workflow.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	// +kubebuilder:validation:MaxLength=63
-	Name string `json:"name" yaml:"name"`
-
 	// Description provides a human-readable description of the workflow's purpose.
 	// +kubebuilder:validation:MaxLength=1000
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`

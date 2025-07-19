@@ -200,7 +200,6 @@ metadata:
   name: deploy-application
   namespace: default
 spec:
-  name: "deploy-application"
   description: "Deploy application with health checks"
   args:                          # Workflow arguments
     appName:
@@ -244,7 +243,6 @@ spec:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | `string` | ✅ | Unique workflow identifier |
 | `description` | `string` | ❌ | Human-readable description |
 | `args` | `map[string]ArgDefinition` | ❌ | Workflow argument schema |
 | `steps` | `[]WorkflowStep` | ✅ | Sequence of execution steps |

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-16T12:23:01+02:00",
+  "generated_at": "2025-07-19T20:46:23+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",

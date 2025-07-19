@@ -1612,6 +1612,14 @@ func (m *musterInstanceManager) convertWorkflowConfigToCRDSpec(config map[string
 			m.logger.Debug("📋 Processing field %s (type: %T): %v\n", key, value, value)
 		}
 
+		// Skip the name field as it should only be in metadata, not spec
+		if key == "name" {
+			if m.debug {
+				m.logger.Debug("📋 Skipping name field from spec (should be in metadata only)\n")
+			}
+			continue
+		}
+
 		// Copy fields as-is for test scenarios
 		// The actual CRD conversion with RawExtension happens in the workflow adapter
 		spec[key] = value

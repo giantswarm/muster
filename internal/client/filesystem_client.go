@@ -743,9 +743,6 @@ func (f *filesystemClient) convertRawToWorkflow(rawWorkflow map[string]interface
 
 	// Convert spec safely
 	if spec, ok := rawWorkflow["spec"].(map[string]interface{}); ok {
-		if name, ok := spec["name"].(string); ok {
-			workflow.Spec.Name = name
-		}
 		if description, ok := spec["description"].(string); ok {
 			workflow.Spec.Description = description
 		}

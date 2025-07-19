@@ -93,11 +93,6 @@ spec:
                   the workflow's purpose.
                 maxLength: 1000
                 type: string
-              name:
-                description: Name is the unique identifier for this workflow.
-                maxLength: 63
-                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                type: string
               steps:
                 description: Steps defines the sequence of workflow steps defining
                   the execution flow.
@@ -203,7 +198,6 @@ spec:
                 minItems: 1
                 type: array
             required:
-            - name
             - steps
             type: object
           status:

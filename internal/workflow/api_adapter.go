@@ -224,7 +224,6 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 			Namespace: a.namespace,
 		},
 		Spec: musterv1alpha1.WorkflowSpec{
-			Name:        wf.Name,
 			Description: wf.Description,
 			Args:        make(map[string]musterv1alpha1.ArgDefinition),
 			Steps:       make([]musterv1alpha1.WorkflowStep, len(wf.Steps)),
@@ -389,12 +388,12 @@ func (a *Adapter) ReloadWorkflows() error {
 // convertCRDToWorkflow converts a Workflow CRD to internal API format
 func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *api.Workflow {
 	workflow := &api.Workflow{
-		Name:         workflowCRD.Spec.Name,
+		Name:         workflowCRD.ObjectMeta.Name,
 		Description:  workflowCRD.Spec.Description,
 		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
 		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
-		CreatedAt:    workflowCRD.CreationTimestamp.Time,
-		LastModified: workflowCRD.CreationTimestamp.Time,
+		CreatedAt:    workflowCRD.ObjectMeta.CreationTimestamp.Time,
+		LastModified: workflowCRD.ObjectMeta.CreationTimestamp.Time,
 	}
 
 	// Use modification time if available
@@ -417,7 +416,6 @@ func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.W
 			Namespace: a.namespace,
 		},
 		Spec: musterv1alpha1.WorkflowSpec{
-			Name:        workflow.Name,
 			Description: workflow.Description,
 			Args:        a.convertArgDefinitionsToCRD(workflow.Args),
 			Steps:       a.convertWorkflowStepsToCRD(workflow.Steps),

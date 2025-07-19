@@ -5,7 +5,6 @@ metadata:
   name: deploy-application
   namespace: default
 spec:
-  name: deploy-application
   description: "Deploy application to production environment with validation"
   args:
     app_name:

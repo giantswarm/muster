@@ -21,7 +21,6 @@ metadata:
   name: deployment-workflow
   namespace: default
 spec:
-  name: deployment-workflow
   description: "Multi-step deployment with validation"
   args:
     app_name:
