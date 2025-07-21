@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Systemd Socket Activation Support**
+  - Added `muster.socket` unit file for socket-activated systemd deployment
+  - Modified `muster.service` to use socket activation on localhost:8090
+  - Updated `scripts/setup-systemd.sh` and `scripts/dev-restart.sh` to handle socket activation
+  - Make use of new dependency `github.com/coreos/go-systemd` to handle socket activation
 - **Service Health Monitoring**
   - Added health checks for MCP servers using the `tools/list` JSON-RPC method
   - Added health checks for port forwards by testing TCP connectivity
