@@ -47,9 +47,8 @@ type AggregatorServer struct {
 	streamableHTTPServer *server.StreamableHTTPServer // Streamable HTTP transport
 	stdioServer          *server.StdioServer          // Standard I/O transport
 
-	// Custom HTTP servers with socket options (when socket reuse is enabled)
-	customSSEHTTPServer        *http.Server
-	customStreamableHTTPServer *http.Server
+	// HTTP servers with socket options (when socket reuse is enabled)
+	httpServer        *http.Server
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
@@ -175,24 +174,25 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			server.WithKeepAlive(true),                   // Enable keep-alive for connection stability
 			server.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
 		)
+		a.httpServer = &http.Server{
+			Handler: a.sseServer, // SSE server implements http.Handler
+		}
 
-		if useSystemdActivation && len(systemdListeners) > 0 {
+		if useSystemdActivation {
 			// Use first systemd-provided listener
 			systemdListener := systemdListeners[0]
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			// Start SSE server with systemd listener
 			go func() {
-				a.customSSEHTTPServer = &http.Server{
-					Handler: a.sseServer, // SSE server implements http.Handler
-				}
-				if err := a.customSSEHTTPServer.Serve(systemdListener); err != nil && err != http.ErrServerClosed {
+				if err := a.httpServer.Serve(systemdListener); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "SSE server error")
 				}
 			}()
 		} else {
 			// Standard SSE server start
 			go func() {
-				if err := a.sseServer.Start(addr); err != nil && err != http.ErrServerClosed {
+				a.httpServer.Addr = addr
+				if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "SSE server error")
 				}
 			}()
@@ -218,24 +218,26 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		logging.Info("Aggregator", "Starting MCP aggregator server with streamable-http transport on %s", addr)
 
 		a.streamableHTTPServer = server.NewStreamableHTTPServer(a.server)
+		a.httpServer = &http.Server{
+			Handler: a.streamableHTTPServer, // Streamable HTTP server implements http.Handler
+		}
 
-		if useSystemdActivation && len(systemdListeners) > 0 {
+		if useSystemdActivation {
 			// Use first systemd-provided listener
+			logging.Debug("Aggregator", "systemdListeners: %v", systemdListeners)
 			systemdListener := systemdListeners[0]
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			// Start streamable HTTP server with systemd listener
 			go func() {
-				a.customStreamableHTTPServer = &http.Server{
-					Handler: a.streamableHTTPServer, // Streamable HTTP server implements http.Handler
-				}
-				if err := a.customStreamableHTTPServer.Serve(systemdListener); err != nil && err != http.ErrServerClosed {
+				if err := a.httpServer.Serve(systemdListener); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "Streamable HTTP server error")
 				}
 			}()
 		} else {
 			// Standard streamable HTTP server start
 			go func() {
-				if err := a.streamableHTTPServer.Start(addr); err != nil && err != http.ErrServerClosed {
+				a.httpServer.Addr = addr
+				if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "Streamable HTTP server error")
 				}
 			}()
@@ -278,10 +280,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Capture references before releasing lock to avoid race conditions
 	cancelFunc := a.cancelFunc
-	sseServer := a.sseServer
-	streamableServer := a.streamableHTTPServer
-	customSSEHTTPServer := a.customSSEHTTPServer
-	customStreamableHTTPServer := a.customStreamableHTTPServer
+	httpServer := a.httpServer
 	a.mu.Unlock()
 
 	// Cancel context to signal shutdown to all background routines
@@ -294,23 +293,9 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	defer cancel()
 
 	// Shutdown custom HTTP servers first (they take priority over MCP servers)
-	if customSSEHTTPServer != nil {
-		if err := customSSEHTTPServer.Shutdown(shutdownCtx); err != nil {
-			logging.Error("Aggregator", err, "Error shutting down custom SSE HTTP server")
-		}
-	} else if sseServer != nil {
-		if err := sseServer.Shutdown(shutdownCtx); err != nil {
-			logging.Error("Aggregator", err, "Error shutting down SSE server")
-		}
-	}
-
-	if customStreamableHTTPServer != nil {
-		if err := customStreamableHTTPServer.Shutdown(shutdownCtx); err != nil {
-			logging.Error("Aggregator", err, "Error shutting down custom streamable HTTP server")
-		}
-	} else if streamableServer != nil {
-		if err := streamableServer.Shutdown(shutdownCtx); err != nil {
-			logging.Error("Aggregator", err, "Error shutting down streamable HTTP server")
+	if httpServer != nil {
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			logging.Error("Aggregator", err, "Error shutting down HTTP server")
 		}
 	}
 
@@ -332,8 +317,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	a.sseServer = nil
 	a.streamableHTTPServer = nil
 	a.stdioServer = nil
-	a.customSSEHTTPServer = nil
-	a.customStreamableHTTPServer = nil
+	a.httpServer = nil
 	a.mu.Unlock()
 
 	return nil

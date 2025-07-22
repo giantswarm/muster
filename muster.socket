@@ -4,7 +4,6 @@ PartOf=muster.service
 
 [Socket]
 ListenStream=127.0.0.1:8090
-ListenStream=[::1]:8090
 BindIPv6Only=both
 
 [Install]
