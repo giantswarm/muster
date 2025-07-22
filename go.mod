@@ -8,6 +8,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/briandowns/spinner v1.23.2
 	github.com/chzyer/readline v1.5.1
+	github.com/coreos/go-systemd/v22 v22.5.0
 	github.com/creativeprojects/go-selfupdate v1.5.0
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.6.7
@@ -29,7 +30,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
