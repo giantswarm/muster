@@ -47,9 +47,6 @@ type AggregatorServer struct {
 	streamableHTTPServer *server.StreamableHTTPServer // Streamable HTTP transport
 	stdioServer          *server.StdioServer          // Standard I/O transport
 
-	// HTTP server for SSE endpoint (when using SSE transport)
-	httpServer *http.Server
-
 	// Custom HTTP servers with socket options (when socket reuse is enabled)
 	customSSEHTTPServer        *http.Server
 	customStreamableHTTPServer *http.Server
@@ -335,7 +332,6 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	a.sseServer = nil
 	a.streamableHTTPServer = nil
 	a.stdioServer = nil
-	a.httpServer = nil
 	a.customSSEHTTPServer = nil
 	a.customStreamableHTTPServer = nil
 	a.mu.Unlock()
