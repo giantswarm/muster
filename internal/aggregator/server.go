@@ -48,7 +48,7 @@ type AggregatorServer struct {
 	stdioServer          *server.StdioServer          // Standard I/O transport
 
 	// HTTP servers with socket options (when socket reuse is enabled)
-	httpServer        *http.Server
+	httpServer *http.Server
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
