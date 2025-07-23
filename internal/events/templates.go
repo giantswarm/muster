@@ -22,12 +22,29 @@ func NewMessageTemplateEngine() *MessageTemplateEngine {
 // loadDefaultTemplates initializes the default message templates for all event reasons.
 func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	// MCPServer templates
+
+	// CRD Management Events
 	e.templates[ReasonMCPServerCreated] = "MCPServer {{.Name}} successfully created in namespace {{.Namespace}}"
 	e.templates[ReasonMCPServerUpdated] = "MCPServer {{.Name}} successfully updated in namespace {{.Namespace}}"
 	e.templates[ReasonMCPServerDeleted] = "MCPServer {{.Name}} successfully deleted from namespace {{.Namespace}}"
+
+	// Service Lifecycle Events
+	e.templates[ReasonMCPServerStarting] = "MCPServer {{.Name}} service is starting up"
 	e.templates[ReasonMCPServerStarted] = "MCPServer {{.Name}} service started successfully"
 	e.templates[ReasonMCPServerStopped] = "MCPServer {{.Name}} service stopped successfully"
+	e.templates[ReasonMCPServerRestarting] = "MCPServer {{.Name}} service is restarting"
 	e.templates[ReasonMCPServerFailed] = "MCPServer {{.Name}} operation failed{{if .Error}}: {{.Error}}{{end}}"
+
+	// Tool Discovery Events
+	e.templates[ReasonMCPServerToolsDiscovered] = "MCPServer {{.Name}} tools discovered and registered successfully"
+	e.templates[ReasonMCPServerToolsUnavailable] = "MCPServer {{.Name}} tools became unavailable{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonMCPServerReconnected] = "MCPServer {{.Name}} reconnected successfully and tools are available"
+
+	// Health and Recovery Events
+	e.templates[ReasonMCPServerHealthCheckFailed] = "MCPServer {{.Name}} health check failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonMCPServerRecoveryStarted] = "MCPServer {{.Name}} automatic recovery process started"
+	e.templates[ReasonMCPServerRecoverySucceeded] = "MCPServer {{.Name}} automatic recovery completed successfully"
+	e.templates[ReasonMCPServerRecoveryFailed] = "MCPServer {{.Name}} automatic recovery failed{{if .Error}}: {{.Error}}{{end}}"
 
 	// ServiceClass templates
 	e.templates[ReasonServiceClassCreated] = "ServiceClass {{.Name}} successfully created in namespace {{.Namespace}}"

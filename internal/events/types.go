@@ -20,23 +20,54 @@ type EventReason string
 
 // MCPServer event reasons
 const (
-	// ReasonMCPServerCreated indicates an MCPServer was successfully created.
+	// CRD Management Events
+	// ReasonMCPServerCreated indicates an MCPServer CRD was successfully created.
 	ReasonMCPServerCreated EventReason = "MCPServerCreated"
 
-	// ReasonMCPServerUpdated indicates an MCPServer was successfully updated.
+	// ReasonMCPServerUpdated indicates an MCPServer CRD was successfully updated.
 	ReasonMCPServerUpdated EventReason = "MCPServerUpdated"
 
-	// ReasonMCPServerDeleted indicates an MCPServer was successfully deleted.
+	// ReasonMCPServerDeleted indicates an MCPServer CRD was successfully deleted.
 	ReasonMCPServerDeleted EventReason = "MCPServerDeleted"
 
-	// ReasonMCPServerStarted indicates an MCPServer service was started.
+	// Service Lifecycle Events
+	// ReasonMCPServerStarting indicates an MCPServer service is beginning to start.
+	ReasonMCPServerStarting EventReason = "MCPServerStarting"
+
+	// ReasonMCPServerStarted indicates an MCPServer service was started successfully.
 	ReasonMCPServerStarted EventReason = "MCPServerStarted"
 
 	// ReasonMCPServerStopped indicates an MCPServer service was stopped.
 	ReasonMCPServerStopped EventReason = "MCPServerStopped"
 
+	// ReasonMCPServerRestarting indicates an MCPServer service is being restarted.
+	ReasonMCPServerRestarting EventReason = "MCPServerRestarting"
+
 	// ReasonMCPServerFailed indicates an MCPServer operation failed.
 	ReasonMCPServerFailed EventReason = "MCPServerFailed"
+
+	// Tool Discovery Events
+	// ReasonMCPServerToolsDiscovered indicates tools were successfully discovered from an MCPServer.
+	ReasonMCPServerToolsDiscovered EventReason = "MCPServerToolsDiscovered"
+
+	// ReasonMCPServerToolsUnavailable indicates tool discovery failed or tools became unavailable.
+	ReasonMCPServerToolsUnavailable EventReason = "MCPServerToolsUnavailable"
+
+	// ReasonMCPServerReconnected indicates connection to an MCPServer was restored.
+	ReasonMCPServerReconnected EventReason = "MCPServerReconnected"
+
+	// Health and Recovery Events
+	// ReasonMCPServerHealthCheckFailed indicates health checks failed for an MCPServer.
+	ReasonMCPServerHealthCheckFailed EventReason = "MCPServerHealthCheckFailed"
+
+	// ReasonMCPServerRecoveryStarted indicates automatic recovery began for an MCPServer.
+	ReasonMCPServerRecoveryStarted EventReason = "MCPServerRecoveryStarted"
+
+	// ReasonMCPServerRecoverySucceeded indicates automatic recovery succeeded for an MCPServer.
+	ReasonMCPServerRecoverySucceeded EventReason = "MCPServerRecoverySucceeded"
+
+	// ReasonMCPServerRecoveryFailed indicates automatic recovery failed for an MCPServer.
+	ReasonMCPServerRecoveryFailed EventReason = "MCPServerRecoveryFailed"
 )
 
 // ServiceClass event reasons
@@ -142,6 +173,9 @@ type ObjectReference struct {
 func getEventType(reason EventReason) EventType {
 	switch reason {
 	case ReasonMCPServerFailed,
+		ReasonMCPServerToolsUnavailable,
+		ReasonMCPServerHealthCheckFailed,
+		ReasonMCPServerRecoveryFailed,
 		ReasonServiceClassValidationFailed,
 		ReasonWorkflowExecutionFailed,
 		ReasonServiceInstanceFailed:
