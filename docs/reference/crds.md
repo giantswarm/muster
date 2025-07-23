@@ -26,24 +26,37 @@ metadata:
   namespace: <namespace>
 spec:
   # Required: Server execution type
-  type: localCommand
+  type: local|remote
   
-  # Optional: Auto-start behavior
-  autoStart: false
-  
-  # Optional: Tool name prefix
+  # Optional: Tool name prefix (applies to both local and remote)
   toolPrefix: "<prefix>"
-  
-  # Required for localCommand: Command to execute
-  command: ["<executable>", "<arg1>", "<arg2>"]
-  
-  # Optional: Environment variables
-  env:
-    KEY1: "value1"
-    KEY2: "value2"
   
   # Optional: Human-readable description
   description: "<description>"
+  
+  # Configuration for local MCP servers (when type: local)
+  local:
+    # Optional: Auto-start behavior
+    autoStart: false
+    
+    # Required for local: Command to execute
+    command: ["<executable>", "<arg1>", "<arg2>"]
+    
+    # Optional: Environment variables
+    env:
+      KEY1: "value1"
+      KEY2: "value2"
+  
+  # Configuration for remote MCP servers (when type: remote)
+  remote:
+    # Required: Remote server endpoint
+    endpoint: "https://api.example.com/mcp"
+    
+    # Required: Transport protocol
+    transport: "http|sse|websocket"
+    
+    # Optional: Connection timeout in seconds
+    timeout: 30
 
 # Status is managed automatically by muster
 status:
@@ -60,12 +73,27 @@ status:
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | Yes | Execution method for the MCP server | Must be `localCommand` |
-| `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false` |
+| `type` | `string` | Yes | Execution method for the MCP server | Must be `local` or `remote` |
 | `toolPrefix` | `string` | No | Prefix for all tool names from this server | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
-| `command` | `[]string` | Yes* | Command line to execute the server | Min 1 item. Required when `type` is `localCommand` |
-| `env` | `map[string]string` | No | Environment variables for the process | - |
 | `description` | `string` | No | Human-readable description | Max 500 characters |
+| `local` | `LocalConfig` | Yes* | Configuration for local MCP servers | Required when `type` is `local` |
+| `remote` | `RemoteConfig` | Yes* | Configuration for remote MCP servers | Required when `type` is `remote` |
+
+#### LocalConfig Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false` |
+| `command` | `[]string` | Yes | Command line to execute the server | Min 1 item |
+| `env` | `map[string]string` | No | Environment variables for the process | - |
+
+#### RemoteConfig Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `endpoint` | `string` | Yes | Remote server endpoint URL | Must be valid HTTP/HTTPS URL |
+| `transport` | `string` | Yes | Transport protocol | `http`, `sse`, `websocket` |
+| `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 
 #### Status Fields
 
@@ -79,7 +107,7 @@ status:
 
 ### Examples
 
-#### Basic Git Tools Server
+#### Basic Git Tools Server (Local)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -87,16 +115,17 @@ metadata:
   name: git-tools
   namespace: default
 spec:
-  type: localCommand
-  autoStart: true
-  command: ["npx", "@modelcontextprotocol/server-git"]
-  env:
-    GIT_ROOT: "/workspace"
-    LOG_LEVEL: "info"
+  type: local
   description: "Git tools MCP server for repository operations"
+  local:
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-git"]
+    env:
+      GIT_ROOT: "/workspace"
+      LOG_LEVEL: "info"
 ```
 
-#### Python Tools with Prefix
+#### Python Tools with Prefix (Local)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -104,14 +133,64 @@ metadata:
   name: python-tools
   namespace: default
 spec:
-  type: localCommand
-  autoStart: true
+  type: local
   toolPrefix: "py"
-  command: ["python", "-m", "mcp_server.custom"]
-  env:
-    PYTHONPATH: "/usr/local/lib/python3.9/site-packages"
-    DEBUG: "true"
   description: "Python-based MCP server with custom tools"
+  local:
+    autoStart: true
+    command: ["python", "-m", "mcp_server.custom"]
+    env:
+      PYTHONPATH: "/usr/local/lib/python3.9/site-packages"
+      DEBUG: "true"
+```
+
+#### Remote HTTP Server (Remote)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: api-tools
+  namespace: default
+spec:
+  type: remote
+  description: "Remote API tools server"
+  remote:
+    endpoint: "https://api.example.com/mcp"
+    transport: "http"
+    timeout: 30
+```
+
+#### SSE Remote Server (Remote)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: sse-tools
+  namespace: default
+spec:
+  type: remote
+  toolPrefix: "remote"
+  description: "Server-Sent Events MCP server"
+  remote:
+    endpoint: "https://mcp.example.com/sse"
+    transport: "sse"
+    timeout: 60
+```
+
+#### WebSocket Remote Server (Remote)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: websocket-tools
+  namespace: default
+spec:
+  type: remote
+  description: "WebSocket-based MCP server"
+  remote:
+    endpoint: "wss://realtime.example.com/mcp"
+    transport: "websocket"
+    timeout: 45
 ```
 
 ### CLI Usage
@@ -576,7 +655,7 @@ status:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `available` | `boolean` | All required tools are available |
+| `available` | `boolean` | All required tools available |
 | `requiredTools` | `[]string` | List of required tool names |
 | `missingTools` | `[]string` | List of unavailable tools |
 | `stepValidation` | `[]StepValidationResult` | Validation results for each step |

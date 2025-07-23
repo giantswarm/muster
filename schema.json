@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-23T14:45:12+02:00",
+  "generated_at": "2025-07-23T15:31:44+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -42,37 +42,70 @@
         "core_mcpserver_create": {
           "description": "Arguments for core_mcpserver_create tool",
           "properties": {
-            "autoStart": {
-              "description": "Whether server should auto-start",
-              "type": "boolean"
-            },
-            "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
             "description": {
               "description": "MCP server description",
               "type": "string"
             },
-            "env": {
-              "additionalProperties": {
-                "description": "Environment variable value",
-                "type": "string"
+            "local": {
+              "description": "Local MCP server configuration (for type=local)",
+              "properties": {
+                "autoStart": {
+                  "description": "Whether server should auto-start",
+                  "type": "boolean"
+                },
+                "command": {
+                  "description": "Command and arguments",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "env": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Environment variables",
+                  "type": "object"
+                }
               },
-              "description": "Environment variables",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "remote": {
+              "description": "Remote MCP server configuration (for type=remote)",
+              "properties": {
+                "endpoint": {
+                  "description": "Remote server endpoint URL",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Connection timeout in seconds",
+                  "maximum": 300,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "transport": {
+                  "description": "Transport protocol (http, sse, websocket)",
+                  "enum": [
+                    "http",
+                    "sse",
+                    "websocket"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (local or remote)",
               "type": "string"
             }
           },
@@ -116,37 +149,70 @@
         "core_mcpserver_update": {
           "description": "Arguments for core_mcpserver_update tool",
           "properties": {
-            "autoStart": {
-              "description": "Whether server should auto-start",
-              "type": "boolean"
-            },
-            "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
             "description": {
               "description": "MCP server description",
               "type": "string"
             },
-            "env": {
-              "additionalProperties": {
-                "description": "Environment variable value",
-                "type": "string"
+            "local": {
+              "description": "Local MCP server configuration (for type=local)",
+              "properties": {
+                "autoStart": {
+                  "description": "Whether server should auto-start",
+                  "type": "boolean"
+                },
+                "command": {
+                  "description": "Command and arguments",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "env": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Environment variables",
+                  "type": "object"
+                }
               },
-              "description": "Environment variables",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "remote": {
+              "description": "Remote MCP server configuration (for type=remote)",
+              "properties": {
+                "endpoint": {
+                  "description": "Remote server endpoint URL",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Connection timeout in seconds",
+                  "maximum": 300,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "transport": {
+                  "description": "Transport protocol (http, sse, websocket)",
+                  "enum": [
+                    "http",
+                    "sse",
+                    "websocket"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (local or remote)",
               "type": "string"
             }
           },
@@ -159,16 +225,11 @@
           "description": "Arguments for core_mcpserver_validate tool",
           "properties": {
             "autoStart": {
-              "description": "Whether server should auto-start",
+              "description": "Whether server should auto-start (legacy)",
               "type": "boolean"
             },
             "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
+              "description": "Command and arguments (legacy)",
               "type": "array"
             },
             "description": {
@@ -176,19 +237,69 @@
               "type": "string"
             },
             "env": {
-              "additionalProperties": {
-                "description": "Environment variable value",
-                "type": "string"
+              "description": "Environment variables (legacy)",
+              "type": "object"
+            },
+            "local": {
+              "description": "Local MCP server configuration (for type=local)",
+              "properties": {
+                "autoStart": {
+                  "description": "Whether server should auto-start",
+                  "type": "boolean"
+                },
+                "command": {
+                  "description": "Command and arguments",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "env": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Environment variables",
+                  "type": "object"
+                }
               },
-              "description": "Environment variables",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "remote": {
+              "description": "Remote MCP server configuration (for type=remote)",
+              "properties": {
+                "endpoint": {
+                  "description": "Remote server endpoint URL",
+                  "type": "string"
+                },
+                "timeout": {
+                  "description": "Connection timeout in seconds",
+                  "maximum": 300,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "transport": {
+                  "description": "Transport protocol (http, sse, websocket)",
+                  "enum": [
+                    "http",
+                    "sse",
+                    "websocket"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (local or remote)",
               "type": "string"
             }
           },

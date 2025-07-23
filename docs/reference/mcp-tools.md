@@ -218,7 +218,7 @@ List all configured MCP servers with their definitions and metadata.
   "mcpServers": [
     {
       "name": "my-custom-server",
-      "type": "localCommand",
+      "type": "local",
       "autoStart": true,
       "description": "Custom MCP server for specialized tools",
       "command": ["my-server", "serve"],
@@ -237,7 +237,7 @@ Create a new MCP server definition that can be started as a service.
 
 **Arguments:**
 - `name` (string, required) - Unique server name (used as service identifier)
-- `type` (string, required) - Server type (currently only "localCommand" supported)
+- `type` (string, required) - Server type (currently only "local" supported)
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (minimum 1 item)
 - `env` (object, optional) - Environment variables as key-value pairs
@@ -251,7 +251,7 @@ Create a new MCP server definition that can be started as a service.
   "name": "core_mcpserver_create",
   "arguments": {
     "name": "my-tools",
-    "type": "localCommand",
+    "type": "local",
     "description": "Custom tool server for project management",
     "command": ["my-mcp-server", "--port", "3000", "--verbose"],
     "env": {
@@ -290,7 +290,7 @@ Get detailed information about a specific MCP server definition.
 ```json
 {
   "name": "my-tools",
-  "type": "localCommand",
+  "type": "local",
   "autoStart": true,
   "description": "Custom tool server for project management",
   "command": ["my-mcp-server", "--port", "3000", "--verbose"],

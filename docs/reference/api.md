@@ -187,9 +187,9 @@ Create a new MCP server configuration.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (localCommand)
+- `type` (string, required) - MCP server type (local)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for localCommand type)
+- `command` (array of strings, optional) - Command and arguments (for local type)
 - `env` (object, optional) - Environment variables as key-value pairs
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
@@ -201,7 +201,7 @@ Create a new MCP server configuration.
     "name": "core_mcpserver_create",
     "arguments": {
       "name": "my-mcp-server",
-      "type": "localCommand",
+      "type": "local",
       "description": "Custom MCP server for project management",
       "command": ["node", "/path/to/server.js"],
       "env": {
@@ -277,9 +277,9 @@ Update an existing MCP server configuration.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, optional) - MCP server type (localCommand)
+- `type` (string, optional) - MCP server type (local)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for localCommand type)
+- `command` (array of strings, optional) - Command and arguments (for local type)
 - `env` (object, optional) - Environment variables as key-value pairs
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
@@ -304,9 +304,9 @@ Validate MCP server configuration without creating it.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (localCommand)
+- `type` (string, required) - MCP server type (local)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for localCommand type)
+- `command` (array of strings, optional) - Command and arguments (for local type)
 - `env` (object, optional) - Environment variables as key-value pairs
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
@@ -318,7 +318,7 @@ Validate MCP server configuration without creating it.
     "name": "core_mcpserver_validate",
     "arguments": {
       "name": "test-server",
-      "type": "localCommand",
+      "type": "local",
       "command": ["node", "server.js"]
     }
   }

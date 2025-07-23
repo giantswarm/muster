@@ -69,9 +69,9 @@ muster list mcpserver
 
 # Example output:
 # NAME         TYPE          STATUS    AUTOSTART
-# kubernetes   localCommand  Running   true
-# prometheus   localCommand  Running   true
-# github       localCommand  Stopped   false
+# kubernetes   local         Running   true
+# prometheus   local         Running   true
+# github       local         Stopped   false
 ```
 
 ### Listing Workflows

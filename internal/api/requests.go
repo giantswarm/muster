@@ -151,21 +151,19 @@ type MCPServerCreateRequest struct {
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local) - nested structure for backward compatibility
+	// Local contains configuration for local MCP servers (type=local)
 	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote) - nested structure for backward compatibility
+	// Remote contains configuration for remote MCP servers (type=remote)
 	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
 
-	// Flat arguments for local MCP servers (type=local)
+	// Legacy flat fields for backward compatibility
 	AutoStart bool              `json:"autoStart,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
-
-	// Flat arguments for remote MCP servers (type=remote)
-	Endpoint  string `json:"endpoint,omitempty"`
-	Transport string `json:"transport,omitempty"`
-	Timeout   string `json:"timeout,omitempty"`
+	Endpoint  string            `json:"endpoint,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+	Timeout   string            `json:"timeout,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -183,21 +181,19 @@ type MCPServerUpdateRequest struct {
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local) - nested structure for backward compatibility
+	// Local contains configuration for local MCP servers (type=local)
 	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote) - nested structure for backward compatibility
+	// Remote contains configuration for remote MCP servers (type=remote)
 	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
 
-	// Flat arguments for local MCP servers (type=local)
+	// Legacy flat fields for backward compatibility
 	AutoStart bool              `json:"autoStart,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
-
-	// Flat arguments for remote MCP servers (type=remote)
-	Endpoint  string `json:"endpoint,omitempty"`
-	Transport string `json:"transport,omitempty"`
-	Timeout   string `json:"timeout,omitempty"`
+	Endpoint  string            `json:"endpoint,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+	Timeout   string            `json:"timeout,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -221,11 +217,13 @@ type MCPServerValidateRequest struct {
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`
 
-	// Legacy fields for backward compatibility - these are mapped to Local config
-	// TODO: Remove these in a future version
+	// Legacy flat fields for backward compatibility
 	AutoStart bool              `json:"autoStart,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+	Endpoint  string            `json:"endpoint,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+	Timeout   string            `json:"timeout,omitempty"`
 }
 
 // Workflow Request Types

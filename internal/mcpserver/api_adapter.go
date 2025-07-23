@@ -108,10 +108,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			Command:   server.Spec.Local.Command,
 			Env:       server.Spec.Local.Env,
 		}
-		// Set legacy fields for backward compatibility
-		info.AutoStart = server.Spec.Local.AutoStart
-		info.Command = server.Spec.Local.Command
-		info.Env = server.Spec.Local.Env
 	}
 
 	// Handle remote configuration
@@ -126,7 +122,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	return info
 }
 
-// convertRequestToCRD converts a request to a MCPServer CRD, handling both flat and nested arguments
+// convertRequestToCRD converts a request to a MCPServer CRD, handling both nested and flat structures
 func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
 	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
@@ -144,18 +140,17 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		},
 	}
 
-	// Handle local configuration from flat arguments or nested structure
+	// Handle local configuration - prefer nested structure, fall back to flat fields
 	if req.Type == "local" {
-		// Create local spec
 		localSpec := &musterv1alpha1.MCPServerLocalSpec{}
 
-		// Use nested structure if provided (backward compatibility)
 		if req.Local != nil {
+			// Use new nested structure
 			localSpec.AutoStart = req.Local.AutoStart
 			localSpec.Command = req.Local.Command
 			localSpec.Env = req.Local.Env
 		} else {
-			// Use flat arguments (new API)
+			// Fall back to legacy flat fields
 			localSpec.AutoStart = req.AutoStart
 			localSpec.Command = req.Command
 			localSpec.Env = req.Env
@@ -164,23 +159,21 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		crd.Spec.Local = localSpec
 	}
 
-	// Handle remote configuration from flat arguments or nested structure
+	// Handle remote configuration - prefer nested structure, fall back to flat fields
 	if req.Type == "remote" {
-		// Create remote spec
 		remoteSpec := &musterv1alpha1.MCPServerRemoteSpec{}
 
-		// Use nested structure if provided (backward compatibility)
 		if req.Remote != nil {
+			// Use new nested structure
 			remoteSpec.Endpoint = req.Remote.Endpoint
 			remoteSpec.Transport = req.Remote.Transport
 			remoteSpec.Timeout = req.Remote.Timeout
 		} else {
-			// Use flat arguments (new API)
+			// Fall back to legacy flat fields
 			remoteSpec.Endpoint = req.Endpoint
 			remoteSpec.Transport = req.Transport
 			// Parse timeout from string format to int
 			if req.Timeout != "" {
-				// Convert timeout string to integer (assuming format like "30s", "60s")
 				if timeoutInt, err := a.parseTimeoutString(req.Timeout); err == nil {
 					remoteSpec.Timeout = timeoutInt
 				}
@@ -229,7 +222,7 @@ func (a *Adapter) parseTimeoutString(timeoutStr string) (int, error) {
 
 // GetTools returns all tools this provider offers
 func (a *Adapter) GetTools() []api.ToolMetadata {
-	return []api.ToolMetadata{
+	tools := []api.ToolMetadata{
 		{
 			Name:        "mcpserver_list",
 			Description: "List all MCP server definitions with their status",
@@ -326,16 +319,64 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "type", Type: "string", Required: true, Description: "MCP server type (local or remote)"},
 				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-
-				// Local MCP server arguments (for type=local)
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (for local servers)"},
-				{Name: "command", Type: "array", Required: false, Description: "Command and arguments (for local servers)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (for local servers)"},
-
-				// Remote MCP server arguments (for type=remote)
-				{Name: "endpoint", Type: "string", Required: false, Description: "Remote server endpoint URL (for remote servers)"},
-				{Name: "transport", Type: "string", Required: false, Description: "Transport protocol: http, sse, websocket (for remote servers)"},
-				{Name: "timeout", Type: "string", Required: false, Description: "Connection timeout (for remote servers, e.g. '30s')"},
+				{
+					Name:        "local",
+					Type:        "object",
+					Required:    false,
+					Description: "Local MCP server configuration (for type=local)",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Local MCP server configuration",
+						"properties": map[string]interface{}{
+							"autoStart": map[string]interface{}{
+								"type":        "boolean",
+								"description": "Whether server should auto-start",
+							},
+							"command": map[string]interface{}{
+								"type":        "array",
+								"description": "Command and arguments",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+								"minItems": 1,
+							},
+							"env": map[string]interface{}{
+								"type":        "object",
+								"description": "Environment variables",
+								"additionalProperties": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+					},
+				},
+				{
+					Name:        "remote",
+					Type:        "object",
+					Required:    false,
+					Description: "Remote MCP server configuration (for type=remote)",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Remote MCP server configuration",
+						"properties": map[string]interface{}{
+							"endpoint": map[string]interface{}{
+								"type":        "string",
+								"description": "Remote server endpoint URL",
+							},
+							"transport": map[string]interface{}{
+								"type":        "string",
+								"description": "Transport protocol (http, sse, websocket)",
+								"enum":        []string{"http", "sse", "websocket"},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "integer",
+								"description": "Connection timeout in seconds",
+								"minimum":     1,
+								"maximum":     300,
+							},
+						},
+					},
+				},
 			},
 		},
 		{
@@ -346,16 +387,64 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "type", Type: "string", Required: false, Description: "MCP server type (local or remote)"},
 				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-
-				// Local MCP server arguments (for type=local)
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (for local servers)"},
-				{Name: "command", Type: "array", Required: false, Description: "Command and arguments (for local servers)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (for local servers)"},
-
-				// Remote MCP server arguments (for type=remote)
-				{Name: "endpoint", Type: "string", Required: false, Description: "Remote server endpoint URL (for remote servers)"},
-				{Name: "transport", Type: "string", Required: false, Description: "Transport protocol: http, sse, websocket (for remote servers)"},
-				{Name: "timeout", Type: "string", Required: false, Description: "Connection timeout (for remote servers, e.g. '30s')"},
+				{
+					Name:        "local",
+					Type:        "object",
+					Required:    false,
+					Description: "Local MCP server configuration (for type=local)",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Local MCP server configuration",
+						"properties": map[string]interface{}{
+							"autoStart": map[string]interface{}{
+								"type":        "boolean",
+								"description": "Whether server should auto-start",
+							},
+							"command": map[string]interface{}{
+								"type":        "array",
+								"description": "Command and arguments",
+								"items": map[string]interface{}{
+									"type": "string",
+								},
+								"minItems": 1,
+							},
+							"env": map[string]interface{}{
+								"type":        "object",
+								"description": "Environment variables",
+								"additionalProperties": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+					},
+				},
+				{
+					Name:        "remote",
+					Type:        "object",
+					Required:    false,
+					Description: "Remote MCP server configuration (for type=remote)",
+					Schema: map[string]interface{}{
+						"type":        "object",
+						"description": "Remote MCP server configuration",
+						"properties": map[string]interface{}{
+							"endpoint": map[string]interface{}{
+								"type":        "string",
+								"description": "Remote server endpoint URL",
+							},
+							"transport": map[string]interface{}{
+								"type":        "string",
+								"description": "Transport protocol (http, sse, websocket)",
+								"enum":        []string{"http", "sse", "websocket"},
+							},
+							"timeout": map[string]interface{}{
+								"type":        "integer",
+								"description": "Connection timeout in seconds",
+								"minimum":     1,
+								"maximum":     300,
+							},
+						},
+					},
+				},
 			},
 		},
 		{
@@ -371,6 +460,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			},
 		},
 	}
+	return tools
 }
 
 // ExecuteTool executes a tool by name
@@ -512,9 +602,15 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		return simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
 	}
 
-	// Update fields from request
+	// Update common fields from request
 	if req.Type != "" {
 		existing.Spec.Type = req.Type
+	}
+	if req.ToolPrefix != "" {
+		existing.Spec.ToolPrefix = req.ToolPrefix
+	}
+	if req.Description != "" {
+		existing.Spec.Description = req.Description
 	}
 
 	// Handle local configuration updates
@@ -531,16 +627,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				existing.Spec.Local.Env = req.Local.Env
 			}
 		}
-		// Handle legacy fields for backward compatibility
-		if req.AutoStart {
-			existing.Spec.Local.AutoStart = req.AutoStart
-		}
-		if req.Command != nil {
-			existing.Spec.Local.Command = req.Command
-		}
-		if req.Env != nil {
-			existing.Spec.Local.Env = req.Env
-		}
 	}
 
 	// Handle remote configuration updates
@@ -549,7 +635,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			existing.Spec.Remote = &musterv1alpha1.MCPServerRemoteSpec{}
 		}
 
-		// Use nested structure if provided (backward compatibility)
 		if req.Remote != nil {
 			if req.Remote.Endpoint != "" {
 				existing.Spec.Remote.Endpoint = req.Remote.Endpoint
@@ -561,28 +646,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				existing.Spec.Remote.Timeout = req.Remote.Timeout
 			}
 		}
-
-		// Use flat arguments (new API)
-		if req.Endpoint != "" {
-			existing.Spec.Remote.Endpoint = req.Endpoint
-		}
-		if req.Transport != "" {
-			existing.Spec.Remote.Transport = req.Transport
-		}
-		if req.Timeout != "" {
-			// Parse timeout from string format to int
-			if timeoutInt, err := a.parseTimeoutString(req.Timeout); err == nil {
-				existing.Spec.Remote.Timeout = timeoutInt
-			}
-		}
-	}
-
-	if req.ToolPrefix != "" {
-		existing.Spec.ToolPrefix = req.ToolPrefix
-	}
-
-	if req.Description != "" {
-		existing.Spec.Description = req.Description
 	}
 
 	// Validate the definition
