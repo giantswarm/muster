@@ -12,9 +12,10 @@ steps:
   args:
     name: "remote-http-server"
     type: "remote"
-    endpoint: "http://localhost:8080/mcp"
-    transport: "http"
-    timeout: "30s"
+    remote:
+      endpoint: "http://localhost:8080/mcp"
+      transport: "http"
+      timeout: 30
   expected:
     success: true
 

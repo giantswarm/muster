@@ -12,9 +12,10 @@ steps:
   args:
     name: "remote-sse-server"
     type: "remote"
-    endpoint: "https://api.example.com/mcp/sse"
-    transport: "sse"
-    timeout: "60s"
+    remote:
+      endpoint: "https://api.example.com/mcp/sse"
+      transport: "sse"
+      timeout: 60
   expected:
     success: true
 

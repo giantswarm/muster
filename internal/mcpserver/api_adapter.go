@@ -3,8 +3,6 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -122,7 +120,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	return info
 }
 
-// convertRequestToCRD converts a request to a MCPServer CRD, handling both nested and flat structures
+// convertRequestToCRD converts a request to a MCPServer CRD using the nested structure
 func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
 	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
@@ -140,82 +138,25 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		},
 	}
 
-	// Handle local configuration - prefer nested structure, fall back to flat fields
-	if req.Type == "local" {
-		localSpec := &musterv1alpha1.MCPServerLocalSpec{}
-
-		if req.Local != nil {
-			// Use new nested structure
-			localSpec.AutoStart = req.Local.AutoStart
-			localSpec.Command = req.Local.Command
-			localSpec.Env = req.Local.Env
-		} else {
-			// Fall back to legacy flat fields
-			localSpec.AutoStart = req.AutoStart
-			localSpec.Command = req.Command
-			localSpec.Env = req.Env
+	// Handle local configuration
+	if req.Type == "local" && req.Local != nil {
+		crd.Spec.Local = &musterv1alpha1.MCPServerLocalSpec{
+			AutoStart: req.Local.AutoStart,
+			Command:   req.Local.Command,
+			Env:       req.Local.Env,
 		}
-
-		crd.Spec.Local = localSpec
 	}
 
-	// Handle remote configuration - prefer nested structure, fall back to flat fields
-	if req.Type == "remote" {
-		remoteSpec := &musterv1alpha1.MCPServerRemoteSpec{}
-
-		if req.Remote != nil {
-			// Use new nested structure
-			remoteSpec.Endpoint = req.Remote.Endpoint
-			remoteSpec.Transport = req.Remote.Transport
-			remoteSpec.Timeout = req.Remote.Timeout
-		} else {
-			// Fall back to legacy flat fields
-			remoteSpec.Endpoint = req.Endpoint
-			remoteSpec.Transport = req.Transport
-			// Parse timeout from string format to int
-			if req.Timeout != "" {
-				if timeoutInt, err := a.parseTimeoutString(req.Timeout); err == nil {
-					remoteSpec.Timeout = timeoutInt
-				}
-			}
+	// Handle remote configuration
+	if req.Type == "remote" && req.Remote != nil {
+		crd.Spec.Remote = &musterv1alpha1.MCPServerRemoteSpec{
+			Endpoint:  req.Remote.Endpoint,
+			Transport: req.Remote.Transport,
+			Timeout:   req.Remote.Timeout,
 		}
-
-		crd.Spec.Remote = remoteSpec
 	}
 
 	return crd
-}
-
-// parseTimeoutString converts timeout strings like "30s", "1m" to integer seconds
-func (a *Adapter) parseTimeoutString(timeoutStr string) (int, error) {
-	if timeoutStr == "" {
-		return 0, nil
-	}
-
-	// Handle simple cases like "30s", "60s"
-	if strings.HasSuffix(timeoutStr, "s") {
-		if numStr := strings.TrimSuffix(timeoutStr, "s"); numStr != "" {
-			if num, err := strconv.Atoi(numStr); err == nil {
-				return num, nil
-			}
-		}
-	}
-
-	// Handle minutes like "1m", "2m"
-	if strings.HasSuffix(timeoutStr, "m") {
-		if numStr := strings.TrimSuffix(timeoutStr, "m"); numStr != "" {
-			if num, err := strconv.Atoi(numStr); err == nil {
-				return num * 60, nil
-			}
-		}
-	}
-
-	// Try parsing as plain integer (assume seconds)
-	if num, err := strconv.Atoi(timeoutStr); err == nil {
-		return num, nil
-	}
-
-	return 0, fmt.Errorf("invalid timeout format: %s", timeoutStr)
 }
 
 // ToolProvider implementation
@@ -305,10 +246,6 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					},
 				},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				// Legacy fields for backward compatibility
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (legacy)"},
-				{Name: "command", Type: "array", Required: false, Description: "Command and arguments (legacy)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (legacy)"},
 			},
 		},
 		{
@@ -563,17 +500,14 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Create MCPServer CRD
-	server := a.convertRequestToCRD(&req)
-
 	// Validate the definition
-	if err := a.validateMCPServer(server); err != nil {
+	if err := a.validateMCPServer(a.convertRequestToCRD(&req)); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Create the new MCP server using the unified client
 	ctx := context.Background()
-	if err := a.client.CreateMCPServer(ctx, server); err != nil {
+	if err := a.client.CreateMCPServer(ctx, a.convertRequestToCRD(&req)); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
 		}
@@ -590,6 +524,18 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			Content: []interface{}{err.Error()},
 			IsError: true,
 		}, nil
+	}
+
+	// Validate mixed configuration for proper nested structure
+	if err := a.validateMCPServer(a.convertRequestToCRD(&api.MCPServerCreateRequest{
+		Name:        req.Name,
+		Type:        req.Type,
+		ToolPrefix:  req.ToolPrefix,
+		Description: req.Description,
+		Local:       req.Local,
+		Remote:      req.Remote,
+	})); err != nil {
+		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Get existing server first

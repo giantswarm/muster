@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-23T15:31:44+02:00",
+  "generated_at": "2025-07-23T16:11:34+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -224,21 +224,9 @@
         "core_mcpserver_validate": {
           "description": "Arguments for core_mcpserver_validate tool",
           "properties": {
-            "autoStart": {
-              "description": "Whether server should auto-start (legacy)",
-              "type": "boolean"
-            },
-            "command": {
-              "description": "Command and arguments (legacy)",
-              "type": "array"
-            },
             "description": {
               "description": "MCP server description",
               "type": "string"
-            },
-            "env": {
-              "description": "Environment variables (legacy)",
-              "type": "object"
             },
             "local": {
               "description": "Local MCP server configuration (for type=local)",

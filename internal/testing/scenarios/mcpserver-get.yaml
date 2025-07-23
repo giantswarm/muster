@@ -13,6 +13,7 @@ pre_configuration:
       type: "local"
       local:
         command: ["echo", "mock server for get test"]
+        autoStart: false
       tools:
         - name: "foobar"
           input_schema:

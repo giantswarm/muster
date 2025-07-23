@@ -31,7 +31,8 @@ steps:
   args:
     name: "invalid-type-server"
     type: "invalidType"
-    command: ["echo", "test"]
+    local:
+      command: ["echo", "test"]
   expected:
     success: false
     error_contains: ["type", "invalid"]
@@ -44,7 +45,7 @@ steps:
     type: "local"
   expected:
     success: false
-    error_contains: ["command", "required"]
+    error_contains: ["local configuration", "required"]
 
 - id: "get-non-existent-mcpserver"
   description: "Test getting a non-existent MCP server"

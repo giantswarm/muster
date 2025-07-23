@@ -12,9 +12,10 @@ steps:
   args:
     name: "remote-websocket-server"
     type: "remote"
-    endpoint: "wss://websocket.example.com/mcp"
-    transport: "websocket"
-    timeout: "120s"
+    remote:
+      endpoint: "wss://websocket.example.com/mcp"
+      transport: "websocket"
+      timeout: 120
   expected:
     success: true
 

@@ -12,7 +12,8 @@ steps:
   args:
     name: "invalid-yaml-server"
     type: "invalidType"
-    command: ["echo", "test"]
+    local:
+      command: ["echo", "test"]
   expected:
     success: false
     error_contains: ["type", "invalid"] 

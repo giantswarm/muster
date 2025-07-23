@@ -18,8 +18,9 @@ steps:
   args:
     name: "new-mcpserver"
     type: "local"
-    command: ["echo", "dynamic-test-server"]
-    autoStart: false
+    local:
+      command: ["echo", "dynamic-test-server"]
+      autoStart: false
   expected:
     success: true
 
@@ -47,8 +48,9 @@ steps:
   args:
     name: "new-mcpserver"
     type: "local"
-    command: ["echo", "updated-dynamic-server"]
-    autoStart: true
+    local:
+      command: ["echo", "updated-dynamic-server"]
+      autoStart: true
   expected:
     success: true
 

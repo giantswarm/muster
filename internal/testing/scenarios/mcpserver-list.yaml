@@ -6,14 +6,15 @@ tags: ["mcpserver", "list", "core-api"]
 timeout: "1m"
 
 steps:
-- id: "create-test-mcpserver"
+- id: "create-test-server"
   description: "Create a test MCP server to list"
   tool: "core_mcpserver_create"
   args:
     name: "list-test-server"
     type: "local"
-    command: ["echo", "test-server-for-list"]
-    autoStart: false
+    local:
+      command: ["echo", "test-server-for-list"]
+      autoStart: false
   expected:
     success: true
 

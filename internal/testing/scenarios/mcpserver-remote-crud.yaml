@@ -12,9 +12,10 @@ steps:
   args:
     name: "remote-crud-server"
     type: "remote"
-    endpoint: "https://api.example.com/mcp"
-    transport: "https"
-    timeout: "45s"
+    remote:
+      endpoint: "https://api.example.com/mcp"
+      transport: "http"
+      timeout: 45
   expected:
     success: true
 
@@ -42,9 +43,10 @@ steps:
   args:
     name: "remote-crud-server"
     type: "remote"
-    endpoint: "https://updated.example.com/mcp"
-    transport: "https"
-    timeout: "90s"
+    remote:
+      endpoint: "https://updated.example.com/mcp"
+      transport: "http"
+      timeout: 90
   expected:
     success: true
 

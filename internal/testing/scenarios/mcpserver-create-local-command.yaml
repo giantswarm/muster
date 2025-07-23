@@ -12,8 +12,9 @@ steps:
   args:
     name: "local-command-server"
     type: "local"
-    command: ["echo", "test-mcp-server"]
-    autoStart: false
+    local:
+      command: ["echo", "test-mcp-server"]
+      autoStart: false
   expected:
     success: true
 

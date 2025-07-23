@@ -6,12 +6,24 @@ tags: ["mcpserver", "create", "validation", "core-api"]
 timeout: "1m"
 
 steps:
+- id: "create-missing-local-config"
+  description: "Attempt to create local MCP server without local configuration"
+  tool: "core_mcpserver_create"
+  args:
+    name: "missing-local-config-server"
+    type: "local"
+  expected:
+    success: false
+    error_contains: ["local configuration", "required"]
+
 - id: "create-missing-command"
-  description: "Attempt to create local command MCP server without command"
+  description: "Attempt to create local MCP server without command in local config"
   tool: "core_mcpserver_create"
   args:
     name: "missing-command-server"
     type: "local"
+    local:
+      autoStart: false
   expected:
     success: false
     error_contains: ["command", "required"] 

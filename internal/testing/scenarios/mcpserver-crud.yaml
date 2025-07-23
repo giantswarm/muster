@@ -12,8 +12,9 @@ steps:
   args:
     name: "local-command-server"
     type: "local"
-    command: ["echo", "test-crud-server"]
-    autoStart: false
+    local:
+      command: ["echo", "test-crud-server"]
+      autoStart: false
   expected:
     success: true
 
@@ -40,8 +41,9 @@ steps:
   args:
     name: "local-command-server"
     type: "local"
-    command: ["echo", "updated-test-server"]
-    autoStart: true
+    local:
+      command: ["echo", "updated-test-server"]
+      autoStart: true
   expected:
     success: true
 

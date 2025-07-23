@@ -12,8 +12,9 @@ steps:
   args:
     name: "mixed-local-server"
     type: "local"
-    command: ["echo", "local-mixed-test"]
-    autoStart: false
+    local:
+      command: ["echo", "local-mixed-test"]
+      autoStart: false
   expected:
     success: true
 
@@ -23,9 +24,10 @@ steps:
   args:
     name: "mixed-remote-server"
     type: "remote"
-    endpoint: "https://remote.example.com/mcp"
-    transport: "https"
-    timeout: "30s"
+    remote:
+      endpoint: "https://remote.example.com/mcp"
+      transport: "http"
+      timeout: 30
   expected:
     success: true
 
