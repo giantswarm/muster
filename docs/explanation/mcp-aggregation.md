@@ -53,16 +53,13 @@ graph TB
     Aggregator --> Git[Git MCP Server]
     Aggregator --> AWS[AWS MCP Server]
     Aggregator --> Custom[Custom MCP Server]
-    
-    Aggregator --> UnifiedTools[Unified Tool Namespace<br/>k8s_kubectl_apply<br/>prom_query_metrics<br/>git_commit<br/>aws_ec2_list<br/>custom_deploy_app]
 ```
 
 **Benefits:**
 - **Single Connection**: Agent connects only to Muster
-- **Unified Discovery**: One `list_tools` call reveals all available tools
+- **Unified Discovery**: `list_tools` or `filter_tools` reveal all available tools
 - **Conflict Resolution**: Automatic tool name prefixing prevents conflicts
-- **Lifecycle Management**: Muster handles all server management
-- **Centralized Auth**: Muster manages server credentials
+- **Lifecycle Management**: Muster handles all server management and tools get updated automatically (without restart in eg Cursor)
 - **Protocol Normalization**: Consistent MCP interface regardless of server implementation
 
 ## Aggregation Architecture
@@ -112,51 +109,32 @@ type AggregatedTool struct {
 
 #### Automatic Prefixing
 
-Muster automatically resolves tool name conflicts by prefixing tools with their server name:
+Muster automatically resolves tool name conflicts by prefixing tools with their server name and a muster prefix (default: 'x_'):
 
 ```yaml
 # Original tools from different servers
-kubernetes-server:
+k8s:
   - name: apply
   - name: get
   - name: delete
 
-prometheus-server:
+prometheus:
   - name: query
   - name: alert
 
-custom-server:
+custom:
   - name: apply  # Conflict with kubernetes!
   - name: deploy
 
 # Aggregated tools with automatic prefixing
-aggregated-tools:
-  - name: k8s_apply          # kubernetes-server apply
-  - name: k8s_get            # kubernetes-server get  
-  - name: k8s_delete         # kubernetes-server delete
-  - name: prom_query         # prometheus-server query
-  - name: prom_alert         # prometheus-server alert
-  - name: custom_apply       # custom-server apply
-  - name: custom_deploy      # custom-server deploy
-```
-
-#### Smart Conflict Resolution
-
-The aggregator uses intelligent conflict resolution:
-
-1. **No Conflict**: If tool name is unique, no prefix is added
-2. **Server Prefix**: If conflict exists, add server name prefix
-3. **Custom Mapping**: Allow manual tool name mapping for clarity
-4. **Priority System**: Preferred servers can claim common tool names
-
-```go
-// Example conflict resolution configuration
-type ConflictResolution struct {
-    Strategy     string            // "prefix", "priority", "manual"
-    Priorities   []string          // Server priority order
-    CustomNames  map[string]string // Manual name mappings
-    PreferUnique bool              // Prefer unprefixed names when possible
-}
+aggregator:
+  - name: x_k8s_apply          # kubernetes-server apply
+  - name: x_k8s_get            # kubernetes-server get  
+  - name: x_k8s_delete         # kubernetes-server delete
+  - name: x_prometheus_query         # prometheus-server query
+  - name: x_prometheus_alert         # prometheus-server alert
+  - name: x_custom_apply       # custom-server apply
+  - name: x_custom_deploy      # custom-server deploy
 ```
 
 ## Tool Discovery and Registration
@@ -176,7 +154,6 @@ sequenceDiagram
     S->>A: Connection Established
     A->>S: List Available Tools
     S->>A: Tool Definitions
-    A->>N: Check Tool Name Conflicts
     N->>A: Resolved Tool Names
     A->>R: Register Tools with Resolved Names
     R->>A: Registration Complete
@@ -309,47 +286,6 @@ health_monitoring:
       timeout: 5s
 ```
 
-### Load Balancing
-
-For servers that provide identical tools, the aggregator can load balance:
-
-```yaml
-# Load balancing configuration
-load_balancing:
-  enabled: true
-  strategy: round_robin  # round_robin, least_connections, weighted
-  
-  server_weights:
-    kubernetes-primary: 70
-    kubernetes-backup: 30
-    
-  health_based: true
-  failover_enabled: true
-```
-
-### Tool Filtering and Access Control
-
-```yaml
-# Access control configuration
-access_control:
-  enabled: true
-  default_policy: allow
-  
-  rules:
-    - pattern: "k8s_delete_*"
-      policy: deny
-      reason: "Deletion operations require manual approval"
-      
-    - pattern: "admin_*"
-      policy: allow
-      users: ["admin", "ops-team"]
-      
-    - pattern: "*"
-      policy: allow
-      rate_limit:
-        requests_per_minute: 60
-```
-
 ## Configuration and Management
 
 ### MCP Server Configuration
@@ -365,74 +301,17 @@ spec:
   args: ["mcp-server"]
   env:
     KUBECONFIG: /etc/kubernetes/config
-  
-  aggregation:
-    prefix: k8s
-    priority: high
-    conflict_resolution: prefix
-    
-  health_check:
-    enabled: true
-    interval: 30s
-    
-  capabilities:
-    - tool_execution
-    - resource_access
-    - prompt_templates
 ```
 
 ### Aggregator Configuration
 
 ```yaml
 # Aggregator configuration
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: Configuration
-metadata:
-  name: aggregator-config
-spec:
-  aggregator:
-    # Server management
-    auto_discovery: true
-    server_timeout: 30s
-    max_servers: 50
-    
-    # Tool management
-    tool_cache_ttl: 5m
-    tool_timeout: 60s
-    result_cache_size: 1000
-    
-    # Conflict resolution
-    naming_strategy: prefix
-    allow_conflicts: false
-    prefer_unique_names: true
-    
-    # Performance
-    connection_pool_size: 10
-    max_concurrent_calls: 100
-    enable_metrics: true
-```
-
-## Monitoring and Observability
-
-### Aggregation Metrics
-
-The aggregator exposes comprehensive metrics:
-
-```prometheus
-# Tool execution metrics
-muster_aggregator_tool_calls_total{server, tool, status}
-muster_aggregator_tool_duration_seconds{server, tool}
-muster_aggregator_active_tools{server}
-
-# Server health metrics
-muster_aggregator_server_connected{server}
-muster_aggregator_server_health{server, check_type}
-muster_aggregator_server_tools_count{server}
-
-# Aggregation performance
-muster_aggregator_discovery_duration_seconds
-muster_aggregator_conflict_resolutions_total{strategy}
-muster_aggregator_cache_hits_total{cache_type}
+aggregator:
+    port: 8090
+    host: localhost
+    transport: streamable-http
+    enabled: true
 ```
 
 ### Debugging and Troubleshooting
@@ -440,16 +319,15 @@ muster_aggregator_cache_hits_total{cache_type}
 ```bash
 # Check aggregator status
 muster agent --repl
-> describe aggregator
 
 # List all servers and their tools
-> list tools --group-by-server
+> list tools
 
 # Check specific server health
-> call core_mcpserver_check --name kubernetes-tools
+> call core_mcpserver_list
 
 # Debug tool execution
-> call k8s_apply --args '{"manifest": "..."}' --debug
+> call x_k8s_apply '{"manifest": "..."}'
 ```
 
 ## Best Practices
@@ -458,8 +336,8 @@ muster agent --repl
 
 - **Focused Responsibility**: Each MCP server should have a clear, focused purpose
 - **Consistent Naming**: Use consistent tool naming patterns within servers
-- **Health Checks**: Implement proper health check endpoints
 - **Error Handling**: Provide clear, actionable error messages
+- **JSON Output**: Make sure your MCP server responds with JSON. Not only the MCP JSON-RPC responds but also the payload should be JSON to use all the features of Muster.
 
 ### Tool Naming
 
@@ -474,23 +352,6 @@ muster agent --repl
 - **Appropriate Timeouts**: Set reasonable timeout values
 - **Resource Management**: Clean up resources properly
 - **Caching**: Cache expensive operations when appropriate
-
-## Future Enhancements
-
-### Planned Features
-
-1. **Cross-Server Workflows**: Execute workflows that span multiple servers
-2. **Advanced Load Balancing**: More sophisticated load balancing algorithms
-3. **Tool Composition**: Combine multiple tools into composite operations
-4. **Dynamic Scaling**: Automatically scale server instances based on load
-5. **Advanced Security**: Role-based access control and audit logging
-
-### Integration Opportunities
-
-- **Service Mesh Integration**: Deep integration with service mesh for networking
-- **Container Orchestration**: Native Kubernetes operator for server management
-- **Observability Platforms**: Integration with APM tools for deep monitoring
-- **CI/CD Pipelines**: Native integration with popular CI/CD platforms
 
 ## Related Documentation
 

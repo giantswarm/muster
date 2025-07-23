@@ -39,41 +39,33 @@ metadata:
 spec:
   description: "Connect to monitoring in a Giant Swarm installation"
   args:
-    installation:
+    cluster:
       type: "string"
-      description: "Installation name (e.g., 'gazelle')"
-      required: true
-    workloadCluster:
-      type: "string" 
-      description: "Workload cluster name (e.g., 'operations')"
+      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
       required: true
     localPort:
       type: "string"
       default: "18000"
       description: "Local port for forwarding"
   steps:
-    - id: "login-management-cluster"
+    - id: "login-cluster"
       tool: "x_teleport_kube_login"
       args:
-        kubeCluster: "{{.input.installation}}"
-    - id: "setup-mimir-access"
+        kubeCluster: "{{.input.cluster}}"
+    - id: "setup-prometheus-access"
       tool: "core_service_create"
       args:
-        serviceClassName: "mimir-port-forward"
-        name: "mimir-port-forward-{{.input.installation}}"
+        serviceClassName: "prometheus-port-forward"
+        name: "prometheus-port-forward-{{.input.cluster}}"
         args:
-          managementCluster: "{{.input.installation}}"
+          cluster: "{{.input.cluster}}"
           localPort: "{{.input.localPort}}"
-    - id: "login-workload-cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.installation}}-{{.input.workloadCluster}}"
 ```
 
 **Generated Tool Usage**:
 ```bash
 # Single command execution
-workflow_connect-monitoring(installation="gazelle", workloadCluster="operations")
+workflow_connect-monitoring(cluster="my-cluster")
 
 # Automatically handles:
 # 1. Teleport authentication to management cluster
