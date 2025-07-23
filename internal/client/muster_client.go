@@ -45,6 +45,10 @@ type MusterClient interface {
 	// Service operations (to be implemented in future)
 	// WorkflowExecution operations (to be implemented in future)
 
+	// Event operations
+	CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error
+	CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error
+
 	// Utility methods
 	IsKubernetesMode() bool
 	Close() error

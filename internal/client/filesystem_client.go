@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -938,5 +939,56 @@ func (f *filesystemClient) IsKubernetesMode() bool {
 // Close performs cleanup for the filesystem client.
 func (f *filesystemClient) Close() error {
 	// Filesystem client doesn't require cleanup
+	return nil
+}
+
+// CreateEvent logs an event for the given object in filesystem mode.
+func (f *filesystemClient) CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error {
+	logging.Info("event", "Event for %s/%s: %s - %s (%s)",
+		obj.GetNamespace(), obj.GetName(), reason, message, eventType)
+
+	// Optionally write to events.log file for debugging
+	return f.writeEventToFile(obj.GetNamespace(), obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind, reason, message, eventType)
+}
+
+// CreateEventForCRD logs an event for a CRD by type, name, and namespace in filesystem mode.
+func (f *filesystemClient) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
+	logging.Info("event", "Event for %s %s/%s: %s - %s (%s)",
+		crdType, namespace, name, reason, message, eventType)
+
+	// Optionally write to events.log file for debugging
+	return f.writeEventToFile(namespace, name, crdType, reason, message, eventType)
+}
+
+// writeEventToFile writes event information to an events.log file for debugging purposes.
+func (f *filesystemClient) writeEventToFile(namespace, name, kind, reason, message, eventType string) error {
+	eventsDir := filepath.Join(f.basePath, "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		// If we can't create the events directory, just log and continue - don't fail the operation
+		logging.Debug("fs-client", "Failed to create events directory: %v", err)
+		return nil
+	}
+
+	eventsFile := filepath.Join(eventsDir, "events.log")
+	timestamp := time.Now().Format(time.RFC3339)
+
+	eventLine := fmt.Sprintf("[%s] %s %s/%s: %s - %s (%s)\n",
+		timestamp, kind, namespace, name, reason, message, eventType)
+
+	// Append to the events file
+	file, err := os.OpenFile(eventsFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		// If we can't write to the events file, just log and continue - don't fail the operation
+		logging.Debug("fs-client", "Failed to open events file: %v", err)
+		return nil
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(eventLine); err != nil {
+		// If we can't write to the events file, just log and continue - don't fail the operation
+		logging.Debug("fs-client", "Failed to write to events file: %v", err)
+		return nil
+	}
+
 	return nil
 }

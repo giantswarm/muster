@@ -3,9 +3,12 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -280,6 +283,104 @@ func (k *kubernetesClient) validateCRDs(ctx context.Context) error {
 	_, err := k.ListMCPServers(ctx, "default")
 	if err != nil {
 		return fmt.Errorf("MCPServer CRD not available: %w", err)
+	}
+
+	return nil
+}
+
+// CreateEvent creates a Kubernetes Event for the given object.
+func (k *kubernetesClient) CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error {
+	gvk, err := k.GroupVersionKindFor(obj)
+	if err != nil {
+		return fmt.Errorf("failed to get GroupVersionKind for object: %w", err)
+	}
+
+	event := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: obj.GetName() + "-",
+			Namespace:    obj.GetNamespace(),
+		},
+		InvolvedObject: corev1.ObjectReference{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       obj.GetName(),
+			Namespace:  obj.GetNamespace(),
+			UID:        obj.GetUID(),
+		},
+		Reason:         reason,
+		Message:        message,
+		Type:           eventType,
+		Source:         corev1.EventSource{Component: "muster"},
+		FirstTimestamp: metav1.NewTime(time.Now()),
+		LastTimestamp:  metav1.NewTime(time.Now()),
+		Count:          1,
+	}
+
+	if err := k.Create(ctx, event); err != nil {
+		return fmt.Errorf("failed to create Kubernetes Event: %w", err)
+	}
+
+	return nil
+}
+
+// CreateEventForCRD creates a Kubernetes Event for a CRD by type, name, and namespace.
+func (k *kubernetesClient) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
+	// Determine the GroupVersionKind based on the CRD type
+	var gvk schema.GroupVersionKind
+	switch crdType {
+	case "MCPServer":
+		gvk = musterv1alpha1.GroupVersion.WithKind("MCPServer")
+	case "ServiceClass":
+		gvk = musterv1alpha1.GroupVersion.WithKind("ServiceClass")
+	case "Workflow":
+		gvk = musterv1alpha1.GroupVersion.WithKind("Workflow")
+	default:
+		return fmt.Errorf("unsupported CRD type: %s", crdType)
+	}
+
+	// Try to get the actual object to retrieve its UID
+	var uid types.UID
+	switch crdType {
+	case "MCPServer":
+		obj, err := k.GetMCPServer(ctx, name, namespace)
+		if err == nil {
+			uid = obj.GetUID()
+		}
+	case "ServiceClass":
+		obj, err := k.GetServiceClass(ctx, name, namespace)
+		if err == nil {
+			uid = obj.GetUID()
+		}
+	case "Workflow":
+		obj, err := k.GetWorkflow(ctx, name, namespace)
+		if err == nil {
+			uid = obj.GetUID()
+		}
+	}
+
+	event := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: name + "-",
+			Namespace:    namespace,
+		},
+		InvolvedObject: corev1.ObjectReference{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       name,
+			Namespace:  namespace,
+			UID:        uid,
+		},
+		Reason:         reason,
+		Message:        message,
+		Type:           eventType,
+		Source:         corev1.EventSource{Component: "muster"},
+		FirstTimestamp: metav1.NewTime(time.Now()),
+		LastTimestamp:  metav1.NewTime(time.Now()),
+		Count:          1,
+	}
+
+	if err := k.Create(ctx, event); err != nil {
+		return fmt.Errorf("failed to create Kubernetes Event for %s %s/%s: %w", crdType, namespace, name, err)
 	}
 
 	return nil

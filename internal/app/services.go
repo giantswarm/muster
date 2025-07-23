@@ -6,6 +6,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/client"
 	"muster/internal/config"
+	"muster/internal/events"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
 	"muster/internal/serviceclass"
@@ -128,6 +129,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Register configuration adapter
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
+
+	// Register event manager adapter using the unified client
+	eventAdapter := events.NewAdapter(musterClient)
+	eventAdapter.Register()
 
 	// Initialize and register ServiceClass adapter using the muster client
 	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, "default")
