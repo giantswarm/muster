@@ -79,7 +79,7 @@ const (
 
 	// MCPServerTypeRemote indicates that the MCP server should be accessed remotely.
 	// Remote servers are accessed via HTTP/HTTPS endpoints using various transports
-	// such as HTTP, SSE (Server-Sent Events), or WebSocket.
+	// such as HTTP or SSE (Server-Sent Events).
 	MCPServerTypeRemote MCPServerType = "remote"
 )
 
