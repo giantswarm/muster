@@ -148,17 +148,24 @@ type MCPServerCreateRequest struct {
 	// Optional; if not specified, tools are exposed with their original names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
+	// Description for the MCP server
+	Description string `json:"description,omitempty"`
+
+	// Local contains configuration for local MCP servers (type=local) - nested structure for backward compatibility
 	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote)
+	// Remote contains configuration for remote MCP servers (type=remote) - nested structure for backward compatibility
 	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
 
-	// Legacy fields for backward compatibility - these are mapped to Local config
-	// TODO: Remove these in a future version
+	// Flat arguments for local MCP servers (type=local)
 	AutoStart bool              `json:"autoStart,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+
+	// Flat arguments for remote MCP servers (type=remote)
+	Endpoint  string `json:"endpoint,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Timeout   string `json:"timeout,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -173,17 +180,24 @@ type MCPServerUpdateRequest struct {
 	// ToolPrefix can be updated, affecting tool naming.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
+	// Description for the MCP server
+	Description string `json:"description,omitempty"`
+
+	// Local contains configuration for local MCP servers (type=local) - nested structure for backward compatibility
 	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote)
+	// Remote contains configuration for remote MCP servers (type=remote) - nested structure for backward compatibility
 	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
 
-	// Legacy fields for backward compatibility - these are mapped to Local config
-	// TODO: Remove these in a future version
+	// Flat arguments for local MCP servers (type=local)
 	AutoStart bool              `json:"autoStart,omitempty"`
 	Command   []string          `json:"command,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+
+	// Flat arguments for remote MCP servers (type=remote)
+	Endpoint  string `json:"endpoint,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Timeout   string `json:"timeout,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition

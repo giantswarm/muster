@@ -1,0 +1,54 @@
+name: "mcpserver-create-remote-validation"
+description: "Test validation for remote MCP server creation"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "remote", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-remote-mcpserver-missing-endpoint"
+  description: "Try to create a remote MCP server without endpoint (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-missing-endpoint"
+    type: "remote"
+    transport: "http"
+  expected:
+    success: false
+    error_contains: ["endpoint", "required"]
+
+- id: "create-remote-mcpserver-missing-transport"
+  description: "Try to create a remote MCP server without transport (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-missing-transport"
+    type: "remote"
+    endpoint: "http://localhost:8080/mcp"
+  expected:
+    success: false
+    error_contains: ["transport", "required"]
+
+- id: "create-remote-mcpserver-invalid-transport"
+  description: "Try to create a remote MCP server with invalid transport (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-invalid-transport"
+    type: "remote"
+    endpoint: "http://localhost:8080/mcp"
+    transport: "invalid-transport"
+  expected:
+    success: false
+    error_contains: ["transport", "invalid"]
+
+- id: "create-remote-mcpserver-mixed-config"
+  description: "Try to create MCP server with both local and remote config (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-mixed-config"
+    type: "remote"
+    command: ["echo", "test"]
+    endpoint: "http://localhost:8080/mcp"
+    transport: "http"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive", "both local and remote"] 

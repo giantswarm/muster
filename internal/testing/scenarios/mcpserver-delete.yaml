@@ -11,7 +11,7 @@ steps:
   tool: "core_mcpserver_create"
   args:
     name: "delete-test-server"
-    type: "localCommand"
+    type: "local"
     command: ["echo", "server-to-be-deleted"]
     autoStart: false
   expected:

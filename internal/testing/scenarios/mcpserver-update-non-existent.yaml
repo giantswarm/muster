@@ -11,8 +11,9 @@ steps:
   tool: "core_mcpserver_update"
   args:
     name: "non-existent-server"
-    type: "localCommand"
-    command: ["echo", "this-should-fail"]
+    type: "local"
+    local:
+      command: ["echo", "this-should-fail"]
   expected:
     success: false
     error_contains: ["not found"] 

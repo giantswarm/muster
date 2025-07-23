@@ -10,8 +10,9 @@ pre_configuration:
   - name: "get-test-server"
     config:
       name: "get-test-server"
-      type: "localCommand"
-      command: ["echo", "mock server for get test"]
+      type: "local"
+      local:
+        command: ["echo", "mock server for get test"]
       tools:
         - name: "foobar"
           input_schema:

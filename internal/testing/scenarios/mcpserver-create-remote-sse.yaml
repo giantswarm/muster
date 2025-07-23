@@ -1,0 +1,39 @@
+name: "mcpserver-create-remote-sse"
+description: "Test creating a remote SSE MCP server"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "remote", "sse", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-remote-sse-mcpserver"
+  description: "Create a new remote SSE MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-sse-server"
+    type: "remote"
+    endpoint: "https://api.example.com/mcp/sse"
+    transport: "sse"
+    timeout: "60s"
+  expected:
+    success: true
+
+- id: "verify-remote-sse-mcpserver-created"
+  description: "Verify the remote SSE MCP server was created successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "remote-sse-server"
+  expected:
+    success: true
+    json_path:
+      name: "remote-sse-server"
+      type: "remote"
+
+cleanup:
+- id: "delete-remote-sse-mcpserver"
+  description: "Delete the test remote SSE MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "remote-sse-server"
+  expected:
+    success: true 

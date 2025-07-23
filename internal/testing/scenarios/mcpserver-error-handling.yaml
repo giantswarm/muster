@@ -11,8 +11,9 @@ steps:
   tool: "core_mcpserver_create"
   args:
     name: "invalid-yaml-server"
-    type: "localCommand"
-    command: ["echo", "test"]
+    type: "local"
+    local:
+      command: ["echo", "test"]
   expected:
     success: true
 
@@ -40,7 +41,7 @@ steps:
   tool: "core_mcpserver_create"
   args:
     name: "missing-command-server"
-    type: "localCommand"
+    type: "local"
   expected:
     success: false
     error_contains: ["command", "required"]
@@ -59,8 +60,9 @@ steps:
   tool: "core_mcpserver_update"
   args:
     name: "non-existent-server"
-    type: "localCommand"
-    command: ["echo", "test"]
+    type: "local"
+    local:
+      command: ["echo", "test"]
   expected:
     success: false
     error_contains: ["not found"]

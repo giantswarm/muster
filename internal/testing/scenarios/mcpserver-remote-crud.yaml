@@ -1,0 +1,75 @@
+name: "mcpserver-remote-crud"
+description: "Test complete CRUD operations for remote MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "crud", "remote", "core-api"]
+timeout: "3m"
+
+steps:
+- id: "create-remote-mcpserver"
+  description: "Create a new remote MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-crud-server"
+    type: "remote"
+    endpoint: "https://api.example.com/mcp"
+    transport: "https"
+    timeout: "45s"
+  expected:
+    success: true
+
+- id: "list-mcpservers-with-remote"
+  description: "List all MCP servers to verify remote server creation"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["remote-crud-server"]
+
+- id: "get-remote-mcpserver"
+  description: "Get the specific remote MCP server details"
+  tool: "core_mcpserver_get"
+  args:
+    name: "remote-crud-server"
+  expected:
+    success: true
+    json_path:
+      name: "remote-crud-server"
+      type: "remote"
+
+- id: "update-remote-mcpserver"
+  description: "Update the remote MCP server configuration"
+  tool: "core_mcpserver_update"
+  args:
+    name: "remote-crud-server"
+    type: "remote"
+    endpoint: "https://updated.example.com/mcp"
+    transport: "https"
+    timeout: "90s"
+  expected:
+    success: true
+
+- id: "verify-remote-mcpserver-updated"
+  description: "Verify the remote MCP server was updated successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "remote-crud-server"
+  expected:
+    success: true
+    json_path:
+      name: "remote-crud-server"
+      type: "remote"
+
+- id: "delete-remote-mcpserver"
+  description: "Delete the remote MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "remote-crud-server"
+  expected:
+    success: true
+
+- id: "verify-remote-mcpserver-deleted"
+  description: "Verify the remote MCP server was deleted"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    not_contains: ["remote-crud-server"] 

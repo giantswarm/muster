@@ -17,7 +17,7 @@ steps:
   tool: "core_mcpserver_create"
   args:
     name: "new-mcpserver"
-    type: "localCommand"
+    type: "local"
     command: ["echo", "dynamic-test-server"]
     autoStart: false
   expected:
@@ -39,14 +39,14 @@ steps:
     success: true
     json_path:
       name: "new-mcpserver"
-      type: "localCommand"
+      type: "local"
 
 - id: "update-new-server"
   description: "Update the new server configuration"
   tool: "core_mcpserver_update"
   args:
     name: "new-mcpserver"
-    type: "localCommand"
+    type: "local"
     command: ["echo", "updated-dynamic-server"]
     autoStart: true
   expected:

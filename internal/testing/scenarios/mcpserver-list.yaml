@@ -11,7 +11,7 @@ steps:
   tool: "core_mcpserver_create"
   args:
     name: "list-test-server"
-    type: "localCommand"
+    type: "local"
     command: ["echo", "test-server-for-list"]
     autoStart: false
   expected:

@@ -11,7 +11,8 @@ steps:
   tool: "core_mcpserver_validate"
   args:
     name: "test-validation-server"
-    type: "localCommand"
-    command: ["echo", "validation-test"]
+    type: "local"
+    local:
+      command: ["echo", "validation-test"]
   expected:
     success: true 

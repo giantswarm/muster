@@ -1,0 +1,39 @@
+name: "mcpserver-create-remote-websocket"
+description: "Test creating a remote WebSocket MCP server"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "remote", "websocket", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-remote-websocket-mcpserver"
+  description: "Create a new remote WebSocket MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "remote-websocket-server"
+    type: "remote"
+    endpoint: "wss://websocket.example.com/mcp"
+    transport: "websocket"
+    timeout: "120s"
+  expected:
+    success: true
+
+- id: "verify-remote-websocket-mcpserver-created"
+  description: "Verify the remote WebSocket MCP server was created successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "remote-websocket-server"
+  expected:
+    success: true
+    json_path:
+      name: "remote-websocket-server"
+      type: "remote"
+
+cleanup:
+- id: "delete-remote-websocket-mcpserver"
+  description: "Delete the test remote WebSocket MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "remote-websocket-server"
+  expected:
+    success: true 
