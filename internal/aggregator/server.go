@@ -213,6 +213,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 
 	case config.MCPTransportStdio:
+		if useSystemdActivation {
+			return fmt.Errorf("stdio transport cannot be used with systemd socket activation")
+		}
+
 		// Standard I/O transport for CLI integration
 		logging.Info("Aggregator", "Starting MCP aggregator server with stdio transport")
 		a.stdioServer = server.NewStdioServer(a.server)
