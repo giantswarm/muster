@@ -20,11 +20,6 @@ It enforces the MCP server mode for the agent and disables serve logging.`,
 
 // runStandalone is the main entry point for the standalone command
 func runStandalone(cmd *cobra.Command, args []string) error {
-	// Enable agent MCP server mode
-	agentMCPServer = true
-	// Disable serve logging
-	serveSilent = true
-
 	errCh := make(chan error, 1)
 
 	// Start the aggregator server
