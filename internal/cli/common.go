@@ -50,7 +50,13 @@ func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error
 		// from here, this is a connectable port, not a bind port
 		port = 8090
 	}
-	endpoint := fmt.Sprintf("http://%s:%d/mcp", host, port)
+
+	endpoint := ""
+	if actualCfg.Aggregator.Transport == "sse" {
+		endpoint = fmt.Sprintf("http://%s:%d/sse", host, port)
+	} else {
+		endpoint = fmt.Sprintf("http://%s:%d/mcp", host, port)
+	}
 
 	return endpoint, nil
 }
@@ -67,7 +73,7 @@ func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error
 func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
 
 	if configPath == "" {
-		panic("Logic error: empty agent configPath")
+		panic("Logic error: empty configPath")
 	}
 
 	cfg, err := config.LoadConfigFromPath(configPath)
@@ -83,12 +89,7 @@ func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
 //
 // Returns:
 //   - error: nil if server is running and responsive, otherwise an error with guidance
-func CheckServerRunning() error {
-	endpoint, err := DetectAggregatorEndpoint()
-	if err != nil {
-		return fmt.Errorf("failed to detect endpoint: %w", err)
-	}
-
+func CheckServerRunning(endpoint string) error {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
