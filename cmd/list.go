@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -13,13 +14,33 @@ var (
 	listConfigPath   string
 )
 
-// Available resource types for autocompletion
-var listResourceTypes = []string{
-	"service",
-	"serviceclass",
-	"mcpserver",
-	"workflow",
-	"workflow-execution",
+// Resource configurations mapping tool names to their aliases
+var listResourceConfigs = map[string][]string{
+	"core_service_list":            {"service", "services"},
+	"core_serviceclass_list":       {"serviceclass", "serviceclasses"},
+	"core_mcpserver_list":          {"mcpserver", "mcpservers"},
+	"core_workflow_list":           {"workflow", "workflows"},
+	"core_workflow_execution_list": {"workflow-execution", "workflow-executions"},
+}
+
+// Build resource types for autocompletion
+func getListResourceTypes() []string {
+	var types []string
+	for _, aliases := range listResourceConfigs {
+		types = append(types, aliases...)
+	}
+	return types
+}
+
+// Build resource mappings for lookup
+func getListResourceMappings() map[string]string {
+	mappings := make(map[string]string)
+	for toolName, aliases := range listResourceConfigs {
+		for _, alias := range aliases {
+			mappings[alias] = toolName
+		}
+	}
+	return mappings
 }
 
 // listCmd represents the list command
@@ -29,11 +50,11 @@ var listCmd = &cobra.Command{
 	Long: `List resources in the muster environment.
 
 Available resource types:
-  service             - List all services with their status
-  serviceclass        - List all ServiceClass definitions  
-  mcpserver           - List all MCP server definitions
-  workflow            - List all workflow definitions
-  workflow-execution  - List all workflow execution history
+  service(s)              - List all services with their status
+  serviceclass(es)        - List all ServiceClass definitions
+  mcpserver(s)            - List all MCP server definitions
+  workflow(s)             - List all workflow definitions
+  workflow-execution(s)   - List all workflow execution history
 
 Examples:
   muster list service
@@ -43,19 +64,10 @@ Examples:
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args:                  cobra.ExactArgs(1),
-	ValidArgs:             listResourceTypes,
+	ValidArgs:             getListResourceTypes(),
 	ArgAliases:            []string{"resource_type"},
 	DisableFlagsInUseLine: true,
 	RunE:                  runList,
-}
-
-// Resource type mappings
-var listResourceMappings = map[string]string{
-	"service":            "core_service_list",
-	"serviceclass":       "core_serviceclass_list",
-	"mcpserver":          "core_mcpserver_list",
-	"workflow":           "core_workflow_list",
-	"workflow-execution": "core_workflow_execution_list",
 }
 
 func init() {
@@ -64,14 +76,15 @@ func init() {
 	// Add flags to the command
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
-	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", "", "Custom configuration directory path")
+	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 
-	// Validate resource type
-	toolName, exists := listResourceMappings[resourceType]
+	// Get resource mappings and validate resource type
+	resourceMappings := getListResourceMappings()
+	toolName, exists := resourceMappings[resourceType]
 	if !exists {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}

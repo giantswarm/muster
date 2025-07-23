@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 	"os"
 	"strings"
 
@@ -117,7 +118,7 @@ func init() {
 	// Add flags to the command
 	createCmd.PersistentFlags().StringVarP(&createOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	createCmd.PersistentFlags().BoolVarP(&createQuiet, "quiet", "q", false, "Suppress non-essential output")
-	createCmd.PersistentFlags().StringVar(&createConfigPath, "config-path", "", "Custom configuration directory path")
+	createCmd.PersistentFlags().StringVar(&createConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 // parseServiceParameters extracts service parameters from raw command line arguments

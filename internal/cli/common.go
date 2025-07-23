@@ -71,14 +71,11 @@ func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
 	var actualCfg config.MusterConfig
 	var err error
 
-	if configPath != "" {
-		// Load configuration from custom path
-		actualCfg, err = config.LoadConfigFromPath(configPath)
-	} else {
-		// Load configuration using default method
-		actualCfg, err = config.LoadConfig()
+	if configPath == "" {
+		panic("Logic error: empty agent configPath")
 	}
 
+	actualCfg, err = config.LoadConfigFromPath(configPath)
 	if err != nil {
 		// Use default if config cannot be loaded
 		endpoint := "http://localhost:8090/mcp"

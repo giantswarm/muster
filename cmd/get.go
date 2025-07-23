@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 	"sort"
 	"strings"
 
@@ -177,7 +178,7 @@ func init() {
 	// Add flags to the command
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
-	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", "", "Custom configuration directory path")
+	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {

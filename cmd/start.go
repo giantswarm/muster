@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 	"os"
 	"strings"
 
@@ -123,7 +124,7 @@ func init() {
 	// Add flags to the command
 	startCmd.PersistentFlags().StringVarP(&startOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	startCmd.PersistentFlags().BoolVarP(&startQuiet, "quiet", "q", false, "Suppress non-essential output")
-	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", "", "Custom configuration directory path")
+	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 // parseWorkflowParameters extracts workflow parameters from raw command line arguments

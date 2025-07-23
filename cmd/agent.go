@@ -10,6 +10,7 @@ import (
 
 	"muster/internal/agent"
 	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,7 @@ var (
 var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "MCP Client for the muster aggregator server",
-	Long: `The agent command connects to the MCP aggregator as a client agent, 
+	Long: `The agent command connects to the MCP aggregator as a client agent,
 logs all JSON-RPC communication, and demonstrates dynamic tool updates.
 
 This is useful for connecting the aggregator's behavior, filtering
@@ -78,7 +79,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentREPL, "repl", false, "Start interactive REPL mode")
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
-	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", "", "Custom configuration directory path")
+	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
