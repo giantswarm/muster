@@ -135,11 +135,32 @@ func (s *Service) ValidateConfiguration() error {
 	}
 
 	// Type-specific validation
-	if s.definition.Type == api.MCPServerTypeLocalCommand {
-		if len(s.definition.Command) == 0 {
-			return fmt.Errorf("command is required for localCommand type")
+	switch s.definition.Type {
+	case api.MCPServerTypeLocal:
+		if s.definition.Local == nil {
+			return fmt.Errorf("local configuration is required for local type")
 		}
-	} else {
+		if len(s.definition.Local.Command) == 0 {
+			return fmt.Errorf("command is required for local type")
+		}
+	case api.MCPServerTypeRemote:
+		if s.definition.Remote == nil {
+			return fmt.Errorf("remote configuration is required for remote type")
+		}
+		if s.definition.Remote.Endpoint == "" {
+			return fmt.Errorf("endpoint is required for remote type")
+		}
+		if s.definition.Remote.Transport == "" {
+			return fmt.Errorf("transport is required for remote type")
+		}
+		// Validate transport type
+		switch s.definition.Remote.Transport {
+		case "http", "sse", "websocket":
+			// Valid transport types
+		default:
+			return fmt.Errorf("unsupported transport type: %s (supported: http, sse, websocket)", s.definition.Remote.Transport)
+		}
+	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
 	}
 
@@ -160,15 +181,21 @@ func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 // GetServiceData implements ServiceDataProvider
 func (s *Service) GetServiceData() map[string]interface{} {
 	data := map[string]interface{}{
-		"name":      s.definition.Name,
-		"type":      s.definition.Type,
-		"autoStart": s.definition.AutoStart,
-		"state":     s.GetState(),
-		"health":    s.GetHealth(),
+		"name":   s.definition.Name,
+		"type":   s.definition.Type,
+		"state":  s.GetState(),
+		"health": s.GetHealth(),
 	}
 
-	if s.definition.Type == api.MCPServerTypeLocalCommand {
-		data["command"] = s.definition.Command
+	// Add type-specific configuration
+	if s.definition.Type == api.MCPServerTypeLocal && s.definition.Local != nil {
+		data["autoStart"] = s.definition.Local.AutoStart
+		data["command"] = s.definition.Local.Command
+		data["env"] = s.definition.Local.Env
+	} else if s.definition.Type == api.MCPServerTypeRemote && s.definition.Remote != nil {
+		data["endpoint"] = s.definition.Remote.Endpoint
+		data["transport"] = s.definition.Remote.Transport
+		data["timeout"] = s.definition.Remote.Timeout
 	}
 
 	if s.GetLastError() != nil {
@@ -186,7 +213,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	s.clientInitMutex.Unlock()
 
 	// Add tool prefix for aggregator registration
-	data["toolPrefix"] = ""
+	data["toolPrefix"] = s.definition.ToolPrefix
 
 	return data
 }
@@ -246,23 +273,24 @@ func (s *Service) LogWarn(format string, args ...interface{}) {
 	logging.Warn(s.GetLogContext(), format, args...)
 }
 
-// createAndInitializeClient creates and initializes the MCP client
-// This single operation starts the process AND establishes MCP communication
+// createAndInitializeClient creates the appropriate MCP client based on the server type.
+// This single operation starts the process (for local) OR establishes remote connection (for remote)
+// AND establishes MCP communication in both cases.
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 
 	switch s.definition.Type {
-	case api.MCPServerTypeLocalCommand:
-		if len(s.definition.Command) == 0 {
-			return fmt.Errorf("no command specified for local command server")
+	case api.MCPServerTypeLocal:
+		if s.definition.Local == nil || len(s.definition.Local.Command) == 0 {
+			return fmt.Errorf("no command specified for local server")
 		}
 
-		command := s.definition.Command[0]
-		args := s.definition.Command[1:]
+		command := s.definition.Local.Command[0]
+		args := s.definition.Local.Command[1:]
 
 		// Create the stdio client - this is our process manager AND MCP client
-		client := mcpserver.NewStdioClientWithEnv(command, args, s.definition.Env)
+		client := mcpserver.NewStdioClientWithEnv(command, args, s.definition.Local.Env)
 		s.LogDebug("Created stdio MCP client for command: %s", command)
 
 		// Initialize the client - this starts the process AND establishes MCP communication
@@ -276,6 +304,41 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		s.client = client
 		s.LogDebug("MCP client initialized successfully for %s", s.GetName())
 		return nil
+
+	case api.MCPServerTypeRemote:
+		if s.definition.Remote == nil {
+			return fmt.Errorf("no remote configuration specified for remote server")
+		}
+
+		// For remote servers, we'll need to implement the appropriate client
+		// based on the transport type. For now, we'll create a placeholder.
+		// TODO: Implement remote clients for different transports
+		switch s.definition.Remote.Transport {
+		case "http":
+			// TODO: Implement HTTP MCP client
+			return fmt.Errorf("HTTP transport not yet implemented for remote MCP servers")
+		case "sse":
+			// The existing SSE client can be adapted for remote use
+			client := mcpserver.NewSSEClient(s.definition.Remote.Endpoint)
+			s.LogDebug("Created SSE MCP client for endpoint: %s", s.definition.Remote.Endpoint)
+
+			// Initialize the client - this establishes remote MCP communication
+			initCtx, cancel := context.WithTimeout(ctx, time.Duration(s.definition.Remote.Timeout)*time.Second)
+			defer cancel()
+
+			if err := client.Initialize(initCtx); err != nil {
+				return fmt.Errorf("failed to initialize remote MCP client: %w", err)
+			}
+
+			s.client = client
+			s.LogDebug("Remote MCP client initialized successfully for %s", s.GetName())
+			return nil
+		case "websocket":
+			// TODO: Implement WebSocket MCP client
+			return fmt.Errorf("WebSocket transport not yet implemented for remote MCP servers")
+		default:
+			return fmt.Errorf("unsupported transport type: %s", s.definition.Remote.Transport)
+		}
 
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)

@@ -105,44 +105,60 @@ type ServiceClassValidateRequest struct {
 // MCPServer Request Types
 
 // MCPServerCreateRequest represents a request to create a new MCP server definition.
-// MCP servers provide tools that can be aggregated and exposed through the muster system.
+// This request supports both local and remote MCP servers with type-specific configuration.
 //
-// Supports local command MCP servers that execute local command/process.
+// Supports local command MCP servers that execute local command/process and remote
+// MCP servers that connect to external endpoints.
 //
 // Example for local command:
 //
 //	request := MCPServerCreateRequest{
 //	    Name: "git-tools",
-//	    Type: "localCommand",
-//	    AutoStart: true,
-//	    Command: []string{"npx", "@modelcontextprotocol/server-git"},
-//	    Env: map[string]string{
-//	        "GIT_ROOT": "/workspace",
+//	    Type: "local",
+//	    Local: &MCPServerLocalConfig{
+//	        AutoStart: true,
+//	        Command: []string{"npx", "@modelcontextprotocol/server-git"},
+//	        Env: map[string]string{
+//	            "GIT_ROOT": "/workspace",
+//	        },
 //	    },
 //	}
 //
+// Example for remote server:
+//
+//	request := MCPServerCreateRequest{
+//	    Name: "remote-tools",
+//	    Type: "remote",
+//	    Remote: &MCPServerRemoteConfig{
+//	        Endpoint: "https://api.example.com/mcp",
+//	        Transport: "http",
+//	        Timeout: 30,
+//	    },
+//	}
 
 type MCPServerCreateRequest struct {
 	// Name is the unique identifier for the MCP server (required).
 	Name string `json:"name" validate:"required"`
 
 	// Type specifies the MCP server type (required).
-	// Valid value: "localCommand"
+	// Valid values: "local", "remote"
 	Type string `json:"type" validate:"required"`
-
-	// AutoStart determines if the server should start automatically on system startup.
-	AutoStart bool `json:"autoStart,omitempty"`
 
 	// ToolPrefix is prepended to all tool names from this server to avoid conflicts.
 	// Optional; if not specified, tools are exposed with their original names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Command specifies the command to execute for "localCommand" type servers.
-	// Should include the full command and arguments as separate array elements.
-	Command []string `json:"command,omitempty"`
+	// Local contains configuration for local MCP servers (type=local)
+	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Env provides environment variables for "localCommand" type servers.
-	Env map[string]string `json:"env,omitempty"`
+	// Remote contains configuration for remote MCP servers (type=remote)
+	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
+
+	// Legacy fields for backward compatibility - these are mapped to Local config
+	// TODO: Remove these in a future version
+	AutoStart bool              `json:"autoStart,omitempty"`
+	Command   []string          `json:"command,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -154,17 +170,20 @@ type MCPServerUpdateRequest struct {
 	// Type can be changed, but may require significant reconfiguration.
 	Type string `json:"type" validate:"required"`
 
-	// AutoStart setting can be modified.
-	AutoStart bool `json:"autoStart,omitempty"`
-
 	// ToolPrefix can be updated, affecting tool naming.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Command can be updated for localCommand servers.
-	Command []string `json:"command,omitempty"`
+	// Local contains configuration for local MCP servers (type=local)
+	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Env can be updated for localCommand servers.
-	Env map[string]string `json:"env,omitempty"`
+	// Remote contains configuration for remote MCP servers (type=remote)
+	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
+
+	// Legacy fields for backward compatibility - these are mapped to Local config
+	// TODO: Remove these in a future version
+	AutoStart bool              `json:"autoStart,omitempty"`
+	Command   []string          `json:"command,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -176,17 +195,23 @@ type MCPServerValidateRequest struct {
 	// Type for validation (required).
 	Type string `json:"type" validate:"required"`
 
-	// AutoStart setting for validation.
-	AutoStart bool `json:"autoStart,omitempty"`
+	// ToolPrefix for validation.
+	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Command for validation (localCommand type).
-	Command []string `json:"command,omitempty"`
+	// Local contains configuration for local MCP servers (type=local)
+	Local *MCPServerLocalConfig `json:"local,omitempty"`
 
-	// Env for validation.
-	Env map[string]string `json:"env,omitempty"`
+	// Remote contains configuration for remote MCP servers (type=remote)
+	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`
+
+	// Legacy fields for backward compatibility - these are mapped to Local config
+	// TODO: Remove these in a future version
+	AutoStart bool              `json:"autoStart,omitempty"`
+	Command   []string          `json:"command,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 // Workflow Request Types

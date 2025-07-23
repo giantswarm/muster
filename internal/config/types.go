@@ -9,7 +9,8 @@ type MusterConfig struct {
 type MCPServerType string
 
 const (
-	MCPServerTypeLocalCommand MCPServerType = "localCommand"
+	MCPServerTypeLocal  MCPServerType = "local"
+	MCPServerTypeRemote MCPServerType = "remote"
 )
 
 const (

@@ -14,9 +14,11 @@ import (
 
 func TestServiceInfo(t *testing.T) {
 	def := &api.MCPServer{
-		Name:    "test-server",
-		Type:    api.MCPServerTypeLocalCommand,
-		Command: []string{"echo", "hello"},
+		Name: "test-server",
+		Type: api.MCPServerTypeLocal,
+		Local: &api.MCPServerLocalConfig{
+			Command: []string{"echo", "hello"},
+		},
 	}
 
 	svc, err := NewService(def)
@@ -30,9 +32,11 @@ func TestServiceInfo(t *testing.T) {
 
 func TestStartStop(t *testing.T) {
 	def := &api.MCPServer{
-		Name:    "test-server",
-		Type:    api.MCPServerTypeLocalCommand,
-		Command: []string{"echo", "hello"},
+		Name: "test-server",
+		Type: api.MCPServerTypeLocal,
+		Local: &api.MCPServerLocalConfig{
+			Command: []string{"echo", "hello"},
+		},
 	}
 
 	svc, err := NewService(def)
@@ -56,9 +60,11 @@ func TestStartStop(t *testing.T) {
 
 func TestRestart(t *testing.T) {
 	def := &api.MCPServer{
-		Name:    "test-server",
-		Type:    api.MCPServerTypeLocalCommand,
-		Command: []string{"echo", "hello"},
+		Name: "test-server",
+		Type: api.MCPServerTypeLocal,
+		Local: &api.MCPServerLocalConfig{
+			Command: []string{"echo", "hello"},
+		},
 	}
 
 	svc, err := NewService(def)
@@ -77,9 +83,11 @@ func TestRestart(t *testing.T) {
 
 func TestDependencies(t *testing.T) {
 	def := &api.MCPServer{
-		Name:    "test-server",
-		Type:    api.MCPServerTypeLocalCommand,
-		Command: []string{"echo", "hello"},
+		Name: "test-server",
+		Type: api.MCPServerTypeLocal,
+		Local: &api.MCPServerLocalConfig{
+			Command: []string{"echo", "hello"},
+		},
 	}
 
 	svc, err := NewService(def)
@@ -91,9 +99,11 @@ func TestDependencies(t *testing.T) {
 
 func TestServiceData(t *testing.T) {
 	def := &api.MCPServer{
-		Name:    "test-server",
-		Type:    api.MCPServerTypeLocalCommand,
-		Command: []string{"echo", "hello"},
+		Name: "test-server",
+		Type: api.MCPServerTypeLocal,
+		Local: &api.MCPServerLocalConfig{
+			Command: []string{"echo", "hello"},
+		},
 	}
 
 	svc, err := NewService(def)
@@ -104,5 +114,5 @@ func TestServiceData(t *testing.T) {
 	assert.Contains(t, data, "name")
 	assert.Equal(t, "test-server", data["name"])
 	assert.Contains(t, data, "type")
-	assert.Equal(t, api.MCPServerTypeLocalCommand, data["type"])
+	assert.Equal(t, api.MCPServerTypeLocal, data["type"])
 }

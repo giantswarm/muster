@@ -212,10 +212,26 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	apiDef := &api.MCPServer{
 		Name:        mcpServerInfo.Name,
 		Type:        api.MCPServerType(mcpServerInfo.Type),
-		AutoStart:   mcpServerInfo.AutoStart,
-		Command:     mcpServerInfo.Command,
-		Env:         mcpServerInfo.Env,
 		Description: mcpServerInfo.Description,
+	}
+
+	// Handle local configuration (backward compatibility with legacy fields)
+	if mcpServerInfo.Type == "local" {
+		if mcpServerInfo.Local != nil {
+			apiDef.Local = mcpServerInfo.Local
+		} else {
+			// Use legacy fields for backward compatibility
+			apiDef.Local = &api.MCPServerLocalConfig{
+				AutoStart: mcpServerInfo.AutoStart,
+				Command:   mcpServerInfo.Command,
+				Env:       mcpServerInfo.Env,
+			}
+		}
+	}
+
+	// Handle remote configuration
+	if mcpServerInfo.Type == "remote" && mcpServerInfo.Remote != nil {
+		apiDef.Remote = mcpServerInfo.Remote
 	}
 
 	// Create MCPServer service using the service package
