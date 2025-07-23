@@ -8,7 +8,7 @@
 //
 // Currently supported MCP server types:
 //   - **Local**: Execute MCP servers as local processes with configurable command lines
-//   - **Remote**: Connect to external MCP servers via HTTP, SSE, or WebSocket transports
+//   - **Remote**: Connect to external MCP servers via HTTP or SSE transports
 //
 // # Configuration Structure
 //

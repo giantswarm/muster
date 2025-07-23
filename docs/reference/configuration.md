@@ -138,7 +138,7 @@ mcpservers:
 | `local.env` | `map[string]string` | ❌ | `{}` | Environment variables |
 | `remote` | `object` | ❌* | - | Remote server config (*required for remote) |
 | `remote.endpoint` | `string` | ✅* | - | Remote server URL (*required for remote) |
-| `remote.transport` | `string` | ✅* | - | Transport: `http`, `sse`, `websocket` (*required for remote) |
+| `remote.transport` | `string` | ✅* | - | Transport: `http`, `sse` (*required for remote) |
 | `remote.timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
 
 ### ServiceClass Configuration

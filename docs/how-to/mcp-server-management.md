@@ -7,7 +7,7 @@ This guide covers how to create, configure, and manage MCP (Model Context Protoc
 MCP servers provide structured access to tools and resources for AI assistants. Muster supports two types of MCP servers:
 
 - **Local servers**: Execute as local processes with configurable command lines
-- **Remote servers**: Connect to external MCP servers via HTTP, SSE, or WebSocket
+- **Remote servers**: Connect to external MCP servers via HTTP or SSE
 
 ## Creating MCP Servers
 
@@ -50,22 +50,6 @@ spec:
     endpoint: "https://api.example.com/mcp"
     transport: "http"
     timeout: 60
-```
-
-#### WebSocket Transport
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: websocket-server
-spec:
-  description: "WebSocket MCP server"
-  toolPrefix: "ws"
-  type: remote
-  remote:
-    endpoint: "wss://websocket.example.com/mcp"
-    transport: "websocket"
-    timeout: 120
 ```
 
 #### Server-Sent Events (SSE) Transport
@@ -197,9 +181,6 @@ muster mcpserver update remote-api --timeout 120
 ```bash
 # Verify transport support
 curl -H "Accept: text/event-stream" https://sse.example.com/mcp
-
-# Check WebSocket connectivity  
-wscat -c wss://websocket.example.com/mcp
 ```
 
 ### Common Issues

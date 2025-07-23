@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
     - Local config: `autoStart`, `command`, `env` now nested under `spec.local`
     - Remote config: new `spec.remote` with `endpoint`, `transport`, `timeout` fields
     - Added mutual exclusion validation and required field validation using kubebuilder annotations
-    - Support for HTTP/HTTPS, SSE (Server-Sent Events), and WebSocket transport protocols
+    - Support for HTTP/HTTPS and SSE (Server-Sent Events) transport protocols
   - **Updated API Layer**: Extended internal API types to support new schema
     - Added `MCPServerLocalConfig` and `MCPServerRemoteConfig` types
     - Changed type constants from `localCommand` to `local` and added `remote`
@@ -26,7 +26,6 @@ All notable changes to this project will be documented in this file.
     - Updated help text and argument parsing for nested configurations
   - **Updated Examples**: Enhanced example files to demonstrate both local and remote configurations
   - **Kubernetes Deployment Ready**: Enables deployment patterns where Muster aggregator runs in cluster and connects to MCP servers deployed as separate Kubernetes services
-  - Maintained full backward compatibility with existing local command configurations
 - **Systemd Socket Activation Support**
   - Added `muster.socket` unit file for socket-activated systemd deployment
   - Modified `muster.service` to use socket activation on localhost:8090

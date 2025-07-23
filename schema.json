@@ -89,11 +89,10 @@
                   "type": "integer"
                 },
                 "transport": {
-                  "description": "Transport protocol (http, sse, websocket)",
+                  "description": "Transport protocol (http, sse)",
                   "enum": [
                     "http",
-                    "sse",
-                    "websocket"
+                    "sse"
                   ],
                   "type": "string"
                 }
@@ -196,11 +195,10 @@
                   "type": "integer"
                 },
                 "transport": {
-                  "description": "Transport protocol (http, sse, websocket)",
+                  "description": "Transport protocol (http, sse)",
                   "enum": [
                     "http",
-                    "sse",
-                    "websocket"
+                    "sse"
                   ],
                   "type": "string"
                 }
@@ -271,11 +269,10 @@
                   "type": "integer"
                 },
                 "transport": {
-                  "description": "Transport protocol (http, sse, websocket)",
+                  "description": "Transport protocol (http, sse)",
                   "enum": [
                     "http",
-                    "sse",
-                    "websocket"
+                    "sse"
                   ],
                   "type": "string"
                 }

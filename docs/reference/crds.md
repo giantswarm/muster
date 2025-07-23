@@ -92,7 +92,7 @@ status:
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `endpoint` | `string` | Yes | Remote server endpoint URL | Must be valid HTTP/HTTPS URL |
-| `transport` | `string` | Yes | Transport protocol | `http`, `sse`, `websocket` |
+| `transport` | `string` | Yes | Transport protocol | `http`, `sse` |
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 
 #### Status Fields
