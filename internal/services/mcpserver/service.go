@@ -155,10 +155,10 @@ func (s *Service) ValidateConfiguration() error {
 		}
 		// Validate transport type
 		switch s.definition.Remote.Transport {
-		case "http", "sse", "websocket":
+		case "http", "sse":
 			// Valid transport types
 		default:
-			return fmt.Errorf("unsupported transport type: %s (supported: http, sse, websocket)", s.definition.Remote.Transport)
+			return fmt.Errorf("unsupported transport type: %s (supported: http, sse)", s.definition.Remote.Transport)
 		}
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
@@ -315,13 +315,13 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		// TODO: Implement remote clients for different transports
 		switch s.definition.Remote.Transport {
 		case "http":
-			// Create HTTP MCP client
+			// Create StreamableHTTP MCP client
 			headers := make(map[string]string)
 			// Add any headers from the Remote configuration if available
 			// (This would be extended when Remote configuration supports headers)
 
-			client := mcpserver.NewHTTPClient(s.definition.Remote.Endpoint, headers)
-			s.LogDebug("Created HTTP MCP client for endpoint: %s", s.definition.Remote.Endpoint)
+			client := mcpserver.NewStreamableHTTPClient(s.definition.Remote.Endpoint, headers)
+			s.LogDebug("Created StreamableHTTP MCP client for endpoint: %s", s.definition.Remote.Endpoint)
 
 			// Initialize the client - this establishes remote MCP communication
 			initCtx, cancel := context.WithTimeout(ctx, time.Duration(s.definition.Remote.Timeout)*time.Second)
@@ -350,26 +350,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 			s.client = client
 			s.LogDebug("Remote MCP client initialized successfully for %s", s.GetName())
 			return nil
-		case "websocket":
-			// Create WebSocket MCP client
-			headers := make(map[string]string)
-			// Add any headers from the Remote configuration if available
-			// (This would be extended when Remote configuration supports headers)
 
-			client := mcpserver.NewWebSocketClient(s.definition.Remote.Endpoint, headers)
-			s.LogDebug("Created WebSocket MCP client for endpoint: %s", s.definition.Remote.Endpoint)
-
-			// Initialize the client - this establishes remote MCP communication
-			initCtx, cancel := context.WithTimeout(ctx, time.Duration(s.definition.Remote.Timeout)*time.Second)
-			defer cancel()
-
-			if err := client.Initialize(initCtx); err != nil {
-				return fmt.Errorf("failed to initialize remote WebSocket MCP client: %w", err)
-			}
-
-			s.client = client
-			s.LogDebug("Remote WebSocket MCP client initialized successfully for %s", s.GetName())
-			return nil
 		default:
 			return fmt.Errorf("unsupported transport type: %s", s.definition.Remote.Transport)
 		}

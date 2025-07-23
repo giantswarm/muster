@@ -59,7 +59,7 @@ type MCPServerRemoteConfig struct {
 	Endpoint string `yaml:"endpoint" json:"endpoint"`
 
 	// Transport specifies the protocol used to communicate with the remote server
-	// Supported values: "http" (for HTTP/HTTPS), "sse" (Server-Sent Events), "websocket"
+	// Supported values: "http" (for HTTP/HTTPS), "sse" (Server-Sent Events)
 	Transport string `yaml:"transport" json:"transport"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)

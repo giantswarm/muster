@@ -233,8 +233,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"transport": map[string]interface{}{
 								"type":        "string",
-								"description": "Transport protocol (http, sse, websocket)",
-								"enum":        []string{"http", "sse", "websocket"},
+								"description": "Transport protocol (http, sse)",
+								"enum":        []string{"http", "sse"},
 							},
 							"timeout": map[string]interface{}{
 								"type":        "integer",
@@ -302,8 +302,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"transport": map[string]interface{}{
 								"type":        "string",
-								"description": "Transport protocol (http, sse, websocket)",
-								"enum":        []string{"http", "sse", "websocket"},
+								"description": "Transport protocol (http, sse)",
+								"enum":        []string{"http", "sse"},
 							},
 							"timeout": map[string]interface{}{
 								"type":        "integer",
@@ -370,8 +370,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 							},
 							"transport": map[string]interface{}{
 								"type":        "string",
-								"description": "Transport protocol (http, sse, websocket)",
-								"enum":        []string{"http", "sse", "websocket"},
+								"description": "Transport protocol (http, sse)",
+								"enum":        []string{"http", "sse"},
 							},
 							"timeout": map[string]interface{}{
 								"type":        "integer",
@@ -655,10 +655,10 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		}
 		// Validate transport type
 		switch server.Spec.Remote.Transport {
-		case "http", "sse", "websocket":
+		case "http", "sse":
 			// Valid transport types
 		default:
-			return fmt.Errorf("unsupported transport type: %s (supported: http, sse, websocket)", server.Spec.Remote.Transport)
+			return fmt.Errorf("unsupported transport type: %s (supported: http, sse)", server.Spec.Remote.Transport)
 		}
 	default:
 		return fmt.Errorf("unsupported type: %s (supported: local, remote)", server.Spec.Type)
