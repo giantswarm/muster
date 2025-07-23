@@ -53,7 +53,7 @@ spec:
     endpoint: "https://api.example.com/mcp"
     
     # Required: Transport protocol
-    transport: "http|sse|websocket"
+    transport: "http|sse"
     
     # Optional: Connection timeout in seconds
     timeout: 30
