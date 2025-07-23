@@ -72,22 +72,14 @@ func NewApplication(cfg *Config) (*Application, error) {
 	var musterCfg config.MusterConfig
 	var err error
 
-	if cfg.ConfigPath != "" {
-		// Use single directory configuration loading
-		musterCfg, err = config.LoadConfigFromPath(cfg.ConfigPath)
-		if err != nil {
-			logging.Error("Bootstrap", err, "Failed to load muster configuration from path: %s", cfg.ConfigPath)
-			return nil, fmt.Errorf("failed to load muster configuration from path %s: %w", cfg.ConfigPath, err)
-		}
-		logging.Info("Bootstrap", "Loaded configuration from custom path: %s", cfg.ConfigPath)
-	} else {
-		// Use layered configuration loading (default behavior)
-		musterCfg, err = config.LoadConfig()
-		if err != nil {
-			logging.Error("Bootstrap", err, "Failed to load muster configuration")
-			return nil, fmt.Errorf("failed to load muster configuration: %w", err)
-		}
-		logging.Info("Bootstrap", "Loaded configuration using layered approach")
+	if cfg.ConfigPath == "" {
+		panic("Logic error: empty ConfigPath")
+	}
+
+	musterCfg, err = config.LoadConfigFromPath(cfg.ConfigPath)
+	if err != nil {
+		logging.Error("Bootstrap", err, "Failed to load muster configuration from path: %s", cfg.ConfigPath)
+		return nil, fmt.Errorf("failed to load muster configuration from path %s: %w", cfg.ConfigPath, err)
 	}
 
 	cfg.MusterConfig = &musterCfg
