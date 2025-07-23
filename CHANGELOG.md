@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Remote MCP Server Support for Kubernetes Environments**
+  - Added comprehensive support for remote MCP servers alongside existing local command execution
+  - **Enhanced CRD Schema**: Updated `MCPServerSpec` to support both local and remote configurations
+    - Local config: `autoStart`, `command`, `env` now nested under `spec.local`
+    - Remote config: new `spec.remote` with `endpoint`, `transport`, `timeout` fields
+    - Added mutual exclusion validation and required field validation using kubebuilder annotations
+    - Support for HTTP/HTTPS, SSE (Server-Sent Events), and WebSocket transport protocols
+  - **Updated API Layer**: Extended internal API types to support new schema
+    - Added `MCPServerLocalConfig` and `MCPServerRemoteConfig` types
+    - Changed type constants from `localCommand` to `local` and added `remote`
+    - Enhanced request/response types with backward compatibility for legacy fields
+  - **Enhanced Service Layer**: Updated MCPServer service to handle both local and remote types
+    - Local servers: continue using existing `StdioClient` for process management
+    - Remote servers: integrated `SSEClient` for remote HTTP/SSE connections
+    - Added comprehensive transport validation and error handling
+  - **New CLI Commands**: Added subcommands for creating local and remote MCPServers
+    - `muster create mcpserver local <name> [--options]` for local MCP servers
+    - `muster create mcpserver remote <name> [--options]` for remote MCP servers
+    - Updated help text and argument parsing for nested configurations
+  - **Updated Examples**: Enhanced example files to demonstrate both local and remote configurations
+  - **Kubernetes Deployment Ready**: Enables deployment patterns where Muster aggregator runs in cluster and connects to MCP servers deployed as separate Kubernetes services
+  - Maintained full backward compatibility with existing local command configurations
 - **Service Health Monitoring**
   - Added health checks for MCP servers using the `tools/list` JSON-RPC method
   - Added health checks for port forwards by testing TCP connectivity
@@ -214,4 +236,4 @@ All notable changes to this project will be documented in this file.
 - Streamlined MCP server architecture by removing container support
 - Simplified MCP server lifecycle management 
 
-## [0.6.0] - 2025-01-15 
+## [0.6.0] - 2025-01-15
