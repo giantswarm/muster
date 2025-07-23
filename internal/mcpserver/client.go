@@ -542,3 +542,399 @@ func (c *SSEClient) Ping(ctx context.Context) error {
 	// Use the Ping method from the mcp-go client
 	return c.client.Ping(ctx)
 }
+
+// HTTPClient implements the aggregator.MCPClient interface using HTTP transport
+type HTTPClient struct {
+	url       string
+	headers   map[string]string
+	client    client.MCPClient
+	mu        sync.RWMutex
+	connected bool
+}
+
+// NewHTTPClient creates a new HTTP-based MCP client
+func NewHTTPClient(url string, headers map[string]string) *HTTPClient {
+	return &HTTPClient{
+		url:     url,
+		headers: headers,
+	}
+}
+
+// Initialize establishes the connection and performs protocol handshake
+func (c *HTTPClient) Initialize(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connected {
+		return nil
+	}
+
+	logging.Debug("HTTPClient", "Creating HTTP client for URL: %s", c.url)
+
+	// HTTP client implementation pending - the mcp-go library doesn't yet support HTTP transport
+	// This would need client.NewHTTPMCPClient or similar when available
+	return fmt.Errorf("HTTP transport not yet supported by mcp-go library - use SSE transport instead")
+}
+
+// Close cleanly shuts down the client connection
+func (c *HTTPClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected || c.client == nil {
+		return nil
+	}
+
+	err := c.client.Close()
+	c.connected = false
+	c.client = nil
+
+	return err
+}
+
+// ListTools returns all available tools from the server
+func (c *HTTPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	return result.Tools, nil
+}
+
+// CallTool executes a specific tool and returns the result
+func (c *HTTPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.CallTool(ctx, mcp.CallToolRequest{
+		Params: struct {
+			Name      string    `json:"name"`
+			Arguments any       `json:"arguments,omitempty"`
+			Meta      *mcp.Meta `json:"_meta,omitempty"`
+		}{
+			Name:      name,
+			Arguments: args,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call tool: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListResources returns all available resources from the server
+func (c *HTTPClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list resources: %w", err)
+	}
+
+	return result.Resources, nil
+}
+
+// ReadResource retrieves a specific resource
+func (c *HTTPClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ReadResource(ctx, mcp.ReadResourceRequest{
+		Params: struct {
+			URI       string         `json:"uri"`
+			Arguments map[string]any `json:"arguments,omitempty"`
+		}{
+			URI: uri,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListPrompts returns all available prompts from the server
+func (c *HTTPClient) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list prompts: %w", err)
+	}
+
+	return result.Prompts, nil
+}
+
+// GetPrompt retrieves a specific prompt
+func (c *HTTPClient) GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	// Convert args to map[string]string as required by the API
+	stringArgs := make(map[string]string)
+	for k, v := range args {
+		if str, ok := v.(string); ok {
+			stringArgs[k] = str
+		} else {
+			stringArgs[k] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	result, err := c.client.GetPrompt(ctx, mcp.GetPromptRequest{
+		Params: struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments,omitempty"`
+		}{
+			Name:      name,
+			Arguments: stringArgs,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	return result, nil
+}
+
+// Ping checks if the server is responsive
+func (c *HTTPClient) Ping(ctx context.Context) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return fmt.Errorf("client not connected")
+	}
+
+	// Use the Ping method from the mcp-go client
+	return c.client.Ping(ctx)
+}
+
+// WebSocketClient implements the aggregator.MCPClient interface using WebSocket transport
+type WebSocketClient struct {
+	url       string
+	headers   map[string]string
+	client    client.MCPClient
+	mu        sync.RWMutex
+	connected bool
+}
+
+// NewWebSocketClient creates a new WebSocket-based MCP client
+func NewWebSocketClient(url string, headers map[string]string) *WebSocketClient {
+	return &WebSocketClient{
+		url:     url,
+		headers: headers,
+	}
+}
+
+// Initialize establishes the connection and performs protocol handshake
+func (c *WebSocketClient) Initialize(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connected {
+		return nil
+	}
+
+	logging.Debug("WebSocketClient", "Creating WebSocket client for URL: %s", c.url)
+
+	// WebSocket client implementation pending - the mcp-go library doesn't yet support WebSocket transport
+	// This would need client.NewWebSocketMCPClient or similar when available
+	return fmt.Errorf("WebSocket transport not yet supported by mcp-go library - use SSE transport instead")
+}
+
+// Close cleanly shuts down the client connection
+func (c *WebSocketClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected || c.client == nil {
+		return nil
+	}
+
+	err := c.client.Close()
+	c.connected = false
+	c.client = nil
+
+	return err
+}
+
+// ListTools returns all available tools from the server
+func (c *WebSocketClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	return result.Tools, nil
+}
+
+// CallTool executes a specific tool and returns the result
+func (c *WebSocketClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.CallTool(ctx, mcp.CallToolRequest{
+		Params: struct {
+			Name      string    `json:"name"`
+			Arguments any       `json:"arguments,omitempty"`
+			Meta      *mcp.Meta `json:"_meta,omitempty"`
+		}{
+			Name:      name,
+			Arguments: args,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call tool: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListResources returns all available resources from the server
+func (c *WebSocketClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list resources: %w", err)
+	}
+
+	return result.Resources, nil
+}
+
+// ReadResource retrieves a specific resource
+func (c *WebSocketClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ReadResource(ctx, mcp.ReadResourceRequest{
+		Params: struct {
+			URI       string         `json:"uri"`
+			Arguments map[string]any `json:"arguments,omitempty"`
+		}{
+			URI: uri,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListPrompts returns all available prompts from the server
+func (c *WebSocketClient) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := c.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list prompts: %w", err)
+	}
+
+	return result.Prompts, nil
+}
+
+// GetPrompt retrieves a specific prompt
+func (c *WebSocketClient) GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	// Convert args to map[string]string as required by the API
+	stringArgs := make(map[string]string)
+	for k, v := range args {
+		if str, ok := v.(string); ok {
+			stringArgs[k] = str
+		} else {
+			stringArgs[k] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	result, err := c.client.GetPrompt(ctx, mcp.GetPromptRequest{
+		Params: struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments,omitempty"`
+		}{
+			Name:      name,
+			Arguments: stringArgs,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	return result, nil
+}
+
+// Ping checks if the server is responsive
+func (c *WebSocketClient) Ping(ctx context.Context) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !c.connected || c.client == nil {
+		return fmt.Errorf("client not connected")
+	}
+
+	// Use the Ping method from the mcp-go client
+	return c.client.Ping(ctx)
+}
