@@ -113,15 +113,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	endpoint := agentEndpoint
 	if endpoint == "" {
 		// Use the same endpoint detection logic as CLI commands
-		detectedEndpoint, err := cli.DetectAggregatorEndpointFromPath(agentConfigPath)
+		endpoint, err := cli.DetectAggregatorEndpointFromPath(agentConfigPath)
 		if err != nil {
 			// Use fallback default that matches system defaults
-			endpoint = "http://localhost:8090/mcp"
 			if !agentMCPServer && agentVerbose {
 				logger.Info("Warning: Could not detect endpoint (%v), using default: %s\n", err, endpoint)
 			}
-		} else {
-			endpoint = detectedEndpoint
 		}
 	}
 
