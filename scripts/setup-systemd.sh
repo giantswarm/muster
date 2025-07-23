@@ -27,7 +27,7 @@ echo "📦 Building and installing muster..."
 go install .
 
 echo "🚀 Starting muster socket..."
-systemctl --user start muster.socket
+systemctl --user restart muster.socket
 
 echo "📊 Socket status:"
 systemctl --user status muster.socket --no-pager
