@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/formatting"
-
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -143,11 +141,16 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 //	  "properties": { ... }
 //	}
 func (f *Formatters) FormatToolDetail(tool mcp.Tool) string {
+	jsonData, err := json.MarshalIndent(tool.InputSchema, "", "    ")
+	if err != nil {
+		return ""
+	}
+
 	var output []string
 	output = append(output, fmt.Sprintf("Tool: %s", tool.Name))
 	output = append(output, fmt.Sprintf("Description: %s", tool.Description))
 	output = append(output, "Input Schema:")
-	output = append(output, formatting.PrettyJSON(tool.InputSchema))
+	output = append(output, string(jsonData))
 	return strings.Join(output, "\n")
 }
 
