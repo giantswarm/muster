@@ -29,6 +29,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Enabled: false,
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			errorReason: "valid config should succeed",
@@ -45,6 +46,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Enabled: false,
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			errorReason: "no-tui config should work",
@@ -61,6 +63,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Enabled: false,
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			errorReason: "minimal config should work",
@@ -174,6 +177,7 @@ func TestConfigureLogging(t *testing.T) {
 						Enabled: false,
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			}
 
 			// Verify debug flag is set correctly

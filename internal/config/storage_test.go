@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewStorage(t *testing.T) {
-	ds := NewStorage()
+	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
 	if ds == nil {
 		t.Fatal("NewStorage returned nil")
 	}
@@ -375,7 +375,7 @@ func TestStorage_DefaultBehavior(t *testing.T) {
 	}
 
 	// Test default storage behavior (should use ~/.config/muster)
-	ds := NewStorage()
+	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
 
 	// Create config directory structure
 	configDir := filepath.Join(tempDir, userConfigDir, "workflows")
@@ -425,7 +425,7 @@ func TestStorage_DefaultBehavior(t *testing.T) {
 }
 
 func TestStorage_sanitizeFilename(t *testing.T) {
-	ds := NewStorage()
+	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
 
 	tests := []struct {
 		name  string
