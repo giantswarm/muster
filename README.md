@@ -81,7 +81,7 @@ agent: "Show me failing pods in default namespace"
 → call_tool(name="x_kubernetes_get_pods", args={"namespace": "default", "status": "failed"})
 ```
 
-> 📖 **Learn More**: [MCP Tools Reference](docs/reference/mcp-tools.md) | [Tool Discovery Guide](docs/how-to/mcp-server-management.md)
+> 📖 **Learn More**: [MCP Tools Reference](docs/reference/mcp-tools.md)
 
 ### 🚀 Dynamic MCP Server Management
 - **Lifecycle Control**: Start, stop, restart MCP servers on demand
@@ -127,17 +127,6 @@ steps:
 #### **ServiceClasses**: Handle Prerequisites Automatically
 Many MCP servers need setup (port-forwarding, authentication, etc.). ServiceClasses define these prerequisites:
 
-```yaml
-name: prometheus-access
-startTool: x_kubernetes_port_forward
-args:
-  service: "prometheus-server"  
-  namespace: "monitoring"
-  localPort: 9090
-healthCheck:
-  url: "http://localhost:9090/api/v1/status"
-```
-
 **Complete Integration Example**:
 1. **ServiceClass** creates port-forwarding to Prometheus
 2. **MCP Server** configuration uses the forwarded port
@@ -148,15 +137,15 @@ healthCheck:
 
 ## Quick Start
 
-### 🤖 AI Agent Users (5 minutes)
+### 🤖 AI Agent Users
 Connect Muster to your IDE for smart tool access:
 > 📖 **[AI Agent Setup Guide](docs/getting-started/ai-agent-integration.md)**
 
-### 🏗️ Platform Engineers (15 minutes)  
+### 🏗️ Platform Engineers
 Set up Muster for infrastructure management:
 > 📖 **[Platform Setup Guide](docs/getting-started/platform-setup.md)**
 
-### 👩‍💻 Contributors (10 minutes)
+### 👩‍💻 Contributors
 Configure your development environment:
 > 📖 **[Development Setup](docs/contributing/development-setup.md)**
 
@@ -168,24 +157,6 @@ cd muster && go build .
 ```
 
 > 📖 **Learn More**: [Installation Guide](docs/operations/installation.md) | [Local Demo](docs/getting-started/local-demo.md)
-
-#### Configure MCP Servers
-
-Create `kubernetes-server.yaml`:
-```yaml
-apiVersion: muster.io/v1
-kind: MCPServer  
-name: kubernetes
-spec:
-  type: localCommand
-  command: ["mcp-kubernetes"]
-  autoStart: true
-```
-
-Register it:
-```bash
-./muster create mcpserver kubernetes.yaml
-```
 
 #### Connect Your AI Agent
 
@@ -216,90 +187,6 @@ Your agent now has meta-capabilities:
 > 📖 **Learn More**: [Complete MCP Tools Reference](docs/reference/mcp-tools.md) | [CLI Command Reference](docs/reference/cli/README.md)
 
 ## Advanced Platform Engineering Scenarios
-
-### Scenario 1: Multi-Cluster Debugging
-
-ServiceClass for cluster access
-
-```yaml
-name: cluster-login
-version: "1.0.0"
-serviceConfig:
-  serviceType: "auth"
-  args:
-    cluster:
-      type: "string"
-      required: true
-  lifecycleTools:
-    start: { tool: "x_teleport_kube_login" }
-```
-
-Workflow to compare pods on two clusters
-
-```yaml
-# Workflow for cross-cluster investigation  
-name: compare-pod-on-staging-prod
-input_schema:
-  type: "object"
-  properties:
-    namespace: { type: "string" }
-    pod: { type: "string" }
-  required: ["namespace", "pod"]
-steps:
-  - id: staging-context
-    tool: core_service_create
-    args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "staging"
-  - id: prod-context
-    tool: core_service_create
-    args:
-      serviceClassName: "cluster-login"
-      name: "staging-context"
-      params:
-        cluster: "production"
-  - id: wait-for-step
-  - id: compare-resources
-    tool: workflow_compare_pods_on_clusters
-    args:
-
-```
-
-### Scenario 2: Full Observability Stack
-```yaml
-# Prometheus access with port-forwarding
-name: prometheus-tunnel
-startTool: k8s_port_forward
-args:
-  service: "prometheus-server"
-  localPort: 9090
-    
----
-# Grafana dashboard access  
-name: grafana-tunnel  
-startTool: k8s_port_forward
-args:
-  service: "grafana"
-  localPort: 3000    
----
-# Complete monitoring workflow
-name: investigation-setup
-steps:
-  - id: setup-prometheus
-    serviceClass: prometheus-tunnel
-  - id: setup-grafana
-    serviceClass: grafana-tunnel  
-  - id: configure-prometheus-mcp
-    tool: core_mcpserver_create
-    args:
-      name: "prometheus"
-      type: "localCommand"
-      command: ["mcp-server-prometheus"]
-      env:
-        PROMETHEUS_URL: "http://localhost:9090"
-```
 
 > 📖 **Learn More**: [Advanced Scenarios](docs/how-to/advanced-scenarios.md) | [Configuration Examples](docs/explanation/configuration-examples.md)
 

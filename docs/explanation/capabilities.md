@@ -90,16 +90,6 @@ workflow_discovery                   # Service discovery workflow
 workflow_auth                        # Authentication workflow
 ```
 
-### **External Tools from MCP Servers**
-This instance provides external tools through 8 configured MCP servers:
-- **Kubernetes** (`mcp-kubernetes`) - Cluster management tools
-- **Teleport** - Authentication and access tools  
-- **Prometheus** - Metrics and monitoring tools
-- **Grafana** - Dashboard and visualization tools
-- **Flux** - GitOps and deployment tools
-- **CAPI** - Cluster API management tools
-- **App** - Application management tools
-
 ## 🧠 Intelligent Tool Discovery
 
 Your agent can now discover and use tools dynamically:
@@ -114,8 +104,8 @@ agent: "I need to manage Kubernetes connections"
 → Discovers serviceclass 'service-k8s-connection' and related tools
 
 # Execute complex operations
-agent: "Connect to monitoring in gazelle installation"
-→ workflow_connect-monitoring(installation="gazelle", workloadCluster="operations")
+agent: "Connect to monitoring in cluster"
+→ workflow_connect-monitoring(cluster="foo-bar.k8s.mydomain.com")
 ```
 
 ## 🏗️ Advanced Service Management
@@ -186,35 +176,27 @@ metadata:
 spec:
   description: "Connect to monitoring in a Giant Swarm installation"
   args:
-    installation:
+    cluster:
       type: "string"
-      description: "Installation name (e.g., 'gazelle')"
-      required: true
-    workloadCluster:
-      type: "string"
-      description: "Workload cluster name (e.g., 'operations')"
+      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
       required: true
     localPort:
       type: "string"
       default: "18000"
       description: "Local port for forwarding"
   steps:
-    - id: "login-management-cluster"
+    - id: "login-cluster"
       tool: "x_teleport_kube_login"
       args:
-        kubeCluster: "{{.input.installation}}"
-    - id: "setup-mimir-access"
+        kubeCluster: "{{.input.cluster}}"
+    - id: "setup-prometheus-access"
       tool: "core_service_create"
       args:
-        serviceClassName: "mimir-port-forward"
-        name: "mimir-port-forward-{{.input.installation}}"
+        serviceClassName: "prometheus-port-forward"
+        name: "prometheus-port-forward-{{.input.cluster}}"
         args:
-          managementCluster: "{{.input.installation}}"
+          cluster: "{{.input.cluster}}"
           localPort: "{{.input.localPort}}"
-    - id: "login-workload-cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.installation}}-{{.input.workloadCluster}}"
 ```
 
 **Benefits:**

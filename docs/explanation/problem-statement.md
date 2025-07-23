@@ -49,7 +49,7 @@ Traditional approach requires manual coordination:
 1. Start Kubernetes MCP server
 2. Start Teleport MCP server  
 3. Start Prometheus MCP server
-4. Manually: x_teleport_kube_login(cluster="gazelle")
+4. Manually: x_teleport_kube_login(cluster="my-cluster")
 5. Manually: x_kubernetes_port_forward(service="prometheus", port=9090)
 6. Manually: x_prometheus_query(query="up", endpoint="localhost:9090")
 7. Remember to clean up port-forwards
@@ -78,8 +78,8 @@ Complex multi-step operations become single commands:
 
 ```bash
 # What used to require 8 manual steps:
-agent: "Connect to monitoring in gazelle installation"
-→ workflow_connect-monitoring(installation="gazelle", workloadCluster="operations")
+agent: "Connect to monitoring in the staging cluster in the eu-west-1 region"
+→ workflow_connect-monitoring(region="eu-west-1", cluster="staging")
 
 # Automatically handles:
 # ✓ Authentication (Teleport login)
@@ -119,7 +119,7 @@ Instead of managing 140+ individual tools, platform engineers work with high-lev
 
 ```bash
 # Single command replaces complex manual workflows
-workflow_check-cilium-health(installation="gazelle")
+workflow_check-cilium-health(cluster="my-cluster")
 
 # Self-managing service connections  
 core_service_create(serviceClassName="service-k8s-connection", name="prod-access")
