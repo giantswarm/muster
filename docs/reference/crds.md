@@ -177,22 +177,6 @@ spec:
     timeout: 60
 ```
 
-#### WebSocket Remote Server (Remote)
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: websocket-tools
-  namespace: default
-spec:
-  type: remote
-  description: "WebSocket-based MCP server"
-  remote:
-    endpoint: "wss://realtime.example.com/mcp"
-    transport: "websocket"
-    timeout: 45
-```
-
 ### CLI Usage
 
 ```bash
