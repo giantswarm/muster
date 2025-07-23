@@ -30,34 +30,40 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 
 	target := strings.ToLower(args[0])
 	switch target {
-	case "tools":
+	case "tool", "tools":
 		if err := l.client.RefreshToolCache(ctx); err != nil {
 			l.output.Error("Failed to refresh tool cache: %v", err)
 			// Continue with the cached tools if refresh fails
 		}
 		return l.listTools()
-	case "resources":
+	case "resource", "resources":
 		if err := l.client.RefreshResourceCache(ctx); err != nil {
 			l.output.Error("Failed to refresh resource cache: %v", err)
 			// Continue with the cached tools if refresh fails
 		}
 		return l.listResources()
-	case "prompts":
+	case "prompt", "prompts":
 		if err := l.client.RefreshPromptCache(ctx); err != nil {
 			l.output.Error("Failed to refresh prompt cache: %v", err)
 			// Continue with the cached tools if refresh fails
 		}
 		return l.listPrompts()
-	case "workflows":
+	case "workflow", "workflows":
 		return l.listWorkflows(ctx)
-	case "core-tools":
+	case "core-tool", "core-tools":
 		if err := l.client.RefreshToolCache(ctx); err != nil {
 			l.output.Error("Failed to refresh tool cache: %v", err)
 			// Continue with the cached tools if refresh fails
 		}
 		return l.listCoreTools(ctx)
 	default:
-		return l.validateTarget(target, []string{"tools", "resources", "prompts", "workflows", "core-tools"})
+		return l.validateTarget(target, []string{
+			"tool", "tools",
+			"resource", "resources",
+			"prompt", "prompts",
+			"workflow", "workflows",
+			"core-tool", "core-tools",
+		})
 	}
 }
 
