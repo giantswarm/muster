@@ -172,10 +172,10 @@ metadata:
 spec:
   description: "Port forwarding service for Mimir monitoring access"
   args:
-    managementCluster:
+    cluster:
       type: "string"
       required: true
-      description: "Management cluster name"
+      description: "Monitoring cluster name"
     localPort:
       type: "string"
       default: "18000"
@@ -189,6 +189,7 @@ spec:
       start:
         tool: "x_kubernetes_port_forward"
         args:
+          context: "{{ .cluster }}"
           namespace: "{{ .namespace }}"
           service: "mimir-gateway"
           localPort: "{{ .localPort }}"
@@ -211,9 +212,9 @@ spec:
 # Create port-forwarding service instance
 core_service_create {
   "serviceClassName": "mimir-port-forward",
-  "name": "mimir-gazelle",
+  "name": "mimir-my-monitoring-cluster",
   "args": {
-    "managementCluster": "gazelle",
+    "managementCluster": "my-monitoring-cluster",
     "localPort": "18001"
   }
 }
@@ -235,46 +236,30 @@ apiVersion: muster.giantswarm.io/v1alpha1
 kind: Workflow
 metadata:
   name: connect-monitoring
-  namespace: default
 spec:
-  name: "connect-monitoring"
   description: "Connect to monitoring in a Giant Swarm installation"
   args:
-    installation:
+    cluster:
       type: "string"
-      description: "Installation name (e.g., 'gazelle')"
-      required: true
-    workloadCluster:
-      type: "string" 
-      description: "Workload cluster name (e.g., 'operations')"
+      description: "Cluster domain (e.g., 'my-k8s.my-domain.com')"
       required: true
     localPort:
       type: "string"
-      description: "Local port for forwarding"
       default: "18000"
-      required: true
+      description: "Local port for forwarding"
   steps:
-    - id: "login-management-cluster"
-      description: "Login to management cluster"
+    - id: "login-cluster"
       tool: "x_teleport_kube_login"
       args:
-        kubeCluster: "{{.input.installation}}"
-    - id: "setup-mimir-access"
-      description: "Setup Mimir port forwarding"
+        kubeCluster: "{{.input.cluster}}"
+    - id: "setup-prometheus-access"
       tool: "core_service_create"
       args:
-        serviceClassName: "mimir-port-forward"
-        name: "mimir-port-forward-{{.input.installation}}"
+        serviceClassName: "prometheus-port-forward"
+        name: "prometheus-port-forward-{{.input.cluster}}"
         args:
-          managementCluster: "{{.input.installation}}"
+          cluster: "{{.input.cluster}}"
           localPort: "{{.input.localPort}}"
-      outputs:
-        prometheusUrl: "prometheusUrl"
-    - id: "login-workload-cluster"
-      description: "Login to workload cluster"
-      tool: "x_teleport_kube_login"
-      args:
-        kubeCluster: "{{.input.installation}}-{{.input.workloadCluster}}"
 ```
 
 ### **Health Check Workflow** (`.muster/workflows/check-cilium-health.yaml`)
@@ -371,8 +356,7 @@ core_workflow_list
 
 # 2. Execute workflow
 workflow_connect-monitoring {
-  "installation": "gazelle",
-  "workloadCluster": "operations",
+  "cluster": "my-cluster.my-domain.com",
   "localPort": "18001"
 }
 
@@ -390,8 +374,8 @@ core_mcpserver_list
 
 # 3. Run diagnostic workflow
 workflow_check-cilium-health {
-  "installation": "gazelle", 
-  "workloadCluster": "operations"
+  "installation": "foobar", 
+  "workloadCluster": "prod"
 }
 ```
 
