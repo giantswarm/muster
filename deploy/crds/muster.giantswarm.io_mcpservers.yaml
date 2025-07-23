@@ -111,11 +111,10 @@ spec:
                   transport:
                     description: |-
                       Transport specifies the protocol used to communicate with the remote server
-                      Supported values: "http" (for HTTP/HTTPS), "sse" (Server-Sent Events), "websocket"
+                      Supported values: "http" (for HTTP/HTTPS), "sse" (Server-Sent Events)
                     enum:
                     - http
                     - sse
-                    - websocket
                     type: string
                 required:
                 - endpoint
