@@ -88,10 +88,14 @@ metadata:
   name: filesystem-tools
   namespace: default
 spec:
-  type: localCommand
-  command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
-  autoStart: true
-  description: "Filesystem operations"
+  description: "File system operations for development"
+  toolPrefix: "fs"
+  type: local
+  local:
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    env:
+      DEBUG: "1"
 ```
 
 ### Step 3: Test Muster

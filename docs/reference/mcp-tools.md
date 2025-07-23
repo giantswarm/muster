@@ -379,11 +379,10 @@ Validate MCP server configuration without creating or modifying the server.
   "name": "core_mcpserver_validate",
   "arguments": {
     "name": "test-server",
-    "type": "localCommand",
-    "command": ["nonexistent-command"],
-    "env": {
-      "INVALID_KEY": ""
-    }
+    "type": "local",
+    "autoStart": true,
+    "command": ["echo", "test"],
+    "description": "Test server configuration"
   }
 }
 ```

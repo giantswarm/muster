@@ -337,7 +337,7 @@ spec:
       tool: core_mcpserver_create
       args:
         name: "prometheus-tools"
-        type: "localCommand"
+        type: "local"
         command: ["mcp-server-prometheus"]
         autoStart: true
         env:
@@ -347,7 +347,7 @@ spec:
       tool: core_mcpserver_create
       args:
         name: "grafana-tools"
-        type: "localCommand"
+        type: "local"
         command: ["mcp-server-grafana"]
         autoStart: true
         env:

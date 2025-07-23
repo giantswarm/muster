@@ -51,40 +51,60 @@ call_tool(name="core_serviceclass_list", arguments={})   # List ServiceClasses
 
 ## Step 2: Configure Infrastructure Tools (5 minutes)
 
-### Add an MCP Server
-Create an MCP server configuration file:
+### Create Your First MCP Server
+
+Create a simple filesystem MCP server:
 
 ```yaml
-# .muster/mcpservers/example-tools.yaml
+# filesystem-server.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: example-tools
+  name: filesystem-tools
   namespace: default
 spec:
-  type: localCommand
-  command: ["echo", "mock-mcp-server"]
-  autoStart: true
-  description: "Example MCP server for demo"
+  description: "File system operations"
+  toolPrefix: "fs"
+  type: local
+  local:
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    env:
+      DEBUG: "1"
 ```
 
-### For Real Kubernetes Integration
-If you have `mcp-kubernetes` installed:
+Apply the configuration:
+
+```bash
+kubectl apply -f filesystem-server.yaml
+```
+
+Verify the server is running:
+
+```bash
+muster mcpserver list
+muster mcpserver get filesystem-tools
+```
+
+### Create a Remote MCP Server
+
+Connect to an external MCP server:
 
 ```yaml
-# .muster/mcpservers/kubernetes.yaml
+# remote-server.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: kubernetes
+  name: remote-api
   namespace: default
 spec:
-  type: localCommand
-  command: ["mcp-kubernetes"]
-  autoStart: true
-  env:
-    KUBECONFIG: "/path/to/your/kubeconfig"
-  description: "Kubernetes management tools"
+  description: "Remote API tools"
+  toolPrefix: "api"
+  type: remote
+  remote:
+    endpoint: "https://api.example.com/mcp"
+    transport: "http"
+    timeout: 60
 ```
 
 ### Verify MCP Server Registration

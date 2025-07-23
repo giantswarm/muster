@@ -85,18 +85,15 @@ muster get mcpserver kubernetes
 
 # Example output:
 # Name:              kubernetes
-# Type:              localCommand
-# Status:            Running
-# Command:           mcp-kubernetes
-# PID:               1234
-# Started:           2024-01-07 09:00:00
-# Uptime:           3h 15m
-# AutoStart:        true
-# Health:           Healthy
-# Tools Available:   15
-# Last Restart:     2024-01-07 09:00:00
-# Environment:
-#   KUBECONFIG:      /path/to/kubeconfig
+# Description:        Kubernetes management tools
+# Type:               local
+# AutoStart:          true
+# Command:            ["mcp-kubernetes"]
+# Environment:        KUBECONFIG=/path/to/config
+# State:              Running
+# Tools:              15
+# Health:             Healthy
+# Last Error:         None
 ```
 
 ### Getting Workflow Information

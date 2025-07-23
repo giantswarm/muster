@@ -1,138 +1,122 @@
-// Package mcpserver provides Model Context Protocol (MCP) server management for muster.
+// Package mcpserver provides MCP (Model Context Protocol) server management functionality.
 //
-// This package handles the lifecycle of MCP servers, which provide AI assistants
-// with structured access to Kubernetes clusters and monitoring services through
-// local process execution.
+// This package enables the registration, configuration, and lifecycle management of MCP servers
+// within the muster ecosystem. It supports both static configuration through YAML files and
+// dynamic management through API operations.
 //
-// # Overview
+// # MCP Server Types
 //
-// MCP servers act as bridges between AI assistants (like Claude in Cursor) and
-// backend services. They expose tools and resources through a standardized protocol,
-// allowing AI assistants to query and interact with systems in a controlled manner.
+// Currently supported MCP server types:
+//   - **Local**: Execute MCP servers as local processes with configurable command lines
+//   - **Remote**: Connect to external MCP servers via HTTP, SSE, or WebSocket transports
 //
-// The package provides comprehensive MCP server definition management, allowing
-// users to create, update, and delete server configurations through both API
-// operations and direct YAML file manipulation.
+// # Configuration Structure
 //
-// # Server Types
+// MCP servers are defined using the MCPServer CRD or YAML configuration files. Each server
+// definition includes metadata, type-specific configuration, and operational settings.
 //
-// The package supports local command deployment:
+// Basic configuration structure:
 //
-// ## Local Command
-//   - Runs MCP servers as local processes
-//   - Direct execution of binaries or scripts
-//   - Environment variable configuration
-//   - Process lifecycle management
-//   - Standard input/output handling
+//	apiVersion: muster.giantswarm.io/v1alpha1
+//	kind: MCPServer
+//	metadata:
+//	  name: example-server
+//	  namespace: default
+//	spec:
+//	  description: Example MCP server for demonstration
+//	  toolPrefix: example
+//	  type: local
+//	  local:
+//	    autoStart: true
+//	    command:
+//	      - "npx"
+//	      - "@modelcontextprotocol/server-filesystem"
+//	      - "/workspace"
+//	    env:
+//	      DEBUG: "1"
 //
-// # Core Components
+// For remote servers:
 //
-// ## Process Management
-//   - Start/stop MCP server processes
-//   - Monitor process health
-//   - Capture and log output
-//   - Handle graceful shutdown
-//   - Environment variable injection
+//	spec:
+//	  type: remote
+//	  remote:
+//	    endpoint: "https://api.example.com/mcp"
+//	    transport: "http"
+//	    timeout: 30
 //
-// ## Proxy Server
-//   - HTTP proxy for MCP protocol
-//   - SSE (Server-Sent Events) support
-//   - Request forwarding to MCP servers
-//   - Connection pooling and management
-//   - Protocol translation
+// # Static Configuration
 //
-// # Configuration
+// MCP servers can be defined in YAML files for static configuration. These files are
+// typically placed in the muster configuration directory and loaded at startup.
 //
-// MCP servers are configured through YAML definitions with:
-//   - **Name**: Unique identifier for the server
-//   - **Type**: "localCommand"
-//   - **Command**: Execution command and arguments
-//   - **Environment**: Variables to set for the server
-//   - **Dependencies**: Required services or conditions
-//   - **Metadata**: Additional descriptive information
+// Static configuration example:
 //
-// ## Local Command Configuration
+//	# Local server example
+//	---
+//	apiVersion: muster.giantswarm.io/v1alpha1
+//	kind: MCPServer
+//	metadata:
+//	  name: filesystem-tools
+//	spec:
+//	  description: File system operations
+//	  toolPrefix: fs
+//	  type: local
+//	  local:
+//	    autoStart: true
+//	    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
 //
-//	name: "kubernetes"
-//	type: "localCommand"
-//	command: ["npx", "mcp-server-kubernetes"]
-//	env:
-//	  KUBECONFIG: "/home/user/.kube/config"
-//	  NAMESPACE_FILTER: "default,kube-system"
+//	# Remote server example
+//	---
+//	apiVersion: muster.giantswarm.io/v1alpha1
+//	kind: MCPServer
+//	metadata:
+//	  name: remote-api
+//	spec:
+//	  description: Remote API server
+//	  toolPrefix: api
+//	  type: remote
+//	  remote:
+//	    endpoint: "https://api.example.com/mcp"
+//	    transport: "http"
+//	    timeout: 30
 //
-// # Health Monitoring
+// # Dynamic Management
 //
-// Server health is determined by:
-//   - Process running status
-//   - Proxy server availability
-//   - MCP protocol responsiveness
-//   - Tool availability checks
-//   - Connection health monitoring
+// MCP servers can also be created, updated, and deleted dynamically using the API tools
+// provided by this package. The API adapter exposes the following tools:
 //
-// # Integration with AI Assistants
+//   - mcpserver_list: List all configured MCP servers
+//   - mcpserver_get: Get details of a specific MCP server
+//   - mcpserver_create: Create a new MCP server definition
+//   - mcpserver_update: Update an existing MCP server
+//   - mcpserver_delete: Remove an MCP server definition
+//   - mcpserver_validate: Validate a server configuration without creating it
 //
-// MCP servers are accessed by AI assistants through:
+// # Tool Integration
 //
-//  1. **SSE endpoint**: http://localhost:{proxyPort}/sse
-//  2. **JSON-RPC protocol** over SSE
-//  3. **Tool discovery and invocation**
-//  4. **Structured responses**
+// Created MCP servers are automatically registered with the aggregator, making their tools
+// available through the unified muster tool interface. Tool names are automatically prefixed
+// using the configured toolPrefix to avoid naming conflicts.
 //
-// Example Cursor configuration:
+// # Architecture
 //
-//	{
-//	  "mcpServers": {
-//	    "kubernetes": {
-//	      "command": "curl",
-//	      "args": ["-N", "http://localhost:8001/sse"]
-//	    }
-//	  }
-//	}
+// The mcpserver package follows the standard muster architectural patterns:
 //
-// # Validation
-//
-// The package provides comprehensive validation for MCP server definitions:
-//
-//   - **Name validation**: Ensures unique and valid identifiers
-//   - **Type validation**: Verifies server type is supported
-//   - **Command validation**: For local command servers, ensures command is specified
-//   - **Environment validation**: Validates environment variable format
-//   - **Cross-type validation**: Prevents invalid combinations of fields
+//   - **API Adapter**: Implements the MCPServerManagerHandler interface and exposes
+//     management tools through the ToolProvider interface
+//   - **Unified Client**: Uses the muster unified client for both Kubernetes CRD
+//     operations and filesystem-based configuration management
+//   - **Service Integration**: MCP servers are managed as services by the orchestrator,
+//     handling lifecycle, health monitoring, and dependency management
 //
 // # Error Handling
 //
-// The package handles various error scenarios:
-//   - Binary not found for local command servers
-//   - Port already in use
-//   - Network connectivity problems
-//   - Protocol errors
-//   - Definition validation failures
-//   - YAML parsing errors
-//
-// # API Integration
-//
-// The package integrates with muster's API layer through:
-//   - **MCPServerManagerHandler**: API interface for server management
-//   - **Registration pattern**: Proper API layer registration
-//   - **Tool provider interface**: Exposing management tools
-//   - **Event integration**: Server lifecycle event broadcasting
+// The package provides comprehensive error handling with specific error types for
+// common scenarios such as server not found, invalid configuration, and lifecycle
+// management failures. All errors include contextual information for debugging.
 //
 // # Thread Safety
 //
-// All operations are thread-safe:
-//   - Multiple MCP servers can be managed concurrently
-//   - Concurrent definition operations
-//   - Thread-safe access to server registry
-//   - Protected storage operations
-//
-// # Performance Considerations
-//
-//   - **Efficient loading**: Lazy loading of definitions when needed
-//   - **Caching**: In-memory caching of loaded definitions
-//   - **Validation**: Early validation to prevent runtime errors
-//   - **Resource cleanup**: Proper cleanup of server resources
-//
-// This package provides the foundation for muster's MCP server ecosystem,
-// enabling seamless integration with AI assistants and other external tools
-// through the standardized MCP protocol.
+// All operations in this package are thread-safe and can be called concurrently.
+// The underlying unified client handles synchronization and ensures data consistency.
 package mcpserver

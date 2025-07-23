@@ -96,41 +96,50 @@ aggregator:
   enabled: true
 ```
 
-## Resource Configuration Files
+## MCP Server Configuration
 
-Resources are stored as individual YAML files in type-specific subdirectories.
-
-### MCPServer Configuration
-
-**Location**: `mcpservers/*.yaml`
+MCP servers can be configured through YAML files or Kubernetes CRDs. Each server requires:
 
 ```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: kubernetes
-  namespace: default
-spec:
-  type: localCommand              # Server execution type
-  autoStart: true                 # Auto-start on system init
-  toolPrefix: "k8s"              # Optional tool prefix
-  command: ["mcp-kubernetes"]     # Command to execute
-  env:                           # Environment variables
-    KUBECONFIG: "/path/to/config"
-    LOG_LEVEL: "info"
-  description: "Kubernetes management server"
+# Local server example
+mcpservers:
+  - name: filesystem-tools
+    description: File system operations
+    toolPrefix: fs
+    type: local              # Server execution type
+    local:
+      autoStart: true
+      command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+      env:
+        DEBUG: "1"
+
+  # Remote server example  
+  - name: remote-api
+    description: Remote API tools
+    toolPrefix: api
+    type: remote
+    remote:
+      endpoint: "https://api.example.com/mcp"
+      transport: "http"
+      timeout: 30
 ```
 
-#### MCPServer Fields
+#### MCP Server Fields
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `type` | `string` | ✅ | - | Server type (`localCommand` only currently) |
-| `autoStart` | `bool` | ❌ | `false` | Start automatically on system init |
-| `toolPrefix` | `string` | ❌ | - | Prefix for all tools from this server |
-| `command` | `[]string` | ✅* | - | Command and args (*required for localCommand) |
-| `env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `name` | `string` | ✅ | - | Unique server identifier |
 | `description` | `string` | ❌ | - | Human-readable description |
+| `toolPrefix` | `string` | ❌ | - | Tool name prefix |
+| `type` | `string` | ✅ | - | Server type (`local` or `remote`) |
+| `local` | `object` | ❌* | - | Local server config (*required for local) |
+| `local.autoStart` | `boolean` | ❌ | `false` | Auto-start server |
+| `local.command` | `[]string` | ✅* | - | Command and args (*required for local) |
+| `local.env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `remote` | `object` | ❌* | - | Remote server config (*required for remote) |
+| `remote.endpoint` | `string` | ✅* | - | Remote server URL (*required for remote) |
+| `remote.transport` | `string` | ✅* | - | Transport: `http`, `sse`, `websocket` (*required for remote) |
+| `remote.timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
 
 ### ServiceClass Configuration
 

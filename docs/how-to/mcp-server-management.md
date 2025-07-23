@@ -1,232 +1,249 @@
 # MCP Server Management
 
-Learn how to effectively manage MCP servers in your Muster deployment.
+This guide covers how to create, configure, and manage MCP (Model Context Protocol) servers in muster.
 
-## Add a New MCP Server
+## Overview
 
-### Goal
-Add a new MCP server to extend Muster's tool capabilities.
+MCP servers provide structured access to tools and resources for AI assistants. Muster supports two types of MCP servers:
 
-### Prerequisites
-- Muster control plane running
-- MCP server binary available
-- Understanding of the tool's requirements
+- **Local servers**: Execute as local processes with configurable command lines
+- **Remote servers**: Connect to external MCP servers via HTTP, SSE, or WebSocket
 
-### Steps
+## Creating MCP Servers
 
-1. **Create MCP server configuration**
-   
-   ```yaml
-   # example-server.yaml
-   apiVersion: muster.giantswarm.io/v1alpha1
-   kind: MCPServer
-   metadata:
-     name: example-tool
-     namespace: default
-   spec:
-     type: localCommand
-     command: ["mcp-example-tool"]
-     autoStart: true
-     env:
-       TOOL_CONFIG: "/path/to/config"
-       LOG_LEVEL: "info"
-     description: "Example MCP server providing custom tools"
-   ```
+### Local Command Servers
 
-2. **Register the server**
-   
-   ```bash
-   muster create mcpserver example-server.yaml
-   ```
+Create a local server that runs as a process:
 
-3. **Verify server status**
-   
-   ```bash
-   muster get mcpserver example-tool
-   ```
-
-4. **Test tool availability**
-   
-   ```bash
-   muster agent --repl
-   # In REPL:
-   list_tools()
-   # Or filter tools to see ones from this server:
-   filter_tools(pattern="example")
-   ```
-
-### Verification
-- Server shows status "running"
-- Tools from the server appear in tool listings
-- Tools can be executed successfully
-
-## Configure Auto-Start Behavior
-
-### Goal
-Control when MCP servers start automatically.
-
-### Steps
-
-1. **Enable auto-start** (start with Muster)
-   
-   ```yaml
-   apiVersion: muster.giantswarm.io/v1alpha1
-   kind: MCPServer
-   metadata:
-     name: auto-start-server
-     namespace: default
-   spec:
-     autoStart: true
-     # ... other configuration
-   ```
-
-2. **Disable auto-start** (manual control)
-   
-   ```yaml
-   apiVersion: muster.giantswarm.io/v1alpha1
-   kind: MCPServer
-   metadata:
-     name: manual-server
-     namespace: default
-   spec:
-     autoStart: false
-     # ... other configuration
-   ```
-
-3. **Apply configuration**
-   
-   ```bash
-   muster create mcpserver server-config.yaml
-   ```
-
-4. **Manual server control**
-   
-   ```bash
-   # Check server status
-   muster get mcpserver example-tool
-   
-   # List all servers
-   muster list mcpserver
-   
-   # Check server availability
-   muster check mcpserver example-tool
-   ```
-
-## Monitor MCP Server Health
-
-### Goal
-Set up monitoring and health checks for MCP servers.
-
-### Steps
-
-1. **Check server status**
-   
-   ```bash
-   # List all servers with status
-   muster list mcpserver
-   
-   # Get detailed server info
-   muster get mcpserver example-tool
-   ```
-
-2. **Test server communication**
-   
-   ```bash
-   # Check if server is available
-   muster check mcpserver example-tool
-   ```
-
-3. **Set up health monitoring**
-   
-   ```yaml
-   apiVersion: muster.giantswarm.io/v1alpha1
-   kind: MCPServer
-   metadata:
-     name: monitored-server
-     namespace: default
-   spec:
-     type: localCommand
-     command: ["mcp-example-tool"]
-     healthCheck:
-       enabled: true
-       interval: "30s"
-       timeout: "10s"
-       command: ["health-check"]
-   ```
-
-4. **Configure alerting** (if monitoring system available)
-   
-   ```bash
-   # Export server metrics
-   muster metrics mcpserver --format prometheus
-   ```
-
-## Troubleshoot Server Startup Issues
-
-### Goal
-Diagnose and fix common MCP server startup problems.
-
-## Advanced Configuration
-
-### Environment Variables
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: advanced-server
-  namespace: default
+  name: filesystem-tools
 spec:
-  type: localCommand
-  command: ["mcp-server-advanced"]
-  env:
-    DEBUG: "true"
-    CONFIG_PATH: "/etc/mcp/config.json"
-    LOG_LEVEL: "debug"
-    MAX_CONNECTIONS: "10"
+  description: "File system operations"
+  toolPrefix: "fs"
+  type: local
+  local:
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    env:
+      DEBUG: "1"
+      LOG_LEVEL: "info"
 ```
+
+### Remote Servers
+
+Connect to external MCP servers:
+
+#### HTTP Transport
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: remote-api
+spec:
+  description: "Remote API tools"
+  toolPrefix: "api"
+  type: remote
+  remote:
+    endpoint: "https://api.example.com/mcp"
+    transport: "http"
+    timeout: 60
+```
+
+#### WebSocket Transport
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: websocket-server
+spec:
+  description: "WebSocket MCP server"
+  toolPrefix: "ws"
+  type: remote
+  remote:
+    endpoint: "wss://websocket.example.com/mcp"
+    transport: "websocket"
+    timeout: 120
+```
+
+#### Server-Sent Events (SSE) Transport
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: sse-server
+spec:
+  description: "SSE MCP server"
+  toolPrefix: "sse"
+  type: remote
+  remote:
+    endpoint: "https://sse.example.com/mcp"
+    transport: "sse"
+    timeout: 90
+```
+
+## Using the CLI
+
+### Creating Servers via CLI
+
+Create a local server:
+```bash
+muster mcpserver create filesystem-tools \
+  --type local \
+  --command "npx" \
+  --command "@modelcontextprotocol/server-filesystem" \
+  --command "/workspace" \
+  --auto-start \
+  --tool-prefix fs \
+  --description "File system operations"
+```
+
+Create a remote server:
+```bash
+muster mcpserver create remote-api \
+  --type remote \
+  --endpoint "https://api.example.com/mcp" \
+  --transport http \
+  --timeout 60 \
+  --tool-prefix api \
+  --description "Remote API tools"
+```
+
+### Listing Servers
+```bash
+muster mcpserver list
+```
+
+### Getting Server Details
+```bash
+muster mcpserver get filesystem-tools
+```
+
+### Updating Servers
+```bash
+# Update local server
+muster mcpserver update filesystem-tools \
+  --auto-start=false \
+  --description "Updated file system tools"
+
+# Update remote server
+muster mcpserver update remote-api \
+  --endpoint "https://new-api.example.com/mcp" \
+  --timeout 120
+```
+
+### Deleting Servers
+```bash
+muster mcpserver delete filesystem-tools
+```
+
+## Configuration Best Practices
+
+### Local Servers
+- Use absolute paths for commands when possible
+- Set appropriate environment variables for configuration
+- Enable auto-start for critical servers
+- Use descriptive tool prefixes to avoid conflicts
+
+### Remote Servers
+- Use HTTPS endpoints when possible for security
+- Set appropriate timeouts based on server response times
+- Test connectivity before deploying to production
+- Monitor server availability and health
 
 ### Tool Prefixes
-```yaml
-spec:
-  toolPrefix: "custom"  # Tools will be prefixed as "x_custom_*"
+- Use short but descriptive prefixes (e.g., `k8s`, `git`, `fs`)
+- Avoid generic prefixes like `tools` or `server`
+- Be consistent across related servers
+
+## Troubleshooting
+
+### Local Server Issues
+
+**Command not found:**
+```bash
+# Check if the command is available
+which npx
+npm install -g @modelcontextprotocol/server-filesystem
+
+# Verify the server definition
+muster mcpserver get filesystem-tools
 ```
 
-### Resource Limits
-```yaml
-spec:
-  resources:
-    limits:
-      memory: "512Mi"
-      cpu: "500m"
-    requests:
-      memory: "256Mi"
-      cpu: "100m"
+**Permission errors:**
+```bash
+# Check file permissions
+ls -la /workspace
+chmod +x /path/to/mcp-server
+
+# Run with appropriate user
+sudo -u mcpuser muster mcpserver start filesystem-tools
 ```
 
-## Best Practices
+### Remote Server Issues
 
-### 1. Naming Conventions
-- Use descriptive names: `git-tools`, `k8s-cluster-prod`
-- Include environment in name for multi-env setups
-- Avoid special characters and spaces
+**Connection timeouts:**
+```bash
+# Test connectivity
+curl -v https://api.example.com/mcp
 
-### 2. Configuration Management
-- Store configurations in version control
-- Use environment-specific overlays
-- Document required environment variables
+# Increase timeout
+muster mcpserver update remote-api --timeout 120
+```
 
-### 3. Monitoring
-- Always enable health checks for production
-- Set appropriate timeouts
-- Monitor resource usage
+**Transport errors:**
+```bash
+# Verify transport support
+curl -H "Accept: text/event-stream" https://sse.example.com/mcp
 
-### 4. Security
-- Run with minimal required permissions
-- Use read-only filesystems where possible
-- Regularly update server binaries
+# Check WebSocket connectivity  
+wscat -c wss://websocket.example.com/mcp
+```
+
+### Common Issues
+
+**Tool name conflicts:**
+```bash
+# List tools to identify conflicts
+muster tool list | grep conflicting-name
+
+# Update tool prefix
+muster mcpserver update server-name --tool-prefix unique-prefix
+```
+
+**Server not starting:**
+```bash
+# Check server logs
+muster logs mcpserver/server-name
+
+# Verify configuration
+muster mcpserver validate server-name
+```
+
+## Integration Examples
+
+### With Cursor/VS Code
+Configure Cursor to use muster MCP servers:
+
+```json
+{
+  "mcpServers": {
+    "muster-aggregator": {
+      "command": "curl",
+      "args": ["-N", "http://localhost:8090/sse"]
+    }
+  }
+}
+```
+
+### With Other AI Assistants
+Most MCP-compatible assistants can connect to muster's aggregator endpoint at `http://localhost:8090/mcp`.
 
 ## Related Documentation
-- [MCP Server Reference](../reference/mcpserver.md)
-- [Server Configuration Schema](../reference/configuration.md#mcpserver)
-- [Troubleshooting Guide](troubleshooting.md)
-- [Getting Started with MCP Servers](../getting-started/mcp-server-setup.md) 
+
+- [Configuration Reference](../reference/configuration.md) - Detailed configuration options
+- [API Reference](../reference/api.md) - Programmatic server management  
+- [CRD Reference](../reference/crds.md) - Kubernetes CRD schema
+- [Architecture](../explanation/architecture.md) - How MCP servers fit into muster 

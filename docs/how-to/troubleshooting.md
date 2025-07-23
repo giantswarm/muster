@@ -63,16 +63,17 @@ sudo iptables -L | grep <port>
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: fixed-server
+  name: git-tools
   namespace: default
 spec:
-  type: localCommand
-  command: ["/correct/path/to/mcp-server"]  # Use absolute paths
-  autoStart: true
-  env:
-    PATH: "/usr/local/bin:/usr/bin:/bin"    # Ensure PATH is set
-    LOG_LEVEL: "debug"                      # Enable debug logging
-  description: "Fixed MCP server configuration"
+  description: "Git operations server"
+  toolPrefix: "git"
+  type: local
+  local:
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-git"]
+    env:
+      GIT_ROOT: "/workspace"
 ```
 
 ## Resolve Workflow Failures
