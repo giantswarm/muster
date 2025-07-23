@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,7 @@ var listCmd = &cobra.Command{
 
 Available resource types:
   service             - List all services with their status
-  serviceclass        - List all ServiceClass definitions  
+  serviceclass        - List all ServiceClass definitions
   mcpserver           - List all MCP server definitions
   workflow            - List all workflow definitions
   workflow-execution  - List all workflow execution history
@@ -64,7 +65,7 @@ func init() {
 	// Add flags to the command
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
-	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", "", "Custom configuration directory path")
+	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 func runList(cmd *cobra.Command, args []string) error {

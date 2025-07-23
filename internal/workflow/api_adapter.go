@@ -38,34 +38,12 @@ type ToolAvailabilityChecker interface {
 	IsToolAvailable(toolName string) bool
 }
 
-// NewAdapter creates a new workflow adapter
-func NewAdapter(toolCaller ToolCaller, toolChecker ToolAvailabilityChecker) (*Adapter, error) {
-	musterClient, err := client.NewMusterClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create muster client: %w", err)
-	}
-
-	executor := NewWorkflowExecutor(toolCaller)
-
-	// Initialize execution storage and tracker
-	executionStorage := NewExecutionStorage("")
-	executionTracker := NewExecutionTracker(executionStorage)
-
-	return &Adapter{
-		client:           musterClient,
-		namespace:        "default",
-		executor:         executor,
-		executionTracker: executionTracker,
-		toolChecker:      toolChecker,
-	}, nil
-}
-
 // NewAdapterWithClient creates a new workflow adapter with a pre-configured client
-func NewAdapterWithClient(musterClient client.MusterClient, namespace string, toolCaller ToolCaller, toolChecker ToolAvailabilityChecker) *Adapter {
+func NewAdapterWithClient(musterClient client.MusterClient, namespace string, toolCaller ToolCaller, toolChecker ToolAvailabilityChecker, configPath string) *Adapter {
 	executor := NewWorkflowExecutor(toolCaller)
 
 	// Initialize execution storage and tracker
-	executionStorage := NewExecutionStorage("")
+	executionStorage := NewExecutionStorage(configPath)
 	executionTracker := NewExecutionTracker(executionStorage)
 
 	if namespace == "" {

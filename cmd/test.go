@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"muster/internal/agent"
 	"muster/internal/cli"
+	"muster/internal/config"
 	"muster/internal/testing"
 	"muster/internal/testing/mock"
 	"os"
@@ -187,7 +188,7 @@ func init() {
 	testCmd.Flags().StringVar(&testSchemaInput, "schema-input", "schema.json", "Input schema file for validation")
 
 	// Muster configuration path flag
-	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", "", "Custom configuration directory path")
+	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Flag to keep temporary config for debugging
 	testCmd.Flags().BoolVar(&testKeepTempConfig, "keep-temp-config", false, "Keep temporary config directory after test execution for debugging")
