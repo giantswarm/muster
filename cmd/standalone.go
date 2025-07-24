@@ -22,8 +22,6 @@ It enforces the MCP server mode for the agent and disables serve logging.`,
 func runStandalone(cmd *cobra.Command, args []string) error {
 	// Enable agent MCP server mode
 	agentMCPServer = true
-	// Disable serve logging
-	serveSilent = true
 
 	errCh := make(chan error, 1)
 
@@ -54,4 +52,6 @@ func init() {
 	// Inherit flags from agent and serve commands
 	standaloneCmd.Flags().AddFlagSet(agentCmd.Flags())
 	standaloneCmd.Flags().AddFlagSet(serveCmd.Flags())
+
+	standaloneCmd.Flags().Lookup("silent").DefValue = "true"
 }
