@@ -38,7 +38,7 @@ jobs:
         run: make build
 
       - name: Run muster integration tests
-        run: ./muster test --parallel 10
+        run: ./muster test --parallel 50
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6

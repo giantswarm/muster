@@ -123,7 +123,7 @@ Example usage:
   muster test --scenario=basic-create     # Run specific scenario
   muster test --verbose --debug           # Detailed output and debugging
   muster test --fail-fast                 # Stop on first failure
-  muster test --parallel=4                # Run with 4 parallel workers
+  muster test --parallel=50               # Run with 50 parallel workers
   muster test --base-port=19000           # Use port 19000+ for test instances
   muster test --mcp-server                # Run as MCP server (stdio transport)
   muster test --generate-schema           # Generate API schema from muster serve
@@ -236,8 +236,8 @@ func init() {
 
 	// Validate parallel flag
 	testCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		if !testMCPServer && !testMockMCPServer && !testGenerateSchema && !testValidateScenarios && (testParallel < 1 || testParallel > 20) {
-			return fmt.Errorf("parallel workers must be between 1 and 20, got %d", testParallel)
+		if !testMCPServer && !testMockMCPServer && !testGenerateSchema && !testValidateScenarios && (testParallel < 1 || testParallel > 50) {
+			return fmt.Errorf("parallel workers must be between 1 and 50, got %d", testParallel)
 		}
 		if testMockMCPServer && testMockConfig == "" {
 			return fmt.Errorf("--mock-config is required when using --mock-mcp-server")
