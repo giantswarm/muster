@@ -42,7 +42,6 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 			if change.Name == "mcp-aggregator" && serv.ServiceState(change.NewState) == serv.StateFailed {
 				logging.Info("CLI", "MCP Aggregator failed: %v", change)
 				aggregatorFailed = true
-				services.Orchestrator.Stop()
 				sigChan <- nil
 				break
 			}
