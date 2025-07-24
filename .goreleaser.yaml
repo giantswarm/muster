@@ -19,10 +19,8 @@ builds:
     # Defaults to the project name.
     binary: muster
     # GOOS list to build for.
-    # Defaults to linux, windows and darwin.
     goos:
       - linux
-      - windows
       - darwin
     # GOARCH list to build for.
     # Defaults to 386, amd64 and arm64.
@@ -65,8 +63,6 @@ archives:
     wrap_in_directory: true
     # Format overrides per OS (using new plural 'formats' syntax)
     format_overrides:
-      - goos: windows
-        formats: [zip]
       - goos: darwin
         formats: [zip]
     # Files to include in the archive.
@@ -122,10 +118,6 @@ release:
       name_template: muster_linux_amd64
     - glob: ./dist/muster_linux_arm64*/muster
       name_template: muster_linux_arm64
-    - glob: ./dist/muster_windows_amd64*/muster.exe
-      name_template: muster_windows_amd64.exe
-    - glob: ./dist/muster_windows_arm64*/muster.exe
-      name_template: muster_windows_arm64.exe
 
 # Modelines
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
