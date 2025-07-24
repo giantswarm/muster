@@ -19,7 +19,7 @@ workflows:
           context: architect
           name: push-to-registries
           requires:
-          - go-build-muster
+          - go-build
           filters:
             tags:
               only: /^v.*/
