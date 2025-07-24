@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/65f2ccceeb0dc464e9cb80f81b8d464432362302/pkg/gen/input/workflows/internal/file/create_release.yaml.template
+#    https://github.com/giantswarm/devctl/blob/7f65ea49e4e543a7b39a7b3cf70038a3e16641a5/pkg/gen/input/workflows/internal/file/create_release.yaml.template
 #
 name: Create Release
 on:
@@ -193,7 +193,7 @@ jobs:
           git push "${REMOTE_REPO}" --tags
       - name: Create release
         id: create_gh_release
-        uses: ncipollo/release-action@cdcc88a9acf3ca41c16c37bb7d21b9ad48560d87  # v1.15.0
+        uses: ncipollo/release-action@440c8c1cb0ed28b9f43e4d1d670870f059653174  # v1.16.0
         env:
           GITHUB_TOKEN: "${{ secrets.TAYLORBOT_GITHUB_ACTION }}"
         with:
@@ -259,3 +259,58 @@ jobs:
 
           git branch $release_branch HEAD^
           git push origin $release_branch
+
+  create_and_upload_build_artifacts:
+    name: Create and upload build artifacts
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - darwin-amd64
+          - linux-amd64
+          - darwin-arm64
+          - linux-arm64
+          - windows-amd64
+    env:
+      GITHUB_TOKEN: "${{ secrets.TAYLORBOT_GITHUB_ACTION }}"
+      GO_VERSION: 1.21.3
+      ARTIFACT_DIR: bin-dist
+      TAG: v${{ needs.gather_facts.outputs.version }}
+      CODE_SIGNING_CERT_BUNDLE_BASE64: ${{ secrets.CODE_SIGNING_CERT_BUNDLE_BASE64 }}
+      CODE_SIGNING_CERT_BUNDLE_PASSWORD: ${{ secrets.CODE_SIGNING_CERT_BUNDLE_PASSWORD }}
+    needs:
+      - create_release
+      - gather_facts
+    steps:
+      - name: Install architect
+        uses: giantswarm/install-binary-action@c37eb401e5092993fc76d545030b1d1769e61237 # v3.0.0
+        with:
+          binary: "architect"
+          version: "6.14.1"
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.TAG }}
+      # devctl specific, we need the whole git history of branch `main` for generating the correct urls in header templates
+      - name: Fetch main branch
+        run: "git fetch origin main --unshallow"
+      - name: Create ${{ matrix.platform }} package
+        run: make package-${{ matrix.platform }}
+      - name: Specify package file name based on platform
+        run: |
+          if [[ "${{ matrix.platform }}" == "windows-amd64" ]]; then
+            echo "FILE_NAME=${{ github.event.repository.name }}-${{ env.TAG }}-${{ matrix.platform }}.zip" >> $GITHUB_ENV
+          else
+            echo "FILE_NAME=${{ github.event.repository.name }}-${{ env.TAG }}-${{ matrix.platform }}.tar.gz" >> $GITHUB_ENV
+          fi
+      - name: Add ${{ matrix.platform }} package to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ env.TAG }} \
+          ${{ env.ARTIFACT_DIR }}/${{ env.FILE_NAME }}#${{ env.FILE_NAME }}
