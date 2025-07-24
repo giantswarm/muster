@@ -223,15 +223,6 @@ spec:
                 type: string
             type: object
         type: object
-        x-kubernetes-validations:
-        - message: command is required when type is stdio
-          rule: self.type != 'stdio' || has(self.command)
-        - message: url is required when type is streamable-http or sse
-          rule: self.type == 'stdio' || has(self.url)
-        - message: args field is only allowed when type is stdio
-          rule: self.type == 'stdio' || !has(self.args)
-        - message: headers field is only allowed when type is streamable-http or sse
-          rule: self.type == 'stdio' || !has(self.headers)
     served: true
     storage: true
     subresources:
