@@ -68,12 +68,11 @@ metadata:
 spec:
   description: "Git operations server"
   toolPrefix: "git"
-  type: local
-  local:
-    autoStart: true
-    command: ["npx", "@modelcontextprotocol/server-git"]
-    env:
-      GIT_ROOT: "/workspace"
+  type: stdio
+  autoStart: true
+  command: ["npx", "@modelcontextprotocol/server-git"]
+  env:
+    GIT_ROOT: "/workspace"
 ```
 
 ## Resolve Workflow Failures

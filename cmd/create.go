@@ -6,6 +6,7 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -75,14 +76,15 @@ Available resource types:
   serviceclass  - Create a ServiceClass definition
   workflow      - Create a Workflow definition
   service       - Create a service instance from a ServiceClass
-  mcpserver     - Create an MCP server definition (local or remote)
+  mcpserver     - Create an MCP server definition (stdio, streamable-http, or sse)
 
 Examples:
   muster create serviceclass example-service
   muster create workflow example-workflow
   muster create service my-service-instance mimir-port-forward --managementCluster=gazelle --localPort=18009
-  muster create mcpserver local my-local-server --command=["npx","@modelcontextprotocol/server-git"] --autoStart=true
-  muster create mcpserver remote my-remote-server --endpoint=https://api.example.com/mcp --transport=http
+  muster create mcpserver my-stdio-server --type=stdio --command=npx --args="@modelcontextprotocol/server-git" --autoStart=true
+  muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30
+  muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.MinimumNArgs(2),
@@ -93,9 +95,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 		if len(args) == 1 && args[0] == "service" {
 			return createServiceClassNameCompletion(cmd, args, toComplete)
 		}
-		if len(args) == 1 && args[0] == "mcpserver" {
-			return []string{"local", "remote"}, cobra.ShellCompDirectiveNoFileComp
-		}
+		// MCPServer no longer uses subcommands - name is provided directly
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	DisableFlagsInUseLine: true,
@@ -185,11 +185,10 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 }
 
 // parseMCPServerParameters extracts MCPServer parameters from raw command line arguments
-// This function handles both local and remote MCPServer configurations.
-func parseMCPServerParameters(mcpServerType, mcpServerName string) map[string]interface{} {
+// This function handles the new flat field structure for stdio, streamable-http, and sse types.
+func parseMCPServerParameters(_, mcpServerName string) map[string]interface{} {
 	args := map[string]interface{}{
 		"name": mcpServerName,
-		"type": mcpServerType,
 	}
 
 	// Get raw command line arguments from os.Args
@@ -206,106 +205,65 @@ func parseMCPServerParameters(mcpServerType, mcpServerName string) map[string]in
 				flagValue := rawArgs[i+1]
 
 				switch flagName {
-				case "autoStart":
-					if flagValue == "true" {
-						if mcpServerType == "local" {
-							if args["local"] == nil {
-								args["local"] = map[string]interface{}{}
-							}
-							args["local"].(map[string]interface{})["autoStart"] = true
-						}
-					}
+				case "type":
+					args["type"] = flagValue
+				case "autoStart", "auto-start":
+					args["autoStart"] = flagValue == "true"
 				case "command":
-					if mcpServerType == "local" {
-						// Parse JSON array for command
-						if strings.HasPrefix(flagValue, "[") && strings.HasSuffix(flagValue, "]") {
-							// Simple JSON array parsing - remove brackets and split by comma
-							commandStr := strings.Trim(flagValue, "[]")
-							var command []string
-							if commandStr != "" {
-								parts := strings.Split(commandStr, ",")
-								for _, part := range parts {
-									part = strings.Trim(part, " \"'")
-									if part != "" {
-										command = append(command, part)
-									}
-								}
-							}
-							if args["local"] == nil {
-								args["local"] = map[string]interface{}{}
-							}
-							args["local"].(map[string]interface{})["command"] = command
-						} else {
-							// Single command word
-							if args["local"] == nil {
-								args["local"] = map[string]interface{}{}
-							}
-							args["local"].(map[string]interface{})["command"] = []string{flagValue}
+					args["command"] = flagValue
+				case "args":
+					// Parse comma-separated args
+					if flagValue != "" {
+						argsList := strings.Split(flagValue, ",")
+						for j := range argsList {
+							argsList[j] = strings.TrimSpace(argsList[j])
 						}
+						args["args"] = argsList
 					}
-				case "env":
-					if mcpServerType == "local" {
-						// Parse key=value format
-						if strings.Contains(flagValue, "=") {
-							parts := strings.SplitN(flagValue, "=", 2)
-							if len(parts) == 2 {
-								if args["local"] == nil {
-									args["local"] = map[string]interface{}{}
-								}
-								localConfig := args["local"].(map[string]interface{})
-								if localConfig["env"] == nil {
-									localConfig["env"] = map[string]interface{}{}
-								}
-								localConfig["env"].(map[string]interface{})[parts[0]] = parts[1]
-							}
-						}
-					}
-				case "endpoint":
-					if mcpServerType == "remote" {
-						if args["remote"] == nil {
-							args["remote"] = map[string]interface{}{}
-						}
-						args["remote"].(map[string]interface{})["endpoint"] = flagValue
-					}
-				case "transport":
-					if mcpServerType == "remote" {
-						if args["remote"] == nil {
-							args["remote"] = map[string]interface{}{}
-						}
-						args["remote"].(map[string]interface{})["transport"] = flagValue
-					}
+				case "url":
+					args["url"] = flagValue
 				case "timeout":
-					if mcpServerType == "remote" {
-						if timeoutVal := parseInt(flagValue); timeoutVal > 0 {
-							if args["remote"] == nil {
-								args["remote"] = map[string]interface{}{}
-							}
-							args["remote"].(map[string]interface{})["timeout"] = timeoutVal
-						}
+					if timeout, err := strconv.Atoi(flagValue); err == nil {
+						args["timeout"] = timeout
 					}
-				case "toolPrefix":
+				case "tool-prefix", "toolPrefix":
 					args["toolPrefix"] = flagValue
 				case "description":
 					args["description"] = flagValue
+				case "env":
+					// Parse key=value format for environment variables
+					if strings.Contains(flagValue, "=") {
+						parts := strings.SplitN(flagValue, "=", 2)
+						if len(parts) == 2 {
+							if args["env"] == nil {
+								args["env"] = map[string]string{}
+							}
+							args["env"].(map[string]string)[parts[0]] = parts[1]
+						}
+					}
+				case "header":
+					// Parse key=value format for HTTP headers
+					if strings.Contains(flagValue, "=") {
+						parts := strings.SplitN(flagValue, "=", 2)
+						if len(parts) == 2 {
+							if args["headers"] == nil {
+								args["headers"] = map[string]string{}
+							}
+							args["headers"].(map[string]string)[parts[0]] = parts[1]
+						}
+					}
+				}
+			} else {
+				// Boolean flags without values
+				switch flagName {
+				case "autoStart", "auto-start":
+					args["autoStart"] = true
 				}
 			}
 		}
 	}
 
 	return args
-}
-
-// parseInt safely parses a string to int, returning 0 if parsing fails
-func parseInt(s string) int {
-	val := 0
-	for _, char := range s {
-		if char >= '0' && char <= '9' {
-			val = val*10 + int(char-'0')
-		} else {
-			return 0 // Invalid integer
-		}
-	}
-	return val
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -349,20 +307,15 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if resourceType == "mcpserver" {
-		// Handle MCPServer creation: muster create mcpserver <local|remote> <name> [options]
-		if len(args) < 3 {
-			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <local|remote> <name> [options]")
+		// Handle MCPServer creation: muster create mcpserver <name> --type <type> [options]
+		if len(args) < 2 {
+			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <name> --type <type> [options]")
 		}
 
-		mcpServerType := args[1]
-		mcpServerName := args[2]
-
-		if mcpServerType != "stdio" && mcpServerType != "streamable-http" && mcpServerType != "sse" {
-			return fmt.Errorf("MCPServer type must be 'stdio', 'streamable-http', or 'sse', got: %s", mcpServerType)
-		}
+		mcpServerName := args[1]
 
 		// Parse MCPServer-specific parameters from command line arguments
-		mcpServerArgs := parseMCPServerParameters(mcpServerType, mcpServerName)
+		mcpServerArgs := parseMCPServerParameters("", mcpServerName)
 
 		return executor.Execute(ctx, "core_mcpserver_create", mcpServerArgs)
 	}

@@ -882,11 +882,10 @@ func (m *musterInstanceManager) generateConfigFiles(configPath string, config *M
 							"namespace": "default",
 						},
 						"spec": map[string]interface{}{
-							"type": "local",
-							"local": map[string]any{
-								"autoStart": true,
-								"command":   []string{musterPath, "test", "--mock-mcp-server", "--mock-config", mockConfigFile},
-							},
+							"type":      "stdio",
+							"autoStart": true,
+							"command":   musterPath,
+							"args":      []string{"test", "--mock-mcp-server", "--mock-config", mockConfigFile},
 						},
 					}
 

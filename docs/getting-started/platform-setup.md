@@ -65,12 +65,11 @@ metadata:
 spec:
   description: "File system operations"
   toolPrefix: "fs"
-  type: local
-  local:
-    autoStart: true
-    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
-    env:
-      DEBUG: "1"
+  type: sdtio
+  autoStart: true
+  command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+  env:
+    DEBUG: "1"
 ```
 
 Apply the configuration:
@@ -86,25 +85,25 @@ muster mcpserver list
 muster mcpserver get filesystem-tools
 ```
 
-### Create a Remote MCP Server
+### Create a Streamable HTTP MCP Server
 
-Connect to an external MCP server:
+Connect to an external MCP server over HTTP:
 
 ```yaml
-# remote-server.yaml
+# streamable-http-server.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: remote-api
+  name: api-server
   namespace: default
 spec:
-  description: "Remote API tools"
+  description: "External API tools"
   toolPrefix: "api"
-  type: remote
-  remote:
-    endpoint: "https://api.example.com/mcp"
-    transport: "http"
-    timeout: 60
+  type: streamable-http
+  url: "https://api.example.com/mcp"
+  timeout: 60
+  headers:
+    Authorization: "Bearer your-token"
 ```
 
 ### Verify MCP Server Registration

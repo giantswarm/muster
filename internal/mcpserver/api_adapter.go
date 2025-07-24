@@ -164,67 +164,34 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Validate an mcpserver definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (local or remote)"},
+				{Name: "type", Type: "string", Required: true, Description: "MCP server type (stdio, streamable-http, or sse)"},
 				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-				{
-					Name:        "local",
-					Type:        "object",
-					Required:    false,
-					Description: "Local MCP server configuration (for type=local)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Local MCP server configuration",
-						"properties": map[string]interface{}{
-							"autoStart": map[string]interface{}{
-								"type":        "boolean",
-								"description": "Whether server should auto-start",
-							},
-							"command": map[string]interface{}{
-								"type":        "array",
-								"description": "Command and arguments",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-								"minItems": 1,
-							},
-							"env": map[string]interface{}{
-								"type":        "object",
-								"description": "Environment variables",
-								"additionalProperties": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
-					},
-				},
-				{
-					Name:        "remote",
-					Type:        "object",
-					Required:    false,
-					Description: "Remote MCP server configuration (for type=remote)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Remote MCP server configuration",
-						"properties": map[string]interface{}{
-							"endpoint": map[string]interface{}{
-								"type":        "string",
-								"description": "Remote server endpoint URL",
-							},
-							"transport": map[string]interface{}{
-								"type":        "string",
-								"description": "Transport protocol (http, sse)",
-								"enum":        []string{"http", "sse"},
-							},
-							"timeout": map[string]interface{}{
-								"type":        "integer",
-								"description": "Connection timeout in seconds",
-								"minimum":     1,
-								"maximum":     300,
-							},
-						},
-					},
-				},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
+				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
+				{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
+				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "Command line arguments for stdio servers",
+				}},
+				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "Environment variables for stdio servers",
+				}},
+				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "HTTP headers for remote servers",
+				}},
+				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
 			},
 		},
 		{
@@ -232,67 +199,34 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Create a new MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (local or remote)"},
+				{Name: "type", Type: "string", Required: true, Description: "MCP server type (stdio, streamable-http, or sse)"},
 				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				{
-					Name:        "local",
-					Type:        "object",
-					Required:    false,
-					Description: "Local MCP server configuration (for type=local)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Local MCP server configuration",
-						"properties": map[string]interface{}{
-							"autoStart": map[string]interface{}{
-								"type":        "boolean",
-								"description": "Whether server should auto-start",
-							},
-							"command": map[string]interface{}{
-								"type":        "array",
-								"description": "Command and arguments",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-								"minItems": 1,
-							},
-							"env": map[string]interface{}{
-								"type":        "object",
-								"description": "Environment variables",
-								"additionalProperties": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
+				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
+				{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
+				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "string",
 					},
-				},
-				{
-					Name:        "remote",
-					Type:        "object",
-					Required:    false,
-					Description: "Remote MCP server configuration (for type=remote)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Remote MCP server configuration",
-						"properties": map[string]interface{}{
-							"endpoint": map[string]interface{}{
-								"type":        "string",
-								"description": "Remote server endpoint URL",
-							},
-							"transport": map[string]interface{}{
-								"type":        "string",
-								"description": "Transport protocol (http, sse)",
-								"enum":        []string{"http", "sse"},
-							},
-							"timeout": map[string]interface{}{
-								"type":        "integer",
-								"description": "Connection timeout in seconds",
-								"minimum":     1,
-								"maximum":     300,
-							},
-						},
+					"description": "Command line arguments for stdio servers",
+				}},
+				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
 					},
-				},
+					"description": "Environment variables for stdio servers",
+				}},
+				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "HTTP headers for remote servers",
+				}},
+				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
 			},
 		},
 		{
@@ -300,67 +234,34 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "Update an existing MCP server definition",
 			Args: []api.ArgMetadata{
 				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: false, Description: "MCP server type (local or remote)"},
+				{Name: "type", Type: "string", Required: false, Description: "MCP server type (stdio, streamable-http, or sse)"},
 				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
 				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				{
-					Name:        "local",
-					Type:        "object",
-					Required:    false,
-					Description: "Local MCP server configuration (for type=local)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Local MCP server configuration",
-						"properties": map[string]interface{}{
-							"autoStart": map[string]interface{}{
-								"type":        "boolean",
-								"description": "Whether server should auto-start",
-							},
-							"command": map[string]interface{}{
-								"type":        "array",
-								"description": "Command and arguments",
-								"items": map[string]interface{}{
-									"type": "string",
-								},
-								"minItems": 1,
-							},
-							"env": map[string]interface{}{
-								"type":        "object",
-								"description": "Environment variables",
-								"additionalProperties": map[string]interface{}{
-									"type": "string",
-								},
-							},
-						},
+				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
+				{Name: "command", Type: "string", Required: false, Description: "Command executable path (for stdio)"},
+				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "string",
 					},
-				},
-				{
-					Name:        "remote",
-					Type:        "object",
-					Required:    false,
-					Description: "Remote MCP server configuration (for type=remote)",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Remote MCP server configuration",
-						"properties": map[string]interface{}{
-							"endpoint": map[string]interface{}{
-								"type":        "string",
-								"description": "Remote server endpoint URL",
-							},
-							"transport": map[string]interface{}{
-								"type":        "string",
-								"description": "Transport protocol (http, sse)",
-								"enum":        []string{"http", "sse"},
-							},
-							"timeout": map[string]interface{}{
-								"type":        "integer",
-								"description": "Connection timeout in seconds",
-								"minimum":     1,
-								"maximum":     300,
-							},
-						},
+					"description": "Command line arguments for stdio servers",
+				}},
+				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (for streamable-http and sse)"},
+				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
 					},
-				},
+					"description": "Environment variables for stdio servers",
+				}},
+				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+					"type": "object",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "HTTP headers for remote servers",
+				}},
+				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
 			},
 		},
 		{
@@ -484,14 +385,17 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
+	// Convert request to CRD once for reuse
+	serverCRD := a.convertRequestToCRD(&req)
+
 	// Validate the definition
-	if err := a.validateMCPServer(a.convertRequestToCRD(&req)); err != nil {
+	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Create the new MCP server using the unified client
 	ctx := context.Background()
-	if err := a.client.CreateMCPServer(ctx, a.convertRequestToCRD(&req)); err != nil {
+	if err := a.client.CreateMCPServer(ctx, serverCRD); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
 		}
@@ -508,23 +412,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			Content: []interface{}{err.Error()},
 			IsError: true,
 		}, nil
-	}
-
-	// Validate mixed configuration for proper nested structure
-	if err := a.validateMCPServer(a.convertRequestToCRD(&api.MCPServerCreateRequest{
-		Name:        req.Name,
-		Type:        req.Type,
-		ToolPrefix:  req.ToolPrefix,
-		Description: req.Description,
-		AutoStart:   req.AutoStart,
-		Command:     req.Command,
-		Args:        req.Args,
-		URL:         req.URL,
-		Env:         req.Env,
-		Headers:     req.Headers,
-		Timeout:     req.Timeout,
-	})); err != nil {
-		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Get existing server first
@@ -567,7 +454,7 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		existing.Spec.Timeout = req.Timeout
 	}
 
-	// Validate the definition
+	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
@@ -618,7 +505,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
 		if server.Spec.Timeout == 0 {
-			return fmt.Errorf("timeout is required for remote types")
+			return fmt.Errorf("timeout is required for streamable-http and sse types")
 		}
 	default:
 		return fmt.Errorf("unsupported type: %s (supported: stdio, streamable-http, sse)", server.Spec.Type)

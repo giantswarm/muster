@@ -6,24 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Remote MCP Server Support for Kubernetes Environments**
-  - Added comprehensive support for remote MCP servers alongside existing local command execution
-  - **Enhanced CRD Schema**: Updated `MCPServerSpec` to support both local and remote configurations
-    - Local config: `autoStart`, `command`, `env` now nested under `spec.local`
-    - Remote config: new `spec.remote` with `endpoint`, `transport`, `timeout` fields
+  - Added comprehensive support for `stdio`, `streamable-http` and `sse` transport protocols
+  - **Enhanced CRD Schema**: Updated `MCPServerSpec` to support all MCP server types
+    - Added new config for `streamable-http` and `sse`: `url`, `headers` and `timeout` fields
     - Added mutual exclusion validation and required field validation using kubebuilder annotations
-    - Support for HTTP/HTTPS and SSE (Server-Sent Events) transport protocols
-  - **Updated API Layer**: Extended internal API types to support new schema
-    - Added `MCPServerLocalConfig` and `MCPServerRemoteConfig` types
-    - Changed type constants from `localCommand` to `local` and added `remote`
-    - Enhanced request/response types with backward compatibility for legacy fields
-  - **Enhanced Service Layer**: Updated MCPServer service to handle both local and remote types
-    - Local servers: continue using existing `StdioClient` for process management
-    - Remote servers: integrated `SSEClient` for remote HTTP/SSE connections
-    - Added comprehensive transport validation and error handling
-  - **New CLI Commands**: Added subcommands for creating local and remote MCPServers
-    - `muster create mcpserver local <name> [--options]` for local MCP servers
-    - `muster create mcpserver remote <name> [--options]` for remote MCP servers
-    - Updated help text and argument parsing for nested configurations
+  - **New CLI Commands**: Added subcommands to use new type system
+    - `muster create mcpserver <name> --type stdio` for local MCP servers
+    - `muster create mcpserver <name> --type streamable-http` for HTTP remote servers
+    - `muster create mcpserver <name> --type sse` for SSE remote servers
   - **Updated Examples**: Enhanced example files to demonstrate both local and remote configurations
   - **Kubernetes Deployment Ready**: Enables deployment patterns where Muster aggregator runs in cluster and connects to MCP servers deployed as separate Kubernetes services
 - **Systemd Socket Activation Support**

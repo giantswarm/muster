@@ -1,0 +1,38 @@
+name: "mcpserver-create-sse"
+description: "Test creating a SSE MCP server"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "sse", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-sse-mcpserver"
+  description: "Create a new SSE MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sse-server"
+    type: "sse"
+    url: "http://localhost:8080/sse"
+    timeout: 45
+  expected:
+    success: true
+
+- id: "verify-sse-mcpserver-created"
+  description: "Verify the SSE MCP server was created successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "sse-server"
+  expected:
+    success: true
+    json_path:
+      name: "sse-server"
+      type: "sse"
+
+cleanup:
+- id: "delete-sse-mcpserver"
+  description: "Delete the test SSE MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "sse-server"
+  expected:
+    success: true 

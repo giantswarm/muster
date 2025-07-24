@@ -145,7 +145,7 @@ func (s *Service) ValidateConfiguration() error {
 			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
 		if s.definition.Timeout == 0 {
-			return fmt.Errorf("timeout is required for remote types")
+			return fmt.Errorf("timeout is required for streamable-http and sse types")
 		}
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)

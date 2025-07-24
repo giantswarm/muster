@@ -106,22 +106,29 @@ mcpservers:
   - name: filesystem-tools
     description: File system operations
     toolPrefix: fs
-    type: local              # Server execution type
-    local:
-      autoStart: true
-      command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
-      env:
-        DEBUG: "1"
+    type: stdio              # Server execution type
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    env:
+      DEBUG: "1"
 
-  # Remote server example  
-  - name: remote-api
+  # Streamable HTTP server example
+  - name: api-server
     description: Remote API tools
     toolPrefix: api
-    type: remote
-    remote:
-      endpoint: "https://api.example.com/mcp"
-      transport: "http"
-      timeout: 30
+    type: streamable-http
+    url: "https://api.example.com/mcp"
+    timeout: 30
+    headers:
+      Authorization: "Bearer token"
+
+  # SSE server example
+  - name: sse-server
+    description: SSE-based MCP server
+    toolPrefix: sse
+    type: sse
+    url: "https://api.example.com/sse"
+    timeout: 45
 ```
 
 #### MCP Server Fields
@@ -131,15 +138,14 @@ mcpservers:
 | `name` | `string` | ✅ | - | Unique server identifier |
 | `description` | `string` | ❌ | - | Human-readable description |
 | `toolPrefix` | `string` | ❌ | - | Tool name prefix |
-| `type` | `string` | ✅ | - | Server type (`local` or `remote`) |
-| `local` | `object` | ❌* | - | Local server config (*required for local) |
-| `local.autoStart` | `boolean` | ❌ | `false` | Auto-start server |
-| `local.command` | `[]string` | ✅* | - | Command and args (*required for local) |
-| `local.env` | `map[string]string` | ❌ | `{}` | Environment variables |
-| `remote` | `object` | ❌* | - | Remote server config (*required for remote) |
-| `remote.endpoint` | `string` | ✅* | - | Remote server URL (*required for remote) |
-| `remote.transport` | `string` | ✅* | - | Transport: `http`, `sse` (*required for remote) |
-| `remote.timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
+| `type` | `string` | ✅ | - | Server type (`stdio`, `streamable-http`, or `sse`) |
+| `autoStart` | `boolean` | ❌ | `false` | Auto-start server (stdio only) |
+| `command` | `[]string` | ✅* | - | Command and args (*required for stdio) |
+| `args` | `[]string` | ❌ | - | Command arguments (stdio only) |
+| `env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `url` | `string` | ✅* | - | Server URL (*required for streamable-http and sse) |
+| `timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
+| `headers` | `map[string]string` | ❌ | `{}` | HTTP headers (streamable-http and sse only) |
 
 ### ServiceClass Configuration
 

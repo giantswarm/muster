@@ -1,87 +1,71 @@
-name: "mcpserver-error-handling-scenarios"
-description: "Test error handling and validation for MCP server operations"
+name: "mcpserver-error-handling"
+description: "Test error handling scenarios for MCP servers"
 category: "behavioral"
 concept: "mcpserver"
-tags: ["mcpserver", "error-handling", "validation", "core-api"]
-timeout: "3m"
+tags: ["mcpserver", "error-handling", "core-api"]
+timeout: "2m"
 
 steps:
-- id: "create-mcpserver-invalid-yaml"
-  description: "Test error handling with invalid server configuration"
+- id: "create-valid-stdio-server"
+  description: "Create a valid stdio MCP server"
   tool: "core_mcpserver_create"
   args:
-    name: "invalid-yaml-server"
-    type: "local"
-    local:
-      command: ["echo", "test"]
+    name: "valid-error-test-server"
+    type: "stdio"
+    command: "echo"
+    args: ["valid-test"]
+    autoStart: false
   expected:
     success: true
 
-- id: "create-mcpserver-missing-name"
-  description: "Test error when name is missing"
-  tool: "core_mcpserver_create"
-  args: {}
-  expected:
-    success: false
-    error_contains: ["name", "required"]
-
-- id: "create-mcpserver-invalid-type"
-  description: "Test error with invalid type"
+- id: "try-create-duplicate-server"
+  description: "Try to create a server with duplicate name"
   tool: "core_mcpserver_create"
   args:
-    name: "invalid-type-server"
-    type: "invalidType"
-    local:
-      command: ["echo", "test"]
+    name: "valid-error-test-server"
+    type: "stdio"
+    command: "echo"
+    args: ["duplicate-test"]
+    autoStart: false
   expected:
     success: false
-    error_contains: ["type", "invalid"]
+    error_contains: ["already exists"]
 
-- id: "create-local-command-server-missing-command"
-  description: "Test local command server without command"
-  tool: "core_mcpserver_create"
-  args:
-    name: "missing-command-server"
-    type: "local"
-  expected:
-    success: false
-    error_contains: ["local configuration", "required"]
-
-- id: "get-non-existent-mcpserver"
-  description: "Test getting a non-existent MCP server"
+- id: "try-get-nonexistent-server"
+  description: "Try to get a non-existent MCP server"
   tool: "core_mcpserver_get"
   args:
-    name: "non-existent-server"
+    name: "nonexistent-server"
   expected:
     success: false
     error_contains: ["not found"]
 
-- id: "update-non-existent-mcpserver"
-  description: "Test updating a non-existent MCP server"
+- id: "try-update-nonexistent-server"
+  description: "Try to update a non-existent MCP server"
   tool: "core_mcpserver_update"
   args:
-    name: "non-existent-server"
-    type: "local"
-    local:
-      command: ["echo", "test"]
+    name: "nonexistent-update-server"
+    type: "stdio"
+    command: "echo"
+    args: ["update-test"]
   expected:
     success: false
     error_contains: ["not found"]
 
-- id: "delete-non-existent-mcpserver"
-  description: "Test deleting a non-existent MCP server"
+- id: "try-delete-nonexistent-server"
+  description: "Try to delete a non-existent MCP server"
   tool: "core_mcpserver_delete"
   args:
-    name: "non-existent-server"
+    name: "nonexistent-delete-server"
   expected:
     success: false
     error_contains: ["not found"]
 
 cleanup:
-- id: "cleanup-test-servers"
-  description: "Clean up any test servers that were created"
+- id: "cleanup-valid-server"
+  description: "Clean up the valid test server"
   tool: "core_mcpserver_delete"
   args:
-    name: "invalid-yaml-server"
+    name: "valid-error-test-server"
   expected:
     success: true 

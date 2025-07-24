@@ -86,7 +86,7 @@ muster get mcpserver kubernetes
 # Example output:
 # Name:              kubernetes
 # Description:        Kubernetes management tools
-# Type:               local
+# Type:               stdio
 # AutoStart:          true
 # Command:            ["mcp-kubernetes"]
 # Environment:        KUBECONFIG=/path/to/config

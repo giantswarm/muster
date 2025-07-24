@@ -1,18 +1,19 @@
 name: "mcpserver-validate"
-description: "Test validation of MCP server configurations"
+description: "Test MCP server validation without creating"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "validate", "core-api"]
-timeout: "1m"
+timeout: "30s"
 
 steps:
-- id: "validate-mcpserver"
-  description: "Validate MCP server configuration"
+- id: "validate-stdio-mcpserver"
+  description: "Validate a stdio MCP server configuration"
   tool: "core_mcpserver_validate"
   args:
-    name: "test-validation-server"
-    type: "local"
-    local:
-      command: ["echo", "validation-test"]
+    name: "test-validate-server"
+    type: "stdio"
+    command: "echo"
+    args: ["validation-test"]
+    autoStart: false
   expected:
     success: true 

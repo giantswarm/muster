@@ -4,16 +4,17 @@ This guide covers how to create, configure, and manage MCP (Model Context Protoc
 
 ## Overview
 
-MCP servers provide structured access to tools and resources for AI assistants. Muster supports two types of MCP servers:
+MCP servers provide structured access to tools and resources for AI assistants. Muster supports three types of MCP servers:
 
-- **Local servers**: Execute as local processes with configurable command lines
-- **Remote servers**: Connect to external MCP servers via HTTP or SSE
+- **Stdio servers**: Execute as local processes with configurable command lines
+- **Streamable HTTP servers**: Connect to external MCP servers via HTTP
+- **SSE servers**: Connect to external MCP servers via Server-Sent Events
 
 ## Creating MCP Servers
 
-### Local Command Servers
+### Stdio Command Servers
 
-Create a local server that runs as a process:
+Create a stdio server that runs as a local process:
 
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -23,20 +24,20 @@ metadata:
 spec:
   description: "File system operations"
   toolPrefix: "fs"
-  type: local
-  local:
-    autoStart: true
-    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
-    env:
-      DEBUG: "1"
-      LOG_LEVEL: "info"
+  type: stdio
+  autoStart: true
+  command: "npx"
+  args: ["@modelcontextprotocol/server-filesystem", "/workspace"]
+  env:
+    DEBUG: "1"
+    LOG_LEVEL: "info"
 ```
 
 ### Remote Servers
 
 Connect to external MCP servers:
 
-#### HTTP Transport
+#### Streamable HTTP Transport
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -45,11 +46,11 @@ metadata:
 spec:
   description: "Remote API tools"
   toolPrefix: "api"
-  type: remote
-  remote:
-    endpoint: "https://api.example.com/mcp"
-    transport: "http"
-    timeout: 60
+  type: streamable-http
+  url: "https://api.example.com/mcp"
+  timeout: 60
+  headers:
+    Authorization: "Bearer your-token-here"
 ```
 
 #### Server-Sent Events (SSE) Transport
@@ -61,81 +62,90 @@ metadata:
 spec:
   description: "SSE MCP server"
   toolPrefix: "sse"
-  type: remote
-  remote:
-    endpoint: "https://sse.example.com/mcp"
-    transport: "sse"
-    timeout: 90
+  type: sse
+  url: "https://sse.example.com/mcp"
+  timeout: 90
+  headers:
+    Authorization: "Bearer your-token-here"
 ```
 
 ## Using the CLI
 
 ### Creating Servers via CLI
 
-Create a local server:
+Create a stdio server:
 ```bash
-muster mcpserver create filesystem-tools \
-  --type local \
+muster create mcpserver filesystem-tools \
+  --type stdio \
   --command "npx" \
-  --command "@modelcontextprotocol/server-filesystem" \
-  --command "/workspace" \
+  --args "@modelcontextprotocol/server-filesystem,/workspace" \
   --auto-start \
   --tool-prefix fs \
   --description "File system operations"
 ```
 
-Create a remote server:
+Create a streamable HTTP server:
 ```bash
-muster mcpserver create remote-api \
-  --type remote \
-  --endpoint "https://api.example.com/mcp" \
-  --transport http \
+muster create mcpserver remote-api \
+  --type streamable-http \
+  --url "https://api.example.com/mcp" \
   --timeout 60 \
   --tool-prefix api \
   --description "Remote API tools"
 ```
 
+Create an SSE server:
+```bash
+muster create mcpserver sse-server \
+  --type sse \
+  --url "https://sse.example.com/mcp" \
+  --timeout 90 \
+  --tool-prefix sse \
+  --description "SSE MCP server"
+```
+
 ### Listing Servers
 ```bash
-muster mcpserver list
+muster list mcpserver
 ```
 
 ### Getting Server Details
 ```bash
-muster mcpserver get filesystem-tools
+muster get mcpserver filesystem-tools
 ```
 
 ### Updating Servers
 ```bash
-# Update local server
-muster mcpserver update filesystem-tools \
+# Update stdio server
+muster update mcpserver filesystem-tools \
   --auto-start=false \
   --description "Updated file system tools"
 
 # Update remote server
-muster mcpserver update remote-api \
-  --endpoint "https://new-api.example.com/mcp" \
+muster update mcpserver remote-api \
+  --url "https://new-api.example.com/mcp" \
   --timeout 120
 ```
 
 ### Deleting Servers
 ```bash
-muster mcpserver delete filesystem-tools
+muster delete mcpserver filesystem-tools
 ```
 
 ## Configuration Best Practices
 
-### Local Servers
+### Stdio Servers
 - Use absolute paths for commands when possible
 - Set appropriate environment variables for configuration
 - Enable auto-start for critical servers
 - Use descriptive tool prefixes to avoid conflicts
 
-### Remote Servers
+### Remote Servers (Streamable HTTP and SSE)
 - Use HTTPS endpoints when possible for security
 - Set appropriate timeouts based on server response times
 - Test connectivity before deploying to production
 - Monitor server availability and health
+- Include necessary authentication headers
 
 ### Tool Prefixes
 - Use short but descriptive prefixes (e.g., `k8s`, `git`, `fs`)
@@ -144,7 +154,7 @@ muster mcpserver delete filesystem-tools
 
 ## Troubleshooting
 
-### Local Server Issues
+### Stdio Server Issues
 
 **Command not found:**
 ```bash
@@ -153,7 +163,7 @@ which npx
 npm install -g @modelcontextprotocol/server-filesystem
 
 # Verify the server definition
-muster mcpserver get filesystem-tools
+muster get mcpserver filesystem-tools
 ```
 
 **Permission errors:**
@@ -163,7 +173,7 @@ ls -la /workspace
 chmod +x /path/to/mcp-server
 
 # Run with appropriate user
-sudo -u mcpuser muster mcpserver start filesystem-tools
+sudo -u mcpuser muster start mcpserver filesystem-tools
 ```
 
 ### Remote Server Issues
@@ -174,33 +184,78 @@ sudo -u mcpuser muster mcpserver start filesystem-tools
 curl -v https://api.example.com/mcp
 
 # Increase timeout
-muster mcpserver update remote-api --timeout 120
+muster update mcpserver remote-api --timeout 120
 ```
 
 **Transport errors:**
 ```bash
-# Verify transport support
-curl -H "Accept: text/event-stream" https://sse.example.com/mcp
+# Check server type and endpoint
+muster get mcpserver remote-api
+
+# For SSE servers, ensure endpoint supports Server-Sent Events
+# For HTTP servers, ensure endpoint supports streaming HTTP
 ```
 
-### Common Issues
-
-**Tool name conflicts:**
+**Authentication errors:**
 ```bash
-# List tools to identify conflicts
-muster tool list | grep conflicting-name
-
-# Update tool prefix
-muster mcpserver update server-name --tool-prefix unique-prefix
+# Update headers for authentication
+muster update mcpserver remote-api \
+  --header "Authorization=Bearer new-token"
 ```
 
-**Server not starting:**
-```bash
-# Check server logs
-muster logs mcpserver/server-name
+## Advanced Configuration
 
-# Verify configuration
-muster mcpserver validate server-name
+### Environment Variables for Stdio Servers
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: custom-tools
+spec:
+  type: stdio
+  command: "python"
+  args: ["-m", "my_mcp_server"]
+  env:
+    PYTHONPATH: "/usr/local/lib/python3.9/site-packages"
+    API_KEY: "your-api-key"
+    DEBUG: "true"
+    LOG_LEVEL: "info"
+```
+
+### Custom Headers for Remote Servers
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: authenticated-api
+spec:
+  type: streamable-http
+  url: "https://secure-api.example.com/mcp"
+  headers:
+    Authorization: "Bearer jwt-token-here"
+    X-API-Version: "v2"
+    Content-Type: "application/json"
+  timeout: 45
+```
+
+### Monitoring and Health Checks
+
+Check server status:
+```bash
+# List all servers with status
+muster list mcpserver
+
+# Get detailed server information
+muster get mcpserver <server-name>
+
+# Check if server is available
+muster check mcpserver <server-name>
+```
+
+Monitor logs:
+```bash
+# View server logs (when available)
+muster logs mcpserver <server-name>
 ```
 
 ## Integration Examples

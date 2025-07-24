@@ -187,10 +187,14 @@ Create a new MCP server configuration.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (local)
+- `type` (string, required) - MCP server type (`stdio`, `streamable-http`, or `sse`)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for local type)
+- `command` (array of strings, optional) - Command and arguments (for stdio type)
+- `args` (array of strings, optional) - Command line arguments (for stdio type)
+- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
 - `env` (object, optional) - Environment variables as key-value pairs
+- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
+- `timeout` (integer, optional) - Connection timeout in seconds
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
 **Example:**
@@ -201,7 +205,7 @@ Create a new MCP server configuration.
     "name": "core_mcpserver_create",
     "arguments": {
       "name": "my-mcp-server",
-      "type": "local",
+      "type": "stdio",
       "description": "Custom MCP server for project management",
       "command": ["node", "/path/to/server.js"],
       "env": {
@@ -277,10 +281,14 @@ Update an existing MCP server configuration.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, optional) - MCP server type (local)
+- `type` (string, optional) - MCP server type (`stdio`, `streamable-http`, or `sse`)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for local type)
+- `command` (array of strings, optional) - Command and arguments (for stdio type)
+- `args` (array of strings, optional) - Command line arguments (for stdio type)
+- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
 - `env` (object, optional) - Environment variables as key-value pairs
+- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
+- `timeout` (integer, optional) - Connection timeout in seconds
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
 **Example:**
@@ -304,10 +312,14 @@ Validate MCP server configuration without creating it.
 
 **Parameters:**
 - `name` (string, required) - MCP server name
-- `type` (string, required) - MCP server type (local)
+- `type` (string, required) - MCP server type (`stdio`, `streamable-http`, or `sse`)
 - `description` (string, optional) - MCP server description
-- `command` (array of strings, optional) - Command and arguments (for local type)
+- `command` (array of strings, optional) - Command and arguments (for stdio type)
+- `args` (array of strings, optional) - Command line arguments (for stdio type)
+- `url` (string, optional) - Server endpoint URL (for streamable-http and sse types)
 - `env` (object, optional) - Environment variables as key-value pairs
+- `headers` (object, optional) - HTTP headers (for streamable-http and sse types)
+- `timeout` (integer, optional) - Connection timeout in seconds
 - `autoStart` (boolean, optional) - Whether server should auto-start
 
 **Example:**
@@ -318,7 +330,7 @@ Validate MCP server configuration without creating it.
     "name": "core_mcpserver_validate",
     "arguments": {
       "name": "test-server",
-      "type": "local",
+      "type": "stdio",
       "command": ["node", "server.js"]
     }
   }

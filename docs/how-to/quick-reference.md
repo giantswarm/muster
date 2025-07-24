@@ -147,7 +147,7 @@ metadata:
   name: git-tools
   namespace: default
 spec:
-  type: local
+  type: stdio
   command: ["npx", "@modelcontextprotocol/server-git"]
   autoStart: true
   env:
