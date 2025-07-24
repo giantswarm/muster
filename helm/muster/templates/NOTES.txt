@@ -1,0 +1,64 @@
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "muster.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+     NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+           You can watch the status of by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "muster.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "muster.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "muster.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. Check Muster status:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "muster.name" . }}"
+
+3. View Muster logs:
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "muster.name" . }}" -f
+
+4. Access Muster's MCP API:
+  # Port forward to access the MCP aggregator API
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "muster.fullname" . }} 8090:{{ .Values.service.port }}
+
+  # Test the MCP endpoint
+  curl -X POST http://localhost:8090/mcp \
+    -H "Content-Type: application/json" \
+    -d '{"method": "tools/list", "params": {}}'
+
+5. Using Muster with AI Assistants:
+  # Configure your IDE (Cursor, VSCode) to connect to Muster
+  # Add this MCP server configuration to your IDE settings:
+  {
+    "mcpServers": {
+      "muster": {
+        "command": "muster",
+        "args": ["agent", "--mcp-server", "--endpoint", "http://localhost:8090/mcp"]
+      }
+    }
+  }
+
+6. Muster Configuration:
+  - Aggregator port: {{ .Values.muster.aggregator.port }}
+  - Transport: {{ .Values.muster.aggregator.transport }}
+  - Debug mode: {{ .Values.muster.debug }}
+  {{- if .Values.muster.yolo }}
+
+  ⚠️  WARNING: YOLO mode is enabled! This disables security restrictions.
+  {{- end }}
+
+For more information about Muster, visit:
+- Documentation: https://github.com/giantswarm/muster/tree/main/docs
+- GitHub: https://github.com/giantswarm/muster
+
+To connect external tools or create custom workflows, see the ServiceClass and Workflow CRDs.
