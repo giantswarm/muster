@@ -8,7 +8,7 @@ workflows:
     jobs:
       - architect/go-build:
           context: architect
-          name: go-build-muster
+          name: go-build
           binary: muster
           filters:
             # Trigger job also on git tag.
