@@ -1,10 +1,16 @@
-FROM gsoci.azurecr.io/giantswarm/alpine:3.20.3-giantswarm
-FROM scratch
+FROM gcr.io/distroless/base-debian12:nonroot
 
-COPY --from=0 /etc/passwd /etc/passwd
-COPY --from=0 /etc/group /etc/group
+# Copy the muster binary with execute permissions
+COPY --chmod=755 muster /usr/local/bin/muster
 
-ADD muster /
-USER giantswarm
+# Switch to non-root user (distroless already has nonroot user)
+USER nonroot:nonroot
 
-ENTRYPOINT ["/muster"]
+# Set working directory
+WORKDIR /home/nonroot
+
+# Expose port
+EXPOSE 8090
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/muster"]
