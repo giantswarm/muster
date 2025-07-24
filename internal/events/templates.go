@@ -54,11 +54,39 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonServiceClassValidationFailed] = "ServiceClass {{.Name}} validation failed{{if .Error}}: {{.Error}}{{end}}"
 
 	// Workflow templates
-	e.templates[ReasonWorkflowCreated] = "Workflow {{.Name}} successfully created in namespace {{.Namespace}}"
-	e.templates[ReasonWorkflowUpdated] = "Workflow {{.Name}} successfully updated in namespace {{.Namespace}}"
+	// Configuration Management Events
+	e.templates[ReasonWorkflowCreated] = "Workflow {{.Name}} successfully created{{if .StepCount}} with {{.StepCount}} steps{{end}}"
+	e.templates[ReasonWorkflowUpdated] = "Workflow {{.Name}} successfully updated{{if .StepCount}} with {{.StepCount}} steps{{end}}"
 	e.templates[ReasonWorkflowDeleted] = "Workflow {{.Name}} successfully deleted from namespace {{.Namespace}}"
+	e.templates[ReasonWorkflowValidationFailed] = "Workflow {{.Name}} validation failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonWorkflowValidationSucceeded] = "Workflow {{.Name}} validation completed successfully"
+
+	// Execution Lifecycle Events
+	e.templates[ReasonWorkflowExecutionStarted] = "Workflow {{.Name}} execution started{{if .ExecutionID}} (execution: {{.ExecutionID}}){{end}}"
+	e.templates[ReasonWorkflowExecutionCompleted] = "Workflow {{.Name}} execution completed successfully{{if .StepCount}} ({{.StepCount}} steps){{end}}{{if .Duration}} in {{.Duration}}{{end}}"
+	e.templates[ReasonWorkflowExecutionFailed] = "Workflow {{.Name}} execution failed{{if .StepID}} at step {{.StepID}}{{end}}{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonWorkflowExecutionTracked] = "Workflow {{.Name}} execution state persisted{{if .ExecutionID}} (execution: {{.ExecutionID}}){{end}}"
+
+	// Step-Level Execution Events
+	e.templates[ReasonWorkflowStepStarted] = "Workflow {{.Name}} step {{.StepID}} started (tool: {{.StepTool}})"
+	e.templates[ReasonWorkflowStepCompleted] = "Workflow {{.Name}} step {{.StepID}} completed successfully"
+	e.templates[ReasonWorkflowStepFailed] = "Workflow {{.Name}} step {{.StepID}} failed{{if .AllowFailure}} (allow_failure=true, continuing){{end}}{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonWorkflowStepSkipped] = "Workflow {{.Name}} step {{.StepID}} skipped: condition evaluation returned {{.ConditionResult}}"
+	e.templates[ReasonWorkflowStepConditionEvaluated] = "Workflow {{.Name}} step {{.StepID}} condition evaluated to {{.ConditionResult}}"
+
+	// Tool Availability Events
+	e.templates[ReasonWorkflowAvailable] = "Workflow {{.Name}} is now available (all required tools are accessible)"
+	e.templates[ReasonWorkflowUnavailable] = "Workflow {{.Name}} is unavailable{{if .ToolNames}} (missing tools: {{.ToolNames}}){{end}}"
+	e.templates[ReasonWorkflowToolsDiscovered] = "Workflow {{.Name}} required tools discovered and are now available"
+	e.templates[ReasonWorkflowToolsMissing] = "Workflow {{.Name}} tools became unavailable{{if .ToolNames}} (missing: {{.ToolNames}}){{end}}"
+
+	// Tool Registration Events
+	e.templates[ReasonWorkflowToolRegistered] = "Workflow {{.Name}} registered as tool 'action_{{.Name}}' in aggregator"
+	e.templates[ReasonWorkflowToolUnregistered] = "Workflow {{.Name}} tool 'action_{{.Name}}' removed from aggregator"
+	e.templates[ReasonWorkflowCapabilitiesRefreshed] = "Aggregator capabilities refreshed after workflow {{.Name}} changes"
+
+	// Legacy templates (kept for compatibility)
 	e.templates[ReasonWorkflowExecuted] = "Workflow {{.Name}} executed successfully{{if .StepCount}} ({{.StepCount}} steps){{end}}{{if .Duration}} in {{.Duration}}{{end}}"
-	e.templates[ReasonWorkflowExecutionFailed] = "Workflow {{.Name}} execution failed{{if .Error}}: {{.Error}}{{end}}"
 
 	// Service Instance templates
 	e.templates[ReasonServiceInstanceCreated] = "Service instance {{.Name}} created from ServiceClass {{.ServiceClass}}"
@@ -102,6 +130,12 @@ func (e *MessageTemplateEngine) renderTemplate(template string, data EventData) 
 	result = strings.ReplaceAll(result, "{{.ServiceClass}}", data.ServiceClass)
 	result = strings.ReplaceAll(result, "{{.Error}}", data.Error)
 
+	// Replace workflow-specific variables
+	result = strings.ReplaceAll(result, "{{.StepID}}", data.StepID)
+	result = strings.ReplaceAll(result, "{{.StepTool}}", data.StepTool)
+	result = strings.ReplaceAll(result, "{{.ConditionResult}}", data.ConditionResult)
+	result = strings.ReplaceAll(result, "{{.ExecutionID}}", data.ExecutionID)
+
 	// Handle duration formatting
 	if strings.Contains(result, "{{.Duration}}") {
 		if data.Duration > 0 {
@@ -118,6 +152,20 @@ func (e *MessageTemplateEngine) renderTemplate(template string, data EventData) 
 		} else {
 			result = strings.ReplaceAll(result, "{{.StepCount}}", "")
 		}
+	}
+
+	// Handle tool names array
+	if strings.Contains(result, "{{.ToolNames}}") {
+		if len(data.ToolNames) > 0 {
+			result = strings.ReplaceAll(result, "{{.ToolNames}}", strings.Join(data.ToolNames, ", "))
+		} else {
+			result = strings.ReplaceAll(result, "{{.ToolNames}}", "")
+		}
+	}
+
+	// Handle allow failure boolean
+	if strings.Contains(result, "{{.AllowFailure}}") {
+		result = strings.ReplaceAll(result, "{{.AllowFailure}}", fmt.Sprintf("%t", data.AllowFailure))
 	}
 
 	// Handle conditional blocks for error messages
@@ -139,6 +187,19 @@ func (e *MessageTemplateEngine) renderConditionals(template string, data EventDa
 
 	// Handle {{if .StepCount}}...{{end}}
 	result = e.renderConditional(result, "{{if .StepCount}}", "{{end}}", data.StepCount > 0)
+
+	// Handle workflow-specific conditionals
+	// Handle {{if .StepID}}...{{end}}
+	result = e.renderConditional(result, "{{if .StepID}}", "{{end}}", data.StepID != "")
+
+	// Handle {{if .ExecutionID}}...{{end}}
+	result = e.renderConditional(result, "{{if .ExecutionID}}", "{{end}}", data.ExecutionID != "")
+
+	// Handle {{if .ToolNames}}...{{end}}
+	result = e.renderConditional(result, "{{if .ToolNames}}", "{{end}}", len(data.ToolNames) > 0)
+
+	// Handle {{if .AllowFailure}}...{{end}}
+	result = e.renderConditional(result, "{{if .AllowFailure}}", "{{end}}", data.AllowFailure)
 
 	return result
 }

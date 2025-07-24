@@ -106,6 +106,7 @@ const (
 
 // Workflow event reasons
 const (
+	// Configuration Management Events
 	// ReasonWorkflowCreated indicates a Workflow was successfully created.
 	ReasonWorkflowCreated EventReason = "WorkflowCreated"
 
@@ -115,11 +116,67 @@ const (
 	// ReasonWorkflowDeleted indicates a Workflow was successfully deleted.
 	ReasonWorkflowDeleted EventReason = "WorkflowDeleted"
 
+	// ReasonWorkflowValidationFailed indicates workflow definition validation failed.
+	ReasonWorkflowValidationFailed EventReason = "WorkflowValidationFailed"
+
+	// ReasonWorkflowValidationSucceeded indicates workflow definition validation passed.
+	ReasonWorkflowValidationSucceeded EventReason = "WorkflowValidationSucceeded"
+
+	// Execution Lifecycle Events
+	// ReasonWorkflowExecutionStarted indicates workflow execution has begun.
+	ReasonWorkflowExecutionStarted EventReason = "WorkflowExecutionStarted"
+
+	// ReasonWorkflowExecutionCompleted indicates workflow execution completed successfully.
+	ReasonWorkflowExecutionCompleted EventReason = "WorkflowExecutionCompleted"
+
+	// ReasonWorkflowExecutionFailed indicates workflow execution failed.
+	ReasonWorkflowExecutionFailed EventReason = "WorkflowExecutionFailed"
+
+	// ReasonWorkflowExecutionTracked indicates execution state was persisted.
+	ReasonWorkflowExecutionTracked EventReason = "WorkflowExecutionTracked"
+
+	// Step-Level Execution Events
+	// ReasonWorkflowStepStarted indicates individual step began execution.
+	ReasonWorkflowStepStarted EventReason = "WorkflowStepStarted"
+
+	// ReasonWorkflowStepCompleted indicates individual step completed successfully.
+	ReasonWorkflowStepCompleted EventReason = "WorkflowStepCompleted"
+
+	// ReasonWorkflowStepFailed indicates individual step failed (with allowFailure context).
+	ReasonWorkflowStepFailed EventReason = "WorkflowStepFailed"
+
+	// ReasonWorkflowStepSkipped indicates step was skipped due to condition evaluation.
+	ReasonWorkflowStepSkipped EventReason = "WorkflowStepSkipped"
+
+	// ReasonWorkflowStepConditionEvaluated indicates step condition was evaluated.
+	ReasonWorkflowStepConditionEvaluated EventReason = "WorkflowStepConditionEvaluated"
+
+	// Tool Availability Events
+	// ReasonWorkflowAvailable indicates all required tools became available.
+	ReasonWorkflowAvailable EventReason = "WorkflowAvailable"
+
+	// ReasonWorkflowUnavailable indicates required tools became unavailable.
+	ReasonWorkflowUnavailable EventReason = "WorkflowUnavailable"
+
+	// ReasonWorkflowToolsDiscovered indicates new required tools are discovered and available.
+	ReasonWorkflowToolsDiscovered EventReason = "WorkflowToolsDiscovered"
+
+	// ReasonWorkflowToolsMissing indicates specific tools became unavailable.
+	ReasonWorkflowToolsMissing EventReason = "WorkflowToolsMissing"
+
+	// Tool Registration Events
+	// ReasonWorkflowToolRegistered indicates workflow was registered as action_<workflow-name> tool.
+	ReasonWorkflowToolRegistered EventReason = "WorkflowToolRegistered"
+
+	// ReasonWorkflowToolUnregistered indicates workflow tool was removed from aggregator.
+	ReasonWorkflowToolUnregistered EventReason = "WorkflowToolUnregistered"
+
+	// ReasonWorkflowCapabilitiesRefreshed indicates aggregator capabilities were updated after workflow changes.
+	ReasonWorkflowCapabilitiesRefreshed EventReason = "WorkflowCapabilitiesRefreshed"
+
+	// Legacy event reasons (kept for compatibility)
 	// ReasonWorkflowExecuted indicates a Workflow was successfully executed.
 	ReasonWorkflowExecuted EventReason = "WorkflowExecuted"
-
-	// ReasonWorkflowExecutionFailed indicates a Workflow execution failed.
-	ReasonWorkflowExecutionFailed EventReason = "WorkflowExecutionFailed"
 )
 
 // Service Instance event reasons
@@ -165,6 +222,25 @@ type EventData struct {
 
 	// StepCount is the number of steps in a workflow execution.
 	StepCount int
+
+	// Workflow-specific fields
+	// StepID is the ID of the workflow step involved in the event.
+	StepID string
+
+	// StepTool is the tool used in the workflow step.
+	StepTool string
+
+	// ConditionResult is the result of step condition evaluation.
+	ConditionResult string
+
+	// ExecutionID is the unique identifier for a workflow execution.
+	ExecutionID string
+
+	// ToolNames contains the list of tools (for availability events).
+	ToolNames []string
+
+	// AllowFailure indicates whether a failed step allows failure.
+	AllowFailure bool
 }
 
 // ObjectReference represents a reference to a Kubernetes object for event creation.
@@ -196,6 +272,10 @@ func getEventType(reason EventReason) EventType {
 		ReasonServiceClassUnavailable,
 		ReasonServiceClassToolsMissing,
 		ReasonWorkflowExecutionFailed,
+		ReasonWorkflowValidationFailed,
+		ReasonWorkflowUnavailable,
+		ReasonWorkflowToolsMissing,
+		ReasonWorkflowStepFailed,
 		ReasonServiceInstanceFailed:
 		return EventTypeWarning
 	default:
