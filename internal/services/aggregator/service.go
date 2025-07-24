@@ -3,12 +3,13 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	"muster/internal/aggregator"
 	"muster/internal/api"
 	"muster/internal/services"
 	"muster/pkg/logging"
-	"sync"
-	"time"
 )
 
 // AggregatorService implements the Service interface for the MCP aggregator
@@ -55,7 +56,7 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 	}
 
 	// Create the manager with APIs
-	s.manager = aggregator.NewAggregatorManager(s.config, s.orchestratorAPI, s.serviceRegistry)
+	s.manager = aggregator.NewAggregatorManager(s.config, s.orchestratorAPI, s.serviceRegistry, s.onManagerErrorCallback)
 
 	// Start the manager
 	if err := s.manager.Start(ctx); err != nil {
@@ -67,6 +68,18 @@ func (s *AggregatorService) Start(ctx context.Context) error {
 
 	logging.Info("Aggregator-Service", "Started MCP aggregator service")
 	return nil
+}
+
+// onManagerErrorCallback is called when the underlying aggregator manager encounters an error
+func (s *AggregatorService) onManagerErrorCallback(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update state to failed if not already in a terminal state
+	if s.GetState() != services.StateFailed && s.GetState() != services.StateStopping {
+		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+		logging.Error("Aggregator-Service", err, "Aggregator manager encountered an error")
+	}
 }
 
 // Stop stops the aggregator service

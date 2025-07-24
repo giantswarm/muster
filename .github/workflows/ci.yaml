@@ -44,6 +44,9 @@ jobs:
       - name: Run Checks (Lint & Test)
         run: make check
 
+      - name: Muster unit tests
+        run: make test
+
       - name: Build muster binary
         run: make build
 
