@@ -73,12 +73,11 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	var cfg config.MusterConfig
 	var err error
 
-	if options.ConfigPath != "" {
-		cfg, err = config.LoadConfigFromPath(options.ConfigPath)
-	} else {
-		cfg, err = config.LoadConfig()
+	if options.ConfigPath == "" {
+		panic("Logic error: empty tool executor ConfigPath")
 	}
 
+	cfg, err = config.LoadConfigFromPath(options.ConfigPath)
 	if err != nil {
 		return nil, err
 	}

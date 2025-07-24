@@ -139,17 +139,18 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	serviceClassAdapter.Register()
 
 	// Load ServiceClass definitions to ensure they're available
-	if cfg.ConfigPath != "" {
-		// Trigger ServiceClass loading by calling ListServiceClasses
-		// This ensures filesystem-based ServiceClasses are loaded into memory
-		serviceClasses := serviceClassAdapter.ListServiceClasses()
-		if len(serviceClasses) > 0 {
-			logging.Info("Services", "Loaded %d ServiceClass definitions from filesystem", len(serviceClasses))
-		}
+	if cfg.ConfigPath == "" {
+		panic("Logic error: empty ConfigPath")
+	}
+	// Trigger ServiceClass loading by calling ListServiceClasses
+	// This ensures filesystem-based ServiceClasses are loaded into memory
+	serviceClasses := serviceClassAdapter.ListServiceClasses()
+	if len(serviceClasses) > 0 {
+		logging.Info("Services", "Loaded %d ServiceClass definitions from filesystem", len(serviceClasses))
 	}
 
 	// Create and register Workflow adapter using the muster client
-	workflowAdapter := workflow.NewAdapterWithClient(musterClient, "default", toolCaller, toolChecker)
+	workflowAdapter := workflow.NewAdapterWithClient(musterClient, "default", toolCaller, toolChecker, cfg.ConfigPath)
 	workflowAdapter.Register()
 
 	// Initialize and register MCPServer adapter using the muster client
@@ -180,18 +181,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Need to get the service registry handler from the registry adapter
 		registryHandler := api.GetServiceRegistry()
 		if registryHandler != nil {
-			// Auto-detect config directory or use custom path
-			var configDir string
-			if cfg.ConfigPath != "" {
-				configDir = cfg.ConfigPath
-			} else {
-				userConfigDir, err := config.GetUserConfigDir()
-				if err != nil {
-					// Fallback to empty string if auto-detection fails
-					configDir = ""
-				} else {
-					configDir = userConfigDir
-				}
+			if cfg.ConfigPath == "" {
+				panic("Logic error: empty ConfigPath")
 			}
 
 			// Convert config types
@@ -201,7 +192,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				Transport:    cfg.MusterConfig.Aggregator.Transport,
 				MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
 				Yolo:         cfg.Yolo,
-				ConfigDir:    configDir,
+				ConfigDir:    cfg.ConfigPath,
 			}
 
 			// Set defaults if not specified

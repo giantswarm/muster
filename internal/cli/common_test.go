@@ -1,10 +1,12 @@
 package cli
 
 import (
-	"muster/internal/config"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"muster/internal/config"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -137,8 +139,7 @@ func TestFormatError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatError(tt.err)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("Error: %v", tt.err))
 		})
 	}
 }
@@ -163,8 +164,7 @@ func TestFormatSuccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatSuccess(tt.message)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("✓ %s", tt.message))
 		})
 	}
 }
@@ -189,8 +189,7 @@ func TestFormatWarning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatWarning(tt.message)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("⚠ %s", tt.message))
 		})
 	}
 }

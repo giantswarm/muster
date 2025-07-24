@@ -18,14 +18,17 @@ const (
 	configFileName = "config.yaml"
 )
 
-// LoadConfig loads the muster configuration from the default directory (~/.config/muster).
-func LoadConfig() (MusterConfig, error) {
+func GetDefaultConfigPathOrPanic() string {
 	userConfigDir, err := GetUserConfigDir()
 	if err != nil {
-		return MusterConfig{}, fmt.Errorf("could not determine user config directory: %w", err)
+		panic(fmt.Errorf("could not determine user config directory: %w", err))
 	}
+	return userConfigDir
+}
 
-	return LoadConfigFromPath(userConfigDir)
+// LoadConfig loads the muster configuration from the default directory (~/.config/muster).
+func LoadConfig() (MusterConfig, error) {
+	return LoadConfigFromPath(GetDefaultConfigPathOrPanic())
 }
 
 // LoadConfigFromPath loads configuration from a single specified directory.

@@ -2,9 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"muster/internal/config"
 	"net/http"
 	"time"
+
+	"muster/internal/config"
 )
 
 // DetectAggregatorEndpoint detects and returns the aggregator endpoint URL from configuration.
@@ -30,27 +31,23 @@ func DetectAggregatorEndpoint() (string, error) {
 //   - error: Always nil (kept for future compatibility)
 func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error) {
 	var actualCfg config.MusterConfig
-	var err error
 
 	if cfg != nil {
 		actualCfg = *cfg
 	} else {
 		// Load configuration to get aggregator settings
-		actualCfg, err = config.LoadConfig()
-		if err != nil {
-			// Use default if config cannot be loaded
-			endpoint := "http://localhost:8090/mcp"
-			return endpoint, nil
-		}
+		actualCfg, _ = config.LoadConfig()
 	}
 
 	// Build endpoint from config
 	host := actualCfg.Aggregator.Host
-	if host == "" {
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		// from here, this is a connectable name/address, not a bind address
 		host = "localhost"
 	}
 	port := actualCfg.Aggregator.Port
 	if port == 0 {
+		// from here, this is a connectable port, not a bind port
 		port = 8090
 	}
 	endpoint := fmt.Sprintf("http://%s:%d/mcp", host, port)
@@ -68,35 +65,15 @@ func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error
 //   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
 //   - error: Always nil (kept for future compatibility)
 func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
-	var actualCfg config.MusterConfig
-	var err error
 
-	if configPath != "" {
-		// Load configuration from custom path
-		actualCfg, err = config.LoadConfigFromPath(configPath)
-	} else {
-		// Load configuration using default method
-		actualCfg, err = config.LoadConfig()
+	if configPath == "" {
+		panic("Logic error: empty agent configPath")
 	}
 
-	if err != nil {
-		// Use default if config cannot be loaded
-		endpoint := "http://localhost:8090/mcp"
-		return endpoint, nil
-	}
+	cfg, err := config.LoadConfigFromPath(configPath)
+	endpoint, err := DetectAggregatorEndpointWithConfig(&cfg)
 
-	// Build endpoint from config
-	host := actualCfg.Aggregator.Host
-	if host == "" {
-		host = "localhost"
-	}
-	port := actualCfg.Aggregator.Port
-	if port == 0 {
-		port = 8090
-	}
-	endpoint := fmt.Sprintf("http://%s:%d/mcp", host, port)
-
-	return endpoint, nil
+	return endpoint, err
 }
 
 // CheckServerRunning verifies that the muster aggregator server is running and responsive.
@@ -129,40 +106,4 @@ func CheckServerRunning() error {
 	}
 
 	return nil
-}
-
-// FormatError formats an error message for consistent CLI output display.
-// It prefixes the error message with "Error: " for clear identification.
-//
-// Args:
-//   - err: The error to format
-//
-// Returns:
-//   - string: Formatted error message with "Error: " prefix
-func FormatError(err error) string {
-	return fmt.Sprintf("Error: %v", err)
-}
-
-// FormatSuccess formats a success message for CLI output with a checkmark icon.
-// Used to provide positive feedback to users when operations complete successfully.
-//
-// Args:
-//   - msg: The success message to format
-//
-// Returns:
-//   - string: Formatted success message with "✓ " prefix
-func FormatSuccess(msg string) string {
-	return fmt.Sprintf("✓ %s", msg)
-}
-
-// FormatWarning formats a warning message for CLI output with a warning icon.
-// Used to alert users about potential issues or important information.
-//
-// Args:
-//   - msg: The warning message to format
-//
-// Returns:
-//   - string: Formatted warning message with "⚠ " prefix
-func FormatWarning(msg string) string {
-	return fmt.Sprintf("⚠ %s", msg)
 }

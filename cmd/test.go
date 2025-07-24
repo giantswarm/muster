@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"muster/internal/agent"
-	"muster/internal/cli"
-	"muster/internal/testing"
-	"muster/internal/testing/mock"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"muster/internal/agent"
+	"muster/internal/cli"
+	"muster/internal/config"
+	"muster/internal/testing"
+	"muster/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
@@ -187,7 +189,7 @@ func init() {
 	testCmd.Flags().StringVar(&testSchemaInput, "schema-input", "schema.json", "Input schema file for validation")
 
 	// Muster configuration path flag
-	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", "", "Custom configuration directory path")
+	testCmd.Flags().StringVar(&testMusterConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Flag to keep temporary config for debugging
 	testCmd.Flags().BoolVar(&testKeepTempConfig, "keep-temp-config", false, "Keep temporary config directory after test execution for debugging")
@@ -273,15 +275,14 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Run in MCP Server mode if requested
 	if testMCPServer {
-		// For MCP server mode, we still need an endpoint for existing functionality
-		endpoint := "http://localhost:8090/mcp"
-		detectedEndpoint, err := cli.DetectAggregatorEndpointFromPath(testMusterConfigPath)
-		if err == nil {
-			endpoint = detectedEndpoint
-		}
-
 		// Create logger for MCP server
 		logger := agent.NewLogger(testVerbose, true, testDebug)
+
+		// For MCP server mode, we still need an endpoint for existing functionality
+		endpoint, err := cli.DetectAggregatorEndpointFromPath(testMusterConfigPath)
+		if err != nil {
+			logger.Info("Warning: Could not detect endpoint (%v), using default: %s\n", err, endpoint)
+		}
 
 		// Create test MCP server
 		server, err := agent.NewTestMCPServer(endpoint, logger, testConfigPath, testDebug)
