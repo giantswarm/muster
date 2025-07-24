@@ -40,9 +40,10 @@ import (
 // All public methods are thread-safe and can be called concurrently. Internal state
 // is protected by appropriate synchronization mechanisms.
 type AggregatorServer struct {
-	config   AggregatorConfig  // Configuration args for the aggregator
-	registry *ServerRegistry   // Registry of backend MCP servers
-	server   *server.MCPServer // Core MCP server implementation
+	config        AggregatorConfig  // Configuration args for the aggregator
+	registry      *ServerRegistry   // Registry of backend MCP servers
+	server        *server.MCPServer // Core MCP server implementation
+	errorCallback func(error)       // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
 	sseServer            *server.SSEServer            // Server-Sent Events transport
@@ -62,6 +63,7 @@ type AggregatorServer struct {
 	toolManager     *activeItemManager // Tracks active tools and their handlers
 	promptManager   *activeItemManager // Tracks active prompts and their handlers
 	resourceManager *activeItemManager // Tracks active resources and their handlers
+	isShuttingDown  bool               // Indicates whether the server is currently stopping
 }
 
 // NewAggregatorServer creates a new aggregator server with the specified configuration.
@@ -78,13 +80,14 @@ type AggregatorServer struct {
 //   - aggConfig: Configuration args defining server behavior, transport, and security settings
 //
 // Returns a configured but unstarted aggregator server ready for initialization.
-func NewAggregatorServer(aggConfig AggregatorConfig) *AggregatorServer {
+func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
 		toolManager:     newActiveItemManager(itemTypeTool),
 		promptManager:   newActiveItemManager(itemTypePrompt),
 		resourceManager: newActiveItemManager(itemTypeResource),
+		errorCallback:   errorCallback,
 	}
 }
 
@@ -130,6 +133,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	)
 
 	a.server = mcpServer
+	a.isShuttingDown = false
 
 	// Start background monitoring for registry changes
 	a.wg.Add(1)
@@ -166,11 +170,16 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	useSystemdActivation := len(systemdListeners) > 0
 	if useSystemdActivation {
 		logging.Info("Aggregator", "Systemd socket activation detected, using %d provided listener(s)", len(systemdListeners))
+
+		if a.config.Transport == config.MCPTransportStdio {
+			return fmt.Errorf("stdio transport cannot be used with systemd socket activation")
+		}
 	}
+
+	a.mu.Lock()
 
 	switch a.config.Transport {
 	case config.MCPTransportSSE:
-		// Server-Sent Events transport with HTTP endpoints
 		baseURL := fmt.Sprintf("http://%s:%d", a.config.Host, a.config.Port)
 		a.sseServer = server.NewSSEServer(
 			a.server,
@@ -184,7 +193,6 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
-			// Start SSE servers with systemd listeners
 			for i, listener := range systemdListeners {
 				server := &http.Server{
 					Handler: handler,
@@ -193,13 +201,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 				go func(s *http.Server, l net.Listener, index int) {
 					if err := s.Serve(l); err != nil && err != http.ErrServerClosed {
 						logging.Error("Aggregator", err, "listener %d: SSE server error", index)
+						a.errorCallback(err)
 					}
 				}(server, listener, i)
 			}
 		} else {
 			logging.Info("Aggregator", "Starting MCP aggregator server with SSE transport on %s", addr)
-
-			// Standard SSE server start
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
@@ -208,15 +215,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			go func() {
 				if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "SSE server error")
+					a.errorCallback(err)
 				}
 			}()
 		}
 
 	case config.MCPTransportStdio:
-		if useSystemdActivation {
-			return fmt.Errorf("stdio transport cannot be used with systemd socket activation")
-		}
-
 		// Standard I/O transport for CLI integration
 		logging.Info("Aggregator", "Starting MCP aggregator server with stdio transport")
 		a.stdioServer = server.NewStdioServer(a.server)
@@ -225,6 +229,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			go func() {
 				if err := stdioServer.Listen(a.ctx, os.Stdin, os.Stdout); err != nil {
 					logging.Error("Aggregator", err, "Stdio server error")
+					a.errorCallback(err)
 				}
 			}()
 		}
@@ -238,7 +243,6 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
-			// Start streamable HTTP servers with systemd listeners
 			for i, listener := range systemdListeners {
 				server := &http.Server{
 					Handler: handler,
@@ -247,12 +251,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 				go func(s *http.Server, l net.Listener, index int) {
 					if err := s.Serve(l); err != nil && err != http.ErrServerClosed {
 						logging.Error("Aggregator", err, "listener %d: Streamable HTTP server error", index)
+						a.errorCallback(err)
 					}
 				}(server, listener, i)
 			}
 		} else {
 			logging.Info("Aggregator", "Starting MCP aggregator server with streamable-http transport on %s", addr)
-			// Standard streamable HTTP server start
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
@@ -261,10 +265,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			go func() {
 				if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logging.Error("Aggregator", err, "Streamable HTTP server error")
+					a.errorCallback(err)
 				}
 			}()
 		}
 	}
+	a.mu.Unlock()
 
 	return nil
 }
@@ -293,11 +299,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 // Returns an error if shutdown encounters issues, though cleanup continues regardless.
 func (a *AggregatorServer) Stop(ctx context.Context) error {
 	a.mu.Lock()
-	if a.server == nil {
+	if a.isShuttingDown {
+		a.mu.Unlock()
+		return nil
+	} else if a.server == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("aggregator server not started")
 	}
 
+	a.isShuttingDown = true // Prevent further updates during shutdown
 	logging.Info("Aggregator", "Stopping MCP aggregator server")
 
 	// Capture references before releasing lock to avoid race conditions

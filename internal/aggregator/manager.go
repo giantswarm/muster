@@ -3,10 +3,11 @@ package aggregator
 import (
 	"context"
 	"fmt"
-	"muster/internal/api"
-	"muster/pkg/logging"
 	"sync"
 	"time"
+
+	"muster/internal/api"
+	"muster/pkg/logging"
 )
 
 // This file contains aggregator manager logic that coordinates between
@@ -53,11 +54,7 @@ type AggregatorManager struct {
 //   - serviceRegistry: Interface for querying service information
 //
 // Returns a configured but not yet started aggregator manager.
-func NewAggregatorManager(
-	config AggregatorConfig,
-	orchestratorAPI api.OrchestratorAPI,
-	serviceRegistry api.ServiceRegistryHandler,
-) *AggregatorManager {
+func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.OrchestratorAPI, serviceRegistry api.ServiceRegistryHandler, errorCallback func(err error)) *AggregatorManager {
 	manager := &AggregatorManager{
 		config:          config,
 		orchestratorAPI: orchestratorAPI,
@@ -65,7 +62,7 @@ func NewAggregatorManager(
 	}
 
 	// Create the aggregator server with the provided configuration
-	manager.aggregatorServer = NewAggregatorServer(config)
+	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
 
 	return manager
 }
@@ -82,6 +79,12 @@ func NewAggregatorManager(
 // The method is idempotent - calling it multiple times has no additional effect.
 // Returns an error if any component fails to start.
 func (am *AggregatorManager) Start(ctx context.Context) error {
+
+	// Validate that required APIs are available
+	if am.orchestratorAPI == nil {
+		return fmt.Errorf("required APIs not available")
+	}
+
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -91,12 +94,6 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 	// Start the aggregator server first
 	if err := am.aggregatorServer.Start(am.ctx); err != nil {
 		return fmt.Errorf("failed to start aggregator server: %w", err)
-	}
-
-	// Validate that required APIs are available
-	if am.orchestratorAPI == nil {
-		am.aggregatorServer.Stop(am.ctx)
-		return fmt.Errorf("required APIs not available")
 	}
 
 	// Perform initial synchronization: Register all healthy running MCP servers

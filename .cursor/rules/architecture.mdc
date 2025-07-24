@@ -94,7 +94,7 @@ alwaysApply: true
 - **When ever you get a "Finish this up":**
   - **Run the tests:** `make test`
   - **Update the binary:** `go install`
-  - **Run the scenarios:** `muster test --parallel 20`
+  - **Run the scenarios:** `muster test --parallel 50`
   - **Format the code:** `goimports -w . && go fmt ./...`
   - **Commit & Push & Pull Request**: Check the github workflow
 
