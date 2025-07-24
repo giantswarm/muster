@@ -24,17 +24,9 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content Mus
 func TestLoadConfig_DefaultOnly(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Mock osUserHomeDir to point to a temp directory without config
-	originalOsUserHomeDir := osUserHomeDir
-	defer func() {
-		osUserHomeDir = originalOsUserHomeDir
-	}()
-
-	osUserHomeDir = func() (string, error) { return tempDir, nil }
-
 	// LoadConfig should return default config when no config file exists
 	expectedConfig := GetDefaultConfigWithRoles()
-	loadedConfig, err := LoadConfig()
+	loadedConfig, err := LoadConfig(tempDir)
 	assert.NoError(t, err)
 
 	// Compare the loaded config with the default config
@@ -43,14 +35,6 @@ func TestLoadConfig_DefaultOnly(t *testing.T) {
 
 func TestLoadConfig_WithUserConfig(t *testing.T) {
 	tempDir := t.TempDir()
-
-	// Mock osUserHomeDir to point to our temp directory
-	originalOsUserHomeDir := osUserHomeDir
-	defer func() {
-		osUserHomeDir = originalOsUserHomeDir
-	}()
-
-	osUserHomeDir = func() (string, error) { return tempDir, nil }
 
 	// Create the user config directory
 	userConfDir := filepath.Join(tempDir, userConfigDir)
@@ -66,7 +50,7 @@ func TestLoadConfig_WithUserConfig(t *testing.T) {
 	}
 	createTempConfigFile(t, userConfDir, configFileName, userConfig)
 
-	loadedConfig, err := LoadConfig()
+	loadedConfig, err := LoadConfig(userConfDir)
 	assert.NoError(t, err)
 
 	// Check that the custom settings were loaded
@@ -87,7 +71,7 @@ func TestLoadConfigFromPath(t *testing.T) {
 	createTempConfigFile(t, tempDir, configFileName, customConfig)
 
 	// Load config from the custom path
-	loadedConfig, err := LoadConfigFromPath(tempDir)
+	loadedConfig, err := LoadConfig(tempDir)
 	assert.NoError(t, err)
 
 	// Check that the custom settings were loaded
@@ -101,7 +85,7 @@ func TestLoadConfigFromPath_NonExistentPath(t *testing.T) {
 
 	// Loading from non-existent path should return default config
 	expectedConfig := GetDefaultConfigWithRoles()
-	loadedConfig, err := LoadConfigFromPath(nonExistentPath)
+	loadedConfig, err := LoadConfig(nonExistentPath)
 	assert.NoError(t, err)
 
 	// Should match default config
@@ -112,7 +96,7 @@ func TestLoadConfigFromPath_NoConfigFile(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Directory exists but no config.yaml file
-	loadedConfig, err := LoadConfigFromPath(tempDir)
+	loadedConfig, err := LoadConfig(tempDir)
 	assert.NoError(t, err)
 
 	// Should return default config
@@ -129,22 +113,7 @@ func TestLoadConfigFromPath_InvalidYAML(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should return an error for invalid YAML
-	_, err = LoadConfigFromPath(tempDir)
+	_, err = LoadConfig(tempDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "error loading config")
-}
-
-func TestGetUserConfigDir(t *testing.T) {
-	// Mock osUserHomeDir
-	originalOsUserHomeDir := osUserHomeDir
-	defer func() {
-		osUserHomeDir = originalOsUserHomeDir
-	}()
-
-	testHome := "/test/home"
-	osUserHomeDir = func() (string, error) { return testHome, nil }
-
-	configDir, err := GetUserConfigDir()
-	assert.NoError(t, err)
-	assert.Equal(t, filepath.Join(testHome, userConfigDir), configDir)
 }
