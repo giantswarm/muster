@@ -282,7 +282,7 @@ func TestEventGenerator_ServiceInstanceEvent(t *testing.T) {
 		t.Errorf("Expected name my-service, got %s", event.name)
 	}
 
-	expectedMessage := "Service instance my-service started successfully"
+	expectedMessage := "Service instance my-service started successfully and is running"
 	if event.message != expectedMessage {
 		t.Errorf("Expected message %s, got %s", expectedMessage, event.message)
 	}

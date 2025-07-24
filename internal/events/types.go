@@ -184,17 +184,53 @@ const (
 	// ReasonServiceInstanceCreated indicates a service instance was successfully created.
 	ReasonServiceInstanceCreated EventReason = "ServiceInstanceCreated"
 
+	// ReasonServiceInstanceStarting indicates a service instance is beginning to start.
+	ReasonServiceInstanceStarting EventReason = "ServiceInstanceStarting"
+
 	// ReasonServiceInstanceStarted indicates a service instance was successfully started.
 	ReasonServiceInstanceStarted EventReason = "ServiceInstanceStarted"
 
+	// ReasonServiceInstanceStopping indicates a service instance is beginning to stop.
+	ReasonServiceInstanceStopping EventReason = "ServiceInstanceStopping"
+
 	// ReasonServiceInstanceStopped indicates a service instance was successfully stopped.
 	ReasonServiceInstanceStopped EventReason = "ServiceInstanceStopped"
+
+	// ReasonServiceInstanceRestarting indicates a service instance restart is initiated.
+	ReasonServiceInstanceRestarting EventReason = "ServiceInstanceRestarting"
+
+	// ReasonServiceInstanceRestarted indicates a service instance restart completed successfully.
+	ReasonServiceInstanceRestarted EventReason = "ServiceInstanceRestarted"
 
 	// ReasonServiceInstanceDeleted indicates a service instance was successfully deleted.
 	ReasonServiceInstanceDeleted EventReason = "ServiceInstanceDeleted"
 
 	// ReasonServiceInstanceFailed indicates a service instance operation failed.
 	ReasonServiceInstanceFailed EventReason = "ServiceInstanceFailed"
+
+	// ReasonServiceInstanceHealthy indicates a service instance health checks are passing.
+	ReasonServiceInstanceHealthy EventReason = "ServiceInstanceHealthy"
+
+	// ReasonServiceInstanceUnhealthy indicates a service instance health checks are failing.
+	ReasonServiceInstanceUnhealthy EventReason = "ServiceInstanceUnhealthy"
+
+	// ReasonServiceInstanceHealthCheckFailed indicates an individual health check failed.
+	ReasonServiceInstanceHealthCheckFailed EventReason = "ServiceInstanceHealthCheckFailed"
+
+	// ReasonServiceInstanceHealthCheckRecovered indicates health check recovered after failures.
+	ReasonServiceInstanceHealthCheckRecovered EventReason = "ServiceInstanceHealthCheckRecovered"
+
+	// ReasonServiceInstanceStateChanged indicates detailed state transitions.
+	ReasonServiceInstanceStateChanged EventReason = "ServiceInstanceStateChanged"
+
+	// ReasonServiceInstanceToolExecutionStarted indicates ServiceClass lifecycle tool execution began.
+	ReasonServiceInstanceToolExecutionStarted EventReason = "ServiceInstanceToolExecutionStarted"
+
+	// ReasonServiceInstanceToolExecutionCompleted indicates ServiceClass lifecycle tool execution succeeded.
+	ReasonServiceInstanceToolExecutionCompleted EventReason = "ServiceInstanceToolExecutionCompleted"
+
+	// ReasonServiceInstanceToolExecutionFailed indicates ServiceClass lifecycle tool execution failed.
+	ReasonServiceInstanceToolExecutionFailed EventReason = "ServiceInstanceToolExecutionFailed"
 )
 
 // EventData holds contextual information for event message templating.
@@ -276,7 +312,10 @@ func getEventType(reason EventReason) EventType {
 		ReasonWorkflowUnavailable,
 		ReasonWorkflowToolsMissing,
 		ReasonWorkflowStepFailed,
-		ReasonServiceInstanceFailed:
+		ReasonServiceInstanceFailed,
+		ReasonServiceInstanceUnhealthy,
+		ReasonServiceInstanceHealthCheckFailed,
+		ReasonServiceInstanceToolExecutionFailed:
 		return EventTypeWarning
 	default:
 		return EventTypeNormal

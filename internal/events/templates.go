@@ -90,10 +90,22 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 
 	// Service Instance templates
 	e.templates[ReasonServiceInstanceCreated] = "Service instance {{.Name}} created from ServiceClass {{.ServiceClass}}"
-	e.templates[ReasonServiceInstanceStarted] = "Service instance {{.Name}} started successfully"
+	e.templates[ReasonServiceInstanceStarting] = "Service instance {{.Name}} starting{{if .StepTool}} with tool {{.StepTool}}{{end}}"
+	e.templates[ReasonServiceInstanceStarted] = "Service instance {{.Name}} started successfully and is running"
+	e.templates[ReasonServiceInstanceStopping] = "Service instance {{.Name}} stopping{{if .StepTool}} with tool {{.StepTool}}{{end}}"
 	e.templates[ReasonServiceInstanceStopped] = "Service instance {{.Name}} stopped successfully"
+	e.templates[ReasonServiceInstanceRestarting] = "Service instance {{.Name}} restarting{{if .StepTool}} with tool {{.StepTool}}{{end}}"
+	e.templates[ReasonServiceInstanceRestarted] = "Service instance {{.Name}} restarted successfully{{if .Duration}} after {{.Duration}}{{end}}"
 	e.templates[ReasonServiceInstanceDeleted] = "Service instance {{.Name}} deleted successfully"
 	e.templates[ReasonServiceInstanceFailed] = "Service instance {{.Name}} operation failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonServiceInstanceHealthy] = "Service instance {{.Name}} health checks passing{{if .StepCount}} ({{.StepCount}} consecutive successes){{end}}"
+	e.templates[ReasonServiceInstanceUnhealthy] = "Service instance {{.Name}} health checks failing{{if .StepCount}} ({{.StepCount}} consecutive failures){{end}}"
+	e.templates[ReasonServiceInstanceHealthCheckFailed] = "Service instance {{.Name}} health check failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonServiceInstanceHealthCheckRecovered] = "Service instance {{.Name}} health check recovered after {{.StepCount}} failures"
+	e.templates[ReasonServiceInstanceStateChanged] = "Service instance {{.Name}} state changed: {{.ConditionResult}}"
+	e.templates[ReasonServiceInstanceToolExecutionStarted] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution started"
+	e.templates[ReasonServiceInstanceToolExecutionCompleted] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution completed successfully"
+	e.templates[ReasonServiceInstanceToolExecutionFailed] = "Service instance {{.Name}} {{.Operation}} tool {{.StepTool}} execution failed{{if .Error}}: {{.Error}}{{end}}"
 }
 
 // Render generates a message for the given event reason and data.

@@ -312,6 +312,9 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 	o.instances[req.Name] = instance
 	o.mu.Unlock()
 
+	// Generate service instance created event
+	o.generateServiceInstanceEvent(req.Name, req.ServiceClassName, "ServiceInstanceCreated", "", nil, 0, 0)
+
 	logging.Info("Orchestrator", "Creating ServiceClass-based service instance: %s (ServiceClass: %s)", req.Name, req.ServiceClassName)
 
 	// Start the service instance
@@ -428,6 +431,9 @@ func (o *Orchestrator) DeleteServiceClassInstance(ctx context.Context, name stri
 	o.mu.Lock()
 	delete(o.instances, name)
 	o.mu.Unlock()
+
+	// Generate service instance deleted event
+	o.generateServiceInstanceEvent(instance.GetName(), instance.GetServiceClassName(), "ServiceInstanceDeleted", "", nil, 0, 0)
 
 	logging.Info("Orchestrator", "Successfully deleted ServiceClass-based service instance: %s", instance.GetName())
 	return nil
@@ -760,4 +766,50 @@ func (o *Orchestrator) GetToolCaller() ToolCaller {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.toolCaller
+}
+
+// generateServiceInstanceEvent generates a Kubernetes event for a service instance
+func (o *Orchestrator) generateServiceInstanceEvent(serviceName, serviceClassName, reason, operation string, err error, duration time.Duration, stepCount int) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug("Orchestrator", "Event manager not available, skipping event generation for service instance %s", serviceName)
+		return
+	}
+
+	// Create event data with service instance context
+	eventData := api.ObjectReference{
+		Kind:      "ServiceInstance",
+		Name:      serviceName,
+		Namespace: "default", // Service instances use default namespace
+	}
+
+	// Build context-aware message
+	message := o.buildServiceInstanceEventMessage(serviceName, serviceClassName, reason, operation, err, duration, stepCount)
+
+	// Determine event type based on reason
+	eventType := "Normal"
+	if reason == "ServiceInstanceFailed" ||
+		reason == "ServiceInstanceUnhealthy" ||
+		reason == "ServiceInstanceHealthCheckFailed" ||
+		reason == "ServiceInstanceToolExecutionFailed" {
+		eventType = "Warning"
+	}
+
+	// Generate the event
+	ctx := context.Background()
+	if err := eventManager.CreateEvent(ctx, eventData, reason, message, eventType); err != nil {
+		logging.Error("Orchestrator", err, "Failed to generate event for service instance %s", serviceName)
+	}
+}
+
+// buildServiceInstanceEventMessage builds the event message for service instance events
+func (o *Orchestrator) buildServiceInstanceEventMessage(serviceName, serviceClassName, reason, operation string, err error, duration time.Duration, stepCount int) string {
+	switch reason {
+	case "ServiceInstanceCreated":
+		return fmt.Sprintf("Service instance %s created from ServiceClass %s", serviceName, serviceClassName)
+	case "ServiceInstanceDeleted":
+		return fmt.Sprintf("Service instance %s deleted successfully", serviceName)
+	default:
+		return fmt.Sprintf("Service instance %s: %s", serviceName, reason)
+	}
 }
