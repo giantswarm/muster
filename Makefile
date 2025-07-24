@@ -38,7 +38,7 @@ install: build ## Install the binary
 
 .PHONY: release-dry-run
 release-dry-run: ## Test the release process without publishing
-	goreleaser release --snapshot --clean --skip=announce,publish,validate
+	goreleaser release --snapshot --clean --skip=announce,archive,publish,sbom,sign,validate
 
 .PHONY: release-local
 release-local: ## Create a release locally
