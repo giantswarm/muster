@@ -31,6 +31,7 @@ func TestNewToolExecutor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.options.ConfigPath = "/tmp/muster-test"
 			executor, err := NewToolExecutor(tt.options)
 
 			// The test can pass or fail depending on whether the server is running

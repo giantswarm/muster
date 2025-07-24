@@ -65,34 +65,34 @@ type ToolExecutor struct {
 //   - *ToolExecutor: Configured tool executor ready for use
 //   - error: Configuration or connection setup error
 func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
-	// Check if server is running first
-	if err := CheckServerRunning(); err != nil {
-		return nil, err
-	}
 
-	var cfg config.MusterConfig
-	var err error
+	logger := agent.NewLogger(false, false, false)
 
 	if options.ConfigPath == "" {
-		panic("Logic error: empty tool executor ConfigPath")
+		return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
 	}
 
-	cfg, err = config.LoadConfigFromPath(options.ConfigPath)
+	cfg, err := config.LoadConfigFromPath(options.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
 
-	logger := agent.NewLogger(false, false, false)
-
 	transport := agent.TransportType(cfg.Aggregator.Transport)
-	var endpoint string
-
-	if transport == agent.TransportStreamableHTTP {
-		endpoint = fmt.Sprintf("http://%s:%d/mcp", cfg.Aggregator.Host, cfg.Aggregator.Port)
-	} else if transport == agent.TransportSSE {
-		endpoint = fmt.Sprintf("http://%s:%d/sse", cfg.Aggregator.Host, cfg.Aggregator.Port)
-	} else {
+	switch transport {
+	case agent.TransportStreamableHTTP, agent.TransportSSE:
+		// Supported transports
+	default:
 		return nil, fmt.Errorf("unsupported transport: %s", cfg.Aggregator.Transport)
+	}
+
+	// Check if server is running first
+	endpoint, err := DetectAggregatorEndpointWithConfig(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect endpoint: %w", err)
+	}
+
+	if err := CheckServerRunning(endpoint); err != nil {
+		return nil, err
 	}
 
 	client := agent.NewClient(endpoint, logger, transport)
