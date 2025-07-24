@@ -124,7 +124,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	mcpServer := server.NewMCPServer(
 		"muster-aggregator",
 		"1.0.0",
-		server.WithToolCapabilities(true), // Enable tool execution
+		server.WithToolCapabilities(true),           // Enable tool execution
 		server.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		server.WithPromptCapabilities(true),         // Enable prompt retrieval
 	)
