@@ -329,11 +329,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	readyCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
-	// Give the process a moment to start
-	time.Sleep(2 * time.Second)
 
 	// First wait for port to be available
 	portReady := false
@@ -383,7 +380,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// If we can't connect to MCP, fall back to the old behavior
 			time.Sleep(3 * time.Second)
 			return nil
-		case <-time.After(1 * time.Second):
+		case <-time.After(100 * time.Millisecond):
 			err := mcpClient.Connect(connectCtx, instance.Endpoint)
 			if err == nil {
 				connected = true
@@ -425,7 +422,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		if len(expectedWorkflows) > 0 {
 			m.logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
 		}
-
 	}
 
 	// Wait for all expected resources to be available
@@ -433,7 +429,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	resourceCtx, resourceCancel := context.WithTimeout(readyCtx, resourceTimeout)
 	defer resourceCancel()
 
-	resourceTicker := time.NewTicker(2 * time.Second) // Reduced from 2s to 1s for more frequent checks
+	resourceTicker := time.NewTicker(100 * time.Millisecond)
 	defer resourceTicker.Stop()
 
 	for {
@@ -536,8 +532,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				if m.debug {
 					m.logger.Debug("✅ All expected resources are available!\n")
 				}
-				// Wait a little bit more to ensure everything is fully stable
-				time.Sleep(2 * time.Second)
+
 				return nil
 			}
 

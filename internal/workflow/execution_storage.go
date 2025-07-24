@@ -50,12 +50,10 @@ type ExecutionStorageImpl struct {
 // The storage follows the established precedence of project directory over
 // user directory and supports custom configuration paths for standalone mode.
 func NewExecutionStorage(configPath string) ExecutionStorage {
-	var storage *config.Storage
-	if configPath != "" {
-		storage = config.NewStorageWithPath(configPath)
-	} else {
-		storage = config.NewStorage()
+	if configPath == "" {
+		panic("Logic error: empty execution storage configPath")
 	}
+	storage := config.NewStorageWithPath(configPath)
 
 	return &ExecutionStorageImpl{
 		storage: storage,

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -74,7 +75,7 @@ func init() {
 	// Add flags to the command
 	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
-	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", "", "Custom configuration directory path")
+	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {

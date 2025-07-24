@@ -9,8 +9,6 @@ import (
 	"io"
 	"os"
 	"time"
-
-	"muster/internal/formatting"
 )
 
 // ANSI color codes for terminal output formatting
@@ -463,7 +461,11 @@ func (l *Logger) prettyJSON(v interface{}) string {
 	}
 
 	// Use the consolidated PrettyJSON for the actual formatting
-	return formatting.PrettyJSON(wrapper)
+	jsonData, err := json.MarshalIndent(wrapper, "", "    ")
+	if err != nil {
+		return ""
+	}
+	return string(jsonData)
 }
 
 // Write implements io.Writer for compatibility with other systems.

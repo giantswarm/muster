@@ -57,9 +57,7 @@ func (r *testReporter) ReportStart(config TestConfiguration) {
 		fmt.Printf("   • Verbose mode: %t\n", r.verbose)
 		fmt.Printf("   • Timeout: %v\n", config.Timeout)
 		fmt.Printf("   • Base port: %d\n", config.BasePort)
-		if config.ConfigPath != "" {
-			fmt.Printf("   • Config path: %s\n", config.ConfigPath)
-		}
+		fmt.Printf("   • Config path: %s\n", config.ConfigPath)
 		if config.ReportPath != "" {
 			fmt.Printf("   • Report path: %s\n", config.ReportPath)
 		}

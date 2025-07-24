@@ -14,16 +14,15 @@ import (
 // using a single configuration directory approach
 type Storage struct {
 	mu         sync.RWMutex
-	configPath string // Optional custom config path - when set, uses this path; otherwise uses default ~/.config/muster
-}
-
-// NewStorage creates a new Storage instance using the default configuration directory
-func NewStorage() *Storage {
-	return &Storage{}
+	configPath string
 }
 
 // NewStorageWithPath creates a new Storage instance with a custom config path
 func NewStorageWithPath(configPath string) *Storage {
+	if configPath == "" {
+		panic("Logic error: empty storage configPath")
+	}
+
 	return &Storage{
 		configPath: configPath,
 	}
@@ -45,10 +44,7 @@ func (ds *Storage) Save(entityType string, name string, data []byte) error {
 	defer ds.mu.Unlock()
 
 	// Resolve the target directory
-	targetDir, err := ds.resolveEntityDir(entityType)
-	if err != nil {
-		return fmt.Errorf("failed to resolve directory for entity type %s: %w", entityType, err)
-	}
+	targetDir := filepath.Join(ds.configPath, entityType)
 
 	// Ensure directory exists
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -81,14 +77,8 @@ func (ds *Storage) Load(entityType string, name string) ([]byte, error) {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 
-	// Get the configuration directory
-	configDir, err := ds.getConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration directory: %w", err)
-	}
-
 	// Load from the single configuration directory
-	filePath := filepath.Join(configDir, entityType, ds.sanitizeFilename(name)+".yaml")
+	filePath := filepath.Join(ds.configPath, entityType, ds.sanitizeFilename(name)+".yaml")
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -113,15 +103,9 @@ func (ds *Storage) Delete(entityType string, name string) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	// Get the configuration directory
-	configDir, err := ds.getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get configuration directory: %w", err)
-	}
-
 	// Delete from the single configuration directory
 	filename := ds.sanitizeFilename(name) + ".yaml"
-	filePath := filepath.Join(configDir, entityType, filename)
+	filePath := filepath.Join(ds.configPath, entityType, filename)
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return fmt.Errorf("entity %s/%s not found", entityType, name)
@@ -144,14 +128,8 @@ func (ds *Storage) List(entityType string) ([]string, error) {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
 
-	// Get the configuration directory
-	configDir, err := ds.getConfigDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get configuration directory: %w", err)
-	}
-
 	// List from the single configuration directory
-	entityPath := filepath.Join(configDir, entityType)
+	entityPath := filepath.Join(ds.configPath, entityType)
 	names, err := ds.listFilesInDirectory(entityPath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to list %s: %w", entityType, err)
@@ -159,25 +137,6 @@ func (ds *Storage) List(entityType string) ([]string, error) {
 
 	logging.Info("Storage", "Listed %d %s entities", len(names), entityType)
 	return names, nil
-}
-
-// getConfigDir returns the configuration directory to use
-func (ds *Storage) getConfigDir() (string, error) {
-	if ds.configPath != "" {
-		return ds.configPath, nil
-	}
-
-	return GetUserConfigDir()
-}
-
-// resolveEntityDir determines the target directory for saving
-func (ds *Storage) resolveEntityDir(entityType string) (string, error) {
-	configDir, err := ds.getConfigDir()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(configDir, entityType), nil
 }
 
 // listFilesInDirectory lists all .yaml files in a directory and returns their base names

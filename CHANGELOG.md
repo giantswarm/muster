@@ -161,6 +161,8 @@ All notable changes to this project will be documented in this file.
   - Added 1-second delay before restarting services to ensure ports are properly released
 
 ### Fixed
+- **Exit CLI on standalone server failure**
+  - When the mcp-aggregator service (server) fails, the CLI now terminates gracefully
 - **Port Forwarding State Issue**
   - Fixed issue where port forwarding services would get stuck in "Stopping" state
   - ServiceManager now properly reports the "Stopping" state before closing the stop channel
@@ -182,6 +184,7 @@ All notable changes to this project will be documented in this file.
   - When a K8s connection transitions to Failed state (e.g., due to network issues), all dependent services (port forwards and MCP servers) are now properly stopped
   - This prevents orphaned services from continuing to run when their underlying K8s connection is no longer healthy
   - Services will automatically restart when the K8s connection recovers
+- Set config directory early to avoid bugs handling the empty string (those should be fixed with this change as well)
 
 ### Documentation
 - Added comprehensive documentation about dependency graph implementation
@@ -217,6 +220,6 @@ All notable changes to this project will be documented in this file.
 
 ### Technical Details
 - Streamlined MCP server architecture by removing container support
-- Simplified MCP server lifecycle management 
+- Simplified MCP server lifecycle management
 
-## [0.6.0] - 2025-01-15 
+## [0.6.0] - 2025-01-15

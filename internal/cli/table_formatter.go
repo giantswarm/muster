@@ -132,7 +132,7 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	}
 
 	// Determine table type and optimize columns
-	columns := f.optimizeColumns(firstObj)
+	columns := f.optimizeColumns(data)
 	resourceType := f.detectResourceType(firstObj)
 
 	// Create professional table
@@ -180,17 +180,25 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 // selection logic.
 //
 // Args:
-//   - sample: Sample data object used to determine available columns
+//   - objects: Objects used to determine available columns
 //
 // Returns:
 //   - []string: Optimized list of column names for table display
-func (f *TableFormatter) optimizeColumns(sample map[string]interface{}) []string {
+func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	// Extract all available keys
 	var allKeys []string
-	for key := range sample {
-		allKeys = append(allKeys, key)
+	for _, obj := range objects {
+		castObj, ok := obj.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for key := range castObj {
+			allKeys = append(allKeys, key)
+		}
 	}
 	sort.Strings(allKeys)
+
+	sample := objects[0].(map[string]interface{})
 
 	// Always prioritize name/ID fields first
 	nameFields := []string{"name", "label", "id", "workflow"}

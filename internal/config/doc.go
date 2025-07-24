@@ -91,7 +91,6 @@
 //	    log.Fatal(err)
 //	}
 //
-//	// Load configuration from custom path
 //	cfg, err := config.LoadConfigFromPath("/custom/config/path")
 //	if err != nil {
 //	    log.Fatal(err)

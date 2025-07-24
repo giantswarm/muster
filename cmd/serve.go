@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"muster/internal/app"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -20,8 +21,7 @@ var serveSilent bool
 // When enabled, all MCP tools can be executed without restrictions.
 var serveYolo bool
 
-// configPath specifies a custom configuration directory path.
-// When set, loads all config from this directory instead of the default ~/.config/muster.
+// configPath specifies the configuration directory.
 // The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, serviceclasses/, services/
 var serveConfigPath string
 
@@ -44,11 +44,11 @@ muster agent --mcp-server
 
 Configuration:
   muster loads configuration from ~/.config/muster by default.
-  
+
   Use --config-path to specify a custom directory containing all configuration files:
   - config.yaml (main configuration)
   - mcpservers/ (MCP server definitions)
-  - workflows/ (workflow definitions)  
+  - workflows/ (workflow definitions)
 
   - serviceclasses/ (service class definitions)
   - services/ (service instance definitions)`,
@@ -84,5 +84,5 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
 	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
-	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", "", "Custom configuration directory path")
+	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 }

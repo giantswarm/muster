@@ -1,10 +1,12 @@
 package cli
 
 import (
-	"muster/internal/config"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"muster/internal/config"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -100,7 +102,8 @@ func TestCheckServerRunning_WithMockServer(t *testing.T) {
 			// or a more sophisticated mocking approach
 
 			// For now, just test that the function exists and can be called
-			err := CheckServerRunning()
+			endpoint, err := DetectAggregatorEndpoint()
+			err = CheckServerRunning(endpoint)
 			// The actual result depends on whether a real server is running
 			// but we can at least verify the function doesn't panic
 			_ = err // Ignore the actual result for unit tests
@@ -111,7 +114,8 @@ func TestCheckServerRunning_WithMockServer(t *testing.T) {
 func TestCheckServerRunning_ServerDown(t *testing.T) {
 	// Test with no server running - this will likely fail unless a server is actually running
 	// In a real test environment, we'd mock the HTTP client or use dependency injection
-	err := CheckServerRunning()
+	endpoint, err := DetectAggregatorEndpoint()
+	err = CheckServerRunning(endpoint)
 	// We can't assert the exact error without knowing the test environment
 	// but we can verify the function returns an error type
 	_ = err
@@ -137,8 +141,7 @@ func TestFormatError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatError(tt.err)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("Error: %v", tt.err))
 		})
 	}
 }
@@ -163,8 +166,7 @@ func TestFormatSuccess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatSuccess(tt.message)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("✓ %s", tt.message))
 		})
 	}
 }
@@ -189,8 +191,7 @@ func TestFormatWarning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatWarning(tt.message)
-			assert.Equal(t, tt.expected, result)
+			assert.Equal(t, tt.expected, fmt.Sprintf("⚠ %s", tt.message))
 		})
 	}
 }

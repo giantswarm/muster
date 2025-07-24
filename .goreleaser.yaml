@@ -126,9 +126,6 @@ release:
       name_template: muster_windows_amd64.exe
     - glob: ./dist/muster_windows_arm64*/muster.exe
       name_template: muster_windows_arm64.exe
-  # If set to true, will generate the release notes using github's api
-  # instead of using the changelog.
-  # Default is false.
 
 # Modelines
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj

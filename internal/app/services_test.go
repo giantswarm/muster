@@ -24,6 +24,7 @@ func TestInitializeServices(t *testing.T) {
 						Port:    0,
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			checkServices: func(t *testing.T, s *Services) {
@@ -49,6 +50,7 @@ func TestInitializeServices(t *testing.T) {
 						Host:    "localhost",
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			checkServices: func(t *testing.T, s *Services) {
@@ -68,6 +70,7 @@ func TestInitializeServices(t *testing.T) {
 						Host:    "",
 					},
 				},
+				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
 			checkServices: func(t *testing.T, s *Services) {
@@ -106,6 +109,7 @@ func TestInitializeServices_OrchestratorConfig(t *testing.T) {
 				Port: 9090,
 			},
 		},
+		ConfigPath: config.GetDefaultConfigPathOrPanic(),
 	}
 
 	// We can't easily test the full initialization without mocking orchestrator.New
@@ -129,6 +133,7 @@ func TestServices_Creation(t *testing.T) {
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{Enabled: false},
 		},
+		ConfigPath: config.GetDefaultConfigPathOrPanic(),
 	}
 
 	services, err := InitializeServices(cfg)
