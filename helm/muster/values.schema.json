@@ -239,6 +239,145 @@
       "type": "object",
       "description": "Affinity rules"
     },
+    "ciliumNetworkPolicy": {
+      "type": "object",
+      "description": "CiliumNetworkPolicy configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable CiliumNetworkPolicy creation"
+        },
+        "ingress": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable ingress rules"
+            },
+            "rules": {
+              "type": "array",
+              "description": "Ingress rules configuration",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "fromEntities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Entities that can connect (e.g., world, cluster)"
+                  },
+                  "toPorts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ports": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "port": {
+                                "type": "string",
+                                "description": "Port number"
+                              },
+                              "protocol": {
+                                "type": "string",
+                                "enum": ["TCP", "UDP"],
+                                "description": "Protocol"
+                              }
+                            },
+                            "required": ["port"]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "egress": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable egress rules"
+            },
+            "rules": {
+              "type": "array",
+              "description": "Egress rules configuration",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "toEntities": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Target entities (e.g., world, cluster, kube-dns)"
+                  },
+                  "toEndpoints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "matchLabels": {
+                          "type": "object",
+                          "description": "Label selector for endpoints"
+                        }
+                      }
+                    }
+                  },
+                  "toFQDNs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "matchName": {
+                          "type": "string",
+                          "description": "FQDN to match"
+                        }
+                      }
+                    }
+                  },
+                  "toPorts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ports": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "port": {
+                                "type": "string",
+                                "description": "Port number"
+                              },
+                              "protocol": {
+                                "type": "string",
+                                "enum": ["TCP", "UDP"],
+                                "description": "Protocol"
+                              }
+                            },
+                            "required": ["port"]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "muster": {
       "type": "object",
       "properties": {

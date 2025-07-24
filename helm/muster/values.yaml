@@ -129,6 +129,65 @@ tolerations: []
 
 affinity: {}
 
+# CiliumNetworkPolicy configuration
+ciliumNetworkPolicy:
+  # Enable CiliumNetworkPolicy creation
+  enabled: false
+  
+  # Ingress rules - allow traffic from external sources to muster
+  ingress:
+    enabled: true
+    rules:
+      # Allow ingress from world to muster service port
+      - fromEntities:
+          - "world"
+        toPorts:
+          - ports:
+              - port: "8090"
+                protocol: "TCP"
+      # Allow ingress from cluster for internal communication
+      - fromEntities:
+          - "cluster"
+        toPorts:
+          - ports:
+              - port: "8090"
+                protocol: "TCP"
+
+  # Egress rules - allow muster to communicate with external MCPServers
+  egress:
+    enabled: true
+    rules:
+      # Allow egress to world for remote MCPServers (HTTP/HTTPS)
+      - toEntities:
+          - "world"
+        toPorts:
+          - ports:
+              - port: "80"
+                protocol: "TCP"
+              - port: "443"
+                protocol: "TCP"
+      # Allow DNS resolution
+      - toEndpoints:                              
+        - matchLabels:                            
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: coredns
+        - matchLabels:                            
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: k8s-dns-node-cache
+        toPorts:                                  
+        - ports:                                  
+          - port: "53"                            
+            protocol: UDP                         
+          - port: "1053"                          
+            protocol: UDP                         
+          - port: "53"                            
+            protocol: TCP                         
+          - port: "1053"                          
+            protocol: TCP
+      # Allow communication within cluster (for Kubernetes API, other services)
+      - toEntities:
+          - "cluster"
+
 # Muster specific configuration
 muster:
   # Configuration for the aggregator service

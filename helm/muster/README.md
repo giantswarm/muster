@@ -114,6 +114,57 @@ helm install muster giantswarm/muster \
 | `ingress.hosts[0].host` | Hostname | `muster.local` | No |
 | `ingress.hosts[0].paths[0].path` | Path | `/` | No |
 
+### CiliumNetworkPolicy Configuration
+
+The chart includes optional CiliumNetworkPolicy support for fine-grained network access control in Cilium-enabled clusters. This is particularly useful for securing communication with external MCPServers and controlling access to the muster service.
+
+| Parameter | Description | Default | Required |
+|-----------|-------------|---------|----------|
+| `ciliumNetworkPolicy.enabled` | Enable CiliumNetworkPolicy creation | `false` | No |
+| `ciliumNetworkPolicy.ingress.enabled` | Enable ingress rules | `true` | No |
+| `ciliumNetworkPolicy.ingress.rules` | Array of ingress rules | See values.yaml | No |
+| `ciliumNetworkPolicy.egress.enabled` | Enable egress rules | `true` | No |
+| `ciliumNetworkPolicy.egress.rules` | Array of egress rules | See values.yaml | No |
+
+#### Example CiliumNetworkPolicy Configuration
+
+```yaml
+# Enable CiliumNetworkPolicy
+ciliumNetworkPolicy:
+  enabled: true
+  ingress:
+    enabled: true
+    rules:
+      # Allow external AI agents to connect
+      - fromEntities:
+          - "world"
+        toPorts:
+          - ports:
+              - port: "8090"
+                protocol: "TCP"
+  egress:
+    enabled: true
+    rules:
+      # Allow connection to external MCPServers
+      - toEntities:
+          - "world"
+        toPorts:
+          - ports:
+              - port: "443"
+                protocol: "TCP"
+      # Allow DNS resolution
+      - toEntities:
+          - "kube-dns"
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: "UDP"
+```
+
+The default configuration allows:
+- **Ingress**: Traffic from `world` and `cluster` to port 8090 (muster service)
+- **Egress**: HTTP/HTTPS traffic to external MCPServers, DNS resolution, and cluster communication
+
 ## Usage Examples
 
 ### Basic Deployment
