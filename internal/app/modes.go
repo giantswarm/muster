@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
-	"muster/pkg/logging"
 	"os"
 	"os/signal"
 	"syscall"
+
+	serv "muster/internal/services"
+	"muster/pkg/logging"
 )
 
 // run executes the application in non-interactive command line mode.
@@ -32,6 +34,21 @@ import (
 func runOrchestrator(ctx context.Context, services *Services) error {
 	logging.Info("CLI", "--- Setting up orchestrator for service management ---")
 
+	aggregatorFailed := false
+	sigChan := make(chan os.Signal, 1)
+	changeChan := services.Orchestrator.SubscribeToStateChanges()
+	go func() {
+		for change := range changeChan {
+			if change.Name == "mcp-aggregator" && serv.ServiceState(change.NewState) == serv.StateFailed {
+				logging.Info("CLI", "MCP Aggregator failed: %v", change)
+				aggregatorFailed = true
+				services.Orchestrator.Stop()
+				sigChan <- nil
+				break
+			}
+		}
+	}()
+
 	// Start all configured services
 	if err := services.Orchestrator.Start(ctx); err != nil {
 		logging.Error("CLI", err, "Failed to start orchestrator")
@@ -40,10 +57,11 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
 
-	// Wait for interrupt signal to gracefully shutdown
-	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	if !aggregatorFailed {
+		// Wait for interrupt signal or later service startup failure to gracefully shutdown
+		<-sigChan
+	}
 
 	// Graceful shutdown sequence
 	logging.Info("CLI", "\n--- Shutting down services ---")
