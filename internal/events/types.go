@@ -86,6 +86,22 @@ const (
 
 	// ReasonServiceClassValidationFailed indicates a ServiceClass validation failed.
 	ReasonServiceClassValidationFailed EventReason = "ServiceClassValidationFailed"
+
+	// Tool Availability Events
+	// ReasonServiceClassAvailable indicates all required tools became available (transitions to Available=true).
+	ReasonServiceClassAvailable EventReason = "ServiceClassAvailable"
+
+	// ReasonServiceClassUnavailable indicates required tools became unavailable (transitions to Available=false).
+	ReasonServiceClassUnavailable EventReason = "ServiceClassUnavailable"
+
+	// ReasonServiceClassToolsDiscovered indicates new required tools are discovered and available.
+	ReasonServiceClassToolsDiscovered EventReason = "ServiceClassToolsDiscovered"
+
+	// ReasonServiceClassToolsMissing indicates specific tools became unavailable.
+	ReasonServiceClassToolsMissing EventReason = "ServiceClassToolsMissing"
+
+	// ReasonServiceClassToolsRestored indicates previously missing tools became available again.
+	ReasonServiceClassToolsRestored EventReason = "ServiceClassToolsRestored"
 )
 
 // Workflow event reasons
@@ -177,6 +193,8 @@ func getEventType(reason EventReason) EventType {
 		ReasonMCPServerHealthCheckFailed,
 		ReasonMCPServerRecoveryFailed,
 		ReasonServiceClassValidationFailed,
+		ReasonServiceClassUnavailable,
+		ReasonServiceClassToolsMissing,
 		ReasonWorkflowExecutionFailed,
 		ReasonServiceInstanceFailed:
 		return EventTypeWarning
