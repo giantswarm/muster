@@ -4,7 +4,7 @@ MCP client for the Muster aggregator server with interactive and server modes.
 
 ## Synopsis
 
-```
+```bash
 muster agent [OPTIONS]
 ```
 
@@ -49,6 +49,7 @@ muster agent --mcp-server
 ## Options
 
 ### Connection Configuration
+
 - `--endpoint` (string): Aggregator MCP endpoint URL
   - Default: Auto-detected from configuration
   - Format: `http://localhost:8080/mcp` (streamable-http) or `http://localhost:8080/sse` (SSE)
@@ -61,6 +62,7 @@ muster agent --mcp-server
   - Format: `30s`, `5m`, `1h`
 
 ### Output and Logging
+
 - `--verbose`: Enable verbose logging including keepalive messages
   - Default: `false`
   - Shows detailed connection and operation information
@@ -72,11 +74,13 @@ muster agent --mcp-server
   - Shows complete protocol messages for debugging
 
 ### Configuration
+
 - `--config-path` (string): Custom configuration directory path
   - Default: `~/.config/muster`
   - Used for endpoint auto-detection
 
 ### Mode Selection
+
 - `--repl`: Start interactive REPL mode
   - Mutually exclusive with `--mcp-server`
 - `--mcp-server`: Run as MCP server (stdio transport)
@@ -85,6 +89,7 @@ muster agent --mcp-server
 ## Examples
 
 ### Basic Monitoring
+
 ```bash
 # Connect and monitor tool changes
 muster agent
@@ -97,6 +102,7 @@ muster agent --transport sse --verbose
 ```
 
 ### Interactive Exploration (REPL Mode)
+
 ```bash
 # Start interactive session
 muster agent --repl
@@ -113,6 +119,7 @@ muster agent --repl
 ```
 
 ### AI Assistant Integration
+
 ```bash
 # Run as MCP server for AI assistants
 muster agent --mcp-server
@@ -122,6 +129,7 @@ muster agent --mcp-server --endpoint http://localhost:8080/mcp
 ```
 
 ### Debug and Development
+
 ```bash
 # Custom configuration
 muster agent --config-path ./dev-config --debug
@@ -132,32 +140,38 @@ muster agent --config-path ./dev-config --debug
 When using `--repl` mode, the following commands are available:
 
 ### Information Commands
+
 - `help`, `?` - Show command help
 - `list tools` - List all available tools
-- `list resources` - List all available resources  
+- `list resources` - List all available resources
 - `list prompts` - List all available prompts
 - `list workflows` - List workflows with parameters
 - `list core-tools` - List built-in Muster tools
 
 ### Tool Interaction
+
 - `describe tool <name>` - Show detailed tool information
 - `call <tool> {json}` - Execute tool with JSON arguments
 - `filter tools [pattern] [desc] [case] [detailed]` - Filter tools by criteria
 
 ### Resource Management
+
 - `describe resource <uri>` - Show resource details
 - `get <resource-uri>` - Retrieve resource content
 
 ### Workflow Execution
+
 - `workflow <name> [param=val]` - Execute workflow with parameters
 - `describe prompt <name>` - Show prompt details
 - `prompt <name> {json}` - Execute prompt with arguments
 
 ### Session Control
+
 - `notifications <on|off>` - Toggle notification display
 - `exit`, `quit` - Exit the REPL
 
 ### Keyboard Shortcuts
+
 - `TAB` - Auto-complete commands and arguments
 - `↑/↓` - Navigate command history
 - `Ctrl+R` - Search command history
@@ -166,6 +180,7 @@ When using `--repl` mode, the following commands are available:
 ## Transport Types
 
 ### streamable-http (Server-Sent Events) - Recommended
+
 Real-time bidirectional communication with full notification support:
 
 ```bash
@@ -173,18 +188,21 @@ muster agent --transport sse
 ```
 
 **Features:**
+
 - Persistent connection for continuous monitoring
 - Real-time notifications of tool/resource changes
 - Ideal for interactive use and development
 - Event streaming for immediate updates
 
 **Use Cases:**
+
 - Interactive REPL sessions
 - AI assistant integration
 - Development and debugging
 - Real-time monitoring
 
 ### Streamable HTTP - Compatibility
+
 Request-response pattern for restricted environments:
 
 ```bash
@@ -192,12 +210,14 @@ muster agent --transport streamable-http
 ```
 
 **Features:**
+
 - No persistent connection
 - Stateless operations
 - Better for automation scripts
 - Compatible with restrictive network environments
 
 **Use Cases:**
+
 - CLI automation scripts
 - Batch processing
 - Network-restricted environments
@@ -206,6 +226,7 @@ muster agent --transport streamable-http
 ## Configuration
 
 ### Endpoint Auto-Detection
+
 The agent automatically detects the aggregator endpoint from configuration:
 
 ```yaml
@@ -216,6 +237,7 @@ aggregator:
 ```
 
 ### Override via Environment
+
 ```bash
 export MUSTER_ENDPOINT="http://localhost:9090"
 muster agent
@@ -224,6 +246,7 @@ muster agent
 ## AI Assistant Integration
 
 ### Cursor/VSCode Configuration
+
 Add to your MCP settings:
 
 ```json
@@ -239,6 +262,7 @@ Add to your MCP settings:
 ```
 
 ### Claude Desktop Configuration
+
 Add to `claude_desktop_config.json`:
 
 ```json
@@ -253,11 +277,12 @@ Add to `claude_desktop_config.json`:
 ```
 
 ### Custom Endpoint
+
 ```json
 {
   "mcpServers": {
     "muster": {
-      "command": "muster", 
+      "command": "muster",
       "args": ["agent", "--mcp-server", "--endpoint", "http://remote-server:8080/sse"]
     }
   }
@@ -286,6 +311,7 @@ When running in `--mcp-server` mode, the following tools are exposed:
 ## Error Handling
 
 ### Connection Errors
+
 ```bash
 # Server not running
 muster agent
@@ -296,6 +322,7 @@ muster serve  # In another terminal
 ```
 
 ### Transport Issues
+
 ```bash
 # SSE not supported
 muster agent --transport sse
@@ -306,6 +333,7 @@ muster agent --transport streamable-http
 ```
 
 ### Endpoint Detection
+
 ```bash
 # Configuration not found
 muster agent
@@ -328,6 +356,7 @@ muster agent --endpoint http://localhost:8080/mcp
 ## Troubleshooting
 
 ### Connection Issues
+
 ```bash
 # Test connection manually
 curl http://localhost:8080/api/v1/status
@@ -340,6 +369,7 @@ cat ~/.config/muster/config.yaml
 ```
 
 ### REPL Issues
+
 ```bash
 # Enable verbose mode for debugging
 muster agent --repl --verbose --json-rpc
@@ -349,12 +379,14 @@ muster agent --repl --verbose --json-rpc
 ```
 
 ### MCP Server Mode Issues
+
 ```bash
 # Test MCP server locally
 echo '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}}}' | muster agent --mcp-server
 ```
 
 ### Performance Issues
+
 ```bash
 # Use streamable-http for better performance in some cases
 muster agent --transport streamable-http
@@ -373,6 +405,7 @@ muster agent --timeout 10m
 ## Advanced Usage
 
 ### Scripting with Agent
+
 ```bash
 # Get tools list programmatically
 muster agent --transport streamable-http --timeout 30s
@@ -382,6 +415,7 @@ muster agent --transport sse --verbose > agent.log 2>&1 &
 ```
 
 ### Development Workflows
+
 ```bash
 # Development with debug output
 muster agent --repl --verbose --json-rpc --transport sse
@@ -391,7 +425,8 @@ muster agent --config-path ./test-config --endpoint http://test:8080/sse
 ```
 
 ### AI Assistant Debugging
+
 ```bash
 # Test MCP server mode manually
 muster agent --mcp-server --verbose --json-rpc > mcp-debug.log 2>&1
-``` 
+```
