@@ -7,8 +7,9 @@
 // # MCP Server Types
 //
 // Currently supported MCP server types:
-//   - **Local**: Execute MCP servers as local processes with configurable command lines
-//   - **Remote**: Connect to external MCP servers via HTTP or SSE transports
+//   - **Stdio**: Execute MCP servers as local processes with configurable command lines
+//   - **Streamable-HTTP**: Connect to external MCP servers via HTTP transport
+//   - **SSE**: Connect to external MCP servers via Server-Sent Events transport
 //
 // # Configuration Structure
 //
@@ -25,24 +26,23 @@
 //	spec:
 //	  description: Example MCP server for demonstration
 //	  toolPrefix: example
-//	  type: local
-//	  local:
-//	    autoStart: true
-//	    command:
-//	      - "npx"
-//	      - "@modelcontextprotocol/server-filesystem"
-//	      - "/workspace"
-//	    env:
-//	      DEBUG: "1"
+//	  type: stdio
+//	  autoStart: true
+//	  command: npx
+//	  args:
+//	    - "@modelcontextprotocol/server-filesystem"
+//	    - "/workspace"
+//	  env:
+//	    DEBUG: "1"
 //
 // For remote servers:
 //
 //	spec:
-//	  type: remote
-//	  remote:
-//	    endpoint: "https://api.example.com/mcp"
-//	    transport: "http"
-//	    timeout: 30
+//	  type: streamable-http
+//	  url: "https://api.example.com/mcp"
+//	  timeout: 30
+//	  headers:
+//	    Authorization: "Bearer token"
 //
 // # Static Configuration
 //
@@ -51,7 +51,7 @@
 //
 // Static configuration example:
 //
-//	# Local server example
+//	# Stdio server example
 //	---
 //	apiVersion: muster.giantswarm.io/v1alpha1
 //	kind: MCPServer
@@ -60,10 +60,10 @@
 //	spec:
 //	  description: File system operations
 //	  toolPrefix: fs
-//	  type: local
-//	  local:
-//	    autoStart: true
-//	    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+//	  type: stdio
+//	  autoStart: true
+//	  command: npx
+//	  args: ["@modelcontextprotocol/server-filesystem", "/workspace"]
 //
 //	# Remote server example
 //	---
@@ -72,51 +72,43 @@
 //	metadata:
 //	  name: remote-api
 //	spec:
-//	  description: Remote API server
+//	  description: Remote API tools
 //	  toolPrefix: api
-//	  type: remote
-//	  remote:
-//	    endpoint: "https://api.example.com/mcp"
-//	    transport: "http"
-//	    timeout: 30
+//	  type: streamable-http
+//	  url: "https://api.example.com/mcp"
+//	  timeout: 60
+//	  headers:
+//	    Authorization: "Bearer token"
 //
 // # Dynamic Management
 //
-// MCP servers can also be created, updated, and deleted dynamically using the API tools
-// provided by this package. The API adapter exposes the following tools:
+// MCP servers can also be created, updated, and deleted dynamically through the muster API.
+// This enables runtime configuration changes and programmatic server management.
 //
-//   - mcpserver_list: List all configured MCP servers
-//   - mcpserver_get: Get details of a specific MCP server
-//   - mcpserver_create: Create a new MCP server definition
-//   - mcpserver_update: Update an existing MCP server
-//   - mcpserver_delete: Remove an MCP server definition
-//   - mcpserver_validate: Validate a server configuration without creating it
+// API operations include:
+//   - Create: Register new MCP server definitions
+//   - Update: Modify existing server configurations
+//   - Delete: Remove server definitions
+//   - List: Retrieve all configured servers
+//   - Get: Fetch specific server details
+//   - Validate: Check server configuration validity
 //
-// # Tool Integration
+// # Lifecycle Management
 //
-// Created MCP servers are automatically registered with the aggregator, making their tools
-// available through the unified muster tool interface. Tool names are automatically prefixed
-// using the configured toolPrefix to avoid naming conflicts.
+// The package handles the complete lifecycle of MCP servers:
+//   - **Registration**: Adding server definitions to the system
+//   - **Validation**: Ensuring configuration correctness
+//   - **Instantiation**: Creating service instances
+//   - **Startup**: Initializing server processes or connections
+//   - **Monitoring**: Tracking server health and status
+//   - **Shutdown**: Graceful termination of server instances
 //
-// # Architecture
+// # Integration Points
 //
-// The mcpserver package follows the standard muster architectural patterns:
-//
-//   - **API Adapter**: Implements the MCPServerManagerHandler interface and exposes
-//     management tools through the ToolProvider interface
-//   - **Unified Client**: Uses the muster unified client for both Kubernetes CRD
-//     operations and filesystem-based configuration management
-//   - **Service Integration**: MCP servers are managed as services by the orchestrator,
-//     handling lifecycle, health monitoring, and dependency management
-//
-// # Error Handling
-//
-// The package provides comprehensive error handling with specific error types for
-// common scenarios such as server not found, invalid configuration, and lifecycle
-// management failures. All errors include contextual information for debugging.
-//
-// # Thread Safety
-//
-// All operations in this package are thread-safe and can be called concurrently.
-// The underlying unified client handles synchronization and ensures data consistency.
+// This package integrates with several muster components:
+//   - **Aggregator**: Registers tools provided by MCP servers
+//   - **Service Registry**: Manages server lifecycle as services
+//   - **Configuration System**: Loads static server definitions
+//   - **API Layer**: Exposes management operations as tools
+//   - **Orchestrator**: Coordinates server startup and dependencies
 package mcpserver

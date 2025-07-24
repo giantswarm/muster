@@ -105,22 +105,22 @@ type ServiceClassValidateRequest struct {
 // MCPServer Request Types
 
 // MCPServerCreateRequest represents a request to create a new MCP server definition.
-// This request supports both local and remote MCP servers with type-specific configuration.
+// This request defines the structure and configuration for various types of MCP servers,
+// allowing for flexible deployment and management of MCP capabilities.
 //
-// Supports local command MCP servers that execute local command/process and remote
+// Supports stdio command MCP servers that execute local command/process and remote
 // MCP servers that connect to external endpoints.
 //
-// Example for local command:
+// Example for stdio command:
 //
 //	request := MCPServerCreateRequest{
 //	    Name: "git-tools",
-//	    Type: "local",
-//	    Local: &MCPServerLocalConfig{
-//	        AutoStart: true,
-//	        Command: []string{"npx", "@modelcontextprotocol/server-git"},
-//	        Env: map[string]string{
-//	            "GIT_ROOT": "/workspace",
-//	        },
+//	    Type: "stdio",
+//	    Command: "npx",
+//	    Args: []string{"@modelcontextprotocol/server-git"},
+//	    AutoStart: true,
+//	    Env: map[string]string{
+//	        "GIT_ROOT": "/workspace",
 //	    },
 //	}
 //
@@ -128,11 +128,11 @@ type ServiceClassValidateRequest struct {
 //
 //	request := MCPServerCreateRequest{
 //	    Name: "remote-tools",
-//	    Type: "remote",
-//	    Remote: &MCPServerRemoteConfig{
-//	        Endpoint: "https://api.example.com/mcp",
-//	        Transport: "http",
-//	        Timeout: 30,
+//	    Type: "streamable-http",
+//	    URL: "https://api.example.com/mcp",
+//	    Timeout: 30,
+//	    Headers: map[string]string{
+//	        "Authorization": "Bearer token",
 //	    },
 //	}
 
@@ -141,7 +141,7 @@ type MCPServerCreateRequest struct {
 	Name string `json:"name" validate:"required"`
 
 	// Type specifies the MCP server type (required).
-	// Valid values: "local", "remote"
+	// Valid values: "stdio", "streamable-http", "sse"
 	Type string `json:"type" validate:"required"`
 
 	// ToolPrefix is prepended to all tool names from this server to avoid conflicts.
@@ -151,11 +151,30 @@ type MCPServerCreateRequest struct {
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
-	Local *MCPServerLocalConfig `json:"local,omitempty"`
+	// AutoStart determines whether this MCP server should be automatically started
+	AutoStart bool `json:"autoStart,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote)
-	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
+	// Command specifies the executable path for stdio type servers.
+	// This field is required when Type is "stdio".
+	Command string `json:"command,omitempty"`
+
+	// Args specifies the command line arguments for stdio type servers.
+	// This field is only available when Type is "stdio".
+	Args []string `json:"args,omitempty"`
+
+	// URL is the endpoint where the remote MCP server can be reached
+	// This field is required when Type is "streamable-http" or "sse".
+	URL string `json:"url,omitempty"`
+
+	// Env contains environment variables to set for the MCP server.
+	Env map[string]string `json:"env,omitempty"`
+
+	// Headers contains HTTP headers to send with requests to remote MCP servers.
+	// This field is only relevant when Type is "streamable-http" or "sse".
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Timeout specifies the connection timeout for remote operations (in seconds)
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -173,11 +192,26 @@ type MCPServerUpdateRequest struct {
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
-	Local *MCPServerLocalConfig `json:"local,omitempty"`
+	// AutoStart determines whether this MCP server should be automatically started
+	AutoStart bool `json:"autoStart,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote)
-	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
+	// Command specifies the executable path for stdio type servers.
+	Command string `json:"command,omitempty"`
+
+	// Args specifies the command line arguments for stdio type servers.
+	Args []string `json:"args,omitempty"`
+
+	// URL is the endpoint where the remote MCP server can be reached
+	URL string `json:"url,omitempty"`
+
+	// Env contains environment variables to set for the MCP server.
+	Env map[string]string `json:"env,omitempty"`
+
+	// Headers contains HTTP headers to send with requests to remote MCP servers.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Timeout specifies the connection timeout for remote operations (in seconds)
+	Timeout int `json:"timeout,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -192,11 +226,26 @@ type MCPServerValidateRequest struct {
 	// ToolPrefix for validation.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
-	Local *MCPServerLocalConfig `json:"local,omitempty"`
+	// AutoStart determines whether this MCP server should be automatically started
+	AutoStart bool `json:"autoStart,omitempty"`
 
-	// Remote contains configuration for remote MCP servers (type=remote)
-	Remote *MCPServerRemoteConfig `json:"remote,omitempty"`
+	// Command specifies the executable path for stdio type servers.
+	Command string `json:"command,omitempty"`
+
+	// Args specifies the command line arguments for stdio type servers.
+	Args []string `json:"args,omitempty"`
+
+	// URL is the endpoint where the remote MCP server can be reached
+	URL string `json:"url,omitempty"`
+
+	// Env contains environment variables to set for the MCP server.
+	Env map[string]string `json:"env,omitempty"`
+
+	// Headers contains HTTP headers to send with requests to remote MCP servers.
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// Timeout specifies the connection timeout for remote operations (in seconds)
+	Timeout int `json:"timeout,omitempty"`
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`

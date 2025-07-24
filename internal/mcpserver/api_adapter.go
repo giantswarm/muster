@@ -96,31 +96,21 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Name:        server.ObjectMeta.Name,
 		Type:        server.Spec.Type,
 		Description: server.Spec.Description,
+		ToolPrefix:  server.Spec.ToolPrefix,
+		AutoStart:   server.Spec.AutoStart,
+		Command:     server.Spec.Command,
+		Args:        server.Spec.Args,
+		URL:         server.Spec.URL,
+		Env:         server.Spec.Env,
+		Headers:     server.Spec.Headers,
+		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
-	}
-
-	// Handle local configuration
-	if server.Spec.Type == "local" && server.Spec.Local != nil {
-		info.Local = &api.MCPServerLocalConfig{
-			AutoStart: server.Spec.Local.AutoStart,
-			Command:   server.Spec.Local.Command,
-			Env:       server.Spec.Local.Env,
-		}
-	}
-
-	// Handle remote configuration
-	if server.Spec.Type == "remote" && server.Spec.Remote != nil {
-		info.Remote = &api.MCPServerRemoteConfig{
-			Endpoint:  server.Spec.Remote.Endpoint,
-			Transport: server.Spec.Remote.Transport,
-			Timeout:   server.Spec.Remote.Timeout,
-		}
 	}
 
 	return info
 }
 
-// convertRequestToCRD converts a request to a MCPServer CRD using the nested structure
+// convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
 func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
 	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
@@ -135,25 +125,14 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Type:        req.Type,
 			ToolPrefix:  req.ToolPrefix,
 			Description: req.Description,
+			AutoStart:   req.AutoStart,
+			Command:     req.Command,
+			Args:        req.Args,
+			URL:         req.URL,
+			Env:         req.Env,
+			Headers:     req.Headers,
+			Timeout:     req.Timeout,
 		},
-	}
-
-	// Handle local configuration
-	if req.Type == "local" && req.Local != nil {
-		crd.Spec.Local = &musterv1alpha1.MCPServerLocalSpec{
-			AutoStart: req.Local.AutoStart,
-			Command:   req.Local.Command,
-			Env:       req.Local.Env,
-		}
-	}
-
-	// Handle remote configuration
-	if req.Type == "remote" && req.Remote != nil {
-		crd.Spec.Remote = &musterv1alpha1.MCPServerRemoteSpec{
-			Endpoint:  req.Remote.Endpoint,
-			Transport: req.Remote.Transport,
-			Timeout:   req.Remote.Timeout,
-		}
 	}
 
 	return crd
@@ -473,8 +452,13 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
 		Description: req.Description,
-		Local:       req.Local,
-		Remote:      req.Remote,
+		AutoStart:   req.AutoStart,
+		Command:     req.Command,
+		Args:        req.Args,
+		URL:         req.URL,
+		Env:         req.Env,
+		Headers:     req.Headers,
+		Timeout:     req.Timeout,
 	})
 
 	// Basic validation (more comprehensive validation would be done by the CRD schema)
@@ -532,8 +516,13 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
 		Description: req.Description,
-		Local:       req.Local,
-		Remote:      req.Remote,
+		AutoStart:   req.AutoStart,
+		Command:     req.Command,
+		Args:        req.Args,
+		URL:         req.URL,
+		Env:         req.Env,
+		Headers:     req.Headers,
+		Timeout:     req.Timeout,
 	})); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
@@ -558,40 +547,24 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	if req.Description != "" {
 		existing.Spec.Description = req.Description
 	}
-
-	// Handle local configuration updates
-	if req.Type == "local" || existing.Spec.Type == "local" {
-		if existing.Spec.Local == nil {
-			existing.Spec.Local = &musterv1alpha1.MCPServerLocalSpec{}
-		}
-		if req.Local != nil {
-			existing.Spec.Local.AutoStart = req.Local.AutoStart
-			if req.Local.Command != nil {
-				existing.Spec.Local.Command = req.Local.Command
-			}
-			if req.Local.Env != nil {
-				existing.Spec.Local.Env = req.Local.Env
-			}
-		}
+	existing.Spec.AutoStart = req.AutoStart
+	if req.Command != "" {
+		existing.Spec.Command = req.Command
 	}
-
-	// Handle remote configuration updates
-	if req.Type == "remote" || existing.Spec.Type == "remote" {
-		if existing.Spec.Remote == nil {
-			existing.Spec.Remote = &musterv1alpha1.MCPServerRemoteSpec{}
-		}
-
-		if req.Remote != nil {
-			if req.Remote.Endpoint != "" {
-				existing.Spec.Remote.Endpoint = req.Remote.Endpoint
-			}
-			if req.Remote.Transport != "" {
-				existing.Spec.Remote.Transport = req.Remote.Transport
-			}
-			if req.Remote.Timeout > 0 {
-				existing.Spec.Remote.Timeout = req.Remote.Timeout
-			}
-		}
+	if req.Args != nil {
+		existing.Spec.Args = req.Args
+	}
+	if req.URL != "" {
+		existing.Spec.URL = req.URL
+	}
+	if req.Env != nil {
+		existing.Spec.Env = req.Env
+	}
+	if req.Headers != nil {
+		existing.Spec.Headers = req.Headers
+	}
+	if req.Timeout > 0 {
+		existing.Spec.Timeout = req.Timeout
 	}
 
 	// Validate the definition
@@ -636,32 +609,19 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	}
 
 	switch server.Spec.Type {
-	case "local":
-		if server.Spec.Local == nil {
-			return fmt.Errorf("local configuration is required for local type")
+	case "stdio":
+		if server.Spec.Command == "" {
+			return fmt.Errorf("command is required for stdio type")
 		}
-		if len(server.Spec.Local.Command) == 0 {
-			return fmt.Errorf("command is required for local type")
+	case "streamable-http", "sse":
+		if server.Spec.URL == "" {
+			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
-	case "remote":
-		if server.Spec.Remote == nil {
-			return fmt.Errorf("remote configuration is required for remote type")
-		}
-		if server.Spec.Remote.Endpoint == "" {
-			return fmt.Errorf("endpoint is required for remote type")
-		}
-		if server.Spec.Remote.Transport == "" {
-			return fmt.Errorf("transport is required for remote type")
-		}
-		// Validate transport type
-		switch server.Spec.Remote.Transport {
-		case "http", "sse":
-			// Valid transport types
-		default:
-			return fmt.Errorf("unsupported transport type: %s (supported: http, sse)", server.Spec.Remote.Transport)
+		if server.Spec.Timeout == 0 {
+			return fmt.Errorf("timeout is required for remote types")
 		}
 	default:
-		return fmt.Errorf("unsupported type: %s (supported: local, remote)", server.Spec.Type)
+		return fmt.Errorf("unsupported type: %s (supported: stdio, streamable-http, sse)", server.Spec.Type)
 	}
 
 	return nil

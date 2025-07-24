@@ -357,8 +357,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		mcpServerType := args[1]
 		mcpServerName := args[2]
 
-		if mcpServerType != "local" && mcpServerType != "remote" {
-			return fmt.Errorf("MCPServer type must be 'local' or 'remote', got: %s", mcpServerType)
+		if mcpServerType != "stdio" && mcpServerType != "streamable-http" && mcpServerType != "sse" {
+			return fmt.Errorf("MCPServer type must be 'stdio', 'streamable-http', or 'sse', got: %s", mcpServerType)
 		}
 
 		// Parse MCPServer-specific parameters from command line arguments

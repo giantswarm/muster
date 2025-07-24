@@ -9,8 +9,9 @@ type MusterConfig struct {
 type MCPServerType string
 
 const (
-	MCPServerTypeLocal  MCPServerType = "local"
-	MCPServerTypeRemote MCPServerType = "remote"
+	MCPServerTypeStdio          MCPServerType = "stdio"
+	MCPServerTypeStreamableHTTP MCPServerType = "streamable-http"
+	MCPServerTypeSSE            MCPServerType = "sse"
 )
 
 const (

@@ -7,9 +7,9 @@ import (
 // MCPServerSpec defines the desired state of MCPServer
 type MCPServerSpec struct {
 	// Type specifies how this MCP server should be executed.
-	// Supported values: "local" for local processes, "remote" for remote MCP servers
+	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=local;remote
+	// +kubebuilder:validation:Enum=stdio;streamable-http;sse
 	Type string `json:"type" yaml:"type"`
 
 	// ToolPrefix is an optional prefix that will be prepended to all tool names
@@ -22,46 +22,33 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:MaxLength=500
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 
-	// Local contains configuration for local MCP servers (type=local)
-	// +kubebuilder:validation:Optional
-	Local *MCPServerLocalSpec `json:"local,omitempty" yaml:"local,omitempty"`
-
-	// Remote contains configuration for remote MCP servers (type=remote)
-	// +kubebuilder:validation:Optional
-	Remote *MCPServerRemoteSpec `json:"remote,omitempty" yaml:"remote,omitempty"`
-}
-
-// MCPServerLocalSpec defines configuration for local MCP servers
-type MCPServerLocalSpec struct {
 	// AutoStart determines whether this MCP server should be automatically started
 	// when the muster system initializes or when dependencies become available.
 	// +kubebuilder:default=false
 	AutoStart bool `json:"autoStart,omitempty" yaml:"autoStart,omitempty"`
 
-	// Command specifies the command line arguments for local type servers.
-	// The first element is the executable path, followed by command line arguments.
-	// This field is required when Type is "local".
-	// +kubebuilder:validation:MinItems=1
-	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
+	// Command specifies the executable path for stdio type servers.
+	// This field is required when Type is "stdio".
+	Command string `json:"command,omitempty" yaml:"command,omitempty"`
 
-	// Env contains environment variables to set for local type servers.
-	// These are passed to the process when it is started.
-	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-}
+	// Args specifies the command line arguments for stdio type servers.
+	// This field is only available when Type is "stdio".
+	Args []string `json:"args,omitempty" yaml:"args,omitempty"`
 
-// MCPServerRemoteSpec defines configuration for remote MCP servers
-type MCPServerRemoteSpec struct {
-	// Endpoint is the URL where the remote MCP server can be reached
+	// URL is the endpoint where the remote MCP server can be reached
+	// This field is required when Type is "streamable-http" or "sse".
 	// Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
-	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern=`^https?://[^\s/$.?#].[^\s]*$`
-	Endpoint string `json:"endpoint" yaml:"endpoint"`
+	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 
-	// Transport specifies the protocol used to communicate with the remote server
-	// Supported values: "http" (for HTTP/HTTPS), "sse" (Server-Sent Events), "websocket"
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=http;sse;websocket
-	Transport string `json:"transport" yaml:"transport"`
+	// Env contains environment variables to set for the MCP server.
+	// For stdio servers, these are passed to the process when it is started.
+	// For remote servers, these can be used for authentication or configuration.
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+
+	// Headers contains HTTP headers to send with requests to remote MCP servers.
+	// This field is only relevant when Type is "streamable-http" or "sse".
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	// +kubebuilder:default=30
@@ -94,14 +81,15 @@ type MCPServerStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=mcps
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
-// +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".spec.remote.endpoint"
-// +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.local.autoStart"
+// +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
+// +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.autoStart"
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state"
 // +kubebuilder:printcolumn:name="Health",type="string",JSONPath=".status.health"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:validation:XValidation:rule="(self.type == 'local' && has(self.local) && !has(self.remote)) || (self.type == 'remote' && has(self.remote) && !has(self.local))",message="exactly one of local or remote configuration must be specified based on type"
-// +kubebuilder:validation:XValidation:rule="self.type != 'remote' || (has(self.remote) && has(self.remote.transport))",message="transport is required when type is remote"
-// +kubebuilder:validation:XValidation:rule="self.type != 'local' || (has(self.local) && size(self.local.command) > 0)",message="command is required when type is local"
+// +kubebuilder:validation:XValidation:rule="self.type != 'stdio' || has(self.command)",message="command is required when type is stdio"
+// +kubebuilder:validation:XValidation:rule="self.type == 'stdio' || has(self.url)",message="url is required when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.type == 'stdio' || !has(self.args)",message="args field is only allowed when type is stdio"
+// +kubebuilder:validation:XValidation:rule="self.type == 'stdio' || !has(self.headers)",message="headers field is only allowed when type is streamable-http or sse"
 
 // MCPServer is the Schema for the mcpservers API
 type MCPServer struct {
