@@ -2,7 +2,7 @@ apiVersion: v2
 name: muster
 description: A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
 type: application
-version: 0.0.45
+version: 0.0.1
 appVersion: "0.0.45"
 home: https://github.com/giantswarm/muster
 icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
