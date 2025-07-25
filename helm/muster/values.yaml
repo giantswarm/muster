@@ -201,6 +201,10 @@ muster:
   # Configuration path inside the container
   configPath: "/config"
 
+  # Namespace for MCPServer, ServiceClass and Workflow discovery
+  # Defaults to the release namespace if not set
+  namespace: ""
+
   # Debug mode
   debug: false
 

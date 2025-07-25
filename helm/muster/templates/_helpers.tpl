@@ -79,4 +79,5 @@ aggregator:
   transport: {{ .Values.muster.aggregator.transport | quote }}
   enabled: {{ .Values.muster.aggregator.enabled }}
   musterPrefix: {{ .Values.muster.aggregator.musterPrefix | quote }}
+namespace: {{ .Values.muster.namespace | default .Release.Namespace | quote }}
 {{- end }}
