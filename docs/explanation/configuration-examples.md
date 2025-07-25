@@ -30,7 +30,7 @@ metadata:
   name: kubernetes
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
   autoStart: true
   command: ["mcp-kubernetes"]
   description: "Kubernetes cluster management MCP server"
@@ -44,7 +44,7 @@ metadata:
   name: teleport
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
   autoStart: true
   command: ["mcp-teleport"]
   description: "Teleport authentication and access management"
@@ -58,16 +58,16 @@ metadata:
   name: prometheus
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
   autoStart: true
   command: ["mcp-prometheus", "--config", "/etc/prometheus/config.yaml"]
-  description: "Prometheus metrics collection and querying"
   env:
     PROMETHEUS_URL: "http://localhost:9090"
+  description: "Prometheus metrics collection and querying"
 ```
 
 **Pattern Analysis:**
-- **Consistent Structure**: All use `localCommand` type with auto-start
+- **Consistent Structure**: All use `stdio` type with auto-start
 - **Simple Commands**: Minimal arguments, delegating configuration to the MCP servers
 - **Environment Variables**: Used for runtime configuration (URLs, tokens)
 - **Descriptive Metadata**: Clear descriptions for tool discovery

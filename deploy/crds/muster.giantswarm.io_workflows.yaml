@@ -20,7 +20,7 @@ spec:
     - jsonPath: .status.available
       name: Available
       type: boolean
-    - jsonPath: .spec.steps[*]
+    - jsonPath: .spec.steps[*].id
       name: Steps
       type: integer
     - jsonPath: .metadata.creationTimestamp
