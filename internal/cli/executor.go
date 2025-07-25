@@ -87,7 +87,13 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 
 	// Check if server is running first
 	endpoint := GetAggregatorEndpoint(&cfg)
+
 	if err := CheckServerRunning(endpoint); err != nil {
+		// verify systemd user socket activation config (if any)
+		if CheckEndpointSystemdSocket(&cfg) == false {
+			return nil, fmt.Errorf("enabled systemd muster.socket doesn't match configured endpoint %s. Please check your config in %s", endpoint, options.ConfigPath)
+		}
+
 		return nil, err
 	}
 
