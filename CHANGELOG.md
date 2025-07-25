@@ -125,6 +125,7 @@ All notable changes to this project will be documented in this file.
   - Added [Troubleshooting Guide](docs/troubleshooting.md) with common issues and solutions
   - Enhanced development documentation with recent architectural improvements
   - Documented dependency management, state management, and message flow in detail
+- Make muster CRs discovery's namespace configurable.
 
 ### Changed
 - **Service Manager Refactoring**

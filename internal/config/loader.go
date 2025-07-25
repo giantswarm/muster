@@ -97,5 +97,10 @@ func mergeConfigs(base, overlay MusterConfig) MusterConfig {
 	// Merge Enabled field - only if explicitly set in overlay
 	mergedConfig.Aggregator.Enabled = overlay.Aggregator.Enabled
 
+	// Merge namespace
+	if overlay.Namespace != "" {
+		mergedConfig.Namespace = overlay.Namespace
+	}
+
 	return mergedConfig
 }
