@@ -3,13 +3,16 @@ package config
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
+	Namespace  string           `yaml:"namespace,omitempty"` // Namespace for MCPServer, ServiceClass and Workflow discovery
 }
 
 // MCPServerType defines the type of MCP server.
 type MCPServerType string
 
 const (
-	MCPServerTypeLocalCommand MCPServerType = "localCommand"
+	MCPServerTypeStdio          MCPServerType = "stdio"
+	MCPServerTypeStreamableHTTP MCPServerType = "streamable-http"
+	MCPServerTypeSSE            MCPServerType = "sse"
 )
 
 const (

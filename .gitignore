@@ -1,4 +1,4 @@
-./muster
+./muster*
 dist/
 .muster/config.yaml
 .muster/mcpservers/*.yaml

@@ -6,6 +6,7 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,7 +22,8 @@ var (
 var createResourceTypes = []string{
 	"serviceclass",
 	"workflow",
-	"service", // Added service creation
+	"service",   // Added service creation
+	"mcpserver", // Added MCPServer creation
 }
 
 // Dynamic completion for ServiceClass names (for service creation)
@@ -74,11 +76,15 @@ Available resource types:
   serviceclass  - Create a ServiceClass definition
   workflow      - Create a Workflow definition
   service       - Create a service instance from a ServiceClass
+  mcpserver     - Create an MCP server definition (stdio, streamable-http, or sse)
 
 Examples:
   muster create serviceclass example-service
   muster create workflow example-workflow
   muster create service my-service-instance mimir-port-forward --managementCluster=gazelle --localPort=18009
+  muster create mcpserver my-stdio-server --type=stdio --command=npx --args="@modelcontextprotocol/server-git" --autoStart=true
+  muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30
+  muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.MinimumNArgs(2),
@@ -89,11 +95,12 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 		if len(args) == 1 && args[0] == "service" {
 			return createServiceClassNameCompletion(cmd, args, toComplete)
 		}
+		// MCPServer no longer uses subcommands - name is provided directly
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	},
 	DisableFlagsInUseLine: true,
 	FParseErrWhitelist: cobra.FParseErrWhitelist{
-		UnknownFlags: true, // Allow unknown flags for service creation parameters
+		UnknownFlags: true, // Allow unknown flags for service creation parameters and MCPServer flags
 	},
 	RunE: runCreate,
 }
@@ -177,6 +184,88 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 	return params
 }
 
+// parseMCPServerParameters extracts MCPServer parameters from raw command line arguments
+// This function handles the new flat field structure for stdio, streamable-http, and sse types.
+func parseMCPServerParameters(_, mcpServerName string) map[string]interface{} {
+	args := map[string]interface{}{
+		"name": mcpServerName,
+	}
+
+	// Get raw command line arguments from os.Args
+	rawArgs := os.Args
+
+	// Parse known flags for MCPServers
+	for i, arg := range rawArgs {
+		if strings.HasPrefix(arg, "--") {
+			// Remove the -- prefix
+			flagName := strings.TrimPrefix(arg, "--")
+
+			// Handle flags with values
+			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "--") {
+				flagValue := rawArgs[i+1]
+
+				switch flagName {
+				case "type":
+					args["type"] = flagValue
+				case "autoStart", "auto-start":
+					args["autoStart"] = flagValue == "true"
+				case "command":
+					args["command"] = flagValue
+				case "args":
+					// Parse comma-separated args
+					if flagValue != "" {
+						argsList := strings.Split(flagValue, ",")
+						for j := range argsList {
+							argsList[j] = strings.TrimSpace(argsList[j])
+						}
+						args["args"] = argsList
+					}
+				case "url":
+					args["url"] = flagValue
+				case "timeout":
+					if timeout, err := strconv.Atoi(flagValue); err == nil {
+						args["timeout"] = timeout
+					}
+				case "tool-prefix", "toolPrefix":
+					args["toolPrefix"] = flagValue
+				case "description":
+					args["description"] = flagValue
+				case "env":
+					// Parse key=value format for environment variables
+					if strings.Contains(flagValue, "=") {
+						parts := strings.SplitN(flagValue, "=", 2)
+						if len(parts) == 2 {
+							if args["env"] == nil {
+								args["env"] = map[string]string{}
+							}
+							args["env"].(map[string]string)[parts[0]] = parts[1]
+						}
+					}
+				case "header":
+					// Parse key=value format for HTTP headers
+					if strings.Contains(flagValue, "=") {
+						parts := strings.SplitN(flagValue, "=", 2)
+						if len(parts) == 2 {
+							if args["headers"] == nil {
+								args["headers"] = map[string]string{}
+							}
+							args["headers"].(map[string]string)[parts[0]] = parts[1]
+						}
+					}
+				}
+			} else {
+				// Boolean flags without values
+				switch flagName {
+				case "autoStart", "auto-start":
+					args["autoStart"] = true
+				}
+			}
+		}
+	}
+
+	return args
+}
+
 func runCreate(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 
@@ -217,6 +306,20 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return executor.Execute(ctx, "core_service_create", toolArgs)
 	}
 
+	if resourceType == "mcpserver" {
+		// Handle MCPServer creation: muster create mcpserver <name> --type <type> [options]
+		if len(args) < 2 {
+			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <name> --type <type> [options]")
+		}
+
+		mcpServerName := args[1]
+
+		// Parse MCPServer-specific parameters from command line arguments
+		mcpServerArgs := parseMCPServerParameters("", mcpServerName)
+
+		return executor.Execute(ctx, "core_mcpserver_create", mcpServerArgs)
+	}
+
 	// Handle other resource types (serviceclass, workflow)
 	if len(args) < 2 {
 		return fmt.Errorf("resource name is required")
@@ -225,7 +328,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	resourceName := args[1]
 	toolName, exists := createResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, workflow, service", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, workflow, service, mcpserver", resourceType)
 	}
 
 	toolArgs := map[string]interface{}{

@@ -212,10 +212,15 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	apiDef := &api.MCPServer{
 		Name:        mcpServerInfo.Name,
 		Type:        api.MCPServerType(mcpServerInfo.Type),
+		Description: mcpServerInfo.Description,
+		ToolPrefix:  mcpServerInfo.ToolPrefix,
 		AutoStart:   mcpServerInfo.AutoStart,
 		Command:     mcpServerInfo.Command,
+		Args:        mcpServerInfo.Args,
+		URL:         mcpServerInfo.URL,
 		Env:         mcpServerInfo.Env,
-		Description: mcpServerInfo.Description,
+		Headers:     mcpServerInfo.Headers,
+		Timeout:     mcpServerInfo.Timeout,
 	}
 
 	// Create MCPServer service using the service package
