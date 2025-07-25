@@ -28,13 +28,5 @@ type AggregatorConfig struct {
 	Port         int    `yaml:"port,omitempty"`         // Port for the aggregator SSE endpoint (default: 8080)
 	Host         string `yaml:"host,omitempty"`         // Host to bind to (default: localhost)
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
-	Enabled      bool   `yaml:"enabled,omitempty"`      // Whether the aggregator is enabled (default: true if MCP servers exist)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
-}
-
-// GetDefaultConfig returns the default configuration for muster.
-// mcName and wcName are the canonical names provided by the user.
-func GetDefaultConfig(mcName, wcName string) MusterConfig {
-	// Return minimal defaults - no k8s connection, no MCP servers, no port forwarding
-	return GetDefaultConfigWithRoles()
 }

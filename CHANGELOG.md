@@ -127,6 +127,8 @@ All notable changes to this project will be documented in this file.
   - Documented dependency management, state management, and message flow in detail
 
 ### Changed
+- **Aggregator Config**
+  - Drop the "Enabled" field (always enabled in modes where it's used)
 - **Service Manager Refactoring**
   - ServiceManager now accepts an optional KubeManager parameter for K8s connection services
   - Added support for K8s connection services in the service lifecycle management
