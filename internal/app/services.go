@@ -109,7 +109,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
-	musterClient, err := createMusterClient(cfg.ConfigPath, cfg.Debug)
+	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client: %w", err)
 	}
@@ -233,7 +233,37 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 	// Create client config with the filesystem path
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
-		Namespace:           "default",
+		Namespace:           "default", // Will be overridden by config loading
+		ForceFilesystemMode: false,     // Let the client choose the best mode
+		Debug:               debug,
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	return musterClient, nil
+}
+
+// createMusterClientWithConfig creates a muster client with full configuration context
+func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return client.NewMusterClient()
+	}
+
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := musterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath:      configPath,
+		Namespace:           namespace,
 		ForceFilesystemMode: false, // Let the client choose the best mode
 		Debug:               debug,
 	}
