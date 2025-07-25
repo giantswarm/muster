@@ -276,10 +276,10 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 		return
 	}
 
-	// Create an object reference for the service instance
-	// Since service instances are not CRDs, we use a synthetic reference
+	// Create an object reference for the MCPServer CRD
+	// MCPServer lifecycle events should be associated with the MCPServer CRD resource
 	objectRef := api.ObjectReference{
-		Kind:      "ServiceInstance",
+		Kind:      "MCPServer",
 		Name:      serviceName,
 		Namespace: "default", // TODO: Make configurable or derive from service
 	}
