@@ -8,78 +8,35 @@ import (
 	"muster/internal/config"
 )
 
-// DetectAggregatorEndpoint detects and returns the aggregator endpoint URL from configuration.
-// It loads the muster configuration and constructs the MCP endpoint URL using the configured
-// host and port settings. If configuration cannot be loaded, it returns a default localhost endpoint.
-//
-// Returns:
-//   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
-//   - error: Always nil (kept for future compatibility)
-func DetectAggregatorEndpoint() (string, error) {
-	return DetectAggregatorEndpointWithConfig(nil)
-}
-
-// DetectAggregatorEndpointWithConfig detects and returns the aggregator endpoint URL from configuration.
-// If cfg is provided, it uses that configuration; otherwise it loads the configuration from the system.
-// This function is designed to be testable by accepting a configuration arg.
+// GetAggregatorEndpoint detects and returns the aggregator endpoint URL from a specific configuration.
 //
 // Args:
-//   - cfg: Optional configuration to use. If nil, loads from system
+//   - cfg: Pointer to MusterConfig to use for detecting the endpoint.
 //
 // Returns:
 //   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
 //   - error: Always nil (kept for future compatibility)
-func DetectAggregatorEndpointWithConfig(cfg *config.MusterConfig) (string, error) {
-	var actualCfg config.MusterConfig
-
+func GetAggregatorEndpoint(cfg *config.MusterConfig) string {
+	defaults := config.GetDefaultConfigWithRoles()
+	host := defaults.Aggregator.Host
+	port := defaults.Aggregator.Port
+	transport := defaults.Aggregator.Transport
 	if cfg != nil {
-		actualCfg = *cfg
-	} else {
-		// Load configuration to get aggregator settings
-		actualCfg, _ = config.LoadConfig()
+		if cfg.Aggregator.Host != "" && cfg.Aggregator.Host != "0.0.0.0" && cfg.Aggregator.Host != "::" {
+			// from here, this is a connectable name/address, not a bind address
+			host = cfg.Aggregator.Host
+		}
+		if cfg.Aggregator.Port != 0 {
+			// from here, this is a connectable port, not a bind port
+			port = cfg.Aggregator.Port
+		}
+		transport = cfg.Aggregator.Transport
 	}
 
-	// Build endpoint from config
-	host := actualCfg.Aggregator.Host
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		// from here, this is a connectable name/address, not a bind address
-		host = "localhost"
+	if transport == "sse" {
+		return fmt.Sprintf("http://%s:%d/sse", host, port)
 	}
-	port := actualCfg.Aggregator.Port
-	if port == 0 {
-		// from here, this is a connectable port, not a bind port
-		port = 8090
-	}
-
-	endpoint := ""
-	if actualCfg.Aggregator.Transport == "sse" {
-		endpoint = fmt.Sprintf("http://%s:%d/sse", host, port)
-	} else {
-		endpoint = fmt.Sprintf("http://%s:%d/mcp", host, port)
-	}
-
-	return endpoint, nil
-}
-
-// DetectAggregatorEndpointFromPath detects and returns the aggregator endpoint URL from a specific configuration path.
-// If configPath is empty, it uses the default configuration loading.
-//
-// Args:
-//   - configPath: Optional custom configuration directory path. If empty, uses default loading
-//
-// Returns:
-//   - string: The complete HTTP endpoint URL (e.g., "http://localhost:8090/mcp")
-//   - error: Always nil (kept for future compatibility)
-func DetectAggregatorEndpointFromPath(configPath string) (string, error) {
-
-	if configPath == "" {
-		panic("Logic error: empty configPath")
-	}
-
-	cfg, err := config.LoadConfigFromPath(configPath)
-	endpoint, err := DetectAggregatorEndpointWithConfig(&cfg)
-
-	return endpoint, err
+	return fmt.Sprintf("http://%s:%d/mcp", host, port)
 }
 
 // CheckServerRunning verifies that the muster aggregator server is running and responsive.

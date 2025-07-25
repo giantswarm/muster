@@ -1,10 +1,11 @@
 package app
 
 import (
-	"muster/internal/config"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"muster/internal/config"
 )
 
 func TestInitializeServices(t *testing.T) {
@@ -20,8 +21,7 @@ func TestInitializeServices(t *testing.T) {
 				Debug: true,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Enabled: false,
-						Port:    0,
+						Port: 0,
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -34,9 +34,6 @@ func TestInitializeServices(t *testing.T) {
 				if s.OrchestratorAPI == nil {
 					t.Error("OrchestratorAPI should not be nil")
 				}
-				if s.ConfigAPI == nil {
-					t.Error("ConfigAPI should not be nil")
-				}
 			},
 		},
 		{
@@ -45,9 +42,8 @@ func TestInitializeServices(t *testing.T) {
 				Debug: false,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Enabled: true,
-						Port:    8090,
-						Host:    "localhost",
+						Port: 8090,
+						Host: "localhost",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -65,9 +61,8 @@ func TestInitializeServices(t *testing.T) {
 				Debug: false,
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Enabled: true,
-						Port:    0, // Should default to 8080
-						Host:    "",
+						Port: 0, // Should default to 8080
+						Host: "",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -131,7 +126,7 @@ func TestServices_Creation(t *testing.T) {
 	cfg := &Config{
 		Debug: false,
 		MusterConfig: &config.MusterConfig{
-			Aggregator: config.AggregatorConfig{Enabled: false},
+			Aggregator: config.AggregatorConfig{},
 		},
 		ConfigPath: config.GetDefaultConfigPathOrPanic(),
 	}
@@ -142,5 +137,4 @@ func TestServices_Creation(t *testing.T) {
 	// Test that services are created
 	assert.NotNil(t, services.Orchestrator)
 	assert.NotNil(t, services.OrchestratorAPI)
-	assert.NotNil(t, services.ConfigAPI)
 }

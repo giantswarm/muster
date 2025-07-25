@@ -363,23 +363,15 @@ func TestStorage_List(t *testing.T) {
 }
 
 func TestStorage_DefaultBehavior(t *testing.T) {
-	// Save original function
-	originalUserHomeDir := osUserHomeDir
-	defer func() {
-		osUserHomeDir = originalUserHomeDir
-	}()
-
 	tempDir := t.TempDir()
-	osUserHomeDir = func() (string, error) {
-		return tempDir, nil
-	}
+	configDir := filepath.Join(tempDir, userConfigDir)
 
 	// Test default storage behavior (should use ~/.config/muster)
-	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
+	ds := NewStorageWithPath(configDir)
 
 	// Create config directory structure
-	configDir := filepath.Join(tempDir, userConfigDir, "workflows")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	workflowDir := filepath.Join(configDir, "workflows")
+	if err := os.MkdirAll(workflowDir, 0755); err != nil {
 		t.Fatalf("Failed to create config directory: %v", err)
 	}
 
@@ -391,7 +383,7 @@ func TestStorage_DefaultBehavior(t *testing.T) {
 	}
 
 	// Verify file was created in the correct location
-	expectedPath := filepath.Join(configDir, "test-workflow.yaml")
+	expectedPath := filepath.Join(workflowDir, "test-workflow.yaml")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
 		t.Errorf("Expected file %s was not created", expectedPath)
 	}

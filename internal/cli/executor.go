@@ -72,7 +72,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
 	}
 
-	cfg, err := config.LoadConfigFromPath(options.ConfigPath)
+	cfg, err := config.LoadConfig(options.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -86,11 +86,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	}
 
 	// Check if server is running first
-	endpoint, err := DetectAggregatorEndpointWithConfig(&cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect endpoint: %w", err)
-	}
-
+	endpoint := GetAggregatorEndpoint(&cfg)
 	if err := CheckServerRunning(endpoint); err != nil {
 		return nil, err
 	}

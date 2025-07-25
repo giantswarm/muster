@@ -7,7 +7,6 @@ func GetDefaultConfigWithRoles() MusterConfig {
 			Port:      8090,
 			Host:      "localhost",
 			Transport: MCPTransportStreamableHTTP,
-			Enabled:   true,
 		},
 	}
 }
