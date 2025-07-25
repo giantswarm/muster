@@ -129,8 +129,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
 
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := cfg.MusterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
 	// Initialize and register ServiceClass adapter using the muster client
-	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, "default")
+	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
 	serviceClassAdapter.Register()
 
 	// Load ServiceClass definitions to ensure they're available
@@ -145,11 +151,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	}
 
 	// Create and register Workflow adapter using the muster client
-	workflowAdapter := workflow.NewAdapterWithClient(musterClient, "default", toolCaller, toolChecker, cfg.ConfigPath)
+	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)
 	workflowAdapter.Register()
 
 	// Initialize and register MCPServer adapter using the muster client
-	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, "default")
+	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
 	mcpServerAdapter.Register()
 
 	// The new adapter uses the unified client instead of the manager
