@@ -35,7 +35,7 @@ func (m *mockToolCaller) CallToolInternal(ctx context.Context, toolName string, 
 
 func TestWorkflowExecutor_ExecuteWorkflow(t *testing.T) {
 	mock := &mockToolCaller{}
-	executor := NewWorkflowExecutor(mock)
+	executor := NewWorkflowExecutor(mock, nil)
 
 	workflow := &api.Workflow{
 		Name:        "test_workflow",
@@ -76,7 +76,7 @@ func TestWorkflowExecutor_ExecuteWorkflow(t *testing.T) {
 }
 
 func TestWorkflowExecutor_ValidateInputs(t *testing.T) {
-	executor := NewWorkflowExecutor(nil)
+	executor := NewWorkflowExecutor(nil, nil)
 
 	argsDefinition := map[string]api.ArgDefinition{
 		"required_string": {
@@ -119,7 +119,7 @@ func TestWorkflowExecutor_ValidateInputs(t *testing.T) {
 }
 
 func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
-	executor := NewWorkflowExecutor(nil)
+	executor := NewWorkflowExecutor(nil, nil)
 
 	ctx := &executionContext{
 		input: map[string]interface{}{
@@ -166,7 +166,7 @@ func TestWorkflowExecutor_ResolveTemplate(t *testing.T) {
 
 func TestWorkflowExecutor_StoreResults(t *testing.T) {
 	mock := &mockToolCaller{}
-	executor := NewWorkflowExecutor(mock)
+	executor := NewWorkflowExecutor(mock, nil)
 
 	workflow := &api.Workflow{
 		Name:        "test_workflow",
@@ -201,7 +201,7 @@ func TestWorkflowExecutor_StoreResults(t *testing.T) {
 }
 
 func TestWorkflowExecutor_ResolveTemplate_StringNumbers(t *testing.T) {
-	executor := NewWorkflowExecutor(nil)
+	executor := NewWorkflowExecutor(nil, nil)
 
 	// Test that string templates with numeric values don't get converted to float64
 	ctx := &executionContext{

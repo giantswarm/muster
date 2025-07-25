@@ -17,6 +17,7 @@ var (
 	aggregatorHandler          AggregatorHandler
 	configHandler              ConfigHandler
 	workflowHandler            WorkflowHandler
+	eventManagerHandler        EventManagerHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
 	// Access is protected by toolUpdateMutex.
@@ -505,4 +506,52 @@ func PublishToolUpdateEvent(event ToolUpdateEvent) {
 			s.OnToolsUpdated(event)
 		}(subscriber)
 	}
+}
+
+// RegisterEventManager registers the event manager handler implementation.
+// This handler provides Kubernetes Event generation functionality for CRD lifecycle operations,
+// automatically adapting to both Kubernetes and filesystem modes through the unified client.
+//
+// The registration is thread-safe and should be called during system initialization.
+// Only one event manager handler can be registered at a time; subsequent
+// registrations will replace the previous handler.
+//
+// Args:
+//   - h: EventManagerHandler implementation that manages event generation operations
+//
+// Thread-safe: Yes, protected by handlerMutex.
+//
+// Example:
+//
+//	adapter := events.NewAdapter(musterClient)
+//	adapter.Register()
+func RegisterEventManager(h EventManagerHandler) {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	logging.Debug("API", "Registering event manager handler: %v", h != nil)
+	eventManagerHandler = h
+}
+
+// GetEventManager returns the registered event manager handler.
+// This provides access to Kubernetes Event generation functionality for CRD lifecycle operations.
+//
+// Returns nil if no handler has been registered yet. Callers should always
+// check for nil before using the returned handler.
+//
+// Returns:
+//   - EventManagerHandler: The registered handler, or nil if not registered
+//
+// Thread-safe: Yes, protected by handlerMutex read lock.
+//
+// Example:
+//
+//	eventManager := api.GetEventManager()
+//	if eventManager == nil {
+//	    return fmt.Errorf("event manager not available")
+//	}
+//	err := eventManager.CreateEvent(ctx, objectRef, "Created", "Object successfully created", "Normal")
+func GetEventManager() EventManagerHandler {
+	handlerMutex.RLock()
+	defer handlerMutex.RUnlock()
+	return eventManagerHandler
 }

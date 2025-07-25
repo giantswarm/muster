@@ -18,6 +18,14 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
   - [test](cli/test.md) - Execute test scenarios
   - [version](cli/version.md) - Show version info
   - [self-update](cli/self-update.md) - Update binary from GitHub releases
+  - [events](cli/events.md) - List and filter resource events
+
+### Events and Observability
+- **[Event Reference](events.md)** - Complete guide to Kubernetes events and troubleshooting
+  - Event Types - All MCPServer, ServiceClass, Workflow, and Service Instance events
+  - Troubleshooting Guide - Common scenarios and resolution steps
+  - Event Querying - Using `muster events` and `kubectl get events`
+  - Best Practices - Monitoring, alerting, and operational guidelines
 
 ### API Documentation
 - **[API Reference](api.md)** - HTTP and MCP API specifications
