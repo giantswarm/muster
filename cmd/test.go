@@ -279,7 +279,8 @@ func runTest(cmd *cobra.Command, args []string) error {
 		logger := agent.NewLogger(testVerbose, true, testDebug)
 
 		// For MCP server mode, we still need an endpoint for existing functionality
-		endpoint, err := cli.DetectAggregatorEndpointFromPath(testMusterConfigPath)
+		config, err := config.LoadConfig(testMusterConfigPath)
+		endpoint := cli.GetAggregatorEndpoint(&config)
 		if err != nil {
 			logger.Info("Warning: Could not detect endpoint (%v), using default: %s\n", err, endpoint)
 		}

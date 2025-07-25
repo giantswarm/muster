@@ -42,9 +42,9 @@ Implementation uses `gopkg.in/yaml.v3` for direct YAML parsing without additiona
 
 ```go
 // Configuration loading
-func LoadConfig() (MusterConfig, error) {
-    userConfigDir, err := GetUserConfigDir() // ~/.config/muster
-    return LoadConfigFromPath(userConfigDir)
+// configPath   The config structure path, e.g. ~/.config/muster
+func LoadConfig(configPath string) (MusterConfig, error) {
+    // load config or return default values, if not found
 }
 
 // Entity storage

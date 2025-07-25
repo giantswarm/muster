@@ -76,7 +76,7 @@ func NewApplication(cfg *Config) (*Application, error) {
 		panic("Logic error: empty ConfigPath")
 	}
 
-	musterCfg, err = config.LoadConfigFromPath(cfg.ConfigPath)
+	musterCfg, err = config.LoadConfig(cfg.ConfigPath)
 	if err != nil {
 		logging.Error("Bootstrap", err, "Failed to load muster configuration from path: %s", cfg.ConfigPath)
 		return nil, fmt.Errorf("failed to load muster configuration from path %s: %w", cfg.ConfigPath, err)

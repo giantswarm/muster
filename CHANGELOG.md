@@ -140,6 +140,8 @@ All notable changes to this project will be documented in this file.
   - Added a [Dockerfile](Dockerfile) and updated the ci to push the image on all registries.
 
 ### Changed
+- **Aggregator Config**
+  - Drop the "Enabled" field (always enabled in modes where it's used)
 - **Service Manager Refactoring**
   - ServiceManager now accepts an optional KubeManager parameter for K8s connection services
   - Added support for K8s connection services in the service lifecycle management

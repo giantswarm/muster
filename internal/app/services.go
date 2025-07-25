@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+
 	"muster/internal/aggregator"
 	"muster/internal/api"
 	"muster/internal/client"
@@ -26,7 +27,6 @@ import (
 // Field descriptions:
 //   - Orchestrator: Core service orchestrator responsible for service lifecycle management
 //   - OrchestratorAPI: API interface for orchestrator operations (start, stop, status)
-//   - ConfigAPI: API interface for configuration management and persistence
 //   - AggregatorPort: Port number where the MCP aggregator service is listening
 //
 // Service Dependencies:
@@ -109,7 +109,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
-	musterClient, err := createMusterClient(cfg.ConfigPath, cfg.Debug)
+	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client: %w", err)
 	}
@@ -164,54 +164,44 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Note: Service creation (including MCPServer services) is handled by the orchestrator
 	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
-	// Create aggregator service - enable by default unless explicitly disabled
-	// This ensures the aggregator starts even with no MCP servers configured
-	aggregatorEnabled := true
-	if cfg.MusterConfig.Aggregator.Port != 0 || cfg.MusterConfig.Aggregator.Host != "" {
-		// If aggregator config exists, respect the enabled flag
-		aggregatorEnabled = cfg.MusterConfig.Aggregator.Enabled
-	}
-
-	if aggregatorEnabled {
-		// Need to get the service registry handler from the registry adapter
-		registryHandler := api.GetServiceRegistry()
-		if registryHandler != nil {
-			if cfg.ConfigPath == "" {
-				panic("Logic error: empty ConfigPath")
-			}
-
-			// Convert config types
-			aggConfig := aggregator.AggregatorConfig{
-				Port:         cfg.MusterConfig.Aggregator.Port,
-				Host:         cfg.MusterConfig.Aggregator.Host,
-				Transport:    cfg.MusterConfig.Aggregator.Transport,
-				MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
-				Yolo:         cfg.Yolo,
-				ConfigDir:    cfg.ConfigPath,
-			}
-
-			// Set defaults if not specified
-			if aggConfig.Port == 0 {
-				aggConfig.Port = 8090
-			}
-			if aggConfig.Host == "" {
-				aggConfig.Host = "localhost"
-			}
-			if aggConfig.Transport == "" {
-				aggConfig.Transport = config.MCPTransportStreamableHTTP
-			}
-
-			aggService := aggregatorService.NewAggregatorService(
-				aggConfig,
-				orchestratorAPI,
-				registryHandler,
-			)
-			registry.Register(aggService)
-
-			// Create aggregator API adapter
-			aggAdapter := aggregatorService.NewAPIAdapter(aggService)
-			aggAdapter.Register()
+	// Need to get the service registry handler from the registry adapter
+	registryHandler := api.GetServiceRegistry()
+	if registryHandler != nil {
+		if cfg.ConfigPath == "" {
+			panic("Logic error: empty ConfigPath")
 		}
+
+		// Convert config types
+		aggConfig := aggregator.AggregatorConfig{
+			Port:         cfg.MusterConfig.Aggregator.Port,
+			Host:         cfg.MusterConfig.Aggregator.Host,
+			Transport:    cfg.MusterConfig.Aggregator.Transport,
+			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
+			Yolo:         cfg.Yolo,
+			ConfigDir:    cfg.ConfigPath,
+		}
+
+		// Set defaults if not specified
+		if aggConfig.Port == 0 {
+			aggConfig.Port = 8090
+		}
+		if aggConfig.Host == "" {
+			aggConfig.Host = "localhost"
+		}
+		if aggConfig.Transport == "" {
+			aggConfig.Transport = config.MCPTransportStreamableHTTP
+		}
+
+		aggService := aggregatorService.NewAggregatorService(
+			aggConfig,
+			orchestratorAPI,
+			registryHandler,
+		)
+		registry.Register(aggService)
+
+		// Create aggregator API adapter
+		aggAdapter := aggregatorService.NewAPIAdapter(aggService)
+		aggAdapter.Register()
 	}
 
 	return &Services{
@@ -233,7 +223,37 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 	// Create client config with the filesystem path
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
-		Namespace:           "default",
+		Namespace:           "default", // Will be overridden by config loading
+		ForceFilesystemMode: false,     // Let the client choose the best mode
+		Debug:               debug,
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	return musterClient, nil
+}
+
+// createMusterClientWithConfig creates a muster client with full configuration context
+func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return client.NewMusterClient()
+	}
+
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := musterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath:      configPath,
+		Namespace:           namespace,
 		ForceFilesystemMode: false, // Let the client choose the best mode
 		Debug:               debug,
 	}
