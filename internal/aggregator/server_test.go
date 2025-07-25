@@ -116,7 +116,7 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 		Port: 0, // Use any available port
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server
@@ -198,7 +198,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Create a mock client with tools before starting the server
@@ -242,7 +242,7 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server with no registered servers
@@ -280,7 +280,7 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server
@@ -336,7 +336,7 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server
@@ -409,7 +409,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 		Port: 0, // Use any available port
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server
@@ -507,7 +507,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 		Port: 0,
 	}
 
-	server := NewAggregatorServer(config)
+	server := NewAggregatorServer(config, nil)
 	require.NotNil(t, server)
 
 	// Start the server

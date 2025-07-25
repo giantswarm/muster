@@ -269,7 +269,7 @@
 // ## Advanced Configuration
 //
 //	```bash
-//	muster test --parallel=4 --timeout=10m --fail-fast
+//	muster test --parallel=50 --timeout=10m --fail-fast
 //	muster test --verbose --debug --output-format=json
 //	```
 //

@@ -138,6 +138,8 @@ All notable changes to this project will be documented in this file.
   - Documented dependency management, state management, and message flow in detail
 
 ### Changed
+- **Aggregator Config**
+  - Drop the "Enabled" field (always enabled in modes where it's used)
 - **Service Manager Refactoring**
   - ServiceManager now accepts an optional KubeManager parameter for K8s connection services
   - Added support for K8s connection services in the service lifecycle management
@@ -172,6 +174,8 @@ All notable changes to this project will be documented in this file.
   - Added 1-second delay before restarting services to ensure ports are properly released
 
 ### Fixed
+- **Exit CLI on standalone server failure**
+  - When the mcp-aggregator service (server) fails, the CLI now terminates gracefully
 - **Port Forwarding State Issue**
   - Fixed issue where port forwarding services would get stuck in "Stopping" state
   - ServiceManager now properly reports the "Stopping" state before closing the stop channel
