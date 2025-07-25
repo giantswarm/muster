@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDetectAggregatorEndpoint(t *testing.T) {
+func TestGetAggregatorEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   *config.MusterConfig
@@ -41,18 +41,16 @@ func TestDetectAggregatorEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			endpoint, err := DetectAggregatorEndpointWithConfig(tt.config)
-			assert.NoError(t, err)
+			endpoint := GetAggregatorEndpoint(tt.config)
 			assert.Equal(t, tt.expected, endpoint)
 		})
 	}
 }
 
-func TestDetectAggregatorEndpointWithoutConfig(t *testing.T) {
+func GetAggregatorEndpointWithoutConfig(t *testing.T) {
 	// Test default behavior when no config is found
 	// With the new single directory approach, this will load from user config if available
-	endpoint, err := DetectAggregatorEndpoint()
-	assert.NoError(t, err)
+	endpoint := GetAggregatorEndpoint(nil)
 	// Since we may have user config, just verify the format is correct
 	assert.Contains(t, endpoint, "http://localhost:")
 	assert.Contains(t, endpoint, "/mcp")
@@ -102,8 +100,8 @@ func TestCheckServerRunning_WithMockServer(t *testing.T) {
 			// or a more sophisticated mocking approach
 
 			// For now, just test that the function exists and can be called
-			endpoint, err := DetectAggregatorEndpoint()
-			err = CheckServerRunning(endpoint)
+			endpoint := GetAggregatorEndpoint(nil)
+			err := CheckServerRunning(endpoint)
 			// The actual result depends on whether a real server is running
 			// but we can at least verify the function doesn't panic
 			_ = err // Ignore the actual result for unit tests
@@ -114,8 +112,8 @@ func TestCheckServerRunning_WithMockServer(t *testing.T) {
 func TestCheckServerRunning_ServerDown(t *testing.T) {
 	// Test with no server running - this will likely fail unless a server is actually running
 	// In a real test environment, we'd mock the HTTP client or use dependency injection
-	endpoint, err := DetectAggregatorEndpoint()
-	err = CheckServerRunning(endpoint)
+	endpoint := GetAggregatorEndpoint(nil)
+	err := CheckServerRunning(endpoint)
 	// We can't assert the exact error without knowing the test environment
 	// but we can verify the function returns an error type
 	_ = err
