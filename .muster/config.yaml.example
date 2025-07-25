@@ -6,5 +6,4 @@
 aggregator:
   port: 8090
   host: localhost
-  # enabled: true
   # musterPrefix: "x"

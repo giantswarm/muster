@@ -86,12 +86,7 @@
 // # Usage Examples
 //
 //	// Load configuration from default location
-//	cfg, err := config.LoadConfig()
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	cfg, err := config.LoadConfigFromPath("/custom/config/path")
+//	cfg, err := config.LoadConfig(config.GetDefaultConfigPathOrPanic())
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

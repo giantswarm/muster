@@ -91,7 +91,7 @@ func (a *ConfigAdapter) ReloadConfig(ctx context.Context) error {
 	defer a.mu.Unlock()
 
 	// Load config using the centralized loader
-	musterConfig, err := config.LoadConfig()
+	musterConfig, err := config.LoadConfig(a.configPath)
 	if err != nil {
 		return fmt.Errorf("failed to reload configuration: %w", err)
 	}

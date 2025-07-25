@@ -86,7 +86,7 @@ func TestConfigReloadTool(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create adapter
-	adapter := NewConfigAdapter(initialConfig, configPath)
+	adapter := NewConfigAdapter(initialConfig, tmpDir)
 	api.RegisterConfig(adapter)
 
 	// Test that config_reload tool exists
