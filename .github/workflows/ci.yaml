@@ -50,8 +50,35 @@ jobs:
       - name: Build muster binary
         run: make build
 
-      - name: Run muster integration tests
-        run: ./muster test --parallel 50
+      - name: Run muster integration tests 1
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 2
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 3
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 4
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 5
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 6
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 7
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 8
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 9
+        run: ./muster test --parallel 50 --debug
+
+      - name: Run muster integration tests 10
+        run: ./muster test --parallel 50 --debug
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
