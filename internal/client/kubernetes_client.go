@@ -3,10 +3,13 @@ package client
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,6 +18,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"muster/internal/api"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
@@ -384,4 +388,111 @@ func (k *kubernetesClient) CreateEventForCRD(ctx context.Context, crdType, name,
 	}
 
 	return nil
+}
+
+// QueryEvents retrieves events from the Kubernetes Events API with filtering.
+func (k *kubernetesClient) QueryEvents(ctx context.Context, options api.EventQueryOptions) (*api.EventQueryResult, error) {
+	eventList := &corev1.EventList{}
+
+	// Build list options with field selectors for filtering
+	listOptions := &client.ListOptions{}
+
+	// Build field selector for filtering
+	var fieldSelectors []string
+
+	if options.ResourceType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.kind=%s", options.ResourceType))
+	}
+
+	if options.ResourceName != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("involvedObject.name=%s", options.ResourceName))
+	}
+
+	if options.Namespace != "" {
+		listOptions.Namespace = options.Namespace
+	}
+
+	if options.EventType != "" {
+		fieldSelectors = append(fieldSelectors, fmt.Sprintf("type=%s", options.EventType))
+	}
+
+	// Note: source.component is not a supported field selector, so we'll filter client-side
+
+	if len(fieldSelectors) > 0 {
+		fieldSelector := strings.Join(fieldSelectors, ",")
+		listOptions.FieldSelector = fields.ParseSelectorOrDie(fieldSelector)
+	}
+
+	// Query the Kubernetes Events API
+	if err := k.List(ctx, eventList, listOptions); err != nil {
+		return nil, fmt.Errorf("failed to list Kubernetes events: %w", err)
+	}
+
+	// Convert Kubernetes events to our event format and filter
+	var results []api.EventResult
+	for _, event := range eventList.Items {
+		// Filter to only include muster-generated events
+		if event.Source.Component != "muster" {
+			continue
+		}
+
+		result := k.convertKubernetesEvent(&event)
+
+		// Apply time-based filtering (Kubernetes field selectors don't support time ranges well)
+		if options.Since != nil && result.Timestamp.Before(*options.Since) {
+			continue
+		}
+
+		if options.Until != nil && result.Timestamp.After(*options.Until) {
+			continue
+		}
+
+		results = append(results, result)
+	}
+
+	// Sort by timestamp (newest first)
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp.After(results[j].Timestamp)
+	})
+
+	totalCount := len(results)
+
+	// Apply limit
+	if options.Limit > 0 && len(results) > options.Limit {
+		results = results[:options.Limit]
+	}
+
+	return &api.EventQueryResult{
+		Events:     results,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// convertKubernetesEvent converts a Kubernetes Event to our EventResult format.
+func (k *kubernetesClient) convertKubernetesEvent(event *corev1.Event) api.EventResult {
+	// Use LastTimestamp if available, otherwise FirstTimestamp
+	timestamp := event.LastTimestamp.Time
+	if timestamp.IsZero() && !event.FirstTimestamp.Time.IsZero() {
+		timestamp = event.FirstTimestamp.Time
+	}
+	if timestamp.IsZero() {
+		timestamp = event.CreationTimestamp.Time
+	}
+
+	return api.EventResult{
+		Timestamp: timestamp,
+		Namespace: event.Namespace,
+		InvolvedObject: api.ObjectReference{
+			APIVersion: event.InvolvedObject.APIVersion,
+			Kind:       event.InvolvedObject.Kind,
+			Name:       event.InvolvedObject.Name,
+			Namespace:  event.InvolvedObject.Namespace,
+			UID:        string(event.InvolvedObject.UID),
+		},
+		Reason:  event.Reason,
+		Message: event.Message,
+		Type:    event.Type,
+		Source:  event.Source.Component,
+		Count:   event.Count,
+	}
 }

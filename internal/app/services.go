@@ -235,7 +235,7 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 		return client.NewMusterClient()
 	}
 
-	// Create client config with the filesystem path
+	// Create client confiForceFilesystemModeg with the filesystem path
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
 		Namespace:           "default",

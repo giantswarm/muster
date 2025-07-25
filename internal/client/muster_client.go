@@ -8,16 +8,22 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"muster/internal/api"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
 
-// MusterClient provides a unified interface for accessing muster resources
-// both locally (filesystem) and in-cluster (Kubernetes API).
+// MusterClient is a unified interface that abstracts both Kubernetes and filesystem clients.
+// It provides a single interface for interacting with muster resources regardless of the
+// deployment mode (Kubernetes cluster vs filesystem configuration).
 //
-// This interface extends the controller-runtime client.Client with muster-specific
-// convenience methods for common operations.
+// The interface automatically adapts to the environment:
+//   - If Kubernetes cluster access is available, it uses the Kubernetes API
+//   - If Kubernetes is not available, it falls back to filesystem operations
+//
+// This abstraction allows the same code to work in both environments without modification.
 type MusterClient interface {
+	// Controller-runtime client interface for basic CRUD operations
 	client.Client
 
 	// MCPServer operations
@@ -41,13 +47,13 @@ type MusterClient interface {
 	UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
 	DeleteWorkflow(ctx context.Context, name, namespace string) error
 
-	// Future CRD methods will be added here as they're implemented
 	// Service operations (to be implemented in future)
 	// WorkflowExecution operations (to be implemented in future)
 
 	// Event operations
 	CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error
 	CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error
+	QueryEvents(ctx context.Context, options api.EventQueryOptions) (*api.EventQueryResult, error)
 
 	// Utility methods
 	IsKubernetesMode() bool

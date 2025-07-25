@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	"muster/internal/api"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
@@ -57,6 +58,15 @@ func (m *mockMusterClient) CreateEventForCRD(ctx context.Context, crdType, name,
 		eventType: eventType,
 	})
 	return nil
+}
+
+// QueryEvents implements the new QueryEvents method for the mock
+func (m *mockMusterClient) QueryEvents(ctx context.Context, options api.EventQueryOptions) (*api.EventQueryResult, error) {
+	// Return empty result for mock
+	return &api.EventQueryResult{
+		Events:     []api.EventResult{},
+		TotalCount: 0,
+	}, nil
 }
 
 func (m *mockMusterClient) IsKubernetesMode() bool {
