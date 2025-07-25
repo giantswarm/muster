@@ -1,8 +1,9 @@
 package app
 
 import (
-	"muster/internal/config"
 	"testing"
+
+	"muster/internal/config"
 )
 
 // Note: Testing NewApplication fully requires mocking global dependencies
@@ -24,9 +25,8 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Port:    8090,
-						Host:    "localhost",
-						Enabled: false,
+						Port: 8090,
+						Host: "localhost",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -41,9 +41,8 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Port:    8090,
-						Host:    "localhost",
-						Enabled: false,
+						Port: 8090,
+						Host: "localhost",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -58,9 +57,8 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Port:    8090,
-						Host:    "localhost",
-						Enabled: false,
+						Port: 8090,
+						Host: "localhost",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
@@ -105,9 +103,8 @@ func TestApplication_Structure(t *testing.T) {
 		Debug: true,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{
-				Port:    8090,
-				Host:    "localhost",
-				Enabled: false,
+				Port: 8090,
+				Host: "localhost",
 			},
 		},
 	}
@@ -136,9 +133,8 @@ func TestConfig_WithMusterConfig(t *testing.T) {
 		Debug: false,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{
-				Port:    9090,
-				Host:    "0.0.0.0",
-				Enabled: true,
+				Port: 9090,
+				Host: "0.0.0.0",
 			},
 		},
 	}
@@ -172,9 +168,8 @@ func TestConfigureLogging(t *testing.T) {
 				// Pre-populate MusterConfig to avoid LoadConfig call
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{
-						Port:    8090,
-						Host:    "localhost",
-						Enabled: false,
+						Port: 8090,
+						Host: "localhost",
 					},
 				},
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),

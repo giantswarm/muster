@@ -1,8 +1,9 @@
 package app
 
 import (
-	"muster/internal/config"
 	"testing"
+
+	"muster/internal/config"
 )
 
 func TestConfigValidation(t *testing.T) {
@@ -60,9 +61,8 @@ func TestConfigDefaults(t *testing.T) {
 		Debug: true,
 		MusterConfig: &config.MusterConfig{
 			Aggregator: config.AggregatorConfig{
-				Port:    0, // Should get default
-				Host:    "",
-				Enabled: false,
+				Port: 0, // Should get default
+				Host: "",
 			},
 		},
 		ConfigPath: config.GetDefaultConfigPathOrPanic(),
