@@ -26,24 +26,36 @@ metadata:
   namespace: <namespace>
 spec:
   # Required: Server execution type
-  type: localCommand
+  type: stdio|streamable-http|sse
   
-  # Optional: Auto-start behavior
-  autoStart: false
-  
-  # Optional: Tool name prefix
+  # Optional: Tool name prefix (applies to all types)
   toolPrefix: "<prefix>"
-  
-  # Required for localCommand: Command to execute
-  command: ["<executable>", "<arg1>", "<arg2>"]
-  
-  # Optional: Environment variables
-  env:
-    KEY1: "value1"
-    KEY2: "value2"
   
   # Optional: Human-readable description
   description: "<description>"
+  
+  # For stdio servers: Auto-start behavior
+  autoStart: false
+  
+  # For stdio servers: Command to execute (required when type: stdio)
+  command: "<executable>"
+  
+  # For stdio servers: Command arguments (optional when type: stdio)
+  args: ["<arg1>", "<arg2>"]
+  
+  # For remote servers: Server endpoint (required when type: streamable-http or sse)
+  url: "https://api.example.com/mcp"
+  
+  # Optional: Environment variables (stdio servers) or headers (remote servers)
+  env:        # For stdio servers
+    KEY1: "value1"
+    KEY2: "value2"
+  headers:    # For remote servers
+    Authorization: "Bearer token"
+    Content-Type: "application/json"
+  
+  # Optional: Connection timeout in seconds (all types)
+  timeout: 30
 
 # Status is managed automatically by muster
 status:
@@ -60,12 +72,16 @@ status:
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | Yes | Execution method for the MCP server | Must be `localCommand` |
-| `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false` |
+| `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse` |
 | `toolPrefix` | `string` | No | Prefix for all tool names from this server | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
-| `command` | `[]string` | Yes* | Command line to execute the server | Min 1 item. Required when `type` is `localCommand` |
-| `env` | `map[string]string` | No | Environment variables for the process | - |
 | `description` | `string` | No | Human-readable description | Max 500 characters |
+| `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false`, only for stdio servers |
+| `command` | `string` | Yes* | Executable path for stdio servers | Required when `type` is `stdio` |
+| `args` | `[]string` | No | Command line arguments for stdio servers | Only for stdio servers |
+| `url` | `string` | Yes* | Endpoint URL for remote servers | Required when `type` is `streamable-http` or `sse` |
+| `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers |
+| `headers` | `map[string]string` | No | HTTP headers for remote servers | Only for streamable-http and sse servers |
+| `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 
 #### Status Fields
 
@@ -79,7 +95,7 @@ status:
 
 ### Examples
 
-#### Basic Git Tools Server
+#### Basic Git Tools Server (Stdio)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -87,16 +103,17 @@ metadata:
   name: git-tools
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
+  description: "Git tools MCP server for repository operations"
   autoStart: true
-  command: ["npx", "@modelcontextprotocol/server-git"]
+  command: "npx"
+  args: ["@modelcontextprotocol/server-git"]
   env:
     GIT_ROOT: "/workspace"
     LOG_LEVEL: "info"
-  description: "Git tools MCP server for repository operations"
 ```
 
-#### Python Tools with Prefix
+#### Python Tools with Prefix (Stdio)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -104,14 +121,50 @@ metadata:
   name: python-tools
   namespace: default
 spec:
-  type: localCommand
-  autoStart: true
+  type: stdio
   toolPrefix: "py"
-  command: ["python", "-m", "mcp_server.custom"]
+  description: "Python-based MCP server with custom tools"
+  autoStart: true
+  command: "python"
+  args: ["-m", "mcp_server.custom"]
   env:
     PYTHONPATH: "/usr/local/lib/python3.9/site-packages"
     DEBUG: "true"
-  description: "Python-based MCP server with custom tools"
+```
+
+#### Streamable HTTP Server (Remote)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: api-tools
+  namespace: default
+spec:
+  type: streamable-http
+  description: "Remote API tools server"
+  url: "https://api.example.com/mcp"
+  timeout: 30
+  headers:
+    Authorization: "Bearer your-api-token"
+    X-API-Version: "v1"
+```
+
+#### SSE Remote Server (Remote)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: sse-tools
+  namespace: default
+spec:
+  type: sse
+  toolPrefix: "remote"
+  description: "Server-Sent Events MCP server"
+  url: "https://mcp.example.com/sse"
+  timeout: 60
+  headers:
+    Authorization: "Bearer sse-token"
+    Accept: "text/event-stream"
 ```
 
 ### CLI Usage
@@ -576,7 +629,7 @@ status:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `available` | `boolean` | All required tools are available |
+| `available` | `boolean` | All required tools available |
 | `requiredTools` | `[]string` | List of required tool names |
 | `missingTools` | `[]string` | List of unavailable tools |
 | `stepValidation` | `[]StepValidationResult` | Validation results for each step |

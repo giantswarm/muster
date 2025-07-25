@@ -96,41 +96,56 @@ aggregator:
   enabled: true
 ```
 
-## Resource Configuration Files
+## MCP Server Configuration
 
-Resources are stored as individual YAML files in type-specific subdirectories.
-
-### MCPServer Configuration
-
-**Location**: `mcpservers/*.yaml`
+MCP servers can be configured through YAML files or Kubernetes CRDs. Each server requires:
 
 ```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: kubernetes
-  namespace: default
-spec:
-  type: localCommand              # Server execution type
-  autoStart: true                 # Auto-start on system init
-  toolPrefix: "k8s"              # Optional tool prefix
-  command: ["mcp-kubernetes"]     # Command to execute
-  env:                           # Environment variables
-    KUBECONFIG: "/path/to/config"
-    LOG_LEVEL: "info"
-  description: "Kubernetes management server"
+# Local server example
+mcpservers:
+  - name: filesystem-tools
+    description: File system operations
+    toolPrefix: fs
+    type: stdio              # Server execution type
+    autoStart: true
+    command: ["npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    env:
+      DEBUG: "1"
+
+  # Streamable HTTP server example
+  - name: api-server
+    description: Remote API tools
+    toolPrefix: api
+    type: streamable-http
+    url: "https://api.example.com/mcp"
+    timeout: 30
+    headers:
+      Authorization: "Bearer token"
+
+  # SSE server example
+  - name: sse-server
+    description: SSE-based MCP server
+    toolPrefix: sse
+    type: sse
+    url: "https://api.example.com/sse"
+    timeout: 45
 ```
 
-#### MCPServer Fields
+#### MCP Server Fields
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `type` | `string` | ✅ | - | Server type (`localCommand` only currently) |
-| `autoStart` | `bool` | ❌ | `false` | Start automatically on system init |
-| `toolPrefix` | `string` | ❌ | - | Prefix for all tools from this server |
-| `command` | `[]string` | ✅* | - | Command and args (*required for localCommand) |
-| `env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `name` | `string` | ✅ | - | Unique server identifier |
 | `description` | `string` | ❌ | - | Human-readable description |
+| `toolPrefix` | `string` | ❌ | - | Tool name prefix |
+| `type` | `string` | ✅ | - | Server type (`stdio`, `streamable-http`, or `sse`) |
+| `autoStart` | `boolean` | ❌ | `false` | Auto-start server (stdio only) |
+| `command` | `[]string` | ✅* | - | Command and args (*required for stdio) |
+| `args` | `[]string` | ❌ | - | Command arguments (stdio only) |
+| `env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `url` | `string` | ✅* | - | Server URL (*required for streamable-http and sse) |
+| `timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
+| `headers` | `map[string]string` | ❌ | `{}` | HTTP headers (streamable-http and sse only) |
 
 ### ServiceClass Configuration
 

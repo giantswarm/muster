@@ -1,0 +1,38 @@
+name: "mcpserver-create-streamable-http"
+description: "Test creating a streamable HTTP MCP server"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "streamable-http", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-streamable-http-mcpserver"
+  description: "Create a new streamable HTTP MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "streamable-http-server"
+    type: "streamable-http"
+    url: "http://localhost:8080/mcp"
+    timeout: 30
+  expected:
+    success: true
+
+- id: "verify-streamable-http-mcpserver-created"
+  description: "Verify the streamable HTTP MCP server was created successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "streamable-http-server"
+  expected:
+    success: true
+    json_path:
+      name: "streamable-http-server"
+      type: "streamable-http"
+
+cleanup:
+- id: "delete-streamable-http-mcpserver"
+  description: "Delete the test streamable HTTP MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "streamable-http-server"
+  expected:
+    success: true 

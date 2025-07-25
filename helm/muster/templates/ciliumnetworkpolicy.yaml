@@ -1,0 +1,75 @@
+{{- if .Values.ciliumNetworkPolicy.enabled }}
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "muster.fullname" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "muster.selectorLabels" . | nindent 6 }}
+  
+  {{- if .Values.ciliumNetworkPolicy.ingress.enabled }}
+  ingress:
+  {{- range .Values.ciliumNetworkPolicy.ingress.rules }}
+  - fromEntities:
+    {{- range .fromEntities }}
+    - {{ . }}
+    {{- end }}
+    {{- if .toPorts }}
+    toPorts:
+    {{- range .toPorts }}
+    - ports:
+      {{- range .ports }}
+      - port: "{{ .port }}"
+        protocol: {{ .protocol | default "TCP" }}
+      {{- end }}
+      {{- if .rules }}
+      rules:
+        {{- toYaml .rules | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.ciliumNetworkPolicy.egress.enabled }}
+  egress:
+  {{- range .Values.ciliumNetworkPolicy.egress.rules }}
+  - {{- if .toEntities }}
+    toEntities:
+    {{- range .toEntities }}
+    - {{ . }}
+    {{- end }}
+    {{- end }}
+    {{- if .toEndpoints }}
+    toEndpoints:
+    {{- range .toEndpoints }}
+    - matchLabels:
+        {{- toYaml .matchLabels | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- if .toFQDNs }}
+    toFQDNs:
+    {{- range .toFQDNs }}
+    - matchName: {{ .matchName | quote }}
+    {{- end }}
+    {{- end }}
+    {{- if .toPorts }}
+    toPorts:
+    {{- range .toPorts }}
+    - ports:
+      {{- range .ports }}
+      - port: "{{ .port }}"
+        protocol: {{ .protocol | default "TCP" }}
+      {{- end }}
+      {{- if .rules }}
+      rules:
+        {{- toYaml .rules | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }} 

@@ -69,9 +69,9 @@ muster list mcpserver
 
 # Example output:
 # NAME         TYPE          STATUS    AUTOSTART
-# kubernetes   localCommand  Running   true
-# prometheus   localCommand  Running   true
-# github       localCommand  Stopped   false
+# kubernetes   local         Running   true
+# prometheus   local         Running   true
+# github       local         Stopped   false
 ```
 
 ### Listing Workflows
@@ -182,12 +182,12 @@ muster list serviceclass
 MCP servers display connection and tool information:
 
 ```bash
-muster list mcpserver
-# NAME         TYPE          STATUS    TOOLS   AUTOSTART   PID
-# kubernetes   localCommand  Running   15      true        1234
-# prometheus   localCommand  Running   8       true        1235
-# github       localCommand  Stopped   12      false       -
-# local-tools  localCommand  Error     0       true        -
+muster list mcpserver --show-details
+# Name          Type    State     Tools   AutoStart   Port
+# kubernetes    local   Running   15      true        1234
+# prometheus    local   Running   8       true        1235
+# github        local   Stopped   12      false       -
+# local-tools   local   Error     0       true        -
 ```
 
 ### Workflow Information

@@ -1,78 +1,75 @@
-name: "mcpserver-lifecycle-scenarios"
-description: "Test complete lifecycle management of MCP servers"
+name: "mcpserver-lifecycle"
+description: "Test complete MCP server lifecycle operations"
 category: "behavioral"
 concept: "mcpserver"
-tags: ["mcpserver", "lifecycle", "crud", "core-api"]
+tags: ["mcpserver", "lifecycle", "core-api"]
 timeout: "3m"
 
 steps:
-- id: "list-initial-servers"
-  description: "List initial MCP servers (should be empty)"
-  tool: "core_mcpserver_list"
-  expected:
-    success: true
-
-- id: "create-dynamic-server"
-  description: "Create a new dynamic MCP server"
+- id: "create-lifecycle-mcpserver"
+  description: "Create a stdio MCP server for lifecycle testing"
   tool: "core_mcpserver_create"
   args:
-    name: "new-mcpserver"
-    type: "localCommand"
-    command: ["echo", "dynamic-test-server"]
+    name: "lifecycle-test-server"
+    type: "stdio"
+    command: "echo"
+    args: ["lifecycle-test"]
     autoStart: false
   expected:
     success: true
 
-- id: "verify-new-server-appears"
-  description: "Verify the new server appears in the list"
-  tool: "core_mcpserver_list"
-  expected:
-    success: true
-    contains: ["new-mcpserver"]
-
-- id: "verify-server-created"
-  description: "Verify the server was created successfully"
+- id: "verify-creation"
+  description: "Verify the MCP server was created"
   tool: "core_mcpserver_get"
   args:
-    name: "new-mcpserver"
+    name: "lifecycle-test-server"
   expected:
     success: true
     json_path:
-      name: "new-mcpserver"
-      type: "localCommand"
+      name: "lifecycle-test-server"
+      type: "stdio"
 
-- id: "update-new-server"
-  description: "Update the new server configuration"
+- id: "list-with-lifecycle-server"
+  description: "List servers to verify lifecycle server exists"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["lifecycle-test-server"]
+
+- id: "update-lifecycle-server"
+  description: "Update the MCP server configuration"
   tool: "core_mcpserver_update"
   args:
-    name: "new-mcpserver"
-    type: "localCommand"
-    command: ["echo", "updated-dynamic-server"]
+    name: "lifecycle-test-server"
+    type: "stdio"
+    command: "echo"
+    args: ["updated-lifecycle-test"]
     autoStart: true
   expected:
     success: true
 
-- id: "verify-server-updated"
-  description: "Verify the server was updated successfully"
+- id: "verify-update"
+  description: "Verify the MCP server was updated"
   tool: "core_mcpserver_get"
   args:
-    name: "new-mcpserver"
+    name: "lifecycle-test-server"
   expected:
     success: true
     json_path:
-      name: "new-mcpserver"
+      name: "lifecycle-test-server"
+      type: "stdio"
 
-- id: "delete-dynamic-server"
-  description: "Delete the dynamic server"
+- id: "delete-lifecycle-server"
+  description: "Delete the MCP server"
   tool: "core_mcpserver_delete"
   args:
-    name: "new-mcpserver"
+    name: "lifecycle-test-server"
   expected:
     success: true
 
-- id: "verify-dynamic-server-disappears"
-  description: "Verify the server no longer appears in the list"
+- id: "verify-deletion"
+  description: "Verify the MCP server was deleted"
   tool: "core_mcpserver_list"
   expected:
     success: true
-    not_contains: ["new-mcpserver"] 
+    not_contains: ["lifecycle-test-server"] 
