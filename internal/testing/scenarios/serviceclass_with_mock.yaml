@@ -30,7 +30,6 @@ pre_configuration:
                   size: "{{ .size }}"
                   storage_class: "{{ .storage_class }}"
                   state: "available"
-                delay: "3s"
 
           - name: "storage_volume_delete"
             input_schema:
@@ -43,7 +42,6 @@ pre_configuration:
               - response:
                   status: "deleted"
                   volume_id: "{{ .volume_id }}"
-                delay: "2s"
 
     - name: "network-mock"
       config:
@@ -68,7 +66,6 @@ pre_configuration:
                   port: "{{ .port }}"
                   type: "{{ .type }}"
                   cluster_ip: "10.96.{{ .port }}.100"
-                delay: "1s"
 
           - name: "network_delete_service"
             input_schema:
