@@ -3,6 +3,9 @@ package cli
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"muster/internal/config"
@@ -64,4 +67,61 @@ func CheckServerRunning(endpoint string) error {
 	}
 
 	return nil
+}
+
+// CheckEndpointSystemdSocket verifies that the muster endpoint configuration matches a potential systemd socket
+//
+// Args:
+//   - cfg: Pointer to MusterConfig to use for checking possible endpoints.
+//
+// This function checks if the systemd user mode socket file exists and contains the expected endpoint.
+// returns true if systemd socket activation isn't used or the endpoint matches, false otherwise.
+func CheckEndpointSystemdSocket(cfg *config.MusterConfig) bool {
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+
+	// systemd structure (if used) is well-known
+	musterSocketLink := filepath.Join(homeDir, ".config/systemd/user/sockets.target.wants/muster.socket")
+	socketFile, err := os.ReadFile(musterSocketLink)
+	if err != nil {
+		return true // systemd (user mode) socket activation very likely isn't used
+	}
+
+	defaultEndpoint := GetAggregatorEndpoint(cfg)
+	endpoints := []string{defaultEndpoint}
+	if cfg != nil {
+		// add IPv4 listen address variants reachable via "localhost"
+		if cfg.Aggregator.Host == "localhost" ||
+			cfg.Aggregator.Host == "127.0.0.1" ||
+			cfg.Aggregator.Host == "0.0.0.0" {
+			endpoints = append(endpoints, fmt.Sprintf("%s:%d", "localhost", cfg.Aggregator.Port))
+			endpoints = append(endpoints, fmt.Sprintf("%s:%d", "127.0.0.1", cfg.Aggregator.Port))
+			endpoints = append(endpoints, fmt.Sprintf("%s:%d", "0.0.0.0", cfg.Aggregator.Port))
+		}
+
+		// add IPv6 listen address variants reachable via "localhost"
+		if cfg.Aggregator.Host == "localhost" ||
+			cfg.Aggregator.Host == "ip6-localhost" ||
+			cfg.Aggregator.Host == "ip6-loopback" ||
+			cfg.Aggregator.Host == "::1" ||
+			cfg.Aggregator.Host == "::" {
+			endpoints = append(endpoints, fmt.Sprintf("%s:%d", "::1", cfg.Aggregator.Port))
+			endpoints = append(endpoints, fmt.Sprintf("%s:%d", "::", cfg.Aggregator.Port))
+		}
+
+		// Checking the host's other names or IP addresses would require more complex logic
+		// and is not implemented here, as it is not a common use case.
+	}
+
+	socketConfig := string(socketFile)
+	for _, endpoint := range endpoints {
+		if strings.Contains(socketConfig, endpoint) {
+			return true // systemd socket enabled and matches the expected endpoint
+		}
+	}
+
+	return false // systemd socket enabled, but not matching
 }
