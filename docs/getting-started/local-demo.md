@@ -97,7 +97,7 @@ call core_config_get {}
 call core_config_get_aggregator {}
 
 # Service management
-call core_service_list {})
+call core_service_list {}
 call core_service_status {"name": "mcp-aggregator"}
 
 # ServiceClass templates
