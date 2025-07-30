@@ -11,6 +11,7 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/client"
+	"muster/internal/events"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 
@@ -40,23 +41,21 @@ type ToolAvailabilityChecker interface {
 
 // NewAdapterWithClient creates a new workflow adapter with a pre-configured client
 func NewAdapterWithClient(musterClient client.MusterClient, namespace string, toolCaller ToolCaller, toolChecker ToolAvailabilityChecker, configPath string) *Adapter {
-	executor := NewWorkflowExecutor(toolCaller)
-
-	// Initialize execution storage and tracker
-	executionStorage := NewExecutionStorage(configPath)
-	executionTracker := NewExecutionTracker(executionStorage)
 
 	if namespace == "" {
 		namespace = "default"
 	}
 
-	return &Adapter{
+	adapter := &Adapter{
 		client:           musterClient,
 		namespace:        namespace,
-		executor:         executor,
-		executionTracker: executionTracker,
+		executionTracker: NewExecutionTracker(NewExecutionStorage(configPath)),
 		toolChecker:      toolChecker,
 	}
+
+	adapter.executor = NewWorkflowExecutor(toolCaller, adapter)
+
+	return adapter
 }
 
 // Register registers this adapter with the API layer
@@ -83,16 +82,37 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 
 	// Check if workflow is available before execution
 	if !a.isWorkflowAvailable(workflow) {
+		// Generate workflow unavailable event with missing tools
+		missingTools := a.findMissingTools(workflow)
+		a.generateCRDEvent(workflowName, events.ReasonWorkflowUnavailable, events.EventData{
+			Operation: "execute",
+			ToolNames: missingTools,
+		})
+
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("workflow %s is not available (missing required tools)", workflowName)},
 			IsError: true,
 		}, nil
 	}
 
+	// Generate execution started event
+	a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionStarted, events.EventData{
+		Operation: "execute",
+		StepCount: len(workflow.Steps),
+	})
+
 	// Execute workflow with automatic tracking
 	result, execution, err := a.executionTracker.TrackExecution(ctx, workflowName, args, func() (*mcp.CallToolResult, error) {
 		return a.executor.ExecuteWorkflow(ctx, workflow, args)
 	})
+
+	// Generate execution tracked event
+	if execution != nil {
+		a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionTracked, events.EventData{
+			Operation:   "execute",
+			ExecutionID: execution.ExecutionID,
+		})
+	}
 
 	// Include execution_id in the response for test scenarios and API consumers
 	if execution != nil {
@@ -108,6 +128,16 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	}
 
 	if err != nil {
+		// Generate execution failed event
+		eventData := events.EventData{
+			Operation: "execute",
+			Error:     err.Error(),
+		}
+		if execution != nil {
+			eventData.ExecutionID = execution.ExecutionID
+		}
+		a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionFailed, eventData)
+
 		// Convert mcp result to api result
 		if result != nil {
 			var content []interface{}
@@ -129,6 +159,19 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 			IsError: true,
 		}, nil
 	}
+
+	// Generate execution completed event
+	eventData := events.EventData{
+		Operation: "execute",
+		StepCount: len(workflow.Steps),
+	}
+	if execution != nil {
+		eventData.ExecutionID = execution.ExecutionID
+		if execution.DurationMs > 0 {
+			eventData.Duration = time.Duration(execution.DurationMs) * time.Millisecond
+		}
+	}
+	a.generateCRDEvent(workflowName, events.ReasonWorkflowExecutionCompleted, eventData)
 
 	// Convert mcp.CallToolResult to api.CallToolResult
 	var content []interface{}
@@ -251,8 +294,19 @@ func (a *Adapter) CreateWorkflowFromStructured(args map[string]interface{}) erro
 	// Create the CRD
 	ctx := context.Background()
 	if err := a.client.CreateWorkflow(ctx, workflowCRD); err != nil {
+		// Generate failure event
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "create",
+		})
 		return fmt.Errorf("failed to create workflow: %w", err)
 	}
+
+	// Generate success event for CRD creation
+	a.generateCRDEvent(wf.Name, events.ReasonWorkflowCreated, events.EventData{
+		Operation: "create",
+		StepCount: len(wf.Steps),
+	})
 
 	return nil
 }
@@ -279,8 +333,19 @@ func (a *Adapter) UpdateWorkflowFromStructured(name string, args map[string]inte
 	// Update the CRD
 	ctx := context.Background()
 	if err := a.client.UpdateWorkflow(ctx, workflowCRD); err != nil {
+		// Generate failure event
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "update",
+		})
 		return fmt.Errorf("failed to update workflow: %w", err)
 	}
+
+	// Generate success event for CRD update
+	a.generateCRDEvent(wf.Name, events.ReasonWorkflowUpdated, events.EventData{
+		Operation: "update",
+		StepCount: len(wf.Steps),
+	})
 
 	return nil
 }
@@ -290,15 +355,30 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 	// Convert structured args to validate structure
 	wf, err := convertToWorkflow(args)
 	if err != nil {
+		// Generate validation failure event
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "validate",
+		})
 		return err
 	}
 
 	// Basic validation
 	if wf.Name == "" {
-		return fmt.Errorf("workflow name is required")
+		err := fmt.Errorf("workflow name is required")
+		a.generateCRDEvent("", events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "validate",
+		})
+		return err
 	}
 	if len(wf.Steps) == 0 {
-		return fmt.Errorf("workflow must have at least one step")
+		err := fmt.Errorf("workflow must have at least one step")
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "validate",
+		})
+		return err
 	}
 
 	// Step validation
@@ -306,20 +386,41 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 	for i, step := range wf.Steps {
 		// Check for empty step ID
 		if step.ID == "" {
-			return fmt.Errorf("step %d: step ID cannot be empty", i)
+			err := fmt.Errorf("step %d: step ID cannot be empty", i)
+			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+				Error:     err.Error(),
+				Operation: "validate",
+			})
+			return err
 		}
 
 		// Check for duplicate step IDs
 		if stepIDs[step.ID] {
-			return fmt.Errorf("duplicate step ID '%s' found", step.ID)
+			err := fmt.Errorf("duplicate step ID '%s' found", step.ID)
+			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+				Error:     err.Error(),
+				Operation: "validate",
+			})
+			return err
 		}
 		stepIDs[step.ID] = true
 
 		// Check for empty tool
 		if step.Tool == "" {
-			return fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
+			err := fmt.Errorf("step %d (%s): tool cannot be empty", i, step.ID)
+			a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
+				Error:     err.Error(),
+				Operation: "validate",
+			})
+			return err
 		}
 	}
+
+	// Generate validation success event
+	a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationSucceeded, events.EventData{
+		Operation: "validate",
+		StepCount: len(wf.Steps),
+	})
 
 	return nil
 }
@@ -327,7 +428,21 @@ func (a *Adapter) ValidateWorkflowFromStructured(args map[string]interface{}) er
 // DeleteWorkflow deletes a workflow
 func (a *Adapter) DeleteWorkflow(name string) error {
 	ctx := context.Background()
-	return a.client.DeleteWorkflow(ctx, name, a.namespace)
+	if err := a.client.DeleteWorkflow(ctx, name, a.namespace); err != nil {
+		// Generate failure event
+		a.generateCRDEvent(name, events.ReasonWorkflowValidationFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "delete",
+		})
+		return fmt.Errorf("failed to delete workflow: %w", err)
+	}
+
+	// Generate success event for CRD deletion
+	a.generateCRDEvent(name, events.ReasonWorkflowDeleted, events.EventData{
+		Operation: "delete",
+	})
+
+	return nil
 }
 
 // ListWorkflowExecutions returns paginated list of workflow executions with optional filtering
@@ -629,6 +744,68 @@ func (a *Adapter) isWorkflowAvailable(workflow *api.Workflow) bool {
 	}
 
 	return true
+}
+
+// checkWorkflowAvailabilityWithEvents checks workflow availability and generates events for changes
+func (a *Adapter) checkWorkflowAvailabilityWithEvents(workflow *api.Workflow, previouslyAvailable bool) bool {
+	currentlyAvailable := a.isWorkflowAvailable(workflow)
+
+	// Generate events for availability changes
+	if previouslyAvailable && !currentlyAvailable {
+		// Workflow became unavailable - find missing tools
+		missingTools := a.findMissingTools(workflow)
+		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowUnavailable, events.EventData{
+			Operation: "availability_check",
+			ToolNames: missingTools,
+		})
+		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowToolsMissing, events.EventData{
+			Operation: "availability_check",
+			ToolNames: missingTools,
+		})
+	} else if !previouslyAvailable && currentlyAvailable {
+		// Workflow became available
+		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowAvailable, events.EventData{
+			Operation: "availability_check",
+		})
+		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowToolsDiscovered, events.EventData{
+			Operation: "availability_check",
+		})
+	}
+
+	return currentlyAvailable
+}
+
+// findMissingTools returns a list of tools that are not available for a workflow
+func (a *Adapter) findMissingTools(workflow *api.Workflow) []string {
+	a.mu.RLock()
+	if a.generatingTools {
+		a.mu.RUnlock()
+		return []string{} // No missing tools during tool generation
+	}
+	a.mu.RUnlock()
+
+	if a.toolChecker == nil {
+		return []string{} // No missing tools if no tool checker
+	}
+
+	var missingTools []string
+	for _, step := range workflow.Steps {
+		if !a.toolChecker.IsToolAvailable(step.Tool) {
+			// Avoid duplicates
+			found := false
+			for _, tool := range missingTools {
+				if tool == step.Tool {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missingTools = append(missingTools, step.Tool)
+			}
+		}
+	}
+
+	return missingTools
 }
 
 // enhanceResultWithExecutionID modifies the workflow execution result to include the execution_id
@@ -1040,6 +1217,16 @@ func (a *Adapter) handleCreate(args map[string]interface{}) (*api.CallToolResult
 	if aggregator := api.GetAggregator(); aggregator != nil {
 		logging.Info("WorkflowAdapter", "Refreshing aggregator capabilities after creating workflow %s", wf.Name)
 		aggregator.UpdateCapabilities()
+
+		// Generate tool registration event
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowToolRegistered, events.EventData{
+			Operation: "register",
+		})
+
+		// Generate capabilities refresh event
+		a.generateCRDEvent(wf.Name, events.ReasonWorkflowCapabilitiesRefreshed, events.EventData{
+			Operation: "create",
+		})
 	}
 
 	return &api.CallToolResult{
@@ -1683,4 +1870,103 @@ func getWorkflowStepsSchema() map[string]interface{} {
 		},
 		"minItems": 1,
 	}
+}
+
+// generateCRDEvent creates a Kubernetes event for Workflow CRD operations
+func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data events.EventData) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		// Event manager not available, skip event generation
+		return
+	}
+
+	// Create an object reference for the Workflow CRD
+	objectRef := api.ObjectReference{
+		Kind:      "Workflow",
+		Name:      name,
+		Namespace: a.namespace,
+	}
+
+	// Populate event data
+	data.Name = name
+	if data.Namespace == "" {
+		data.Namespace = a.namespace
+	}
+
+	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	if err != nil {
+		// Log error but don't fail the operation
+		logging.Debug("WorkflowAdapter", "Failed to generate event %s for Workflow %s: %v", string(reason), name, err)
+	} else {
+		logging.Debug("WorkflowAdapter", "Generated event %s for Workflow %s", string(reason), name)
+	}
+}
+
+// GenerateStepEvent implements the EventCallback interface for step-level events
+func (a *Adapter) GenerateStepEvent(workflowName string, stepID string, eventType string, data map[string]interface{}) {
+	var reason events.EventReason
+	var eventData events.EventData
+
+	// Map event types to event reasons
+	switch eventType {
+	case "condition_evaluated":
+		reason = events.ReasonWorkflowStepConditionEvaluated
+		eventData = events.EventData{
+			StepID:          stepID,
+			StepTool:        getStringFromMap(data, "tool"),
+			ConditionResult: getStringFromMap(data, "condition_result"),
+		}
+	case "step_skipped":
+		reason = events.ReasonWorkflowStepSkipped
+		eventData = events.EventData{
+			StepID:          stepID,
+			StepTool:        getStringFromMap(data, "tool"),
+			ConditionResult: getStringFromMap(data, "condition_result"),
+		}
+	case "step_started":
+		reason = events.ReasonWorkflowStepStarted
+		eventData = events.EventData{
+			StepID:   stepID,
+			StepTool: getStringFromMap(data, "tool"),
+		}
+	case "step_completed":
+		reason = events.ReasonWorkflowStepCompleted
+		eventData = events.EventData{
+			StepID:   stepID,
+			StepTool: getStringFromMap(data, "tool"),
+		}
+	case "step_failed":
+		reason = events.ReasonWorkflowStepFailed
+		eventData = events.EventData{
+			StepID:       stepID,
+			StepTool:     getStringFromMap(data, "tool"),
+			Error:        getStringFromMap(data, "error"),
+			AllowFailure: getBoolFromMap(data, "allow_failure"),
+		}
+	default:
+		// Unknown event type, skip
+		return
+	}
+
+	// Generate the event
+	a.generateCRDEvent(workflowName, reason, eventData)
+}
+
+// Helper functions to extract values from map
+func getStringFromMap(data map[string]interface{}, key string) string {
+	if val, ok := data[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
+func getBoolFromMap(data map[string]interface{}, key string) bool {
+	if val, ok := data[key]; ok {
+		if b, ok := val.(bool); ok {
+			return b
+		}
+	}
+	return false
 }

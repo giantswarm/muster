@@ -130,8 +130,18 @@ func (gsi *GenericServiceInstance) Start(ctx context.Context) error {
 		return err
 	}
 
+	// Generate starting event
+	gsi.generateEvent("ServiceInstanceStarting", "start", toolName, nil, 0, 0)
+
 	// Execute the start tool
-	return gsi.executeLifecycleTool(ctx, "start", toolName, args, outputs)
+	err = gsi.executeLifecycleTool(ctx, "start", toolName, args, outputs)
+	if err != nil {
+		return err
+	}
+
+	// Generate started event on success
+	gsi.generateEvent("ServiceInstanceStarted", "start", toolName, nil, 0, 0)
+	return nil
 }
 
 // Stop implements the Service interface - stops the service using the stop tool
@@ -160,6 +170,9 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 		return err
 	}
 
+	// Generate stopping event
+	gsi.generateEvent("ServiceInstanceStopping", "stop", toolName, nil, 0, 0)
+
 	// Execute the stop tool
 	err = gsi.executeLifecycleTool(ctx, "stop", toolName, args, outputs)
 	if err != nil {
@@ -168,6 +181,9 @@ func (gsi *GenericServiceInstance) Stop(ctx context.Context) error {
 
 	// Final state after successful stop tool execution
 	gsi.updateStateInternal(StateStopped, HealthUnknown, nil)
+
+	// Generate stopped event on success
+	gsi.generateEvent("ServiceInstanceStopped", "stop", toolName, nil, 0, 0)
 	return nil
 }
 
@@ -180,6 +196,7 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 	}
 	gsi.mu.Unlock()
 
+	startTime := time.Now()
 	logging.Info("GenericServiceInstance", "Restarting service %s", gsi.name)
 
 	// Get restart tool info through API
@@ -193,12 +210,27 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 	toolName, args, outputs, err := serviceClassMgr.GetRestartTool(gsi.serviceClassName)
 	// If a restart tool is defined and available, use it
 	if err == nil && toolName != "" {
+		// Generate restarting event
+		gsi.generateEvent("ServiceInstanceRestarting", "restart", toolName, nil, 0, 0)
+
 		gsi.updateStateInternal(StateStarting, HealthChecking, nil) // A restart is a form of starting
-		return gsi.executeLifecycleTool(ctx, "restart", toolName, args, outputs)
+		err = gsi.executeLifecycleTool(ctx, "restart", toolName, args, outputs)
+		if err != nil {
+			return err
+		}
+
+		// Generate restarted event on success
+		duration := time.Since(startTime)
+		gsi.generateEvent("ServiceInstanceRestarted", "restart", toolName, nil, duration, 0)
+		return nil
 	}
 
 	// Otherwise, fallback to Stop() then Start()
 	logging.Info("GenericServiceInstance", "No custom restart tool for %s, using Stop/Start", gsi.name)
+
+	// Generate restarting event for fallback method
+	gsi.generateEvent("ServiceInstanceRestarting", "restart", "", nil, 0, 0)
+
 	if err := gsi.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop service during restart: %w", err)
 	}
@@ -211,6 +243,9 @@ func (gsi *GenericServiceInstance) Restart(ctx context.Context) error {
 		return fmt.Errorf("failed to start service during restart: %w", err)
 	}
 
+	// Generate restarted event on success
+	duration := time.Since(startTime)
+	gsi.generateEvent("ServiceInstanceRestarted", "restart", "", nil, duration, 0)
 	return nil
 }
 
@@ -350,9 +385,17 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 	if err != nil {
 		gsi.updateHealthTracking(false, failureThreshold, successThreshold)
 		newHealth := gsi.determineHealthFromTracking(failureThreshold, successThreshold)
+
+		// Generate health check failed event
+		gsi.generateEvent("ServiceInstanceHealthCheckFailed", "health_check", toolName, err, 0, 0)
+
 		gsi.updateStateInternal(gsi.state, newHealth, err)
 		return newHealth, fmt.Errorf("failed to evaluate health check expectation: %w", err)
 	}
+
+	// Store previous health for comparison
+	previousHealth := gsi.health
+	previousFailures := gsi.healthCheckFailures
 
 	// Update health tracking
 	gsi.updateHealthTracking(isHealthy, failureThreshold, successThreshold)
@@ -362,6 +405,26 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 	now := time.Now()
 	gsi.lastChecked = &now
 	gsi.updatedAt = now
+
+	// Generate health-related events
+	if !isHealthy {
+		// Generate health check failed event for individual failures
+		gsi.generateEvent("ServiceInstanceHealthCheckFailed", "health_check", toolName, nil, 0, gsi.healthCheckFailures)
+	}
+
+	// Check for health state transitions and generate appropriate events
+	if newHealth != previousHealth {
+		switch newHealth {
+		case HealthHealthy:
+			if previousHealth == HealthUnhealthy {
+				// Recovery from unhealthy state
+				gsi.generateEvent("ServiceInstanceHealthCheckRecovered", "health_recovery", toolName, nil, 0, previousFailures)
+			}
+			gsi.generateEvent("ServiceInstanceHealthy", "health_status", toolName, nil, 0, gsi.healthCheckSuccesses)
+		case HealthUnhealthy:
+			gsi.generateEvent("ServiceInstanceUnhealthy", "health_status", toolName, nil, 0, gsi.healthCheckFailures)
+		}
+	}
 
 	// Update state if health changed
 	if newHealth != gsi.health {
@@ -474,6 +537,116 @@ func (gsi *GenericServiceInstance) UpdateState(state ServiceState, health Health
 
 // Helper methods
 
+// generateEvent generates a Kubernetes event for this service instance
+func (gsi *GenericServiceInstance) generateEvent(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug("GenericServiceInstance", "Event manager not available, skipping event generation for service %s", gsi.name)
+		return
+	}
+
+	// Create event data with service instance context
+	eventData := api.ObjectReference{
+		Kind:      "ServiceInstance",
+		Name:      gsi.name,
+		Namespace: "default", // Service instances use default namespace
+	}
+
+	// Prepare additional context for event message templating
+	// We'll use the internal events.EventData structure through the CreateEventForCRD method
+	message := gsi.buildEventMessage(reason, operation, toolName, err, duration, stepCount)
+
+	// Determine event type based on reason
+	eventType := "Normal"
+	if reason == "ServiceInstanceFailed" ||
+		reason == "ServiceInstanceUnhealthy" ||
+		reason == "ServiceInstanceHealthCheckFailed" ||
+		reason == "ServiceInstanceToolExecutionFailed" {
+		eventType = "Warning"
+	}
+
+	// Generate the event
+	ctx := context.Background()
+	if err := eventManager.CreateEvent(ctx, eventData, reason, message, eventType); err != nil {
+		logging.Error("GenericServiceInstance", err, "Failed to generate event for service instance %s", gsi.name)
+	}
+}
+
+// buildEventMessage builds the event message for a given reason and context
+func (gsi *GenericServiceInstance) buildEventMessage(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) string {
+	gsi.mu.RLock()
+	serviceName := gsi.name
+	serviceClassName := gsi.serviceClassName
+	gsi.mu.RUnlock()
+
+	// Build context-aware messages based on the reason
+	switch reason {
+	case "ServiceInstanceCreated":
+		return fmt.Sprintf("Service instance %s created from ServiceClass %s", serviceName, serviceClassName)
+	case "ServiceInstanceStarting":
+		if toolName != "" {
+			return fmt.Sprintf("Service instance %s starting with tool %s", serviceName, toolName)
+		}
+		return fmt.Sprintf("Service instance %s starting", serviceName)
+	case "ServiceInstanceStarted":
+		return fmt.Sprintf("Service instance %s started successfully and is running", serviceName)
+	case "ServiceInstanceStopping":
+		if toolName != "" {
+			return fmt.Sprintf("Service instance %s stopping with tool %s", serviceName, toolName)
+		}
+		return fmt.Sprintf("Service instance %s stopping", serviceName)
+	case "ServiceInstanceStopped":
+		return fmt.Sprintf("Service instance %s stopped successfully", serviceName)
+	case "ServiceInstanceRestarting":
+		if toolName != "" {
+			return fmt.Sprintf("Service instance %s restarting with tool %s", serviceName, toolName)
+		}
+		return fmt.Sprintf("Service instance %s restarting", serviceName)
+	case "ServiceInstanceRestarted":
+		if duration > 0 {
+			return fmt.Sprintf("Service instance %s restarted successfully after %s", serviceName, duration.String())
+		}
+		return fmt.Sprintf("Service instance %s restarted successfully", serviceName)
+	case "ServiceInstanceDeleted":
+		return fmt.Sprintf("Service instance %s deleted successfully", serviceName)
+	case "ServiceInstanceFailed":
+		if err != nil {
+			return fmt.Sprintf("Service instance %s operation failed: %s", serviceName, err.Error())
+		}
+		return fmt.Sprintf("Service instance %s operation failed", serviceName)
+	case "ServiceInstanceHealthy":
+		if stepCount > 0 {
+			return fmt.Sprintf("Service instance %s health checks passing (%d consecutive successes)", serviceName, stepCount)
+		}
+		return fmt.Sprintf("Service instance %s health checks passing", serviceName)
+	case "ServiceInstanceUnhealthy":
+		if stepCount > 0 {
+			return fmt.Sprintf("Service instance %s health checks failing (%d consecutive failures)", serviceName, stepCount)
+		}
+		return fmt.Sprintf("Service instance %s health checks failing", serviceName)
+	case "ServiceInstanceHealthCheckFailed":
+		if err != nil {
+			return fmt.Sprintf("Service instance %s health check failed: %s", serviceName, err.Error())
+		}
+		return fmt.Sprintf("Service instance %s health check failed", serviceName)
+	case "ServiceInstanceHealthCheckRecovered":
+		return fmt.Sprintf("Service instance %s health check recovered after %d failures", serviceName, stepCount)
+	case "ServiceInstanceStateChanged":
+		return fmt.Sprintf("Service instance %s state changed: %s", serviceName, operation)
+	case "ServiceInstanceToolExecutionStarted":
+		return fmt.Sprintf("Service instance %s %s tool %s execution started", serviceName, operation, toolName)
+	case "ServiceInstanceToolExecutionCompleted":
+		return fmt.Sprintf("Service instance %s %s tool %s execution completed successfully", serviceName, operation, toolName)
+	case "ServiceInstanceToolExecutionFailed":
+		if err != nil {
+			return fmt.Sprintf("Service instance %s %s tool %s execution failed: %s", serviceName, operation, toolName, err.Error())
+		}
+		return fmt.Sprintf("Service instance %s %s tool %s execution failed", serviceName, operation, toolName)
+	default:
+		return fmt.Sprintf("Service instance %s: %s", serviceName, reason)
+	}
+}
+
 // buildTemplateContext creates the template context for tool argument substitution
 func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{} {
 	// Build context with args nested under "args" key for template usage
@@ -521,14 +694,36 @@ func (gsi *GenericServiceInstance) updateStateInternal(newState ServiceState, ne
 	gsi.lastError = err
 	gsi.updatedAt = time.Now()
 
+	// Collect event information while holding the mutex
+	shouldGenerateStateChangeEvent := oldState != newState || oldHealth != newHealth
+	shouldGenerateFailedEvent := newState == StateFailed && oldState != StateFailed
+	stateChangeMsg := ""
+	serviceName := gsi.name
+
+	if shouldGenerateStateChangeEvent {
+		stateChangeMsg = fmt.Sprintf("%s → %s (health: %s → %s)", oldState, newState, oldHealth, newHealth)
+	}
+
 	// Trigger callback if state or health changed
-	if gsi.stateCallback != nil && (oldState != newState || oldHealth != newHealth) {
+	if gsi.stateCallback != nil && shouldGenerateStateChangeEvent {
 		// Call callback without holding lock to prevent deadlocks
-		go gsi.stateCallback(gsi.name, oldState, newState, newHealth, err)
+		go gsi.stateCallback(serviceName, oldState, newState, newHealth, err)
 	}
 
 	logging.Debug("GenericServiceInstance", "Service %s state changed: %s -> %s (health: %s -> %s)",
-		gsi.name, oldState, newState, oldHealth, newHealth)
+		serviceName, oldState, newState, oldHealth, newHealth)
+
+	// Generate events after releasing the mutex to avoid deadlocks
+	if shouldGenerateStateChangeEvent {
+		go func() {
+			gsi.generateEvent("ServiceInstanceStateChanged", stateChangeMsg, "", err, 0, 0)
+
+			// Also generate specific state events for major transitions
+			if shouldGenerateFailedEvent {
+				gsi.generateEvent("ServiceInstanceFailed", "state_transition", "", err, 0, 0)
+			}
+		}()
+	}
 }
 
 // updateHealthTracking updates the health check tracking counters
@@ -599,10 +794,15 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 		return err
 	}
 
+	// Generate tool execution started event
+	gsi.generateEvent("ServiceInstanceToolExecutionStarted", toolType, toolName, nil, 0, 0)
+
 	// Call the lifecycle tool with shorter timeout context
 	logging.Debug("GenericServiceInstance", "Calling %s tool %s for service %s", toolType, toolName, gsi.name)
 	response, err := gsi.toolCaller.CallTool(toolCtx, toolName, toolArgsMap)
 	if err != nil {
+		// Generate tool execution failed event
+		gsi.generateEvent("ServiceInstanceToolExecutionFailed", toolType, toolName, err, 0, 0)
 		gsi.updateStateInternal(StateFailed, HealthUnhealthy, err)
 		return fmt.Errorf("%s tool failed: %w", toolType, err)
 	}
@@ -635,6 +835,9 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 
 	// Mark as running and healthy
 	gsi.updateStateInternal(StateRunning, HealthHealthy, nil)
+
+	// Generate tool execution completed event
+	gsi.generateEvent("ServiceInstanceToolExecutionCompleted", toolType, toolName, nil, 0, 0)
 
 	logging.Info("GenericServiceInstance", "Successfully %sed service instance: %s", toolType, gsi.name)
 	return nil

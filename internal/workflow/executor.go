@@ -18,6 +18,19 @@ type ToolCaller interface {
 	CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 }
 
+// EventCallback interface for generating workflow step events
+type EventCallback interface {
+	// GenerateStepEvent generates an event for a workflow step operation
+	GenerateStepEvent(workflowName string, stepID string, eventType string, data map[string]interface{})
+}
+
+// NoOpEventCallback provides a no-operation implementation of EventCallback
+type NoOpEventCallback struct{}
+
+func (n *NoOpEventCallback) GenerateStepEvent(workflowName string, stepID string, eventType string, data map[string]interface{}) {
+	// No operation - events are disabled
+}
+
 // stepMetadata holds metadata about an executed step for tracking purposes
 type stepMetadata struct {
 	ID                  string      // Original step ID from workflow definition
@@ -32,15 +45,20 @@ type stepMetadata struct {
 
 // WorkflowExecutor executes workflow steps
 type WorkflowExecutor struct {
-	toolCaller ToolCaller
-	template   *template.Engine
+	toolCaller    ToolCaller
+	template      *template.Engine
+	eventCallback EventCallback
 }
 
 // NewWorkflowExecutor creates a new workflow executor
-func NewWorkflowExecutor(toolCaller ToolCaller) *WorkflowExecutor {
+func NewWorkflowExecutor(toolCaller ToolCaller, eventCallback EventCallback) *WorkflowExecutor {
+	if eventCallback == nil {
+		eventCallback = &NoOpEventCallback{}
+	}
 	return &WorkflowExecutor{
-		toolCaller: toolCaller,
-		template:   template.New(),
+		toolCaller:    toolCaller,
+		template:      template.New(),
+		eventCallback: eventCallback,
 	}
 }
 
@@ -279,9 +297,21 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			conditionEvaluation = &conditionPassed
 			logging.Debug("WorkflowExecutor", "Step %s final condition result: %v", step.ID, conditionPassed)
 
+			// Generate step condition evaluation event
+			we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "condition_evaluated", map[string]interface{}{
+				"tool":             step.Tool,
+				"condition_result": fmt.Sprintf("%t", conditionPassed),
+			})
+
 			// If condition failed, skip this step
 			if !*conditionEvaluation {
 				logging.Debug("WorkflowExecutor", "Step %s condition failed, skipping step", step.ID)
+
+				// Generate step skipped event
+				we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_skipped", map[string]interface{}{
+					"tool":             step.Tool,
+					"condition_result": "false",
+				})
 
 				// Record the skipped step metadata
 				execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
@@ -309,10 +339,22 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		}
 		logging.Debug("WorkflowExecutor", "Step %s resolved args: %+v", step.ID, resolvedArgs)
 
+		// Generate step started event
+		we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_started", map[string]interface{}{
+			"tool": step.Tool,
+		})
+
 		// Execute the tool
 		result, err := we.toolCaller.CallToolInternal(ctx, step.Tool, resolvedArgs)
 		if err != nil {
 			logging.Error("WorkflowExecutor", err, "Step %s failed", step.ID)
+
+			// Generate step failed event
+			we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_failed", map[string]interface{}{
+				"tool":          step.Tool,
+				"error":         err.Error(),
+				"allow_failure": step.AllowFailure,
+			})
 
 			// Record the failed step metadata
 			execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
@@ -403,6 +445,11 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			logging.Debug("WorkflowExecutor", "Current execution context results: %+v", execCtx.results)
 		}
 
+		// Generate step completed event (for now, will be updated if error is detected)
+		we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_completed", map[string]interface{}{
+			"tool": step.Tool,
+		})
+
 		// Record step metadata for execution tracking
 		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
 			ID:                  step.ID,
@@ -418,6 +465,13 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		// Check if result indicates an error
 		if result.IsError {
 			logging.Error("WorkflowExecutor", fmt.Errorf("step returned error"), "Step %s returned error result", step.ID)
+
+			// Generate step failed event for error result case
+			we.eventCallback.GenerateStepEvent(workflow.Name, step.ID, "step_failed", map[string]interface{}{
+				"tool":          step.Tool,
+				"error":         "step returned error result",
+				"allow_failure": step.AllowFailure,
+			})
 
 			// If step allows failure, treat as a normal step failure and continue
 			if step.AllowFailure {

@@ -119,8 +119,8 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	if len(data) == 0 {
 		fmt.Printf("%s %s\n",
-			text.FgYellow.Sprint("📋"),
-			text.FgYellow.Sprint("No items found"))
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No items found"))
 		return nil
 	}
 
@@ -143,7 +143,7 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	// Set headers with colors and icons
 	headers := make([]interface{}, len(columns))
 	for i, col := range columns {
-		headers[i] = text.FgHiCyan.Sprint(strings.ToUpper(col))
+		headers[i] = text.Colors{text.FgHiBlue, text.Bold}.Sprint(strings.ToUpper(col))
 	}
 	t.AppendHeader(headers)
 
@@ -167,7 +167,7 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	fmt.Printf("\n%s %s %s %s\n",
 		icon,
 		text.FgHiBlue.Sprint("Total:"),
-		text.FgHiWhite.Sprint(len(data)),
+		text.Bold.Sprint(len(data)),
 		text.FgHiBlue.Sprint(resourceName))
 
 	return nil
@@ -219,8 +219,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"mcpServers":     {"state", "serverType", "description"},
 		"workflows":      {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
-
-		"generic": {"status", "type", "description", "available"},
+		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
+		"generic":        {"status", "type", "description", "available"},
 	}
 
 	// Detect resource type and use optimized columns
@@ -236,8 +236,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 
 	// For complex resource types, limit columns to prevent wrapping
 	maxColumns := 6
-	if resourceType == "serviceClasses" || resourceType == "mcpServers" {
-		maxColumns = 5 // More conservative for wider data
+	if resourceType == "serviceClasses" || resourceType == "mcpServers" || resourceType == "event" {
+		maxColumns = 6 // Allow more columns for events
 	}
 
 	// Add remaining columns alphabetically if we have space
@@ -253,37 +253,33 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	return columns
 }
 
-// detectResourceType attempts to determine what type of muster resource this is.
-// It analyzes the object structure and field names to identify the resource
-// type, which is used for specialized formatting and column optimization.
+// detectResourceType analyzes a sample object to determine what type of resource it represents.
+// This helps optimize the column selection and formatting for different resource types.
 //
 // Args:
-//   - sample: Sample data object to analyze
+//   - sample: Sample object to analyze for type detection
 //
 // Returns:
-//   - string: Detected resource type (services, workflows, etc.) or "generic"
+//   - string: Detected resource type for optimization purposes
 func (f *TableFormatter) detectResourceType(sample map[string]interface{}) string {
-	// Look for distinctive fields
-	if f.keyExists(sample, "health") && f.keyExists(sample, "service_type") {
-		return "services"
+	// Check for specific field combinations to identify resource types
+	if f.keyExists(sample, "timestamp") && f.keyExists(sample, "reason") && f.keyExists(sample, "resource_type") {
+		return "event"
 	}
-	if f.keyExists(sample, "serviceType") && f.keyExists(sample, "requiredTools") {
-		return "serviceClasses"
+	if f.keyExists(sample, "health") && f.keyExists(sample, "state") {
+		return "service"
 	}
-	// Check for server-related fields for mcpServers
-	if f.keyExists(sample, "serverType") || f.keyExists(sample, "serverCommand") ||
-		(f.keyExists(sample, "type") && f.keyExists(sample, "command")) ||
-		(f.keyExists(sample, "available") && f.keyExists(sample, "category")) {
-		return "mcpServers"
+	if f.keyExists(sample, "workflow_name") && f.keyExists(sample, "started_at") {
+		return "execution"
 	}
-	// Check for workflow execution fields
-	if f.keyExists(sample, "execution_id") && f.keyExists(sample, "workflow_name") {
-		return "executions"
+	if f.keyExists(sample, "available") && f.keyExists(sample, "serviceType") {
+		return "serviceClass"
 	}
-	// Check for workflow-related fields
-	if f.keyExists(sample, "steps") || f.keyExists(sample, "workflow") ||
-		(f.keyExists(sample, "name") && f.keyExists(sample, "version") && f.keyExists(sample, "description")) {
-		return "workflows"
+	if f.keyExists(sample, "serverType") {
+		return "mcpServer"
+	}
+	if f.keyExists(sample, "steps") && f.keyExists(sample, "description") {
+		return "workflow"
 	}
 
 	return "generic"
@@ -308,8 +304,8 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{
-		text.FgHiCyan.Sprint("PROPERTY"),
-		text.FgHiCyan.Sprint("VALUE"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
 	})
 
 	// Sort keys for consistent output
@@ -322,7 +318,7 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	for _, key := range keys {
 		value := f.builder.FormatCellValue(key, data[key])
 		t.AppendRow(table.Row{
-			text.FgYellow.Sprint(key),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint(key),
 			value,
 		})
 	}
@@ -400,8 +396,8 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{
-		text.FgHiCyan.Sprint("PROPERTY"),
-		text.FgHiCyan.Sprint("VALUE"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
 	})
 
 	// Display basic workflow information
@@ -409,8 +405,8 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 	for _, field := range basicFields {
 		if value, exists := workflowData[field]; exists && value != nil {
 			t.AppendRow(table.Row{
-				text.FgYellow.Sprint(strings.ToLower(field)),
-				text.FgHiWhite.Sprint(fmt.Sprintf("%v", value)),
+				text.Colors{text.FgHiYellow, text.Bold}.Sprint(strings.ToLower(field)),
+				text.Bold.Sprint(fmt.Sprintf("%v", value)),
 			})
 		}
 	}
@@ -430,7 +426,7 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface{}) error {
 	// Main execution info
 	fmt.Printf("%s %s\n",
-		text.FgGreen.Sprint("✅"),
+		text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅"),
 		text.FgHiGreen.Sprint("Workflow Execution Completed"))
 	fmt.Println()
 
@@ -439,22 +435,22 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{
-		text.FgHiCyan.Sprint("PROPERTY"),
-		text.FgHiCyan.Sprint("VALUE"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
 	})
 
 	// Add execution details
 	if executionID, exists := data["execution_id"]; exists {
 		t.AppendRow(table.Row{
-			text.FgYellow.Sprint("execution_id"),
-			text.FgHiWhite.Sprint(fmt.Sprintf("%v", executionID)),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint("execution_id"),
+			text.Bold.Sprint(fmt.Sprintf("%v", executionID)),
 		})
 	}
 
 	if workflow, exists := data["workflow"]; exists {
 		t.AppendRow(table.Row{
-			text.FgYellow.Sprint("workflow"),
-			text.FgHiWhite.Sprint(fmt.Sprintf("%v", workflow)),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint("workflow"),
+			text.Bold.Sprint(fmt.Sprintf("%v", workflow)),
 		})
 	}
 
@@ -463,16 +459,16 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 		var statusDisplay string
 		switch strings.ToLower(statusStr) {
 		case "completed":
-			statusDisplay = text.FgGreen.Sprint("✅ " + statusStr)
+			statusDisplay = text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + statusStr)
 		case "failed":
-			statusDisplay = text.FgRed.Sprint("❌ " + statusStr)
+			statusDisplay = text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + statusStr)
 		case "running":
-			statusDisplay = text.FgYellow.Sprint("⏳ " + statusStr)
+			statusDisplay = text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + statusStr)
 		default:
-			statusDisplay = text.FgHiWhite.Sprint(statusStr)
+			statusDisplay = text.Bold.Sprint(statusStr)
 		}
 		t.AppendRow(table.Row{
-			text.FgYellow.Sprint("status"),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint("status"),
 			statusDisplay,
 		})
 	}
@@ -482,14 +478,14 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 	// Show input parameters if they exist
 	if input, exists := data["input"]; exists {
 		if inputMap, ok := input.(map[string]interface{}); ok && len(inputMap) > 0 {
-			fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Parameters:"))
+			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Parameters:"))
 
 			inputTable := table.NewWriter()
 			inputTable.SetOutputMirror(os.Stdout)
 			inputTable.SetStyle(table.StyleRounded)
 			inputTable.AppendHeader(table.Row{
-				text.FgHiCyan.Sprint("PARAMETER"),
-				text.FgHiCyan.Sprint("VALUE"),
+				text.Colors{text.FgHiBlue, text.Bold}.Sprint("PARAMETER"),
+				text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
 			})
 
 			// Sort parameters for consistent display
@@ -502,8 +498,8 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 			for _, paramName := range paramNames {
 				value := inputMap[paramName]
 				inputTable.AppendRow(table.Row{
-					text.FgYellow.Sprint(paramName),
-					text.FgHiWhite.Sprint(fmt.Sprintf("%v", value)),
+					text.Colors{text.FgHiYellow, text.Bold}.Sprint(paramName),
+					text.Bold.Sprint(fmt.Sprintf("%v", value)),
 				})
 			}
 
@@ -514,15 +510,15 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 	// Show step results if they exist
 	if results, exists := data["results"]; exists {
 		if resultsMap, ok := results.(map[string]interface{}); ok && len(resultsMap) > 0 {
-			fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("🔄 Step Results:"))
+			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔄 Step Results:"))
 
 			stepTable := table.NewWriter()
 			stepTable.SetOutputMirror(os.Stdout)
 			stepTable.SetStyle(table.StyleRounded)
 			stepTable.AppendHeader(table.Row{
-				text.FgHiCyan.Sprint("STEP"),
-				text.FgHiCyan.Sprint("STATUS"),
-				text.FgHiCyan.Sprint("DETAILS"),
+				text.Colors{text.FgHiBlue, text.Bold}.Sprint("STEP"),
+				text.Colors{text.FgHiBlue, text.Bold}.Sprint("STATUS"),
+				text.Colors{text.FgHiBlue, text.Bold}.Sprint("DETAILS"),
 			})
 
 			// Sort step names for consistent display
@@ -562,19 +558,19 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 					var statusDisplay string
 					switch strings.ToLower(status) {
 					case "completed":
-						statusDisplay = text.FgGreen.Sprint("✅ " + status)
+						statusDisplay = text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + status)
 					case "failed":
-						statusDisplay = text.FgRed.Sprint("❌ " + status)
+						statusDisplay = text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + status)
 					case "skipped":
-						statusDisplay = text.FgYellow.Sprint("⏭️ " + status)
+						statusDisplay = text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏭️ " + status)
 					default:
-						statusDisplay = text.FgHiWhite.Sprint(status)
+						statusDisplay = text.Bold.Sprint(status)
 					}
 
 					stepTable.AppendRow(table.Row{
-						text.FgHiWhite.Sprint(stepName),
+						text.Bold.Sprint(stepName),
 						statusDisplay,
-						text.FgCyan.Sprint(details),
+						text.Colors{text.FgHiCyan, text.Bold}.Sprint(details),
 					})
 				}
 			}
@@ -630,16 +626,16 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		return
 	}
 
-	fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("📝 Input Args:"))
+	fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Args:"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{
-		text.FgHiCyan.Sprint("ARGUMENT"),
-		text.FgHiCyan.Sprint("TYPE"),
-		text.FgHiCyan.Sprint("DESCRIPTION"),
-		text.FgHiCyan.Sprint("REQUIRED"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("ARGUMENT"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("TYPE"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("REQUIRED"),
 	})
 
 	// Sort arg names
@@ -672,7 +668,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		isRequired := "No"
 		if req, exists := paramDef["required"]; exists {
 			if reqBool, ok := req.(bool); ok && reqBool {
-				isRequired = text.FgYellow.Sprint("Yes")
+				isRequired = text.Colors{text.FgHiYellow, text.Bold}.Sprint("Yes")
 			}
 		}
 
@@ -683,8 +679,8 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		}
 
 		t.AppendRow(table.Row{
-			text.FgHiWhite.Sprint(paramName),
-			text.FgCyan.Sprint(paramType),
+			text.Bold.Sprint(paramName),
+			text.Colors{text.FgHiCyan, text.Bold}.Sprint(paramType),
 			description + defaultValue,
 			isRequired,
 		})
@@ -716,15 +712,15 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 		return
 	}
 
-	fmt.Printf("\n%s\n", text.FgHiCyan.Sprint("🔄 Workflow Steps:"))
+	fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔄 Workflow Steps:"))
 
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
 	t.AppendHeader(table.Row{
-		text.FgHiCyan.Sprint("STEP"),
-		text.FgHiCyan.Sprint("TOOL"),
-		text.FgHiCyan.Sprint("DESCRIPTION"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("STEP"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("TOOL"),
+		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
 	})
 
 	for i, step := range steps {
@@ -767,8 +763,8 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 			}
 
 			t.AppendRow(table.Row{
-				text.FgYellow.Sprint(stepNum),
-				text.FgCyan.Sprint(tool),
+				text.Colors{text.FgHiYellow, text.Bold}.Sprint(stepNum),
+				text.Colors{text.FgHiCyan, text.Bold}.Sprint(tool),
 				description,
 			})
 		}

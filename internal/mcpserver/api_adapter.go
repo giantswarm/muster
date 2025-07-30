@@ -9,6 +9,7 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/client"
+	"muster/internal/events"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
@@ -385,8 +386,18 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
 		}
+		// Generate failure event
+		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "create",
+		})
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
 	}
+
+	// Generate success event for CRD creation
+	a.generateCRDEvent(req.Name, events.ReasonMCPServerCreated, events.EventData{
+		Operation: "create",
+	})
 
 	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name))
 }
@@ -432,8 +443,18 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 
 	// Update the MCP server using the unified client
 	if err := a.client.UpdateMCPServer(ctx, existing); err != nil {
+		// Generate failure event
+		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "update",
+		})
 		return api.HandleErrorWithPrefix(err, "Failed to update MCP server"), nil
 	}
+
+	// Generate success event for CRD update
+	a.generateCRDEvent(req.Name, events.ReasonMCPServerUpdated, events.EventData{
+		Operation: "update",
+	})
 
 	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
 }
@@ -450,8 +471,18 @@ func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallT
 		if errors.IsNotFound(err) {
 			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
 		}
+		// Generate failure event
+		a.generateCRDEvent(name, events.ReasonMCPServerFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "delete",
+		})
 		return api.HandleErrorWithPrefix(err, "Failed to delete MCP server"), nil
 	}
+
+	// Generate success event for CRD deletion
+	a.generateCRDEvent(name, events.ReasonMCPServerDeleted, events.EventData{
+		Operation: "delete",
+	})
 
 	return simpleOK(fmt.Sprintf("MCP server '%s' deleted successfully", name))
 }
@@ -492,4 +523,34 @@ func getClientMode(client client.MusterClient) string {
 		return "kubernetes"
 	}
 	return "filesystem"
+}
+
+// generateCRDEvent creates a Kubernetes event for MCPServer CRD operations
+func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data events.EventData) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		// Event manager not available, skip event generation
+		return
+	}
+
+	// Create an object reference for the MCPServer CRD
+	objectRef := api.ObjectReference{
+		Kind:      "MCPServer",
+		Name:      name,
+		Namespace: a.namespace,
+	}
+
+	// Populate event data
+	data.Name = name
+	if data.Namespace == "" {
+		data.Namespace = a.namespace
+	}
+
+	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	if err != nil {
+		// Log error but don't fail the operation
+		fmt.Printf("Debug: Failed to generate event %s for MCPServer %s: %v\n", string(reason), name, err)
+	} else {
+		fmt.Printf("Debug: Generated event %s for MCPServer %s\n", string(reason), name)
+	}
 }
