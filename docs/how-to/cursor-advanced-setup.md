@@ -1,9 +1,10 @@
 # Advanced Cursor Setup for Infrastructure Engineering
 
-> **Note**: This guide covers advanced configuration for production environments and complex setups. 
+> **Note**: This guide covers advanced configuration for production environments and complex setups.
 > For basic setup, see [AI Agent Quick Start](../getting-started/ai-agent-setup.md) which uses the simpler `muster standalone` mode.
 
 This guide is for scenarios where you need:
+
 - Multiple environment configurations
 - Visible server logs for debugging
 - Multiple MCP clients connecting to one server
@@ -46,7 +47,7 @@ Configure different muster instances for different environments:
       "args": ["agent", "--mcp-server", "--config-path", "/path/to/dev/config"]
     },
     "muster-staging": {
-      "command": "muster", 
+      "command": "muster",
       "args": ["agent", "--mcp-server", "--config-path", "/path/to/staging/config"]
     },
     "muster-prod": {
@@ -75,6 +76,7 @@ For simpler setups, use standalone mode:
 ## Environment-Specific Configurations
 
 ### Development Environment
+
 Create a development configuration directory:
 
 ```bash
@@ -105,6 +107,7 @@ spec:
 ```
 
 ### Staging Environment
+
 ```bash
 # Staging config at ~/staging-muster/
 mkdir -p ~/staging-muster/{mcpservers,workflows,serviceclasses,services}
@@ -119,6 +122,7 @@ aggregator:
 ```
 
 ### Production Environment
+
 ```bash
 # Production config at ~/prod-muster/
 mkdir -p ~/prod-muster/{mcpservers,workflows,serviceclasses,services}
@@ -209,7 +213,7 @@ Structure prompts to leverage muster's capabilities:
 **Good**: "Create a web service called 'user-api' using the web-application serviceclass"
 - AI will use: `core_service_create(name="user-api", serviceClassName="web-application")`
 
-**Good**: "List all running services"  
+**Good**: "List all running services"
 - AI will use: `core_service_list()`
 
 **Good**: "Execute the deploy-app workflow for my-service"
@@ -275,17 +279,20 @@ muster list workflow
 If Cursor can't connect to muster:
 
 1. **Check muster is running**:
+
    ```bash
    # Start muster server
    muster serve
    ```
 
 2. **Test agent connectivity**:
+
    ```bash
    muster agent --repl
    ```
 
 3. **Verify configuration paths**:
+
    ```bash
    # Check config directory exists
    ls -la ~/.config/muster/
@@ -296,14 +303,16 @@ If Cursor can't connect to muster:
 If tools aren't available in Cursor:
 
 1. **Check MCP servers**:
+
    ```bash
    muster list mcpserver
    ```
 
 2. **Verify tool discovery**:
+
    ```bash
    muster agent --repl
-   # Then: list_tools()
+   # Then: list tools
    ```
 
 ### Performance Optimization
@@ -317,8 +326,8 @@ For better performance:
 ## Next Steps
 
 1. **Create project-specific configs** for different codebases
-2. **Build custom workflows** for your infrastructure patterns  
+2. **Build custom workflows** for your infrastructure patterns
 3. **Set up ServiceClasses** for your common deployment patterns
 4. **Test with your team** to establish conventions
 
-For more examples, see the test scenarios in `internal/testing/scenarios/`. 
+For more examples, see the test scenarios in `internal/testing/scenarios/`.
