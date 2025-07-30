@@ -109,7 +109,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Step 1: Create unified muster client once
 	// This avoids redundant Kubernetes connection attempts and CRD validation
-	musterClient, err := createMusterClient(cfg.ConfigPath, cfg.Debug)
+	musterClient, err := createMusterClientWithConfig(cfg.ConfigPath, cfg.Debug, *cfg.MusterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client: %w", err)
 	}
@@ -129,8 +129,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
 
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := cfg.MusterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
 	// Initialize and register ServiceClass adapter using the muster client
-	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, "default")
+	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
 	serviceClassAdapter.Register()
 
 	// Load ServiceClass definitions to ensure they're available
@@ -145,11 +151,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	}
 
 	// Create and register Workflow adapter using the muster client
-	workflowAdapter := workflow.NewAdapterWithClient(musterClient, "default", toolCaller, toolChecker, cfg.ConfigPath)
+	workflowAdapter := workflow.NewAdapterWithClient(musterClient, namespace, toolCaller, toolChecker, cfg.ConfigPath)
 	workflowAdapter.Register()
 
 	// Initialize and register MCPServer adapter using the muster client
-	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, "default")
+	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
 	mcpServerAdapter.Register()
 
 	// The new adapter uses the unified client instead of the manager
@@ -223,7 +229,37 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 	// Create client config with the filesystem path
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
-		Namespace:           "default",
+		Namespace:           "default", // Will be overridden by config loading
+		ForceFilesystemMode: false,     // Let the client choose the best mode
+		Debug:               debug,
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	return musterClient, nil
+}
+
+// createMusterClientWithConfig creates a muster client with full configuration context
+func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return client.NewMusterClient()
+	}
+
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := musterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Create client config with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath:      configPath,
+		Namespace:           namespace,
 		ForceFilesystemMode: false, // Let the client choose the best mode
 		Debug:               debug,
 	}
