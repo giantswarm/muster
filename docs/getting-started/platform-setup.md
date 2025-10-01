@@ -3,12 +3,14 @@
 Set up Muster for infrastructure management and workflow orchestration.
 
 ## Prerequisites
+
 - Go 1.21+ installed
 - 15 minutes focused time
 
 ## Step 1: Installation & Basic Setup (5 minutes)
 
 ### Install Muster
+
 ```bash
 # Clone and build from source
 git clone https://github.com/giantswarm/muster.git
@@ -17,6 +19,7 @@ go install
 ```
 
 ### Initialize Configuration
+
 ```bash
 # Create basic configuration directory
 mkdir -p .muster/{mcpservers,serviceclasses,workflows}
@@ -38,22 +41,23 @@ muster agent --repl
 ```
 
 In the REPL, test the **two-layer architecture**:
+
 ```bash
 # Test meta-tools (agent layer)
-list_tools()                                # Discover available tools
-list_core_tools()                          # List core Muster tools
+list tools                                # Discover available tools
+list core_tools                          # List core Muster tools
 
 # Test core functionality (aggregator layer via meta-tools)
-call_tool(name="core_config_get", arguments={})          # Check system config
-call_tool(name="core_mcpserver_list", arguments={})      # List MCP servers
-call_tool(name="core_serviceclass_list", arguments={})   # List ServiceClasses
+call core_config_get {}          # Check system config
+call core_mcpserver_list {}      # List MCP servers
+call core_serviceclass_list {}   # List ServiceClasses
 ```
 
 ## Step 2: Configure Infrastructure Tools (5 minutes)
 
-### Create Your First MCP Server
+### Add an MCP Server
 
-Create a simple filesystem MCP server:
+Create an MCP server configuration file:
 
 ```yaml
 # filesystem-server.yaml
@@ -72,22 +76,9 @@ spec:
     DEBUG: "1"
 ```
 
-Apply the configuration:
+### For Real Kubernetes Integration
 
-```bash
-kubectl apply -f filesystem-server.yaml
-```
-
-Verify the server is running:
-
-```bash
-muster mcpserver list
-muster mcpserver get filesystem-tools
-```
-
-### Create a Streamable HTTP MCP Server
-
-Connect to an external MCP server over HTTP:
+If you have `mcp-kubernetes` installed:
 
 ```yaml
 # streamable-http-server.yaml
@@ -107,18 +98,20 @@ spec:
 ```
 
 ### Verify MCP Server Registration
+
 ```bash
 # Using meta-tools to check registration
 muster agent --repl
 
 # In REPL:
-call_tool(name="core_mcpserver_list", arguments={})
-call_tool(name="core_mcpserver_get", arguments={"name": "example-tools"})
+call core_mcpserver_list {}
+call core_mcpserver_get {"name": "example-tools"}
 ```
 
 ## Step 3: Create Your First ServiceClass (3 minutes)
 
 ### Define a Kubernetes Connection Service
+
 Based on the current `.muster` configuration pattern:
 
 ```yaml
@@ -172,15 +165,17 @@ spec:
 ```
 
 ### Test ServiceClass Availability
+
 ```bash
 # Using meta-tools in REPL
-call_tool(name="core_serviceclass_available", arguments={"name": "web-application"})
-call_tool(name="core_serviceclass_list", arguments={})
+call core_serviceclass_available {"name": "web-application"}
+call core_serviceclass_list {}
 ```
 
 ## Step 4: Create and Execute a Workflow (2 minutes)
 
 ### Define a Deployment Workflow
+
 Following the pattern from current `.muster/workflows/`:
 
 ```yaml
@@ -234,24 +229,26 @@ spec:
 ```
 
 ### Execute the Workflow
+
 ```bash
 # Start interactive agent
 muster agent --repl
 
 # In the REPL, execute using the meta-tool pattern:
-call_tool(name="workflow_deploy-app", arguments={
+call workflow_deploy-app {
   "app_name": "my-app",
-  "image": "nginx:latest", 
+  "image": "nginx:latest",
   "namespace": "default"
-})
+}
 
 # Check workflow execution status
-call_tool(name="core_workflow_execution_list", arguments={"workflow_name": "deploy-app"})
+call core_workflow_execution_list {"workflow_name": "deploy-app"}
 ```
 
 ## Step 5: Connect Your IDE
 
 ### Configure Cursor/VSCode
+
 Add to your IDE settings:
 
 ```json
@@ -268,18 +265,22 @@ Add to your IDE settings:
 Now your AI assistant can use **Muster's two-layer architecture**:
 
 ### Agent Layer (What AI Assistants Use)
+
 Your AI assistant gets access to **11 meta-tools**:
 
 **Tool Discovery & Management:**
+
 - `list_tools` - Discover all available tools from aggregator
 - `describe_tool` - Get detailed tool information
 - `filter_tools` - Filter tools by name/description patterns
 - `list_core_tools` - List built-in Muster tools specifically
 
 **Tool Execution:**
+
 - `call_tool` - Execute any aggregator tool with arguments
 
 **Resource & Prompt Access:**
+
 - `list_resources` - List available resources
 - `get_resource` - Retrieve resource content
 - `describe_resource` - Get resource details
@@ -288,31 +289,37 @@ Your AI assistant gets access to **11 meta-tools**:
 - `describe_prompt` - Get prompt details
 
 ### Aggregator Layer (What Gets Executed via call_tool)
+
 The aggregator provides **36+ core tools** plus dynamic capabilities:
 
 **Configuration Management (5 tools):**
+
 - `core_config_get` - Get system configuration
 - `core_config_save` - Save configuration changes
 - `core_config_update_aggregator` - Modify aggregator settings
 
 **Service Management (9 tools):**
+
 - `core_service_list` - List all services
 - `core_service_create` - Create service instances from ServiceClasses
 - `core_service_start/stop/restart` - Control service lifecycle
 - `core_service_status` - Monitor service health
 
 **ServiceClass Management (7 tools):**
+
 - `core_serviceclass_list` - List available service templates
 - `core_serviceclass_create` - Define new service types
 - `core_serviceclass_available` - Check template dependencies
 
 **Workflow Orchestration (9 tools):**
+
 - `core_workflow_list` - List available workflows
 - `core_workflow_create` - Define multi-step processes
 - `workflow_<name>` - Execute specific workflows (auto-generated)
 - `core_workflow_execution_list` - View execution history
 
 **MCP Server Management (6 tools):**
+
 - `core_mcpserver_list` - List external tool providers
 - `core_mcpserver_create` - Add new MCP servers
 - `core_mcpserver_start/stop` - Control MCP server lifecycle
@@ -344,16 +351,20 @@ call_tool(name="core_service_status", arguments={"name": "my-service"})
 4. **Explore Testing**: Use `muster test` to validate configurations
 
 ### Real-World Examples
+
 Based on the current `.muster` configuration, you already have examples for:
+
 - **ServiceClasses**: `service-k8s-connection`, `mimir-port-forward`
 - **Workflows**: `auth-workflow`, `login-workload-cluster`, `connect-monitoring`
 - **MCP Servers**: `kubernetes`, `prometheus`, `grafana`, `teleport`
 
 ### Understanding the Architecture
+
 **Remember**: AI assistants use the 11 meta-tools to access the 36+ aggregator tools. This separation enables:
+
 - **Unified access** to all tool types (core, workflow, external)
 - **Dynamic discovery** of capabilities
 - **Consistent interface** regardless of tool source
 - **Transparent routing** to appropriate handlers
 
-For more examples, see the test scenarios in `internal/testing/scenarios/`. 
+For more examples, see the test scenarios in `internal/testing/scenarios/`.

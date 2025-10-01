@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'  # Match the version used in auto-release
+          go-version: '1.25'  # Match the version used in auto-release
 
       - name: Cache Go build and mod cache
         uses: actions/cache@v4
