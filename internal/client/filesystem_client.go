@@ -173,6 +173,12 @@ func (f *filesystemClient) Patch(ctx context.Context, obj client.Object, patch c
 	return f.Update(ctx, obj)
 }
 
+// Apply applies a resource (implements client.Client interface).
+func (f *filesystemClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+	// Filesystem client doesn't support ApplyConfiguration - return error
+	return fmt.Errorf("filesystem client does not support Apply operations with ApplyConfiguration")
+}
+
 // DeleteAllOf deletes all resources matching the given options (implements client.Client interface).
 func (f *filesystemClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
 	return fmt.Errorf("filesystem client does not support DeleteAllOf operations")
