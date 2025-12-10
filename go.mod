@@ -11,7 +11,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0
 	github.com/creativeprojects/go-selfupdate v1.5.1
 	github.com/google/uuid v1.6.0
-	github.com/jedib0t/go-pretty/v6 v6.6.8
+	github.com/jedib0t/go-pretty/v6 v6.7.7
 	github.com/mark3labs/mcp-go v0.38.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
