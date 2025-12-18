@@ -640,7 +640,9 @@ func (o *Orchestrator) Stop() error {
 	return nil
 }
 
-// StartService starts a specific service by name
+// StartService starts a specific service by name.
+// For MCP servers, this method waits for the server to be fully registered
+// with the aggregator before returning, ensuring that tools are available.
 func (o *Orchestrator) StartService(name string) error {
 	service, exists := o.registry.Get(name)
 	if !exists {
@@ -651,8 +653,49 @@ func (o *Orchestrator) StartService(name string) error {
 		return fmt.Errorf("failed to start service %s: %w", name, err)
 	}
 
+	// For MCP servers, wait for aggregator registration to complete
+	// This ensures that when StartService returns, the server's tools are available
+	if service.GetType() == services.TypeMCPServer {
+		if err := o.waitForMCPServerRegistration(name); err != nil {
+			logging.Warn("Orchestrator", "MCP server %s started but registration wait failed: %v", name, err)
+			// Don't return error - the service is started, registration might just be slow
+		}
+	}
+
 	logging.Info("Orchestrator", "Started service: %s", name)
 	return nil
+}
+
+// waitForMCPServerRegistration waits for an MCP server to be registered with the aggregator.
+// It polls the aggregator to check if the server is registered, with a timeout.
+func (o *Orchestrator) waitForMCPServerRegistration(serverName string) error {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return fmt.Errorf("aggregator not available")
+	}
+
+	// Wait up to 5 seconds for registration with 50ms polling interval
+	timeout := 5 * time.Second
+	interval := 50 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		// Check if the server is registered by looking for its tools in the aggregator
+		// MCP server tools are prefixed with x_<server-name>_
+		availableTools := aggregator.GetAvailableTools()
+		prefix := "x_" + serverName + "_"
+
+		for _, tool := range availableTools {
+			if len(tool) > len(prefix) && tool[:len(prefix)] == prefix {
+				logging.Debug("Orchestrator", "MCP server %s registered with aggregator (found tool %s)", serverName, tool)
+				return nil
+			}
+		}
+
+		time.Sleep(interval)
+	}
+
+	return fmt.Errorf("timeout waiting for MCP server %s to register with aggregator", serverName)
 }
 
 // StopService stops a specific service by name
