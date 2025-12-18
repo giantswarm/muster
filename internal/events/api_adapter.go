@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/cli"
 	"muster/internal/client"
 	"muster/pkg/logging"
 )
@@ -39,27 +40,12 @@ func (a *Adapter) CreateEvent(ctx context.Context, objectRef api.ObjectReference
 	logging.Debug("events", "Creating event for %s %s/%s: %s - %s (%s)",
 		objectRef.Kind, objectRef.Namespace, objectRef.Name, reason, message, eventType)
 
-	// Use the generator's CRDEvent method which works with object references
 	data := EventData{
 		Name:      objectRef.Name,
 		Namespace: objectRef.Namespace,
 	}
 
-	// Map the object reference to a CRD type if possible
-	crdType := objectRef.Kind
-	switch objectRef.Kind {
-	case "MCPServer":
-		return a.generator.CRDEvent("MCPServer", objectRef.Name, objectRef.Namespace, EventReason(reason), data)
-	case "ServiceClass":
-		return a.generator.CRDEvent("ServiceClass", objectRef.Name, objectRef.Namespace, EventReason(reason), data)
-	case "Workflow":
-		return a.generator.CRDEvent("Workflow", objectRef.Name, objectRef.Namespace, EventReason(reason), data)
-	case "ServiceInstance":
-		return a.generator.CRDEvent("ServiceInstance", objectRef.Name, objectRef.Namespace, EventReason(reason), data)
-	default:
-		// For unknown types, use the general CRDEvent method
-		return a.generator.CRDEvent(crdType, objectRef.Name, objectRef.Namespace, EventReason(reason), data)
-	}
+	return a.generator.CRDEvent(objectRef.Kind, objectRef.Name, objectRef.Namespace, EventReason(reason), data)
 }
 
 // CreateEventForCRD creates an event for a CRD by type, name, and namespace.
@@ -182,6 +168,24 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
+// formatEventForDisplay converts an EventResult to a map suitable for CLI table display.
+func formatEventForDisplay(event api.EventResult) map[string]interface{} {
+	eventMap := map[string]interface{}{
+		"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
+		"resource_type": event.InvolvedObject.Kind,
+		"resource_name": event.InvolvedObject.Name,
+		"namespace":     event.Namespace,
+		"reason":        event.Reason,
+		"message":       event.Message,
+		"type":          event.Type,
+	}
+	// Only include count if it's greater than 1 (useful for Kubernetes mode)
+	if event.Count > 1 {
+		eventMap["count"] = event.Count
+	}
+	return eventMap
+}
+
 // handleEventsQuery handles the events query tool execution.
 func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	// Build query options from arguments
@@ -204,7 +208,7 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	}
 
 	if since, ok := args["since"].(string); ok && since != "" {
-		sinceTime, err := parseTimeString(since)
+		sinceTime, err := cli.ParseTimeFilter(since)
 		if err != nil {
 			return &api.CallToolResult{
 				IsError: true,
@@ -215,7 +219,7 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	}
 
 	if until, ok := args["until"].(string); ok && until != "" {
-		untilTime, err := parseTimeString(until)
+		untilTime, err := cli.ParseTimeFilter(until)
 		if err != nil {
 			return &api.CallToolResult{
 				IsError: true,
@@ -248,20 +252,7 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	// Convert events to a format suitable for CLI table display
 	var events []interface{}
 	for _, event := range result.Events {
-		eventMap := map[string]interface{}{
-			"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
-			"resource_type": event.InvolvedObject.Kind,
-			"resource_name": event.InvolvedObject.Name,
-			"namespace":     event.Namespace,
-			"reason":        event.Reason,
-			"message":       event.Message,
-			"type":          event.Type,
-		}
-		// Only include count if it's greater than 1 (useful for Kubernetes mode)
-		if event.Count > 1 {
-			eventMap["count"] = event.Count
-		}
-		events = append(events, eventMap)
+		events = append(events, formatEventForDisplay(event))
 	}
 
 	logging.Debug("events", "Formatted %d events for CLI display", len(events))
@@ -300,19 +291,7 @@ func (a *Adapter) handleEventsStreaming(ctx context.Context, options api.EventQu
 	// Format initial events for display
 	var initialEvents []interface{}
 	for _, event := range result.Events {
-		eventMap := map[string]interface{}{
-			"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
-			"resource_type": event.InvolvedObject.Kind,
-			"resource_name": event.InvolvedObject.Name,
-			"namespace":     event.Namespace,
-			"reason":        event.Reason,
-			"message":       event.Message,
-			"type":          event.Type,
-		}
-		if event.Count > 1 {
-			eventMap["count"] = event.Count
-		}
-		initialEvents = append(initialEvents, eventMap)
+		initialEvents = append(initialEvents, formatEventForDisplay(event))
 	}
 
 	// Start background streaming
@@ -369,22 +348,10 @@ func (a *Adapter) streamEventsInBackground(ctx context.Context, options api.Even
 			// Process new events
 			for _, event := range result.Events {
 				if event.Timestamp.After(lastSeenTime) {
-					// Format event for notification
-					eventData := map[string]interface{}{
-						"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
-						"resource_type": event.InvolvedObject.Kind,
-						"resource_name": event.InvolvedObject.Name,
-						"namespace":     event.Namespace,
-						"reason":        event.Reason,
-						"message":       event.Message,
-						"type":          event.Type,
-					}
-					if event.Count > 1 {
-						eventData["count"] = event.Count
-					}
+					// Format event for notification using shared helper
+					_ = formatEventForDisplay(event)
 
-					// TODO: Send notification to MCP client
-					// For now, just log it
+					// Log the new event (MCP notification support is not yet implemented)
 					logging.Info("events", "New event: [%s] %s %s/%s: %s - %s (%s)",
 						event.Timestamp.Format("2006-01-02 15:04:05"),
 						event.InvolvedObject.Kind,
@@ -399,29 +366,4 @@ func (a *Adapter) streamEventsInBackground(ctx context.Context, options api.Even
 			}
 		}
 	}
-}
-
-// parseTimeString parses time strings in various formats.
-func parseTimeString(timeStr string) (time.Time, error) {
-	// Try duration format first (e.g., "1h", "30m", "2h30m")
-	if duration, err := time.ParseDuration(timeStr); err == nil {
-		return time.Now().Add(-duration), nil
-	}
-
-	// Try RFC3339 format (e.g., "2024-01-15T10:00:00Z")
-	if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
-		return t, nil
-	}
-
-	// Try date-only format (e.g., "2024-01-15")
-	if t, err := time.Parse("2006-01-02", timeStr); err == nil {
-		return t, nil
-	}
-
-	// Try date-time format without timezone (e.g., "2024-01-15 10:00:00")
-	if t, err := time.Parse("2006-01-02 15:04:05", timeStr); err == nil {
-		return t, nil
-	}
-
-	return time.Time{}, fmt.Errorf("unsupported time format '%s'. Supported formats: duration (1h, 30m), RFC3339 (2024-01-15T10:00:00Z), date (2024-01-15), or datetime (2024-01-15 10:00:00)", timeStr)
 }

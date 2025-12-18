@@ -289,7 +289,7 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 		var propSchema map[string]interface{}
 
 		// Use detailed schema if available, otherwise fall back to basic type
-		if param.Schema != nil && len(param.Schema) > 0 {
+		if len(param.Schema) > 0 {
 			// Use the detailed schema definition
 			propSchema = make(map[string]interface{})
 			for key, value := range param.Schema {

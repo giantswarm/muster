@@ -341,7 +341,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 
 	// Process ServiceClass outputs if defined
 	var resolvedOutputs map[string]interface{}
-	if serviceClass.ServiceConfig.Outputs != nil && len(serviceClass.ServiceConfig.Outputs) > 0 {
+	if len(serviceClass.ServiceConfig.Outputs) > 0 {
 		logging.Debug("Orchestrator", "Processing outputs for ServiceClass %s, service instance %s", req.ServiceClassName, req.Name)
 
 		// Create template context with service args at root level for direct template access
@@ -364,7 +364,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		// Add tool outputs under their respective tool names (e.g., "start", "stop")
 		// For now, we'll add the start tool outputs under "start" key
 		// This assumes the start tool was called - we could track which tools were called
-		if serviceData != nil && len(serviceData) > 0 {
+		if len(serviceData) > 0 {
 			templateContext["start"] = serviceData
 			logging.Debug("Orchestrator", "Added start tool outputs to template context: %+v", serviceData)
 		}

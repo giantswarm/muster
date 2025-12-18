@@ -746,35 +746,6 @@ func (a *Adapter) isWorkflowAvailable(workflow *api.Workflow) bool {
 	return true
 }
 
-// checkWorkflowAvailabilityWithEvents checks workflow availability and generates events for changes
-func (a *Adapter) checkWorkflowAvailabilityWithEvents(workflow *api.Workflow, previouslyAvailable bool) bool {
-	currentlyAvailable := a.isWorkflowAvailable(workflow)
-
-	// Generate events for availability changes
-	if previouslyAvailable && !currentlyAvailable {
-		// Workflow became unavailable - find missing tools
-		missingTools := a.findMissingTools(workflow)
-		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowUnavailable, events.EventData{
-			Operation: "availability_check",
-			ToolNames: missingTools,
-		})
-		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowToolsMissing, events.EventData{
-			Operation: "availability_check",
-			ToolNames: missingTools,
-		})
-	} else if !previouslyAvailable && currentlyAvailable {
-		// Workflow became available
-		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowAvailable, events.EventData{
-			Operation: "availability_check",
-		})
-		a.generateCRDEvent(workflow.Name, events.ReasonWorkflowToolsDiscovered, events.EventData{
-			Operation: "availability_check",
-		})
-	}
-
-	return currentlyAvailable
-}
-
 // findMissingTools returns a list of tools that are not available for a workflow
 func (a *Adapter) findMissingTools(workflow *api.Workflow) []string {
 	a.mu.RLock()
@@ -1872,7 +1843,8 @@ func getWorkflowStepsSchema() map[string]interface{} {
 	}
 }
 
-// generateCRDEvent creates a Kubernetes event for Workflow CRD operations
+// generateCRDEvent creates a Kubernetes event for Workflow CRD operations.
+// The message and eventType are determined by the event generator's template engine based on the reason.
 func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data events.EventData) {
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
@@ -1893,7 +1865,10 @@ func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data 
 		data.Namespace = a.namespace
 	}
 
-	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	// Note: message and eventType parameters are provided for interface compliance,
+	// but the actual values are determined by the event generator's template engine
+	// based on the reason code.
+	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), data.Error, "")
 	if err != nil {
 		// Log error but don't fail the operation
 		logging.Debug("WorkflowAdapter", "Failed to generate event %s for Workflow %s: %v", string(reason), name, err)

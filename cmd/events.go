@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"muster/internal/cli"
-	"muster/internal/config"
 	"strings"
 	"time"
+
+	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -128,20 +129,22 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Validate event type if provided
+	// Validate and normalize event type if provided
 	if eventsEventType != "" {
-		validEventTypes := []string{"normal", "warning"}
-		if !contains(validEventTypes, strings.ToLower(eventsEventType)) {
+		switch strings.ToLower(eventsEventType) {
+		case "normal":
+			eventsEventType = "Normal"
+		case "warning":
+			eventsEventType = "Warning"
+		default:
 			return fmt.Errorf("invalid event type '%s'. Valid types: Normal, Warning", eventsEventType)
 		}
-		// Normalize event type (capitalize first letter)
-		eventsEventType = strings.Title(strings.ToLower(eventsEventType))
 	}
 
 	// Parse time filters
 	var sinceTime, untilTime *time.Time
 	if eventsSince != "" {
-		since, err := parseTimeFilter(eventsSince)
+		since, err := cli.ParseTimeFilter(eventsSince)
 		if err != nil {
 			return fmt.Errorf("invalid --since value '%s': %w", eventsSince, err)
 		}
@@ -149,7 +152,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	}
 
 	if eventsUntil != "" {
-		until, err := parseTimeFilter(eventsUntil)
+		until, err := cli.ParseTimeFilter(eventsUntil)
 		if err != nil {
 			return fmt.Errorf("invalid --until value '%s': %w", eventsUntil, err)
 		}
@@ -246,31 +249,6 @@ func followEventsWithNotifications(ctx context.Context, executor *cli.ToolExecut
 func displayStreamedEvent(params interface{}) {
 	// For now, just print the notification as-is since we don't have the proper MCP notification mechanism working yet
 	fmt.Printf("New event notification: %+v\n", params)
-}
-
-// parseTimeFilter parses time strings in various formats
-func parseTimeFilter(timeStr string) (time.Time, error) {
-	// Try duration format first (e.g., "1h", "30m", "2h30m")
-	if duration, err := time.ParseDuration(timeStr); err == nil {
-		return time.Now().Add(-duration), nil
-	}
-
-	// Try RFC3339 format (e.g., "2024-01-15T10:00:00Z")
-	if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
-		return t, nil
-	}
-
-	// Try date-only format (e.g., "2024-01-15")
-	if t, err := time.Parse("2006-01-02", timeStr); err == nil {
-		return t, nil
-	}
-
-	// Try date-time format without timezone (e.g., "2024-01-15 10:00:00")
-	if t, err := time.Parse("2006-01-02 15:04:05", timeStr); err == nil {
-		return t, nil
-	}
-
-	return time.Time{}, fmt.Errorf("unsupported time format '%s'. Supported formats: duration (1h, 30m), RFC3339 (2024-01-15T10:00:00Z), date (2024-01-15), or datetime (2024-01-15 10:00:00)", timeStr)
 }
 
 // contains checks if a string slice contains a specific string
