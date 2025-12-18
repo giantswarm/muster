@@ -425,7 +425,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 
 	// Wait for all expected resources to be available
-	resourceTimeout := 5 * time.Second // Increased from 5s to 30s
+	resourceTimeout := 30 * time.Second
 	resourceCtx, resourceCancel := context.WithTimeout(readyCtx, resourceTimeout)
 	defer resourceCancel()
 
