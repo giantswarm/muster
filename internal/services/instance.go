@@ -325,6 +325,9 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 	gsi.mu.Lock()
 	defer gsi.mu.Unlock()
 
+	// Capture service name early for use in event generation (avoids lock re-acquisition)
+	serviceName := gsi.name
+
 	// Get service class manager through API
 	serviceClassMgr := api.GetServiceClassManager()
 	if serviceClassMgr == nil {
@@ -386,8 +389,8 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 		gsi.updateHealthTracking(false, failureThreshold, successThreshold)
 		newHealth := gsi.determineHealthFromTracking(failureThreshold, successThreshold)
 
-		// Generate health check failed event
-		gsi.generateEvent("ServiceInstanceHealthCheckFailed", "health_check", toolName, err, 0, 0)
+		// Generate health check failed event (use WithName to avoid lock re-acquisition)
+		gsi.generateEventWithName(serviceName, "ServiceInstanceHealthCheckFailed", "health_check", toolName, err, 0, 0)
 
 		gsi.updateStateInternal(gsi.state, newHealth, err)
 		return newHealth, fmt.Errorf("failed to evaluate health check expectation: %w", err)
@@ -406,10 +409,10 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 	gsi.lastChecked = &now
 	gsi.updatedAt = now
 
-	// Generate health-related events
+	// Generate health-related events (use WithName to avoid lock re-acquisition since we hold the mutex)
 	if !isHealthy {
 		// Generate health check failed event for individual failures
-		gsi.generateEvent("ServiceInstanceHealthCheckFailed", "health_check", toolName, nil, 0, gsi.healthCheckFailures)
+		gsi.generateEventWithName(serviceName, "ServiceInstanceHealthCheckFailed", "health_check", toolName, nil, 0, gsi.healthCheckFailures)
 	}
 
 	// Check for health state transitions and generate appropriate events
@@ -418,11 +421,11 @@ func (gsi *GenericServiceInstance) CheckHealth(ctx context.Context) (HealthStatu
 		case HealthHealthy:
 			if previousHealth == HealthUnhealthy {
 				// Recovery from unhealthy state
-				gsi.generateEvent("ServiceInstanceHealthCheckRecovered", "health_recovery", toolName, nil, 0, previousFailures)
+				gsi.generateEventWithName(serviceName, "ServiceInstanceHealthCheckRecovered", "health_recovery", toolName, nil, 0, previousFailures)
 			}
-			gsi.generateEvent("ServiceInstanceHealthy", "health_status", toolName, nil, 0, gsi.healthCheckSuccesses)
+			gsi.generateEventWithName(serviceName, "ServiceInstanceHealthy", "health_status", toolName, nil, 0, gsi.healthCheckSuccesses)
 		case HealthUnhealthy:
-			gsi.generateEvent("ServiceInstanceUnhealthy", "health_status", toolName, nil, 0, gsi.healthCheckFailures)
+			gsi.generateEventWithName(serviceName, "ServiceInstanceUnhealthy", "health_status", toolName, nil, 0, gsi.healthCheckFailures)
 		}
 	}
 
@@ -537,24 +540,24 @@ func (gsi *GenericServiceInstance) UpdateState(state ServiceState, health Health
 
 // Helper methods
 
-// generateEvent generates a Kubernetes event for this service instance
-func (gsi *GenericServiceInstance) generateEvent(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) {
+// generateEventWithName generates a Kubernetes event for this service instance using the provided name.
+// This variant is used when the caller already has the name to avoid acquiring locks.
+func (gsi *GenericServiceInstance) generateEventWithName(serviceName string, reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) {
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
-		logging.Debug("GenericServiceInstance", "Event manager not available, skipping event generation for service %s", gsi.name)
+		logging.Debug("GenericServiceInstance", "Event manager not available, skipping event generation for service %s", serviceName)
 		return
 	}
 
 	// Create event data with service instance context
 	eventData := api.ObjectReference{
 		Kind:      "ServiceInstance",
-		Name:      gsi.name,
+		Name:      serviceName,
 		Namespace: "default", // Service instances use default namespace
 	}
 
 	// Prepare additional context for event message templating
-	// We'll use the internal events.EventData structure through the CreateEventForCRD method
-	message := gsi.buildEventMessage(reason, operation, toolName, err, duration, stepCount)
+	message := gsi.buildEventMessageWithName(serviceName, reason, operation, toolName, err, duration, stepCount)
 
 	// Determine event type based on reason
 	eventType := "Normal"
@@ -568,14 +571,25 @@ func (gsi *GenericServiceInstance) generateEvent(reason string, operation string
 	// Generate the event
 	ctx := context.Background()
 	if err := eventManager.CreateEvent(ctx, eventData, reason, message, eventType); err != nil {
-		logging.Error("GenericServiceInstance", err, "Failed to generate event for service instance %s", gsi.name)
+		logging.Error("GenericServiceInstance", err, "Failed to generate event for service instance %s", serviceName)
 	}
 }
 
-// buildEventMessage builds the event message for a given reason and context
-func (gsi *GenericServiceInstance) buildEventMessage(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) string {
+// generateEvent generates a Kubernetes event for this service instance.
+// Thread-safe: acquires read lock to get the service name.
+func (gsi *GenericServiceInstance) generateEvent(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) {
 	gsi.mu.RLock()
 	serviceName := gsi.name
+	gsi.mu.RUnlock()
+
+	gsi.generateEventWithName(serviceName, reason, operation, toolName, err, duration, stepCount)
+}
+
+// buildEventMessageWithName builds the event message without acquiring locks.
+// The caller provides the service name to avoid lock contention.
+func (gsi *GenericServiceInstance) buildEventMessageWithName(serviceName string, reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) string {
+	// Get serviceClassName under lock for messages that need it
+	gsi.mu.RLock()
 	serviceClassName := gsi.serviceClassName
 	gsi.mu.RUnlock()
 
@@ -647,6 +661,16 @@ func (gsi *GenericServiceInstance) buildEventMessage(reason string, operation st
 	}
 }
 
+// buildEventMessage builds the event message for a given reason and context.
+// Thread-safe: acquires read lock to get the service name.
+func (gsi *GenericServiceInstance) buildEventMessage(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) string {
+	gsi.mu.RLock()
+	serviceName := gsi.name
+	gsi.mu.RUnlock()
+
+	return gsi.buildEventMessageWithName(serviceName, reason, operation, toolName, err, duration, stepCount)
+}
+
 // buildTemplateContext creates the template context for tool argument substitution
 func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{} {
 	// Build context with args nested under "args" key for template usage
@@ -713,14 +737,16 @@ func (gsi *GenericServiceInstance) updateStateInternal(newState ServiceState, ne
 	logging.Debug("GenericServiceInstance", "Service %s state changed: %s -> %s (health: %s -> %s)",
 		serviceName, oldState, newState, oldHealth, newHealth)
 
-	// Generate events after releasing the mutex to avoid deadlocks
+	// Generate events in a goroutine to avoid holding the lock while making external calls.
+	// We use generateEventWithName to pass the already-captured serviceName, avoiding
+	// the need to acquire the lock again in the goroutine.
 	if shouldGenerateStateChangeEvent {
 		go func() {
-			gsi.generateEvent("ServiceInstanceStateChanged", stateChangeMsg, "", err, 0, 0)
+			gsi.generateEventWithName(serviceName, "ServiceInstanceStateChanged", stateChangeMsg, "", err, 0, 0)
 
 			// Also generate specific state events for major transitions
 			if shouldGenerateFailedEvent {
-				gsi.generateEvent("ServiceInstanceFailed", "state_transition", "", err, 0, 0)
+				gsi.generateEventWithName(serviceName, "ServiceInstanceFailed", "state_transition", "", err, 0, 0)
 			}
 		}()
 	}

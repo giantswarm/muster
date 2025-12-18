@@ -106,6 +106,10 @@ func (m *mockMusterClient) DeleteAllOf(ctx context.Context, obj ctrlclient.Objec
 	return nil
 }
 
+func (m *mockMusterClient) Apply(ctx context.Context, applyConfig runtime.ApplyConfiguration, opts ...ctrlclient.ApplyOption) error {
+	return nil
+}
+
 func (m *mockMusterClient) Status() ctrlclient.StatusWriter {
 	return nil
 }
