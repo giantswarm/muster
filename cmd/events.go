@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"muster/internal/cli"
 	"muster/internal/config"
@@ -21,6 +22,7 @@ var (
 	eventsSince        string
 	eventsUntil        string
 	eventsLimit        int
+	eventsFollow       bool
 )
 
 // eventsCmd represents the events command
@@ -41,6 +43,7 @@ Filtering Options:
   --since             Show events after this time (1h, 30m, 2024-01-15T10:00:00Z)
   --until             Show events before this time (2024-01-15T18:00:00Z)
   --limit             Limit number of events returned (default: 50)
+  --follow, -f        Stream new events as they occur (follow mode)
 
 Examples:
   # List all recent events
@@ -68,6 +71,13 @@ Examples:
   # Combine filters and change output format
   muster events --resource-type mcpserver --namespace default --limit 20 --output json
 
+  # Stream new events (follow mode)
+  muster events --follow
+  muster events --resource-type mcpserver --follow
+
+  # Stream events with filters
+  muster events --namespace default --type Warning --follow
+
 Note: The aggregator server must be running (use 'muster serve') before using this command.`,
 	Args:                  cobra.NoArgs,
 	DisableFlagsInUseLine: true,
@@ -90,6 +100,7 @@ func init() {
 	eventsCmd.PersistentFlags().StringVar(&eventsSince, "since", "", "Show events after this time (e.g., 1h, 30m, 2024-01-15T10:00:00Z)")
 	eventsCmd.PersistentFlags().StringVar(&eventsUntil, "until", "", "Show events before this time (e.g., 2024-01-15T18:00:00Z)")
 	eventsCmd.PersistentFlags().IntVar(&eventsLimit, "limit", 50, "Limit number of events returned")
+	eventsCmd.PersistentFlags().BoolVarP(&eventsFollow, "follow", "f", false, "Stream new events as they occur")
 
 	// Add shell completion for resource types
 	eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
@@ -189,8 +200,52 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	if eventsLimit > 0 {
 		toolArgs["limit"] = eventsLimit
 	}
+	// Handle follow mode with notifications
+	if eventsFollow {
+		toolArgs["follow"] = true
+		return followEventsWithNotifications(ctx, executor, toolArgs)
+	}
 
 	return executor.Execute(ctx, "core_events", toolArgs)
+}
+
+// followEventsWithNotifications implements streaming via MCP notifications for the --follow flag
+func followEventsWithNotifications(ctx context.Context, executor *cli.ToolExecutor, baseArgs map[string]interface{}) error {
+	fmt.Printf("Streaming events (Press Ctrl+C to stop)...\n\n")
+
+	// Get the agent client to access notification channel
+	client := executor.GetClient()
+	if client == nil {
+		return fmt.Errorf("failed to get MCP client for streaming")
+	}
+
+	// Execute the core_events tool with follow=true - this will start the streaming on the server side
+	if err := executor.Execute(ctx, "core_events", baseArgs); err != nil {
+		return fmt.Errorf("failed to start event streaming: %w", err)
+	}
+
+	fmt.Printf("\n--- Following new events ---\n")
+
+	// Listen for event notifications from the server
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Printf("\nStopped following events.\n")
+			return nil
+		case notification := <-client.NotificationChan:
+			// Handle event notifications
+			if notification.Method == "events/new_event" {
+				// Parse the event from the notification params
+				displayStreamedEvent(notification.Params)
+			}
+		}
+	}
+}
+
+// displayStreamedEvent formats and displays a single streamed event
+func displayStreamedEvent(params interface{}) {
+	// For now, just print the notification as-is since we don't have the proper MCP notification mechanism working yet
+	fmt.Printf("New event notification: %+v\n", params)
 }
 
 // parseTimeFilter parses time strings in various formats

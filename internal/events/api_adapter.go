@@ -159,6 +159,13 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Description: "Maximum number of events to return",
 					Default:     50,
 				},
+				{
+					Name:        "follow",
+					Type:        "boolean",
+					Required:    false,
+					Description: "Stream new events as they occur (follow mode)",
+					Default:     false,
+				},
 			},
 		},
 	}
@@ -224,6 +231,11 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 		options.Limit = limit
 	}
 
+	// Check for follow mode
+	if follow, ok := args["follow"].(bool); ok && follow {
+		return a.handleEventsStreaming(ctx, options)
+	}
+
 	// Execute the query
 	result, err := a.QueryEvents(ctx, options)
 	if err != nil {
@@ -272,6 +284,121 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	return &api.CallToolResult{
 		Content: []interface{}{string(eventsJSON)},
 	}, nil
+}
+
+// handleEventsStreaming handles follow mode for event streaming
+func (a *Adapter) handleEventsStreaming(ctx context.Context, options api.EventQueryOptions) (*api.CallToolResult, error) {
+	// Get initial events first
+	result, err := a.QueryEvents(ctx, options)
+	if err != nil {
+		return &api.CallToolResult{
+			IsError: true,
+			Content: []interface{}{fmt.Sprintf("Failed to query initial events: %v", err)},
+		}, nil
+	}
+
+	// Format initial events for display
+	var initialEvents []interface{}
+	for _, event := range result.Events {
+		eventMap := map[string]interface{}{
+			"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
+			"resource_type": event.InvolvedObject.Kind,
+			"resource_name": event.InvolvedObject.Name,
+			"namespace":     event.Namespace,
+			"reason":        event.Reason,
+			"message":       event.Message,
+			"type":          event.Type,
+		}
+		if event.Count > 1 {
+			eventMap["count"] = event.Count
+		}
+		initialEvents = append(initialEvents, eventMap)
+	}
+
+	// Start background streaming
+	go a.streamEventsInBackground(ctx, options)
+
+	// Return initial events immediately
+	initialEventsJSON, err := json.Marshal(initialEvents)
+	if err != nil {
+		return &api.CallToolResult{
+			IsError: true,
+			Content: []interface{}{fmt.Sprintf("Failed to marshal initial events: %v", err)},
+		}, nil
+	}
+
+	return &api.CallToolResult{
+		Content: []interface{}{string(initialEventsJSON)},
+	}, nil
+}
+
+// streamEventsInBackground monitors for new events and sends notifications
+func (a *Adapter) streamEventsInBackground(ctx context.Context, options api.EventQueryOptions) {
+	// Track the last seen timestamp to avoid duplicates
+	var lastSeenTime time.Time
+	if options.Since != nil {
+		lastSeenTime = *options.Since
+	} else {
+		lastSeenTime = time.Now()
+	}
+
+	// Check for new events every 2 seconds
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	logging.Debug("events", "Started background event streaming")
+
+	for {
+		select {
+		case <-ctx.Done():
+			logging.Debug("events", "Stopped background event streaming")
+			return
+		case <-ticker.C:
+			// Create options for querying new events since lastSeenTime
+			newOptions := options
+			newOptions.Since = &lastSeenTime
+			newOptions.Until = nil // Remove until filter for streaming
+
+			// Query for new events
+			result, err := a.QueryEvents(ctx, newOptions)
+			if err != nil {
+				logging.Debug("events", "Error querying new events: %v", err)
+				continue
+			}
+
+			// Process new events
+			for _, event := range result.Events {
+				if event.Timestamp.After(lastSeenTime) {
+					// Format event for notification
+					eventData := map[string]interface{}{
+						"timestamp":     event.Timestamp.Format("2006-01-02 15:04:05"),
+						"resource_type": event.InvolvedObject.Kind,
+						"resource_name": event.InvolvedObject.Name,
+						"namespace":     event.Namespace,
+						"reason":        event.Reason,
+						"message":       event.Message,
+						"type":          event.Type,
+					}
+					if event.Count > 1 {
+						eventData["count"] = event.Count
+					}
+
+					// TODO: Send notification to MCP client
+					// For now, just log it
+					logging.Info("events", "New event: [%s] %s %s/%s: %s - %s (%s)",
+						event.Timestamp.Format("2006-01-02 15:04:05"),
+						event.InvolvedObject.Kind,
+						event.Namespace,
+						event.InvolvedObject.Name,
+						event.Reason,
+						event.Message,
+						event.Type)
+
+					lastSeenTime = event.Timestamp
+				}
+			}
+		}
+	}
 }
 
 // parseTimeString parses time strings in various formats.

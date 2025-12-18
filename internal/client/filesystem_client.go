@@ -1012,13 +1012,14 @@ func (f *filesystemClient) QueryEvents(ctx context.Context, options api.EventQue
 
 	totalCount := len(filteredEvents)
 
-	// Apply limit
+	// Apply limit for initial result
+	initialEvents := filteredEvents
 	if options.Limit > 0 && len(filteredEvents) > options.Limit {
-		filteredEvents = filteredEvents[:options.Limit]
+		initialEvents = filteredEvents[:options.Limit]
 	}
 
 	return &api.EventQueryResult{
-		Events:     filteredEvents,
+		Events:     initialEvents,
 		TotalCount: totalCount,
 	}, nil
 }

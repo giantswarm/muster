@@ -457,13 +457,14 @@ func (k *kubernetesClient) QueryEvents(ctx context.Context, options api.EventQue
 
 	totalCount := len(results)
 
-	// Apply limit
+	// Apply limit for initial result
+	initialResults := results
 	if options.Limit > 0 && len(results) > options.Limit {
-		results = results[:options.Limit]
+		initialResults = results[:options.Limit]
 	}
 
 	return &api.EventQueryResult{
-		Events:     results,
+		Events:     initialResults,
 		TotalCount: totalCount,
 	}, nil
 }
