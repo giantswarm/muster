@@ -842,6 +842,7 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 		"core_config_",
 		"core_serviceclass_",
 		"core_mcpserver_",
+		"core_events",
 		"workflow_", // Direct workflow execution tools
 	}
 
@@ -926,6 +927,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 				return convertToMCPResult(result), nil
 			}
 		}
+		return nil, fmt.Errorf("workflow handler does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "service_"):
 		// Service lifecycle management operations
@@ -940,6 +942,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			return convertToMCPResult(result), nil
 		}
+		return nil, fmt.Errorf("service manager does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
@@ -954,6 +957,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			return convertToMCPResult(result), nil
 		}
+		return nil, fmt.Errorf("config handler does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "serviceclass_"):
 		// Service class management operations
@@ -968,6 +972,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			return convertToMCPResult(result), nil
 		}
+		return nil, fmt.Errorf("service class manager does not implement ToolProvider interface")
 
 	case strings.HasPrefix(originalToolName, "mcpserver_"):
 		// MCP server management operations
@@ -982,9 +987,26 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			return convertToMCPResult(result), nil
 		}
-	}
+		return nil, fmt.Errorf("MCP server manager does not implement ToolProvider interface")
 
-	return nil, fmt.Errorf("no handler found for core tool: %s", toolName)
+	case originalToolName == "events":
+		// Event management operations
+		handler := api.GetEventManager()
+		if handler == nil {
+			return nil, fmt.Errorf("event manager handler not available")
+		}
+		if provider, ok := handler.(api.ToolProvider); ok {
+			result, err := provider.ExecuteTool(ctx, originalToolName, args)
+			if err != nil {
+				return nil, err
+			}
+			return convertToMCPResult(result), nil
+		}
+		return nil, fmt.Errorf("event manager does not implement ToolProvider interface")
+
+	default:
+		return nil, fmt.Errorf("no handler found for core tool: %s", originalToolName)
+	}
 }
 
 // IsToolAvailable implements the ToolAvailabilityChecker interface.

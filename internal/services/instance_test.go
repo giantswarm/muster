@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -704,9 +705,12 @@ func TestGenericServiceInstance_StateChangeCallback(t *testing.T) {
 	)
 	require.NotNil(t, instance)
 
-	// Set up callback to track state changes
+	// Set up callback to track state changes with proper synchronization
 	var callbackCalls []StateChangeEvent
+	var mu sync.Mutex
+	callbackDone := make(chan struct{}, 1)
 	callback := func(name string, oldState, newState ServiceState, health HealthStatus, err error) {
+		mu.Lock()
 		callbackCalls = append(callbackCalls, StateChangeEvent{
 			Name:     name,
 			OldState: oldState,
@@ -714,6 +718,11 @@ func TestGenericServiceInstance_StateChangeCallback(t *testing.T) {
 			Health:   health,
 			Error:    err,
 		})
+		mu.Unlock()
+		select {
+		case callbackDone <- struct{}{}:
+		default:
+		}
 	}
 
 	instance.SetStateChangeCallback(callback)
@@ -722,10 +731,17 @@ func TestGenericServiceInstance_StateChangeCallback(t *testing.T) {
 	testErr := errors.New("test error")
 	instance.UpdateState(StateRunning, HealthHealthy, testErr)
 
-	// Wait for callback to be called asynchronously
-	time.Sleep(10 * time.Millisecond)
+	// Wait for callback to be called using channel (with timeout)
+	select {
+	case <-callbackDone:
+		// Callback was called
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Callback was not called within timeout")
+	}
 
-	// Verify callback was called
+	// Verify callback was called (protected by mutex)
+	mu.Lock()
+	defer mu.Unlock()
 	require.Len(t, callbackCalls, 1)
 	assert.Equal(t, "test-name", callbackCalls[0].Name)
 	assert.Equal(t, StateUnknown, callbackCalls[0].OldState)

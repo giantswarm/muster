@@ -2,6 +2,7 @@
 dist/
 .muster/config.yaml
 .muster/mcpservers/*.yaml
+.muster/events/*
 .muster/serviceclasses/*.yaml
 .muster/workflows/*.yaml
 .muster/workflow_executions/*.yaml
