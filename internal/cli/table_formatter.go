@@ -216,7 +216,7 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	priorityColumns := map[string][]string{
 		"services":       {"health", "state", "service_type", "metadata"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"state", "serverType", "description"},
+		"mcpServers":     {"type", "description", "autoStart"},
 		"workflows":      {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
 		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
@@ -235,14 +235,41 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	}
 
 	// For complex resource types, limit columns to prevent wrapping
-	maxColumns := 6
-	if resourceType == "serviceClasses" || resourceType == "mcpServers" || resourceType == "event" {
+	var maxColumns int
+	switch resourceType {
+	case "serviceClasses":
+		maxColumns = 5 // More conservative for wider data
+	case "mcpServers":
+		maxColumns = 4 // Exactly the columns we want: name, type, description, autoStart
+	case "event":
 		maxColumns = 6 // Allow more columns for events
+	default:
+		maxColumns = 6
 	}
 
 	// Add remaining columns alphabetically if we have space
 	if len(columns) < maxColumns {
 		remaining := f.getRemainingKeys(allKeys, columns)
+
+		// Filter out unwanted columns for MCP servers
+		if resourceType == "mcpServers" {
+			filteredRemaining := []string{}
+			unwantedColumns := []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error"}
+			for _, key := range remaining {
+				isUnwanted := false
+				for _, unwanted := range unwantedColumns {
+					if strings.ToLower(key) == strings.ToLower(unwanted) {
+						isUnwanted = true
+						break
+					}
+				}
+				if !isUnwanted {
+					filteredRemaining = append(filteredRemaining, key)
+				}
+			}
+			remaining = filteredRemaining
+		}
+
 		spaceLeft := maxColumns - len(columns)
 		if spaceLeft > 0 && len(remaining) > 0 {
 			addCount := f.min(spaceLeft, len(remaining))
@@ -272,14 +299,24 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 	if f.keyExists(sample, "workflow_name") && f.keyExists(sample, "started_at") {
 		return "execution"
 	}
+	// Check for MCP servers by looking at the type field value
+	if f.keyExists(sample, "type") {
+		if typeVal, ok := sample["type"].(string); ok {
+			if typeVal == "stdio" || typeVal == "streamable-http" || typeVal == "sse" {
+				return "mcpServers"
+			}
+		}
+	}
 	if f.keyExists(sample, "available") && f.keyExists(sample, "serviceType") {
 		return "serviceClass"
 	}
 	if f.keyExists(sample, "serverType") {
 		return "mcpServer"
 	}
-	if f.keyExists(sample, "steps") && f.keyExists(sample, "description") {
-		return "workflow"
+	// Check for workflow-related fields
+	if f.keyExists(sample, "steps") || f.keyExists(sample, "workflow") ||
+		(f.keyExists(sample, "name") && f.keyExists(sample, "available") && f.keyExists(sample, "description")) {
+		return "workflows"
 	}
 
 	return "generic"

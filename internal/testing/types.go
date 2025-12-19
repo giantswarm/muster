@@ -119,6 +119,8 @@ type TestScenario struct {
 	Timeout time.Duration `yaml:"timeout,omitempty"`
 	// Tags for additional categorization
 	Tags []string `yaml:"tags,omitempty"`
+	// Skip indicates whether this scenario should be skipped
+	Skip bool `yaml:"skip,omitempty"`
 	// PreConfiguration defines muster instance setup
 	PreConfiguration *MusterPreConfiguration `yaml:"pre_configuration,omitempty"`
 }
@@ -191,6 +193,20 @@ type MusterInstance struct {
 	ExpectedTools []string
 	// ExpectedServiceClasses contains the list of ServiceClasses expected to be available
 	ExpectedServiceClasses []string
+	// MockHTTPServers contains references to mock HTTP servers started for this instance
+	MockHTTPServers map[string]*MockHTTPServerInfo
+}
+
+// MockHTTPServerInfo contains information about a running mock HTTP server
+type MockHTTPServerInfo struct {
+	// Name is the name of the MCP server
+	Name string
+	// Port is the port the mock HTTP server is listening on
+	Port int
+	// Transport is the transport type (sse or streamable-http)
+	Transport string
+	// Endpoint is the full URL endpoint for the server
+	Endpoint string
 }
 
 // InstanceLogs contains the captured logs from an muster instance

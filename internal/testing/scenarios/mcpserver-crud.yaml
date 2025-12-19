@@ -1,4 +1,4 @@
-name: "mcpserver-crud-scenarios"
+name: "mcpserver-crud"
 description: "Test complete CRUD operations for MCP servers"
 category: "behavioral"
 concept: "mcpserver"
@@ -6,13 +6,14 @@ tags: ["mcpserver", "crud", "core-api"]
 timeout: "5m"
 
 steps:
-- id: "create-local-command-mcpserver"
-  description: "Create a new local command MCP server"
+- id: "create-stdio-command-mcpserver"
+  description: "Create a new stdio command MCP server"
   tool: "core_mcpserver_create"
   args:
-    name: "local-command-server"
-    type: "localCommand"
-    command: ["echo", "test-crud-server"]
+    name: "stdio-command-server"
+    type: "stdio"
+    command: "echo"
+    args: ["test-crud-server"]
     autoStart: false
   expected:
     success: true
@@ -22,34 +23,35 @@ steps:
   tool: "core_mcpserver_list"
   expected:
     success: true
-    contains: ["local-command-server"]
+    contains: ["stdio-command-server"]
 
-- id: "get-local-command-mcpserver"
+- id: "get-stdio-command-mcpserver"
   description: "Get the specific MCP server details"
   tool: "core_mcpserver_get"
   args:
-    name: "local-command-server"
+    name: "stdio-command-server"
   expected:
     success: true
     json_path:
-      name: "local-command-server"
+      name: "stdio-command-server"
 
 - id: "update-mcpserver"
   description: "Update the MCP server configuration"
   tool: "core_mcpserver_update"
   args:
-    name: "local-command-server"
-    type: "localCommand"
-    command: ["echo", "updated-test-server"]
+    name: "stdio-command-server"
+    type: "stdio"
+    command: "echo"
+    args: ["updated-test-server"]
     autoStart: true
   expected:
     success: true
 
-- id: "delete-local-command-mcpserver"
+- id: "delete-stdio-command-mcpserver"
   description: "Delete the MCP server"
   tool: "core_mcpserver_delete"
   args:
-    name: "local-command-server"
+    name: "stdio-command-server"
   expected:
     success: true
 
@@ -58,4 +60,4 @@ steps:
   tool: "core_mcpserver_list"
   expected:
     success: true
-    not_contains: ["local-command-server"] 
+    not_contains: ["stdio-command-server"] 

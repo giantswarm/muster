@@ -212,6 +212,14 @@ func (l *scenarioLoader) FilterScenarios(scenarios []TestScenario, config TestCo
 	var filtered []TestScenario
 
 	for _, scenario := range scenarios {
+		// Skip scenarios marked with skip: true
+		if scenario.Skip {
+			if l.debug {
+				l.logger.Debug("⏭️  Skipping scenario marked as skip: %s\n", scenario.Name)
+			}
+			continue
+		}
+
 		// Apply category filter
 		if config.Category != "" && scenario.Category != config.Category {
 			continue

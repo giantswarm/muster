@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Remote MCP Server Support for Kubernetes Environments**
+  - Added comprehensive support for `stdio`, `streamable-http` and `sse` transport protocols
+  - **Enhanced CRD Schema**: Updated `MCPServerSpec` to support all MCP server types
+    - Added new config for `streamable-http` and `sse`: `url`, `headers` and `timeout` fields
+    - Added mutual exclusion validation and required field validation using kubebuilder annotations
+  - **New CLI Commands**: Added subcommands to use new type system
+    - `muster create mcpserver <name> --type stdio` for local MCP servers
+    - `muster create mcpserver <name> --type streamable-http` for HTTP remote servers
+    - `muster create mcpserver <name> --type sse` for SSE remote servers
+  - **Updated Examples**: Enhanced example files to demonstrate both local and remote configurations
+  - **Kubernetes Deployment Ready**: Enables deployment patterns where Muster aggregator runs in cluster and connects to MCP servers deployed as separate Kubernetes services
 - **Systemd Socket Activation Support**
   - Added `muster.socket` unit file for socket-activated systemd deployment
   - Modified `muster.service` to use socket activation on localhost:8090

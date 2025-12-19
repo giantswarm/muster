@@ -13,6 +13,11 @@ import (
 	"muster/pkg/logging"
 )
 
+// DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.
+// This value must be kept in sync with the kubebuilder:default annotation in MCPServerSpec.Timeout
+// (see pkg/apis/muster/v1alpha1/mcpserver_types.go).
+const DefaultRemoteTimeout = 30
+
 // Service implements the Service interface for MCP server management
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
@@ -168,12 +173,19 @@ func (s *Service) ValidateConfiguration() error {
 	}
 
 	// Type-specific validation
-	if s.definition.Type == api.MCPServerTypeLocalCommand {
-		if len(s.definition.Command) == 0 {
-			return fmt.Errorf("command is required for localCommand type")
+	switch s.definition.Type {
+	case api.MCPServerTypeStdio:
+		if s.definition.Command == "" {
+			return fmt.Errorf("command is required for stdio type")
 		}
-	} else {
-		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
+	case api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE:
+		if s.definition.URL == "" {
+			return fmt.Errorf("url is required for streamable-http and sse types")
+		}
+		// Note: timeout defaults to DefaultRemoteTimeout if not specified
+	default:
+		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
+			s.definition.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
 	return nil
@@ -195,13 +207,15 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	data := map[string]interface{}{
 		"name":      s.definition.Name,
 		"type":      s.definition.Type,
-		"autoStart": s.definition.AutoStart,
 		"state":     s.GetState(),
 		"health":    s.GetHealth(),
-	}
-
-	if s.definition.Type == api.MCPServerTypeLocalCommand {
-		data["command"] = s.definition.Command
+		"autoStart": s.definition.AutoStart,
+		"command":   s.definition.Command,
+		"args":      s.definition.Args,
+		"url":       s.definition.URL,
+		"env":       s.definition.Env,
+		"headers":   s.definition.Headers,
+		"timeout":   s.definition.Timeout,
 	}
 
 	if s.GetLastError() != nil {
@@ -219,7 +233,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	s.clientInitMutex.Unlock()
 
 	// Add tool prefix for aggregator registration
-	data["toolPrefix"] = ""
+	data["toolPrefix"] = s.definition.ToolPrefix
 
 	return data
 }
@@ -289,40 +303,61 @@ func (s *Service) LogWarn(format string, args ...interface{}) {
 	logging.Warn(s.GetLogContext(), format, args...)
 }
 
-// createAndInitializeClient creates and initializes the MCP client
-// This single operation starts the process AND establishes MCP communication
+// getRemoteInitContext creates a context with the appropriate timeout for remote MCP client initialization.
+// Uses the configured timeout if set, otherwise falls back to DefaultRemoteTimeout.
+func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.definition.Timeout
+	if timeout == 0 {
+		timeout = DefaultRemoteTimeout
+	}
+	return context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+}
+
+// createAndInitializeClient creates the appropriate MCP client based on the server type.
+// This uses the factory pattern via NewMCPClientFromType to create the correct client.
+//
+// Note: This method assumes ValidateConfiguration() has already been called.
+// It does not perform redundant validation checks.
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 
-	switch s.definition.Type {
-	case api.MCPServerTypeLocalCommand:
-		if len(s.definition.Command) == 0 {
-			return fmt.Errorf("no command specified for local command server")
-		}
-
-		command := s.definition.Command[0]
-		args := s.definition.Command[1:]
-
-		// Create the stdio client - this is our process manager AND MCP client
-		client := mcpserver.NewStdioClientWithEnv(command, args, s.definition.Env)
-		s.LogDebug("Created stdio MCP client for command: %s", command)
-
-		// Initialize the client - this starts the process AND establishes MCP communication
-		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
-		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize MCP client/process: %w", err)
-		}
-
-		s.client = client
-		s.LogDebug("MCP client initialized successfully for %s", s.GetName())
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
+	// Build client configuration from service definition
+	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
+	config := mcpserver.MCPClientConfig{
+		Command: s.definition.Command,
+		Args:    s.definition.Args,
+		Env:     s.definition.Env,
+		URL:     s.definition.URL,
+		Headers: s.definition.Headers,
 	}
+
+	// Use factory to create the appropriate client type
+	client, err := mcpserver.NewMCPClientFromType(s.definition.Type, config)
+	if err != nil {
+		return fmt.Errorf("failed to create MCP client: %w", err)
+	}
+
+	s.LogDebug("Created %s MCP client for %s", s.definition.Type, s.GetName())
+
+	// Determine timeout based on server type
+	var initCtx context.Context
+	var cancel context.CancelFunc
+	if s.definition.Type == api.MCPServerTypeStdio {
+		initCtx, cancel = context.WithTimeout(ctx, mcpserver.DefaultStdioInitTimeout)
+	} else {
+		initCtx, cancel = s.getRemoteInitContext(ctx)
+	}
+	defer cancel()
+
+	// Initialize the client
+	if err := client.Initialize(initCtx); err != nil {
+		return fmt.Errorf("failed to initialize %s MCP client: %w", s.definition.Type, err)
+	}
+
+	s.client = client
+	s.LogDebug("%s MCP client initialized successfully for %s", s.definition.Type, s.GetName())
+	return nil
 }
 
 // closeClient closes the MCP client, which also terminates the process

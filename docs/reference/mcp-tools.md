@@ -218,7 +218,7 @@ List all configured MCP servers with their definitions and metadata.
   "mcpServers": [
     {
       "name": "my-custom-server",
-      "type": "localCommand",
+      "type": "stdio",
       "autoStart": true,
       "description": "Custom MCP server for specialized tools",
       "command": ["my-server", "serve"],
@@ -237,10 +237,14 @@ Create a new MCP server definition that can be started as a service.
 
 **Arguments:**
 - `name` (string, required) - Unique server name (used as service identifier)
-- `type` (string, required) - Server type (currently only "localCommand" supported)
+- `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
 - `description` (string, optional) - Human-readable description of server purpose
-- `command` (array of strings, optional) - Command executable and arguments (minimum 1 item)
+- `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
+- `args` (array of strings, optional) - Command line arguments (for stdio servers)
+- `url` (string, optional) - Server endpoint URL (for streamable-http and sse servers)
 - `env` (object, optional) - Environment variables as key-value pairs
+- `headers` (object, optional) - HTTP headers (for streamable-http and sse servers)
+- `timeout` (integer, optional) - Connection timeout in seconds
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
 
 **Returns:** Created MCP server definition
@@ -251,7 +255,7 @@ Create a new MCP server definition that can be started as a service.
   "name": "core_mcpserver_create",
   "arguments": {
     "name": "my-tools",
-    "type": "localCommand",
+    "type": "stdio",
     "description": "Custom tool server for project management",
     "command": ["my-mcp-server", "--port", "3000", "--verbose"],
     "env": {
@@ -290,7 +294,7 @@ Get detailed information about a specific MCP server definition.
 ```json
 {
   "name": "my-tools",
-  "type": "localCommand",
+  "type": "stdio",
   "autoStart": true,
   "description": "Custom tool server for project management",
   "command": ["my-mcp-server", "--port", "3000", "--verbose"],
@@ -379,11 +383,10 @@ Validate MCP server configuration without creating or modifying the server.
   "name": "core_mcpserver_validate",
   "arguments": {
     "name": "test-server",
-    "type": "localCommand",
-    "command": ["nonexistent-command"],
-    "env": {
-      "INVALID_KEY": ""
-    }
+    "type": "stdio",
+    "autoStart": true,
+    "command": ["echo", "test"],
+    "description": "Test server configuration"
   }
 }
 ```
@@ -1369,207 +1372,4 @@ Get detailed information about a specific workflow execution.
 
 ### How Workflow Execution Tools Work
 
-1. **Workflow Definition**: You create workflows using `core_workflow_create`
-2. **Automatic Tool Generation**: Muster generates `workflow_<name>` execution tools
-3. **Execution**: Use the generated tools to execute workflows with arguments
-
-### Example Workflow Execution Tools
-
-Here are examples of workflow execution tools that might be available based on your workflow definitions:
-
-- `workflow_deploy-application` - Execute application deployment workflow
-- `workflow_backup-database` - Execute database backup workflow  
-- `workflow_health-check` - Execute system health verification workflow
-- `workflow_user-onboarding` - Execute user setup workflow
-
-### Discovering Your Workflow Execution Tools
-
-Use `core_workflow_list` to see your defined workflows, then use the corresponding `workflow_<name>` tools:
-
-```json
-{
-  "name": "core_workflow_list",
-  "arguments": {}
-}
-```
-
-### Example Usage
-```json
-{
-  "name": "workflow_deploy-application",
-  "arguments": {
-    "app_name": "my-web-app",
-    "environment": "production"
-  }
-}
-```
-
-**⚠️ Note**: The specific `workflow_<name>` tools available depend entirely on the workflows you've defined in your `.muster/workflows/` directory.
-
----
-
-## External Tools
-
-Muster provides access to external tools through user-configured MCP servers. The available external tools depend entirely on your MCP server configuration and are **not part of Muster's core functionality**.
-
-> **Important**: External tools are provided by MCP servers you configure, not by Muster itself. Different Muster installations will have completely different external tools available.
-
-### How External Tools Work
-
-1. **MCP Server Configuration**: You configure MCP servers in your `.muster/mcpservers/` directory
-2. **Tool Discovery**: Muster automatically discovers and aggregates tools from connected MCP servers
-3. **Tool Access**: External tools become available alongside core tools in the aggregated tool list
-
-### Example Tool Categories
-
-Here are examples of tool categories that might be available depending on your MCP server configuration:
-
-- **Infrastructure Tools** (e.g., `x_kubernetes_*`, `x_docker_*`) - Container and cluster management
-- **Monitoring Tools** (e.g., `x_prometheus_*`, `x_grafana_*`) - Metrics and observability
-- **Security Tools** (e.g., `x_vault_*`, `x_auth_*`) - Authentication and secrets management
-- **Cloud Provider Tools** (e.g., `x_aws_*`, `x_azure_*`) - Cloud resource management
-- **GitOps Tools** (e.g., `x_flux_*`, `x_argocd_*`) - Deployment automation
-- **Database Tools** (e.g., `x_postgres_*`, `x_mysql_*`) - Database operations
-- **Custom Business Tools** - Organization-specific tooling
-
-### Discovering Available External Tools
-
-Use these core tools to discover what external tools are available in your environment:
-
-```json
-{
-  "name": "core_service_list",
-  "arguments": {}
-}
-```
-
-This shows which MCP servers are running and providing external tools.
-
-### Configuration Location
-
-External tools are configured through MCP servers in your Muster configuration:
-- **MCP Server Definitions**: `.muster/mcpservers/`
-- **Tool Discovery**: Automatic when MCP servers start
-- **Tool Availability**: Depends on MCP server health and connectivity
-
----
-
-## Common Patterns
-
-### Platform Setup
-```bash
-# 1. Check what's available
-core_serviceclass_list
-core_workflow_list
-
-# 2. Deploy infrastructure (example workflow - replace with your workflow)
-workflow_<your-deployment-workflow>
-
-# 3. Set up service (example ServiceClass - replace with your ServiceClass)
-core_service_create {
-  "serviceClassName": "<your-serviceclass>",
-  "name": "my-service",
-  "args": {"<your-args>": "<values>"}
-}
-```
-
-### Service Management
-```bash
-# Create → Start → Monitor pattern
-core_service_create      # Create from ServiceClass
-core_service_start       # Start the service  
-core_service_status      # Check health
-core_service_get         # Get detailed info
-```
-
-### Workflow Development
-```bash
-# Define → Validate → Execute pattern  
-core_workflow_create     # Define workflow steps
-core_workflow_validate   # Validate configuration
-workflow_<name>          # Execute with arguments
-core_workflow_execution_get  # Check results
-```
-
-### Error Handling
-```bash
-# Diagnosis pattern
-core_service_list        # Check service states
-core_mcpserver_list      # Check MCP server health
-core_serviceclass_available  # Check dependencies
-```
-
-> **Note**: Examples use placeholder names like `<your-workflow>` and `<your-serviceclass>`. Replace these with the actual workflows and ServiceClasses you've configured in your Muster installation.
-
----
-
-## Error Responses
-
-All tools return consistent error structures:
-
-```json
-{
-  "isError": true,
-  "content": [
-    {
-      "type": "text",
-      "text": "Error: Resource not found"
-    }
-  ]
-}
-```
-
-### Common Error Types
-- **Validation Errors** - Invalid parameters
-- **Not Found** - Resource doesn't exist  
-- **Dependency Errors** - Required tools unavailable
-- **State Errors** - Invalid state transitions
-- **Timeout Errors** - Operation exceeded limits
-
----
-
-## Best Practices
-
-### For AI Agents
-
-1. **Always Check Availability First**
-   ```bash
-   core_serviceclass_available  # Before creating services
-   core_workflow_available      # Before executing workflows
-   ```
-
-2. **Use Status Monitoring**
-   ```bash
-   core_service_status          # Monitor service health
-   core_workflow_execution_get  # Check workflow progress
-   ```
-
-3. **Handle Dependencies**
-   ```bash
-   core_service_list            # Check required services
-   core_mcpserver_list          # Verify MCP servers
-   ```
-
-4. **Leverage Workflows**
-   - Use existing workflows for common tasks
-   - Create reusable workflows for complex operations
-   - Monitor executions for debugging
-
-### Resource Naming
-- Use descriptive, consistent names
-- Include environment/context when relevant
-- Follow organization naming conventions
-
-### State Management
-- Always check current state before operations
-- Use service persistence for important resources
-- Clean up temporary resources
-
----
-
-## Related Documentation
-
-- **[API Reference](api/README.md)** - Full JSON-RPC API details
-- **[CLI Reference](cli/README.md)** - Command-line interface
-- **[Getting Started](../getting-started/README.md)** - Setup and basic usage
-- **[How-to Guides](../how-to/README.md)** - Task-oriented guides 
+1. **Workflow Definition**: You create workflows using `

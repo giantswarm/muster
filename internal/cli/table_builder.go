@@ -63,6 +63,8 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 		return b.formatHealthStatus(strValue)
 	case "available":
 		return b.formatAvailableStatus(value)
+	case "autostart":
+		return b.formatAutoStartStatus(value)
 	case "state":
 		return b.formatState(strValue)
 	case "started_at", "completed_at", "timestamp":
@@ -85,6 +87,12 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 		return b.formatDescription(strValue)
 	case "service_type", "servicetype", "servertype":
 		return b.formatType(strValue)
+	case "command":
+		return b.formatCommand(strValue)
+	case "url":
+		return b.formatURL(strValue)
+	case "endpoint":
+		return b.formatEndpoint(column, value)
 	case "steps":
 		return b.formatSteps(value)
 	default:
@@ -174,6 +182,10 @@ func (b *TableBuilder) formatState(state string) interface{} {
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
 	case "stopping":
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
+	case "failed":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
+	case "error":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  Error")
 	default:
 		return state
 	}
@@ -538,6 +550,114 @@ func (b *TableBuilder) formatDuration(value interface{}) interface{} {
 	} else {
 		return text.Colors{text.FgHiRed, text.Bold}.Sprintf("%.1fh", durationMs/3600000)
 	}
+}
+
+// formatAutoStartStatus formats boolean autoStart status with clear visual indicators.
+// This shows whether an MCP server is configured to start automatically.
+//
+// Args:
+//   - value: The autoStart value (boolean)
+//
+// Returns:
+//   - interface{}: Formatted autoStart status with color and icon
+func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+		}
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+	case string:
+		if v == "true" {
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+		}
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatCommand formats command strings with appropriate highlighting.
+// This provides clear visual indication of the executable being used.
+//
+// Args:
+//   - command: The command string to format
+//
+// Returns:
+//   - interface{}: Formatted command with appropriate styling
+func (b *TableBuilder) formatCommand(command string) interface{} {
+	if command == "" {
+		return text.Faint.Sprint("-")
+	}
+
+	// Highlight the command with a subtle color
+	return text.Colors{text.FgHiBlue, text.Bold}.Sprint(command)
+}
+
+// formatURL formats URL strings with appropriate highlighting.
+// This provides clear visual indication of remote endpoints.
+//
+// Args:
+//   - url: The URL string to format
+//
+// Returns:
+//   - interface{}: Formatted URL with appropriate styling
+func (b *TableBuilder) formatURL(url string) interface{} {
+	if url == "" {
+		return text.Faint.Sprint("-")
+	}
+
+	// Highlight URLs with a distinct color
+	return text.Colors{text.FgHiMagenta, text.Bold}.Sprint(url)
+}
+
+// formatEndpoint intelligently displays either a command or a URL based on the available data.
+// This function looks at the entire row context to determine the best value to show.
+//
+// Args:
+//   - column: The column name (not used in this implementation)
+//   - value: The entire row object to extract endpoint information from
+//
+// Returns:
+//   - interface{}: Formatted endpoint string (command or URL)
+func (b *TableBuilder) formatEndpoint(column string, value interface{}) interface{} {
+	// For the endpoint column, we need access to the entire row
+	// This is a special case where we need more context than just the cell value
+	if rowMap, ok := value.(map[string]interface{}); ok {
+		// Check server type first
+		serverType := ""
+		if typ, exists := rowMap["type"]; exists {
+			serverType = fmt.Sprintf("%v", typ)
+		}
+
+		// For remote servers, prioritize URL
+		if serverType == "streamable-http" || serverType == "sse" {
+			if url, exists := rowMap["url"]; exists && url != nil {
+				urlStr := fmt.Sprintf("%v", url)
+				if urlStr != "" {
+					return b.formatURL(urlStr)
+				}
+			}
+		}
+
+		// For stdio servers or fallback, show command
+		if command, exists := rowMap["command"]; exists && command != nil {
+			commandStr := fmt.Sprintf("%v", command)
+			if commandStr != "" {
+				return b.formatCommand(commandStr)
+			}
+		}
+
+		// Fallback to URL if command is not available
+		if url, exists := rowMap["url"]; exists && url != nil {
+			urlStr := fmt.Sprintf("%v", url)
+			if urlStr != "" {
+				return b.formatURL(urlStr)
+			}
+		}
+	}
+
+	return text.Faint.Sprint("-")
 }
 
 // formatEventReason formats event reason with appropriate styling.

@@ -96,37 +96,78 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	return api.MCPServerInfo{
 		Name:        server.ObjectMeta.Name,
 		Type:        server.Spec.Type,
-		AutoStart:   server.Spec.AutoStart,
 		Description: server.Spec.Description,
+		ToolPrefix:  server.Spec.ToolPrefix,
+		AutoStart:   server.Spec.AutoStart,
 		Command:     server.Spec.Command,
+		Args:        server.Spec.Args,
+		URL:         server.Spec.URL,
 		Env:         server.Spec.Env,
+		Headers:     server.Spec.Headers,
+		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
 	}
 }
 
-// convertInfoToCRD converts MCPServerInfo to a MCPServer CRD
-func (a *Adapter) convertRequestToCRD(name, serverType string, autoStart bool, toolPrefix string, command []string, env map[string]string, description string) *musterv1alpha1.MCPServer {
-	return &musterv1alpha1.MCPServer{
+// convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
+func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
+	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "muster.giantswarm.io/v1alpha1",
 			Kind:       "MCPServer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      req.Name,
 			Namespace: a.namespace,
 		},
 		Spec: musterv1alpha1.MCPServerSpec{
-			Type:        serverType,
-			AutoStart:   autoStart,
-			ToolPrefix:  toolPrefix,
-			Command:     command,
-			Env:         env,
-			Description: description,
+			Type:        req.Type,
+			ToolPrefix:  req.ToolPrefix,
+			Description: req.Description,
+			AutoStart:   req.AutoStart,
+			Command:     req.Command,
+			Args:        req.Args,
+			URL:         req.URL,
+			Env:         req.Env,
+			Headers:     req.Headers,
+			Timeout:     req.Timeout,
 		},
 	}
+
+	return crd
 }
 
 // ToolProvider implementation
+
+// mcpServerArgs returns the common argument metadata for MCP server tools.
+// typeRequired controls whether the "type" field is required (true for create/validate, false for update).
+func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
+	return []api.ArgMetadata{
+		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
+		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
+		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
+		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
+		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
+		{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+			"type":        "array",
+			"items":       map[string]interface{}{"type": "string"},
+			"description": "Command line arguments for stdio servers",
+		}},
+		{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+		{Name: "env", Type: "object", Required: false, Description: "Environment variables", Schema: map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": map[string]interface{}{"type": "string"},
+			"description":          "Environment variables for the server",
+		}},
+		{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": map[string]interface{}{"type": "string"},
+			"description":          "HTTP headers for remote servers",
+		}},
+		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
+	}
+}
 
 // GetTools returns all tools this provider offers
 func (a *Adapter) GetTools() []api.ToolMetadata {
@@ -139,141 +180,29 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_get",
 			Description: "Get detailed information about a specific MCP server definition",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to retrieve",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to retrieve"},
 			},
 		},
 		{
 			Name:        "mcpserver_validate",
 			Description: "Validate an mcpserver definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand)"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
-				{
-					Name:        "command",
-					Type:        "array",
-					Required:    false,
-					Description: "Command and arguments (for localCommand type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Command and arguments for localCommand type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Command executable or argument",
-						},
-						"minItems": 1,
-					},
-				},
-				{
-					Name:        "env",
-					Type:        "object",
-					Required:    false,
-					Description: "Environment variables",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Environment variables as key-value pairs",
-						"additionalProperties": map[string]interface{}{
-							"type":        "string",
-							"description": "Environment variable value",
-						},
-					},
-				},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-			},
+			Args:        mcpServerArgs(true), // type is required for validation
 		},
 		{
 			Name:        "mcpserver_create",
 			Description: "Create a new MCP server definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (localCommand)"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
-				{
-					Name:        "command",
-					Type:        "array",
-					Required:    false,
-					Description: "Command and arguments (for localCommand type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Command and arguments for localCommand type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Command executable or argument",
-						},
-						"minItems": 1,
-					},
-				},
-				{
-					Name:        "env",
-					Type:        "object",
-					Required:    false,
-					Description: "Environment variables",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Environment variables as key-value pairs",
-						"additionalProperties": map[string]interface{}{
-							"type":        "string",
-							"description": "Environment variable value",
-						},
-					},
-				},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-			},
+			Args:        mcpServerArgs(true), // type is required for creation
 		},
 		{
 			Name:        "mcpserver_update",
 			Description: "Update an existing MCP server definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: false, Description: "MCP server type (localCommand)"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
-				{
-					Name:        "command",
-					Type:        "array",
-					Required:    false,
-					Description: "Command and arguments (for localCommand type)",
-					Schema: map[string]interface{}{
-						"type":        "array",
-						"description": "Command and arguments for localCommand type servers",
-						"items": map[string]interface{}{
-							"type":        "string",
-							"description": "Command executable or argument",
-						},
-						"minItems": 1,
-					},
-				},
-				{
-					Name:        "env",
-					Type:        "object",
-					Required:    false,
-					Description: "Environment variables",
-					Schema: map[string]interface{}{
-						"type":        "object",
-						"description": "Environment variables as key-value pairs",
-						"additionalProperties": map[string]interface{}{
-							"type":        "string",
-							"description": "Environment variable value",
-						},
-					},
-				},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-			},
+			Args:        mcpServerArgs(false), // type is optional for update
 		},
 		{
 			Name:        "mcpserver_delete",
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to delete",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
 	}
@@ -347,7 +276,19 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 	}
 
 	// Create MCPServer CRD for validation
-	server := a.convertRequestToCRD(req.Name, req.Type, req.AutoStart, "", req.Command, req.Env, req.Description)
+	server := a.convertRequestToCRD(&api.MCPServerCreateRequest{
+		Name:        req.Name,
+		Type:        req.Type,
+		ToolPrefix:  req.ToolPrefix,
+		Description: req.Description,
+		AutoStart:   req.AutoStart,
+		Command:     req.Command,
+		Args:        req.Args,
+		URL:         req.URL,
+		Env:         req.Env,
+		Headers:     req.Headers,
+		Timeout:     req.Timeout,
+	})
 
 	// Basic validation (more comprehensive validation would be done by the CRD schema)
 	if err := a.validateMCPServer(server); err != nil {
@@ -372,17 +313,17 @@ func (a *Adapter) handleMCPServerCreate(args map[string]interface{}) (*api.CallT
 		}, nil
 	}
 
-	// Create MCPServer CRD
-	server := a.convertRequestToCRD(req.Name, req.Type, req.AutoStart, req.ToolPrefix, req.Command, req.Env, "")
+	// Convert request to CRD once for reuse
+	serverCRD := a.convertRequestToCRD(&req)
 
 	// Validate the definition
-	if err := a.validateMCPServer(server); err != nil {
+	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
 	// Create the new MCP server using the unified client
 	ctx := context.Background()
-	if err := a.client.CreateMCPServer(ctx, server); err != nil {
+	if err := a.client.CreateMCPServer(ctx, serverCRD); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return simpleError(fmt.Sprintf("MCP server '%s' already exists", req.Name))
 		}
@@ -421,22 +362,37 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		return simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
 	}
 
-	// Update fields from request
+	// Update common fields from request
 	if req.Type != "" {
 		existing.Spec.Type = req.Type
 	}
-	existing.Spec.AutoStart = req.AutoStart
 	if req.ToolPrefix != "" {
 		existing.Spec.ToolPrefix = req.ToolPrefix
 	}
-	if req.Command != nil {
+	if req.Description != "" {
+		existing.Spec.Description = req.Description
+	}
+	existing.Spec.AutoStart = req.AutoStart
+	if req.Command != "" {
 		existing.Spec.Command = req.Command
+	}
+	if req.Args != nil {
+		existing.Spec.Args = req.Args
+	}
+	if req.URL != "" {
+		existing.Spec.URL = req.URL
 	}
 	if req.Env != nil {
 		existing.Spec.Env = req.Env
 	}
+	if req.Headers != nil {
+		existing.Spec.Headers = req.Headers
+	}
+	if req.Timeout > 0 {
+		existing.Spec.Timeout = req.Timeout
+	}
 
-	// Validate the definition
+	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
@@ -497,12 +453,19 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return fmt.Errorf("type is required")
 	}
 
-	if server.Spec.Type != "localCommand" {
-		return fmt.Errorf("type must be 'localCommand'")
-	}
-
-	if server.Spec.Type == "localCommand" && len(server.Spec.Command) == 0 {
-		return fmt.Errorf("command is required for localCommand type")
+	switch server.Spec.Type {
+	case string(api.MCPServerTypeStdio):
+		if server.Spec.Command == "" {
+			return fmt.Errorf("command is required for stdio type")
+		}
+	case string(api.MCPServerTypeStreamableHTTP), string(api.MCPServerTypeSSE):
+		if server.Spec.URL == "" {
+			return fmt.Errorf("url is required for streamable-http and sse types")
+		}
+		// Note: timeout defaults to 30 seconds via CRD kubebuilder:default
+	default:
+		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
+			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
 	return nil

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2025-07-19T20:46:23+02:00",
+  "generated_at": "2025-07-24T14:29:42+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -42,18 +42,20 @@
         "core_mcpserver_create": {
           "description": "Arguments for core_mcpserver_create tool",
           "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "autoStart": {
-              "description": "Whether server should auto-start",
+              "description": "Whether server should auto-start (stdio only)",
               "type": "boolean"
             },
             "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
             },
             "description": {
               "description": "MCP server description",
@@ -61,18 +63,36 @@
             },
             "env": {
               "additionalProperties": {
-                "description": "Environment variable value",
                 "type": "string"
               },
-              "description": "Environment variables",
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only)",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
               "type": "string"
             }
           },
@@ -116,18 +136,20 @@
         "core_mcpserver_update": {
           "description": "Arguments for core_mcpserver_update tool",
           "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "autoStart": {
-              "description": "Whether server should auto-start",
+              "description": "Whether server should auto-start (stdio only)",
               "type": "boolean"
             },
             "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
+              "description": "Command executable path (for stdio)",
+              "type": "string"
             },
             "description": {
               "description": "MCP server description",
@@ -135,18 +157,36 @@
             },
             "env": {
               "additionalProperties": {
-                "description": "Environment variable value",
                 "type": "string"
               },
-              "description": "Environment variables",
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only)",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (for streamable-http and sse)",
               "type": "string"
             }
           },
@@ -158,18 +198,20 @@
         "core_mcpserver_validate": {
           "description": "Arguments for core_mcpserver_validate tool",
           "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "autoStart": {
-              "description": "Whether server should auto-start",
+              "description": "Whether server should auto-start (stdio only)",
               "type": "boolean"
             },
             "command": {
-              "description": "Command and arguments (for localCommand type)",
-              "items": {
-                "description": "Command executable or argument",
-                "type": "string"
-              },
-              "minItems": 1,
-              "type": "array"
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
             },
             "description": {
               "description": "MCP server description",
@@ -177,18 +219,36 @@
             },
             "env": {
               "additionalProperties": {
-                "description": "Environment variable value",
                 "type": "string"
               },
-              "description": "Environment variables",
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only)",
               "type": "object"
             },
             "name": {
               "description": "MCP server name",
               "type": "string"
             },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
             "type": {
-              "description": "MCP server type (localCommand)",
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
               "type": "string"
             }
           },

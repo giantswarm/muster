@@ -100,7 +100,7 @@ metadata:
   name: dev-tools
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
   command: ["echo", "dev-mock-server"]
   autoStart: true
   description: "Development tools"

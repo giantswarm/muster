@@ -1,0 +1,73 @@
+name: "mcpserver-streamable-http-crud"
+description: "Test complete CRUD operations for streamable HTTP MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "crud", "streamable-http", "core-api"]
+timeout: "3m"
+
+steps:
+- id: "create-streamable-http-mcpserver"
+  description: "Create a new streamable HTTP MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "streamable-http-crud-server"
+    type: "streamable-http"
+    url: "https://api.example.com/mcp"
+    timeout: 45
+  expected:
+    success: true
+
+- id: "list-mcpservers-with-streamable-http"
+  description: "List all MCP servers to verify streamable HTTP server creation"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["streamable-http-crud-server"]
+
+- id: "get-streamable-http-mcpserver"
+  description: "Get the specific streamable HTTP MCP server details"
+  tool: "core_mcpserver_get"
+  args:
+    name: "streamable-http-crud-server"
+  expected:
+    success: true
+    json_path:
+      name: "streamable-http-crud-server"
+      type: "streamable-http"
+
+- id: "update-streamable-http-mcpserver"
+  description: "Update the streamable HTTP MCP server configuration"
+  tool: "core_mcpserver_update"
+  args:
+    name: "streamable-http-crud-server"
+    type: "streamable-http"
+    url: "https://updated.example.com/mcp"
+    timeout: 90
+  expected:
+    success: true
+
+- id: "verify-streamable-http-mcpserver-updated"
+  description: "Verify the streamable HTTP MCP server was updated successfully"
+  tool: "core_mcpserver_get"
+  args:
+    name: "streamable-http-crud-server"
+  expected:
+    success: true
+    json_path:
+      name: "streamable-http-crud-server"
+      type: "streamable-http"
+
+- id: "delete-streamable-http-mcpserver"
+  description: "Delete the streamable HTTP MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "streamable-http-crud-server"
+  expected:
+    success: true
+
+- id: "verify-streamable-http-mcpserver-deleted"
+  description: "Verify the streamable HTTP MCP server was deleted"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    not_contains: ["streamable-http-crud-server"] 

@@ -91,7 +91,7 @@ agent: "Show me failing pods in default namespace"
 - **Lifecycle Control**: Start, stop, restart MCP servers on demand
 - **Health Monitoring**: Automatic health checks and recovery
 - **Configuration Management**: Hot-reload server configurations
-- **Local Process Deployment**: Local processes (`localCommand`) for MCP server execution
+- **Local Process Deployment**: Local processes (`local`) for MCP server execution
 
 > 📖 **Learn More**: [MCP Server Management](docs/how-to/mcp-server-management.md) | [Configuration Guide](docs/reference/configuration.md)
 

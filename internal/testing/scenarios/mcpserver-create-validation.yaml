@@ -1,0 +1,113 @@
+name: "mcpserver-create-validation"
+description: "Test validation for MCP server creation with stdio, streamable-http and sse types"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "validation", "core-api"]
+timeout: "2m"
+
+steps:
+- id: "create-streamable-http-missing-url"
+  description: "Try to create a streamable-http MCP server without URL (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "http-missing-url"
+    type: "streamable-http"
+    timeout: 30
+  expected:
+    success: false
+    error_contains: ["url", "required"]
+
+- id: "create-sse-missing-url"
+  description: "Try to create an SSE MCP server without URL (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sse-missing-url"
+    type: "sse"
+    timeout: 30
+  expected:
+    success: false
+    error_contains: ["url", "required"]
+
+- id: "create-stdio-with-url"
+  description: "Try to create a stdio MCP server with URL field (should still work, field ignored)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "stdio-with-url"
+    type: "stdio"
+    command: "echo"
+    args: ["test"]
+    url: "http://localhost:8080/mcp"
+    autoStart: false
+  expected:
+    success: true
+
+- id: "create-streamable-http-with-command"
+  description: "Try to create a streamable-http MCP server with command field (should still work, field ignored)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "http-with-command"
+    type: "streamable-http"
+    url: "http://localhost:8080/mcp"
+    command: "echo"
+    timeout: 30
+  expected:
+    success: true
+
+- id: "create-valid-streamable-http-server"
+  description: "Create a valid streamable-http MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "valid-http-server"
+    type: "streamable-http"
+    url: "http://localhost:8080/mcp"
+    timeout: 30
+    headers:
+      Authorization: "Bearer test-token"
+  expected:
+    success: true
+
+- id: "create-valid-sse-server"
+  description: "Create a valid SSE MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "valid-sse-server"
+    type: "sse"
+    url: "http://localhost:8080/sse"
+    timeout: 45
+    headers:
+      Accept: "text/event-stream"
+  expected:
+    success: true
+
+cleanup:
+- id: "cleanup-stdio-with-url"
+  description: "Clean up stdio server that was created"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "stdio-with-url"
+  expected:
+    success: true
+
+- id: "cleanup-http-with-command"
+  description: "Clean up streamable-http server that was created"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "http-with-command"
+  expected:
+    success: true
+
+- id: "cleanup-valid-http-server"
+  description: "Clean up valid streamable-http server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "valid-http-server"
+  expected:
+    success: true
+
+- id: "cleanup-valid-sse-server"
+  description: "Clean up valid SSE server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "valid-sse-server"
+  expected:
+    success: true 
