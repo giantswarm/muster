@@ -139,9 +139,39 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 
 // ToolProvider implementation
 
+// mcpServerArgs returns the common argument metadata for MCP server tools.
+// typeRequired controls whether the "type" field is required (true for create/validate, false for update).
+func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
+	return []api.ArgMetadata{
+		{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
+		{Name: "type", Type: "string", Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
+		{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
+		{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
+		{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start"},
+		{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
+		{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
+			"type":        "array",
+			"items":       map[string]interface{}{"type": "string"},
+			"description": "Command line arguments for stdio servers",
+		}},
+		{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
+		{Name: "env", Type: "object", Required: false, Description: "Environment variables", Schema: map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": map[string]interface{}{"type": "string"},
+			"description":          "Environment variables for the server",
+		}},
+		{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+			"type":                 "object",
+			"additionalProperties": map[string]interface{}{"type": "string"},
+			"description":          "HTTP headers for remote servers",
+		}},
+		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
+	}
+}
+
 // GetTools returns all tools this provider offers
 func (a *Adapter) GetTools() []api.ToolMetadata {
-	tools := []api.ToolMetadata{
+	return []api.ToolMetadata{
 		{
 			Name:        "mcpserver_list",
 			Description: "List all MCP server definitions with their status",
@@ -150,133 +180,32 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_get",
 			Description: "Get detailed information about a specific MCP server definition",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to retrieve",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to retrieve"},
 			},
 		},
 		{
 			Name:        "mcpserver_validate",
 			Description: "Validate an mcpserver definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (stdio, streamable-http, or sse)"},
-				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
-				{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
-				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Command line arguments for stdio servers",
-				}},
-				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Environment variables for stdio servers",
-				}},
-				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "HTTP headers for remote servers",
-				}},
-				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
-			},
+			Args:        mcpServerArgs(true), // type is required for validation
 		},
 		{
 			Name:        "mcpserver_create",
 			Description: "Create a new MCP server definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: true, Description: "MCP server type (stdio, streamable-http, or sse)"},
-				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
-				{Name: "command", Type: "string", Required: false, Description: "Command executable path (required for stdio)"},
-				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Command line arguments for stdio servers",
-				}},
-				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Environment variables for stdio servers",
-				}},
-				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "HTTP headers for remote servers",
-				}},
-				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
-			},
+			Args:        mcpServerArgs(true), // type is required for creation
 		},
 		{
 			Name:        "mcpserver_update",
 			Description: "Update an existing MCP server definition",
-			Args: []api.ArgMetadata{
-				{Name: "name", Type: "string", Required: true, Description: "MCP server name"},
-				{Name: "type", Type: "string", Required: false, Description: "MCP server type (stdio, streamable-http, or sse)"},
-				{Name: "toolPrefix", Type: "string", Required: false, Description: "Tool prefix for namespacing"},
-				{Name: "description", Type: "string", Required: false, Description: "MCP server description"},
-				{Name: "autoStart", Type: "boolean", Required: false, Description: "Whether server should auto-start (stdio only)"},
-				{Name: "command", Type: "string", Required: false, Description: "Command executable path (for stdio)"},
-				{Name: "args", Type: "array", Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
-					"type": "array",
-					"items": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Command line arguments for stdio servers",
-				}},
-				{Name: "url", Type: "string", Required: false, Description: "Server endpoint URL (for streamable-http and sse)"},
-				{Name: "env", Type: "object", Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "Environment variables for stdio servers",
-				}},
-				{Name: "headers", Type: "object", Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
-					"type": "object",
-					"additionalProperties": map[string]interface{}{
-						"type": "string",
-					},
-					"description": "HTTP headers for remote servers",
-				}},
-				{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
-			},
+			Args:        mcpServerArgs(false), // type is optional for update
 		},
 		{
 			Name:        "mcpserver_delete",
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{
-					Name:        "name",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to delete",
-				},
+				{Name: "name", Type: "string", Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
 	}
-	return tools
 }
 
 // ExecuteTool executes a tool by name

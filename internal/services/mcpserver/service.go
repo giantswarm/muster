@@ -14,7 +14,8 @@ import (
 )
 
 // DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.
-// This is used when no explicit timeout is configured.
+// This value must be kept in sync with the kubebuilder:default annotation in MCPServerSpec.Timeout
+// (see pkg/apis/muster/v1alpha1/mcpserver_types.go).
 const DefaultRemoteTimeout = 30
 
 // Service implements the Service interface for MCP server management
@@ -301,96 +302,90 @@ func (s *Service) LogWarn(format string, args ...interface{}) {
 	logging.Warn(s.GetLogContext(), format, args...)
 }
 
+// getRemoteInitContext creates a context with the appropriate timeout for remote MCP client initialization.
+// Uses the configured timeout if set, otherwise falls back to DefaultRemoteTimeout.
+func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.definition.Timeout
+	if timeout == 0 {
+		timeout = DefaultRemoteTimeout
+	}
+	return context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+}
+
 // createAndInitializeClient creates the appropriate MCP client based on the server type.
 // This single operation starts the process (for stdio) OR establishes remote connection (for remote)
 // AND establishes MCP communication in both cases.
+//
+// Note: This method assumes ValidateConfiguration() has already been called.
+// It does not perform redundant validation checks.
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 
 	switch s.definition.Type {
 	case api.MCPServerTypeStdio:
-		if s.definition.Command == "" {
-			return fmt.Errorf("no command specified for stdio server")
-		}
-
-		// Parse command and args
-		command := s.definition.Command
-		args := s.definition.Args
-
 		// Create the stdio client - this is our process manager AND MCP client
-		client := mcpserver.NewStdioClientWithEnv(command, args, s.definition.Env)
-		s.LogDebug("Created stdio MCP client for command: %s", command)
+		client := mcpserver.NewStdioClientWithEnv(s.definition.Command, s.definition.Args, s.definition.Env)
+		s.LogDebug("Created stdio MCP client for command: %s", s.definition.Command)
 
 		// Initialize the client - this starts the process AND establishes MCP communication
 		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize MCP client/process: %w", err)
+			return fmt.Errorf("failed to initialize stdio MCP client: %w", err)
 		}
 
 		s.client = client
-		s.LogDebug("MCP client initialized successfully for %s", s.GetName())
+		s.LogDebug("Stdio MCP client initialized successfully for %s", s.GetName())
 		return nil
 
 	case api.MCPServerTypeStreamableHTTP:
-		if s.definition.URL == "" {
-			return fmt.Errorf("no URL specified for streamable-http server")
-		}
-
-		// Create StreamableHTTP MCP client
+		// Create StreamableHTTP MCP client with headers
 		headers := s.definition.Headers
 		if headers == nil {
 			headers = make(map[string]string)
 		}
 
 		client := mcpserver.NewStreamableHTTPClient(s.definition.URL, headers)
-		s.LogDebug("Created StreamableHTTP MCP client for endpoint: %s", s.definition.URL)
+		s.LogDebug("Created streamable-http MCP client for endpoint: %s", s.definition.URL)
 
 		// Initialize the client - this establishes remote MCP communication
-		timeout := s.definition.Timeout
-		if timeout == 0 {
-			timeout = DefaultRemoteTimeout
-		}
-		initCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		initCtx, cancel := s.getRemoteInitContext(ctx)
 		defer cancel()
 
 		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize remote HTTP MCP client: %w", err)
+			return fmt.Errorf("failed to initialize streamable-http MCP client: %w", err)
 		}
 
 		s.client = client
-		s.LogDebug("Remote HTTP MCP client initialized successfully for %s", s.GetName())
+		s.LogDebug("Streamable-http MCP client initialized successfully for %s", s.GetName())
 		return nil
 
 	case api.MCPServerTypeSSE:
-		if s.definition.URL == "" {
-			return fmt.Errorf("no URL specified for sse server")
+		// Create SSE MCP client with headers
+		headers := s.definition.Headers
+		if headers == nil {
+			headers = make(map[string]string)
 		}
 
-		// Create SSE MCP client
-		client := mcpserver.NewSSEClient(s.definition.URL)
+		client := mcpserver.NewSSEClientWithHeaders(s.definition.URL, headers)
 		s.LogDebug("Created SSE MCP client for endpoint: %s", s.definition.URL)
 
 		// Initialize the client - this establishes remote MCP communication
-		timeout := s.definition.Timeout
-		if timeout == 0 {
-			timeout = DefaultRemoteTimeout
-		}
-		initCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		initCtx, cancel := s.getRemoteInitContext(ctx)
 		defer cancel()
 
 		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize remote MCP client: %w", err)
+			return fmt.Errorf("failed to initialize SSE MCP client: %w", err)
 		}
 
 		s.client = client
-		s.LogDebug("Remote SSE MCP client initialized successfully for %s", s.GetName())
+		s.LogDebug("SSE MCP client initialized successfully for %s", s.GetName())
 		return nil
 
 	default:
-		return fmt.Errorf("unsupported transport type: %s", s.definition.Type)
+		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
 	}
 }
 

@@ -187,6 +187,12 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 // parseMCPServerParameters extracts MCPServer parameters from raw command line arguments.
 // This function handles the flat field structure for stdio, streamable-http, and sse types.
 // Supports both --flag=value and --flag value formats.
+//
+// Note: We use os.Args directly instead of cobra flags for the following reasons:
+// 1. MCPServer flags are dynamic and vary by type (stdio vs streamable-http vs sse)
+// 2. We need to support arbitrary key-value pairs for env and headers
+// 3. The create command serves multiple resource types with different flag requirements
+// 4. Using UnknownFlags: true with cobra requires manual argument parsing anyway
 func parseMCPServerParameters(mcpServerName string) map[string]interface{} {
 	result := map[string]interface{}{
 		"name": mcpServerName,
