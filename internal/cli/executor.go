@@ -105,6 +105,11 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	}, nil
 }
 
+// GetClient returns the underlying agent client for advanced use cases like streaming.
+func (e *ToolExecutor) GetClient() *agent.Client {
+	return e.client
+}
+
 // Connect establishes a connection to the muster aggregator server.
 // It shows a progress spinner unless quiet mode is enabled, and handles
 // connection errors with appropriate user feedback.

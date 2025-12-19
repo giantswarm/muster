@@ -157,7 +157,7 @@ func TestPrefixToolName_NewNamingConvention(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := server.prefixToolName(tt.provider, tt.toolName)
+			result := server.prefixToolName(tt.toolName)
 			assert.Equal(t, tt.expectedName, result, tt.description)
 		})
 	}
@@ -202,7 +202,7 @@ func TestPrefixToolName_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := server.prefixToolName(tt.provider, tt.toolName)
+			result := server.prefixToolName(tt.toolName)
 			assert.Equal(t, tt.expectedName, result, tt.description)
 		})
 	}

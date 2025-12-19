@@ -15,6 +15,7 @@ Complete reference for all Muster command-line interface commands.
 | [`muster start`](start.md) | Start resources | `muster start service my-app` |
 | [`muster stop`](stop.md) | Stop resources | `muster stop service my-app` |
 | [`muster check`](check.md) | Check availability | `muster check serviceclass web-service` |
+| [`muster events`](events.md) | List resource events | `muster events --resource-type mcpserver` |
 | [`muster test`](test.md) | Run tests | `muster test --scenario basic-crud` |
 | [`muster version`](version.md) | Show version info | `muster version` |
 | [`muster self-update`](self-update.md) | Update from GitHub | `muster self-update` |
@@ -102,6 +103,16 @@ Commands for starting, stopping, and checking resources.
   muster check serviceclass web-app
   muster check mcpserver kubernetes
   muster check workflow deploy-flow
+  ```
+
+### Event Management
+Commands for viewing and analyzing resource events.
+
+- **[events](events.md)** - List and filter resource events
+  ```bash
+  muster events                           # All recent events
+  muster events --resource-type mcpserver # MCPServer events
+  muster events --type Warning --since 1h # Recent warnings
   ```
 
 ### Testing and Validation
