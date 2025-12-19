@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -15,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
+	"muster/internal/api"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
@@ -708,178 +712,6 @@ func (f *filesystemClient) getWorkflowPath(name string) string {
 	return filepath.Join(f.getWorkflowDir(), name+".yaml")
 }
 
-// safeUnmarshalWorkflow safely unmarshals workflow YAML with panic recovery
-func (f *filesystemClient) safeUnmarshalWorkflow(data []byte, workflow *musterv1alpha1.Workflow) (err error) {
-	// Add panic recovery to handle potential stack overflow from recursive structures
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic during YAML unmarshaling (likely recursive structure): %v", r)
-		}
-	}()
-
-	// First try to unmarshal as raw structure to avoid RawExtension issues
-	var rawWorkflow map[string]interface{}
-	if err := yaml.Unmarshal(data, &rawWorkflow); err != nil {
-		return fmt.Errorf("failed to unmarshal YAML: %w", err)
-	}
-
-	// Convert the raw structure to a safe workflow structure
-	return f.convertRawToWorkflow(rawWorkflow, workflow)
-}
-
-// convertRawToWorkflow converts raw YAML structure to a Workflow CRD safely
-func (f *filesystemClient) convertRawToWorkflow(rawWorkflow map[string]interface{}, workflow *musterv1alpha1.Workflow) error {
-	// Set basic metadata
-	if metadata, ok := rawWorkflow["metadata"].(map[string]interface{}); ok {
-		if name, ok := metadata["name"].(string); ok {
-			workflow.Name = name
-		}
-		if namespace, ok := metadata["namespace"].(string); ok {
-			workflow.Namespace = namespace
-		}
-	}
-
-	// Set apiVersion and kind
-	if apiVersion, ok := rawWorkflow["apiVersion"].(string); ok {
-		workflow.APIVersion = apiVersion
-	}
-	if kind, ok := rawWorkflow["kind"].(string); ok {
-		workflow.Kind = kind
-	}
-
-	// Convert spec safely
-	if spec, ok := rawWorkflow["spec"].(map[string]interface{}); ok {
-		if description, ok := spec["description"].(string); ok {
-			workflow.Spec.Description = description
-		}
-
-		// Convert args - avoid RawExtension for now, use simple interface{}
-		if args, ok := spec["args"].(map[string]interface{}); ok {
-			workflow.Spec.Args = make(map[string]musterv1alpha1.ArgDefinition)
-			for key, argValue := range args {
-				if argMap, ok := argValue.(map[string]interface{}); ok {
-					argDef := musterv1alpha1.ArgDefinition{}
-					if argType, ok := argMap["type"].(string); ok {
-						argDef.Type = argType
-					}
-					if required, ok := argMap["required"].(bool); ok {
-						argDef.Required = required
-					}
-					if description, ok := argMap["description"].(string); ok {
-						argDef.Description = description
-					}
-					if defaultValue, ok := argMap["default"]; ok {
-						// Safe JSON marshaling for default value to avoid recursion
-						if jsonBytes, err := f.safeJSONMarshal(defaultValue); err == nil {
-							argDef.Default = &runtime.RawExtension{Raw: jsonBytes}
-						}
-					}
-					workflow.Spec.Args[key] = argDef
-				}
-			}
-		}
-
-		// Convert steps - avoid complex RawExtension for test scenarios
-		if steps, ok := spec["steps"].([]interface{}); ok {
-			workflow.Spec.Steps = make([]musterv1alpha1.WorkflowStep, len(steps))
-			for i, stepValue := range steps {
-				if stepMap, ok := stepValue.(map[string]interface{}); ok {
-					step := musterv1alpha1.WorkflowStep{}
-					if id, ok := stepMap["id"].(string); ok {
-						step.ID = id
-					}
-					if tool, ok := stepMap["tool"].(string); ok {
-						step.Tool = tool
-					}
-					if store, ok := stepMap["store"].(bool); ok {
-						step.Store = store
-					}
-					if allowFailure, ok := stepMap["allowFailure"].(bool); ok {
-						step.AllowFailure = allowFailure
-					}
-					if description, ok := stepMap["description"].(string); ok {
-						step.Description = description
-					}
-
-					// Convert args map to RawExtension safely
-					if args, ok := stepMap["args"].(map[string]interface{}); ok {
-						step.Args = make(map[string]*runtime.RawExtension)
-						for key, value := range args {
-							if jsonBytes, err := f.safeJSONMarshal(value); err == nil {
-								step.Args[key] = &runtime.RawExtension{Raw: jsonBytes}
-							}
-						}
-					}
-
-					// Convert outputs map to RawExtension safely
-					if outputs, ok := stepMap["outputs"].(map[string]interface{}); ok {
-						step.Outputs = make(map[string]*runtime.RawExtension)
-						for key, value := range outputs {
-							if jsonBytes, err := f.safeJSONMarshal(value); err == nil {
-								step.Outputs[key] = &runtime.RawExtension{Raw: jsonBytes}
-							}
-						}
-					}
-
-					workflow.Spec.Steps[i] = step
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// safeJSONMarshal safely marshals values to JSON with recursion protection
-func (f *filesystemClient) safeJSONMarshal(value interface{}) ([]byte, error) {
-	// Use a depth counter to prevent infinite recursion
-	return f.marshalWithDepth(value, 0, 10)
-}
-
-// marshalWithDepth marshals with depth tracking to prevent stack overflow
-func (f *filesystemClient) marshalWithDepth(value interface{}, depth, maxDepth int) ([]byte, error) {
-	if depth > maxDepth {
-		// If we reach max depth, return a simple string representation
-		return []byte(`"<max depth reached>"`), nil
-	}
-
-	// For simple types, use direct JSON marshaling
-	switch v := value.(type) {
-	case nil:
-		return []byte("null"), nil
-	case bool:
-		if v {
-			return []byte("true"), nil
-		}
-		return []byte("false"), nil
-	case string:
-		// Escape quotes and marshal as JSON string
-		return json.Marshal(v)
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return json.Marshal(v)
-	case float32, float64:
-		return json.Marshal(v)
-	case map[string]interface{}:
-		// For maps, recursively marshal each value
-		result := make(map[string]interface{})
-		for key, val := range v {
-			// Skip recursive marshaling for complex nested structures to avoid loops
-			result[key] = val
-		}
-		return json.Marshal(result)
-	case []interface{}:
-		// For arrays, recursively marshal each element
-		result := make([]interface{}, len(v))
-		for i, val := range v {
-			result[i] = val
-		}
-		return json.Marshal(result)
-	default:
-		// For other types, use default JSON marshaling
-		return json.Marshal(value)
-	}
-}
-
 func isYAMLFile(filename string) bool {
 	ext := filepath.Ext(filename)
 	return ext == ".yaml" || ext == ".yml"
@@ -945,4 +777,373 @@ func (f *filesystemClient) IsKubernetesMode() bool {
 func (f *filesystemClient) Close() error {
 	// Filesystem client doesn't require cleanup
 	return nil
+}
+
+// CreateEvent logs an event for the given object in filesystem mode.
+func (f *filesystemClient) CreateEvent(ctx context.Context, obj client.Object, reason, message, eventType string) error {
+	logging.Info("event", "Event for %s/%s: %s - %s (%s)",
+		obj.GetNamespace(), obj.GetName(), reason, message, eventType)
+
+	// Optionally write to events.log file for debugging
+	return f.writeEventToFile(obj.GetNamespace(), obj.GetName(), obj.GetObjectKind().GroupVersionKind().Kind, reason, message, eventType)
+}
+
+// CreateEventForCRD logs an event for a CRD by type, name, and namespace in filesystem mode.
+func (f *filesystemClient) CreateEventForCRD(ctx context.Context, crdType, name, namespace, reason, message, eventType string) error {
+	logging.Info("event", "Event for %s %s/%s: %s - %s (%s)",
+		crdType, namespace, name, reason, message, eventType)
+
+	// Optionally write to events.log file for debugging
+	return f.writeEventToFile(namespace, name, crdType, reason, message, eventType)
+}
+
+// QueryEvents retrieves events based on filtering options from filesystem storage.
+func (f *filesystemClient) QueryEvents(ctx context.Context, options api.EventQueryOptions) (*api.EventQueryResult, error) {
+	eventsDir := filepath.Join(f.basePath, "events")
+
+	// Create events directory if it doesn't exist
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create events directory: %w", err)
+	}
+
+	// Collect events from all daily log files
+	var allEvents []api.EventResult
+
+	// Read events from daily JSON files
+	entries, err := os.ReadDir(eventsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read events directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "events-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		filePath := filepath.Join(eventsDir, entry.Name())
+		fileEvents, err := f.readEventsFromFile(filePath)
+		if err != nil {
+			logging.Debug("fs-client", "Failed to read events from %s: %v", filePath, err)
+			continue
+		}
+
+		allEvents = append(allEvents, fileEvents...)
+	}
+
+	// Also read from legacy events.log if it exists
+	legacyEvents, err := f.readLegacyEventsLog(eventsDir)
+	if err == nil {
+		allEvents = append(allEvents, legacyEvents...)
+	}
+
+	// Apply filters
+	filteredEvents := f.filterEvents(allEvents, options)
+
+	// Sort by timestamp (newest first)
+	sort.Slice(filteredEvents, func(i, j int) bool {
+		return filteredEvents[i].Timestamp.After(filteredEvents[j].Timestamp)
+	})
+
+	totalCount := len(filteredEvents)
+
+	// Apply limit for initial result
+	initialEvents := filteredEvents
+	if options.Limit > 0 && len(filteredEvents) > options.Limit {
+		initialEvents = filteredEvents[:options.Limit]
+	}
+
+	return &api.EventQueryResult{
+		Events:     initialEvents,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// readEventsFromFile reads events from a daily JSON file.
+func (f *filesystemClient) readEventsFromFile(filePath string) ([]api.EventResult, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		return []api.EventResult{}, nil
+	}
+
+	var events []api.EventResult
+	// Parse JSON lines format - each line is a separate JSON event
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var event api.EventResult
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			logging.Debug("fs-client", "Failed to parse event JSON: %v", err)
+			continue
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+// readLegacyEventsLog reads events from the legacy events.log file.
+func (f *filesystemClient) readLegacyEventsLog(eventsDir string) ([]api.EventResult, error) {
+	legacyFile := filepath.Join(eventsDir, "events.log")
+	data, err := os.ReadFile(legacyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []api.EventResult
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse legacy format: [timestamp] Kind namespace/name: Reason - Message (Type)
+		event, err := f.parseLegacyEventLine(line)
+		if err != nil {
+			continue
+		}
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+// parseLegacyEventLine parses a line from the legacy events.log format.
+func (f *filesystemClient) parseLegacyEventLine(line string) (api.EventResult, error) {
+	// Format: [2024-01-15T14:30:00Z] MCPServer default/prometheus: MCPServerStarted - MCPServer prometheus started successfully (Normal)
+	if !strings.HasPrefix(line, "[") {
+		return api.EventResult{}, fmt.Errorf("invalid format")
+	}
+
+	parts := strings.SplitN(line, "] ", 2)
+	if len(parts) != 2 {
+		return api.EventResult{}, fmt.Errorf("invalid timestamp format")
+	}
+
+	timestampStr := parts[0][1:] // Remove leading [
+	timestamp, err := time.Parse(time.RFC3339, timestampStr)
+	if err != nil {
+		return api.EventResult{}, fmt.Errorf("invalid timestamp: %w", err)
+	}
+
+	remaining := parts[1]
+
+	// Split by ": " to separate object info from event details
+	objectParts := strings.SplitN(remaining, ": ", 2)
+	if len(objectParts) != 2 {
+		return api.EventResult{}, fmt.Errorf("invalid object format")
+	}
+
+	// Parse object info: "Kind namespace/name"
+	objectInfo := strings.SplitN(objectParts[0], " ", 2)
+	if len(objectInfo) != 2 {
+		return api.EventResult{}, fmt.Errorf("invalid object info")
+	}
+
+	kind := objectInfo[0]
+	namespaceAndName := strings.SplitN(objectInfo[1], "/", 2)
+	if len(namespaceAndName) != 2 {
+		return api.EventResult{}, fmt.Errorf("invalid namespace/name format")
+	}
+
+	namespace := namespaceAndName[0]
+	name := namespaceAndName[1]
+
+	// Parse event details: "Reason - Message (Type)"
+	eventDetails := objectParts[1]
+
+	// Extract type (last part in parentheses)
+	var eventType string
+	if strings.HasSuffix(eventDetails, ")") {
+		lastParen := strings.LastIndex(eventDetails, "(")
+		if lastParen > 0 {
+			eventType = eventDetails[lastParen+1 : len(eventDetails)-1]
+			eventDetails = strings.TrimSpace(eventDetails[:lastParen])
+		}
+	}
+
+	// Split reason and message by " - "
+	reasonAndMessage := strings.SplitN(eventDetails, " - ", 2)
+	if len(reasonAndMessage) != 2 {
+		return api.EventResult{}, fmt.Errorf("invalid reason/message format")
+	}
+
+	reason := reasonAndMessage[0]
+	message := reasonAndMessage[1]
+
+	return api.EventResult{
+		Timestamp: timestamp,
+		Namespace: namespace,
+		InvolvedObject: api.ObjectReference{
+			Kind:      kind,
+			Name:      name,
+			Namespace: namespace,
+		},
+		Reason:  reason,
+		Message: message,
+		Type:    eventType,
+		Source:  "muster",
+	}, nil
+}
+
+// filterEvents applies the given options to filter events.
+func (f *filesystemClient) filterEvents(events []api.EventResult, options api.EventQueryOptions) []api.EventResult {
+	var filtered []api.EventResult
+
+	for _, event := range events {
+		// Filter by resource type
+		if options.ResourceType != "" && event.InvolvedObject.Kind != options.ResourceType {
+			continue
+		}
+
+		// Filter by resource name
+		if options.ResourceName != "" && event.InvolvedObject.Name != options.ResourceName {
+			continue
+		}
+
+		// Filter by namespace
+		if options.Namespace != "" && event.Namespace != options.Namespace {
+			continue
+		}
+
+		// Filter by event type
+		if options.EventType != "" && event.Type != options.EventType {
+			continue
+		}
+
+		// Filter by time range
+		if options.Since != nil && event.Timestamp.Before(*options.Since) {
+			continue
+		}
+
+		if options.Until != nil && event.Timestamp.After(*options.Until) {
+			continue
+		}
+
+		filtered = append(filtered, event)
+	}
+
+	return filtered
+}
+
+// Enhanced event storage methods
+
+// writeEventToFile writes event information to both legacy and JSON formats.
+func (f *filesystemClient) writeEventToFile(namespace, name, kind, reason, message, eventType string) error {
+	eventsDir := filepath.Join(f.basePath, "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		logging.Debug("fs-client", "Failed to create events directory: %v", err)
+		return nil
+	}
+
+	timestamp := time.Now()
+
+	// Write to legacy format for backward compatibility
+	if err := f.writeLegacyEvent(eventsDir, timestamp, namespace, name, kind, reason, message, eventType); err != nil {
+		logging.Debug("fs-client", "Failed to write legacy event: %v", err)
+	}
+
+	// Write to JSON format
+	if err := f.writeJSONEvent(eventsDir, timestamp, namespace, name, kind, reason, message, eventType); err != nil {
+		logging.Debug("fs-client", "Failed to write JSON event: %v", err)
+	}
+
+	// Cleanup old event files (keep last 30 days)
+	f.cleanupOldEventFiles(eventsDir)
+
+	return nil
+}
+
+// writeLegacyEvent writes to the legacy events.log format.
+func (f *filesystemClient) writeLegacyEvent(eventsDir string, timestamp time.Time, namespace, name, kind, reason, message, eventType string) error {
+	eventsFile := filepath.Join(eventsDir, "events.log")
+	eventLine := fmt.Sprintf("[%s] %s %s/%s: %s - %s (%s)\n",
+		timestamp.Format(time.RFC3339), kind, namespace, name, reason, message, eventType)
+
+	file, err := os.OpenFile(eventsFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(eventLine)
+	return err
+}
+
+// writeJSONEvent writes to daily JSON files.
+func (f *filesystemClient) writeJSONEvent(eventsDir string, timestamp time.Time, namespace, name, kind, reason, message, eventType string) error {
+	// Create daily file name
+	dateStr := timestamp.Format("2006-01-02")
+	jsonFile := filepath.Join(eventsDir, fmt.Sprintf("events-%s.json", dateStr))
+
+	event := api.EventResult{
+		Timestamp: timestamp,
+		Namespace: namespace,
+		InvolvedObject: api.ObjectReference{
+			Kind:      kind,
+			Name:      name,
+			Namespace: namespace,
+		},
+		Reason:  reason,
+		Message: message,
+		Type:    eventType,
+		Source:  "muster",
+	}
+
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	// Append to daily JSON file (one JSON object per line)
+	file, err := os.OpenFile(jsonFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(string(eventJSON) + "\n")
+	return err
+}
+
+// cleanupOldEventFiles removes event files older than 30 days.
+func (f *filesystemClient) cleanupOldEventFiles(eventsDir string) {
+	cutoffDate := time.Now().AddDate(0, 0, -30)
+	cutoffDateStr := cutoffDate.Format("2006-01-02")
+
+	entries, err := os.ReadDir(eventsDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "events-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		// Extract date from filename: events-2024-01-15.json
+		filename := entry.Name()
+		if len(filename) < 21 { // "events-YYYY-MM-DD.json" = 21 chars
+			continue
+		}
+
+		dateStr := filename[7:17] // Extract "YYYY-MM-DD"
+		if dateStr < cutoffDateStr {
+			filePath := filepath.Join(eventsDir, filename)
+			if err := os.Remove(filePath); err != nil {
+				logging.Debug("fs-client", "Failed to remove old event file %s: %v", filePath, err)
+			} else {
+				logging.Debug("fs-client", "Removed old event file: %s", filename)
+			}
+		}
+	}
 }
