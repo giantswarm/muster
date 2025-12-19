@@ -133,13 +133,14 @@ func TestValidateConfiguration(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "streamable-http server missing timeout",
+			name: "streamable-http server with default timeout",
 			def: &api.MCPServer{
 				Name: "test-server",
 				Type: api.MCPServerTypeStreamableHTTP,
 				URL:  "http://example.com/mcp",
+				// Note: timeout defaults to DefaultRemoteTimeout when not specified
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 

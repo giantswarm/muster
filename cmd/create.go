@@ -184,86 +184,114 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 	return params
 }
 
-// parseMCPServerParameters extracts MCPServer parameters from raw command line arguments
-// This function handles the new flat field structure for stdio, streamable-http, and sse types.
-func parseMCPServerParameters(_, mcpServerName string) map[string]interface{} {
-	args := map[string]interface{}{
+// parseMCPServerParameters extracts MCPServer parameters from raw command line arguments.
+// This function handles the flat field structure for stdio, streamable-http, and sse types.
+// Supports both --flag=value and --flag value formats.
+func parseMCPServerParameters(mcpServerName string) map[string]interface{} {
+	result := map[string]interface{}{
 		"name": mcpServerName,
 	}
 
-	// Get raw command line arguments from os.Args
 	rawArgs := os.Args
 
-	// Parse known flags for MCPServers
-	for i, arg := range rawArgs {
-		if strings.HasPrefix(arg, "--") {
-			// Remove the -- prefix
-			flagName := strings.TrimPrefix(arg, "--")
+	for i := 0; i < len(rawArgs); i++ {
+		arg := rawArgs[i]
+		if !strings.HasPrefix(arg, "--") {
+			continue
+		}
 
-			// Handle flags with values
+		// Remove the -- prefix
+		flagPart := strings.TrimPrefix(arg, "--")
+
+		var flagName, flagValue string
+		hasValue := false
+
+		// Handle --flag=value format
+		if idx := strings.Index(flagPart, "="); idx != -1 {
+			flagName = flagPart[:idx]
+			flagValue = flagPart[idx+1:]
+			hasValue = true
+		} else {
+			flagName = flagPart
+			// Handle --flag value format
 			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "--") {
-				flagValue := rawArgs[i+1]
+				flagValue = rawArgs[i+1]
+				hasValue = true
+				i++ // Skip the next argument since we consumed it
+			}
+		}
 
-				switch flagName {
-				case "type":
-					args["type"] = flagValue
-				case "autoStart", "auto-start":
-					args["autoStart"] = flagValue == "true"
-				case "command":
-					args["command"] = flagValue
-				case "args":
-					// Parse comma-separated args
-					if flagValue != "" {
-						argsList := strings.Split(flagValue, ",")
-						for j := range argsList {
-							argsList[j] = strings.TrimSpace(argsList[j])
-						}
-						args["args"] = argsList
-					}
-				case "url":
-					args["url"] = flagValue
-				case "timeout":
-					if timeout, err := strconv.Atoi(flagValue); err == nil {
-						args["timeout"] = timeout
-					}
-				case "tool-prefix", "toolPrefix":
-					args["toolPrefix"] = flagValue
-				case "description":
-					args["description"] = flagValue
-				case "env":
-					// Parse key=value format for environment variables
-					if strings.Contains(flagValue, "=") {
-						parts := strings.SplitN(flagValue, "=", 2)
-						if len(parts) == 2 {
-							if args["env"] == nil {
-								args["env"] = map[string]string{}
-							}
-							args["env"].(map[string]string)[parts[0]] = parts[1]
-						}
-					}
-				case "header":
-					// Parse key=value format for HTTP headers
-					if strings.Contains(flagValue, "=") {
-						parts := strings.SplitN(flagValue, "=", 2)
-						if len(parts) == 2 {
-							if args["headers"] == nil {
-								args["headers"] = map[string]string{}
-							}
-							args["headers"].(map[string]string)[parts[0]] = parts[1]
-						}
-					}
+		// Process the flag
+		processMCPServerFlag(result, flagName, flagValue, hasValue)
+	}
+
+	return result
+}
+
+// processMCPServerFlag handles individual flag processing for MCPServer parameters
+func processMCPServerFlag(args map[string]interface{}, flagName, flagValue string, hasValue bool) {
+	switch flagName {
+	case "type":
+		if hasValue {
+			args["type"] = flagValue
+		}
+	case "autoStart", "auto-start":
+		if hasValue {
+			args["autoStart"] = flagValue == "true"
+		} else {
+			args["autoStart"] = true
+		}
+	case "command":
+		if hasValue {
+			args["command"] = flagValue
+		}
+	case "args":
+		if hasValue && flagValue != "" {
+			argsList := strings.Split(flagValue, ",")
+			for j := range argsList {
+				argsList[j] = strings.TrimSpace(argsList[j])
+			}
+			args["args"] = argsList
+		}
+	case "url":
+		if hasValue {
+			args["url"] = flagValue
+		}
+	case "timeout":
+		if hasValue {
+			if timeout, err := strconv.Atoi(flagValue); err == nil {
+				args["timeout"] = timeout
+			}
+		}
+	case "tool-prefix", "toolPrefix":
+		if hasValue {
+			args["toolPrefix"] = flagValue
+		}
+	case "description":
+		if hasValue {
+			args["description"] = flagValue
+		}
+	case "env":
+		if hasValue && strings.Contains(flagValue, "=") {
+			parts := strings.SplitN(flagValue, "=", 2)
+			if len(parts) == 2 {
+				if args["env"] == nil {
+					args["env"] = map[string]string{}
 				}
-			} else {
-				// Boolean flags without values
-				switch flagName {
-				case "autoStart", "auto-start":
-					args["autoStart"] = true
+				args["env"].(map[string]string)[parts[0]] = parts[1]
+			}
+		}
+	case "header":
+		if hasValue && strings.Contains(flagValue, "=") {
+			parts := strings.SplitN(flagValue, "=", 2)
+			if len(parts) == 2 {
+				if args["headers"] == nil {
+					args["headers"] = map[string]string{}
 				}
+				args["headers"].(map[string]string)[parts[0]] = parts[1]
 			}
 		}
 	}
-
-	return args
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -315,7 +343,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		mcpServerName := args[1]
 
 		// Parse MCPServer-specific parameters from command line arguments
-		mcpServerArgs := parseMCPServerParameters("", mcpServerName)
+		mcpServerArgs := parseMCPServerParameters(mcpServerName)
 
 		return executor.Execute(ctx, "core_mcpserver_create", mcpServerArgs)
 	}

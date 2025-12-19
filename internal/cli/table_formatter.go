@@ -299,10 +299,13 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 	if f.keyExists(sample, "workflow_name") && f.keyExists(sample, "started_at") {
 		return "execution"
 	}
-	// Enhanced check for mcpServers - look for MCP server specific fields
-	if f.keyExists(sample, "autoStart") || f.keyExists(sample, "command") || f.keyExists(sample, "args") ||
-		(f.keyExists(sample, "type") && (f.keyExists(sample, "url") || f.keyExists(sample, "env"))) {
-		return "mcpServers"
+	// Check for MCP servers by looking at the type field value
+	if f.keyExists(sample, "type") {
+		if typeVal, ok := sample["type"].(string); ok {
+			if typeVal == "stdio" || typeVal == "streamable-http" || typeVal == "sse" {
+				return "mcpServers"
+			}
+		}
 	}
 	if f.keyExists(sample, "available") && f.keyExists(sample, "serviceType") {
 		return "serviceClass"

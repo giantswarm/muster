@@ -9,17 +9,196 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// StdioClient implements the aggregator.MCPClient interface using stdio transport
-type StdioClient struct {
-	command   string
-	args      []string
-	env       map[string]string
+// baseMCPClient provides common functionality for all MCP client implementations.
+// It implements the shared MCP protocol operations that are identical across
+// different transport types (stdio, SSE, streamable-http).
+type baseMCPClient struct {
 	client    client.MCPClient
 	mu        sync.RWMutex
 	connected bool
+}
+
+// isConnected checks if the client is connected (thread-safe)
+func (b *baseMCPClient) isConnected() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.connected && b.client != nil
+}
+
+// closeClient performs the common close logic
+func (b *baseMCPClient) closeClient() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.connected || b.client == nil {
+		return nil
+	}
+
+	err := b.client.Close()
+	b.connected = false
+	b.client = nil
+
+	return err
+}
+
+// listTools returns all available tools from the server
+func (b *baseMCPClient) listTools(ctx context.Context) ([]mcp.Tool, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := b.client.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	return result.Tools, nil
+}
+
+// callTool executes a specific tool and returns the result
+func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{
+		Params: struct {
+			Name      string    `json:"name"`
+			Arguments any       `json:"arguments,omitempty"`
+			Meta      *mcp.Meta `json:"_meta,omitempty"`
+		}{
+			Name:      name,
+			Arguments: args,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call tool: %w", err)
+	}
+
+	return result, nil
+}
+
+// listResources returns all available resources from the server
+func (b *baseMCPClient) listResources(ctx context.Context) ([]mcp.Resource, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := b.client.ListResources(ctx, mcp.ListResourcesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list resources: %w", err)
+	}
+
+	return result.Resources, nil
+}
+
+// readResource retrieves a specific resource
+func (b *baseMCPClient) readResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := b.client.ReadResource(ctx, mcp.ReadResourceRequest{
+		Params: struct {
+			URI       string         `json:"uri"`
+			Arguments map[string]any `json:"arguments,omitempty"`
+		}{
+			URI: uri,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource: %w", err)
+	}
+
+	return result, nil
+}
+
+// listPrompts returns all available prompts from the server
+func (b *baseMCPClient) listPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	result, err := b.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list prompts: %w", err)
+	}
+
+	return result.Prompts, nil
+}
+
+// getPrompt retrieves a specific prompt
+func (b *baseMCPClient) getPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+
+	// Convert args to map[string]string as required by the API
+	stringArgs := make(map[string]string)
+	for k, v := range args {
+		if str, ok := v.(string); ok {
+			stringArgs[k] = str
+		} else {
+			stringArgs[k] = fmt.Sprintf("%v", v)
+		}
+	}
+
+	result, err := b.client.GetPrompt(ctx, mcp.GetPromptRequest{
+		Params: struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments,omitempty"`
+		}{
+			Name:      name,
+			Arguments: stringArgs,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	return result, nil
+}
+
+// ping checks if the server is responsive
+func (b *baseMCPClient) ping(ctx context.Context) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected || b.client == nil {
+		return fmt.Errorf("client not connected")
+	}
+
+	return b.client.Ping(ctx)
+}
+
+// StdioClient implements the aggregator.MCPClient interface using stdio transport
+type StdioClient struct {
+	baseMCPClient
+	command string
+	args    []string
+	env     map[string]string
 }
 
 // NewStdioClient creates a new stdio-based MCP client
@@ -85,14 +264,11 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 				Name:    "muster",
 				Version: "1.0.0",
 			},
-			Capabilities: mcp.ClientCapabilities{
-				// Empty capabilities for client
-			},
+			Capabilities: mcp.ClientCapabilities{},
 		},
 	})
 	if err != nil {
 		logging.Error("StdioClient", err, "Failed to initialize MCP protocol for %s", c.command)
-		// Ensure we close the client to clean up any processes
 		closeErr := mcpClient.Close()
 		if closeErr != nil {
 			logging.Debug("StdioClient", "Error closing failed client for %s: %v", c.command, closeErr)
@@ -102,7 +278,6 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 	logging.Debug("StdioClient", "MCP protocol initialized successfully for %s", c.command)
 
-	// Store the initialized client
 	c.client = mcpClient
 	c.connected = true
 
@@ -122,167 +297,42 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 // Close cleanly shuts down the client connection
 func (c *StdioClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.connected || c.client == nil {
-		return nil
-	}
-
-	err := c.client.Close()
-	c.connected = false
-	c.client = nil
-
-	return err
+	return c.closeClient()
 }
 
 // ListTools returns all available tools from the server
 func (c *StdioClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	return result.Tools, nil
+	return c.listTools(ctx)
 }
 
 // CallTool executes a specific tool and returns the result
 func (c *StdioClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
-			Name:      name,
-			Arguments: args,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call tool: %w", err)
-	}
-
-	return result, nil
+	return c.callTool(ctx, name, args)
 }
 
 // ListResources returns all available resources from the server
 func (c *StdioClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list resources: %w", err)
-	}
-
-	return result.Resources, nil
+	return c.listResources(ctx)
 }
 
 // ReadResource retrieves a specific resource
 func (c *StdioClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ReadResource(ctx, mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
-			URI: uri,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read resource: %w", err)
-	}
-
-	return result, nil
+	return c.readResource(ctx, uri)
 }
 
 // ListPrompts returns all available prompts from the server
 func (c *StdioClient) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prompts: %w", err)
-	}
-
-	return result.Prompts, nil
+	return c.listPrompts(ctx)
 }
 
 // GetPrompt retrieves a specific prompt
 func (c *StdioClient) GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	// Convert args to map[string]string as required by the API
-	stringArgs := make(map[string]string)
-	for k, v := range args {
-		if str, ok := v.(string); ok {
-			stringArgs[k] = str
-		} else {
-			stringArgs[k] = fmt.Sprintf("%v", v)
-		}
-	}
-
-	result, err := c.client.GetPrompt(ctx, mcp.GetPromptRequest{
-		Params: struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}{
-			Name:      name,
-			Arguments: stringArgs,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get prompt: %w", err)
-	}
-
-	return result, nil
+	return c.getPrompt(ctx, name, args)
 }
 
 // Ping checks if the server is responsive
 func (c *StdioClient) Ping(ctx context.Context) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return fmt.Errorf("client not connected")
-	}
-
-	// Use the Ping method from the mcp-go client
-	return c.client.Ping(ctx)
+	return c.ping(ctx)
 }
 
 // GetStderr returns a reader for the stderr output of the subprocess
@@ -303,12 +353,9 @@ func (c *StdioClient) GetStderr() (io.Reader, bool) {
 }
 
 // SSEClient implements the aggregator.MCPClient interface using SSE transport
-// This is kept for backward compatibility but the StdioClient is preferred
 type SSEClient struct {
-	url       string
-	client    client.MCPClient
-	mu        sync.RWMutex
-	connected bool
+	baseMCPClient
+	url string
 }
 
 // NewSSEClient creates a new SSE-based MCP client
@@ -327,18 +374,17 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	// Create SSE client
+	logging.Debug("SSEClient", "Creating SSE client for URL: %s", c.url)
+
 	mcpClient, err := client.NewSSEMCPClient(c.url)
 	if err != nil {
 		return fmt.Errorf("failed to create SSE client: %w", err)
 	}
 
-	// Start the SSE transport
 	if err := mcpClient.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start SSE transport: %w", err)
 	}
 
-	// Initialize the MCP protocol
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: struct {
 			ProtocolVersion string                 `json:"protocolVersion"`
@@ -350,9 +396,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 				Name:    "muster-aggregator",
 				Version: "1.0.0",
 			},
-			Capabilities: mcp.ClientCapabilities{
-				// Empty capabilities for client
-			},
+			Capabilities: mcp.ClientCapabilities{},
 		},
 	})
 	if err != nil {
@@ -360,196 +404,60 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
 
-	// Store the initialized client
 	c.client = mcpClient
 	c.connected = true
 
-	// Log server capabilities
-	if initResult.Capabilities.Tools != nil {
-		// Server supports tools
-	}
-	if initResult.Capabilities.Resources != nil {
-		// Server supports resources
-	}
-	if initResult.Capabilities.Prompts != nil {
-		// Server supports prompts
-	}
+	logging.Debug("SSEClient", "SSE client initialized. Server: %s, Version: %s",
+		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 
 	return nil
 }
 
 // Close cleanly shuts down the client connection
 func (c *SSEClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.connected || c.client == nil {
-		return nil
-	}
-
-	err := c.client.Close()
-	c.connected = false
-	c.client = nil
-
-	return err
+	return c.closeClient()
 }
 
 // ListTools returns all available tools from the server
 func (c *SSEClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	return result.Tools, nil
+	return c.listTools(ctx)
 }
 
 // CallTool executes a specific tool and returns the result
 func (c *SSEClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
-			Name:      name,
-			Arguments: args,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call tool: %w", err)
-	}
-
-	return result, nil
+	return c.callTool(ctx, name, args)
 }
 
 // ListResources returns all available resources from the server
 func (c *SSEClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list resources: %w", err)
-	}
-
-	return result.Resources, nil
+	return c.listResources(ctx)
 }
 
 // ReadResource retrieves a specific resource
 func (c *SSEClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ReadResource(ctx, mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
-			URI: uri,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read resource: %w", err)
-	}
-
-	return result, nil
+	return c.readResource(ctx, uri)
 }
 
 // ListPrompts returns all available prompts from the server
 func (c *SSEClient) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prompts: %w", err)
-	}
-
-	return result.Prompts, nil
+	return c.listPrompts(ctx)
 }
 
 // GetPrompt retrieves a specific prompt
 func (c *SSEClient) GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	// Convert args to map[string]string as required by the API
-	stringArgs := make(map[string]string)
-	for k, v := range args {
-		if str, ok := v.(string); ok {
-			stringArgs[k] = str
-		} else {
-			stringArgs[k] = fmt.Sprintf("%v", v)
-		}
-	}
-
-	result, err := c.client.GetPrompt(ctx, mcp.GetPromptRequest{
-		Params: struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}{
-			Name:      name,
-			Arguments: stringArgs,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get prompt: %w", err)
-	}
-
-	return result, nil
+	return c.getPrompt(ctx, name, args)
 }
 
 // Ping checks if the server is responsive
 func (c *SSEClient) Ping(ctx context.Context) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return fmt.Errorf("client not connected")
-	}
-
-	// Use the Ping method from the mcp-go client
-	return c.client.Ping(ctx)
+	return c.ping(ctx)
 }
 
 // StreamableHTTPClient implements the aggregator.MCPClient interface using StreamableHTTP transport
 type StreamableHTTPClient struct {
-	url       string
-	headers   map[string]string
-	client    client.MCPClient
-	mu        sync.RWMutex
-	connected bool
+	baseMCPClient
+	url     string
+	headers map[string]string
 }
 
 // NewStreamableHTTPClient creates a new StreamableHTTP-based MCP client
@@ -571,25 +479,19 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 
 	logging.Debug("StreamableHTTPClient", "Creating StreamableHTTP client for URL: %s", c.url)
 
-	// Create StreamableHTTP client using the correct constructor from mcp-go
-	// Based on: https://mcp-go.dev/clients/transports#streamablehttp-client
-
-	// Add headers if provided
+	// Build client options including headers if provided
+	var opts []transport.StreamableHTTPCOption
 	if len(c.headers) > 0 {
-		// Note: Will need to import transport package for WithHTTPHeaders option
-		logging.Debug("StreamableHTTPClient", "Headers provided but not yet implemented: %v", c.headers)
+		opts = append(opts, transport.WithHTTPHeaders(c.headers))
+		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 
-	// Create the client - handle both return values (client, error)
-	mcpClient, err := client.NewStreamableHttpClient(c.url) // Note: lowercase 'h' in Http
+	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
 	}
 
-	c.client = mcpClient
-
-	// Initialize the MCP protocol
-	initResult, err := c.client.Initialize(ctx, mcp.InitializeRequest{
+	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: struct {
 			ProtocolVersion string                 `json:"protocolVersion"`
 			Capabilities    mcp.ClientCapabilities `json:"capabilities"`
@@ -600,184 +502,59 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 				Name:    "muster-aggregator",
 				Version: "1.0.0",
 			},
-			Capabilities: mcp.ClientCapabilities{
-				// Empty capabilities for client
-			},
+			Capabilities: mcp.ClientCapabilities{},
 		},
 	})
 	if err != nil {
-		c.client.Close()
+		mcpClient.Close()
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
+
+	c.client = mcpClient
+	c.connected = true
 
 	logging.Debug("StreamableHTTPClient", "StreamableHTTP client initialized. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 
-	c.connected = true
 	return nil
 }
 
 // Close cleanly shuts down the client connection
 func (c *StreamableHTTPClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.connected || c.client == nil {
-		return nil
-	}
-
-	err := c.client.Close()
-	c.connected = false
-	c.client = nil
-
-	return err
+	return c.closeClient()
 }
 
 // ListTools returns all available tools from the server
 func (c *StreamableHTTPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	return result.Tools, nil
+	return c.listTools(ctx)
 }
 
 // CallTool executes a specific tool and returns the result
 func (c *StreamableHTTPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
-			Name:      name,
-			Arguments: args,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to call tool: %w", err)
-	}
-
-	return result, nil
+	return c.callTool(ctx, name, args)
 }
 
 // ListResources returns all available resources from the server
 func (c *StreamableHTTPClient) ListResources(ctx context.Context) ([]mcp.Resource, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListResources(ctx, mcp.ListResourcesRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list resources: %w", err)
-	}
-
-	return result.Resources, nil
+	return c.listResources(ctx)
 }
 
 // ReadResource retrieves a specific resource
 func (c *StreamableHTTPClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ReadResource(ctx, mcp.ReadResourceRequest{
-		Params: struct {
-			URI       string         `json:"uri"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-		}{
-			URI: uri,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read resource: %w", err)
-	}
-
-	return result, nil
+	return c.readResource(ctx, uri)
 }
 
 // ListPrompts returns all available prompts from the server
 func (c *StreamableHTTPClient) ListPrompts(ctx context.Context) ([]mcp.Prompt, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	result, err := c.client.ListPrompts(ctx, mcp.ListPromptsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prompts: %w", err)
-	}
-
-	return result.Prompts, nil
+	return c.listPrompts(ctx)
 }
 
 // GetPrompt retrieves a specific prompt
 func (c *StreamableHTTPClient) GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return nil, fmt.Errorf("client not connected")
-	}
-
-	// Convert args to map[string]string as required by the API
-	stringArgs := make(map[string]string)
-	for k, v := range args {
-		if str, ok := v.(string); ok {
-			stringArgs[k] = str
-		} else {
-			stringArgs[k] = fmt.Sprintf("%v", v)
-		}
-	}
-
-	result, err := c.client.GetPrompt(ctx, mcp.GetPromptRequest{
-		Params: struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}{
-			Name:      name,
-			Arguments: stringArgs,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get prompt: %w", err)
-	}
-
-	return result, nil
+	return c.getPrompt(ctx, name, args)
 }
 
 // Ping checks if the server is responsive
 func (c *StreamableHTTPClient) Ping(ctx context.Context) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if !c.connected || c.client == nil {
-		return fmt.Errorf("client not connected")
-	}
-
-	// Use the Ping method from the mcp-go client
-	return c.client.Ping(ctx)
+	return c.ping(ctx)
 }

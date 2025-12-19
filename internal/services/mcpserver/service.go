@@ -13,6 +13,10 @@ import (
 	"muster/pkg/logging"
 )
 
+// DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.
+// This is used when no explicit timeout is configured.
+const DefaultRemoteTimeout = 30
+
 // Service implements the Service interface for MCP server management
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
@@ -177,9 +181,7 @@ func (s *Service) ValidateConfiguration() error {
 		if s.definition.URL == "" {
 			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
-		if s.definition.Timeout == 0 {
-			return fmt.Errorf("timeout is required for streamable-http and sse types")
-		}
+		// Note: timeout defaults to DefaultRemoteTimeout if not specified
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
 	}
@@ -349,7 +351,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		// Initialize the client - this establishes remote MCP communication
 		timeout := s.definition.Timeout
 		if timeout == 0 {
-			timeout = 30 // Default timeout
+			timeout = DefaultRemoteTimeout
 		}
 		initCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()
@@ -374,7 +376,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		// Initialize the client - this establishes remote MCP communication
 		timeout := s.definition.Timeout
 		if timeout == 0 {
-			timeout = 30 // Default timeout
+			timeout = DefaultRemoteTimeout
 		}
 		initCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()

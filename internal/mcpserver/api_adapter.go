@@ -93,7 +93,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
-	info := api.MCPServerInfo{
+	return api.MCPServerInfo{
 		Name:        server.ObjectMeta.Name,
 		Type:        server.Spec.Type,
 		Description: server.Spec.Description,
@@ -107,8 +107,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
 	}
-
-	return info
 }
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
@@ -535,9 +533,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		if server.Spec.URL == "" {
 			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
-		if server.Spec.Timeout == 0 {
-			return fmt.Errorf("timeout is required for streamable-http and sse types")
-		}
+		// Note: timeout defaults to 30 seconds via CRD kubebuilder:default
 	default:
 		return fmt.Errorf("unsupported type: %s (supported: stdio, streamable-http, sse)", server.Spec.Type)
 	}
