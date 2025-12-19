@@ -12,6 +12,7 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/client"
+	"muster/internal/events"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
@@ -80,6 +81,11 @@ func (a *Adapter) GetServiceClass(name string) (*api.ServiceClass, error) {
 
 // populateServiceClassStatus calculates and populates the status fields for a ServiceClass
 func (a *Adapter) populateServiceClassStatus(serviceClass *api.ServiceClass) error {
+	// Store previous availability state for event generation
+	previousAvailable := serviceClass.Available
+	previousMissingTools := make([]string, len(serviceClass.MissingTools))
+	copy(previousMissingTools, serviceClass.MissingTools)
+
 	// Calculate required tools from lifecycle configuration
 	requiredTools := a.extractRequiredTools(serviceClass)
 	serviceClass.RequiredTools = requiredTools
@@ -117,6 +123,9 @@ func (a *Adapter) populateServiceClassStatus(serviceClass *api.ServiceClass) err
 		if serviceClass.ServiceConfig.LifecycleTools.Status != nil {
 			serviceClass.StatusToolAvailable = a.isToolAvailable(serviceClass.ServiceConfig.LifecycleTools.Status.Tool, availableTools)
 		}
+
+		// Generate events for availability state changes
+		a.generateToolAvailabilityEvents(serviceClass.Name, previousAvailable, serviceClass.Available, previousMissingTools, serviceClass.MissingTools, availableTools)
 	} else {
 		// If no aggregator is available, we can't check tool availability
 		// But we can still consider core tools as available
@@ -128,6 +137,9 @@ func (a *Adapter) populateServiceClassStatus(serviceClass *api.ServiceClass) err
 		}
 		serviceClass.Available = len(externalTools) == 0
 		serviceClass.MissingTools = externalTools
+
+		// Generate events for availability state changes even when aggregator is unavailable
+		a.generateToolAvailabilityEvents(serviceClass.Name, previousAvailable, serviceClass.Available, previousMissingTools, serviceClass.MissingTools, []string{})
 	}
 
 	return nil
@@ -854,6 +866,10 @@ func (a *Adapter) handleServiceClassCreate(args map[string]interface{}) (*api.Ca
 		return simpleError(fmt.Sprintf("Failed to create ServiceClass: %v", err))
 	}
 
+	// Generate creation event
+	message := fmt.Sprintf("ServiceClass '%s' created with lifecycle tools for %s services", req.Name, req.ServiceConfig.ServiceType)
+	a.generateServiceClassEvent(req.Name, events.ReasonServiceClassCreated, message)
+
 	return simpleOK(fmt.Sprintf("ServiceClass '%s' created successfully", req.Name))
 }
 
@@ -897,6 +913,10 @@ func (a *Adapter) handleServiceClassUpdate(args map[string]interface{}) (*api.Ca
 		return api.HandleErrorWithPrefix(err, "Failed to update ServiceClass"), nil
 	}
 
+	// Generate update event
+	message := fmt.Sprintf("ServiceClass '%s' configuration updated", req.Name)
+	a.generateServiceClassEvent(req.Name, events.ReasonServiceClassUpdated, message)
+
 	return simpleOK(fmt.Sprintf("ServiceClass '%s' updated successfully", req.Name))
 }
 
@@ -914,6 +934,10 @@ func (a *Adapter) handleServiceClassDelete(args map[string]interface{}) (*api.Ca
 		}
 		return api.HandleErrorWithPrefix(err, "Failed to delete ServiceClass"), nil
 	}
+
+	// Generate deletion event
+	message := fmt.Sprintf("ServiceClass '%s' deleted", name)
+	a.generateServiceClassEvent(name, events.ReasonServiceClassDeleted, message)
 
 	return simpleOK(fmt.Sprintf("ServiceClass '%s' deleted successfully", name))
 }
@@ -946,22 +970,140 @@ func (a *Adapter) convertRequestToCRD(name, description string, args map[string]
 }
 
 // validateServiceClass performs basic validation on a ServiceClass
-
-// validateServiceClass performs basic validation on a ServiceClass
 func (a *Adapter) validateServiceClass(serviceClass *musterv1alpha1.ServiceClass) error {
 	if serviceClass.ObjectMeta.Name == "" {
+		// Generate validation failure event
+		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "ServiceClass name is required")
 		return fmt.Errorf("name is required")
 	}
 
 	if serviceClass.Spec.ServiceConfig.LifecycleTools.Start.Tool == "" {
+		// Generate validation failure event
+		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.start.tool is required")
 		return fmt.Errorf("serviceConfig.lifecycleTools.start.tool is required")
 	}
 
 	if serviceClass.Spec.ServiceConfig.LifecycleTools.Stop.Tool == "" {
+		// Generate validation failure event
+		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.stop.tool is required")
 		return fmt.Errorf("serviceConfig.lifecycleTools.stop.tool is required")
 	}
 
+	// Generate validation success event
+	message := fmt.Sprintf("ServiceClass '%s' validation succeeded", serviceClass.ObjectMeta.Name)
+	a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidated, message)
+
 	return nil
+}
+
+// generateServiceClassEvent creates an event for ServiceClass operations
+// This follows the same pattern as MCPServer and other adapters
+func (a *Adapter) generateServiceClassEvent(name string, reason events.EventReason, message string) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug("ServiceClass", "Event manager not available, skipping event generation for %s: %s", name, string(reason))
+		return
+	}
+
+	// Create object reference for the ServiceClass
+	objectRef := api.ObjectReference{
+		APIVersion: "muster.giantswarm.io/v1alpha1",
+		Kind:       "ServiceClass",
+		Name:       name,
+		Namespace:  a.namespace,
+	}
+
+	// Determine event type based on reason
+	eventType := string(events.EventTypeNormal)
+	if reason == events.ReasonServiceClassValidationFailed ||
+		reason == events.ReasonServiceClassUnavailable ||
+		reason == events.ReasonServiceClassToolsMissing {
+		eventType = string(events.EventTypeWarning)
+	}
+
+	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), message, eventType)
+	if err != nil {
+		// Log error but don't fail the operation
+		logging.Debug("ServiceClass", "Failed to generate event %s for ServiceClass %s: %v", string(reason), name, err)
+	} else {
+		logging.Debug("ServiceClass", "Generated event %s for ServiceClass %s: %s", string(reason), name, message)
+	}
+}
+
+// generateToolAvailabilityEvents generates events for tool availability changes
+func (a *Adapter) generateToolAvailabilityEvents(name string, previousAvailable, currentAvailable bool, previousMissing, currentMissing []string, availableTools []string) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug("ServiceClass", "Event manager not available, skipping tool availability events for %s", name)
+		return
+	}
+
+	// Create object reference for the ServiceClass
+	objectRef := api.ObjectReference{
+		APIVersion: "muster.giantswarm.io/v1alpha1",
+		Kind:       "ServiceClass",
+		Name:       name,
+		Namespace:  a.namespace,
+	}
+
+	// Check for availability state transitions
+	if previousAvailable != currentAvailable {
+		if currentAvailable {
+			message := fmt.Sprintf("ServiceClass '%s' became available: all required tools are now present", name)
+			err := eventManager.CreateEvent(context.Background(), objectRef, string(events.ReasonServiceClassAvailable), message, string(events.EventTypeNormal))
+			if err != nil {
+				logging.Debug("ServiceClass", "Failed to generate 'available' event for %s: %v", name, err)
+			} else {
+				logging.Debug("ServiceClass", "Generated 'available' event for %s", name)
+			}
+		} else {
+			missingToolsStr := strings.Join(currentMissing, ", ")
+			message := fmt.Sprintf("ServiceClass '%s' became unavailable: missing tools [%s]", name, missingToolsStr)
+			err := eventManager.CreateEvent(context.Background(), objectRef, string(events.ReasonServiceClassUnavailable), message, string(events.EventTypeWarning))
+			if err != nil {
+				logging.Debug("ServiceClass", "Failed to generate 'unavailable' event for %s: %v", name, err)
+			} else {
+				logging.Debug("ServiceClass", "Generated 'unavailable' event for %s", name)
+			}
+		}
+	}
+
+	// Check for tools that became available (were missing, now available)
+	for _, tool := range previousMissing {
+		if !contains(currentMissing, tool) {
+			message := fmt.Sprintf("ServiceClass '%s' tool '%s' restored: now available", name, tool)
+			err := eventManager.CreateEvent(context.Background(), objectRef, string(events.ReasonServiceClassToolsRestored), message, string(events.EventTypeNormal))
+			if err != nil {
+				logging.Debug("ServiceClass", "Failed to generate 'toolsRestored' event for %s: %v", name, err)
+			} else {
+				logging.Debug("ServiceClass", "Generated 'toolsRestored' event for %s: %s", name, tool)
+			}
+		}
+	}
+
+	// Check for new tools that became missing (were available, now missing)
+	for _, tool := range currentMissing {
+		if !contains(previousMissing, tool) {
+			message := fmt.Sprintf("ServiceClass '%s' tool '%s' became unavailable", name, tool)
+			err := eventManager.CreateEvent(context.Background(), objectRef, string(events.ReasonServiceClassToolsMissing), message, string(events.EventTypeWarning))
+			if err != nil {
+				logging.Debug("ServiceClass", "Failed to generate 'toolsMissing' event for %s: %v", name, err)
+			} else {
+				logging.Debug("ServiceClass", "Generated 'toolsMissing' event for %s: %s", name, tool)
+			}
+		}
+	}
+
+	// Check for new tools discovered (first time checking availability)
+	if len(previousMissing) == 0 && len(currentMissing) == 0 && currentAvailable && len(availableTools) > 0 {
+		message := fmt.Sprintf("ServiceClass '%s' tools discovered: all required tools are available", name)
+		err := eventManager.CreateEvent(context.Background(), objectRef, string(events.ReasonServiceClassToolsDiscovered), message, string(events.EventTypeNormal))
+		if err != nil {
+			logging.Debug("ServiceClass", "Failed to generate 'toolsDiscovered' event for %s: %v", name, err)
+		} else {
+			logging.Debug("ServiceClass", "Generated 'toolsDiscovered' event for %s", name)
+		}
+	}
 }
 
 // helper to create simple error CallToolResult
