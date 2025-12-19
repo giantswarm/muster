@@ -184,7 +184,8 @@ func (s *Service) ValidateConfiguration() error {
 		}
 		// Note: timeout defaults to DefaultRemoteTimeout if not specified
 	default:
-		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
+		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
+			s.definition.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
 	return nil
@@ -312,15 +313,6 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 	return context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 }
 
-// getHeadersOrEmpty returns the definition's headers map, or an empty map if nil.
-// This prevents nil map access when creating remote MCP clients.
-func (s *Service) getHeadersOrEmpty() map[string]string {
-	if s.definition.Headers == nil {
-		return make(map[string]string)
-	}
-	return s.definition.Headers
-}
-
 // createAndInitializeClient creates the appropriate MCP client based on the server type.
 // This uses the factory pattern via NewMCPClientFromType to create the correct client.
 //
@@ -331,12 +323,13 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	defer s.clientInitMutex.Unlock()
 
 	// Build client configuration from service definition
+	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
 	config := mcpserver.MCPClientConfig{
 		Command: s.definition.Command,
 		Args:    s.definition.Args,
 		Env:     s.definition.Env,
 		URL:     s.definition.URL,
-		Headers: s.getHeadersOrEmpty(),
+		Headers: s.definition.Headers,
 	}
 
 	// Use factory to create the appropriate client type

@@ -52,6 +52,7 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 		return NewSSEClientWithHeaders(config.URL, config.Headers), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported server type: %s (supported: stdio, streamable-http, sse)", serverType)
+		return nil, fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
+			serverType, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 }

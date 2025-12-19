@@ -180,3 +180,65 @@ func TestGetServiceData(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, data["args"])
 	assert.Equal(t, map[string]string{"TEST": "value"}, data["env"])
 }
+
+// TestDefaultRemoteTimeoutMatchesCRD verifies that DefaultRemoteTimeout matches the expected
+// kubebuilder:default value defined in MCPServerSpec.Timeout.
+// The CRD defines: +kubebuilder:default=30
+// This test ensures the constant stays in sync with the CRD annotation.
+func TestDefaultRemoteTimeoutMatchesCRD(t *testing.T) {
+	// The kubebuilder:default annotation in pkg/apis/muster/v1alpha1/mcpserver_types.go
+	// specifies +kubebuilder:default=30 for the Timeout field.
+	// If this test fails, update DefaultRemoteTimeout to match the CRD annotation.
+	const expectedCRDDefault = 30
+
+	assert.Equal(t, expectedCRDDefault, DefaultRemoteTimeout,
+		"DefaultRemoteTimeout (%d) should match the kubebuilder:default annotation (%d) in MCPServerSpec.Timeout. "+
+			"Update the constant in service.go if the CRD default changes.",
+		DefaultRemoteTimeout, expectedCRDDefault)
+}
+
+// TestGetRemoteInitContext verifies that the remote initialization context uses the correct timeout
+func TestGetRemoteInitContext(t *testing.T) {
+	tests := []struct {
+		name            string
+		timeout         int
+		expectedTimeout time.Duration
+	}{
+		{
+			name:            "uses configured timeout",
+			timeout:         60,
+			expectedTimeout: 60 * time.Second,
+		},
+		{
+			name:            "uses default when zero",
+			timeout:         0,
+			expectedTimeout: time.Duration(DefaultRemoteTimeout) * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := &api.MCPServer{
+				Name:    "test-server",
+				Type:    api.MCPServerTypeStreamableHTTP,
+				URL:     "http://example.com/mcp",
+				Timeout: tt.timeout,
+			}
+
+			svc, err := NewService(def)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			initCtx, cancel := svc.getRemoteInitContext(ctx)
+			defer cancel()
+
+			deadline, ok := initCtx.Deadline()
+			assert.True(t, ok, "context should have a deadline")
+
+			// The deadline should be approximately expectedTimeout from now
+			// Allow 1 second tolerance for test execution time
+			expectedDeadline := time.Now().Add(tt.expectedTimeout)
+			assert.WithinDuration(t, expectedDeadline, deadline, 1*time.Second)
+		})
+	}
+}

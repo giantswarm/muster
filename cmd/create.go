@@ -234,6 +234,20 @@ func parseMCPServerParameters(mcpServerName string) map[string]interface{} {
 	return result
 }
 
+// getOrCreateStringMap retrieves an existing map[string]string from args, or creates one if it doesn't exist.
+// This helper prevents nil map panics when adding key-value pairs to env or headers.
+func getOrCreateStringMap(args map[string]interface{}, key string) map[string]string {
+	if args[key] == nil {
+		args[key] = make(map[string]string)
+	}
+	if m, ok := args[key].(map[string]string); ok {
+		return m
+	}
+	// Fallback: create new map if type assertion fails (shouldn't happen in practice)
+	args[key] = make(map[string]string)
+	return args[key].(map[string]string)
+}
+
 // processMCPServerFlag handles individual flag processing for MCPServer parameters
 func processMCPServerFlag(args map[string]interface{}, flagName, flagValue string, hasValue bool) {
 	switch flagName {
@@ -281,24 +295,16 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 		if hasValue && strings.Contains(flagValue, "=") {
 			parts := strings.SplitN(flagValue, "=", 2)
 			if len(parts) == 2 {
-				if args["env"] == nil {
-					args["env"] = map[string]string{}
-				}
-				if envMap, ok := args["env"].(map[string]string); ok {
-					envMap[parts[0]] = parts[1]
-				}
+				envMap := getOrCreateStringMap(args, "env")
+				envMap[parts[0]] = parts[1]
 			}
 		}
 	case "header":
 		if hasValue && strings.Contains(flagValue, "=") {
 			parts := strings.SplitN(flagValue, "=", 2)
 			if len(parts) == 2 {
-				if args["headers"] == nil {
-					args["headers"] = map[string]string{}
-				}
-				if headersMap, ok := args["headers"].(map[string]string); ok {
-					headersMap[parts[0]] = parts[1]
-				}
+				headersMap := getOrCreateStringMap(args, "headers")
+				headersMap[parts[0]] = parts[1]
 			}
 		}
 	}

@@ -56,31 +56,10 @@ func NewHTTPServerFromConfig(configPath string, transport HTTPTransportType, deb
 	return NewHTTPServer(mockServer, transport, debug), nil
 }
 
-// Start starts the HTTP server on a dynamically allocated port.
-// Returns the port number the server is listening on.
-func (s *HTTPServer) Start(ctx context.Context) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.running {
-		return s.port, nil
-	}
-
-	// Find an available port by listening on :0
-	listener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return 0, fmt.Errorf("failed to find available port: %w", err)
-	}
-
-	s.listener = listener
-	s.port = listener.Addr().(*net.TCPAddr).Port
-
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "🌐 Starting mock HTTP server (%s) on port %d\n", s.transport, s.port)
-	}
-
-	// Create the appropriate transport handler
-	var handler http.Handler
+// createHandler creates the appropriate HTTP handler based on the transport type.
+// This is called after s.port has been set since SSE needs the port for baseURL.
+// Note: Caller must hold the lock on s.mu.
+func (s *HTTPServer) createHandler() http.Handler {
 	switch s.transport {
 	case HTTPTransportSSE:
 		baseURL := fmt.Sprintf("http://localhost:%d", s.port)
@@ -92,14 +71,23 @@ func (s *HTTPServer) Start(ctx context.Context) (int, error) {
 			server.WithKeepAlive(true),
 			server.WithKeepAliveInterval(30*time.Second),
 		)
-		handler = s.sseServer
-
+		return s.sseServer
 	case HTTPTransportStreamableHTTP:
 		fallthrough
 	default:
-		handler = server.NewStreamableHTTPServer(s.mockServer.mcpServer)
+		return server.NewStreamableHTTPServer(s.mockServer.mcpServer)
+	}
+}
+
+// startServing starts the HTTP server with the given listener.
+// It creates the handler, starts serving in a goroutine, and marks the server as running.
+// Note: Caller must hold the lock on s.mu, and s.port must already be set.
+func (s *HTTPServer) startServing() {
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "🌐 Starting mock HTTP server (%s) on port %d\n", s.transport, s.port)
 	}
 
+	handler := s.createHandler()
 	s.httpServer = &http.Server{
 		Handler: handler,
 	}
@@ -121,7 +109,28 @@ func (s *HTTPServer) Start(ctx context.Context) (int, error) {
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "✅ Mock HTTP server started on port %d with %s transport\n", s.port, s.transport)
 	}
+}
 
+// Start starts the HTTP server on a dynamically allocated port.
+// Returns the port number the server is listening on.
+func (s *HTTPServer) Start(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.running {
+		return s.port, nil
+	}
+
+	// Find an available port by listening on :0
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, fmt.Errorf("failed to find available port: %w", err)
+	}
+
+	s.listener = listener
+	s.port = listener.Addr().(*net.TCPAddr).Port
+
+	s.startServing()
 	return s.port, nil
 }
 
@@ -147,53 +156,7 @@ func (s *HTTPServer) StartOnPort(ctx context.Context, port int) error {
 	s.listener = listener
 	s.port = port
 
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "🌐 Starting mock HTTP server (%s) on port %d\n", s.transport, s.port)
-	}
-
-	// Create the appropriate transport handler
-	var handler http.Handler
-	switch s.transport {
-	case HTTPTransportSSE:
-		baseURL := fmt.Sprintf("http://localhost:%d", s.port)
-		s.sseServer = server.NewSSEServer(
-			s.mockServer.mcpServer,
-			server.WithBaseURL(baseURL),
-			server.WithSSEEndpoint("/sse"),
-			server.WithMessageEndpoint("/message"),
-			server.WithKeepAlive(true),
-			server.WithKeepAliveInterval(30*time.Second),
-		)
-		handler = s.sseServer
-
-	case HTTPTransportStreamableHTTP:
-		fallthrough
-	default:
-		handler = server.NewStreamableHTTPServer(s.mockServer.mcpServer)
-	}
-
-	s.httpServer = &http.Server{
-		Handler: handler,
-	}
-
-	// Start serving in background
-	go func() {
-		if err := s.httpServer.Serve(s.listener); err != nil && err != http.ErrServerClosed {
-			s.mu.Lock()
-			s.shutdownError = err
-			s.mu.Unlock()
-			if s.debug {
-				fmt.Fprintf(os.Stderr, "❌ Mock HTTP server error: %v\n", err)
-			}
-		}
-	}()
-
-	s.running = true
-
-	if s.debug {
-		fmt.Fprintf(os.Stderr, "✅ Mock HTTP server started on port %d with %s transport\n", s.port, s.transport)
-	}
-
+	s.startServing()
 	return nil
 }
 

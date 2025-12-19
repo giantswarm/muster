@@ -464,7 +464,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		}
 		// Note: timeout defaults to 30 seconds via CRD kubebuilder:default
 	default:
-		return fmt.Errorf("unsupported type: %s (supported: %s, %s, %s)",
+		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
 			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
