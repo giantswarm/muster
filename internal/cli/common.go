@@ -39,6 +39,42 @@ func GetAggregatorEndpoint(cfg *config.MusterConfig) string {
 	return fmt.Sprintf("http://%s:%d/mcp", host, port)
 }
 
+// ParseTimeFilter parses time strings in various formats for event filtering and other time-based queries.
+// It supports duration format (e.g., "1h", "30m"), RFC3339 format (e.g., "2024-01-15T10:00:00Z"),
+// date-only format (e.g., "2024-01-15"), and datetime format (e.g., "2024-01-15 10:00:00").
+//
+// For duration format, the returned time is calculated as now minus the duration.
+//
+// Args:
+//   - timeStr: The time string to parse
+//
+// Returns:
+//   - time.Time: The parsed time
+//   - error: An error if the format is not recognized
+func ParseTimeFilter(timeStr string) (time.Time, error) {
+	// Try duration format first (e.g., "1h", "30m", "2h30m")
+	if duration, err := time.ParseDuration(timeStr); err == nil {
+		return time.Now().Add(-duration), nil
+	}
+
+	// Try RFC3339 format (e.g., "2024-01-15T10:00:00Z")
+	if t, err := time.Parse(time.RFC3339, timeStr); err == nil {
+		return t, nil
+	}
+
+	// Try date-only format (e.g., "2024-01-15")
+	if t, err := time.Parse("2006-01-02", timeStr); err == nil {
+		return t, nil
+	}
+
+	// Try date-time format without timezone (e.g., "2024-01-15 10:00:00")
+	if t, err := time.Parse("2006-01-02 15:04:05", timeStr); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("unsupported time format '%s'. Supported formats: duration (1h, 30m), RFC3339 (2024-01-15T10:00:00Z), date (2024-01-15), or datetime (2024-01-15 10:00:00)", timeStr)
+}
+
 // CheckServerRunning verifies that the muster aggregator server is running and responsive.
 // It performs a health check by sending a GET request to the MCP endpoint and validates
 // the response status code. This is typically used before attempting to execute commands
