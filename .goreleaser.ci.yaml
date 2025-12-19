@@ -1,0 +1,54 @@
+---
+# yamllint disable rule:truthy
+# .goreleaser.ci.yaml
+# Minimal GoReleaser config for CI dry-run validation.
+# Only builds linux/amd64 to validate the release config works.
+# The full release uses .goreleaser.yaml which builds all platforms.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: muster
+    main: ./main.go
+    binary: muster
+    # Only build linux/amd64 for CI validation - saves ~6 minutes
+    goos:
+      - linux
+    goarch:
+      - amd64
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
+        -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_ {{- title .Os }}_ {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  algorithm: sha256
+  name_template: '{{ .ProjectName }}_checksums.txt'
+
+# Skip changelog generation in CI - not needed for validation
+changelog:
+  disable: true
+
+# Modelines
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
