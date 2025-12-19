@@ -1,0 +1,141 @@
+name: "mcpserver-streamable-http-tool-call-lifecycle"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "tool-calls", "streamable-http", "url-based", "core-api"]
+timeout: "5m"
+
+# Test Story: Streamable HTTP MCP Server Tool Call Behavior During Lifecycle
+# Given: An MCP server with tools accessed via streamable-http transport
+# When: The MCP server is running
+# Then: Tool calls should work successfully
+# When: I stop the MCP server
+# Then: Tool calls should fail with "tool doesn't exist" error
+# When: I start the MCP server again
+# Then: Tool calls should work successfully again
+
+pre_configuration:
+  mcp_servers:
+    - name: "http-tool-provider"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "http_test_tool"
+            description: "A tool that tests HTTP-based MCP server connectivity"
+            input_schema:
+              type: "object"
+              properties:
+                operation: { type: "string" }
+                message: { type: "string" }
+            responses:
+              - response:
+                  transport: "streamable-http"
+                  operation: "{{ .operation }}"
+                  message: "{{ .message }}"
+                  server: "http-tool-provider"
+                  status: "executed"
+
+steps:
+  # Phase 1: Verify tool calls work when MCP server is running
+  - id: "verify-service-running-initially"
+    description: "Verify the HTTP MCP server service is running"
+    tool: "core_service_status"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+      json_path:
+        name: "http-tool-provider"
+        state: "running"
+
+  - id: "test-tool-call-when-running"
+    description: "Test that tool calls work when HTTP server is running"
+    tool: "x_http-tool-provider_http_test_tool"
+    args:
+      operation: "test"
+      message: "initial-http-call"
+    expected:
+      success: true
+      contains: ["test", "initial-http-call", "executed", "streamable-http"]
+
+  - id: "test-another-tool-call-when-running"
+    description: "Test another tool call to verify consistency"
+    tool: "x_http-tool-provider_http_test_tool"
+    args:
+      operation: "verify"
+      message: "http-server-is-running"
+    expected:
+      success: true
+      contains: ["verify", "http-server-is-running", "executed"]
+
+  # Phase 2: Stop the MCP server and verify tool calls fail
+  - id: "stop-mcpserver-service"
+    description: "Stop the HTTP MCP server service"
+    tool: "core_service_stop"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-stopped-mcpserver-service"
+    description: "Wait for the service to be fully stopped"
+    tool: "core_service_status"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "http-tool-provider"
+        state: "stopped"
+
+  - id: "test-tool-call-fails-when-stopped"
+    description: "Verify tool calls fail when HTTP server is stopped"
+    tool: "x_http-tool-provider_http_test_tool"
+    args:
+      operation: "should-fail"
+      message: "http-server-stopped"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+  # Phase 3: Start the MCP server and verify tool calls work again
+  - id: "start-mcpserver-service"
+    description: "Start the HTTP MCP server service again"
+    tool: "core_service_start"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-started-mcpserver-service"
+    description: "Wait for the service to be fully started"
+    tool: "core_service_status"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "http-tool-provider"
+        state: "running"
+
+  - id: "test-tool-call-works-after-restart"
+    description: "Verify tool calls work after HTTP server restart"
+    tool: "x_http-tool-provider_http_test_tool"
+    args:
+      operation: "restart-test"
+      message: "http-server-restarted"
+    expected:
+      success: true
+      contains: ["restart-test", "http-server-restarted", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-service"
+    description: "Stop the HTTP MCP server during cleanup"
+    tool: "core_service_stop"
+    args:
+      name: "http-tool-provider"
+    expected:
+      success: true
+    continue_on_failure: true
+
