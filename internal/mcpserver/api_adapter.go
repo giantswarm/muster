@@ -454,17 +454,18 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	}
 
 	switch server.Spec.Type {
-	case "stdio":
+	case string(api.MCPServerTypeStdio):
 		if server.Spec.Command == "" {
 			return fmt.Errorf("command is required for stdio type")
 		}
-	case "streamable-http", "sse":
+	case string(api.MCPServerTypeStreamableHTTP), string(api.MCPServerTypeSSE):
 		if server.Spec.URL == "" {
 			return fmt.Errorf("url is required for streamable-http and sse types")
 		}
 		// Note: timeout defaults to 30 seconds via CRD kubebuilder:default
 	default:
-		return fmt.Errorf("unsupported type: %s (supported: stdio, streamable-http, sse)", server.Spec.Type)
+		return fmt.Errorf("unsupported type: %s (supported: %s, %s, %s)",
+			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
 	}
 
 	return nil

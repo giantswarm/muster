@@ -312,9 +312,17 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 	return context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 }
 
+// getHeadersOrEmpty returns the definition's headers map, or an empty map if nil.
+// This prevents nil map access when creating remote MCP clients.
+func (s *Service) getHeadersOrEmpty() map[string]string {
+	if s.definition.Headers == nil {
+		return make(map[string]string)
+	}
+	return s.definition.Headers
+}
+
 // createAndInitializeClient creates the appropriate MCP client based on the server type.
-// This single operation starts the process (for stdio) OR establishes remote connection (for remote)
-// AND establishes MCP communication in both cases.
+// This uses the factory pattern via NewMCPClientFromType to create the correct client.
 //
 // Note: This method assumes ValidateConfiguration() has already been called.
 // It does not perform redundant validation checks.
@@ -322,71 +330,41 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 
-	switch s.definition.Type {
-	case api.MCPServerTypeStdio:
-		// Create the stdio client - this is our process manager AND MCP client
-		client := mcpserver.NewStdioClientWithEnv(s.definition.Command, s.definition.Args, s.definition.Env)
-		s.LogDebug("Created stdio MCP client for command: %s", s.definition.Command)
-
-		// Initialize the client - this starts the process AND establishes MCP communication
-		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-
-		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize stdio MCP client: %w", err)
-		}
-
-		s.client = client
-		s.LogDebug("Stdio MCP client initialized successfully for %s", s.GetName())
-		return nil
-
-	case api.MCPServerTypeStreamableHTTP:
-		// Create StreamableHTTP MCP client with headers
-		headers := s.definition.Headers
-		if headers == nil {
-			headers = make(map[string]string)
-		}
-
-		client := mcpserver.NewStreamableHTTPClient(s.definition.URL, headers)
-		s.LogDebug("Created streamable-http MCP client for endpoint: %s", s.definition.URL)
-
-		// Initialize the client - this establishes remote MCP communication
-		initCtx, cancel := s.getRemoteInitContext(ctx)
-		defer cancel()
-
-		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize streamable-http MCP client: %w", err)
-		}
-
-		s.client = client
-		s.LogDebug("Streamable-http MCP client initialized successfully for %s", s.GetName())
-		return nil
-
-	case api.MCPServerTypeSSE:
-		// Create SSE MCP client with headers
-		headers := s.definition.Headers
-		if headers == nil {
-			headers = make(map[string]string)
-		}
-
-		client := mcpserver.NewSSEClientWithHeaders(s.definition.URL, headers)
-		s.LogDebug("Created SSE MCP client for endpoint: %s", s.definition.URL)
-
-		// Initialize the client - this establishes remote MCP communication
-		initCtx, cancel := s.getRemoteInitContext(ctx)
-		defer cancel()
-
-		if err := client.Initialize(initCtx); err != nil {
-			return fmt.Errorf("failed to initialize SSE MCP client: %w", err)
-		}
-
-		s.client = client
-		s.LogDebug("SSE MCP client initialized successfully for %s", s.GetName())
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported MCP server type: %s", s.definition.Type)
+	// Build client configuration from service definition
+	config := mcpserver.MCPClientConfig{
+		Command: s.definition.Command,
+		Args:    s.definition.Args,
+		Env:     s.definition.Env,
+		URL:     s.definition.URL,
+		Headers: s.getHeadersOrEmpty(),
 	}
+
+	// Use factory to create the appropriate client type
+	client, err := mcpserver.NewMCPClientFromType(s.definition.Type, config)
+	if err != nil {
+		return fmt.Errorf("failed to create MCP client: %w", err)
+	}
+
+	s.LogDebug("Created %s MCP client for %s", s.definition.Type, s.GetName())
+
+	// Determine timeout based on server type
+	var initCtx context.Context
+	var cancel context.CancelFunc
+	if s.definition.Type == api.MCPServerTypeStdio {
+		initCtx, cancel = context.WithTimeout(ctx, mcpserver.DefaultStdioInitTimeout)
+	} else {
+		initCtx, cancel = s.getRemoteInitContext(ctx)
+	}
+	defer cancel()
+
+	// Initialize the client
+	if err := client.Initialize(initCtx); err != nil {
+		return fmt.Errorf("failed to initialize %s MCP client: %w", s.definition.Type, err)
+	}
+
+	s.client = client
+	s.LogDebug("%s MCP client initialized successfully for %s", s.definition.Type, s.GetName())
+	return nil
 }
 
 // closeClient closes the MCP client, which also terminates the process

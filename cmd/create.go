@@ -284,7 +284,9 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 				if args["env"] == nil {
 					args["env"] = map[string]string{}
 				}
-				args["env"].(map[string]string)[parts[0]] = parts[1]
+				if envMap, ok := args["env"].(map[string]string); ok {
+					envMap[parts[0]] = parts[1]
+				}
 			}
 		}
 	case "header":
@@ -294,7 +296,9 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 				if args["headers"] == nil {
 					args["headers"] = map[string]string{}
 				}
-				args["headers"].(map[string]string)[parts[0]] = parts[1]
+				if headersMap, ok := args["headers"].(map[string]string); ok {
+					headersMap[parts[0]] = parts[1]
+				}
 			}
 		}
 	}
