@@ -35,7 +35,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		if provider, ok := workflowHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("workflow", toolMeta.Name)
+				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -57,7 +57,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		if provider, ok := serviceManagerHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("service", toolMeta.Name)
+				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -79,7 +79,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		if provider, ok := configHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("config", toolMeta.Name)
+				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -101,7 +101,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		if provider, ok := serviceClassHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("serviceclass", toolMeta.Name)
+				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -123,7 +123,29 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 		if provider, ok := mcpServerManagerHandler.(api.ToolProvider); ok {
 			for _, toolMeta := range provider.GetTools() {
 				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName("mcpserver", toolMeta.Name)
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				a.toolManager.setActive(mcpToolName, true)
+
+				tool := server.ServerTool{
+					Tool: mcp.Tool{
+						Name:        mcpToolName,
+						Description: toolMeta.Description,
+						InputSchema: convertToMCPSchema(toolMeta.Args),
+					},
+					Handler: a.createToolHandler(provider, toolMeta.Name),
+				}
+
+				tools = append(tools, tool)
+			}
+		}
+	}
+
+	// Integrate event management tools
+	if eventManagerHandler := api.GetEventManager(); eventManagerHandler != nil {
+		if provider, ok := eventManagerHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				// Apply intelligent prefixing based on tool type and purpose
+				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
 				tool := server.ServerTool{
@@ -164,11 +186,10 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 //  3. External tools are properly namespaced to avoid conflicts
 //
 // Args:
-//   - provider: The type of provider (workflow, service, etc.)
 //   - toolName: The original tool name from the provider
 //
 // Returns the appropriately prefixed tool name for exposure through the aggregator.
-func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
+func (a *AggregatorServer) prefixToolName(toolName string) string {
 	// Define management tool patterns that should get core_ prefix
 	managementPatterns := []string{
 		"service_",      // service management operations
@@ -176,7 +197,7 @@ func (a *AggregatorServer) prefixToolName(provider, toolName string) string {
 		"mcpserver_",    // MCP server management operations
 		"workflow_",     // workflow management (not execution) operations
 		"config_",       // configuration management operations
-		"mcp_",          // MCP service management operations
+		"events",        // Event management operations
 	}
 
 	// Check if this is a management tool that should get core_ prefix
@@ -268,7 +289,7 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 		var propSchema map[string]interface{}
 
 		// Use detailed schema if available, otherwise fall back to basic type
-		if param.Schema != nil && len(param.Schema) > 0 {
+		if len(param.Schema) > 0 {
 			// Use the detailed schema definition
 			propSchema = make(map[string]interface{})
 			for key, value := range param.Schema {

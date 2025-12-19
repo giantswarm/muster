@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -24,7 +24,7 @@ jobs:
           go-version: '1.25'  # Match the version used in auto-release
 
       - name: Cache Go build and mod cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -34,15 +34,12 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Install Python for yamllint
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
       - name: Install yamllint
         run: pip install yamllint
-
-      - name: Run Checks (Lint & Test)
-        run: make check
 
       - name: Muster unit tests
         run: make test

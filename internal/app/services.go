@@ -7,6 +7,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/client"
 	"muster/internal/config"
+	"muster/internal/events"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
 	"muster/internal/serviceclass"
@@ -135,6 +136,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		namespace = "default"
 	}
 
+	// Register event manager adapter using the unified client
+	eventAdapter := events.NewAdapter(musterClient)
+	eventAdapter.Register()
+
 	// Initialize and register ServiceClass adapter using the muster client
 	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
 	serviceClassAdapter.Register()
@@ -226,7 +231,7 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 		return client.NewMusterClient()
 	}
 
-	// Create client config with the filesystem path
+	// Create client confiForceFilesystemModeg with the filesystem path
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
 		Namespace:           "default", // Will be overridden by config loading

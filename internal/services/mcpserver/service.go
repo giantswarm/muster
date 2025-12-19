@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/events"
 	"muster/internal/mcpserver"
 	"muster/internal/services"
 	"muster/pkg/logging"
@@ -43,14 +44,24 @@ func (s *Service) Start(ctx context.Context) error {
 	s.UpdateState(services.StateStarting, services.HealthUnknown, nil)
 	s.LogInfo("Starting MCP server service")
 
+	// Generate starting event
+	s.generateEvent(events.ReasonMCPServerStarting, events.EventData{})
+
 	// Create and initialize the MCP client (this starts the process AND establishes MCP communication)
 	if err := s.createAndInitializeClient(ctx); err != nil {
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
+		// Generate failure event
+		s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+			Error: err.Error(),
+		})
 		return fmt.Errorf("failed to start MCP server: %w", err)
 	}
 
 	s.UpdateState(services.StateRunning, services.HealthHealthy, nil)
 	s.LogInfo("MCP server started successfully")
+
+	// Generate success event
+	s.generateEvent(events.ReasonMCPServerStarted, events.EventData{})
 
 	return nil
 }
@@ -70,6 +81,8 @@ func (s *Service) Stop(ctx context.Context) error {
 	if currentState != services.StateRunning && currentState != services.StateFailed {
 		s.LogDebug("Service %s is not in a stoppable state (%s), transitioning to stopped", s.GetName(), currentState)
 		s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
+		// Generate stopped event for state transition
+		s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
 		return nil
 	}
 
@@ -85,6 +98,9 @@ func (s *Service) Stop(ctx context.Context) error {
 	s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
 	s.LogInfo("MCP server stopped successfully")
 
+	// Generate stopped event
+	s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
+
 	return nil
 }
 
@@ -92,8 +108,15 @@ func (s *Service) Stop(ctx context.Context) error {
 func (s *Service) Restart(ctx context.Context) error {
 	s.LogInfo("Restarting MCP server service")
 
+	// Generate recovery started event for restart operations
+	s.generateEvent(events.ReasonMCPServerRecoveryStarted, events.EventData{})
+
 	if s.IsRunning() {
 		if err := s.Stop(ctx); err != nil {
+			// Generate recovery failed event
+			s.generateEvent(events.ReasonMCPServerRecoveryFailed, events.EventData{
+				Error: err.Error(),
+			})
 			return fmt.Errorf("failed to stop service during restart: %w", err)
 		}
 	}
@@ -101,7 +124,17 @@ func (s *Service) Restart(ctx context.Context) error {
 	// Wait a moment between stop and start
 	time.Sleep(200 * time.Millisecond)
 
-	return s.Start(ctx)
+	if err := s.Start(ctx); err != nil {
+		// Generate recovery failed event
+		s.generateEvent(events.ReasonMCPServerRecoveryFailed, events.EventData{
+			Error: err.Error(),
+		})
+		return err
+	}
+
+	// Generate recovery succeeded event
+	s.generateEvent(events.ReasonMCPServerRecoverySucceeded, events.EventData{})
+	return nil
 }
 
 // IsRunning checks if the MCP server is running
@@ -209,14 +242,24 @@ func (s *Service) CheckHealth(ctx context.Context) (services.HealthStatus, error
 
 	if client == nil {
 		s.UpdateHealth(services.HealthUnhealthy)
-		return services.HealthUnhealthy, fmt.Errorf("MCP client not available")
+		err := fmt.Errorf("MCP client not available")
+		// Generate health check failed event
+		s.generateEvent(events.ReasonMCPServerHealthCheckFailed, events.EventData{
+			Error: err.Error(),
+		})
+		return services.HealthUnhealthy, err
 	}
 
 	// Use MCP ping to check health instead of process checking
 	if pinger, ok := client.(interface{ Ping(context.Context) error }); ok {
 		if err := pinger.Ping(ctx); err != nil {
 			s.UpdateHealth(services.HealthUnhealthy)
-			return services.HealthUnhealthy, fmt.Errorf("MCP ping failed: %w", err)
+			healthErr := fmt.Errorf("MCP ping failed: %w", err)
+			// Generate health check failed event
+			s.generateEvent(events.ReasonMCPServerHealthCheckFailed, events.EventData{
+				Error: healthErr.Error(),
+			})
+			return services.HealthUnhealthy, healthErr
 		}
 	}
 
@@ -385,4 +428,34 @@ func (s *Service) IsClientReady() bool {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 	return s.client != nil
+}
+
+// generateEvent creates a Kubernetes event for this MCPServer service
+func (s *Service) generateEvent(reason events.EventReason, data events.EventData) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug(s.GetLogContext(), "Event manager not available, skipping event generation")
+		return
+	}
+
+	// Create an object reference for the MCPServer CRD
+	// MCPServer lifecycle events should be associated with the MCPServer CRD resource
+	objectRef := api.ObjectReference{
+		Kind:      "MCPServer",
+		Name:      s.GetName(),
+		Namespace: "default", // TODO: Make configurable or derive from service configuration
+	}
+
+	// Populate service-specific data
+	data.Name = s.GetName()
+	if data.Namespace == "" {
+		data.Namespace = "default"
+	}
+
+	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
+	if err != nil {
+		logging.Debug(s.GetLogContext(), "Failed to generate event %s: %v", string(reason), err)
+	} else {
+		logging.Debug(s.GetLogContext(), "Generated event %s for MCPServer service", string(reason))
+	}
 }

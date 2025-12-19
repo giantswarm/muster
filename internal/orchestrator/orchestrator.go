@@ -317,6 +317,9 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 	o.instances[req.Name] = instance
 	o.mu.Unlock()
 
+	// Generate service instance created event
+	o.generateServiceInstanceEvent(req.Name, req.ServiceClassName, "ServiceInstanceCreated", "", nil, 0, 0)
+
 	logging.Info("Orchestrator", "Creating ServiceClass-based service instance: %s (ServiceClass: %s)", req.Name, req.ServiceClassName)
 
 	// Start the service instance
@@ -343,7 +346,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 
 	// Process ServiceClass outputs if defined
 	var resolvedOutputs map[string]interface{}
-	if serviceClass.ServiceConfig.Outputs != nil && len(serviceClass.ServiceConfig.Outputs) > 0 {
+	if len(serviceClass.ServiceConfig.Outputs) > 0 {
 		logging.Debug("Orchestrator", "Processing outputs for ServiceClass %s, service instance %s", req.ServiceClassName, req.Name)
 
 		// Create template context with service args at root level for direct template access
@@ -366,7 +369,7 @@ func (o *Orchestrator) CreateServiceClassInstance(ctx context.Context, req Creat
 		// Add tool outputs under their respective tool names (e.g., "start", "stop")
 		// For now, we'll add the start tool outputs under "start" key
 		// This assumes the start tool was called - we could track which tools were called
-		if serviceData != nil && len(serviceData) > 0 {
+		if len(serviceData) > 0 {
 			templateContext["start"] = serviceData
 			logging.Debug("Orchestrator", "Added start tool outputs to template context: %+v", serviceData)
 		}
@@ -433,6 +436,9 @@ func (o *Orchestrator) DeleteServiceClassInstance(ctx context.Context, name stri
 	o.mu.Lock()
 	delete(o.instances, name)
 	o.mu.Unlock()
+
+	// Generate service instance deleted event
+	o.generateServiceInstanceEvent(instance.GetName(), instance.GetServiceClassName(), "ServiceInstanceDeleted", "", nil, 0, 0)
 
 	logging.Info("Orchestrator", "Successfully deleted ServiceClass-based service instance: %s", instance.GetName())
 	return nil
@@ -639,7 +645,9 @@ func (o *Orchestrator) Stop() error {
 	return nil
 }
 
-// StartService starts a specific service by name
+// StartService starts a specific service by name.
+// For MCP servers, this method waits for the server to be fully registered
+// with the aggregator before returning, ensuring that tools are available.
 func (o *Orchestrator) StartService(name string) error {
 	service, exists := o.registry.Get(name)
 	if !exists {
@@ -650,8 +658,49 @@ func (o *Orchestrator) StartService(name string) error {
 		return fmt.Errorf("failed to start service %s: %w", name, err)
 	}
 
+	// For MCP servers, wait for aggregator registration to complete
+	// This ensures that when StartService returns, the server's tools are available
+	if service.GetType() == services.TypeMCPServer {
+		if err := o.waitForMCPServerRegistration(name); err != nil {
+			logging.Warn("Orchestrator", "MCP server %s started but registration wait failed: %v", name, err)
+			// Don't return error - the service is started, registration might just be slow
+		}
+	}
+
 	logging.Info("Orchestrator", "Started service: %s", name)
 	return nil
+}
+
+// waitForMCPServerRegistration waits for an MCP server to be registered with the aggregator.
+// It polls the aggregator to check if the server is registered, with a timeout.
+func (o *Orchestrator) waitForMCPServerRegistration(serverName string) error {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		return fmt.Errorf("aggregator not available")
+	}
+
+	// Wait up to 5 seconds for registration with 50ms polling interval
+	timeout := 5 * time.Second
+	interval := 50 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		// Check if the server is registered by looking for its tools in the aggregator
+		// MCP server tools are prefixed with x_<server-name>_
+		availableTools := aggregator.GetAvailableTools()
+		prefix := "x_" + serverName + "_"
+
+		for _, tool := range availableTools {
+			if len(tool) > len(prefix) && tool[:len(prefix)] == prefix {
+				logging.Debug("Orchestrator", "MCP server %s registered with aggregator (found tool %s)", serverName, tool)
+				return nil
+			}
+		}
+
+		time.Sleep(interval)
+	}
+
+	return fmt.Errorf("timeout waiting for MCP server %s to register with aggregator", serverName)
 }
 
 // StopService stops a specific service by name
@@ -765,4 +814,50 @@ func (o *Orchestrator) GetToolCaller() ToolCaller {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.toolCaller
+}
+
+// generateServiceInstanceEvent generates a Kubernetes event for a service instance
+func (o *Orchestrator) generateServiceInstanceEvent(serviceName, serviceClassName, reason, operation string, err error, duration time.Duration, stepCount int) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		logging.Debug("Orchestrator", "Event manager not available, skipping event generation for service instance %s", serviceName)
+		return
+	}
+
+	// Create event data with service instance context
+	eventData := api.ObjectReference{
+		Kind:      "ServiceInstance",
+		Name:      serviceName,
+		Namespace: "default", // Service instances use default namespace
+	}
+
+	// Build context-aware message
+	message := o.buildServiceInstanceEventMessage(serviceName, serviceClassName, reason, operation, err, duration, stepCount)
+
+	// Determine event type based on reason
+	eventType := "Normal"
+	if reason == "ServiceInstanceFailed" ||
+		reason == "ServiceInstanceUnhealthy" ||
+		reason == "ServiceInstanceHealthCheckFailed" ||
+		reason == "ServiceInstanceToolExecutionFailed" {
+		eventType = "Warning"
+	}
+
+	// Generate the event
+	ctx := context.Background()
+	if err := eventManager.CreateEvent(ctx, eventData, reason, message, eventType); err != nil {
+		logging.Error("Orchestrator", err, "Failed to generate event for service instance %s", serviceName)
+	}
+}
+
+// buildServiceInstanceEventMessage builds the event message for service instance events
+func (o *Orchestrator) buildServiceInstanceEventMessage(serviceName, serviceClassName, reason, operation string, err error, duration time.Duration, stepCount int) string {
+	switch reason {
+	case "ServiceInstanceCreated":
+		return fmt.Sprintf("Service instance %s created from ServiceClass %s", serviceName, serviceClassName)
+	case "ServiceInstanceDeleted":
+		return fmt.Sprintf("Service instance %s deleted successfully", serviceName)
+	default:
+		return fmt.Sprintf("Service instance %s: %s", serviceName, reason)
+	}
 }
