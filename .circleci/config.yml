@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@6.7.0
+  architect: giantswarm/architect@6.11.0
 
 workflows:
   test:
@@ -9,7 +9,7 @@ workflows:
       - architect/go-build:
           context: architect
           name: go-build
-          binary: template
+          binary: muster
           filters:
             # Trigger job also on git tag.
             tags:
