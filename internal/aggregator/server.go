@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/internal/config"
 	"muster/pkg/logging"
-
-	"muster/internal/api"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -189,7 +188,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			server.WithKeepAlive(true),                   // Enable keep-alive for connection stability
 			server.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
 		)
-		handler := a.sseServer
+
+		// Create a mux that routes to both MCP and OAuth handlers
+		handler := a.createHTTPMux(a.sseServer)
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
@@ -239,7 +240,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	default:
 		// Streamable HTTP transport (default) - HTTP-based streaming protocol
 		a.streamableHTTPServer = server.NewStreamableHTTPServer(a.server)
-		handler := a.streamableHTTPServer
+
+		// Create a mux that routes to both MCP and OAuth handlers
+		handler := a.createHTTPMux(a.streamableHTTPServer)
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
@@ -640,6 +643,28 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 
 	logging.Debug("Aggregator", "Updated capabilities: %d tools, %d resources, %d prompts",
 		toolCount, resourceCount, promptCount)
+}
+
+// createHTTPMux creates an HTTP mux that routes to both MCP and OAuth handlers.
+// This allows the aggregator to serve both MCP protocol traffic and OAuth callbacks
+// on the same port.
+func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+
+	// Check if OAuth is enabled and mount the callback handler
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler != nil && oauthHandler.IsEnabled() {
+		callbackPath := oauthHandler.GetCallbackPath()
+		if callbackPath != "" {
+			mux.Handle(callbackPath, oauthHandler.GetHTTPHandler())
+			logging.Info("Aggregator", "Mounted OAuth callback handler at %s", callbackPath)
+		}
+	}
+
+	// Mount the MCP handler as the default for all other paths
+	mux.Handle("/", mcpHandler)
+
+	return mux
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.

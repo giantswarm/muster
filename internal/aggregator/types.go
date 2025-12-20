@@ -153,6 +153,25 @@ type AggregatorConfig struct {
 	// This helps distinguish muster tools from other MCP tools in mixed environments.
 	// Default value is "x".
 	MusterPrefix string
+
+	// OAuth configuration for remote MCP server authentication
+	OAuth OAuthProxyConfig
+}
+
+// OAuthProxyConfig holds OAuth proxy configuration for the aggregator.
+type OAuthProxyConfig struct {
+	// Enabled controls whether OAuth proxy functionality is active.
+	Enabled bool
+
+	// PublicURL is the publicly accessible URL of the Muster Server.
+	// This is used to construct OAuth callback URLs.
+	PublicURL string
+
+	// ClientID is the OAuth client identifier (CIMD URL).
+	ClientID string
+
+	// CallbackPath is the path for the OAuth callback endpoint.
+	CallbackPath string
 }
 
 // RegistrationEvent represents a server registration or deregistration event.

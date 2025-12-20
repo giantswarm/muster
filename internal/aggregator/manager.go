@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"muster/internal/api"
+	configPkg "muster/internal/config"
+	"muster/internal/oauth"
 	"muster/pkg/logging"
 )
 
@@ -22,6 +24,7 @@ import (
 //   - Event-driven updates when service states change
 //   - Periodic retry mechanisms for failed registrations
 //   - Centralized lifecycle management
+//   - OAuth proxy for remote MCP server authentication
 //
 // It acts as the primary entry point for the aggregator functionality and
 // integrates with the muster service architecture through the central API pattern.
@@ -36,6 +39,7 @@ type AggregatorManager struct {
 	// Internal components
 	aggregatorServer *AggregatorServer // The core MCP server that exposes aggregated capabilities
 	eventHandler     *EventHandler     // Handles service state change events
+	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -63,6 +67,24 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 
 	// Create the aggregator server with the provided configuration
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
+
+	// Initialize OAuth manager if enabled
+	if config.OAuth.Enabled {
+		oauthConfig := configPkg.OAuthConfig{
+			Enabled:      config.OAuth.Enabled,
+			PublicURL:    config.OAuth.PublicURL,
+			ClientID:     config.OAuth.ClientID,
+			CallbackPath: config.OAuth.CallbackPath,
+		}
+		manager.oauthManager = oauth.NewManager(oauthConfig)
+
+		if manager.oauthManager != nil {
+			// Register OAuth handler with the API layer
+			oauthAdapter := oauth.NewAdapter(manager.oauthManager)
+			oauthAdapter.Register()
+			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
+		}
+	}
 
 	return manager
 }
@@ -128,8 +150,9 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 // This method stops all components in reverse order of startup:
 //  1. Cancels the context to signal shutdown to all goroutines
 //  2. Stops the event handler
-//  3. Stops the aggregator server
-//  4. Waits for all background operations to complete
+//  3. Stops the OAuth manager
+//  4. Stops the aggregator server
+//  5. Waits for all background operations to complete
 //
 // The method is idempotent and can be called multiple times safely.
 func (am *AggregatorManager) Stop(ctx context.Context) error {
@@ -146,6 +169,11 @@ func (am *AggregatorManager) Stop(ctx context.Context) error {
 		if err := am.eventHandler.Stop(); err != nil {
 			logging.Error("Aggregator-Manager", err, "Error stopping event handler")
 		}
+	}
+
+	// Stop OAuth manager
+	if am.oauthManager != nil {
+		am.oauthManager.Stop()
 	}
 
 	// Stop aggregator server and wait for graceful shutdown

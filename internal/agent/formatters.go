@@ -552,3 +552,93 @@ func (f *Formatters) FindPrompt(prompts []mcp.Prompt, name string) *mcp.Prompt {
 	}
 	return nil
 }
+
+// AuthChallenge represents an OAuth authentication challenge from the server.
+type AuthChallenge struct {
+	Status     string `json:"status"`
+	AuthURL    string `json:"auth_url"`
+	ServerName string `json:"server_name,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// IsAuthChallenge checks if a tool result contains an authentication challenge.
+// It parses the first text content as JSON and checks for the "auth_required" status.
+//
+// Args:
+//   - result: The tool result to check
+//
+// Returns:
+//   - *AuthChallenge: The parsed challenge if found, nil otherwise
+func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *AuthChallenge {
+	if result == nil || len(result.Content) == 0 {
+		return nil
+	}
+
+	// Look for text content that might be an auth challenge
+	for _, content := range result.Content {
+		textContent, ok := mcp.AsTextContent(content)
+		if !ok {
+			continue
+		}
+
+		// Try to parse as JSON
+		var challenge AuthChallenge
+		if err := json.Unmarshal([]byte(textContent.Text), &challenge); err != nil {
+			continue
+		}
+
+		// Check if it's an auth challenge
+		if challenge.Status == "auth_required" && challenge.AuthURL != "" {
+			return &challenge
+		}
+	}
+
+	return nil
+}
+
+// FormatAuthChallenge formats an authentication challenge for user display.
+// This produces a user-friendly message with clear instructions on how to
+// authenticate.
+//
+// Args:
+//   - challenge: The authentication challenge to format
+//
+// Returns:
+//   - Formatted string with authentication instructions
+//
+// Output format:
+//
+//	[Authentication Required]
+//	Server: mcp-kubernetes
+//
+//	Authentication is required to access this resource.
+//	Please visit the following URL to authenticate:
+//
+//	https://auth.example.com/authorize?...
+//
+//	After authenticating, return here and retry your request.
+func (f *Formatters) FormatAuthChallenge(challenge *AuthChallenge) string {
+	var output []string
+
+	output = append(output, "[Authentication Required]")
+
+	if challenge.ServerName != "" {
+		output = append(output, fmt.Sprintf("Server: %s", challenge.ServerName))
+	}
+
+	output = append(output, "")
+
+	if challenge.Message != "" {
+		output = append(output, challenge.Message)
+	} else {
+		output = append(output, "Authentication is required to access this resource.")
+	}
+
+	output = append(output, "Please visit the following URL to authenticate:")
+	output = append(output, "")
+	output = append(output, challenge.AuthURL)
+	output = append(output, "")
+	output = append(output, "After authenticating, return here and retry your request.")
+
+	return strings.Join(output, "\n")
+}

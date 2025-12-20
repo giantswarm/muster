@@ -1,0 +1,268 @@
+package oauth
+
+import (
+	"fmt"
+	"net/http"
+	"sync"
+
+	"muster/pkg/logging"
+)
+
+// Handler provides HTTP handlers for OAuth callback endpoints.
+type Handler struct {
+	client *Client
+
+	// Pending auth flows: nonce -> code verifier
+	pendingFlows sync.Map
+}
+
+// NewHandler creates a new OAuth HTTP handler.
+func NewHandler(client *Client) *Handler {
+	return &Handler{
+		client: client,
+	}
+}
+
+// RegisterCodeVerifier stores a PKCE code verifier for a pending auth flow.
+// The verifier is associated with the state nonce and retrieved during callback.
+func (h *Handler) RegisterCodeVerifier(nonce, codeVerifier string) {
+	h.pendingFlows.Store(nonce, codeVerifier)
+}
+
+// HandleCallback handles the OAuth callback endpoint.
+// This is called by the browser after the user authenticates with the IdP.
+func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	// Extract query parameters
+	code := r.URL.Query().Get("code")
+	stateParam := r.URL.Query().Get("state")
+	errorParam := r.URL.Query().Get("error")
+	errorDesc := r.URL.Query().Get("error_description")
+
+	// Handle OAuth errors
+	if errorParam != "" {
+		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
+		h.renderErrorPage(w, fmt.Sprintf("Authentication failed: %s", errorDesc))
+		return
+	}
+
+	// Validate required parameters
+	if code == "" || stateParam == "" {
+		logging.Warn("OAuth", "OAuth callback missing code or state parameter")
+		h.renderErrorPage(w, "Invalid callback: missing required parameters")
+		return
+	}
+
+	// Validate and extract state
+	state := h.client.stateStore.ValidateState(stateParam)
+	if state == nil {
+		logging.Warn("OAuth", "OAuth callback with invalid or expired state")
+		h.renderErrorPage(w, "Authentication session expired. Please try again.")
+		return
+	}
+
+	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s",
+		state.SessionID, state.ServerName)
+
+	// Retrieve the code verifier for this flow
+	verifierVal, ok := h.pendingFlows.LoadAndDelete(state.Nonce)
+	if !ok {
+		logging.Warn("OAuth", "No code verifier found for nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session not found. Please try again.")
+		return
+	}
+	codeVerifier := verifierVal.(string)
+
+	// TODO: Get the issuer from the server configuration
+	// For now, we'll need to store it with the state or derive it
+	issuer := "" // This will be populated when we integrate with the aggregator
+
+	// Exchange the authorization code for tokens
+	token, err := h.client.ExchangeCode(r.Context(), code, codeVerifier, issuer)
+	if err != nil {
+		logging.Error("OAuth", err, "Failed to exchange authorization code")
+		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
+		return
+	}
+
+	// Store the token
+	h.client.StoreToken(state.SessionID, token)
+
+	logging.Info("OAuth", "Successfully authenticated session=%s server=%s",
+		state.SessionID, state.ServerName)
+
+	// Render success page
+	h.renderSuccessPage(w, state.ServerName)
+}
+
+// renderSuccessPage renders an HTML page indicating successful authentication.
+func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Successful - Muster</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 50%%, #0f3460 100%%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e8e8e8;
+        }
+        .container {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            max-width: 500px;
+            margin: 1rem;
+        }
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, #00d4aa 0%%, #00a896 100%%);
+            border-radius: 50%%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+        }
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+        .server-name {
+            color: #00d4aa;
+            font-weight: 500;
+        }
+        p {
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-top: 1rem;
+        }
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.875rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="checkmark">✓</div>
+        <h1>Authentication Successful</h1>
+        <p>You have been authenticated to <span class="server-name">%s</span>.</p>
+        <p>You can now close this window and return to your IDE.</p>
+        <p>Retry the previous command to continue.</p>
+        <div class="footer">
+            Powered by Muster
+        </div>
+    </div>
+</body>
+</html>`, serverName)
+
+	w.Write([]byte(html))
+}
+
+// renderErrorPage renders an HTML page indicating an authentication error.
+func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusBadRequest)
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Failed - Muster</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 50%%, #0f3460 100%%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e8e8e8;
+        }
+        .container {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            max-width: 500px;
+            margin: 1rem;
+        }
+        .error-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, #ff6b6b 0%%, #ee5a5a 100%%);
+            border-radius: 50%%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+        }
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+        .message {
+            color: #ff6b6b;
+            font-weight: 500;
+            margin-top: 1rem;
+        }
+        p {
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-top: 1rem;
+        }
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.875rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error-icon">✕</div>
+        <h1>Authentication Failed</h1>
+        <p class="message">%s</p>
+        <p>Please return to your IDE and try again.</p>
+        <div class="footer">
+            Powered by Muster
+        </div>
+    </div>
+</body>
+</html>`, message)
+
+	w.Write([]byte(html))
+}
+
+// ServeHTTP implements http.Handler for the OAuth handler.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.HandleCallback(w, r)
+}
