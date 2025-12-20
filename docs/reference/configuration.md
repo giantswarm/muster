@@ -47,9 +47,18 @@ aggregator:
   host: "localhost"             # Bind address (default: localhost)
   transport: "streamable-http"  # MCP transport (default: streamable-http)
   enabled: true                 # Enable aggregator (default: true)
+
+namespace: "default"            # Kubernetes namespace for CR discovery (default: default)
 ```
 
 ## Configuration Fields Reference
+
+### Top-Level Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer, ServiceClass, and Workflow CRs |
+| `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 
 ### Aggregator Configuration
 
@@ -74,7 +83,7 @@ The aggregator manages the unified MCP interface and tool aggregation.
 
 #### Minimal Configuration
 ```yaml
-# Uses all defaults
+# Uses all defaults (namespace: "default", aggregator defaults)
 aggregator: {}
 ```
 
@@ -87,13 +96,23 @@ aggregator:
   enabled: true
 ```
 
-#### Production Configuration
+#### Production Configuration (Kubernetes)
 ```yaml
+namespace: "muster-system"      # Use dedicated namespace for muster CRs
 aggregator:
   port: 80
   host: "0.0.0.0"
   transport: "streamable-http"
   enabled: true
+```
+
+#### Multi-Tenant Configuration
+```yaml
+namespace: "team-alpha"         # Each team uses their own namespace
+aggregator:
+  port: 8090
+  host: "localhost"
+  transport: "streamable-http"
 ```
 
 ## MCP Server Configuration

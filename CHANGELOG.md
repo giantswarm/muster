@@ -136,6 +136,11 @@ All notable changes to this project will be documented in this file.
   - Added [Troubleshooting Guide](docs/troubleshooting.md) with common issues and solutions
   - Enhanced development documentation with recent architectural improvements
   - Documented dependency management, state management, and message flow in detail
+- **Configurable Namespace for CR Discovery**
+  - Added `namespace` configuration option to `config.yaml` for Kubernetes CR discovery
+  - Allows specifying which namespace to use for MCPServer, ServiceClass, and Workflow resources
+  - Defaults to `"default"` when not specified
+  - Enables muster to work properly in multi-namespace Kubernetes environments
 
 ### Changed
 - **Aggregator Config**
