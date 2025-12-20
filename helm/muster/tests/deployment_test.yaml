@@ -1,0 +1,101 @@
+# Deployment template tests for muster Helm chart
+#
+# These tests verify the Deployment configuration, particularly:
+# - Projected ServiceAccount tokens (security best practice)
+# - Container security context
+# - Volume mounts
+#
+# Run with: helm unittest ./helm/muster
+
+suite: Deployment template tests
+templates:
+  - templates/deployment.yaml
+tests:
+  - it: should disable automountServiceAccountToken
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: should mount projected ServiceAccount token volume
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sa-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    expirationSeconds: 3600
+                    path: token
+                - configMap:
+                    name: kube-root-ca.crt
+                    items:
+                      - key: ca.crt
+                        path: ca.crt
+                - downwardAPI:
+                    items:
+                      - path: namespace
+                        fieldRef:
+                          fieldPath: metadata.namespace
+
+  - it: should mount sa-token volume in container
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sa-token
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+
+  - it: should set read-only root filesystem
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should drop all capabilities
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value:
+            - ALL
+
+  - it: should not allow privilege escalation
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should run as non-root
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+
+  - it: should have liveness and readiness probes
+    asserts:
+      - isNotEmpty:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNotEmpty:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: should use correct image
+    set:
+      image.tag: "1.2.3"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "gsoci.azurecr.io/giantswarm/muster:1.2.3"
+
+  - it: should enable debug mode when configured
+    set:
+      muster.debug: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--debug"
+

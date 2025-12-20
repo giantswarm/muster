@@ -1,0 +1,8 @@
+{{- if .Values.crds.install }}
+{{- $files := .Files.Glob "crds/*" }}
+{{- range $path, $_ := $files }}
+---
+{{ $.Files.Get $path }}
+{{- end }}
+{{- end }}
+

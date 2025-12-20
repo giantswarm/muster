@@ -1,4 +1,4 @@
-./muster
+/muster
 dist/
 .muster/config.yaml
 .muster/mcpservers/*.yaml
@@ -24,4 +24,4 @@ logs
 *.sw?
 # OS specific
 .DS_Store
-muster
+/muster

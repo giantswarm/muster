@@ -23,8 +23,18 @@ lint-yaml: ## Run YAML linter
 	@# Exclude zz_generated files
 	@yamllint .github/workflows/auto-release.yaml .github/workflows/ci.yaml .goreleaser.yaml .goreleaser.ci.yaml
 
+.PHONY: helm-lint
+helm-lint: ## Run Helm linter
+	@echo "Running Helm linter..."
+	@helm lint helm/muster/
+
+.PHONY: helm-test
+helm-test: ## Run Helm unit tests (requires helm-unittest plugin)
+	@echo "Running Helm unit tests..."
+	@helm unittest helm/muster/
+
 .PHONY: check
-check: lint-yaml ## Run YAML linter
+check: lint-yaml helm-lint ## Run YAML and Helm linters
 
 ##@ Testing
 
