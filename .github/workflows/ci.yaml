@@ -32,8 +32,19 @@ jobs:
       - name: Install yamllint
         run: pip install yamllint
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.17.0'
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+
       - name: Run Checks (Lint)
         run: make check
+
+      - name: Run Helm unit tests
+        run: make helm-test
 
       - name: Muster unit tests
         run: make test

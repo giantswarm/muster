@@ -1,0 +1,170 @@
+# RBAC template tests for muster Helm chart
+#
+# These tests verify the RBAC resources created by the Helm chart:
+# - RBAC profiles (minimal, readonly, standard)
+# - Custom RBAC rules
+# - Muster CRD permissions
+#
+# Run with: helm unittest ./helm/muster
+
+suite: RBAC template tests
+templates:
+  - templates/rbac.yaml
+tests:
+  # ==========================================
+  # Basic RBAC Tests
+  # ==========================================
+  
+  - it: should create basic ClusterRole and ClusterRoleBinding
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+
+  - it: should not create any RBAC when serviceAccount.create is false
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create any RBAC when rbac.create is false
+    set:
+      serviceAccount.create: true
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ==========================================
+  # RBAC Profile Tests
+  # ==========================================
+
+  - it: should create minimal profile with muster CRDs only
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["muster.giantswarm.io/rbac-profile"]
+          value: "minimal"
+        documentIndex: 0
+      # Minimal profile should have muster CRD rules
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["muster.giantswarm.io"]
+            resources: ["mcpservers", "serviceclasses", "workflows"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
+  - it: should create readonly profile with get/list/watch verbs only
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["muster.giantswarm.io/rbac-profile"]
+          value: "readonly"
+        documentIndex: 0
+      # Readonly should have rules with only read verbs
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "events"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: should create standard profile with CRUD permissions
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "standard"
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["muster.giantswarm.io/rbac-profile"]
+          value: "standard"
+        documentIndex: 0
+      # Standard should have CRUD operations
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets", "events"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
+  - it: should default to standard profile when not specified
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+    asserts:
+      - equal:
+          path: metadata.annotations["muster.giantswarm.io/rbac-profile"]
+          value: "standard"
+        documentIndex: 0
+
+  # Note: Unknown profile validation is handled by values.schema.json
+  # which rejects invalid values before template rendering
+
+  # ==========================================
+  # Custom RBAC Rules Tests
+  # ==========================================
+
+  - it: should use custom rules when custom.enabled is true
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+      rbac.custom.enabled: true
+      rbac.custom.rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
+    asserts:
+      - hasDocuments:
+          count: 2
+      # Custom rules should be present
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list"]
+        documentIndex: 0
+
+  # ==========================================
+  # Muster CRD Access Tests
+  # ==========================================
+
+  - it: should always include muster CRD access in all profiles
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "readonly"
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["muster.giantswarm.io"]
+            resources: ["mcpservers", "serviceclasses", "workflows"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+
