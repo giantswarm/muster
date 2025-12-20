@@ -37,36 +37,45 @@ func NewStateStore() *StateStore {
 }
 
 // GenerateState creates a new OAuth state parameter and stores it.
-// Returns the encoded state string to include in the authorization URL.
-func (ss *StateStore) GenerateState(sessionID, serverName string) (string, error) {
+// Returns the encoded state string to include in the authorization URL and the nonce.
+//
+// Args:
+//   - sessionID: The user's session ID
+//   - serverName: The MCP server name requiring authentication
+//   - issuer: The OAuth issuer URL
+//   - codeVerifier: The PKCE code verifier for this flow
+func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier string) (encodedState, nonce string, err error) {
 	// Generate a cryptographically random nonce
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
+	nonceBytes := make([]byte, 32)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return "", "", err
 	}
 
+	nonce = base64.URLEncoding.EncodeToString(nonceBytes)
 	state := &OAuthState{
-		SessionID:  sessionID,
-		ServerName: serverName,
-		Nonce:      base64.URLEncoding.EncodeToString(nonce),
-		CreatedAt:  time.Now(),
+		SessionID:    sessionID,
+		ServerName:   serverName,
+		Nonce:        nonce,
+		CreatedAt:    time.Now(),
+		Issuer:       issuer,
+		CodeVerifier: codeVerifier,
 	}
 
-	// Encode the state as JSON then base64
+	// Encode the state as JSON then base64 (CodeVerifier is excluded via json:"-")
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	encodedState := base64.URLEncoding.EncodeToString(stateJSON)
+	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
 
-	// Store the state indexed by the nonce
+	// Store the full state (including CodeVerifier) indexed by the nonce
 	ss.mu.Lock()
-	ss.states[state.Nonce] = state
+	ss.states[nonce] = state
 	ss.mu.Unlock()
 
-	logging.Debug("OAuth", "Generated state for session=%s server=%s", sessionID, serverName)
-	return encodedState, nil
+	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", sessionID, serverName, issuer)
+	return encodedState, nonce, nil
 }
 
 // ValidateState validates an OAuth state parameter from a callback.

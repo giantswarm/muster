@@ -24,9 +24,6 @@ type Manager struct {
 
 	// Server authentication metadata: serverName -> AuthServerConfig
 	serverConfigs map[string]*AuthServerConfig
-
-	// Pending auth flows: stores code verifiers by state nonce
-	pendingVerifiers sync.Map
 }
 
 // AuthServerConfig holds OAuth configuration for a specific remote MCP server.
@@ -151,16 +148,11 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName
 	// Register server config if we got it from the 401
 	m.RegisterServer(serverName, issuer, scope)
 
-	// Generate authorization URL
-	authURL, codeVerifier, err := m.client.GenerateAuthURL(ctx, sessionID, serverName, issuer, scope)
+	// Generate authorization URL (code verifier is stored with the state)
+	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, serverName, issuer, scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
-
-	// Store the code verifier for later retrieval during callback
-	// We use a simple key based on session and server
-	verifierKey := fmt.Sprintf("%s:%s", sessionID, serverName)
-	m.pendingVerifiers.Store(verifierKey, codeVerifier)
 
 	challenge := &AuthChallenge{
 		Status:     "auth_required",
@@ -181,31 +173,22 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 		return fmt.Errorf("OAuth proxy is disabled")
 	}
 
-	// Validate state
+	// Validate state (returns the full state including issuer and code verifier)
 	stateData := m.client.stateStore.ValidateState(state)
 	if stateData == nil {
 		return fmt.Errorf("invalid or expired state")
 	}
 
-	// Get server config for issuer
-	m.mu.RLock()
-	serverCfg := m.serverConfigs[stateData.ServerName]
-	m.mu.RUnlock()
-
-	if serverCfg == nil {
-		return fmt.Errorf("unknown server: %s", stateData.ServerName)
+	// Validate we have the required data
+	if stateData.Issuer == "" {
+		return fmt.Errorf("missing issuer in state")
+	}
+	if stateData.CodeVerifier == "" {
+		return fmt.Errorf("missing code verifier in state")
 	}
 
-	// Retrieve code verifier
-	verifierKey := fmt.Sprintf("%s:%s", stateData.SessionID, stateData.ServerName)
-	verifierVal, ok := m.pendingVerifiers.LoadAndDelete(verifierKey)
-	if !ok {
-		return fmt.Errorf("code verifier not found")
-	}
-	codeVerifier := verifierVal.(string)
-
-	// Exchange code for token
-	token, err := m.client.ExchangeCode(ctx, code, codeVerifier, serverCfg.Issuer)
+	// Exchange code for token using issuer and code verifier from state
+	token, err := m.client.ExchangeCode(ctx, code, stateData.CodeVerifier, stateData.Issuer)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}

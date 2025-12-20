@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"muster/pkg/logging"
@@ -30,7 +31,8 @@ type Client struct {
 	// HTTP client for token exchange
 	httpClient *http.Client
 
-	// Metadata cache (issuer URL -> metadata)
+	// Metadata cache (issuer URL -> metadata) with mutex for thread safety
+	metadataMu    sync.RWMutex
 	metadataCache map[string]*OAuthMetadata
 }
 
@@ -80,30 +82,30 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *Token {
 }
 
 // GenerateAuthURL creates an OAuth authorization URL for user authentication.
-// Returns the URL and a PKCE code verifier to be used in the token exchange.
-func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, issuer, scope string) (string, string, error) {
+// Returns the URL. The code verifier is stored with the state for later retrieval.
+func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, issuer, scope string) (string, error) {
 	// Fetch OAuth metadata for the issuer
 	metadata, err := c.fetchMetadata(ctx, issuer)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
-	}
-
-	// Generate state parameter
-	state, err := c.stateStore.GenerateState(sessionID, serverName)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate state: %w", err)
+		return "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
 	// Generate PKCE code verifier and challenge
 	codeVerifier, codeChallenge, err := generatePKCE()
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate PKCE: %w", err)
+		return "", fmt.Errorf("failed to generate PKCE: %w", err)
+	}
+
+	// Generate state parameter (includes issuer and code verifier)
+	state, _, err := c.stateStore.GenerateState(sessionID, serverName, issuer, codeVerifier)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
 	// Build authorization URL
 	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid authorization endpoint: %w", err)
+		return "", fmt.Errorf("invalid authorization endpoint: %w", err)
 	}
 
 	query := authURL.Query()
@@ -123,7 +125,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, iss
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
 		sessionID, serverName, issuer)
 
-	return authURL.String(), codeVerifier, nil
+	return authURL.String(), nil
 }
 
 // ExchangeCode exchanges an authorization code for tokens.
@@ -261,10 +263,13 @@ func (c *Client) Stop() {
 
 // fetchMetadata fetches OAuth metadata from the issuer's well-known endpoint.
 func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
-	// Check cache first
+	// Check cache first with read lock
+	c.metadataMu.RLock()
 	if metadata, ok := c.metadataCache[issuer]; ok {
+		c.metadataMu.RUnlock()
 		return metadata, nil
 	}
+	c.metadataMu.RUnlock()
 
 	// Build well-known URL
 	wellKnownURL := strings.TrimSuffix(issuer, "/") + "/.well-known/oauth-authorization-server"
@@ -304,8 +309,10 @@ func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetada
 		return nil, fmt.Errorf("failed to parse OAuth metadata: %w", err)
 	}
 
-	// Cache the metadata
+	// Cache the metadata with write lock
+	c.metadataMu.Lock()
 	c.metadataCache[issuer] = &metadata
+	c.metadataMu.Unlock()
 
 	logging.Debug("OAuth", "Fetched OAuth metadata for issuer=%s (auth=%s, token=%s)",
 		issuer, metadata.AuthorizationEndpoint, metadata.TokenEndpoint)

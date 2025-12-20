@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"muster/internal/api"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -553,14 +555,6 @@ func (f *Formatters) FindPrompt(prompts []mcp.Prompt, name string) *mcp.Prompt {
 	return nil
 }
 
-// AuthChallenge represents an OAuth authentication challenge from the server.
-type AuthChallenge struct {
-	Status     string `json:"status"`
-	AuthURL    string `json:"auth_url"`
-	ServerName string `json:"server_name,omitempty"`
-	Message    string `json:"message,omitempty"`
-}
-
 // IsAuthChallenge checks if a tool result contains an authentication challenge.
 // It parses the first text content as JSON and checks for the "auth_required" status.
 //
@@ -568,8 +562,8 @@ type AuthChallenge struct {
 //   - result: The tool result to check
 //
 // Returns:
-//   - *AuthChallenge: The parsed challenge if found, nil otherwise
-func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *AuthChallenge {
+//   - *api.AuthChallenge: The parsed challenge if found, nil otherwise
+func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *api.AuthChallenge {
 	if result == nil || len(result.Content) == 0 {
 		return nil
 	}
@@ -582,7 +576,7 @@ func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *AuthChallenge 
 		}
 
 		// Try to parse as JSON
-		var challenge AuthChallenge
+		var challenge api.AuthChallenge
 		if err := json.Unmarshal([]byte(textContent.Text), &challenge); err != nil {
 			continue
 		}
@@ -617,7 +611,7 @@ func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *AuthChallenge 
 //	https://auth.example.com/authorize?...
 //
 //	After authenticating, return here and retry your request.
-func (f *Formatters) FormatAuthChallenge(challenge *AuthChallenge) string {
+func (f *Formatters) FormatAuthChallenge(challenge *api.AuthChallenge) string {
 	var output []string
 
 	output = append(output, "[Authentication Required]")

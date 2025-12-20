@@ -79,6 +79,13 @@ type OAuthState struct {
 
 	// RedirectURI is where to redirect after callback processing.
 	RedirectURI string `json:"redirect_uri,omitempty"`
+
+	// Issuer is the OAuth issuer URL for token exchange.
+	Issuer string `json:"issuer,omitempty"`
+
+	// CodeVerifier is the PKCE code verifier for this flow.
+	// Stored server-side only, not transmitted in the state parameter.
+	CodeVerifier string `json:"-"`
 }
 
 // OAuthMetadata represents the OAuth 2.0 Authorization Server Metadata

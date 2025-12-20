@@ -3,7 +3,6 @@ package oauth
 import (
 	"fmt"
 	"net/http"
-	"sync"
 
 	"muster/pkg/logging"
 )
@@ -11,9 +10,6 @@ import (
 // Handler provides HTTP handlers for OAuth callback endpoints.
 type Handler struct {
 	client *Client
-
-	// Pending auth flows: nonce -> code verifier
-	pendingFlows sync.Map
 }
 
 // NewHandler creates a new OAuth HTTP handler.
@@ -21,12 +17,6 @@ func NewHandler(client *Client) *Handler {
 	return &Handler{
 		client: client,
 	}
-}
-
-// RegisterCodeVerifier stores a PKCE code verifier for a pending auth flow.
-// The verifier is associated with the state nonce and retrieved during callback.
-func (h *Handler) RegisterCodeVerifier(nonce, codeVerifier string) {
-	h.pendingFlows.Store(nonce, codeVerifier)
 }
 
 // HandleCallback handles the OAuth callback endpoint.
@@ -60,24 +50,23 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s",
-		state.SessionID, state.ServerName)
+	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s issuer=%s",
+		state.SessionID, state.ServerName, state.Issuer)
 
-	// Retrieve the code verifier for this flow
-	verifierVal, ok := h.pendingFlows.LoadAndDelete(state.Nonce)
-	if !ok {
-		logging.Warn("OAuth", "No code verifier found for nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session not found. Please try again.")
+	// Validate we have the required data stored with the state
+	if state.Issuer == "" {
+		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
 		return
 	}
-	codeVerifier := verifierVal.(string)
-
-	// TODO: Get the issuer from the server configuration
-	// For now, we'll need to store it with the state or derive it
-	issuer := "" // This will be populated when we integrate with the aggregator
+	if state.CodeVerifier == "" {
+		logging.Warn("OAuth", "Missing code verifier in state for nonce=%s", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		return
+	}
 
 	// Exchange the authorization code for tokens
-	token, err := h.client.ExchangeCode(r.Context(), code, codeVerifier, issuer)
+	token, err := h.client.ExchangeCode(r.Context(), code, state.CodeVerifier, state.Issuer)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
