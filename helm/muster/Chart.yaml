@@ -1,0 +1,22 @@
+apiVersion: v2
+name: muster
+description: A Helm chart for muster - Universal Control Plane for AI Agents built on MCP
+type: application
+version: 0.1.0
+appVersion: "0.0.48"
+home: https://github.com/giantswarm/muster
+icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
+sources:
+  - https://github.com/giantswarm/muster
+keywords:
+  - mcp
+  - ai-agents
+  - model-context-protocol
+  - platform-engineering
+  - aggregator
+maintainers:
+  - name: Giant Swarm
+    email: team-planeteers@giantswarm.io
+annotations:
+  application.giantswarm.io/team: team-planeteers
+

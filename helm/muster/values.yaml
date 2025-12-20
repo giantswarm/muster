@@ -1,0 +1,149 @@
+# Default values for muster.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  registry: gsoci.azurecr.io
+  repository: giantswarm/muster
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# RBAC Configuration
+# Controls the ClusterRole permissions granted to the ServiceAccount
+rbac:
+  # Create RBAC resources (ClusterRole and ClusterRoleBinding)
+  create: true
+
+  # RBAC profile controls the permission level
+  # Options:
+  #   - "minimal":  Only muster CRDs access (for minimal deployment)
+  #   - "readonly": Read-only access to common K8s resources + muster CRDs
+  #   - "standard": Read + limited write (for full muster functionality)
+  #
+  # Muster always needs access to its own CRDs (MCPServer, ServiceClass, Workflow)
+  # The profile controls additional Kubernetes API access.
+  profile: "standard"
+
+  # Custom RBAC rules (overrides profile when enabled)
+  # WARNING: Custom rules BYPASS ALL PROFILE SAFETY CONTROLS!
+  custom:
+    enabled: false
+    rules: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop:
+    - ALL
+
+service:
+  type: ClusterIP
+  port: 8090
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: muster.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: muster-tls
+  #    hosts:
+  #      - muster.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Muster specific configuration
+muster:
+  # Aggregator configuration
+  aggregator:
+    # Port for the MCP aggregator HTTP server
+    port: 8090
+    # Transport protocol for MCP communication
+    # Options: "streamable-http", "sse"
+    transport: "streamable-http"
+
+  # Namespace for MCPServer, ServiceClass and Workflow discovery
+  # Defaults to the release namespace if not set
+  namespace: ""
+
+  # Enable debug logging
+  debug: false
+
+# CRD installation
+crds:
+  # Install Custom Resource Definitions
+  install: true
+
+# Cilium Network Policy configuration
+ciliumNetworkPolicy:
+  # Enable CiliumNetworkPolicy creation
+  enabled: false
+  # Additional labels to add to the CiliumNetworkPolicy
+  labels: {}
+  # Additional annotations to add to the CiliumNetworkPolicy
+  annotations: {}
+

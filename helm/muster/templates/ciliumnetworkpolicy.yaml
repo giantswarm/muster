@@ -1,0 +1,63 @@
+{{- if .Values.ciliumNetworkPolicy.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "muster.fullname" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.ciliumNetworkPolicy.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.ciliumNetworkPolicy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "muster.selectorLabels" . | nindent 6 }}
+
+  ingress:
+    # Allow traffic from cluster to muster service port
+    - fromEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "{{ .Values.muster.aggregator.port }}"
+              protocol: TCP
+
+  egress:
+    # Allow DNS resolution
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: coredns
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: k8s-dns-node-cache
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "1053"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+            - port: "1053"
+              protocol: TCP
+
+    # Allow Kubernetes API access
+    - toEntities:
+        - kube-apiserver
+
+    # Allow egress to world for remote MCP servers (streamable-http, sse)
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+{{- end }}
+

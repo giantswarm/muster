@@ -1,0 +1,55 @@
+Muster has been deployed!
+
+1. Get the application URL by running these commands:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "muster.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        Watch the status with: kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "muster.fullname" . }}
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "muster.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "muster.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  echo "Muster is available at http://127.0.0.1:{{ .Values.service.port }}"
+{{- end }}
+
+2. Check muster status:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "muster.name" . }}"
+
+3. View muster logs:
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "muster.name" . }}" -f
+
+4. Access muster's MCP API:
+  # Port forward to access the MCP aggregator API
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "muster.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+  # Test the health endpoint
+  curl http://localhost:{{ .Values.service.port }}/health
+
+  # Test the MCP endpoint
+  curl -X POST http://localhost:{{ .Values.service.port }}/mcp \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+
+5. Connect your AI assistant (Cursor/VSCode):
+  Configure your MCP server to connect to muster:
+
+  {
+    "mcpServers": {
+      "muster": {
+        "command": "muster",
+        "args": ["agent", "--mcp-server", "--endpoint", "http://localhost:{{ .Values.service.port }}/mcp"]
+      }
+    }
+  }
+
+For more information, visit: https://github.com/giantswarm/muster
+
