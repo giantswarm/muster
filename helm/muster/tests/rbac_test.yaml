@@ -168,3 +168,17 @@ tests:
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         documentIndex: 0
 
+  - it: should include status subresource permissions for muster CRDs
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      rbac.profile: "minimal"
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["muster.giantswarm.io"]
+            resources: ["mcpservers/status", "serviceclasses/status", "workflows/status"]
+            verbs: ["get", "update", "patch"]
+        documentIndex: 0
+

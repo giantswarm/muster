@@ -233,6 +233,23 @@
         }
       }
     },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable PodDisruptionBudget"
+        },
+        "minAvailable": {
+          "type": ["integer", "string"],
+          "description": "Minimum number/percentage of pods that must remain available"
+        },
+        "maxUnavailable": {
+          "type": ["integer", "string"],
+          "description": "Maximum number/percentage of pods that can be unavailable"
+        }
+      }
+    },
     "volumes": {
       "type": "array",
       "items": {

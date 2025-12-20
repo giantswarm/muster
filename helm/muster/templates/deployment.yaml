@@ -44,11 +44,7 @@ spec:
             - --host=0.0.0.0
             - --port={{ .Values.muster.aggregator.port }}
             - --transport={{ .Values.muster.aggregator.transport }}
-            {{- if .Values.muster.namespace }}
-            - --namespace={{ .Values.muster.namespace }}
-            {{- else }}
-            - --namespace={{ .Release.Namespace }}
-            {{- end }}
+            - --namespace={{ include "muster.namespace" . }}
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}

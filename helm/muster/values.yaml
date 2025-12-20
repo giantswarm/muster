@@ -18,8 +18,10 @@ fullnameOverride: ""
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
-  # Automatically mount a ServiceAccount's API credentials?
-  automount: true
+  # Automount ServiceAccount token in the ServiceAccount resource.
+  # Note: The Deployment explicitly disables automount and uses projected tokens instead
+  # for better security (short-lived tokens with automatic rotation).
+  automount: false
   # Annotations to add to the service account
   annotations: {}
   # The name of the service account to use.
@@ -103,6 +105,17 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget configuration
+# Recommended for production deployments with multiple replicas
+podDisruptionBudget:
+  enabled: false
+  # Minimum number of pods that must remain available during disruption
+  # Can be an integer or a percentage (e.g., "50%")
+  minAvailable: 1
+  # Maximum number of pods that can be unavailable during disruption
+  # Cannot be used together with minAvailable
+  # maxUnavailable: 1
 
 # Additional volumes on the output Deployment definition.
 volumes: []
