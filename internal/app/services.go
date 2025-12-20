@@ -223,62 +223,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	}, nil
 }
 
-// createMusterClient creates a single unified client that all adapters can use
-// This avoids redundant Kubernetes connection attempts and CRD validation
-func createMusterClient(configPath string, debug bool) (client.MusterClient, error) {
-	if configPath == "" {
-		// No config path specified, use default client creation
-		return client.NewMusterClient()
-	}
-
-	// Create client confiForceFilesystemModeg with the filesystem path
-	clientConfig := &client.MusterClientConfig{
-		FilesystemPath:      configPath,
-		Namespace:           "default", // Will be overridden by config loading
-		ForceFilesystemMode: false,     // Let the client choose the best mode
-		Debug:               debug,
-	}
-
-	// Create client with config
-	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
-	}
-
-	return musterClient, nil
-}
-
-// createMusterClientWithConfig creates a muster client with full configuration context
-func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
-	if configPath == "" {
-		// No config path specified, use default client creation
-		return client.NewMusterClient()
-	}
-
-	// Get namespace from config, defaulting to "default" if not specified
-	namespace := musterConfig.Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	// Create client config with the filesystem path
-	clientConfig := &client.MusterClientConfig{
-		FilesystemPath:      configPath,
-		Namespace:           "default", // Will be overridden by config loading
-		ForceFilesystemMode: false,     // Let the client choose the best mode
-		Debug:               debug,
-	}
-
-	// Create client with config
-	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
-	}
-
-	return musterClient, nil
-}
-
-// createMusterClientWithConfig creates a muster client with full configuration context
+// createMusterClientWithConfig creates a muster client with full configuration context.
+// This avoids redundant Kubernetes connection attempts and CRD validation.
 func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
 	if configPath == "" {
 		// No config path specified, use default client creation
@@ -295,11 +241,10 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
 		Namespace:           namespace,
-		ForceFilesystemMode: false, // Let the client choose the best mode
+		ForceFilesystemMode: false,
 		Debug:               debug,
 	}
 
-	// Create client with config
 	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
