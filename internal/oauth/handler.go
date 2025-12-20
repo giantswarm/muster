@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"fmt"
+	"html"
 	"net/http"
 
 	"muster/pkg/logging"
@@ -88,7 +89,10 @@ func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	// Escape server name to prevent XSS attacks
+	safeServerName := html.EscapeString(serverName)
+
+	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -162,9 +166,9 @@ func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
         </div>
     </div>
 </body>
-</html>`, serverName)
+</html>`, safeServerName)
 
-	w.Write([]byte(html))
+	w.Write([]byte(htmlContent))
 }
 
 // renderErrorPage renders an HTML page indicating an authentication error.
@@ -172,7 +176,10 @@ func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
 
-	html := fmt.Sprintf(`<!DOCTYPE html>
+	// Escape message to prevent XSS attacks
+	safeMessage := html.EscapeString(message)
+
+	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -246,9 +253,9 @@ func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
         </div>
     </div>
 </body>
-</html>`, message)
+</html>`, safeMessage)
 
-	w.Write([]byte(html))
+	w.Write([]byte(htmlContent))
 }
 
 // ServeHTTP implements http.Handler for the OAuth handler.

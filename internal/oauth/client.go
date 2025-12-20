@@ -17,6 +17,16 @@ import (
 	"muster/pkg/logging"
 )
 
+// metadataCacheTTL is the time-to-live for cached OAuth metadata.
+// After this duration, metadata will be re-fetched from the issuer.
+const metadataCacheTTL = 1 * time.Hour
+
+// metadataCacheEntry holds cached OAuth metadata with its timestamp.
+type metadataCacheEntry struct {
+	metadata  *OAuthMetadata
+	fetchedAt time.Time
+}
+
 // Client handles OAuth 2.1 flows for remote MCP server authentication.
 type Client struct {
 	// Configuration
@@ -31,9 +41,9 @@ type Client struct {
 	// HTTP client for token exchange
 	httpClient *http.Client
 
-	// Metadata cache (issuer URL -> metadata) with mutex for thread safety
+	// Metadata cache (issuer URL -> metadata entry) with mutex for thread safety
 	metadataMu    sync.RWMutex
-	metadataCache map[string]*OAuthMetadata
+	metadataCache map[string]*metadataCacheEntry
 }
 
 // NewClient creates a new OAuth client with the given configuration.
@@ -45,7 +55,7 @@ func NewClient(clientID, publicURL, callbackPath string) *Client {
 		tokenStore:    NewTokenStore(),
 		stateStore:    NewStateStore(),
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
-		metadataCache: make(map[string]*OAuthMetadata),
+		metadataCache: make(map[string]*metadataCacheEntry),
 	}
 }
 
@@ -164,7 +174,10 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token exchange failed: status=%d body=%s", resp.StatusCode, string(body))
+		// Log full response for debugging but don't expose in error message
+		// Response body may contain sensitive information (error descriptions, hints)
+		logging.Debug("OAuth", "Token exchange failed: status=%d body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("token exchange failed with status %d", resp.StatusCode)
 	}
 
 	var token Token
@@ -220,7 +233,10 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token refresh failed: status=%d body=%s", resp.StatusCode, string(body))
+		// Log full response for debugging but don't expose in error message
+		// Response body may contain sensitive information (error descriptions, hints)
+		logging.Debug("OAuth", "Token refresh failed: status=%d body=%s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)
 	}
 
 	var newToken Token
@@ -265,9 +281,14 @@ func (c *Client) Stop() {
 func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
 	// Check cache first with read lock
 	c.metadataMu.RLock()
-	if metadata, ok := c.metadataCache[issuer]; ok {
-		c.metadataMu.RUnlock()
-		return metadata, nil
+	if entry, ok := c.metadataCache[issuer]; ok {
+		// Check if cache entry is still valid (not expired)
+		if time.Since(entry.fetchedAt) < metadataCacheTTL {
+			c.metadataMu.RUnlock()
+			return entry.metadata, nil
+		}
+		// Cache expired, need to refresh
+		logging.Debug("OAuth", "Metadata cache expired for issuer=%s, refreshing", issuer)
 	}
 	c.metadataMu.RUnlock()
 
@@ -309,9 +330,12 @@ func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetada
 		return nil, fmt.Errorf("failed to parse OAuth metadata: %w", err)
 	}
 
-	// Cache the metadata with write lock
+	// Cache the metadata with write lock (includes timestamp for TTL)
 	c.metadataMu.Lock()
-	c.metadataCache[issuer] = &metadata
+	c.metadataCache[issuer] = &metadataCacheEntry{
+		metadata:  &metadata,
+		fetchedAt: time.Now(),
+	}
 	c.metadataMu.Unlock()
 
 	logging.Debug("OAuth", "Fetched OAuth metadata for issuer=%s (auth=%s, token=%s)",
