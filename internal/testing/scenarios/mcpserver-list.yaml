@@ -6,13 +6,14 @@ tags: ["mcpserver", "list", "core-api"]
 timeout: "1m"
 
 steps:
-- id: "create-test-mcpserver"
-  description: "Create a test MCP server to list"
+- id: "create-stdio-mcpserver-for-listing"
+  description: "Create a stdio MCP server for list testing"
   tool: "core_mcpserver_create"
   args:
     name: "list-test-server"
-    type: "localCommand"
-    command: ["echo", "test-server-for-list"]
+    type: "stdio"
+    command: "echo"
+    args: ["list-test"]
     autoStart: false
   expected:
     success: true
@@ -25,8 +26,8 @@ steps:
     contains: ["list-test-server"]
 
 cleanup:
-- id: "delete-test-mcpserver"
-  description: "Delete the test MCP server"
+- id: "delete-list-test-mcpserver"
+  description: "Clean up the test MCP server"
   tool: "core_mcpserver_delete"
   args:
     name: "list-test-server"

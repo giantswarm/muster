@@ -7,6 +7,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/client"
 	"muster/internal/config"
+	"muster/internal/events"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
 	"muster/internal/serviceclass"
@@ -135,6 +136,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		namespace = "default"
 	}
 
+	// Register event manager adapter using the unified client
+	eventAdapter := events.NewAdapter(musterClient)
+	eventAdapter.Register()
+
 	// Initialize and register ServiceClass adapter using the muster client
 	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
 	serviceClassAdapter.Register()
@@ -224,6 +229,36 @@ func createMusterClient(configPath string, debug bool) (client.MusterClient, err
 	if configPath == "" {
 		// No config path specified, use default client creation
 		return client.NewMusterClient()
+	}
+
+	// Create client confiForceFilesystemModeg with the filesystem path
+	clientConfig := &client.MusterClientConfig{
+		FilesystemPath:      configPath,
+		Namespace:           "default", // Will be overridden by config loading
+		ForceFilesystemMode: false,     // Let the client choose the best mode
+		Debug:               debug,
+	}
+
+	// Create client with config
+	musterClient, err := client.NewMusterClientWithConfig(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create muster client with config path %s: %w", configPath, err)
+	}
+
+	return musterClient, nil
+}
+
+// createMusterClientWithConfig creates a muster client with full configuration context
+func createMusterClientWithConfig(configPath string, debug bool, musterConfig config.MusterConfig) (client.MusterClient, error) {
+	if configPath == "" {
+		// No config path specified, use default client creation
+		return client.NewMusterClient()
+	}
+
+	// Get namespace from config, defaulting to "default" if not specified
+	namespace := musterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
 	}
 
 	// Create client config with the filesystem path

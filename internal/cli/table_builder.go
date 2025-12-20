@@ -42,7 +42,7 @@ func NewTableBuilder() *TableBuilder {
 //   - interface{}: Formatted value with styling applied
 func (b *TableBuilder) FormatCellValue(column string, value interface{}) interface{} {
 	if value == nil {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	strValue := fmt.Sprintf("%v", value)
@@ -52,28 +52,47 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 	switch colLower {
 	case "name", "label", "id", "workflow", "execution_id":
 		// Primary identifiers - make them prominent
-		return text.FgHiCyan.Sprint(strValue)
+		return text.Colors{text.FgHiBlue, text.Bold}.Sprint(strValue)
 	case "workflow_name":
 		// Workflow name in executions - make it distinct
-		return text.FgHiWhite.Sprint(strValue)
+		return text.Bold.Sprint(strValue)
+	case "resource_name":
+		// Resource names in events - make them prominent
+		return text.Colors{text.FgHiBlue, text.Bold}.Sprint(strValue)
 	case "health", "status":
 		return b.formatHealthStatus(strValue)
 	case "available":
 		return b.formatAvailableStatus(value)
+	case "autostart":
+		return b.formatAutoStartStatus(value)
 	case "state":
 		return b.formatState(strValue)
-	case "started_at", "completed_at":
+	case "started_at", "completed_at", "timestamp":
 		return b.formatTimestamp(strValue)
 	case "duration_ms":
 		return b.formatDuration(value)
+	case "reason":
+		return b.formatEventReason(strValue)
+	case "type":
+		return b.formatEventType(strValue)
+	case "resource_type":
+		return b.formatResourceType(strValue)
+	case "message":
+		return b.formatEventMessage(strValue)
 	case "metadata":
 		return b.formatMetadata(value)
 	case "requiredtools", "tools":
 		return b.formatToolsList(value)
 	case "description":
 		return b.formatDescription(strValue)
-	case "type", "service_type", "servicetype", "servertype":
+	case "service_type", "servicetype", "servertype":
 		return b.formatType(strValue)
+	case "command":
+		return b.formatCommand(strValue)
+	case "url":
+		return b.formatURL(strValue)
+	case "endpoint":
+		return b.formatEndpoint(column, value)
 	case "steps":
 		return b.formatSteps(value)
 	default:
@@ -86,7 +105,7 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 		}
 		// Default string truncation
 		if len(strValue) > 30 {
-			return strValue[:27] + text.FgHiBlack.Sprint("...")
+			return strValue[:27] + text.Faint.Sprint("...")
 		}
 		return strValue
 	}
@@ -104,17 +123,17 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 	switch strings.ToLower(status) {
 	case "healthy":
-		return text.FgGreen.Sprint("✅ " + status)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + status)
 	case "unhealthy":
-		return text.FgRed.Sprint("❌ " + status)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + status)
 	case "warning":
-		return text.FgYellow.Sprint("⚠️  " + status)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚠️  " + status)
 	case "running":
-		return text.FgGreen.Sprint("🟢 " + status)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🟢 " + status)
 	case "stopped":
-		return text.FgRed.Sprint("🔴 " + status)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🔴 " + status)
 	case "starting":
-		return text.FgYellow.Sprint("🟡 " + status)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🟡 " + status)
 	default:
 		return status
 	}
@@ -132,14 +151,14 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return text.FgGreen.Sprint("✅ Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Available")
 		}
-		return text.FgRed.Sprint("❌ Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Unavailable")
 	case string:
 		if v == "true" {
-			return text.FgGreen.Sprint("✅ Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Available")
 		}
-		return text.FgRed.Sprint("❌ Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Unavailable")
 	default:
 		return fmt.Sprintf("%v", value)
 	}
@@ -156,13 +175,17 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 func (b *TableBuilder) formatState(state string) interface{} {
 	switch strings.ToLower(state) {
 	case "running":
-		return text.FgGreen.Sprint("▶️  Running")
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  Running")
 	case "stopped":
-		return text.FgRed.Sprint("⏹️  Stopped")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  Stopped")
 	case "starting":
-		return text.FgYellow.Sprint("⏳ Starting")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
 	case "stopping":
-		return text.FgYellow.Sprint("⏸️  Stopping")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
+	case "failed":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
+	case "error":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  Error")
 	default:
 		return state
 	}
@@ -179,7 +202,7 @@ func (b *TableBuilder) formatState(state string) interface{} {
 //   - interface{}: Formatted metadata summary
 func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 	if value == nil {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	// Handle metadata object
@@ -200,9 +223,9 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 		if enabled, exists := metaMap["enabled"]; exists {
 			if enabledBool, ok := enabled.(bool); ok {
 				if enabledBool {
-					parts = append(parts, text.FgGreen.Sprint("enabled"))
+					parts = append(parts, text.Colors{text.FgHiGreen, text.Bold}.Sprint("enabled"))
 				} else {
-					parts = append(parts, text.FgRed.Sprint("disabled"))
+					parts = append(parts, text.Colors{text.FgHiRed, text.Bold}.Sprint("disabled"))
 				}
 			}
 		}
@@ -212,7 +235,7 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 		}
 	}
 
-	return text.FgHiBlack.Sprint("[metadata]")
+	return text.Faint.Sprint("[metadata]")
 }
 
 // formatToolsList formats arrays of tool names for compact display.
@@ -226,12 +249,12 @@ func (b *TableBuilder) formatMetadata(value interface{}) interface{} {
 //   - interface{}: Formatted tools list with simplified names
 func (b *TableBuilder) formatToolsList(value interface{}) interface{} {
 	if value == nil {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	if toolsArray, ok := value.([]interface{}); ok {
 		if len(toolsArray) == 0 {
-			return text.FgHiBlack.Sprint("none")
+			return text.Faint.Sprint("none")
 		}
 
 		var toolNames []string
@@ -288,7 +311,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 	if len(desc) <= 50 {
 		return desc
 	}
-	return desc[:45] + text.FgHiBlack.Sprint("...")
+	return desc[:45] + text.Faint.Sprint("...")
 }
 
 // formatType adds subtle styling to type information.
@@ -300,7 +323,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 // Returns:
 //   - interface{}: Formatted type with subtle color styling
 func (b *TableBuilder) formatType(typ string) interface{} {
-	return text.FgCyan.Sprint(typ)
+	return text.Colors{text.FgHiCyan, text.Bold}.Sprint(typ)
 }
 
 // formatSteps formats workflow steps information with a count indicator.
@@ -314,15 +337,15 @@ func (b *TableBuilder) formatType(typ string) interface{} {
 //   - interface{}: Formatted steps count with appropriate styling
 func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 	if value == nil {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	if stepsArray, ok := value.([]interface{}); ok {
 		count := len(stepsArray)
 		if count == 0 {
-			return text.FgHiBlack.Sprint("No steps")
+			return text.Faint.Sprint("No steps")
 		}
-		return text.FgBlue.Sprintf("%d steps", count)
+		return text.Colors{text.FgHiBlue, text.Bold}.Sprintf("%d steps", count)
 	}
 
 	return fmt.Sprintf("%v", value)
@@ -339,7 +362,7 @@ func (b *TableBuilder) formatSteps(value interface{}) interface{} {
 //   - interface{}: Formatted array representation
 func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 	if len(arr) == 0 {
-		return text.FgHiBlack.Sprint("[]")
+		return text.Faint.Sprint("[]")
 	}
 
 	// For small arrays, show the items
@@ -352,7 +375,7 @@ func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 	}
 
 	// For larger arrays, show count
-	return text.FgBlue.Sprintf("[%d items]", len(arr))
+	return text.Colors{text.FgHiBlue, text.Bold}.Sprintf("[%d items]", len(arr))
 }
 
 // formatObject provides clean display of generic objects.
@@ -366,7 +389,7 @@ func (b *TableBuilder) formatArray(arr []interface{}) interface{} {
 //   - interface{}: Formatted object representation
 func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 	if len(obj) == 0 {
-		return text.FgHiBlack.Sprint("{}")
+		return text.Faint.Sprint("{}")
 	}
 
 	// Look for common display fields
@@ -378,7 +401,7 @@ func (b *TableBuilder) formatObject(obj map[string]interface{}) interface{} {
 	}
 
 	// Fallback to indicating it's an object
-	return text.FgBlue.Sprintf("{%d fields}", len(obj))
+	return text.Colors{text.FgHiBlue, text.Bold}.Sprintf("{%d fields}", len(obj))
 }
 
 // SortDataByName sorts data by the first column (usually name/id).
@@ -420,18 +443,18 @@ func (b *TableBuilder) SortDataByName(data []interface{}, columns []string) []in
 func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 	switch resourceType {
 	case "services":
-		return text.FgGreen.Sprint("🟢")
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🟢")
 	case "serviceClasses":
-		return text.FgYellow.Sprint("🟡")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🟡")
 	case "mcpServers":
-		return text.FgRed.Sprint("🔴")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("��")
 	case "workflows":
-		return text.FgBlue.Sprint("🔵")
+		return text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔵")
 	case "executions":
-		return text.FgCyan.Sprint("🔄")
+		return text.Colors{text.FgHiCyan, text.Bold}.Sprint("🔄")
 
 	default:
-		return text.FgHiBlack.Sprint("⚫")
+		return text.Faint.Sprint("⚫")
 	}
 }
 
@@ -462,7 +485,7 @@ func (b *TableBuilder) Pluralize(word string) string {
 //   - interface{}: Formatted timestamp string
 func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 	if timestamp == "" || timestamp == "-" {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	// Remove microseconds and timezone for cleaner display
@@ -478,11 +501,11 @@ func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 			if strings.HasSuffix(timePart, "Z") {
 				timePart = strings.TrimSuffix(timePart, "Z")
 			}
-			return text.FgHiBlack.Sprint(parts[0] + " " + timePart)
+			return parts[0] + " " + timePart
 		}
 	}
 
-	return text.FgHiBlack.Sprint(timestamp)
+	return timestamp
 }
 
 // formatDuration formats duration in milliseconds to a human-readable format.
@@ -496,7 +519,7 @@ func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 //   - interface{}: Formatted duration string with appropriate units
 func (b *TableBuilder) formatDuration(value interface{}) interface{} {
 	if value == nil {
-		return text.FgHiBlack.Sprint("-")
+		return text.Faint.Sprint("-")
 	}
 
 	// Convert to float64 for calculation
@@ -519,12 +542,152 @@ func (b *TableBuilder) formatDuration(value interface{}) interface{} {
 
 	// Format based on duration
 	if durationMs < 1000 {
-		return text.FgGreen.Sprintf("%.0fms", durationMs)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprintf("%.0fms", durationMs)
 	} else if durationMs < 60000 {
-		return text.FgYellow.Sprintf("%.1fs", durationMs/1000)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprintf("%.1fs", durationMs/1000)
 	} else if durationMs < 3600000 {
-		return text.FgCyan.Sprintf("%.1fm", durationMs/60000)
+		return text.Colors{text.FgHiMagenta, text.Bold}.Sprintf("%.1fm", durationMs/60000)
 	} else {
-		return text.FgRed.Sprintf("%.1fh", durationMs/3600000)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprintf("%.1fh", durationMs/3600000)
 	}
+}
+
+// formatAutoStartStatus formats boolean autoStart status with clear visual indicators.
+// This shows whether an MCP server is configured to start automatically.
+//
+// Args:
+//   - value: The autoStart value (boolean)
+//
+// Returns:
+//   - interface{}: Formatted autoStart status with color and icon
+func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+		}
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+	case string:
+		if v == "true" {
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+		}
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatCommand formats command strings with appropriate highlighting.
+// This provides clear visual indication of the executable being used.
+//
+// Args:
+//   - command: The command string to format
+//
+// Returns:
+//   - interface{}: Formatted command with appropriate styling
+func (b *TableBuilder) formatCommand(command string) interface{} {
+	if command == "" {
+		return text.Faint.Sprint("-")
+	}
+
+	// Highlight the command with a subtle color
+	return text.Colors{text.FgHiBlue, text.Bold}.Sprint(command)
+}
+
+// formatURL formats URL strings with appropriate highlighting.
+// This provides clear visual indication of remote endpoints.
+//
+// Args:
+//   - url: The URL string to format
+//
+// Returns:
+//   - interface{}: Formatted URL with appropriate styling
+func (b *TableBuilder) formatURL(url string) interface{} {
+	if url == "" {
+		return text.Faint.Sprint("-")
+	}
+
+	// Highlight URLs with a distinct color
+	return text.Colors{text.FgHiMagenta, text.Bold}.Sprint(url)
+}
+
+// formatEndpoint intelligently displays either a command or a URL based on the available data.
+// This function looks at the entire row context to determine the best value to show.
+//
+// Args:
+//   - column: The column name (not used in this implementation)
+//   - value: The entire row object to extract endpoint information from
+//
+// Returns:
+//   - interface{}: Formatted endpoint string (command or URL)
+func (b *TableBuilder) formatEndpoint(column string, value interface{}) interface{} {
+	// For the endpoint column, we need access to the entire row
+	// This is a special case where we need more context than just the cell value
+	if rowMap, ok := value.(map[string]interface{}); ok {
+		// Check server type first
+		serverType := ""
+		if typ, exists := rowMap["type"]; exists {
+			serverType = fmt.Sprintf("%v", typ)
+		}
+
+		// For remote servers, prioritize URL
+		if serverType == "streamable-http" || serverType == "sse" {
+			if url, exists := rowMap["url"]; exists && url != nil {
+				urlStr := fmt.Sprintf("%v", url)
+				if urlStr != "" {
+					return b.formatURL(urlStr)
+				}
+			}
+		}
+
+		// For stdio servers or fallback, show command
+		if command, exists := rowMap["command"]; exists && command != nil {
+			commandStr := fmt.Sprintf("%v", command)
+			if commandStr != "" {
+				return b.formatCommand(commandStr)
+			}
+		}
+
+		// Fallback to URL if command is not available
+		if url, exists := rowMap["url"]; exists && url != nil {
+			urlStr := fmt.Sprintf("%v", url)
+			if urlStr != "" {
+				return b.formatURL(urlStr)
+			}
+		}
+	}
+
+	return text.Faint.Sprint("-")
+}
+
+// formatEventReason formats event reason with appropriate styling.
+func (b *TableBuilder) formatEventReason(reason string) interface{} {
+	// Color code based on common event reasons
+	return reason
+}
+
+// formatEventType formats event type with appropriate styling.
+func (b *TableBuilder) formatEventType(eventType string) interface{} {
+	switch strings.ToLower(eventType) {
+	case "warning":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(eventType)
+	case "normal":
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(eventType)
+	default:
+		return text.Colors{text.FgHiBlue, text.Bold}.Sprint(eventType)
+	}
+}
+
+// formatResourceType formats resource type with appropriate styling.
+func (b *TableBuilder) formatResourceType(resourceType string) interface{} {
+	return resourceType
+}
+
+// formatEventMessage formats event message with appropriate truncation.
+func (b *TableBuilder) formatEventMessage(message string) interface{} {
+	// Truncate long messages but preserve readability
+	if len(message) > 60 {
+		return message[:57] + text.Faint.Sprint("...")
+	}
+	return message
 }

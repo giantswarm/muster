@@ -1,29 +1,28 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@6.2.1
+  architect: giantswarm/architect@6.11.0
 
 workflows:
-  test:
+  build:
     jobs:
       - architect/go-build:
           context: architect
           name: go-build
-          binary: template
+          binary: muster
           filters:
             # Trigger job also on git tag.
             tags:
               only: /^v.*/
-      # - architect/push-to-registries:
-      #     context: architect
-      #     name: push-to-registries
-      #     requires:
-      #       - go-build
-      #     filters:
-      #       # Trigger job also on git tag.
-      #       tags:
-      #         only: /^v.*/
-      #       branches:
-      #         ignore:
-      #           - main
-      #           - master
+
+      - architect/push-to-registries:
+          context: architect
+          name: push-to-registries
+          requires:
+            - go-build
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main

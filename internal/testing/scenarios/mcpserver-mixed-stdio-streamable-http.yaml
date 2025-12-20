@@ -1,0 +1,74 @@
+name: "mcpserver-mixed-stdio-streamable-http"
+description: "Test creating both stdio and streamable HTTP MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "mixed", "core-api"]
+timeout: "2m"
+
+steps:
+- id: "create-stdio-mcpserver"
+  description: "Create a stdio MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "mixed-stdio-server"
+    type: "stdio"
+    command: "echo"
+    args: ["mixed-stdio-test"]
+    autoStart: false
+  expected:
+    success: true
+
+- id: "create-streamable-http-mcpserver"
+  description: "Create a streamable HTTP MCP server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "mixed-http-server"
+    type: "streamable-http"
+    url: "http://localhost:8080/mcp"
+    timeout: 30
+  expected:
+    success: true
+
+- id: "list-both-mcpservers"
+  description: "List both MCP servers to verify they exist"
+  tool: "core_mcpserver_list"
+  expected:
+    success: true
+    contains: ["mixed-stdio-server", "mixed-http-server"]
+
+- id: "get-stdio-mcpserver"
+  description: "Get the stdio MCP server details"
+  tool: "core_mcpserver_get"
+  args:
+    name: "mixed-stdio-server"
+  expected:
+    success: true
+    json_path:
+      type: "stdio"
+
+- id: "get-streamable-http-mcpserver"
+  description: "Get the streamable HTTP MCP server details"
+  tool: "core_mcpserver_get"
+  args:
+    name: "mixed-http-server"
+  expected:
+    success: true
+    json_path:
+      type: "streamable-http"
+
+cleanup:
+- id: "delete-stdio-mcpserver"
+  description: "Delete the stdio MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "mixed-stdio-server"
+  expected:
+    success: true
+
+- id: "delete-streamable-http-mcpserver"
+  description: "Delete the streamable HTTP MCP server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "mixed-http-server"
+  expected:
+    success: true 

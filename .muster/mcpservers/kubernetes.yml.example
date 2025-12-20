@@ -4,7 +4,7 @@ metadata:
   name: kubernetes
   namespace: default
 spec:
-  type: localCommand
+  type: stdio
   autoStart: true
-  command: ["mcp-kubernetes"]
+  command: mcp-kubernetes
   description: "Kubernetes cluster management MCP server"

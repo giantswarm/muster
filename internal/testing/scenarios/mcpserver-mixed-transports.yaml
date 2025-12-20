@@ -1,0 +1,185 @@
+name: "mcpserver-mixed-transports"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "lifecycle", "tool-calls", "mixed-transports", "stdio", "streamable-http", "core-api"]
+timeout: "5m"
+
+# Test Story: Mixed Transport MCP Servers Working Together
+# Given: Multiple MCP servers with different transport types (stdio, streamable-http)
+# When: All servers are running
+# Then: Tool calls to all servers should work successfully
+# And: Tools from all servers should be aggregated properly
+
+pre_configuration:
+  mcp_servers:
+    # Stdio-based mock server (existing pattern)
+    - name: "stdio-provider"
+      config:
+        tools:
+          - name: "stdio_tool"
+            description: "A tool from stdio-based MCP server"
+            input_schema:
+              type: "object"
+              properties:
+                input: { type: "string" }
+            responses:
+              - response:
+                  transport: "stdio"
+                  input: "{{ .input }}"
+                  status: "executed"
+
+    # Streamable HTTP mock server
+    - name: "http-provider"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "http_tool"
+            description: "A tool from streamable-http MCP server"
+            input_schema:
+              type: "object"
+              properties:
+                input: { type: "string" }
+            responses:
+              - response:
+                  transport: "streamable-http"
+                  input: "{{ .input }}"
+                  status: "executed"
+
+steps:
+  # Phase 1: Verify all services are running
+  - id: "verify-stdio-service-running"
+    description: "Verify stdio MCP server is running"
+    tool: "core_service_status"
+    args:
+      name: "stdio-provider"
+    expected:
+      success: true
+      json_path:
+        name: "stdio-provider"
+        state: "running"
+
+  - id: "verify-http-service-running"
+    description: "Verify HTTP MCP server is running"
+    tool: "core_service_status"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+      json_path:
+        name: "http-provider"
+        state: "running"
+
+  # Phase 2: Test tool calls to each transport type
+  - id: "test-stdio-tool-call"
+    description: "Test tool call to stdio server"
+    tool: "x_stdio-provider_stdio_tool"
+    args:
+      input: "stdio-test"
+    expected:
+      success: true
+      contains: ["stdio-test", "executed", "stdio"]
+
+  - id: "test-http-tool-call"
+    description: "Test tool call to HTTP server"
+    tool: "x_http-provider_http_tool"
+    args:
+      input: "http-test"
+    expected:
+      success: true
+      contains: ["http-test", "executed", "streamable-http"]
+
+  # Phase 3: Stop HTTP service and verify stdio still works
+  - id: "stop-http-service"
+    description: "Stop the HTTP MCP server"
+    tool: "core_service_stop"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-http-stopped"
+    description: "Wait for HTTP service to stop"
+    tool: "core_service_status"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "stopped"
+
+  - id: "stdio-still-works-after-http-stopped"
+    description: "Verify stdio server still works after HTTP server stopped"
+    tool: "x_stdio-provider_stdio_tool"
+    args:
+      input: "stdio-still-works"
+    expected:
+      success: true
+      contains: ["stdio-still-works", "executed"]
+
+  - id: "http-tool-fails-when-stopped"
+    description: "Verify HTTP tool fails when server is stopped"
+    tool: "x_http-provider_http_tool"
+    args:
+      input: "should-fail"
+    expected:
+      success: false
+      error_contains: ["tool not found"]
+
+  # Phase 4: Restart HTTP service and verify all work again
+  - id: "start-http-service"
+    description: "Start the HTTP MCP server again"
+    tool: "core_service_start"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+
+  - id: "wait-for-http-started"
+    description: "Wait for HTTP service to start"
+    tool: "core_service_status"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "running"
+
+  - id: "all-tools-work-after-restart"
+    description: "Test all tools work after HTTP server restart"
+    tool: "x_http-provider_http_tool"
+    args:
+      input: "http-restarted"
+    expected:
+      success: true
+      contains: ["http-restarted", "executed"]
+
+  - id: "final-stdio-check"
+    description: "Verify stdio still works after all operations"
+    tool: "x_stdio-provider_stdio_tool"
+    args:
+      input: "final-stdio-check"
+    expected:
+      success: true
+      contains: ["final-stdio-check", "executed"]
+
+cleanup:
+  - id: "cleanup-stop-stdio"
+    description: "Stop stdio service"
+    tool: "core_service_stop"
+    args:
+      name: "stdio-provider"
+    expected:
+      success: true
+    continue_on_failure: true
+
+  - id: "cleanup-stop-http"
+    description: "Stop HTTP service"
+    tool: "core_service_stop"
+    args:
+      name: "http-provider"
+    expected:
+      success: true
+    continue_on_failure: true
+

@@ -16,36 +16,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'  # Match the version used in auto-release
-
-      - name: Cache Go build and mod cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          go-version: '1.25'  # Match the version used in auto-release
+          cache: true  # Cache Go modules and build cache
 
       - name: Install Python for yamllint
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
       - name: Install yamllint
         run: pip install yamllint
 
-      - name: Run Checks (Lint & Test)
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.17.0'
+
+      - name: Install helm-unittest plugin
+        env:
+          PLUGIN_URL: https://github.com/helm-unittest/helm-unittest.git
+        run: helm plugin install "$PLUGIN_URL" --version v0.6.3
+
+      - name: Run Checks (Lint)
         run: make check
+
+      - name: Run Helm unit tests
+        run: make helm-test
 
       - name: Muster unit tests
         run: make test
+
+      - name: Run govulncheck (Security Scan)
+        run: make govulncheck
 
       - name: Build muster binary
         run: make build
@@ -63,8 +70,9 @@ jobs:
 
       - name: Run Release Dry-Run
         # Only run on PRs, not on direct pushes to main
+        # Uses fast config (linux/amd64 only) to validate release works
         if: github.event_name == 'pull_request'
-        run: make release-dry-run
+        run: make release-dry-run-fast
         env:
           # GoReleaser needs a GITHUB_TOKEN even for dry runs
           # to check API rate limits, etc.
