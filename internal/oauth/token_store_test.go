@@ -302,3 +302,91 @@ func TestToken_IsExpired(t *testing.T) {
 		})
 	}
 }
+
+// TestTokenStore_SessionIsolation verifies that tokens from different sessions
+// are completely isolated. This is critical for multi-user security - users
+// MUST NOT be able to access each other's OAuth tokens.
+func TestTokenStore_SessionIsolation(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	// Simulate two different users with different session IDs
+	user1Session := "uuid-user1-session-abc123"
+	user2Session := "uuid-user2-session-def456"
+	commonIssuer := "https://auth.example.com"
+	commonScope := "openid profile"
+
+	// User 1 stores their token
+	user1Key := TokenKey{
+		SessionID: user1Session,
+		Issuer:    commonIssuer,
+		Scope:     commonScope,
+	}
+	user1Token := &Token{
+		AccessToken: "user1-secret-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      commonIssuer,
+		Scope:       commonScope,
+	}
+	ts.Store(user1Key, user1Token)
+
+	// User 2 stores their token (same issuer and scope, different session)
+	user2Key := TokenKey{
+		SessionID: user2Session,
+		Issuer:    commonIssuer,
+		Scope:     commonScope,
+	}
+	user2Token := &Token{
+		AccessToken: "user2-secret-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      commonIssuer,
+		Scope:       commonScope,
+	}
+	ts.Store(user2Key, user2Token)
+
+	// CRITICAL SECURITY CHECK: User 1 should only get their own token
+	retrievedUser1Token := ts.Get(user1Key)
+	if retrievedUser1Token == nil {
+		t.Fatal("User 1 should be able to retrieve their own token")
+	}
+	if retrievedUser1Token.AccessToken != "user1-secret-token" {
+		t.Errorf("User 1 got wrong token: expected user1-secret-token, got %s", retrievedUser1Token.AccessToken)
+	}
+
+	// CRITICAL SECURITY CHECK: User 2 should only get their own token
+	retrievedUser2Token := ts.Get(user2Key)
+	if retrievedUser2Token == nil {
+		t.Fatal("User 2 should be able to retrieve their own token")
+	}
+	if retrievedUser2Token.AccessToken != "user2-secret-token" {
+		t.Errorf("User 2 got wrong token: expected user2-secret-token, got %s", retrievedUser2Token.AccessToken)
+	}
+
+	// CRITICAL SECURITY CHECK: User 1's session should not retrieve User 2's token
+	wrongKey := TokenKey{
+		SessionID: user1Session,
+		Issuer:    commonIssuer,
+		Scope:     "different-scope", // Even with same issuer, different scope = no token
+	}
+	if ts.Get(wrongKey) != nil {
+		t.Error("Should not get token for non-matching scope")
+	}
+
+	// CRITICAL SECURITY CHECK: GetByIssuer respects session boundaries
+	user1IssuerToken := ts.GetByIssuer(user1Session, commonIssuer)
+	if user1IssuerToken == nil || user1IssuerToken.AccessToken != "user1-secret-token" {
+		t.Error("GetByIssuer should return User 1's token for User 1's session")
+	}
+
+	user2IssuerToken := ts.GetByIssuer(user2Session, commonIssuer)
+	if user2IssuerToken == nil || user2IssuerToken.AccessToken != "user2-secret-token" {
+		t.Error("GetByIssuer should return User 2's token for User 2's session")
+	}
+
+	// CRITICAL: Verify token count (exactly 2 tokens, one per user)
+	if ts.Count() != 2 {
+		t.Errorf("Expected exactly 2 tokens (one per user), got %d", ts.Count())
+	}
+}
