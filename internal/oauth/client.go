@@ -19,7 +19,8 @@ import (
 
 // metadataCacheTTL is the time-to-live for cached OAuth metadata.
 // After this duration, metadata will be re-fetched from the issuer.
-const metadataCacheTTL = 1 * time.Hour
+// A 30-minute TTL balances caching efficiency with timely key rotation updates.
+const metadataCacheTTL = 30 * time.Minute
 
 // metadataCacheEntry holds cached OAuth metadata with its timestamp.
 type metadataCacheEntry struct {

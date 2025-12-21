@@ -185,3 +185,57 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 		}
 	}
 }
+
+func TestHandler_SecurityHeaders(t *testing.T) {
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/callback")
+	defer client.Stop()
+
+	handler := NewHandler(client)
+
+	tests := []struct {
+		name      string
+		render    func(w http.ResponseWriter)
+		headerMap map[string]string
+	}{
+		{
+			name: "success page has security headers",
+			render: func(w http.ResponseWriter) {
+				handler.renderSuccessPage(w, "test-server")
+			},
+			headerMap: map[string]string{
+				"X-Content-Type-Options":  "nosniff",
+				"X-Frame-Options":         "DENY",
+				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+				"Referrer-Policy":         "no-referrer",
+				"Cache-Control":           "no-store, no-cache, must-revalidate",
+			},
+		},
+		{
+			name: "error page has security headers",
+			render: func(w http.ResponseWriter) {
+				handler.renderErrorPage(w, "test error")
+			},
+			headerMap: map[string]string{
+				"X-Content-Type-Options":  "nosniff",
+				"X-Frame-Options":         "DENY",
+				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+				"Referrer-Policy":         "no-referrer",
+				"Cache-Control":           "no-store, no-cache, must-revalidate",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			tc.render(rr)
+
+			for header, expectedValue := range tc.headerMap {
+				actualValue := rr.Header().Get(header)
+				if actualValue != expectedValue {
+					t.Errorf("Expected header %q to be %q, got %q", header, expectedValue, actualValue)
+				}
+			}
+		})
+	}
+}

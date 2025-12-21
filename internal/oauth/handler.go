@@ -84,8 +84,19 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	h.renderSuccessPage(w, state.ServerName)
 }
 
+// setSecurityHeaders sets recommended security headers for HTML responses.
+// These headers help prevent XSS, clickjacking, and MIME sniffing attacks.
+func setSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+}
+
 // renderSuccessPage renders an HTML page indicating successful authentication.
 func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
+	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
@@ -173,6 +184,7 @@ func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
 
 // renderErrorPage renders an HTML page indicating an authentication error.
 func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
+	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
 

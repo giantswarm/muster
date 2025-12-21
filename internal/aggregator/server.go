@@ -1274,10 +1274,18 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 }
 
 // getSessionIDFromContext extracts the session ID from context.
-// Currently returns a default session ID. In the future, this should
-// be extracted from request headers set by the agent.
+// It first tries to get the session ID from the MCP client session,
+// and falls back to a default session ID if not available.
 func getSessionIDFromContext(ctx context.Context) string {
-	// TODO: Extract from X-Session-ID header or similar
-	// For now, return a default session ID
+	// Try to get session ID from MCP client session (set by mcp-go library)
+	if session := server.ClientSessionFromContext(ctx); session != nil {
+		sessionID := session.SessionID()
+		if sessionID != "" {
+			return sessionID
+		}
+	}
+
+	// Fall back to default session ID for non-HTTP contexts (e.g., stdio)
+	// This is acceptable for single-user deployments
 	return "default-session"
 }
