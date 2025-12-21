@@ -73,13 +73,24 @@ type ServerInfo struct {
 	// This is used for name collision resolution.
 	ToolPrefix string
 
+	// URL is the server endpoint URL (for remote servers)
+	URL string
+
+	// Status indicates the server's connection/authentication status.
+	// Can be connected, disconnected, or auth_required.
+	Status ServerStatus
+
+	// AuthInfo contains OAuth information if authentication is required.
+	// This is populated when a 401 is received during initialization.
+	AuthInfo *AuthInfo
+
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
 	mu        sync.RWMutex
 	Tools     []mcp.Tool     // Cached list of available tools
 	Resources []mcp.Resource // Cached list of available resources
 	Prompts   []mcp.Prompt   // Cached list of available prompts
-	Connected bool           // Current connection status
+	Connected bool           // Current connection status (deprecated, use Status)
 }
 
 // UpdateTools safely updates the server's cached tool list.
@@ -210,4 +221,56 @@ type ToolWithStatus struct {
 	// Blocked indicates whether this tool is blocked by the security denylist.
 	// Blocked tools cannot be executed unless the Yolo flag is enabled.
 	Blocked bool
+}
+
+// ServerStatus represents the connection status of a server
+type ServerStatus string
+
+const (
+	// StatusConnected indicates the server is connected and operational
+	StatusConnected ServerStatus = "connected"
+
+	// StatusDisconnected indicates the server is disconnected
+	StatusDisconnected ServerStatus = "disconnected"
+
+	// StatusAuthRequired indicates the server requires OAuth authentication
+	// before it can complete the MCP protocol handshake
+	StatusAuthRequired ServerStatus = "auth_required"
+)
+
+// AuthInfo contains OAuth authentication information extracted from
+// a 401 response during MCP server initialization.
+type AuthInfo struct {
+	// Issuer is the OAuth issuer URL (from WWW-Authenticate realm)
+	Issuer string
+
+	// Scope is the OAuth scope required by the server
+	Scope string
+
+	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
+	ResourceMetadataURL string
+}
+
+// AuthRequiredError is returned when an MCP server requires OAuth authentication
+// before the protocol handshake can complete. This error contains the information
+// needed to initiate the OAuth flow.
+type AuthRequiredError struct {
+	// ServerName is the name of the server requiring authentication
+	ServerName string
+
+	// AuthInfo contains the OAuth parameters extracted from the 401 response
+	AuthInfo AuthInfo
+
+	// Err is the underlying error
+	Err error
+}
+
+// Error implements the error interface
+func (e *AuthRequiredError) Error() string {
+	return "authentication required for server " + e.ServerName
+}
+
+// Unwrap returns the underlying error
+func (e *AuthRequiredError) Unwrap() error {
+	return e.Err
 }

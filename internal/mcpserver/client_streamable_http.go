@@ -3,6 +3,10 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"strings"
+
+	"muster/internal/oauth"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -76,6 +80,13 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	})
 	if err != nil {
 		mcpClient.Close()
+
+		// Check if this is a 401 authentication error
+		if authErr := c.checkForAuthRequiredError(err); authErr != nil {
+			logging.Debug("StreamableHTTPClient", "Authentication required for URL: %s", c.url)
+			return authErr
+		}
+
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
 
@@ -86,6 +97,64 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 
 	return nil
+}
+
+// checkForAuthRequiredError examines an error to determine if it's a 401 authentication
+// required error. If so, it returns an AuthRequiredError with parsed OAuth parameters.
+func (c *StreamableHTTPClient) checkForAuthRequiredError(err error) *AuthRequiredError {
+	if err == nil {
+		return nil
+	}
+
+	errStr := err.Error()
+
+	// Check for 401 status code in the error message
+	// The mcp-go library returns errors like "request failed with status 401: ..."
+	if !strings.Contains(errStr, "401") &&
+		!strings.Contains(errStr, http.StatusText(http.StatusUnauthorized)) {
+		return nil
+	}
+
+	// Extract WWW-Authenticate header information if available
+	// The error message may contain JSON with OAuth information
+	authInfo := AuthInfo{}
+
+	// Try to parse any WWW-Authenticate-style information from the error
+	// Look for common OAuth indicators
+	if strings.Contains(errStr, "Bearer") {
+		// Try to extract realm/issuer from error message
+		authInfo = c.parseAuthInfoFromError(errStr)
+	}
+
+	return &AuthRequiredError{
+		URL:      c.url,
+		AuthInfo: authInfo,
+		Err:      fmt.Errorf("server returned 401 Unauthorized"),
+	}
+}
+
+// parseAuthInfoFromError attempts to extract OAuth information from an error message.
+// This is a best-effort parse since we can't directly access HTTP response headers.
+func (c *StreamableHTTPClient) parseAuthInfoFromError(errStr string) AuthInfo {
+	info := AuthInfo{}
+
+	// Try to parse as WWW-Authenticate header format if present
+	// The error might contain the raw header value
+	if idx := strings.Index(errStr, "Bearer"); idx >= 0 {
+		headerPart := errStr[idx:]
+		// Find the end of the Bearer challenge
+		if endIdx := strings.Index(headerPart, "\n"); endIdx > 0 {
+			headerPart = headerPart[:endIdx]
+		}
+		params := oauth.ParseWWWAuthenticate(headerPart)
+		if params != nil {
+			info.Issuer = params.Realm
+			info.Scope = params.Scope
+			info.ResourceMetadataURL = params.ResourceMetadataURL
+		}
+	}
+
+	return info
 }
 
 // Close cleanly shuts down the client connection

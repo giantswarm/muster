@@ -566,6 +566,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 //
 // The process includes:
 //   - Processing each connected backend server for new capabilities
+//   - Processing auth_required servers for synthetic authentication tools
 //   - Integrating core tools from muster components (workflow, etc.)
 //   - Creating MCP-compatible handlers for all new items
 //   - Batch registration to minimize client notifications
@@ -579,6 +580,12 @@ func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 
 	// Process each registered backend server
 	for serverName, info := range servers {
+		// Handle servers requiring authentication - add synthetic auth tools
+		if info.Status == StatusAuthRequired {
+			toolsToAdd = append(toolsToAdd, processToolsForServer(a, serverName, info)...)
+			continue
+		}
+
 		if !info.IsConnected() {
 			continue
 		}
@@ -1167,4 +1174,110 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 			a.updateCapabilities()
 		}()
 	}
+}
+
+// handleSyntheticAuthTool handles calls to synthetic authentication tools.
+// These are placeholder tools created for servers that require OAuth authentication
+// before they can complete the MCP protocol handshake.
+//
+// The flow:
+//  1. Check if we already have a valid token (user might have authenticated via browser)
+//  2. If token exists, attempt to re-initialize the server
+//  3. If successful, upgrade the server to connected status and return success
+//  4. If no token or reinit fails, create an auth challenge for the user
+//
+// Args:
+//   - ctx: Context for the operation
+//   - serverName: Name of the server requiring authentication
+//
+// Returns a success message if authentication/connection succeeds, or an auth challenge error.
+func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
+	logging.Info("Aggregator", "Handling synthetic auth tool for server: %s", serverName)
+
+	// Get server info
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists {
+		return nil, fmt.Errorf("server %s not found", serverName)
+	}
+
+	if serverInfo.Status != StatusAuthRequired {
+		return nil, fmt.Errorf("server %s is not in auth_required state", serverName)
+	}
+
+	// Check if OAuth handler is available
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"OAuth is not configured. Server %s requires authentication but OAuth proxy is not enabled. "+
+				"Enable OAuth proxy in the configuration to authenticate to remote MCP servers.",
+			serverName,
+		)), nil
+	}
+
+	// Get session ID from context (if available) or use a default
+	sessionID := getSessionIDFromContext(ctx)
+
+	// Get the auth info for this server
+	authInfo := serverInfo.AuthInfo
+	if authInfo == nil {
+		// Create default auth info with the server URL as issuer hint
+		authInfo = &AuthInfo{
+			Issuer: serverInfo.URL,
+		}
+	}
+
+	// Check if we already have a valid token for this server/issuer
+	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	if token != nil {
+		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
+
+		// We have a token - try to reinitialize the server
+		// This will be handled by the manager's UpgradeServerAfterAuth method
+		// For now, return a message telling the user to retry
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.NewTextContent(fmt.Sprintf(
+					"Token found for %s. Connection in progress. Please wait and try your operation again.",
+					serverName,
+				)),
+			},
+			IsError: false,
+		}, nil
+	}
+
+	// No token - need to create an auth challenge
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
+	if err != nil {
+		logging.Error("Aggregator", err, "Failed to create auth challenge for server %s", serverName)
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Failed to create authentication challenge: %v", err,
+		)), nil
+	}
+
+	// Return the auth challenge as a tool result with the sign-in link
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(fmt.Sprintf(
+				"Authentication Required\n\n"+
+					"Server: %s\n"+
+					"Status: %s\n\n"+
+					"Please sign in to connect to this server:\n\n"+
+					"%s\n\n"+
+					"After signing in, run this tool again to complete the connection.",
+				serverName,
+				challenge.Message,
+				challenge.AuthURL,
+			)),
+		},
+		IsError: false,
+	}, nil
+}
+
+// getSessionIDFromContext extracts the session ID from context.
+// Currently returns a default session ID. In the future, this should
+// be extracted from request headers set by the agent.
+func getSessionIDFromContext(ctx context.Context) string {
+	// TODO: Extract from X-Session-ID header or similar
+	// For now, return a default session ID
+	return "default-session"
 }

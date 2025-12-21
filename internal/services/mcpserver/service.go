@@ -41,6 +41,10 @@ func NewService(definition *api.MCPServer) (*Service, error) {
 
 // Start starts the MCP server service by creating and initializing the MCP client
 // The client handles both process startup and MCP protocol initialization
+//
+// If the server requires OAuth authentication, this method will return an
+// AuthRequiredError containing the OAuth information. The caller should handle
+// this by registering the server in auth_required state with a synthetic tool.
 func (s *Service) Start(ctx context.Context) error {
 	if s.IsRunning() {
 		return fmt.Errorf("service %s is already running", s.GetName())
@@ -54,6 +58,20 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Create and initialize the MCP client (this starts the process AND establishes MCP communication)
 	if err := s.createAndInitializeClient(ctx); err != nil {
+		// Check if this is an auth required error - this is a special case
+		// where the server exists but needs OAuth before it can connect
+		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
+			// Don't mark as failed - the server exists, just needs auth
+			s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
+			s.LogInfo("MCP server requires authentication")
+			// Generate auth required event
+			s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{
+				Error: "authentication required",
+			})
+			// Return the auth error for the caller to handle
+			return authErr
+		}
+
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
 		// Generate failure event
 		s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
@@ -318,6 +336,9 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 //
 // Note: This method assumes ValidateConfiguration() has already been called.
 // It does not perform redundant validation checks.
+//
+// If the server returns a 401 during initialization, an AuthRequiredError is returned
+// containing OAuth information that can be used to initiate the authentication flow.
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
@@ -352,6 +373,12 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 
 	// Initialize the client
 	if err := client.Initialize(initCtx); err != nil {
+		// Check if this is an authentication required error
+		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
+			s.LogInfo("Server %s requires authentication (401)", s.GetName())
+			// Return the auth error directly so the caller can handle it
+			return authErr
+		}
 		return fmt.Errorf("failed to initialize %s MCP client: %w", s.definition.Type, err)
 	}
 

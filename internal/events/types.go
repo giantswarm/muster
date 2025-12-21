@@ -68,6 +68,9 @@ const (
 
 	// ReasonMCPServerRecoveryFailed indicates automatic recovery failed for an MCPServer.
 	ReasonMCPServerRecoveryFailed EventReason = "MCPServerRecoveryFailed"
+
+	// ReasonMCPServerAuthRequired indicates an MCPServer requires OAuth authentication.
+	ReasonMCPServerAuthRequired EventReason = "MCPServerAuthRequired"
 )
 
 // ServiceClass event reasons

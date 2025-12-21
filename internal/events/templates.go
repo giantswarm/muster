@@ -45,6 +45,7 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonMCPServerRecoveryStarted] = "MCPServer {{.Name}} automatic recovery process started"
 	e.templates[ReasonMCPServerRecoverySucceeded] = "MCPServer {{.Name}} automatic recovery completed successfully"
 	e.templates[ReasonMCPServerRecoveryFailed] = "MCPServer {{.Name}} automatic recovery failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonMCPServerAuthRequired] = "MCPServer {{.Name}} requires OAuth authentication to connect"
 
 	// ServiceClass templates
 	e.templates[ReasonServiceClassCreated] = "ServiceClass {{.Name}} successfully created in namespace {{.Namespace}}"

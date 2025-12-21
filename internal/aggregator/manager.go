@@ -308,6 +308,9 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 // service architecture guarantees that running+healthy services have ready
 // MCP clients, this method can safely extract and use the client immediately.
 //
+// If the server returns a 401 during initialization, the method will register
+// the server in auth_required state with a synthetic authentication tool.
+//
 // Args:
 //   - ctx: Context for the registration operation
 //   - serverName: Unique name of the server to register
@@ -347,6 +350,58 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	}
 
 	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s with prefix %s", serverName, toolPrefix)
+	return nil
+}
+
+// RegisterServerPendingAuth registers a server that requires authentication.
+// This creates a placeholder with a synthetic auth tool that users can call
+// to initiate the OAuth flow.
+//
+// Args:
+//   - serverName: Unique name of the server
+//   - url: The server endpoint URL
+//   - toolPrefix: Server-specific prefix for tools
+//   - authInfo: OAuth information from the 401 response
+//
+// Returns an error if registration fails.
+func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if am.aggregatorServer == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	return am.aggregatorServer.GetRegistry().RegisterPendingAuth(serverName, url, toolPrefix, authInfo)
+}
+
+// UpgradeServerAfterAuth upgrades a pending auth server to connected status
+// after successful OAuth authentication. This is called when the OAuth callback
+// is received and a token is available.
+//
+// Args:
+//   - ctx: Context for the operation
+//   - serverName: Name of the server to upgrade
+//   - client: The newly authenticated MCP client
+//
+// Returns an error if upgrade fails.
+func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverName string, client MCPClient) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if am.aggregatorServer == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	err := am.aggregatorServer.GetRegistry().UpgradeToConnected(ctx, serverName, client)
+	if err != nil {
+		return err
+	}
+
+	// Trigger capability update to register the real tools
+	am.aggregatorServer.UpdateCapabilities()
+
+	logging.Info("Aggregator-Manager", "Server %s upgraded to connected after OAuth authentication", serverName)
 	return nil
 }
 
