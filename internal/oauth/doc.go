@@ -19,15 +19,39 @@
 // # Components
 //
 //   - TokenStore: In-memory storage for OAuth tokens, indexed by session and issuer
-//   - SessionManager: Manages user sessions and links them to token storage
-//   - OAuthClient: Handles OAuth flows, code exchange, and token refresh
-//   - CallbackHandler: HTTP handler for the /oauth/callback endpoint
+//   - StateStore: Manages OAuth state parameters for CSRF protection
+//   - Client: Handles OAuth flows, code exchange, and token refresh
+//   - Handler: HTTP handler for the /oauth/callback endpoint
+//   - Manager: Coordinates OAuth flows and integrates with the aggregator
 //
 // # Security
 //
-// Tokens are stored in memory on the server and never sent to the Muster Agent.
-// Sessions are linked via a session ID header (X-Muster-Session-ID) that the Agent
-// generates on startup.
+// ## Token Storage
+//
+// Tokens are stored in-memory only and are never persisted to disk. This means:
+//   - Tokens are lost when the Muster Server restarts
+//   - Users must re-authenticate after a restart
+//   - No encryption-at-rest is needed since tokens exist only in process memory
+//
+// For persistent token storage in future versions, encryption would be required.
+//
+// ## Session Isolation
+//
+// Each MCP connection (SSE or Streamable HTTP) receives a unique UUID-based session ID
+// from the mcp-go library. Tokens are stored with a composite key of (SessionID, Issuer, Scope),
+// ensuring complete isolation between users. User A cannot access User B's tokens.
+//
+// For stdio transport (single-user CLI), a default session ID is used. This is acceptable
+// since stdio is inherently single-user (one process = one user).
+//
+// ## TLS Requirements
+//
+// Production deployments MUST use HTTPS for:
+//   - The Muster Server's public URL (for OAuth callbacks)
+//   - All OAuth issuer URLs (for metadata and token endpoints)
+//
+// TLS provides the integrity and authenticity guarantees that protect OAuth flows
+// from man-in-the-middle attacks.
 //
 // # SSO Support
 //

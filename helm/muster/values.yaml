@@ -150,6 +150,11 @@ muster:
   # When enabled, Muster Server acts as an OAuth client proxy,
   # handling authentication flows on behalf of users without exposing
   # sensitive tokens to the Muster Agent.
+  #
+  # SECURITY NOTES:
+  # - Tokens are stored in-memory only and are lost on pod restart
+  # - Each MCP connection gets a unique session ID for token isolation
+  # - TLS is required for production deployments to protect OAuth flows
   oauth:
     # Enable OAuth proxy functionality
     enabled: false
@@ -157,12 +162,16 @@ muster:
     # Publicly accessible URL of the Muster Server
     # This is used to construct OAuth callback URLs.
     # Example: "https://muster.example.com"
-    # Required when OAuth is enabled.
+    # Required when OAuth is enabled. Must be HTTPS for production.
     publicUrl: ""
 
     # OAuth client identifier (Client ID Metadata Document URL)
     # This should be the URL of your CIMD file.
-    # Default uses the Giant Swarm hosted CIMD.
+    #
+    # IMPORTANT: The default Giant Swarm CIMD has a fixed redirect URI
+    # (https://muster.giantswarm.io/oauth/callback). For custom deployments,
+    # you must host your own CIMD file with your deployment's redirect URI.
+    # See the README for details on creating a custom CIMD.
     clientId: "https://giantswarm.github.io/muster/oauth-client.json"
 
     # Path for the OAuth callback endpoint

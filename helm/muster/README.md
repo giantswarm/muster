@@ -122,6 +122,29 @@ When a remote MCP server returns a 401, Muster will:
 2. When called, return an authorization URL for the user to visit
 3. After browser authentication, store the token and allow the user to retry
 
+#### OAuth Client ID (CIMD) Configuration
+
+The default `clientId` points to the Giant Swarm hosted [Client ID Metadata Document (CIMD)](https://giantswarm.github.io/muster/oauth-client.json), which has a fixed redirect URI of `https://muster.giantswarm.io/oauth/callback`. This works for deployments at that domain.
+
+**For custom deployments**, you have two options:
+
+1. **Host your own CIMD file** with your deployment's redirect URI:
+   ```json
+   {
+     "client_id": "https://your-domain.com/oauth-client.json",
+     "client_name": "Muster MCP Aggregator",
+     "redirect_uris": ["https://your-domain.com/oauth/callback"],
+     "grant_types": ["authorization_code", "refresh_token"],
+     "response_types": ["code"],
+     "token_endpoint_auth_method": "none"
+   }
+   ```
+   Then set `clientId` to your CIMD URL.
+
+2. **Use an IdP with dynamic client registration** (RFC 7591) that accepts new redirect URIs at runtime.
+
+Note: The Identity Provider must trust the CIMD URL and allow the specified redirect URI.
+
 ### CiliumNetworkPolicy
 
 For clusters using Cilium:

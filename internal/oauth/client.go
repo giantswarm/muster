@@ -22,6 +22,11 @@ import (
 // metadataCacheTTL is the time-to-live for cached OAuth metadata.
 // After this duration, metadata will be re-fetched from the issuer.
 // A 30-minute TTL balances caching efficiency with timely key rotation updates.
+//
+// SECURITY: OAuth metadata is fetched over HTTPS and cached without signature validation.
+// This is acceptable because TLS provides integrity and authenticity guarantees.
+// Production deployments MUST use HTTPS for issuer URLs to prevent MITM attacks
+// that could redirect token exchanges to malicious endpoints.
 const metadataCacheTTL = 30 * time.Minute
 
 // metadataCacheEntry holds cached OAuth metadata with its timestamp.

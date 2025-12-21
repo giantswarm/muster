@@ -1332,6 +1332,10 @@ func discoverAuthorizationServer(ctx context.Context, serverURL string) (string,
 	return metadata.AuthorizationServers[0], nil
 }
 
+// defaultSessionID is used for stdio transport which is inherently single-user.
+// This constant is used to identify tokens stored for the default session.
+const defaultSessionID = "default-session"
+
 // getSessionIDFromContext extracts the session ID from context.
 // It retrieves the session ID from the MCP client session which is set by the mcp-go library.
 //
@@ -1357,6 +1361,7 @@ func getSessionIDFromContext(ctx context.Context) string {
 	// This is a security limitation for stdio which is inherently single-user.
 	// For HTTP transports (SSE/Streamable HTTP), the mcp-go library always provides
 	// a unique session ID, so this fallback should only trigger for stdio.
-	logging.Debug("OAuth", "No MCP session in context, using default session (stdio mode)")
-	return "default-session"
+	logging.Warn("OAuth", "No MCP session in context, using default session (stdio mode). "+
+		"Token isolation is not enforced for stdio transport.")
+	return defaultSessionID
 }
