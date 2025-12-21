@@ -197,22 +197,3 @@ func TestOAuthConfig_GetRedirectURI(t *testing.T) {
 		})
 	}
 }
-
-func TestTrimTrailingSlash(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"https://example.com/", "https://example.com"},
-		{"https://example.com", "https://example.com"},
-		{"/", ""},
-		{"", ""},
-	}
-
-	for _, tc := range tests {
-		result := trimTrailingSlash(tc.input)
-		if result != tc.expected {
-			t.Errorf("trimTrailingSlash(%q) = %q, expected %q", tc.input, result, tc.expected)
-		}
-	}
-}

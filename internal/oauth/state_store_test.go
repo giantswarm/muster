@@ -213,3 +213,17 @@ func TestStateStore_UniqueNonces(t *testing.T) {
 		nonces[nonce] = true
 	}
 }
+
+func TestStateStore_Cleanup(t *testing.T) {
+	ss := NewStateStore()
+	defer ss.Stop()
+
+	// Generate a state
+	_, err := ss.GenerateState("session", "server", "https://issuer.com", "verifier")
+	if err != nil {
+		t.Fatalf("Failed to generate state: %v", err)
+	}
+
+	// Call cleanup directly - since no states are expired, nothing should happen
+	ss.cleanup()
+}

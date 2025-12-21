@@ -390,3 +390,62 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 		t.Errorf("Expected exactly 2 tokens (one per user), got %d", ts.Count())
 	}
 }
+
+func TestTokenStore_Cleanup(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	// Store a token
+	key := TokenKey{
+		SessionID: "session-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
+	}
+	token := &Token{
+		AccessToken: "access-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      "https://auth.example.com",
+	}
+	ts.Store(key, token)
+
+	// Call cleanup directly - since no tokens are expired, nothing should happen
+	ts.cleanup()
+
+	// Token should still exist
+	if ts.Get(key) == nil {
+		t.Error("Non-expired token should still exist after cleanup")
+	}
+}
+
+func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	// Store an expired token
+	key := TokenKey{
+		SessionID: "session-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
+	}
+	token := &Token{
+		AccessToken: "expired-token",
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(-time.Hour), // Expired an hour ago
+		Issuer:      "https://auth.example.com",
+	}
+	ts.Store(key, token)
+
+	// Verify token was stored (but Get will return nil because it's expired)
+	if ts.Count() != 1 {
+		t.Errorf("Expected 1 token stored, got %d", ts.Count())
+	}
+
+	// Call cleanup - should remove the expired token
+	ts.cleanup()
+
+	// Token should be removed
+	if ts.Count() != 0 {
+		t.Errorf("Expected 0 tokens after cleanup, got %d", ts.Count())
+	}
+}

@@ -29,6 +29,14 @@ import (
 // that could redirect token exchanges to malicious endpoints.
 const metadataCacheTTL = 30 * time.Minute
 
+// httpClientTimeout is the timeout for HTTP requests made by the OAuth client.
+// This applies to token exchange, token refresh, and metadata fetch operations.
+const httpClientTimeout = 30 * time.Second
+
+// softwareVersion is the version string reported in the Client ID Metadata Document.
+// This is informational only and helps identify the muster version during OAuth debugging.
+const softwareVersion = "1.0.0"
+
 // metadataCacheEntry holds cached OAuth metadata with its timestamp.
 type metadataCacheEntry struct {
 	metadata  *OAuthMetadata
@@ -65,7 +73,7 @@ func NewClient(clientID, publicURL, callbackPath string) *Client {
 		callbackPath:  callbackPath,
 		tokenStore:    NewTokenStore(),
 		stateStore:    NewStateStore(),
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		httpClient:    &http.Client{Timeout: httpClientTimeout},
 		metadataCache: make(map[string]*metadataCacheEntry),
 	}
 }

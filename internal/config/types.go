@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
@@ -80,7 +82,7 @@ func (c *OAuthConfig) GetEffectiveClientID() string {
 		if cimdPath == "" {
 			cimdPath = DefaultOAuthCIMDPath
 		}
-		return trimTrailingSlash(c.PublicURL) + cimdPath
+		return strings.TrimSuffix(c.PublicURL, "/") + cimdPath
 	}
 
 	// Fall back to default
@@ -105,7 +107,7 @@ func (c *OAuthConfig) ShouldServeCIMD() bool {
 	if cimdPath == "" {
 		cimdPath = DefaultOAuthCIMDPath
 	}
-	autoClientID := trimTrailingSlash(c.PublicURL) + cimdPath
+	autoClientID := strings.TrimSuffix(c.PublicURL, "/") + cimdPath
 	return c.ClientID == autoClientID
 }
 
@@ -123,13 +125,5 @@ func (c *OAuthConfig) GetRedirectURI() string {
 	if callbackPath == "" {
 		callbackPath = DefaultOAuthCallbackPath
 	}
-	return trimTrailingSlash(c.PublicURL) + callbackPath
-}
-
-// trimTrailingSlash removes a trailing slash from a URL.
-func trimTrailingSlash(s string) string {
-	if len(s) > 0 && s[len(s)-1] == '/' {
-		return s[:len(s)-1]
-	}
-	return s
+	return strings.TrimSuffix(c.PublicURL, "/") + callbackPath
 }

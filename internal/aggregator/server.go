@@ -749,9 +749,8 @@ func (a *AggregatorServer) GetToolsWithStatus() []ToolWithStatus {
 	for _, tool := range tools {
 		// Resolve the tool to get the original name for accurate denylist checking
 		var originalName string
-		if serverName, origName, err := a.registry.ResolveToolName(tool.Name); err == nil {
+		if _, origName, err := a.registry.ResolveToolName(tool.Name); err == nil {
 			originalName = origName
-			_ = serverName // unused in this context
 		} else {
 			// If we can't resolve, use the exposed name as fallback
 			originalName = tool.Name
@@ -1180,11 +1179,10 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 	// Handle workflow tool updates by refreshing capabilities
 	if event.ServerName == "workflow-manager" && strings.HasPrefix(event.Type, "workflow_") {
 		logging.Info("Aggregator", "Refreshing capabilities due to workflow tool update: %s", event.Type)
-		go func() {
-			// Small delay to ensure workflow manager has released its mutex
-			time.Sleep(10 * time.Millisecond)
-			a.updateCapabilities()
-		}()
+		// Execute asynchronously to avoid blocking the event publisher and to ensure
+		// the publisher has completed its operation before we query it for tools.
+		// The goroutine scheduling provides the necessary separation without explicit delays.
+		go a.updateCapabilities()
 	}
 }
 

@@ -190,7 +190,7 @@ func (h *Handler) ServeCIMD(w http.ResponseWriter, r *http.Request) {
 		TokenEndpointAuthMethod: "none",
 		Scope:                   "openid profile email",
 		SoftwareID:              "giantswarm-muster",
-		SoftwareVersion:         "1.0.0",
+		SoftwareVersion:         softwareVersion,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -13,6 +13,10 @@ const tokenExpiryMargin = 30 * time.Second
 
 // TokenStore provides thread-safe in-memory storage for OAuth tokens.
 // Tokens are indexed by session ID, issuer, and scope to support SSO.
+//
+// IMPORTANT: TokenStore starts a background goroutine for cleanup. Callers MUST
+// call Stop() when done to prevent goroutine leaks. Typically this is done via
+// defer after creating the store, or in a shutdown hook for long-lived stores.
 type TokenStore struct {
 	mu     sync.RWMutex
 	tokens map[TokenKey]*Token

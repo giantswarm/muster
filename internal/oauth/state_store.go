@@ -13,6 +13,10 @@ import (
 // StateStore provides thread-safe storage for OAuth state parameters.
 // State parameters are used to link OAuth callbacks to original requests
 // and provide CSRF protection.
+//
+// IMPORTANT: StateStore starts a background goroutine for cleanup. Callers MUST
+// call Stop() when done to prevent goroutine leaks. Typically this is done via
+// defer after creating the store, or in a shutdown hook for long-lived stores.
 type StateStore struct {
 	mu     sync.RWMutex
 	states map[string]*OAuthState
