@@ -302,6 +302,28 @@
         "debug": {
           "type": "boolean",
           "description": "Enable debug logging"
+        },
+        "oauth": {
+          "type": "object",
+          "description": "OAuth proxy configuration for remote MCP server authentication",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable OAuth proxy functionality"
+            },
+            "publicUrl": {
+              "type": "string",
+              "description": "Publicly accessible URL of the Muster Server for OAuth callbacks"
+            },
+            "clientId": {
+              "type": "string",
+              "description": "OAuth client identifier (CIMD URL)"
+            },
+            "callbackPath": {
+              "type": "string",
+              "description": "Path for the OAuth callback endpoint"
+            }
+          }
         }
       }
     },

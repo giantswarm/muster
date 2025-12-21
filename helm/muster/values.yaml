@@ -146,6 +146,28 @@ muster:
   # Enable debug logging
   debug: false
 
+  # OAuth Proxy configuration for remote MCP server authentication
+  # When enabled, Muster Server acts as an OAuth client proxy,
+  # handling authentication flows on behalf of users without exposing
+  # sensitive tokens to the Muster Agent.
+  oauth:
+    # Enable OAuth proxy functionality
+    enabled: false
+
+    # Publicly accessible URL of the Muster Server
+    # This is used to construct OAuth callback URLs.
+    # Example: "https://muster.example.com"
+    # Required when OAuth is enabled.
+    publicUrl: ""
+
+    # OAuth client identifier (Client ID Metadata Document URL)
+    # This should be the URL of your CIMD file.
+    # Default uses the Giant Swarm hosted CIMD.
+    clientId: "https://giantswarm.github.io/muster/oauth-client.json"
+
+    # Path for the OAuth callback endpoint
+    callbackPath: "/oauth/callback"
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions

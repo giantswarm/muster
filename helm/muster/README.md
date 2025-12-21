@@ -41,6 +41,10 @@ helm install muster ./helm/muster
 | `muster.aggregator.transport` | MCP transport (streamable-http, sse) | `streamable-http` |
 | `muster.namespace` | Namespace for CRD discovery | Release namespace |
 | `muster.debug` | Enable debug logging | `false` |
+| `muster.oauth.enabled` | Enable OAuth proxy for remote MCP auth | `false` |
+| `muster.oauth.publicUrl` | Public URL for OAuth callbacks | `""` |
+| `muster.oauth.clientId` | OAuth client ID (CIMD URL) | Giant Swarm hosted |
+| `muster.oauth.callbackPath` | OAuth callback endpoint path | `/oauth/callback` |
 | `rbac.create` | Create RBAC resources | `true` |
 | `rbac.profile` | RBAC profile (minimal, readonly, standard) | `standard` |
 | `crds.install` | Install CRDs with the chart | `true` |
@@ -90,6 +94,33 @@ ingress:
       hosts:
         - muster.example.com
 ```
+
+### OAuth Proxy for Remote MCP Servers
+
+When connecting to remote MCP servers that require authentication (e.g., `mcp-kubernetes`), you can enable the OAuth proxy. This allows Muster to handle OAuth flows on behalf of users without exposing sensitive tokens to the Muster Agent.
+
+```yaml
+muster:
+  oauth:
+    enabled: true
+    publicUrl: "https://muster.example.com"  # Must be publicly accessible
+    clientId: "https://giantswarm.github.io/muster/oauth-client.json"
+    callbackPath: "/oauth/callback"
+
+# Ingress is required for OAuth callbacks
+ingress:
+  enabled: true
+  hosts:
+    - host: muster.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+```
+
+When a remote MCP server returns a 401, Muster will:
+1. Present a synthetic `authenticate_{servername}` tool to the user
+2. When called, return an authorization URL for the user to visit
+3. After browser authentication, store the token and allow the user to retry
 
 ### CiliumNetworkPolicy
 
