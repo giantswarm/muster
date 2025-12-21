@@ -85,6 +85,12 @@ func (c *Client) GetRedirectURI() string {
 	return strings.TrimSuffix(c.publicURL, "/") + c.callbackPath
 }
 
+// GetCIMDURL returns the URL where the Client ID Metadata Document is served.
+// This is derived from the clientID which is expected to be the CIMD URL.
+func (c *Client) GetCIMDURL() string {
+	return c.clientID
+}
+
 // GetToken retrieves a valid token for the given session and issuer.
 // Returns nil if no valid token exists.
 func (c *Client) GetToken(sessionID, issuer, scope string) *Token {

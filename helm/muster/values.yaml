@@ -160,22 +160,34 @@ muster:
     enabled: false
 
     # Publicly accessible URL of the Muster Server
-    # This is used to construct OAuth callback URLs.
+    # This is used to construct OAuth callback URLs and auto-generate the CIMD.
     # Example: "https://muster.example.com"
     # Required when OAuth is enabled. Must be HTTPS for production.
     publicUrl: ""
 
     # OAuth client identifier (Client ID Metadata Document URL)
-    # This should be the URL of your CIMD file.
+    # 
+    # SELF-HOSTED CIMD (Recommended):
+    # Leave this empty to let muster auto-generate and serve its own CIMD.
+    # The clientId will be automatically derived as {publicUrl}/.well-known/oauth-client.json
+    # and muster will serve the CIMD at that path with the correct redirect_uri.
+    # This eliminates the need for external static file hosting.
     #
-    # IMPORTANT: The default Giant Swarm CIMD has a fixed redirect URI
-    # (https://muster.giantswarm.io/oauth/callback). For custom deployments,
-    # you must host your own CIMD file with your deployment's redirect URI.
-    # See the README for details on creating a custom CIMD.
-    clientId: "https://giantswarm.github.io/muster/oauth-client.json"
+    # EXTERNAL CIMD:
+    # Set this to a URL of an externally hosted CIMD file if you prefer
+    # to manage the CIMD separately (e.g., on GitHub Pages or S3).
+    # The CIMD's redirect_uris must match your deployment's callback URL.
+    #
+    # Legacy default: "https://giantswarm.github.io/muster/oauth-client.json"
+    # (only works for muster.giantswarm.io deployments)
+    clientId: ""
 
     # Path for the OAuth callback endpoint
     callbackPath: "/oauth/callback"
+
+    # Path for serving the Client ID Metadata Document (CIMD)
+    # Only used when clientId is empty (self-hosted CIMD mode)
+    cimdPath: "/.well-known/oauth-client.json"
 
 # CRD installation
 crds:

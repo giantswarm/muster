@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -237,6 +238,135 @@ func TestHandler_SecurityHeaders(t *testing.T) {
 				if actualValue != expectedValue {
 					t.Errorf("Expected header %q to be %q, got %q", header, expectedValue, actualValue)
 				}
+			}
+		})
+	}
+}
+
+func TestHandler_ServeCIMD(t *testing.T) {
+	clientID := "https://muster.example.com/.well-known/oauth-client.json"
+	publicURL := "https://muster.example.com"
+	callbackPath := "/oauth/callback"
+
+	client := NewClient(clientID, publicURL, callbackPath)
+	defer client.Stop()
+
+	handler := NewHandler(client)
+
+	t.Run("successful CIMD response", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/.well-known/oauth-client.json", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeCIMD(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+		}
+
+		// Check content type
+		contentType := rr.Header().Get("Content-Type")
+		if contentType != "application/json" {
+			t.Errorf("Expected Content-Type application/json, got %q", contentType)
+		}
+
+		// Check CORS header
+		corsHeader := rr.Header().Get("Access-Control-Allow-Origin")
+		if corsHeader != "*" {
+			t.Errorf("Expected CORS header '*', got %q", corsHeader)
+		}
+
+		// Check cache header
+		cacheHeader := rr.Header().Get("Cache-Control")
+		if !strings.Contains(cacheHeader, "max-age=3600") {
+			t.Errorf("Expected Cache-Control with max-age=3600, got %q", cacheHeader)
+		}
+
+		// Parse and verify CIMD content
+		var cimd ClientMetadata
+		if err := json.NewDecoder(rr.Body).Decode(&cimd); err != nil {
+			t.Fatalf("Failed to decode CIMD: %v", err)
+		}
+
+		// Verify client_id
+		if cimd.ClientID != clientID {
+			t.Errorf("Expected client_id %q, got %q", clientID, cimd.ClientID)
+		}
+
+		// Verify redirect_uris
+		expectedRedirectURI := publicURL + callbackPath
+		if len(cimd.RedirectURIs) != 1 || cimd.RedirectURIs[0] != expectedRedirectURI {
+			t.Errorf("Expected redirect_uris [%q], got %v", expectedRedirectURI, cimd.RedirectURIs)
+		}
+
+		// Verify grant types
+		if len(cimd.GrantTypes) != 2 ||
+			cimd.GrantTypes[0] != "authorization_code" ||
+			cimd.GrantTypes[1] != "refresh_token" {
+			t.Errorf("Expected grant_types [authorization_code, refresh_token], got %v", cimd.GrantTypes)
+		}
+
+		// Verify response types
+		if len(cimd.ResponseTypes) != 1 || cimd.ResponseTypes[0] != "code" {
+			t.Errorf("Expected response_types [code], got %v", cimd.ResponseTypes)
+		}
+
+		// Verify token endpoint auth method
+		if cimd.TokenEndpointAuthMethod != "none" {
+			t.Errorf("Expected token_endpoint_auth_method 'none', got %q", cimd.TokenEndpointAuthMethod)
+		}
+
+		// Verify client name
+		if cimd.ClientName != "Muster MCP Aggregator" {
+			t.Errorf("Expected client_name 'Muster MCP Aggregator', got %q", cimd.ClientName)
+		}
+
+		// Verify software ID
+		if cimd.SoftwareID != "giantswarm-muster" {
+			t.Errorf("Expected software_id 'giantswarm-muster', got %q", cimd.SoftwareID)
+		}
+	})
+
+	t.Run("method not allowed for POST", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/.well-known/oauth-client.json", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeCIMD(rr, req)
+
+		if rr.Code != http.StatusMethodNotAllowed {
+			t.Errorf("Expected status %d, got %d", http.StatusMethodNotAllowed, rr.Code)
+		}
+	})
+}
+
+func TestClient_GetCIMDURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		clientID     string
+		publicURL    string
+		expectedCIMD string
+	}{
+		{
+			name:         "returns configured client ID as CIMD URL",
+			clientID:     "https://muster.example.com/.well-known/oauth-client.json",
+			publicURL:    "https://muster.example.com",
+			expectedCIMD: "https://muster.example.com/.well-known/oauth-client.json",
+		},
+		{
+			name:         "external CIMD URL",
+			clientID:     "https://giantswarm.github.io/muster/oauth-client.json",
+			publicURL:    "https://muster.example.com",
+			expectedCIMD: "https://giantswarm.github.io/muster/oauth-client.json",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient(tc.clientID, tc.publicURL, "/oauth/callback")
+			defer client.Stop()
+
+			cimdURL := client.GetCIMDURL()
+			if cimdURL != tc.expectedCIMD {
+				t.Errorf("Expected CIMD URL %q, got %q", tc.expectedCIMD, cimdURL)
 			}
 		})
 	}

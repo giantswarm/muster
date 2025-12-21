@@ -3,6 +3,7 @@ package oauth
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"html"
 	"html/template"
 	"net/http"
@@ -168,4 +169,39 @@ func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
 // ServeHTTP implements http.Handler for the OAuth handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.HandleCallback(w, r)
+}
+
+// ServeCIMD handles GET requests to serve the Client ID Metadata Document (CIMD).
+// This allows muster to self-host its own CIMD without requiring external static hosting.
+// The CIMD is dynamically generated from the OAuth configuration.
+func (h *Handler) ServeCIMD(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cimd := ClientMetadata{
+		ClientID:                h.client.GetCIMDURL(),
+		ClientName:              "Muster MCP Aggregator",
+		ClientURI:               "https://github.com/giantswarm/muster",
+		RedirectURIs:            []string{h.client.GetRedirectURI()},
+		GrantTypes:              []string{"authorization_code", "refresh_token"},
+		ResponseTypes:           []string{"code"},
+		TokenEndpointAuthMethod: "none",
+		Scope:                   "openid profile email",
+		SoftwareID:              "giantswarm-muster",
+		SoftwareVersion:         "1.0.0",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Header().Set("Access-Control-Allow-Origin", "*")      // Allow cross-origin requests
+
+	if err := json.NewEncoder(w).Encode(cimd); err != nil {
+		logging.Error("OAuth", err, "Failed to encode CIMD")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logging.Debug("OAuth", "Served CIMD for client_id=%s", cimd.ClientID)
 }

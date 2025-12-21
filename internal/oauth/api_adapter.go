@@ -86,6 +86,21 @@ func (a *Adapter) GetCallbackPath() string {
 	return a.manager.GetCallbackPath()
 }
 
+// GetCIMDPath returns the path for serving the CIMD.
+func (a *Adapter) GetCIMDPath() string {
+	return a.manager.GetCIMDPath()
+}
+
+// ShouldServeCIMD returns true if muster should serve its own CIMD.
+func (a *Adapter) ShouldServeCIMD() bool {
+	return a.manager.ShouldServeCIMD()
+}
+
+// GetCIMDHandler returns the HTTP handler for serving the CIMD.
+func (a *Adapter) GetCIMDHandler() http.HandlerFunc {
+	return a.manager.GetCIMDHandler()
+}
+
 // RegisterServer registers OAuth configuration for a remote MCP server.
 func (a *Adapter) RegisterServer(serverName, issuer, scope string) {
 	a.manager.RegisterServer(serverName, issuer, scope)

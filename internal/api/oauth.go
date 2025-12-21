@@ -36,6 +36,15 @@ type OAuthHandler interface {
 	// GetCallbackPath returns the configured callback path (e.g., "/oauth/callback").
 	GetCallbackPath() string
 
+	// GetCIMDPath returns the path for serving the CIMD (e.g., "/.well-known/oauth-client.json").
+	GetCIMDPath() string
+
+	// ShouldServeCIMD returns true if muster should serve its own CIMD.
+	ShouldServeCIMD() bool
+
+	// GetCIMDHandler returns the HTTP handler for serving the CIMD.
+	GetCIMDHandler() http.HandlerFunc
+
 	// RegisterServer registers OAuth configuration for a remote MCP server.
 	RegisterServer(serverName, issuer, scope string)
 

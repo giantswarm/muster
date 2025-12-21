@@ -40,7 +40,9 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 		return nil
 	}
 
-	client := NewClient(cfg.ClientID, cfg.PublicURL, cfg.CallbackPath)
+	// Use the effective client ID (auto-derived from PublicURL if not explicitly set)
+	effectiveClientID := cfg.GetEffectiveClientID()
+	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath)
 	handler := NewHandler(client)
 
 	m := &Manager{
@@ -50,8 +52,14 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 		serverConfigs: make(map[string]*AuthServerConfig),
 	}
 
-	logging.Info("OAuth", "OAuth manager initialized (publicURL=%s, clientID=%s)",
-		cfg.PublicURL, cfg.ClientID)
+	// Log whether we're serving our own CIMD
+	if cfg.ShouldServeCIMD() {
+		logging.Info("OAuth", "OAuth manager initialized with self-hosted CIMD (publicURL=%s, clientID=%s, cimdPath=%s)",
+			cfg.PublicURL, effectiveClientID, cfg.GetCIMDPath())
+	} else {
+		logging.Info("OAuth", "OAuth manager initialized with external CIMD (publicURL=%s, clientID=%s)",
+			cfg.PublicURL, effectiveClientID)
+	}
 
 	return m
 }
@@ -75,6 +83,30 @@ func (m *Manager) GetCallbackPath() string {
 		return ""
 	}
 	return m.config.CallbackPath
+}
+
+// GetCIMDPath returns the path for serving the CIMD.
+func (m *Manager) GetCIMDPath() string {
+	if m == nil {
+		return ""
+	}
+	return m.config.GetCIMDPath()
+}
+
+// ShouldServeCIMD returns true if muster should serve its own CIMD.
+func (m *Manager) ShouldServeCIMD() bool {
+	if m == nil {
+		return false
+	}
+	return m.config.ShouldServeCIMD()
+}
+
+// GetCIMDHandler returns the HTTP handler for serving the CIMD.
+func (m *Manager) GetCIMDHandler() http.HandlerFunc {
+	if m == nil || m.handler == nil {
+		return nil
+	}
+	return m.handler.ServeCIMD
 }
 
 // RegisterServer registers OAuth configuration for a remote MCP server.

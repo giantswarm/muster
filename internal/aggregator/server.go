@@ -659,13 +659,24 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
-	// Check if OAuth is enabled and mount the callback handler
+	// Check if OAuth is enabled and mount OAuth-related handlers
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() {
+		// Mount the OAuth callback handler
 		callbackPath := oauthHandler.GetCallbackPath()
 		if callbackPath != "" {
 			mux.Handle(callbackPath, oauthHandler.GetHTTPHandler())
 			logging.Info("Aggregator", "Mounted OAuth callback handler at %s", callbackPath)
+		}
+
+		// Mount the CIMD handler if self-hosting is enabled
+		if oauthHandler.ShouldServeCIMD() {
+			cimdPath := oauthHandler.GetCIMDPath()
+			cimdHandler := oauthHandler.GetCIMDHandler()
+			if cimdPath != "" && cimdHandler != nil {
+				mux.HandleFunc(cimdPath, cimdHandler)
+				logging.Info("Aggregator", "Mounted self-hosted CIMD at %s", cimdPath)
+			}
 		}
 	}
 
