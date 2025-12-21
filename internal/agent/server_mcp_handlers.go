@@ -248,6 +248,14 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 		return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: %v", err)), nil
 	}
 
+	// Check for authentication challenge
+	formatters := NewFormatters()
+	if challenge := formatters.IsAuthChallenge(result); challenge != nil {
+		// Format as a user-friendly authentication challenge
+		formattedChallenge := formatters.FormatAuthChallenge(challenge)
+		return mcp.NewToolResultText(formattedChallenge), nil
+	}
+
 	// Handle tool-reported errors
 	if result.IsError {
 		var errorMessages []string

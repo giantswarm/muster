@@ -38,6 +38,11 @@ type Config struct {
 	// MusterConfig holds the loaded muster environment configuration.
 	// This field is populated during application bootstrap after configuration loading.
 	MusterConfig *config.MusterConfig
+
+	// OAuth Proxy settings
+	OAuthEnabled   bool   // Enable OAuth proxy for remote MCP server authentication
+	OAuthPublicURL string // Publicly accessible URL of the Muster Server
+	OAuthClientID  string // OAuth client identifier (CIMD URL)
 }
 
 // NewConfig creates a new application configuration with the specified settings.
@@ -66,4 +71,20 @@ func NewConfig(debug, silent, yolo bool, configPath string) *Config {
 		Yolo:       yolo,
 		ConfigPath: configPath,
 	}
+}
+
+// WithOAuth adds OAuth proxy configuration to the Config.
+// This method enables OAuth proxy functionality and sets the required parameters.
+//
+// Args:
+//   - enabled: whether OAuth proxy is enabled
+//   - publicURL: the publicly accessible URL of the Muster Server
+//   - clientID: the OAuth client identifier (CIMD URL)
+//
+// Returns the modified Config for method chaining.
+func (c *Config) WithOAuth(enabled bool, publicURL, clientID string) *Config {
+	c.OAuthEnabled = enabled
+	c.OAuthPublicURL = publicURL
+	c.OAuthClientID = clientID
+	return c
 }

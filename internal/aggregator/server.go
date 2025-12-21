@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,10 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/internal/config"
 	"muster/pkg/logging"
-
-	"muster/internal/api"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -189,7 +189,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			server.WithKeepAlive(true),                   // Enable keep-alive for connection stability
 			server.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
 		)
-		handler := a.sseServer
+
+		// Create a mux that routes to both MCP and OAuth handlers
+		handler := a.createHTTPMux(a.sseServer)
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
@@ -239,7 +241,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	default:
 		// Streamable HTTP transport (default) - HTTP-based streaming protocol
 		a.streamableHTTPServer = server.NewStreamableHTTPServer(a.server)
-		handler := a.streamableHTTPServer
+
+		// Create a mux that routes to both MCP and OAuth handlers
+		handler := a.createHTTPMux(a.streamableHTTPServer)
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
@@ -563,6 +567,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 //
 // The process includes:
 //   - Processing each connected backend server for new capabilities
+//   - Processing auth_required servers for synthetic authentication tools
 //   - Integrating core tools from muster components (workflow, etc.)
 //   - Creating MCP-compatible handlers for all new items
 //   - Batch registration to minimize client notifications
@@ -576,6 +581,12 @@ func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 
 	// Process each registered backend server
 	for serverName, info := range servers {
+		// Handle servers requiring authentication - add synthetic auth tools
+		if info.Status == StatusAuthRequired {
+			toolsToAdd = append(toolsToAdd, processToolsForServer(a, serverName, info)...)
+			continue
+		}
+
 		if !info.IsConnected() {
 			continue
 		}
@@ -642,6 +653,39 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 		toolCount, resourceCount, promptCount)
 }
 
+// createHTTPMux creates an HTTP mux that routes to both MCP and OAuth handlers.
+// This allows the aggregator to serve both MCP protocol traffic and OAuth callbacks
+// on the same port.
+func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+
+	// Check if OAuth is enabled and mount OAuth-related handlers
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler != nil && oauthHandler.IsEnabled() {
+		// Mount the OAuth callback handler
+		callbackPath := oauthHandler.GetCallbackPath()
+		if callbackPath != "" {
+			mux.Handle(callbackPath, oauthHandler.GetHTTPHandler())
+			logging.Info("Aggregator", "Mounted OAuth callback handler at %s", callbackPath)
+		}
+
+		// Mount the CIMD handler if self-hosting is enabled
+		if oauthHandler.ShouldServeCIMD() {
+			cimdPath := oauthHandler.GetCIMDPath()
+			cimdHandler := oauthHandler.GetCIMDHandler()
+			if cimdPath != "" && cimdHandler != nil {
+				mux.HandleFunc(cimdPath, cimdHandler)
+				logging.Info("Aggregator", "Mounted self-hosted CIMD at %s", cimdPath)
+			}
+		}
+	}
+
+	// Mount the MCP handler as the default for all other paths
+	mux.Handle("/", mcpHandler)
+
+	return mux
+}
+
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
 //
 // The endpoint format varies by transport type:
@@ -705,9 +749,8 @@ func (a *AggregatorServer) GetToolsWithStatus() []ToolWithStatus {
 	for _, tool := range tools {
 		// Resolve the tool to get the original name for accurate denylist checking
 		var originalName string
-		if serverName, origName, err := a.registry.ResolveToolName(tool.Name); err == nil {
+		if _, origName, err := a.registry.ResolveToolName(tool.Name); err == nil {
 			originalName = origName
-			_ = serverName // unused in this context
 		} else {
 			// If we can't resolve, use the exposed name as fallback
 			originalName = tool.Name
@@ -1136,10 +1179,198 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 	// Handle workflow tool updates by refreshing capabilities
 	if event.ServerName == "workflow-manager" && strings.HasPrefix(event.Type, "workflow_") {
 		logging.Info("Aggregator", "Refreshing capabilities due to workflow tool update: %s", event.Type)
-		go func() {
-			// Small delay to ensure workflow manager has released its mutex
-			time.Sleep(10 * time.Millisecond)
-			a.updateCapabilities()
-		}()
+		// Execute asynchronously to avoid blocking the event publisher and to ensure
+		// the publisher has completed its operation before we query it for tools.
+		// The goroutine scheduling provides the necessary separation without explicit delays.
+		go a.updateCapabilities()
 	}
+}
+
+// handleSyntheticAuthTool handles calls to synthetic authentication tools.
+// These are placeholder tools created for servers that require OAuth authentication
+// before they can complete the MCP protocol handshake.
+//
+// The flow:
+//  1. Check if we already have a valid token (user might have authenticated via browser)
+//  2. If token exists, attempt to re-initialize the server
+//  3. If successful, upgrade the server to connected status and return success
+//  4. If no token or reinit fails, create an auth challenge for the user
+//
+// Args:
+//   - ctx: Context for the operation
+//   - serverName: Name of the server requiring authentication
+//
+// Returns a success message if authentication/connection succeeds, or an auth challenge error.
+func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
+	logging.Info("Aggregator", "Handling synthetic auth tool for server: %s", serverName)
+
+	// Get server info
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists {
+		return nil, fmt.Errorf("server %s not found", serverName)
+	}
+
+	if serverInfo.Status != StatusAuthRequired {
+		return nil, fmt.Errorf("server %s is not in auth_required state", serverName)
+	}
+
+	// Check if OAuth handler is available
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"OAuth is not configured. Server %s requires authentication but OAuth proxy is not enabled. "+
+				"Enable OAuth proxy in the configuration to authenticate to remote MCP servers.",
+			serverName,
+		)), nil
+	}
+
+	// Get session ID from context (if available) or use a default
+	sessionID := getSessionIDFromContext(ctx)
+
+	// Get the auth info for this server
+	authInfo := serverInfo.AuthInfo
+	if authInfo == nil {
+		authInfo = &AuthInfo{}
+	}
+
+	// If issuer is empty, try to discover it from the server's resource metadata
+	if authInfo.Issuer == "" && serverInfo.URL != "" {
+		discoveredIssuer, err := discoverAuthorizationServer(ctx, serverInfo.URL)
+		if err != nil {
+			logging.Warn("Aggregator", "Failed to discover authorization server for %s: %v", serverName, err)
+		} else {
+			authInfo.Issuer = discoveredIssuer
+			logging.Info("Aggregator", "Discovered authorization server for %s: %s", serverName, discoveredIssuer)
+		}
+	}
+
+	// If still empty, we can't proceed
+	if authInfo.Issuer == "" {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Cannot authenticate to %s: unable to discover OAuth authorization server. "+
+				"The server's /.well-known/oauth-protected-resource endpoint may not be available.",
+			serverName,
+		)), nil
+	}
+
+	// Check if we already have a valid token for this server/issuer
+	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	if token != nil {
+		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
+
+		// We have a token - try to reinitialize the server
+		// This will be handled by the manager's UpgradeServerAfterAuth method
+		// For now, return a message telling the user to retry
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.NewTextContent(fmt.Sprintf(
+					"Token found for %s. Connection in progress. Please wait and try your operation again.",
+					serverName,
+				)),
+			},
+			IsError: false,
+		}, nil
+	}
+
+	// No token - need to create an auth challenge
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
+	if err != nil {
+		logging.Error("Aggregator", err, "Failed to create auth challenge for server %s", serverName)
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Failed to create authentication challenge: %v", err,
+		)), nil
+	}
+
+	// Return the auth challenge as a tool result with the sign-in link
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(fmt.Sprintf(
+				"Authentication Required\n\n"+
+					"Server: %s\n"+
+					"Status: %s\n\n"+
+					"Please sign in to connect to this server:\n\n"+
+					"%s\n\n"+
+					"After signing in, run this tool again to complete the connection.",
+				serverName,
+				challenge.Message,
+				challenge.AuthURL,
+			)),
+		},
+		IsError: false,
+	}, nil
+}
+
+// discoverAuthorizationServer fetches the OAuth authorization server URL from
+// the server's /.well-known/oauth-protected-resource endpoint.
+// This follows the MCP OAuth specification for resource metadata discovery.
+func discoverAuthorizationServer(ctx context.Context, serverURL string) (string, error) {
+	// Build the resource metadata URL
+	baseURL := strings.TrimSuffix(serverURL, "/")
+	// Remove /mcp suffix if present (common for MCP servers)
+	baseURL = strings.TrimSuffix(baseURL, "/mcp")
+	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch resource metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
+	}
+
+	// Parse the response
+	var metadata struct {
+		AuthorizationServers []string `json:"authorization_servers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
+		return "", fmt.Errorf("failed to parse resource metadata: %w", err)
+	}
+
+	if len(metadata.AuthorizationServers) == 0 {
+		return "", fmt.Errorf("no authorization servers in resource metadata")
+	}
+
+	return metadata.AuthorizationServers[0], nil
+}
+
+// defaultSessionID is used for stdio transport which is inherently single-user.
+// This constant is used to identify tokens stored for the default session.
+const defaultSessionID = "default-session"
+
+// getSessionIDFromContext extracts the session ID from context.
+// It retrieves the session ID from the MCP client session which is set by the mcp-go library.
+//
+// SECURITY: Each MCP connection (SSE or Streamable HTTP) gets a unique UUID-based session ID
+// generated by the mcp-go library. This ensures OAuth tokens are isolated per-connection,
+// preventing cross-user token access. The session ID is used to:
+//   - Store and retrieve OAuth tokens per-user
+//   - Link OAuth callback flows to the originating connection
+//   - Enable SSO within a single user's session (same session, different servers)
+//
+// For stdio transport (single-user CLI), falls back to "default-session" which is acceptable
+// since stdio is inherently single-user (one process = one user).
+func getSessionIDFromContext(ctx context.Context) string {
+	// Try to get session ID from MCP client session (set by mcp-go library)
+	if session := server.ClientSessionFromContext(ctx); session != nil {
+		sessionID := session.SessionID()
+		if sessionID != "" {
+			return sessionID
+		}
+	}
+
+	// Fall back to default session ID for stdio transport only.
+	// This is a security limitation for stdio which is inherently single-user.
+	// For HTTP transports (SSE/Streamable HTTP), the mcp-go library always provides
+	// a unique session ID, so this fallback should only trigger for stdio.
+	logging.Warn("OAuth", "No MCP session in context, using default session (stdio mode). "+
+		"Token isolation is not enforced for stdio transport.")
+	return defaultSessionID
 }

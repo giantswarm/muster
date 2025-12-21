@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/mcpserver"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -73,13 +75,24 @@ type ServerInfo struct {
 	// This is used for name collision resolution.
 	ToolPrefix string
 
+	// URL is the server endpoint URL (for remote servers)
+	URL string
+
+	// Status indicates the server's connection/authentication status.
+	// Can be connected, disconnected, or auth_required.
+	Status ServerStatus
+
+	// AuthInfo contains OAuth information if authentication is required.
+	// This is populated when a 401 is received during initialization.
+	AuthInfo *AuthInfo
+
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
 	mu        sync.RWMutex
 	Tools     []mcp.Tool     // Cached list of available tools
 	Resources []mcp.Resource // Cached list of available resources
 	Prompts   []mcp.Prompt   // Cached list of available prompts
-	Connected bool           // Current connection status
+	Connected bool           // Current connection status (deprecated, use Status)
 }
 
 // UpdateTools safely updates the server's cached tool list.
@@ -153,6 +166,25 @@ type AggregatorConfig struct {
 	// This helps distinguish muster tools from other MCP tools in mixed environments.
 	// Default value is "x".
 	MusterPrefix string
+
+	// OAuth configuration for remote MCP server authentication
+	OAuth OAuthProxyConfig
+}
+
+// OAuthProxyConfig holds OAuth proxy configuration for the aggregator.
+type OAuthProxyConfig struct {
+	// Enabled controls whether OAuth proxy functionality is active.
+	Enabled bool
+
+	// PublicURL is the publicly accessible URL of the Muster Server.
+	// This is used to construct OAuth callback URLs.
+	PublicURL string
+
+	// ClientID is the OAuth client identifier (CIMD URL).
+	ClientID string
+
+	// CallbackPath is the path for the OAuth callback endpoint.
+	CallbackPath string
 }
 
 // RegistrationEvent represents a server registration or deregistration event.
@@ -192,3 +224,23 @@ type ToolWithStatus struct {
 	// Blocked tools cannot be executed unless the Yolo flag is enabled.
 	Blocked bool
 }
+
+// ServerStatus represents the connection status of a server
+type ServerStatus string
+
+const (
+	// StatusConnected indicates the server is connected and operational
+	StatusConnected ServerStatus = "connected"
+
+	// StatusDisconnected indicates the server is disconnected
+	StatusDisconnected ServerStatus = "disconnected"
+
+	// StatusAuthRequired indicates the server requires OAuth authentication
+	// before it can complete the MCP protocol handshake
+	StatusAuthRequired ServerStatus = "auth_required"
+)
+
+// AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.
+// It contains OAuth authentication information extracted from a 401 response.
+// See mcpserver.AuthInfo for detailed field documentation.
+type AuthInfo = mcpserver.AuthInfo

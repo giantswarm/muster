@@ -25,6 +25,16 @@ var serveYolo bool
 // The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, serviceclasses/, services/
 var serveConfigPath string
 
+// OAuth configuration flags
+var (
+	// serveOAuthEnabled enables the OAuth proxy functionality for remote MCP servers
+	serveOAuthEnabled bool
+	// serveOAuthPublicURL is the publicly accessible URL of the Muster Server
+	serveOAuthPublicURL string
+	// serveOAuthClientID is the OAuth client identifier (CIMD URL)
+	serveOAuthClientID string
+)
+
 // serveCmd defines the serve command structure.
 // This is the main command of muster that starts the aggregator server
 // and sets up the necessary MCP servers for development.
@@ -59,7 +69,8 @@ Configuration:
 // runServe is the main entry point for the serve command
 func runServe(cmd *cobra.Command, args []string) error {
 	// Create application configuration without cluster arguments
-	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath)
+	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
+		WithOAuth(serveOAuthEnabled, serveOAuthPublicURL, serveOAuthClientID)
 
 	// Create and initialize the application
 	application, err := app.NewApplication(cfg)
@@ -85,4 +96,9 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable all output to the console")
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+
+	// OAuth Proxy flags
+	serveCmd.Flags().BoolVar(&serveOAuthEnabled, "oauth", false, "Enable OAuth proxy for remote MCP server authentication")
+	serveCmd.Flags().StringVar(&serveOAuthPublicURL, "oauth-public-url", "", "Publicly accessible URL of the Muster Server for OAuth callbacks")
+	serveCmd.Flags().StringVar(&serveOAuthClientID, "oauth-client-id", config.DefaultOAuthClientID, "OAuth client identifier (CIMD URL)")
 }

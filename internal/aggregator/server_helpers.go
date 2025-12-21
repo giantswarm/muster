@@ -83,7 +83,7 @@ type collectResult struct {
 	newResources map[string]struct{}
 }
 
-// collectItemsFromServers collects all items from connected servers
+// collectItemsFromServers collects all items from connected servers and auth_required servers
 func collectItemsFromServers(servers map[string]*ServerInfo, registry *ServerRegistry) *collectResult {
 	result := &collectResult{
 		newTools:     make(map[string]struct{}),
@@ -92,6 +92,17 @@ func collectItemsFromServers(servers map[string]*ServerInfo, registry *ServerReg
 	}
 
 	for serverName, info := range servers {
+		// Handle servers requiring authentication - collect synthetic auth tools
+		if info.Status == StatusAuthRequired {
+			info.mu.RLock()
+			for _, tool := range info.Tools {
+				exposedName := registry.nameTracker.GetExposedToolName(serverName, tool.Name)
+				result.newTools[exposedName] = struct{}{}
+			}
+			info.mu.RUnlock()
+			continue
+		}
+
 		if !info.IsConnected() {
 			continue
 		}
@@ -248,6 +259,11 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		// Check if this tool is still active
 		if !a.toolManager.isActive(exposedName) {
 			return nil, fmt.Errorf("tool %s is no longer available", exposedName)
+		}
+
+		// Check if this is a synthetic authentication tool
+		if serverName, isSynthetic := a.registry.IsSyntheticAuthTool(exposedName); isSynthetic {
+			return a.handleSyntheticAuthTool(ctx, serverName)
 		}
 
 		// Resolve the exposed name back to server and original tool name

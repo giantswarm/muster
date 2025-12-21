@@ -41,6 +41,10 @@ helm install muster ./helm/muster
 | `muster.aggregator.transport` | MCP transport (streamable-http, sse) | `streamable-http` |
 | `muster.namespace` | Namespace for CRD discovery | Release namespace |
 | `muster.debug` | Enable debug logging | `false` |
+| `muster.oauth.enabled` | Enable OAuth proxy for remote MCP auth | `false` |
+| `muster.oauth.publicUrl` | Public URL for OAuth callbacks | `""` |
+| `muster.oauth.clientId` | OAuth client ID (CIMD URL) | Giant Swarm hosted |
+| `muster.oauth.callbackPath` | OAuth callback endpoint path | `/oauth/callback` |
 | `rbac.create` | Create RBAC resources | `true` |
 | `rbac.profile` | RBAC profile (minimal, readonly, standard) | `standard` |
 | `crds.install` | Install CRDs with the chart | `true` |
@@ -90,6 +94,121 @@ ingress:
       hosts:
         - muster.example.com
 ```
+
+### OAuth Proxy for Remote MCP Servers
+
+When connecting to remote MCP servers that require authentication (e.g., `mcp-kubernetes`), you can enable the OAuth proxy. This allows Muster to handle OAuth flows on behalf of users without exposing sensitive tokens to the Muster Agent.
+
+```yaml
+muster:
+  oauth:
+    enabled: true
+    publicUrl: "https://muster.example.com"  # Must be publicly accessible
+    clientId: "https://giantswarm.github.io/muster/oauth-client.json"
+    callbackPath: "/oauth/callback"
+
+# Ingress is required for OAuth callbacks
+ingress:
+  enabled: true
+  hosts:
+    - host: muster.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+```
+
+When a remote MCP server returns a 401, Muster will:
+1. Present a synthetic `authenticate_{servername}` tool to the user
+2. When called, return an authorization URL for the user to visit
+3. After browser authentication, store the token and allow the user to retry
+
+#### OAuth Client ID (CIMD) Configuration
+
+The default `clientId` points to the Giant Swarm hosted [Client ID Metadata Document (CIMD)](https://giantswarm.github.io/muster/oauth-client.json), which has a fixed redirect URI of `https://muster.giantswarm.io/oauth/callback`. This works for deployments at that domain.
+
+**For custom deployments**, you have two options:
+
+1. **Host your own CIMD file** with your deployment's redirect URI:
+   ```json
+   {
+     "client_id": "https://your-domain.com/oauth-client.json",
+     "client_name": "Muster MCP Aggregator",
+     "redirect_uris": ["https://your-domain.com/oauth/callback"],
+     "grant_types": ["authorization_code", "refresh_token"],
+     "response_types": ["code"],
+     "token_endpoint_auth_method": "none"
+   }
+   ```
+   Then set `clientId` to your CIMD URL.
+
+2. **Use an IdP with dynamic client registration** (RFC 7591) that accepts new redirect URIs at runtime.
+
+Note: The Identity Provider must trust the CIMD URL and allow the specified redirect URI.
+
+#### Self-Hosted CIMD (Recommended)
+
+For simpler deployment, you can leave `clientId` empty and let Muster serve its own CIMD:
+
+```yaml
+muster:
+  oauth:
+    enabled: true
+    publicUrl: "https://muster.example.com"
+    # clientId: ""  # Leave empty for self-hosted CIMD
+    cimdPath: "/.well-known/oauth-client.json"
+```
+
+Muster will automatically:
+1. Generate a CIMD with the correct `redirect_uris` based on `publicUrl`
+2. Serve the CIMD at `{publicUrl}/.well-known/oauth-client.json`
+3. Use that URL as the `client_id` in OAuth flows
+
+This eliminates the need for external static file hosting.
+
+### Security Considerations
+
+When deploying Muster with OAuth enabled, follow these security best practices:
+
+#### TLS/HTTPS (Required for Production)
+
+OAuth callbacks MUST be accessed over HTTPS to prevent authorization code interception:
+
+```yaml
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  tls:
+    - secretName: muster-tls
+      hosts:
+        - muster.example.com
+```
+
+Without TLS, attackers can intercept authorization codes during the OAuth callback.
+
+#### Rate Limiting (Recommended)
+
+Protect the OAuth callback endpoint with rate limiting to prevent DoS and brute-force attacks:
+
+```yaml
+ingress:
+  annotations:
+    # nginx-ingress rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+```
+
+Recommended limits:
+- Per-IP: 10-20 requests per minute
+- Global: 100-500 requests per minute (depending on user base)
+
+#### Token Storage
+
+OAuth tokens are stored in-memory only:
+- Tokens are lost when the pod restarts
+- Users must re-authenticate after pod restart
+- No encryption-at-rest needed (tokens exist only in process memory)
+- Each MCP connection gets a unique session ID for token isolation
 
 ### CiliumNetworkPolicy
 

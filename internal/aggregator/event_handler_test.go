@@ -68,6 +68,11 @@ func (m *mockCallbacks) deregister(serverName string) error {
 	return m.deregisterErr
 }
 
+func (m *mockCallbacks) isAuthRequired(serverName string) bool {
+	// Default: no server is in auth_required state during tests
+	return false
+}
+
 func (m *mockCallbacks) getRegisterCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -112,7 +117,7 @@ func TestEventHandler_NewEventHandler(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
 
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	if handler == nil {
 		t.Fatal("NewEventHandler returned nil")
@@ -130,7 +135,7 @@ func TestEventHandler_NewEventHandler(t *testing.T) {
 func TestEventHandler_StartStop(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -171,7 +176,7 @@ func TestEventHandler_StartStop(t *testing.T) {
 func TestEventHandler_FiltersMCPEvents(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -314,7 +319,7 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := newMockOrchestratorAPI()
 			callbacks := newMockCallbacks()
-			handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+			handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -361,7 +366,7 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 func TestEventHandler_HandlesErrors(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	// Set errors
 	callbacks.setRegisterError(fmt.Errorf("register failed"))
@@ -415,7 +420,7 @@ func TestEventHandler_HandlesErrors(t *testing.T) {
 func TestEventHandler_HandlesChannelClose(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -440,7 +445,7 @@ func TestEventHandler_HandlesChannelClose(t *testing.T) {
 func TestEventHandler_HandlesContextCancellation(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

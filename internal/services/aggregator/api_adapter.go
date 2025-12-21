@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"muster/internal/aggregator"
 	"muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -161,6 +162,27 @@ func (a *APIAdapter) UpdateCapabilities() {
 	}
 
 	server.UpdateCapabilities()
+}
+
+// RegisterServerPendingAuth registers a server that requires OAuth authentication
+func (a *APIAdapter) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *api.AuthInfo) error {
+	if a.service == nil {
+		return fmt.Errorf("aggregator service not available")
+	}
+
+	manager := a.service.GetManager()
+	if manager == nil {
+		return fmt.Errorf("aggregator manager not available")
+	}
+
+	// Convert api.AuthInfo to aggregator.AuthInfo
+	aggAuthInfo := &aggregator.AuthInfo{
+		Issuer:              authInfo.Issuer,
+		Scope:               authInfo.Scope,
+		ResourceMetadataURL: authInfo.ResourceMetadataURL,
+	}
+
+	return manager.RegisterServerPendingAuth(serverName, url, toolPrefix, aggAuthInfo)
 }
 
 // Register registers this adapter with the API package

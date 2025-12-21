@@ -2,15 +2,18 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"time"
+
 	"muster/internal/api"
 	"muster/internal/config"
+	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/services"
 	"muster/internal/services/mcpserver"
 	"muster/internal/template"
 	"muster/pkg/logging"
-	"sync"
-	"time"
 )
 
 // StopReason tracks why a service was stopped.
@@ -241,6 +244,14 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 	// has already started static services and won't start newly registered ones
 	go func() {
 		if err := mcpService.Start(ctx); err != nil {
+			// Check if this is an authentication required error
+			var authErr *mcpserverPkg.AuthRequiredError
+			if errors.As(err, &authErr) {
+				// Register the server in auth_required state with the aggregator
+				logging.Info("Orchestrator", "MCPServer %s requires authentication, registering pending auth", mcpServerInfo.Name)
+				o.handleAuthRequiredServer(mcpServerInfo, authErr)
+				return
+			}
 			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
 		} else {
 			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.Name)
@@ -249,6 +260,31 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 
 	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
 	return nil
+}
+
+// handleAuthRequiredServer registers a server that requires OAuth authentication
+// with the aggregator in pending auth state.
+func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo, authErr *mcpserverPkg.AuthRequiredError) {
+	aggregator := api.GetAggregator()
+	if aggregator == nil {
+		logging.Error("Orchestrator", nil, "Aggregator not available to register pending auth server: %s", mcpServerInfo.Name)
+		return
+	}
+
+	// Create auth info from the error
+	authInfo := &api.AuthInfo{
+		Issuer:              authErr.AuthInfo.Issuer,
+		Scope:               authErr.AuthInfo.Scope,
+		ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
+	}
+
+	// Register with the aggregator
+	if err := aggregator.RegisterServerPendingAuth(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo); err != nil {
+		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
+		return
+	}
+
+	logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", mcpServerInfo.Name)
 }
 
 // CreateServiceClassInstance creates a new ServiceClass-based service instance

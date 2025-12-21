@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -61,6 +62,11 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	}
 
 	if err := mcpClient.Start(ctx); err != nil {
+		// Check if this is a 401 authentication error
+		if authErr := CheckForAuthRequiredError(err, c.url); authErr != nil {
+			logging.Debug("SSEClient", "Authentication required for URL: %s", c.url)
+			return authErr
+		}
 		return fmt.Errorf("failed to start SSE transport: %w", err)
 	}
 
@@ -80,6 +86,13 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	})
 	if err != nil {
 		mcpClient.Close()
+
+		// Check if this is a 401 authentication error
+		if authErr := CheckForAuthRequiredError(err, c.url); authErr != nil {
+			logging.Debug("SSEClient", "Authentication required for URL: %s", c.url)
+			return authErr
+		}
+
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
 

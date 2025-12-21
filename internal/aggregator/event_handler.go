@@ -24,9 +24,10 @@ import (
 // The handler operates asynchronously and is designed to be resilient to temporary
 // failures in the registration process.
 type EventHandler struct {
-	orchestratorAPI api.OrchestratorAPI                 // Interface for receiving service events
-	registerFunc    func(context.Context, string) error // Callback for server registration
-	deregisterFunc  func(string) error                  // Callback for server deregistration
+	orchestratorAPI      api.OrchestratorAPI                 // Interface for receiving service events
+	registerFunc         func(context.Context, string) error // Callback for server registration
+	deregisterFunc       func(string) error                  // Callback for server deregistration
+	isServerAuthRequired func(string) bool                   // Callback to check if server is in auth_required state
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -46,17 +47,20 @@ type EventHandler struct {
 //   - orchestratorAPI: Interface for subscribing to service state changes
 //   - registerFunc: Callback function to register a server by name
 //   - deregisterFunc: Callback function to deregister a server by name
+//   - isServerAuthRequired: Optional callback to check if server is in auth_required state
 //
 // Returns a configured but not yet started event handler.
 func NewEventHandler(
 	orchestratorAPI api.OrchestratorAPI,
 	registerFunc func(context.Context, string) error,
 	deregisterFunc func(string) error,
+	isServerAuthRequired func(string) bool,
 ) *EventHandler {
 	return &EventHandler{
-		orchestratorAPI: orchestratorAPI,
-		registerFunc:    registerFunc,
-		deregisterFunc:  deregisterFunc,
+		orchestratorAPI:      orchestratorAPI,
+		registerFunc:         registerFunc,
+		deregisterFunc:       deregisterFunc,
+		isServerAuthRequired: isServerAuthRequired,
 	}
 }
 
@@ -218,6 +222,13 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 			eh.generateEvent(event.Name, events.ReasonMCPServerToolsDiscovered, events.EventData{})
 		}
 	} else {
+		// Check if the server is in auth_required state - don't deregister those
+		// They need to stay registered with their synthetic auth tool
+		if eh.isServerAuthRequired != nil && eh.isServerAuthRequired(event.Name) {
+			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is in auth_required state", event.Name)
+			return
+		}
+
 		// Deregister for any other state/health combination
 		// This includes: Stopped, Failed, Starting, Stopping, or Running+Unhealthy
 		logging.Info("Aggregator-EventHandler", "Deregistering MCP server %s (state=%s, health=%s)",

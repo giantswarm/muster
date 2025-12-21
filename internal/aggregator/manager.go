@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"muster/internal/api"
+	configPkg "muster/internal/config"
+	"muster/internal/oauth"
 	"muster/pkg/logging"
 )
 
@@ -22,6 +24,7 @@ import (
 //   - Event-driven updates when service states change
 //   - Periodic retry mechanisms for failed registrations
 //   - Centralized lifecycle management
+//   - OAuth proxy for remote MCP server authentication
 //
 // It acts as the primary entry point for the aggregator functionality and
 // integrates with the muster service architecture through the central API pattern.
@@ -36,6 +39,7 @@ type AggregatorManager struct {
 	// Internal components
 	aggregatorServer *AggregatorServer // The core MCP server that exposes aggregated capabilities
 	eventHandler     *EventHandler     // Handles service state change events
+	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -63,6 +67,24 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 
 	// Create the aggregator server with the provided configuration
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
+
+	// Initialize OAuth manager if enabled
+	if config.OAuth.Enabled {
+		oauthConfig := configPkg.OAuthConfig{
+			Enabled:      config.OAuth.Enabled,
+			PublicURL:    config.OAuth.PublicURL,
+			ClientID:     config.OAuth.ClientID,
+			CallbackPath: config.OAuth.CallbackPath,
+		}
+		manager.oauthManager = oauth.NewManager(oauthConfig)
+
+		if manager.oauthManager != nil {
+			// Register OAuth handler with the API layer
+			oauthAdapter := oauth.NewAdapter(manager.oauthManager)
+			oauthAdapter.Register()
+			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
+		}
+	}
 
 	return manager
 }
@@ -107,6 +129,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		am.orchestratorAPI,
 		am.registerSingleServer,
 		am.deregisterSingleServer,
+		am.isServerAuthRequired,
 	)
 
 	// Start the event handler for automatic updates
@@ -128,8 +151,9 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 // This method stops all components in reverse order of startup:
 //  1. Cancels the context to signal shutdown to all goroutines
 //  2. Stops the event handler
-//  3. Stops the aggregator server
-//  4. Waits for all background operations to complete
+//  3. Stops the OAuth manager
+//  4. Stops the aggregator server
+//  5. Waits for all background operations to complete
 //
 // The method is idempotent and can be called multiple times safely.
 func (am *AggregatorManager) Stop(ctx context.Context) error {
@@ -146,6 +170,11 @@ func (am *AggregatorManager) Stop(ctx context.Context) error {
 		if err := am.eventHandler.Stop(); err != nil {
 			logging.Error("Aggregator-Manager", err, "Error stopping event handler")
 		}
+	}
+
+	// Stop OAuth manager
+	if am.oauthManager != nil {
+		am.oauthManager.Stop()
 	}
 
 	// Stop aggregator server and wait for graceful shutdown
@@ -280,6 +309,9 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 // service architecture guarantees that running+healthy services have ready
 // MCP clients, this method can safely extract and use the client immediately.
 //
+// If the server returns a 401 during initialization, the method will register
+// the server in auth_required state with a synthetic authentication tool.
+//
 // Args:
 //   - ctx: Context for the registration operation
 //   - serverName: Unique name of the server to register
@@ -320,6 +352,77 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 
 	logging.Info("Aggregator-Manager", "Successfully registered MCP server %s with prefix %s", serverName, toolPrefix)
 	return nil
+}
+
+// RegisterServerPendingAuth registers a server that requires authentication.
+// This creates a placeholder with a synthetic auth tool that users can call
+// to initiate the OAuth flow.
+//
+// Args:
+//   - serverName: Unique name of the server
+//   - url: The server endpoint URL
+//   - toolPrefix: Server-specific prefix for tools
+//   - authInfo: OAuth information from the 401 response
+//
+// Returns an error if registration fails.
+func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if am.aggregatorServer == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	return am.aggregatorServer.GetRegistry().RegisterPendingAuth(serverName, url, toolPrefix, authInfo)
+}
+
+// UpgradeServerAfterAuth upgrades a pending auth server to connected status
+// after successful OAuth authentication. This is called when the OAuth callback
+// is received and a token is available.
+//
+// Args:
+//   - ctx: Context for the operation
+//   - serverName: Name of the server to upgrade
+//   - client: The newly authenticated MCP client
+//
+// Returns an error if upgrade fails.
+func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverName string, client MCPClient) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if am.aggregatorServer == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	err := am.aggregatorServer.GetRegistry().UpgradeToConnected(ctx, serverName, client)
+	if err != nil {
+		return err
+	}
+
+	// Trigger capability update to register the real tools
+	am.aggregatorServer.UpdateCapabilities()
+
+	logging.Info("Aggregator-Manager", "Server %s upgraded to connected after OAuth authentication", serverName)
+	return nil
+}
+
+// isServerAuthRequired checks if a server is currently in auth_required state.
+// This is used by the event handler to avoid deregistering servers that are
+// waiting for OAuth authentication.
+func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+
+	if am.aggregatorServer == nil {
+		return false
+	}
+
+	info, exists := am.aggregatorServer.GetRegistry().GetServerInfo(serverName)
+	if !exists {
+		return false
+	}
+
+	return info.Status == StatusAuthRequired
 }
 
 // deregisterSingleServer removes a single MCP server from the aggregator.

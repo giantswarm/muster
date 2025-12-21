@@ -81,6 +81,18 @@ ingress:
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
+    #
+    # SECURITY: Rate limiting is recommended for OAuth callback endpoint protection.
+    # When OAuth is enabled, the /oauth/callback endpoint should be rate-limited
+    # to prevent denial of service and brute-force attacks.
+    #
+    # Example nginx-ingress rate limiting annotations:
+    # nginx.ingress.kubernetes.io/limit-rps: "10"
+    # nginx.ingress.kubernetes.io/limit-connections: "5"
+    # nginx.ingress.kubernetes.io/limit-rpm: "60"
+    #
+    # For Traefik:
+    # traefik.ingress.kubernetes.io/rate-limit: "10"
   hosts:
     - host: muster.local
       paths:
@@ -90,6 +102,9 @@ ingress:
   #  - secretName: muster-tls
   #    hosts:
   #      - muster.local
+  # SECURITY: TLS is REQUIRED for production deployments when OAuth is enabled.
+  # OAuth callback endpoints must be accessed over HTTPS to prevent
+  # authorization code interception attacks.
 
 resources:
   limits:
@@ -145,6 +160,49 @@ muster:
 
   # Enable debug logging
   debug: false
+
+  # OAuth Proxy configuration for remote MCP server authentication
+  # When enabled, Muster Server acts as an OAuth client proxy,
+  # handling authentication flows on behalf of users without exposing
+  # sensitive tokens to the Muster Agent.
+  #
+  # SECURITY NOTES:
+  # - Tokens are stored in-memory only and are lost on pod restart
+  # - Each MCP connection gets a unique session ID for token isolation
+  # - TLS is required for production deployments to protect OAuth flows
+  oauth:
+    # Enable OAuth proxy functionality
+    enabled: false
+
+    # Publicly accessible URL of the Muster Server
+    # This is used to construct OAuth callback URLs and auto-generate the CIMD.
+    # Example: "https://muster.example.com"
+    # Required when OAuth is enabled. Must be HTTPS for production.
+    publicUrl: ""
+
+    # OAuth client identifier (Client ID Metadata Document URL)
+    # 
+    # SELF-HOSTED CIMD (Recommended):
+    # Leave this empty to let muster auto-generate and serve its own CIMD.
+    # The clientId will be automatically derived as {publicUrl}/.well-known/oauth-client.json
+    # and muster will serve the CIMD at that path with the correct redirect_uri.
+    # This eliminates the need for external static file hosting.
+    #
+    # EXTERNAL CIMD:
+    # Set this to a URL of an externally hosted CIMD file if you prefer
+    # to manage the CIMD separately (e.g., on GitHub Pages or S3).
+    # The CIMD's redirect_uris must match your deployment's callback URL.
+    #
+    # Legacy default: "https://giantswarm.github.io/muster/oauth-client.json"
+    # (only works for muster.giantswarm.io deployments)
+    clientId: ""
+
+    # Path for the OAuth callback endpoint
+    callbackPath: "/oauth/callback"
+
+    # Path for serving the Client ID Metadata Document (CIMD)
+    # Only used when clientId is empty (self-hosted CIMD mode)
+    cimdPath: "/.well-known/oauth-client.json"
 
 # CRD installation
 crds:

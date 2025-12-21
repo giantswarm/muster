@@ -48,6 +48,13 @@ spec:
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}
+            {{- if .Values.muster.oauth.enabled }}
+            - --oauth
+            - --oauth-public-url={{ .Values.muster.oauth.publicUrl }}
+            {{- if .Values.muster.oauth.clientId }}
+            - --oauth-client-id={{ .Values.muster.oauth.clientId }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}

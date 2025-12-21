@@ -563,3 +563,44 @@ type GetWorkflowExecutionRequest struct {
 	// StepID specifies a specific step to retrieve (optional, returns only that step)
 	StepID string `json:"step_id,omitempty"`
 }
+
+// AuthChallenge represents an authentication challenge returned when
+// a remote MCP server requires OAuth authentication.
+type AuthChallenge struct {
+	// Status indicates this is an auth required response.
+	Status string `json:"status"` // "auth_required"
+
+	// AuthURL is the OAuth authorization URL the user should visit.
+	AuthURL string `json:"auth_url"`
+
+	// ServerName is the name of the MCP server requiring authentication.
+	ServerName string `json:"server_name,omitempty"`
+
+	// Message is a human-readable description of why auth is needed.
+	Message string `json:"message,omitempty"`
+}
+
+// OAuthToken represents an OAuth access token for use by handlers.
+type OAuthToken struct {
+	// AccessToken is the bearer token used for authorization.
+	AccessToken string `json:"access_token"`
+
+	// TokenType is typically "Bearer".
+	TokenType string `json:"token_type"`
+
+	// Scope is the granted scope(s).
+	Scope string `json:"scope,omitempty"`
+}
+
+// AuthInfo contains OAuth authentication information extracted from
+// a 401 response during MCP server initialization.
+type AuthInfo struct {
+	// Issuer is the OAuth issuer URL (from WWW-Authenticate realm)
+	Issuer string `json:"issuer,omitempty"`
+
+	// Scope is the OAuth scope required by the server
+	Scope string `json:"scope,omitempty"`
+
+	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
+	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
+}
