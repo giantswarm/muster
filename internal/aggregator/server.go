@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -1220,10 +1221,27 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 	// Get the auth info for this server
 	authInfo := serverInfo.AuthInfo
 	if authInfo == nil {
-		// Create default auth info with the server URL as issuer hint
-		authInfo = &AuthInfo{
-			Issuer: serverInfo.URL,
+		authInfo = &AuthInfo{}
+	}
+
+	// If issuer is empty, try to discover it from the server's resource metadata
+	if authInfo.Issuer == "" && serverInfo.URL != "" {
+		discoveredIssuer, err := discoverAuthorizationServer(ctx, serverInfo.URL)
+		if err != nil {
+			logging.Warn("Aggregator", "Failed to discover authorization server for %s: %v", serverName, err)
+		} else {
+			authInfo.Issuer = discoveredIssuer
+			logging.Info("Aggregator", "Discovered authorization server for %s: %s", serverName, discoveredIssuer)
 		}
+	}
+
+	// If still empty, we can't proceed
+	if authInfo.Issuer == "" {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Cannot authenticate to %s: unable to discover OAuth authorization server. "+
+				"The server's /.well-known/oauth-protected-resource endpoint may not be available.",
+			serverName,
+		)), nil
 	}
 
 	// Check if we already have a valid token for this server/issuer
@@ -1271,6 +1289,47 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		},
 		IsError: false,
 	}, nil
+}
+
+// discoverAuthorizationServer fetches the OAuth authorization server URL from
+// the server's /.well-known/oauth-protected-resource endpoint.
+// This follows the MCP OAuth specification for resource metadata discovery.
+func discoverAuthorizationServer(ctx context.Context, serverURL string) (string, error) {
+	// Build the resource metadata URL
+	baseURL := strings.TrimSuffix(serverURL, "/")
+	// Remove /mcp suffix if present (common for MCP servers)
+	baseURL = strings.TrimSuffix(baseURL, "/mcp")
+	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch resource metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
+	}
+
+	// Parse the response
+	var metadata struct {
+		AuthorizationServers []string `json:"authorization_servers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
+		return "", fmt.Errorf("failed to parse resource metadata: %w", err)
+	}
+
+	if len(metadata.AuthorizationServers) == 0 {
+		return "", fmt.Errorf("no authorization servers in resource metadata")
+	}
+
+	return metadata.AuthorizationServers[0], nil
 }
 
 // getSessionIDFromContext extracts the session ID from context.

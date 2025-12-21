@@ -162,23 +162,35 @@ func NewLoggerWithWriter(verbose, useColor, jsonRPCMode bool, writer io.Writer) 
 // of the configured writer, ensuring user-facing content is properly displayed.
 //
 // Args:
-//   - format: Printf-style format string
+//   - format: Printf-style format string (or plain text if no args provided)
 //   - args: Arguments for the format string
 //
 // This method is primarily used by command implementations to display
 // results and formatted data to the user.
 func (l *Logger) Output(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stdout, format, args...)
+	if len(args) == 0 {
+		// No args - print format string literally to avoid treating % as format specifiers
+		// (important for URLs with percent-encoding like %2F, %3A)
+		fmt.Fprint(os.Stdout, format)
+	} else {
+		fmt.Fprintf(os.Stdout, format, args...)
+	}
 }
 
 // OutputLine writes user-facing output with a newline.
 // This is a convenience wrapper around Output that automatically adds a newline.
 //
 // Args:
-//   - format: Printf-style format string
+//   - format: Printf-style format string (or plain text if no args provided)
 //   - args: Arguments for the format string
 func (l *Logger) OutputLine(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stdout, format+"\n", args...)
+	if len(args) == 0 {
+		// No args - print format string literally to avoid treating % as format specifiers
+		// (important for URLs with percent-encoding like %2F, %3A)
+		fmt.Fprintln(os.Stdout, format)
+	} else {
+		fmt.Fprintf(os.Stdout, format+"\n", args...)
+	}
 }
 
 // timestamp returns the current timestamp string in a consistent format.
