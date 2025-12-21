@@ -44,14 +44,54 @@
 // For stdio transport (single-user CLI), a default session ID is used. This is acceptable
 // since stdio is inherently single-user (one process = one user).
 //
-// ## TLS Requirements
+// ## TLS/HTTPS Requirements (CRITICAL)
 //
-// Production deployments MUST use HTTPS for:
-//   - The Muster Server's public URL (for OAuth callbacks)
-//   - All OAuth issuer URLs (for metadata and token endpoints)
+// Production deployments MUST use HTTPS for all OAuth-related endpoints:
 //
-// TLS provides the integrity and authenticity guarantees that protect OAuth flows
-// from man-in-the-middle attacks.
+//   - Muster Server's public URL (oauth.publicUrl configuration): The OAuth callback
+//     endpoint receives authorization codes. Without HTTPS, attackers could intercept
+//     these codes and exchange them for tokens.
+//
+//   - OAuth Issuer URLs: All communication with Identity Providers (metadata discovery,
+//     token exchange, token refresh) must be over HTTPS. The issuer's TLS certificate
+//     provides integrity and authenticity guarantees for OAuth metadata.
+//
+//   - Remote MCP Server URLs: When MCP servers require OAuth authentication, their
+//     endpoints should use HTTPS to protect the bearer tokens in Authorization headers.
+//
+// Without TLS, the following attacks become possible:
+//   - Authorization code interception during OAuth callback
+//   - Token theft via man-in-the-middle attacks
+//   - Metadata manipulation to redirect token exchanges to malicious endpoints
+//   - Bearer token theft from Authorization headers
+//
+// ## Rate Limiting Recommendations
+//
+// The OAuth callback endpoint (/oauth/callback by default) should be protected by
+// rate limiting at the infrastructure level (ingress controller, load balancer, or
+// API gateway). Recommended limits:
+//
+//   - Per-IP rate limit: 10-20 requests per minute
+//   - Global rate limit: 100-500 requests per minute (depending on expected user base)
+//
+// Rate limiting protects against:
+//   - Denial of service attacks on the OAuth callback endpoint
+//   - Brute-force attempts to guess authorization codes or state parameters
+//   - Resource exhaustion from excessive token exchange requests
+//
+// Example Kubernetes Ingress annotation (nginx):
+//
+//	nginx.ingress.kubernetes.io/limit-rps: "10"
+//	nginx.ingress.kubernetes.io/limit-connections: "5"
+//
+// ## Logging Security
+//
+// Session IDs are truncated in log output to prevent full session identifiers from
+// appearing in logs. Only the first 8 characters are logged (e.g., "abc12345...").
+// Access tokens and refresh tokens are never logged.
+//
+// Token refresh operations are logged at INFO level for operational monitoring,
+// including duration metrics for performance tracking.
 //
 // # SSO Support
 //

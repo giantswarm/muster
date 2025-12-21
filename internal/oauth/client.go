@@ -158,7 +158,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, iss
 	authURL.RawQuery = query.Encode()
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
-		sessionID, serverName, issuer)
+		truncateSessionID(sessionID), serverName, issuer)
 
 	return authURL.String(), nil
 }
@@ -223,10 +223,15 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 }
 
 // RefreshToken refreshes an expired token using its refresh token.
+// This operation is logged at INFO level for operational monitoring.
 func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error) {
 	if token.RefreshToken == "" {
+		logging.Warn("OAuth", "Token refresh attempted without refresh token (issuer=%s)", token.Issuer)
 		return nil, fmt.Errorf("no refresh token available")
 	}
+
+	logging.Info("OAuth", "Starting token refresh (issuer=%s)", token.Issuer)
+	startTime := time.Now()
 
 	metadata, err := c.fetchMetadata(ctx, token.Issuer)
 	if err != nil {
@@ -261,11 +266,15 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 		// Log full response for debugging but don't expose in error message
 		// Response body may contain sensitive information (error descriptions, hints)
 		logging.Debug("OAuth", "Token refresh failed: status=%d body=%s", resp.StatusCode, string(body))
+		logging.Warn("OAuth", "Token refresh failed (issuer=%s, status=%d, duration=%v)",
+			token.Issuer, resp.StatusCode, time.Since(startTime))
 		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)
 	}
 
 	var newToken Token
 	if err := json.Unmarshal(body, &newToken); err != nil {
+		logging.Warn("OAuth", "Token refresh response parse failed (issuer=%s, duration=%v)",
+			token.Issuer, time.Since(startTime))
 		return nil, fmt.Errorf("failed to parse refresh response: %w", err)
 	}
 
@@ -280,8 +289,9 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 		newToken.RefreshToken = token.RefreshToken
 	}
 
-	logging.Debug("OAuth", "Successfully refreshed token (issuer=%s, expires_in=%d)",
-		token.Issuer, newToken.ExpiresIn)
+	// Log successful refresh at INFO level for operational monitoring
+	logging.Info("OAuth", "Token refresh successful (issuer=%s, expires_in=%ds, duration=%v)",
+		token.Issuer, newToken.ExpiresIn, time.Since(startTime))
 
 	return &newToken, nil
 }

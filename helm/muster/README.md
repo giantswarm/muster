@@ -145,6 +145,71 @@ The default `clientId` points to the Giant Swarm hosted [Client ID Metadata Docu
 
 Note: The Identity Provider must trust the CIMD URL and allow the specified redirect URI.
 
+#### Self-Hosted CIMD (Recommended)
+
+For simpler deployment, you can leave `clientId` empty and let Muster serve its own CIMD:
+
+```yaml
+muster:
+  oauth:
+    enabled: true
+    publicUrl: "https://muster.example.com"
+    # clientId: ""  # Leave empty for self-hosted CIMD
+    cimdPath: "/.well-known/oauth-client.json"
+```
+
+Muster will automatically:
+1. Generate a CIMD with the correct `redirect_uris` based on `publicUrl`
+2. Serve the CIMD at `{publicUrl}/.well-known/oauth-client.json`
+3. Use that URL as the `client_id` in OAuth flows
+
+This eliminates the need for external static file hosting.
+
+### Security Considerations
+
+When deploying Muster with OAuth enabled, follow these security best practices:
+
+#### TLS/HTTPS (Required for Production)
+
+OAuth callbacks MUST be accessed over HTTPS to prevent authorization code interception:
+
+```yaml
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  tls:
+    - secretName: muster-tls
+      hosts:
+        - muster.example.com
+```
+
+Without TLS, attackers can intercept authorization codes during the OAuth callback.
+
+#### Rate Limiting (Recommended)
+
+Protect the OAuth callback endpoint with rate limiting to prevent DoS and brute-force attacks:
+
+```yaml
+ingress:
+  annotations:
+    # nginx-ingress rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+```
+
+Recommended limits:
+- Per-IP: 10-20 requests per minute
+- Global: 100-500 requests per minute (depending on user base)
+
+#### Token Storage
+
+OAuth tokens are stored in-memory only:
+- Tokens are lost when the pod restarts
+- Users must re-authenticate after pod restart
+- No encryption-at-rest needed (tokens exist only in process memory)
+- Each MCP connection gets a unique session ID for token isolation
+
 ### CiliumNetworkPolicy
 
 For clusters using Cilium:

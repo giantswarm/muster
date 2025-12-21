@@ -81,6 +81,18 @@ ingress:
   annotations: {}
     # kubernetes.io/ingress.class: nginx
     # kubernetes.io/tls-acme: "true"
+    #
+    # SECURITY: Rate limiting is recommended for OAuth callback endpoint protection.
+    # When OAuth is enabled, the /oauth/callback endpoint should be rate-limited
+    # to prevent denial of service and brute-force attacks.
+    #
+    # Example nginx-ingress rate limiting annotations:
+    # nginx.ingress.kubernetes.io/limit-rps: "10"
+    # nginx.ingress.kubernetes.io/limit-connections: "5"
+    # nginx.ingress.kubernetes.io/limit-rpm: "60"
+    #
+    # For Traefik:
+    # traefik.ingress.kubernetes.io/rate-limit: "10"
   hosts:
     - host: muster.local
       paths:
@@ -90,6 +102,9 @@ ingress:
   #  - secretName: muster-tls
   #    hosts:
   #      - muster.local
+  # SECURITY: TLS is REQUIRED for production deployments when OAuth is enabled.
+  # OAuth callback endpoints must be accessed over HTTPS to prevent
+  # authorization code interception attacks.
 
 resources:
   limits:
