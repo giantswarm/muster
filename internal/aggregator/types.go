@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/mcpserver"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -238,39 +240,7 @@ const (
 	StatusAuthRequired ServerStatus = "auth_required"
 )
 
-// AuthInfo contains OAuth authentication information extracted from
-// a 401 response during MCP server initialization.
-type AuthInfo struct {
-	// Issuer is the OAuth issuer URL (from WWW-Authenticate realm)
-	Issuer string
-
-	// Scope is the OAuth scope required by the server
-	Scope string
-
-	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
-	ResourceMetadataURL string
-}
-
-// AuthRequiredError is returned when an MCP server requires OAuth authentication
-// before the protocol handshake can complete. This error contains the information
-// needed to initiate the OAuth flow.
-type AuthRequiredError struct {
-	// ServerName is the name of the server requiring authentication
-	ServerName string
-
-	// AuthInfo contains the OAuth parameters extracted from the 401 response
-	AuthInfo AuthInfo
-
-	// Err is the underlying error
-	Err error
-}
-
-// Error implements the error interface
-func (e *AuthRequiredError) Error() string {
-	return "authentication required for server " + e.ServerName
-}
-
-// Unwrap returns the underlying error
-func (e *AuthRequiredError) Unwrap() error {
-	return e.Err
-}
+// AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.
+// It contains OAuth authentication information extracted from a 401 response.
+// See mcpserver.AuthInfo for detailed field documentation.
+type AuthInfo = mcpserver.AuthInfo

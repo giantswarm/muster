@@ -1,5 +1,13 @@
 package mcpserver
 
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	"muster/internal/oauth"
+)
+
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.
 // It focuses on the state, not verbose logs.
 type McpDiscreteStatusUpdate struct {
@@ -46,4 +54,59 @@ func (e *AuthRequiredError) Error() string {
 // Unwrap returns the underlying error
 func (e *AuthRequiredError) Unwrap() error {
 	return e.Err
+}
+
+// CheckForAuthRequiredError examines an error to determine if it's a 401 authentication
+// required error. If so, it returns an AuthRequiredError with parsed OAuth parameters.
+// This is a shared helper used by SSEClient and StreamableHTTPClient.
+func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
+	if err == nil {
+		return nil
+	}
+
+	errStr := err.Error()
+
+	// Check for 401 status code in the error message
+	// The mcp-go library returns errors like "request failed with status 401: ..."
+	if !strings.Contains(errStr, "401") &&
+		!strings.Contains(errStr, http.StatusText(http.StatusUnauthorized)) {
+		return nil
+	}
+
+	// Extract WWW-Authenticate header information if available
+	authInfo := AuthInfo{}
+
+	// Try to parse any WWW-Authenticate-style information from the error
+	if strings.Contains(errStr, "Bearer") {
+		authInfo = ParseAuthInfoFromError(errStr)
+	}
+
+	return &AuthRequiredError{
+		URL:      url,
+		AuthInfo: authInfo,
+		Err:      fmt.Errorf("server returned 401 Unauthorized"),
+	}
+}
+
+// ParseAuthInfoFromError attempts to extract OAuth information from an error message.
+// This is a best-effort parse since we can't directly access HTTP response headers.
+func ParseAuthInfoFromError(errStr string) AuthInfo {
+	info := AuthInfo{}
+
+	// Try to parse as WWW-Authenticate header format if present
+	if idx := strings.Index(errStr, "Bearer"); idx >= 0 {
+		headerPart := errStr[idx:]
+		// Find the end of the Bearer challenge
+		if endIdx := strings.Index(headerPart, "\n"); endIdx > 0 {
+			headerPart = headerPart[:endIdx]
+		}
+		params := oauth.ParseWWWAuthenticate(headerPart)
+		if params != nil {
+			info.Issuer = params.Realm
+			info.Scope = params.Scope
+			info.ResourceMetadataURL = params.ResourceMetadataURL
+		}
+	}
+
+	return info
 }
