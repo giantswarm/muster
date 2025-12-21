@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"muster/pkg/logging"
 )
 
@@ -45,6 +47,9 @@ type Client struct {
 	// Metadata cache (issuer URL -> metadata entry) with mutex for thread safety
 	metadataMu    sync.RWMutex
 	metadataCache map[string]*metadataCacheEntry
+
+	// singleflight group to deduplicate concurrent metadata fetches
+	metadataGroup singleflight.Group
 }
 
 // NewClient creates a new OAuth client with the given configuration.
@@ -108,7 +113,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, iss
 	}
 
 	// Generate state parameter (includes issuer and code verifier)
-	state, _, err := c.stateStore.GenerateState(sessionID, serverName, issuer, codeVerifier)
+	state, err := c.stateStore.GenerateState(sessionID, serverName, issuer, codeVerifier)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
@@ -279,6 +284,7 @@ func (c *Client) Stop() {
 }
 
 // fetchMetadata fetches OAuth metadata from the issuer's well-known endpoint.
+// Uses singleflight to deduplicate concurrent requests for the same issuer.
 func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
 	// Check cache first with read lock
 	c.metadataMu.RLock()
@@ -293,6 +299,30 @@ func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetada
 	}
 	c.metadataMu.RUnlock()
 
+	// Use singleflight to deduplicate concurrent fetches for the same issuer
+	result, err, _ := c.metadataGroup.Do(issuer, func() (interface{}, error) {
+		// Double-check cache after acquiring the singleflight lock
+		c.metadataMu.RLock()
+		if entry, ok := c.metadataCache[issuer]; ok {
+			if time.Since(entry.fetchedAt) < metadataCacheTTL {
+				c.metadataMu.RUnlock()
+				return entry.metadata, nil
+			}
+		}
+		c.metadataMu.RUnlock()
+
+		return c.doFetchMetadata(ctx, issuer)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*OAuthMetadata), nil
+}
+
+// doFetchMetadata performs the actual HTTP fetch for OAuth metadata.
+func (c *Client) doFetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
 	// Build well-known URL
 	wellKnownURL := strings.TrimSuffix(issuer, "/") + "/.well-known/oauth-authorization-server"
 

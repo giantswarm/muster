@@ -31,9 +31,9 @@ func (a *Adapter) IsEnabled() bool {
 	return a.manager.IsEnabled()
 }
 
-// GetToken retrieves a valid token for the given session and server.
-func (a *Adapter) GetToken(sessionID, serverName string) *api.OAuthToken {
-	token := a.manager.GetToken(sessionID, serverName)
+// tokenToAPIToken converts an internal Token to an api.OAuthToken.
+// Returns nil if the input token is nil.
+func tokenToAPIToken(token *Token) *api.OAuthToken {
 	if token == nil {
 		return nil
 	}
@@ -44,17 +44,14 @@ func (a *Adapter) GetToken(sessionID, serverName string) *api.OAuthToken {
 	}
 }
 
+// GetToken retrieves a valid token for the given session and server.
+func (a *Adapter) GetToken(sessionID, serverName string) *api.OAuthToken {
+	return tokenToAPIToken(a.manager.GetToken(sessionID, serverName))
+}
+
 // GetTokenByIssuer retrieves a valid token for the given session and issuer.
 func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
-	token := a.manager.GetTokenByIssuer(sessionID, issuer)
-	if token == nil {
-		return nil
-	}
-	return &api.OAuthToken{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-		Scope:       token.Scope,
-	}
+	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.

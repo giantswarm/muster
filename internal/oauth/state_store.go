@@ -37,21 +37,22 @@ func NewStateStore() *StateStore {
 }
 
 // GenerateState creates a new OAuth state parameter and stores it.
-// Returns the encoded state string to include in the authorization URL and the nonce.
+// Returns the encoded state string to include in the authorization URL.
+// The nonce is embedded within the encoded state and used for server-side lookup.
 //
 // Args:
 //   - sessionID: The user's session ID
 //   - serverName: The MCP server name requiring authentication
 //   - issuer: The OAuth issuer URL
 //   - codeVerifier: The PKCE code verifier for this flow
-func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier string) (encodedState, nonce string, err error) {
+func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier string) (encodedState string, err error) {
 	// Generate a cryptographically random nonce
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	nonce = base64.URLEncoding.EncodeToString(nonceBytes)
+	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 	state := &OAuthState{
 		SessionID:    sessionID,
 		ServerName:   serverName,
@@ -64,7 +65,7 @@ func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier 
 	// Encode the state as JSON then base64 (CodeVerifier is excluded via json:"-")
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
@@ -75,7 +76,7 @@ func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier 
 	ss.mu.Unlock()
 
 	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", sessionID, serverName, issuer)
-	return encodedState, nonce, nil
+	return encodedState, nil
 }
 
 // ValidateState validates an OAuth state parameter from a callback.

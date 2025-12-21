@@ -7,6 +7,10 @@ import (
 	"muster/pkg/logging"
 )
 
+// tokenExpiryMargin is the margin added when checking token expiration.
+// This accounts for clock skew between systems and network latency.
+const tokenExpiryMargin = 30 * time.Second
+
 // TokenStore provides thread-safe in-memory storage for OAuth tokens.
 // Tokens are indexed by session ID, issuer, and scope to support SSO.
 type TokenStore struct {
@@ -59,8 +63,8 @@ func (ts *TokenStore) Get(key TokenKey) *Token {
 		return nil
 	}
 
-	// Check if token is expired (with 30 second margin for clock skew)
-	if token.IsExpired(30 * time.Second) {
+	// Check if token is expired (with margin for clock skew)
+	if token.IsExpired(tokenExpiryMargin) {
 		logging.Debug("OAuth", "Token expired for session=%s issuer=%s", key.SessionID, key.Issuer)
 		return nil
 	}
@@ -76,7 +80,7 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *Token {
 
 	for key, token := range ts.tokens {
 		if key.SessionID == sessionID && key.Issuer == issuer {
-			if !token.IsExpired(30 * time.Second) {
+			if !token.IsExpired(tokenExpiryMargin) {
 				return token
 			}
 		}

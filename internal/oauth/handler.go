@@ -1,12 +1,35 @@
 package oauth
 
 import (
-	"fmt"
+	"bytes"
+	"embed"
 	"html"
+	"html/template"
 	"net/http"
 
 	"muster/pkg/logging"
 )
+
+//go:embed templates/*.html
+var templateFS embed.FS
+
+// Parsed templates - initialized once at package load
+var (
+	successTemplate *template.Template
+	errorTemplate   *template.Template
+)
+
+func init() {
+	var err error
+	successTemplate, err = template.ParseFS(templateFS, "templates/success.html")
+	if err != nil {
+		panic("failed to parse success template: " + err.Error())
+	}
+	errorTemplate, err = template.ParseFS(templateFS, "templates/error.html")
+	if err != nil {
+		panic("failed to parse error template: " + err.Error())
+	}
+}
 
 // Handler provides HTTP handlers for OAuth callback endpoints.
 type Handler struct {
@@ -29,10 +52,10 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	errorParam := r.URL.Query().Get("error")
 	errorDesc := r.URL.Query().Get("error_description")
 
-	// Handle OAuth errors
+	// Handle OAuth errors - use generic message to avoid leaking sensitive info
 	if errorParam != "" {
 		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
-		h.renderErrorPage(w, fmt.Sprintf("Authentication failed: %s", errorDesc))
+		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
 		return
 	}
 
@@ -94,180 +117,52 @@ func setSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 }
 
+// templateData holds data for HTML template rendering.
+type templateData struct {
+	ServerName string
+	Message    string
+}
+
 // renderSuccessPage renders an HTML page indicating successful authentication.
 func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
 	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
 
 	// Escape server name to prevent XSS attacks
-	safeServerName := html.EscapeString(serverName)
+	data := templateData{
+		ServerName: html.EscapeString(serverName),
+	}
 
-	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Authentication Successful - Muster</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 50%%, #0f3460 100%%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #e8e8e8;
-        }
-        .container {
-            text-align: center;
-            padding: 3rem;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            max-width: 500px;
-            margin: 1rem;
-        }
-        .checkmark {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 1.5rem;
-            background: linear-gradient(135deg, #00d4aa 0%%, #00a896 100%%);
-            border-radius: 50%%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2.5rem;
-        }
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #fff;
-        }
-        .server-name {
-            color: #00d4aa;
-            font-weight: 500;
-        }
-        p {
-            color: #a0a0a0;
-            line-height: 1.6;
-            margin-top: 1rem;
-        }
-        .footer {
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            font-size: 0.875rem;
-            color: #666;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="checkmark">✓</div>
-        <h1>Authentication Successful</h1>
-        <p>You have been authenticated to <span class="server-name">%s</span>.</p>
-        <p>You can now close this window and return to your IDE.</p>
-        <p>Retry the previous command to continue.</p>
-        <div class="footer">
-            Powered by Muster
-        </div>
-    </div>
-</body>
-</html>`, safeServerName)
+	var buf bytes.Buffer
+	if err := successTemplate.Execute(&buf, data); err != nil {
+		logging.Error("OAuth", err, "Failed to render success template")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-	w.Write([]byte(htmlContent))
+	w.WriteHeader(http.StatusOK)
+	w.Write(buf.Bytes())
 }
 
 // renderErrorPage renders an HTML page indicating an authentication error.
 func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
 	setSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusBadRequest)
 
 	// Escape message to prevent XSS attacks
-	safeMessage := html.EscapeString(message)
+	data := templateData{
+		Message: html.EscapeString(message),
+	}
 
-	htmlContent := fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Authentication Failed - Muster</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 50%%, #0f3460 100%%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #e8e8e8;
-        }
-        .container {
-            text-align: center;
-            padding: 3rem;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            max-width: 500px;
-            margin: 1rem;
-        }
-        .error-icon {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 1.5rem;
-            background: linear-gradient(135deg, #ff6b6b 0%%, #ee5a5a 100%%);
-            border-radius: 50%%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2.5rem;
-        }
-        h1 {
-            font-size: 1.75rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #fff;
-        }
-        .message {
-            color: #ff6b6b;
-            font-weight: 500;
-            margin-top: 1rem;
-        }
-        p {
-            color: #a0a0a0;
-            line-height: 1.6;
-            margin-top: 1rem;
-        }
-        .footer {
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            font-size: 0.875rem;
-            color: #666;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="error-icon">✕</div>
-        <h1>Authentication Failed</h1>
-        <p class="message">%s</p>
-        <p>Please return to your IDE and try again.</p>
-        <div class="footer">
-            Powered by Muster
-        </div>
-    </div>
-</body>
-</html>`, safeMessage)
+	var buf bytes.Buffer
+	if err := errorTemplate.Execute(&buf, data); err != nil {
+		logging.Error("OAuth", err, "Failed to render error template")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 
-	w.Write([]byte(htmlContent))
+	w.WriteHeader(http.StatusBadRequest)
+	w.Write(buf.Bytes())
 }
 
 // ServeHTTP implements http.Handler for the OAuth handler.

@@ -74,8 +74,10 @@ func TestHandler_HandleCallback_OAuthError(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "User denied access") {
-		t.Errorf("Expected body to contain error description, got %q", body)
+	// We now use a generic error message to avoid leaking sensitive information
+	// from OAuth provider error descriptions
+	if !strings.Contains(body, "Authentication was denied or failed") {
+		t.Errorf("Expected body to contain generic error message, got %q", body)
 	}
 }
 
