@@ -144,9 +144,11 @@ func (r *ServerRegistry) Deregister(name string) error {
 		return fmt.Errorf("server %s not found", name)
 	}
 
-	// Close the client connection gracefully
-	if err := info.Client.Close(); err != nil {
-		logging.Warn("Aggregator", "Error closing client for %s: %v", name, err)
+	// Close the client connection gracefully (may be nil for auth_required servers)
+	if info.Client != nil {
+		if err := info.Client.Close(); err != nil {
+			logging.Warn("Aggregator", "Error closing client for %s: %v", name, err)
+		}
 	}
 
 	delete(r.servers, name)

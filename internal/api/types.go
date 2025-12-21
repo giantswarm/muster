@@ -591,3 +591,16 @@ type OAuthToken struct {
 	// Scope is the granted scope(s).
 	Scope string `json:"scope,omitempty"`
 }
+
+// AuthInfo contains OAuth authentication information extracted from
+// a 401 response during MCP server initialization.
+type AuthInfo struct {
+	// Issuer is the OAuth issuer URL (from WWW-Authenticate realm)
+	Issuer string `json:"issuer,omitempty"`
+
+	// Scope is the OAuth scope required by the server
+	Scope string `json:"scope,omitempty"`
+
+	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
+	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
+}

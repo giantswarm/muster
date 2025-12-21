@@ -98,6 +98,19 @@ type AggregatorHandler interface {
 	// UpdateCapabilities triggers a refresh of the aggregator's capability information.
 	// This should be called when MCP servers are added, removed, or their tools change.
 	UpdateCapabilities()
+
+	// RegisterServerPendingAuth registers a server that requires OAuth authentication.
+	// This creates a placeholder server in auth_required state with a synthetic
+	// authentication tool that users can call to initiate the OAuth flow.
+	//
+	// Args:
+	//   - serverName: Unique name of the server
+	//   - url: The server endpoint URL
+	//   - toolPrefix: Server-specific prefix for tools
+	//   - authInfo: OAuth information from the 401 response
+	//
+	// Returns an error if registration fails.
+	RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

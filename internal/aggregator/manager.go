@@ -129,6 +129,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		am.orchestratorAPI,
 		am.registerSingleServer,
 		am.deregisterSingleServer,
+		am.isServerAuthRequired,
 	)
 
 	// Start the event handler for automatic updates
@@ -403,6 +404,25 @@ func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverN
 
 	logging.Info("Aggregator-Manager", "Server %s upgraded to connected after OAuth authentication", serverName)
 	return nil
+}
+
+// isServerAuthRequired checks if a server is currently in auth_required state.
+// This is used by the event handler to avoid deregistering servers that are
+// waiting for OAuth authentication.
+func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+
+	if am.aggregatorServer == nil {
+		return false
+	}
+
+	info, exists := am.aggregatorServer.GetRegistry().GetServerInfo(serverName)
+	if !exists {
+		return false
+	}
+
+	return info.Status == StatusAuthRequired
 }
 
 // deregisterSingleServer removes a single MCP server from the aggregator.
