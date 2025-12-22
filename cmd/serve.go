@@ -25,7 +25,7 @@ var serveYolo bool
 // The directory should contain config.yaml and subdirectories: mcpservers/, workflows/, serviceclasses/, services/
 var serveConfigPath string
 
-// OAuth configuration flags
+// OAuth Proxy configuration flags (for authenticating to remote MCP servers - ADR 004)
 var (
 	// serveOAuthEnabled enables the OAuth proxy functionality for remote MCP servers
 	serveOAuthEnabled bool
@@ -33,6 +33,14 @@ var (
 	serveOAuthPublicURL string
 	// serveOAuthClientID is the OAuth client identifier (CIMD URL)
 	serveOAuthClientID string
+)
+
+// OAuth Server configuration flags (for protecting the Muster Server - ADR 005)
+var (
+	// serveOAuthServerEnabled enables OAuth server protection for the Muster Server
+	serveOAuthServerEnabled bool
+	// serveOAuthServerBaseURL is the base URL of the Muster Server (for OAuth issuer)
+	serveOAuthServerBaseURL string
 )
 
 // serveCmd defines the serve command structure.
@@ -70,7 +78,8 @@ Configuration:
 func runServe(cmd *cobra.Command, args []string) error {
 	// Create application configuration without cluster arguments
 	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
-		WithOAuth(serveOAuthEnabled, serveOAuthPublicURL, serveOAuthClientID)
+		WithOAuth(serveOAuthEnabled, serveOAuthPublicURL, serveOAuthClientID).
+		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL)
 
 	// Create and initialize the application
 	application, err := app.NewApplication(cfg)
@@ -97,8 +106,13 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveYolo, "yolo", false, "Disable denylist for destructive tool calls (use with caution)")
 	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
-	// OAuth Proxy flags
+	// OAuth Proxy flags (for authenticating to remote MCP servers - ADR 004)
 	serveCmd.Flags().BoolVar(&serveOAuthEnabled, "oauth", false, "Enable OAuth proxy for remote MCP server authentication")
 	serveCmd.Flags().StringVar(&serveOAuthPublicURL, "oauth-public-url", "", "Publicly accessible URL of the Muster Server for OAuth callbacks")
 	serveCmd.Flags().StringVar(&serveOAuthClientID, "oauth-client-id", config.DefaultOAuthClientID, "OAuth client identifier (CIMD URL)")
+
+	// OAuth Server protection flags (for protecting the Muster Server - ADR 005)
+	// Note: Full OAuth server configuration should be done via config file (config.yaml)
+	serveCmd.Flags().BoolVar(&serveOAuthServerEnabled, "oauth-server", false, "Enable OAuth 2.1 protection for Muster Server (requires config file for full setup)")
+	serveCmd.Flags().StringVar(&serveOAuthServerBaseURL, "oauth-server-base-url", "", "Base URL of the Muster Server for OAuth (e.g., https://muster.example.com)")
 }

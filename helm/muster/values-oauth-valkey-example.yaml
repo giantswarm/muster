@@ -1,0 +1,106 @@
+# Example values for production OAuth deployment with Valkey storage
+#
+# This configuration enables:
+# - OAuth 2.1 authentication with Dex OIDC provider (protects Muster Server)
+# - Valkey (Redis-compatible) for persistent token storage
+# - Token encryption at rest
+#
+# Benefits of Valkey storage:
+# - Session persistence across pod restarts
+# - Horizontal scaling with shared session state
+# - Rolling updates without user session loss
+#
+# Prerequisites:
+# 1. Deploy Valkey in your cluster (e.g., using Bitnami Valkey chart)
+# 2. Create a secret with OAuth credentials and Valkey password
+# 3. Configure Dex or your OIDC provider
+#
+# Example secret creation:
+#   kubectl create secret generic muster-oauth \
+#     --from-literal=dex-client-secret=<your-dex-client-secret> \
+#     --from-literal=registration-token=$(openssl rand -hex 32) \
+#     --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \
+#     --from-literal=valkey-password=<your-valkey-password>
+
+replicaCount: 2  # Enable horizontal scaling with Valkey
+
+muster:
+  aggregator:
+    port: 8090
+    transport: "streamable-http"
+
+  # OAuth Server configuration (protects Muster Server itself)
+  oauthServer:
+    enabled: true
+    baseUrl: "https://muster.example.com"
+    provider: "dex"
+
+    dex:
+      issuerUrl: "https://dex.example.com"
+      clientId: "muster-server"
+      # clientSecret is loaded from existingSecret
+
+    # Disable public registration for production security
+    allowPublicClientRegistration: false
+
+    # Enable token encryption at rest
+    encryptionKey: true
+
+    # Use existing secret for credentials
+    existingSecret: "muster-oauth"
+
+    # Valkey storage configuration
+    storage:
+      type: "valkey"
+      valkey:
+        # Valkey service address (adjust for your deployment)
+        url: "valkey.default.svc:6379"
+        
+        # Enable TLS for production
+        tls:
+          enabled: true
+        
+        # Key prefix to avoid conflicts with other applications
+        keyPrefix: "muster:"
+        
+        # Database number (0-15)
+        db: 0
+        
+        # Password is loaded from existingSecret
+        # Note: Uses the same secret as OAuth credentials
+        # The secret key is "valkey-password"
+
+# Enable autoscaling for production
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# Resource limits for production
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# Enable ingress for public access
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    # Rate limiting for OAuth endpoints
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    nginx.ingress.kubernetes.io/limit-connections: "5"
+  hosts:
+    - host: muster.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: muster-tls
+      hosts:
+        - muster.example.com
+

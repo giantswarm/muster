@@ -8,7 +8,7 @@ import (
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // itemType represents the type of MCP item (tool, prompt, or resource)
@@ -233,17 +233,17 @@ func processItemsGeneric[T any](
 		// Add to batch based on type
 		switch iType {
 		case itemTypeTool:
-			itemsToAdd = append(itemsToAdd, server.ServerTool{
+			itemsToAdd = append(itemsToAdd, mcpserver.ServerTool{
 				Tool:    exposedItem.(mcp.Tool),
 				Handler: handler.(func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)),
 			})
 		case itemTypePrompt:
-			itemsToAdd = append(itemsToAdd, server.ServerPrompt{
+			itemsToAdd = append(itemsToAdd, mcpserver.ServerPrompt{
 				Prompt:  exposedItem.(mcp.Prompt),
 				Handler: handler.(func(context.Context, mcp.GetPromptRequest) (*mcp.GetPromptResult, error)),
 			})
 		case itemTypeResource:
-			itemsToAdd = append(itemsToAdd, server.ServerResource{
+			itemsToAdd = append(itemsToAdd, mcpserver.ServerResource{
 				Resource: exposedItem.(mcp.Resource),
 				Handler:  handler.(func(context.Context, mcp.ReadResourceRequest) ([]mcp.ResourceContents, error)),
 			})
@@ -373,7 +373,7 @@ func resourceHandlerFactory(a *AggregatorServer, exposedURI string) func(context
 }
 
 // processToolsForServer processes all tools from a server and returns handlers to add
-func processToolsForServer(a *AggregatorServer, serverName string, info *ServerInfo) []server.ServerTool {
+func processToolsForServer(a *AggregatorServer, serverName string, info *ServerInfo) []mcpserver.ServerTool {
 	info.mu.RLock()
 	defer info.mu.RUnlock()
 
@@ -389,10 +389,10 @@ func processToolsForServer(a *AggregatorServer, serverName string, info *ServerI
 		},
 	)
 
-	// Convert results to []server.ServerTool
-	var toolsToAdd []server.ServerTool
+	// Convert results to []mcpserver.ServerTool
+	var toolsToAdd []mcpserver.ServerTool
 	for _, item := range results {
-		if tool, ok := item.(server.ServerTool); ok {
+		if tool, ok := item.(mcpserver.ServerTool); ok {
 			toolsToAdd = append(toolsToAdd, tool)
 		}
 	}
@@ -400,7 +400,7 @@ func processToolsForServer(a *AggregatorServer, serverName string, info *ServerI
 }
 
 // processPromptsForServer processes all prompts from a server and returns handlers to add
-func processPromptsForServer(a *AggregatorServer, serverName string, info *ServerInfo) []server.ServerPrompt {
+func processPromptsForServer(a *AggregatorServer, serverName string, info *ServerInfo) []mcpserver.ServerPrompt {
 	info.mu.RLock()
 	defer info.mu.RUnlock()
 
@@ -416,10 +416,10 @@ func processPromptsForServer(a *AggregatorServer, serverName string, info *Serve
 		},
 	)
 
-	// Convert results to []server.ServerPrompt
-	var promptsToAdd []server.ServerPrompt
+	// Convert results to []mcpserver.ServerPrompt
+	var promptsToAdd []mcpserver.ServerPrompt
 	for _, item := range results {
-		if prompt, ok := item.(server.ServerPrompt); ok {
+		if prompt, ok := item.(mcpserver.ServerPrompt); ok {
 			promptsToAdd = append(promptsToAdd, prompt)
 		}
 	}
@@ -427,7 +427,7 @@ func processPromptsForServer(a *AggregatorServer, serverName string, info *Serve
 }
 
 // processResourcesForServer processes all resources from a server and returns handlers to add
-func processResourcesForServer(a *AggregatorServer, serverName string, info *ServerInfo) []server.ServerResource {
+func processResourcesForServer(a *AggregatorServer, serverName string, info *ServerInfo) []mcpserver.ServerResource {
 	info.mu.RLock()
 	defer info.mu.RUnlock()
 
@@ -443,10 +443,10 @@ func processResourcesForServer(a *AggregatorServer, serverName string, info *Ser
 		},
 	)
 
-	// Convert results to []server.ServerResource
-	var resourcesToAdd []server.ServerResource
+	// Convert results to []mcpserver.ServerResource
+	var resourcesToAdd []mcpserver.ServerResource
 	for _, item := range results {
-		if resource, ok := item.(server.ServerResource); ok {
+		if resource, ok := item.(mcpserver.ServerResource); ok {
 			resourcesToAdd = append(resourcesToAdd, resource)
 		}
 	}

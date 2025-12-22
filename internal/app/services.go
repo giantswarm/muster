@@ -190,11 +190,17 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
 			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
+			Debug:        cfg.Debug,
 			OAuth: aggregator.OAuthProxyConfig{
 				Enabled:      cfg.OAuthEnabled,
 				PublicURL:    cfg.OAuthPublicURL,
 				ClientID:     cfg.OAuthClientID,
 				CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
+			},
+			OAuthServer: aggregator.OAuthServerConfig{
+				// CLI flag overrides config file if enabled
+				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuthServer.Enabled,
+				Config:  mergeOAuthServerConfig(cfg),
 			},
 		}
 
@@ -257,6 +263,24 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 	}
 
 	return musterClient, nil
+}
+
+// mergeOAuthServerConfig merges OAuth server configuration from CLI flags and config file.
+// CLI flags override config file settings where specified.
+func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
+	serverCfg := cfg.MusterConfig.Aggregator.OAuthServer
+
+	// Override base URL from CLI if provided
+	if cfg.OAuthServerBaseURL != "" {
+		serverCfg.BaseURL = cfg.OAuthServerBaseURL
+	}
+
+	// Enable from CLI flag if specified
+	if cfg.OAuthServerEnabled {
+		serverCfg.Enabled = true
+	}
+
+	return serverCfg
 }
 
 // Note: Removed the individual adapter creation functions as they're now replaced by the unified muster client approach

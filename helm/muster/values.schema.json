@@ -324,6 +324,149 @@
               "description": "Path for the OAuth callback endpoint"
             }
           }
+        },
+        "oauthServer": {
+          "type": "object",
+          "description": "OAuth server configuration for protecting the Muster Server itself (ADR 005)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable OAuth server protection"
+            },
+            "baseUrl": {
+              "type": "string",
+              "description": "Base URL of the Muster Server (used as OAuth issuer)"
+            },
+            "provider": {
+              "type": "string",
+              "enum": ["dex", "google"],
+              "description": "OAuth provider type"
+            },
+            "dex": {
+              "type": "object",
+              "description": "Dex OIDC provider configuration",
+              "properties": {
+                "issuerUrl": {
+                  "type": "string",
+                  "description": "Dex OIDC issuer URL"
+                },
+                "clientId": {
+                  "type": "string",
+                  "description": "OAuth client ID registered in Dex"
+                },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "OAuth client secret"
+                },
+                "connectorId": {
+                  "type": "string",
+                  "description": "Optional connector ID to bypass Dex connector selection"
+                },
+                "caFile": {
+                  "type": "string",
+                  "description": "Path to CA certificate file for Dex TLS verification"
+                },
+                "kubernetesAuthenticatorClientId": {
+                  "type": "string",
+                  "description": "Client ID of Kubernetes authenticator in Dex"
+                }
+              }
+            },
+            "google": {
+              "type": "object",
+              "description": "Google OAuth provider configuration",
+              "properties": {
+                "clientId": {
+                  "type": "string",
+                  "description": "Google OAuth client ID"
+                },
+                "clientSecret": {
+                  "type": "string",
+                  "description": "Google OAuth client secret"
+                }
+              }
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Use an existing secret for OAuth credentials"
+            },
+            "storage": {
+              "type": "object",
+              "description": "Token storage backend configuration",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["memory", "valkey"],
+                  "description": "Storage backend type"
+                },
+                "valkey": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "description": "Valkey server URL"
+                    },
+                    "password": {
+                      "type": "string",
+                      "description": "Valkey password (use existingSecret for production)"
+                    },
+                    "tls": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "Enable TLS for Valkey connection"
+                        }
+                      }
+                    },
+                    "keyPrefix": {
+                      "type": "string",
+                      "description": "Key prefix for stored data"
+                    },
+                    "db": {
+                      "type": "integer",
+                      "description": "Valkey database number"
+                    },
+                    "existingSecret": {
+                      "type": "string",
+                      "description": "Use an existing secret for Valkey password"
+                    },
+                    "secretKeyPassword": {
+                      "type": "string",
+                      "description": "Key in the secret containing the Valkey password"
+                    }
+                  }
+                }
+              }
+            },
+            "registrationToken": {
+              "type": "string",
+              "description": "Registration token for dynamic client registration"
+            },
+            "allowPublicClientRegistration": {
+              "type": "boolean",
+              "description": "Allow unauthenticated dynamic client registration"
+            },
+            "encryptionKey": {
+              "type": "boolean",
+              "description": "Enable token encryption at rest"
+            },
+            "encryptionKeyValue": {
+              "type": "string",
+              "description": "AES-256 encryption key for tokens at rest (base64)"
+            },
+            "trustedPublicRegistrationSchemes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "URI schemes allowed for unauthenticated client registration"
+            },
+            "enableCIMD": {
+              "type": "boolean",
+              "description": "Enable Client ID Metadata Documents"
+            }
+          }
         }
       }
     },

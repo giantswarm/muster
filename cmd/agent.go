@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"muster/internal/agent"
+	"muster/internal/agent/oauth"
 	"muster/internal/cli"
 	"muster/internal/config"
 
@@ -137,6 +138,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Create agent client
 	client := agent.NewClient(endpoint, logger, transport)
 
+	// For MCP Server mode, check if authentication is required first
+	if agentMCPServer {
+		return runMCPServerWithOAuth(ctx, client, logger, endpoint, transport)
+	}
+
 	// Connect to aggregator and load tools/resources/prompts with retry logic
 	err := connectWithRetry(ctx, client, logger, endpoint, transport)
 	if err != nil {
@@ -145,35 +151,172 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	defer client.Close()
 
 	// Run in different modes
-	if agentMCPServer {
-		// MCP Server mode
-		server, err := agent.NewMCPServer(client, logger, false)
-		if err != nil {
-			return fmt.Errorf("failed to create MCP server: %w", err)
-		}
-
-		logger.Info("Starting muster agent MCP server (stdio transport)...")
-
-		if err := server.Start(ctx); err != nil {
-			return fmt.Errorf("MCP server error: %w", err)
-		}
-		return nil
-	} else if agentREPL {
+	if agentREPL {
 		// REPL mode - let REPL handle its own connection and logging
 		repl := agent.NewREPL(client, logger)
 		if err := repl.Run(ctx); err != nil {
 			return fmt.Errorf("REPL error: %w", err)
 		}
 		return nil
-	} else {
-		// Normal agent mode
+	}
+
+	// Normal agent mode - wait for context cancellation
+	<-ctx.Done()
+	return nil
+}
+
+// runMCPServerWithOAuth runs the MCP server with OAuth authentication support.
+// If the server requires authentication, it starts with a pending auth server
+// exposing only the authenticate_muster tool, then upgrades to the full server
+// after authentication completes.
+func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	// First, check if the server requires authentication
+	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
+		CallbackPort: 3000,
+		FileMode:     true, // Persist tokens to filesystem
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create auth manager: %w", err)
+	}
+	defer authManager.Close()
+
+	// Check connection and detect 401
+	authState, err := authManager.CheckConnection(ctx, endpoint)
+	if err != nil && authState != oauth.AuthStatePendingAuth {
+		// Error that's not auth-related, try regular connection
+		logger.Info("Auth check failed: %v, attempting direct connection", err)
+		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+	}
+
+	switch authState {
+	case oauth.AuthStateAuthenticated:
+		// Already have a valid token, use it
+		bearerToken, err := authManager.GetBearerToken()
+		if err != nil {
+			return fmt.Errorf("failed to get bearer token: %w", err)
+		}
+		client.SetAuthorizationHeader(bearerToken)
+		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+
+	case oauth.AuthStatePendingAuth:
+		// Need to authenticate - start pending auth MCP server
+		return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
+
+	default:
+		// No auth required or unknown state, try direct connection
+		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+	}
+}
+
+// runMCPServerDirect runs the MCP server with a direct connection (no auth required).
+func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	// Connect with retry
+	if err := connectWithRetry(ctx, client, logger, endpoint, transport); err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Create and start MCP server
+	server, err := agent.NewMCPServer(client, logger, true) // Enable notifications
+	if err != nil {
+		return fmt.Errorf("failed to create MCP server: %w", err)
+	}
+
+	logger.Info("Starting muster agent MCP server (stdio transport)...")
+	return server.Start(ctx)
+}
+
+// runMCPServerPendingAuth runs an MCP server that handles OAuth authentication.
+// It starts with a synthetic authenticate_muster tool and upgrades to the full
+// tool set after authentication completes.
+func runMCPServerPendingAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType, authManager *oauth.AuthManager) error {
+	// Create the pending auth MCP server with synthetic authenticate_muster tool
+	pendingServer, err := agent.NewPendingAuthMCPServer(logger, authManager, endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to create pending auth server: %w", err)
+	}
+
+	// Create a channel to signal when authentication completes
+	authCompleteChan := make(chan struct{})
+
+	// Start a goroutine to monitor auth state and upgrade when complete
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
-				return nil
+				return
+			case <-ticker.C:
+				if pendingServer.IsAuthComplete() {
+					close(authCompleteChan)
+					return
+				}
 			}
 		}
+	}()
+
+	// Start another goroutine to upgrade the server when auth completes
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-authCompleteChan:
+			// Authentication completed - upgrade to full server
+			upgradeToConnectedServer(ctx, client, logger, endpoint, transport, authManager, pendingServer)
+		}
+	}()
+
+	// Start the pending auth server (blocks until context is cancelled)
+	logger.Info("Starting muster agent MCP server in pending auth mode...")
+	return pendingServer.Start(ctx)
+}
+
+// upgradeToConnectedServer upgrades from pending auth to a fully connected server.
+// It connects to the aggregator with the auth token and updates the MCP server's tools.
+func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType, authManager *oauth.AuthManager, pendingServer *agent.PendingAuthMCPServer) {
+	// Get the bearer token
+	bearerToken, err := authManager.GetBearerToken()
+	if err != nil {
+		logger.Error("Failed to get bearer token after auth: %v", err)
+		return
 	}
+
+	// Set the authorization header on the client
+	client.SetAuthorizationHeader(bearerToken)
+
+	// Connect to the aggregator
+	if err := client.Connect(ctx); err != nil {
+		logger.Error("Failed to connect after auth: %v", err)
+		return
+	}
+
+	// Initialize and load data
+	if err := client.InitializeAndLoadData(ctx); err != nil {
+		logger.Error("Failed to load data after auth: %v", err)
+		return
+	}
+
+	logger.Success("Connected to Muster Server after authentication")
+
+	// Now upgrade the MCP server by adding real tools and sending notification
+	mcpServer := pendingServer.GetMCPServer()
+	if mcpServer == nil {
+		logger.Error("MCP server is nil, cannot upgrade to full tool set")
+		return
+	}
+
+	// Remove the synthetic authenticate_muster tool
+	mcpServer.DeleteTools("authenticate_muster")
+
+	// Add all the real tools from the connected client
+	agent.RegisterClientToolsOnServer(mcpServer, client)
+
+	// Send tools/list_changed notification to inform clients
+	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
+
+	logger.Info("Upgraded to full tool set - %d tools available", len(client.GetToolCache()))
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic

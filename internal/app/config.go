@@ -39,10 +39,14 @@ type Config struct {
 	// This field is populated during application bootstrap after configuration loading.
 	MusterConfig *config.MusterConfig
 
-	// OAuth Proxy settings
+	// OAuth Proxy settings (ADR 004 - for authenticating to remote MCP servers)
 	OAuthEnabled   bool   // Enable OAuth proxy for remote MCP server authentication
 	OAuthPublicURL string // Publicly accessible URL of the Muster Server
 	OAuthClientID  string // OAuth client identifier (CIMD URL)
+
+	// OAuth Server settings (ADR 005 - for protecting the Muster Server)
+	OAuthServerEnabled bool   // Enable OAuth 2.1 protection for Muster Server
+	OAuthServerBaseURL string // Base URL of the Muster Server for OAuth issuer
 }
 
 // NewConfig creates a new application configuration with the specified settings.
@@ -86,5 +90,25 @@ func (c *Config) WithOAuth(enabled bool, publicURL, clientID string) *Config {
 	c.OAuthEnabled = enabled
 	c.OAuthPublicURL = publicURL
 	c.OAuthClientID = clientID
+	return c
+}
+
+// WithOAuthServer adds OAuth server protection configuration to the Config.
+// This method enables OAuth 2.1 protection for the Muster Server itself (ADR 005).
+// When enabled, clients (like muster agent) must authenticate with OAuth before
+// accessing MCP endpoints.
+//
+// Note: Full OAuth server configuration (provider, storage, etc.) should be
+// done via the config file. These flags provide convenience overrides for
+// enabling the feature and setting the base URL.
+//
+// Args:
+//   - enabled: whether OAuth server protection is enabled
+//   - baseURL: the base URL of the Muster Server (used as OAuth issuer)
+//
+// Returns the modified Config for method chaining.
+func (c *Config) WithOAuthServer(enabled bool, baseURL string) *Config {
+	c.OAuthServerEnabled = enabled
+	c.OAuthServerBaseURL = baseURL
 	return c
 }

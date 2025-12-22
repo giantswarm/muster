@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -39,6 +40,7 @@ const (
 //   - Thread-safe concurrent operations
 //   - Configurable timeouts and error handling
 //   - Multiple output formats (text, JSON)
+//   - OAuth 2.1 authentication support with Bearer token
 type Client struct {
 	endpoint         string
 	transport        TransportType
@@ -52,6 +54,7 @@ type Client struct {
 	cacheEnabled     bool
 	formatters       *Formatters
 	NotificationChan chan mcp.JSONRPCNotification
+	headers          map[string]string // Custom HTTP headers (e.g., Authorization)
 }
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
@@ -82,7 +85,48 @@ func NewClient(endpoint string, logger *Logger, transport TransportType) *Client
 		cacheEnabled:     true,
 		formatters:       NewFormatters(),
 		NotificationChan: make(chan mcp.JSONRPCNotification, 10),
+		headers:          make(map[string]string),
 	}
+}
+
+// SetAuthorizationHeader sets the Authorization header for authenticated requests.
+// This is used for OAuth 2.1 Bearer token authentication.
+//
+// Example:
+//
+//	client.SetAuthorizationHeader("Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...")
+func (c *Client) SetAuthorizationHeader(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.headers["Authorization"] = token
+}
+
+// SetHeader sets a custom HTTP header for requests.
+func (c *Client) SetHeader(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.headers == nil {
+		c.headers = make(map[string]string)
+	}
+	c.headers[key] = value
+}
+
+// ClearAuthorizationHeader removes the Authorization header.
+func (c *Client) ClearAuthorizationHeader() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.headers, "Authorization")
+}
+
+// GetHeaders returns a copy of the current headers.
+func (c *Client) GetHeaders() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	headers := make(map[string]string)
+	for k, v := range c.headers {
+		headers[k] = v
+	}
+	return headers
 }
 
 // Run executes the complete agent workflow for monitoring mode.
@@ -169,16 +213,31 @@ func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRP
 	return nil
 }
 
-// createAndConnectClient creates and connects an MCP client based on transport type
+// createAndConnectClient creates and connects an MCP client based on transport type.
+// It applies any configured headers (e.g., Authorization for OAuth).
 func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, error) {
 	if c.transport != TransportSSE && c.transport != TransportStreamableHTTP {
 		return nil, fmt.Errorf("unsupported transport type: %s", c.transport)
 	}
 
+	// Get headers with lock held
+	c.mu.RLock()
+	headers := make(map[string]string)
+	for k, v := range c.headers {
+		headers[k] = v
+	}
+	c.mu.RUnlock()
+
 	var mcpClient client.MCPClient
 	switch c.transport {
 	case TransportSSE:
-		sseClient, err := client.NewSSEMCPClient(c.endpoint)
+		// Build SSE client options
+		var sseOpts []transport.ClientOption
+		if len(headers) > 0 {
+			sseOpts = append(sseOpts, transport.WithHeaders(headers))
+		}
+
+		sseClient, err := client.NewSSEMCPClient(c.endpoint, sseOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE client: %w", err)
 		}
@@ -199,7 +258,13 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		mcpClient = sseClient
 
 	case TransportStreamableHTTP:
-		httpClient, err := client.NewStreamableHttpClient(c.endpoint)
+		// Build StreamableHTTP client options
+		var httpOpts []transport.StreamableHTTPCOption
+		if len(headers) > 0 {
+			httpOpts = append(httpOpts, transport.WithHTTPHeaders(headers))
+		}
+
+		httpClient, err := client.NewStreamableHttpClient(c.endpoint, httpOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create streamable-http client: %w", err)
 		}

@@ -301,6 +301,63 @@ AI executes: list tools
 AI executes: filter tools workflow_*
 ```
 
+## OAuth Authentication
+
+When connecting to a remote Muster Server that requires authentication, the agent handles OAuth 2.1 automatically.
+
+### How OAuth Authentication Works
+
+1. **Connection Attempt**: The agent tries to connect to the Muster Server
+2. **401 Detection**: If the server requires authentication, it returns a 401 with OAuth metadata
+3. **Pending Auth State**: The agent exposes a synthetic `authenticate_muster` tool
+4. **User Authentication**: Call `authenticate_muster` to get an auth URL, then sign in via browser
+5. **Automatic Upgrade**: After sign-in, the agent connects and exposes all real tools
+
+### Connecting to a Protected Remote Server
+
+```json
+{
+  "mcpServers": {
+    "muster": {
+      "command": "muster",
+      "args": ["agent", "--mcp-server", "--endpoint=https://muster.example.com/mcp"]
+    }
+  }
+}
+```
+
+When you first connect:
+1. Your AI assistant will see the `authenticate_muster` tool
+2. Call it to receive an authentication URL
+3. Open the URL in your browser and sign in
+4. The agent automatically reconnects and exposes all tools
+
+### Token Persistence and Security
+
+OAuth tokens are stored securely on your local filesystem:
+
+- **Location**: `~/.config/muster/tokens/`
+- **File permissions**: `0600` (owner read/write only)
+- **Directory permissions**: `0700` (owner access only)
+- **Format**: JSON files with hashed server URL as filename
+
+Subsequent connections reuse existing valid tokens, so you only need to authenticate once per server until the token expires.
+
+**Security Considerations**:
+- Tokens contain sensitive credentials - treat this directory like SSH keys
+- To revoke access: `rm -rf ~/.config/muster/tokens/`
+- For shared machines: ensure proper user isolation
+- Tokens have a 60-second expiry buffer to handle network latency
+
+### Client Registration (CIMD)
+
+The Muster Agent uses a Client ID Metadata Document (CIMD) hosted on GitHub Pages for OAuth client identification:
+
+- **Client ID**: `https://giantswarm.github.io/muster/muster-agent.json`
+- **Redirect URI**: `http://localhost:3000/callback`
+
+For self-hosted Muster deployments, ensure your IdP trusts this client ID.
+
 ## Troubleshooting
 
 ### Connection issues
@@ -321,6 +378,13 @@ AI executes: filter tools workflow_*
 - Verify YAML syntax in configuration files
 - Check muster logs for error messages
 - Test configuration: Ask agent to run `call core_config_get {})`
+
+### OAuth authentication issues
+
+- **Token expired**: Clear tokens with `rm -rf ~/.config/muster/tokens/` and re-authenticate
+- **Callback not received**: Ensure port 3000 is available and no firewall blocks localhost
+- **Client not registered**: For self-hosted servers, verify the CIMD client ID is trusted by your IdP
+- **Wrong issuer**: Check that the server's WWW-Authenticate header points to your IdP
 
 ## Next steps
 

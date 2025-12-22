@@ -419,7 +419,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 
 	// Capture the server instances - they should NOT change
 	server.mu.RLock()
-	originalMCPServer := server.server
+	originalMCPServer := server.mcpServer
 	originalSSEServer := server.sseServer
 	server.mu.RUnlock()
 
@@ -439,7 +439,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 
 	// Verify that the server instances have NOT changed
 	server.mu.RLock()
-	assert.Equal(t, originalMCPServer, server.server, "MCP server instance should remain the same")
+	assert.Equal(t, originalMCPServer, server.mcpServer, "MCP server instance should remain the same")
 	assert.Equal(t, originalSSEServer, server.sseServer, "SSE server instance should remain the same")
 	server.mu.RUnlock()
 
@@ -462,7 +462,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 
 	// Verify server instances still haven't changed
 	server.mu.RLock()
-	assert.Equal(t, originalMCPServer, server.server, "MCP server instance should remain the same")
+	assert.Equal(t, originalMCPServer, server.mcpServer, "MCP server instance should remain the same")
 	assert.Equal(t, originalSSEServer, server.sseServer, "SSE server instance should remain the same")
 	server.mu.RUnlock()
 
@@ -479,7 +479,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 
 	// Verify server instances still haven't changed
 	server.mu.RLock()
-	assert.Equal(t, originalMCPServer, server.server, "MCP server instance should remain the same")
+	assert.Equal(t, originalMCPServer, server.mcpServer, "MCP server instance should remain the same")
 	assert.Equal(t, originalSSEServer, server.sseServer, "SSE server instance should remain the same")
 	server.mu.RUnlock()
 
