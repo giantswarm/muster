@@ -35,12 +35,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: 'v3.17.0'
+          version: 'v3.19.4'
 
       - name: Install helm-unittest plugin
-        env:
-          PLUGIN_URL: https://github.com/helm-unittest/helm-unittest.git
-        run: helm plugin install "$PLUGIN_URL" --version v0.6.3
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
       - name: Run Checks (Lint)
         run: make check
