@@ -38,25 +38,17 @@ Muster Server will play two distinct OAuth roles:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 3. Key Insight: MCP Handshake vs Tool Call Authentication
+### 3. MCP Roles and Architecture
 
-**Critical Learning from ADR 004 Implementation**: Authentication does not start with a tool call - it starts with the MCP protocol handshake (`initialize` request). When the Agent connects to Muster Server using SSE or Streamable-HTTP transport, the server returns a 401 *during the transport/connection phase*, before any tools are available.
-
-This is fundamentally different from the downstream OAuth proxy flow (ADR 004) where:
-- The aggregator can register a "pending auth" server with synthetic `authenticate_<server>` tools
-- Users call the synthetic tool to trigger the OAuth flow
-
-For Agent->Muster authentication, there are no tools yet - the connection itself fails. The Agent must handle this at the transport layer.
-
-### 4. Agent Architecture
-
-The Muster Agent acts as a **bridge** between the MCP client (Cursor) and the remote Muster Server:
+Each component plays dual roles in the MCP protocol:
 
 ```
-┌──────────┐  stdio   ┌──────────────┐  HTTP/SSE  ┌──────────────┐
-│  Cursor  │ <------> │ Muster Agent │ ---------> │ Muster Server│
-│(MCP Host)│          │ (MCP Server) │            │ (Remote)     │
-└──────────┘          └──────────────┘            └──────────────┘
+┌────────────────┐         ┌────────────────┐            ┌────────────────┐            ┌────────────────┐
+│     Cursor     │  stdio  │  Muster Agent  │  HTTP/SSE  │ Muster Server  │  HTTP/SSE  │   Remote MCP   │
+│                │ <-----> │                │ ---------> │                │ ---------> │                │
+│   MCP Host     │         │   MCP Server   │            │   MCP Server   │            │   MCP Server   │
+│   MCP Client   │         │   MCP Client   │            │   MCP Client   │            │                │
+└────────────────┘         └────────────────┘            └────────────────┘            └────────────────┘
 ```
 
 **Cursor configuration** (e.g., `.cursor/mcp.json`):
@@ -71,51 +63,63 @@ The Muster Agent acts as a **bridge** between the MCP client (Cursor) and the re
 
 **Key points**:
 1. Cursor **starts** `muster agent` as a local stdio MCP server (subprocess)
-2. Cursor communicates with the Agent via stdio (stdin/stdout)
-3. The Agent, upon startup, **connects to the Muster Server** as an MCP client (via SSE or Streamable-HTTP)
-4. The Agent proxies tool calls, resources, and prompts between Cursor and Server
+2. Cursor is an MCP Host and MCP Client; it communicates with the Agent via stdio
+3. Muster Agent is an MCP Server (for Cursor) AND an MCP Client (for Muster Server)
+4. Muster Server is an MCP Server (for Agent) AND an MCP Client (for Remote MCPs)
+5. The Agent proxies tool calls, resources, and prompts between Cursor and Server
 
-This means the authentication challenge happens when the **Agent connects to the Server** (step 3), not when Cursor starts the Agent.
+### 4. Key Insight: Same Pattern as Downstream Auth (Lazy Initialization)
+
+**Critical Learning from ADR 004 Implementation**: Authentication happens during the MCP handshake (`initialize` request), not during a tool call. This is **exactly the same** situation for both:
+- **Agent -> Muster Server**: Agent (as MCP Client) gets 401 when connecting to protected Server
+- **Muster Server -> Remote MCP**: Server (as MCP Client) gets 401 when connecting to protected Remote
+
+**The solution is the same**: Use lazy initialization with synthetic authentication tools.
+
+Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools even when its upstream connection to Muster Server fails. This provides a consistent user experience where auth URLs always appear as tool results in Cursor.
 
 ### 5. Authentication Flow (Agent -> Muster)
 
-Since the Muster Agent runs locally and connects to a remote Muster Server, the Agent must obtain a token. The 401 occurs during the Agent's connection to the Server, not during a tool call from Cursor.
-
 1.  **Startup**: Cursor starts `muster agent --mcp-server --endpoint=<server-url>` as a stdio subprocess.
-2.  **Agent Connects to Server**: Agent attempts to establish MCP connection to `muster server` (SSE/Streamable-HTTP transport).
-3.  **Handshake Rejection**: During the HTTP transport phase (before MCP `initialize` completes), Server responds with `401 Unauthorized` and `WWW-Authenticate` header pointing to its authorization endpoint (Dex).
-4.  **Agent Handles Transport-Level 401**:
-    *   Agent detects the 401 during connection (not tool call).
+2.  **Agent Connects to Server**: Agent (as MCP Client) attempts to establish connection to `muster server` (SSE/Streamable-HTTP).
+3.  **Handshake Rejection**: Server responds with `401 Unauthorized` and `WWW-Authenticate` header pointing to its IdP.
+4.  **Lazy Initialization (Pending Auth State)**:
+    *   Agent detects the 401 during connection.
     *   Agent parses `WWW-Authenticate` header to extract issuer/realm.
-    *   Agent generates a local authorization URL (Authorization Code Flow with PKCE).
+    *   Agent enters "pending auth" state (similar to `RegisterPendingAuth()` in ADR 004).
+    *   Agent exposes a synthetic `authenticate_muster` tool to Cursor.
+    *   Agent completes MCP handshake with Cursor (stdio) - Cursor sees the synthetic tool.
+5.  **User Calls Synthetic Auth Tool**:
+    *   User (via Cursor) calls `authenticate_muster` tool.
+    *   Agent generates authorization URL (Authorization Code Flow with PKCE).
     *   Agent starts a temporary local listener (e.g., on port `3000`).
-    *   Agent outputs a message to stdout/stderr (visible to user or Cursor logs): "Authentication required. Please log in: [Link]".
-5.  **Browser Flow**:
+    *   Tool result contains the auth URL: "Please sign in: [Link]".
+6.  **Browser Flow**:
     *   User clicks link -> IdP (Dex) -> User logs in.
     *   IdP redirects to `http://localhost:3000/callback` with code.
-6.  **Token Exchange**:
+7.  **Token Exchange**:
     *   Agent receives code via the local listener.
     *   Agent exchanges code for Access/Refresh tokens (direct to IdP).
     *   Agent stores tokens locally (in memory or XDG-compliant secure file).
-7.  **Retry Connection**:
-    *   Agent retries the MCP connection to `muster server`, adding `Authorization: Bearer <token>` header to the HTTP transport.
-8.  **Server Validation & Connection Complete**:
-    *   Muster Server validates the token (signature, issuer, audience) using `mcp-oauth` middleware.
-    *   MCP handshake completes successfully.
+8.  **Upgrade to Connected**:
+    *   Agent retries MCP connection to Server with `Authorization: Bearer <token>` header.
+    *   Server validates token; handshake succeeds.
     *   Agent receives tools, resources, and prompts from Server.
-    *   Agent exposes these to Cursor via stdio.
+    *   Agent replaces synthetic `authenticate_muster` tool with real tools (similar to `UpgradeToConnected()`).
+    *   Agent sends `tools/list_changed` notification to Cursor.
     *   User can now interact with Muster through Cursor.
 
-### 6. Comparison: Agent->Muster vs Muster->Remote Auth
+### 6. Consistency with Downstream Auth
 
 | Aspect | Agent -> Muster (this ADR) | Muster -> Remote (ADR 004) |
 |--------|---------------------------|---------------------------|
-| **When 401 occurs** | Agent startup (connecting to Server) | Server connecting to Remote MCP |
-| **Synthetic tools?** | No - Agent connection fails before tools exist | Yes - `authenticate_<server>` tool exposed to Cursor |
-| **Who handles auth?** | Agent (OAuth public client) | Server (OAuth proxy/client) |
+| **When 401 occurs** | Agent connecting to Server | Server connecting to Remote MCP |
+| **Who is the MCP Client?** | Agent | Muster Server |
+| **Who is the MCP Server (for user)?** | Agent (for Cursor) | Muster Server (for Agent/Cursor) |
+| **Synthetic tools?** | Yes - `authenticate_muster` | Yes - `authenticate_<server>` |
+| **Lazy init pattern** | Same: pending auth -> upgrade | `RegisterPendingAuth()` + `UpgradeToConnected()` |
 | **Token storage** | Agent-side (local filesystem) | Server-side (session store) |
-| **Lazy init pattern** | Agent retries connection after auth | `RegisterPendingAuth()` + `UpgradeToConnected()` |
-| **User experience** | Auth URL in stdout/stderr at Agent startup | Auth URL in tool result within Cursor |
+| **User experience** | Auth URL in tool result | Auth URL in tool result |
 
 ### 7. Relation to "OAuth Proxy" (Downstream Auth)
 
@@ -133,15 +137,16 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 
 ## Implementation Steps
 
-1.  **Agent**: Implement OAuth 2.1 Public Client logic at the transport layer:
-    *   Handle 401 responses during SSE/Streamable-HTTP connection establishment
+1.  **Agent**: Implement lazy initialization with synthetic auth tool:
+    *   Handle 401 responses during SSE/Streamable-HTTP connection to Muster Server
     *   Parse `WWW-Authenticate` header to discover the authorization server
-    *   Implement Authorization Code Flow with PKCE
+    *   Enter "pending auth" state and expose synthetic `authenticate_muster` tool to Cursor
+    *   Implement Authorization Code Flow with PKCE when synthetic tool is called
     *   Start a temporary local HTTP listener for the callback (e.g., port `3000`)
     *   Store tokens locally (in memory or XDG-compliant secure file)
     *   Retry connection with `Authorization: Bearer <token>` header
+    *   Replace synthetic tool with real tools from Server (send `tools/list_changed`)
     *   CIMD `muster-agent.json` hosted on GitHub Pages
-    *   *Note*: This moves auth logic to the Agent (unlike the pure "Proxy" model where Server handles everything). This is necessary because the Server *itself* is now protected.
 
 2.  **Server**: Add `ValidateToken` middleware to the main HTTP entry point:
     *   Return `401 Unauthorized` with proper `WWW-Authenticate` header for unauthenticated requests
@@ -152,7 +157,8 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 
 ## Consequences
 
-*   **Agent Complexity**: The Agent is no longer just a dumb pipe; it must handle OAuth flows at the transport layer. This is more complex than the downstream auth (ADR 004) where synthetic tools provide a user-friendly interface.
-*   **No Synthetic Tools for Agent Auth**: Unlike downstream auth, there are no `authenticate_muster` tools. The Agent must handle the 401 during connection and present the auth URL directly to the user (via stdout/stderr or MCP logging).
+*   **Consistent UX**: Auth flows work identically whether authenticating to Muster Server or Remote MCPs - users always see auth URLs as tool results in Cursor.
+*   **Agent Complexity**: The Agent must implement the same lazy initialization pattern as Muster Server (pending auth state, synthetic tools, upgrade to connected).
+*   **Code Reuse**: The Agent can reuse much of the OAuth and lazy initialization logic from the Server implementation.
 *   **Double Auth**: Users might need to auth twice (once to Muster, once to Remote), but SSO/Token Reuse should minimize this.
 *   **Security**: Muster is now secure by default when exposed.
