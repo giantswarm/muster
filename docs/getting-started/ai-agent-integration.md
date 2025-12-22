@@ -332,9 +332,22 @@ When you first connect:
 3. Open the URL in your browser and sign in
 4. The agent automatically reconnects and exposes all tools
 
-### Token Persistence
+### Token Persistence and Security
 
-OAuth tokens are stored securely in `~/.config/muster/tokens/`. Subsequent connections reuse existing valid tokens, so you only need to authenticate once per server until the token expires.
+OAuth tokens are stored securely on your local filesystem:
+
+- **Location**: `~/.config/muster/tokens/`
+- **File permissions**: `0600` (owner read/write only)
+- **Directory permissions**: `0700` (owner access only)
+- **Format**: JSON files with hashed server URL as filename
+
+Subsequent connections reuse existing valid tokens, so you only need to authenticate once per server until the token expires.
+
+**Security Considerations**:
+- Tokens contain sensitive credentials - treat this directory like SSH keys
+- To revoke access: `rm -rf ~/.config/muster/tokens/`
+- For shared machines: ensure proper user isolation
+- Tokens have a 60-second expiry buffer to handle network latency
 
 ### Client Registration (CIMD)
 

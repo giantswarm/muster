@@ -90,6 +90,9 @@ func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 	s.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Start serving in a goroutine

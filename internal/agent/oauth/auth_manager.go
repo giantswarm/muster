@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -111,10 +112,19 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	if err != nil {
 		if errors.Is(err, ErrAuthRequired) && challenge != nil {
 			// Server requires auth
+			slog.Info("OAuth authentication required for Muster Server",
+				"server_url", serverURL,
+				"issuer", challenge.Issuer,
+				"realm", challenge.Realm,
+			)
 			m.state = AuthStatePendingAuth
 			m.authChallenge = challenge
 			return m.state, nil
 		}
+		slog.Warn("Failed to probe server authentication status",
+			"server_url", serverURL,
+			"error", err.Error(),
+		)
 		m.state = AuthStateError
 		m.lastError = err
 		return m.state, err
@@ -204,9 +214,19 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 
 	authURL, waitFn, err := m.client.CompleteAuthFlow(ctx, m.serverURL, issuerURL)
 	if err != nil {
+		slog.Warn("Failed to start OAuth authentication flow",
+			"server_url", m.serverURL,
+			"issuer_url", issuerURL,
+			"error", err.Error(),
+		)
 		m.lastError = err
 		return "", err
 	}
+
+	slog.Info("OAuth authentication flow started",
+		"server_url", m.serverURL,
+		"issuer_url", issuerURL,
+	)
 
 	m.authURL = authURL
 	m.waitFunc = func() error {
@@ -229,12 +249,20 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 	}
 
 	if err := waitFn(); err != nil {
+		slog.Warn("OAuth authentication flow failed",
+			"server_url", m.serverURL,
+			"error", err.Error(),
+		)
 		m.mu.Lock()
 		m.state = AuthStateError
 		m.lastError = err
 		m.mu.Unlock()
 		return err
 	}
+
+	slog.Info("OAuth authentication completed successfully",
+		"server_url", m.serverURL,
+	)
 
 	m.mu.Lock()
 	m.state = AuthStateAuthenticated

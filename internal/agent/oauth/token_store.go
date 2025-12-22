@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -118,8 +119,16 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 	// Persist to file if file mode is enabled
 	if s.fileMode {
 		if err := s.writeTokenFile(key, storedToken); err != nil {
+			slog.Warn("Failed to persist OAuth token to file",
+				"server_url", serverURL,
+				"error", err.Error(),
+			)
 			return fmt.Errorf("failed to persist token: %w", err)
 		}
+		slog.Debug("OAuth token persisted to secure storage",
+			"server_url", serverURL,
+			"storage_dir", s.storageDir,
+		)
 	}
 
 	return nil
@@ -175,9 +184,16 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 	delete(s.tokens, key)
 
 	if s.fileMode {
-		return s.deleteTokenFile(key)
+		if err := s.deleteTokenFile(key); err != nil {
+			slog.Warn("Failed to delete OAuth token file",
+				"server_url", serverURL,
+				"error", err.Error(),
+			)
+			return err
+		}
 	}
 
+	slog.Debug("OAuth token deleted", "server_url", serverURL)
 	return nil
 }
 
@@ -207,8 +223,13 @@ func (s *TokenStore) tokenKey(serverURL string) string {
 	return hex.EncodeToString(hash[:16]) // Use first 16 bytes (32 hex chars)
 }
 
+// tokenExpiryBuffer is the margin added when checking token validity.
+// This accounts for clock skew, network latency, and long-running operations.
+const tokenExpiryBuffer = 60 * time.Second
+
 // isTokenValid checks if a token is still valid (not expired).
-// Adds a 30-second margin to account for clock skew and network latency.
+// Adds a 60-second margin to account for clock skew, network latency,
+// and to provide buffer for long-running operations.
 func (s *TokenStore) isTokenValid(token *StoredToken) bool {
 	if token == nil {
 		return false
@@ -219,8 +240,8 @@ func (s *TokenStore) isTokenValid(token *StoredToken) bool {
 		return true
 	}
 
-	// Add 30-second margin for safety
-	return time.Now().Add(30 * time.Second).Before(token.Expiry)
+	// Add margin for safety (clock skew, network latency, long operations)
+	return time.Now().Add(tokenExpiryBuffer).Before(token.Expiry)
 }
 
 // writeTokenFile persists a token to a JSON file.

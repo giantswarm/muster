@@ -22,6 +22,10 @@ var ErrAuthRequired = errors.New("authentication required")
 // DefaultHTTPTimeout is the default timeout for HTTP requests.
 const DefaultHTTPTimeout = 30 * time.Second
 
+// MetadataCacheTTL is the TTL for cached OAuth metadata.
+// This allows the cache to refresh periodically in case server configuration changes.
+const MetadataCacheTTL = 1 * time.Hour
+
 // OAuthMetadata represents OAuth/OIDC server metadata.
 // This is discovered from .well-known endpoints.
 type OAuthMetadata struct {
@@ -59,6 +63,12 @@ type AuthFlow struct {
 	StartedAt time.Time
 }
 
+// cachedMetadata holds OAuth metadata with its cache timestamp.
+type cachedMetadata struct {
+	metadata *OAuthMetadata
+	cachedAt time.Time
+}
+
 // Client is the OAuth client for the Muster Agent.
 // It manages OAuth authentication flows for connecting to protected Muster servers.
 type Client struct {
@@ -67,7 +77,7 @@ type Client struct {
 	httpClient    *http.Client
 	callbackPort  int
 	currentFlow   *AuthFlow
-	metadataCache map[string]*OAuthMetadata
+	metadataCache map[string]*cachedMetadata
 }
 
 // ClientConfig configures the OAuth client.
@@ -106,7 +116,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		tokenStore:    tokenStore,
 		httpClient:    httpClient,
 		callbackPort:  callbackPort,
-		metadataCache: make(map[string]*OAuthMetadata),
+		metadataCache: make(map[string]*cachedMetadata),
 	}, nil
 }
 
@@ -208,16 +218,26 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("callback failed: %w", err)
 	}
 
-	// Verify state
+	// Verify state - critical security check to prevent CSRF attacks
 	if result.State != flow.State {
+		slog.Warn("OAuth state mismatch detected - possible CSRF attack",
+			"server_url", flow.ServerURL,
+			"expected_state_len", len(flow.State),
+			"received_state_len", len(result.State),
+		)
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
 		return nil, errors.New("state mismatch - possible CSRF attack")
 	}
 
-	// Check for error
+	// Check for error from authorization server
 	if result.IsError() {
+		slog.Warn("OAuth authorization failed",
+			"server_url", flow.ServerURL,
+			"error", result.Error,
+			"error_description", result.ErrorDescription,
+		)
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
@@ -230,16 +250,29 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 	// Exchange code for tokens
 	token, err := c.exchangeCode(ctx, flow, result.Code)
 	if err != nil {
+		slog.Warn("OAuth token exchange failed",
+			"server_url", flow.ServerURL,
+			"issuer_url", flow.IssuerURL,
+			"error", err.Error(),
+		)
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
+	slog.Info("OAuth authentication successful",
+		"server_url", flow.ServerURL,
+		"issuer_url", flow.IssuerURL,
+	)
+
 	// Store token
 	if err := c.tokenStore.StoreToken(flow.ServerURL, flow.IssuerURL, token); err != nil {
 		// Log warning but continue - token is still valid for this session
-		slog.Warn("failed to persist token", "error", err)
+		slog.Warn("failed to persist OAuth token to storage",
+			"server_url", flow.ServerURL,
+			"error", err.Error(),
+		)
 	}
 
 	// Clean up flow
@@ -278,10 +311,15 @@ func (c *Client) cancelCurrentFlow() {
 
 // discoverOAuthMetadata fetches OAuth metadata from the issuer.
 // Tries RFC 8414 first, then falls back to OpenID Connect discovery.
+// Results are cached with a TTL to handle server configuration changes.
 func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*OAuthMetadata, error) {
-	// Check cache first
-	if metadata, ok := c.metadataCache[issuerURL]; ok {
-		return metadata, nil
+	// Check cache first (with TTL validation)
+	if cached, ok := c.metadataCache[issuerURL]; ok {
+		if time.Since(cached.cachedAt) < MetadataCacheTTL {
+			return cached.metadata, nil
+		}
+		// Cache expired, will refresh below
+		slog.Debug("OAuth metadata cache expired, refreshing", "issuer", issuerURL)
 	}
 
 	// Remove trailing slash from issuer URL
@@ -290,14 +328,20 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 	// Try RFC 8414 first
 	metadata, err := c.fetchMetadata(ctx, issuerURL+"/.well-known/oauth-authorization-server")
 	if err == nil {
-		c.metadataCache[issuerURL] = metadata
+		c.metadataCache[issuerURL] = &cachedMetadata{
+			metadata: metadata,
+			cachedAt: time.Now(),
+		}
 		return metadata, nil
 	}
 
 	// Fall back to OpenID Connect discovery
 	metadata, err = c.fetchMetadata(ctx, issuerURL+"/.well-known/openid-configuration")
 	if err == nil {
-		c.metadataCache[issuerURL] = metadata
+		c.metadataCache[issuerURL] = &cachedMetadata{
+			metadata: metadata,
+			cachedAt: time.Now(),
+		}
 		return metadata, nil
 	}
 
