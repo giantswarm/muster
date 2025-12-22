@@ -679,6 +679,13 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
 func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
+	// Health check endpoint for Kubernetes probes
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Check if OAuth proxy is enabled and mount OAuth-related handlers (for downstream auth)
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() {
