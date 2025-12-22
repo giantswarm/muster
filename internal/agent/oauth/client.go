@@ -455,3 +455,10 @@ func (c *Client) GetCurrentFlowServerURL() string {
 	}
 	return ""
 }
+
+// GetHTTPClient returns the underlying HTTP client for reuse.
+// This allows other components (like AuthManager) to reuse the same client
+// for connection pooling and consistent timeout behavior.
+func (c *Client) GetHTTPClient() *http.Client {
+	return c.httpClient
+}

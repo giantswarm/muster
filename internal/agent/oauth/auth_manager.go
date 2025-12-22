@@ -139,9 +139,8 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 		serverURL,
 	}
 
-	httpClient := &http.Client{
-		Timeout: DefaultHTTPTimeout,
-	}
+	// Reuse the HTTP client from the OAuth client to avoid resource leaks
+	httpClient := m.client.GetHTTPClient()
 
 	for _, probeURL := range probeURLs {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)

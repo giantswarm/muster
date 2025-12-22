@@ -54,6 +54,10 @@ const (
 	DefaultWriteTimeout = 120 * time.Second
 	// DefaultIdleTimeout is the default idle timeout for keepalive connections.
 	DefaultIdleTimeout = 120 * time.Second
+
+	// logEmailPrefixLength is the number of characters to show when logging emails.
+	// Only a prefix is logged for privacy reasons.
+	logEmailPrefixLength = 8
 )
 
 var (
@@ -534,10 +538,11 @@ func validateHTTPSRequirement(baseURL string) error {
 	return nil
 }
 
-// hashEmail returns a truncated hash of the email for logging purposes.
+// hashEmail returns a truncated prefix of the email for logging purposes.
+// Only the first logEmailPrefixLength characters are shown for privacy.
 func hashEmail(email string) string {
-	if len(email) > 8 {
-		return email[:8]
+	if len(email) > logEmailPrefixLength {
+		return email[:logEmailPrefixLength]
 	}
 	return email
 }

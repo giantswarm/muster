@@ -302,6 +302,10 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 
 	// Now upgrade the MCP server by adding real tools and sending notification
 	mcpServer := pendingServer.GetMCPServer()
+	if mcpServer == nil {
+		logger.Error("MCP server is nil, cannot upgrade to full tool set")
+		return
+	}
 
 	// Remove the synthetic authenticate_muster tool
 	mcpServer.DeleteTools("authenticate_muster")
