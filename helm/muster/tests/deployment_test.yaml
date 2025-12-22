@@ -10,14 +10,17 @@
 suite: Deployment template tests
 templates:
   - templates/deployment.yaml
+  - templates/configmap.yaml
 tests:
   - it: should disable automountServiceAccountToken
+    template: templates/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
 
   - it: should mount projected ServiceAccount token volume
+    template: templates/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.volumes
@@ -40,6 +43,7 @@ tests:
                           fieldPath: metadata.namespace
 
   - it: should mount sa-token volume in container
+    template: templates/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
@@ -49,12 +53,14 @@ tests:
             readOnly: true
 
   - it: should set read-only root filesystem
+    template: templates/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
 
   - it: should drop all capabilities
+    template: templates/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.capabilities.drop
@@ -62,12 +68,14 @@ tests:
             - ALL
 
   - it: should not allow privilege escalation
+    template: templates/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
           value: false
 
   - it: should run as non-root
+    template: templates/deployment.yaml
     asserts:
       - equal:
           path: spec.template.spec.securityContext.runAsNonRoot
@@ -77,6 +85,7 @@ tests:
           value: true
 
   - it: should have liveness and readiness probes
+    template: templates/deployment.yaml
     asserts:
       - isNotEmpty:
           path: spec.template.spec.containers[0].livenessProbe
@@ -84,6 +93,7 @@ tests:
           path: spec.template.spec.containers[0].readinessProbe
 
   - it: should use correct image
+    template: templates/deployment.yaml
     set:
       image.tag: "1.2.3"
     asserts:
@@ -92,10 +102,10 @@ tests:
           value: "gsoci.azurecr.io/giantswarm/muster:1.2.3"
 
   - it: should enable debug mode when configured
+    template: templates/deployment.yaml
     set:
       muster.debug: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--debug"
-

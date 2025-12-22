@@ -14,6 +14,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -41,10 +42,7 @@ spec:
             - /muster
           args:
             - serve
-            - --host=0.0.0.0
-            - --port={{ .Values.muster.aggregator.port }}
-            - --transport={{ .Values.muster.aggregator.transport }}
-            - --namespace={{ include "muster.namespace" . }}
+            - --config-path=/etc/muster
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}
@@ -175,12 +173,18 @@ spec:
             - name: sa-token
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
+            - name: config
+              mountPath: /etc/muster
+              readOnly: true
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "muster.fullname" . }}-config
         - name: sa-token
           projected:
             sources:
@@ -212,4 +216,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
