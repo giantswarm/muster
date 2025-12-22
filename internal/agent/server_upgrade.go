@@ -1,10 +1,6 @@
 package agent
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -138,28 +134,4 @@ func registerAgentTools(m *MCPServer) {
 		),
 	)
 	m.mcpServer.AddTool(filterToolsTool, m.handleFilterTools)
-}
-
-// handleCallToolDirect is a helper that creates a direct tool handler for proxying tool calls.
-// It's used when dynamically adding tools from the aggregator.
-func handleCallToolDirect(client *Client, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Extract arguments from the request
-		var args map[string]interface{}
-		if request.Params.Arguments != nil {
-			if argsData, err := json.Marshal(request.Params.Arguments); err == nil {
-				if err := json.Unmarshal(argsData, &args); err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Failed to parse arguments: %v", err)), nil
-				}
-			}
-		}
-
-		// Call the tool via the client
-		result, err := client.CallTool(ctx, toolName, args)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Tool call failed: %v", err)), nil
-		}
-
-		return result, nil
-	}
 }

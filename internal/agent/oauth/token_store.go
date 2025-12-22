@@ -128,12 +128,23 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 // GetToken retrieves a stored token for a specific server.
 // Returns nil if no token exists or the token has expired.
 func (s *TokenStore) GetToken(serverURL string) *StoredToken {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	key := s.tokenKey(serverURL)
 
-	// Check memory cache first
+	// Fast path with read lock - check memory cache
+	s.mu.RLock()
+	if token, ok := s.tokens[key]; ok {
+		if s.isTokenValid(token) {
+			s.mu.RUnlock()
+			return token
+		}
+	}
+	s.mu.RUnlock()
+
+	// Slow path with write lock for cache population/cleanup
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check in case another goroutine populated it
 	if token, ok := s.tokens[key]; ok {
 		if s.isTokenValid(token) {
 			return token

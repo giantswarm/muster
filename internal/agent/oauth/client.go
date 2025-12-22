@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -238,7 +239,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 	// Store token
 	if err := c.tokenStore.StoreToken(flow.ServerURL, flow.IssuerURL, token); err != nil {
 		// Log warning but continue - token is still valid for this session
-		fmt.Printf("Warning: failed to persist token: %v\n", err)
+		slog.Warn("failed to persist token", "error", err)
 	}
 
 	// Clean up flow

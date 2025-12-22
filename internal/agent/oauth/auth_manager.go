@@ -153,13 +153,19 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 		if err != nil {
 			continue
 		}
-		defer func() {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-		}()
 
-		if resp.StatusCode == http.StatusUnauthorized {
-			challenge := ExtractAuthChallengeFromResponse(resp)
+		// Extract needed data before closing the body to avoid defer in loop
+		statusCode := resp.StatusCode
+		var challenge *AuthChallenge
+		if statusCode == http.StatusUnauthorized {
+			challenge = ExtractAuthChallengeFromResponse(resp)
+		}
+
+		// Drain and close body immediately (not deferred) to avoid memory leak
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		if statusCode == http.StatusUnauthorized {
 			if challenge != nil {
 				return challenge, ErrAuthRequired
 			}
@@ -168,7 +174,7 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 
 		// Server responded without 401 - might not require auth
 		// or might require auth at a later stage
-		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusMethodNotAllowed {
+		if statusCode == http.StatusOK || statusCode == http.StatusMethodNotAllowed {
 			return nil, nil
 		}
 	}

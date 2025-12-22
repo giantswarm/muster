@@ -70,6 +70,7 @@ func NewCallbackServer(port int) *CallbackServer {
 }
 
 // Start starts the callback server and begins listening for the OAuth callback.
+// The server will automatically stop when the context is cancelled.
 // Returns the callback URL to use in the OAuth authorization request.
 func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
@@ -101,6 +102,12 @@ func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 		}
 	}()
 
+	// Monitor context for cancellation and stop server when cancelled
+	go func() {
+		<-ctx.Done()
+		s.Stop()
+	}()
+
 	return s.serverURL + "/callback", nil
 }
 
@@ -119,16 +126,21 @@ func (s *CallbackServer) WaitForCallback(ctx context.Context) (*CallbackResult, 
 
 // handleCallback handles the OAuth callback request.
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	// Only handle once
-	var alreadyHandled bool
+	// Only handle once - use sync.Once to ensure idempotency
+	var handled bool
 	s.once.Do(func() {
-		alreadyHandled = false
+		handled = true
+		s.processCallback(w, r)
 	})
-	if alreadyHandled {
-		http.Error(w, "Callback already processed", http.StatusBadRequest)
-		return
-	}
 
+	if !handled {
+		http.Error(w, "Callback already processed", http.StatusBadRequest)
+	}
+}
+
+// processCallback processes the OAuth callback request.
+// This is called exactly once via sync.Once.
+func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request) {
 	// Set security headers
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
@@ -171,9 +183,9 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	default:
 	}
 
-	// Schedule server shutdown
+	// Schedule server shutdown after giving time for response to be sent
 	go func() {
-		time.Sleep(1 * time.Second) // Give time for response to be sent
+		time.Sleep(1 * time.Second)
 		s.Stop()
 	}()
 }

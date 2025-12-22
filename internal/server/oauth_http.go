@@ -88,6 +88,11 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
 
+	// Validate HTTPS requirement for OAuth 2.1 compliance
+	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
+		return nil, err
+	}
+
 	oauthServer, tokenStore, err := createOAuthServer(cfg, debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
