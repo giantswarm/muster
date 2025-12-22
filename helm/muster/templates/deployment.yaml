@@ -55,6 +55,10 @@ spec:
             - --oauth-client-id={{ .Values.muster.oauth.clientId }}
             {{- end }}
             {{- end }}
+            {{- if .Values.muster.oauthServer.enabled }}
+            - --oauth-server
+            - --oauth-server-base-url={{ .Values.muster.oauthServer.baseUrl }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}

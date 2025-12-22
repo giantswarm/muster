@@ -204,6 +204,82 @@ muster:
     # Only used when clientId is empty (self-hosted CIMD mode)
     cimdPath: "/.well-known/oauth-client.json"
 
+  # OAuth Server configuration for protecting the Muster Server itself (ADR 005)
+  # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
+  # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.
+  #
+  # This is DIFFERENT from the oauth section above:
+  # - oauth: Muster acts as OAuth Client to authenticate to REMOTE MCP servers
+  # - oauthServer: Muster acts as OAuth Resource Server to protect ITSELF
+  #
+  # SECURITY NOTES:
+  # - Required for production when Muster is publicly exposed
+  # - TLS is REQUIRED (HTTPS) for all non-localhost deployments
+  # - Use Valkey storage for high availability (multiple replicas)
+  oauthServer:
+    # Enable OAuth server protection
+    enabled: false
+
+    # Base URL of the Muster Server (used as OAuth issuer)
+    # Example: "https://muster.example.com"
+    # Required when OAuth server is enabled.
+    baseUrl: ""
+
+    # OAuth provider: "dex" or "google"
+    provider: "dex"
+
+    # Dex OIDC provider configuration (used when provider is "dex")
+    dex:
+      # Dex OIDC issuer URL
+      issuerUrl: ""
+      # OAuth client ID registered in Dex
+      clientId: ""
+      # OAuth client secret (use secret reference in production)
+      clientSecret: ""
+      # Optional connector ID to bypass Dex connector selection
+      connectorId: ""
+      # Path to CA certificate file for Dex TLS verification (for private CAs)
+      caFile: ""
+      # Client ID of Kubernetes authenticator in Dex (for cross-client tokens)
+      # This enables ID tokens to be used with Kubernetes OIDC authentication
+      kubernetesAuthenticatorClientId: ""
+
+    # Google OAuth provider configuration (used when provider is "google")
+    google:
+      clientId: ""
+      clientSecret: ""
+
+    # Token storage backend: "memory" or "valkey"
+    # Use "valkey" for production with multiple replicas
+    storage:
+      type: "memory"
+      valkey:
+        url: ""
+        password: ""
+        db: 0
+        keyPrefix: "muster:"
+        tlsEnabled: false
+
+    # Registration token for dynamic client registration
+    # Required if allowPublicClientRegistration is false
+    registrationToken: ""
+
+    # Allow unauthenticated dynamic client registration
+    # WARNING: Can lead to DoS attacks. Default: false
+    allowPublicClientRegistration: false
+
+    # AES-256 encryption key for tokens at rest (32 bytes, base64-encoded)
+    # Required for production deployments
+    encryptionKey: ""
+
+    # URI schemes allowed for unauthenticated client registration
+    # Enables Cursor/VSCode without registration tokens
+    # Example: ["cursor", "vscode"]
+    trustedPublicRegistrationSchemes: []
+
+    # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
+    enableCIMD: true
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions
