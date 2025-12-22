@@ -1,0 +1,9 @@
+# Test values for ATS smoke tests
+# Minimal configuration for deployment testing
+
+ciliumNetworkPolicy:
+  enabled: false
+
+crds:
+  install: true
+

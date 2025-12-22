@@ -26,3 +26,29 @@ workflows:
             branches:
               ignore:
                 - main
+
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-to-giantswarm-app-catalog
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster
+          requires:
+            - push-to-registries
+          persist_chart_archive: true
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      - architect/run-tests-with-ats:
+          name: execute chart tests
+          filters:
+            branches:
+              ignore:
+                - main
+          requires:
+            - push-muster-to-giantswarm-app-catalog
