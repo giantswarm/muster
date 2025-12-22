@@ -162,3 +162,193 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 *   **Code Reuse**: The Agent can reuse much of the OAuth and lazy initialization logic from the Server implementation.
 *   **Double Auth**: Users might need to auth twice (once to Muster, once to Remote), but SSO/Token Reuse should minimize this.
 *   **Security**: Muster is now secure by default when exposed.
+
+---
+
+## Addendum: mcp-oauth Integration (Learning from mcp-kubernetes)
+
+### Overview
+
+After analyzing `mcp-kubernetes`'s implementation, we will use the `github.com/giantswarm/mcp-oauth` library (v0.2.26+) to implement OAuth 2.1 protection for Muster Server. This provides a battle-tested OAuth 2.1 implementation with all the security features we need.
+
+### mcp-oauth Library Capabilities
+
+The library provides:
+
+- **OAuth 2.1 Server Implementation**: Full RFC-compliant OAuth 2.1 with mandatory PKCE
+- **Multiple Provider Support**: Dex OIDC (our primary choice) and Google OAuth
+- **Token Storage Backends**: In-memory (dev) and Valkey/Redis (production)
+- **Security Features**: Rate limiting, audit logging, AES-256-GCM token encryption
+- **Client Registration**: RFC 7591 Dynamic Client Registration with rate limiting
+- **CIMD Support**: Client ID Metadata Documents per MCP 2025-11-25 spec
+
+### Key Components from mcp-kubernetes
+
+We will adapt the following components from `mcp-kubernetes`:
+
+#### 1. OAuth HTTP Server (`internal/server/oauth_http.go`)
+
+The core OAuth integration that:
+- Creates an OAuth server using `oauth.NewServer()` with Dex provider
+- Exposes standard OAuth endpoints: `/oauth/register`, `/oauth/authorize`, `/oauth/token`, `/oauth/callback`
+- Exposes metadata endpoints: `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`
+- Wraps MCP endpoints with `ValidateToken` middleware for authentication
+
+```go
+// Key integration pattern from mcp-kubernetes
+oauthServer, tokenStore, err := createOAuthServer(config)
+oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
+
+// MCP endpoint protected by OAuth
+mux.Handle("/mcp", oauthHandler.ValidateToken(mcpHandler))
+```
+
+#### 2. Token Provider (`internal/mcp/oauth/token_provider.go`)
+
+Context helpers for passing OAuth tokens through the request chain:
+
+```go
+// Store ID token in context for downstream use
+ctx = oauth.ContextWithAccessToken(ctx, idToken)
+
+// Retrieve token in tool handlers
+token, ok := oauth.GetAccessTokenFromContext(ctx)
+```
+
+#### 3. Access Token Injector Middleware
+
+Middleware that retrieves the user's stored OAuth token and injects it into the request context for downstream authentication:
+
+```go
+func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        userInfo, ok := oauth.UserInfoFromContext(ctx)
+        if !ok {
+            next.ServeHTTP(w, r)
+            return
+        }
+        
+        token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
+        // Extract ID token and inject into context
+        idToken := GetIDToken(token)
+        ctx = ContextWithAccessToken(ctx, idToken)
+        r = r.WithContext(ctx)
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+### Muster-Specific Implementation
+
+#### Server-Side (Muster Server)
+
+1. **Create `internal/server/oauth.go`**: OAuth server configuration and setup, adapting `mcp-kubernetes`'s pattern
+2. **Create `internal/oauth/` package**: Context helpers similar to `mcp-kubernetes/internal/mcp/oauth/`
+3. **Modify Aggregator HTTP handler**: Wrap with `ValidateToken` middleware
+4. **Add CLI flags**: `--enable-oauth`, `--dex-issuer-url`, `--dex-client-id`, `--dex-client-secret`, etc.
+
+#### Agent-Side (Muster Agent)
+
+The Agent handles the client side of OAuth authentication:
+
+1. **Detect 401 from Server**: When connecting to a protected Muster Server
+2. **Parse `WWW-Authenticate` header**: Extract issuer URL and realm information
+3. **Expose synthetic `authenticate_muster` tool**: While in pending auth state
+4. **Implement Authorization Code Flow with PKCE**: Using mcp-oauth's client utilities
+5. **Store tokens locally**: XDG-compliant secure file storage
+6. **Retry connection with Bearer token**: After successful authentication
+
+### Configuration Example
+
+```yaml
+# Helm values for Muster Server with OAuth
+muster:
+  oauth:
+    enabled: true
+    baseURL: "https://muster.example.com"
+    provider: "dex"
+    dex:
+      issuerURL: "https://dex.example.com"
+      clientID: "muster-server"
+      clientSecret: "${DEX_CLIENT_SECRET}"
+    storage:
+      type: "valkey"
+      valkey:
+        url: "valkey.muster.svc:6379"
+        tls:
+          enabled: true
+```
+
+### Security Configuration
+
+Aligned with `mcp-kubernetes` best practices:
+
+| Setting | Default | Production Recommendation |
+|---------|---------|--------------------------|
+| `--allow-public-registration` | `false` | Keep `false`, use registration token |
+| `--registration-token` | Required | Use cryptographically random token |
+| `--oauth-encryption-key` | Optional | Required for production (32 bytes, base64) |
+| `--enable-cimd` | `true` | Keep `true` for MCP 2025-11-25 compliance |
+| `--trusted-public-registration-schemes` | `[]` | Consider `cursor,vscode` for internal use |
+
+### OAuth Endpoints on Muster Server
+
+| Endpoint | Description | RFC |
+|----------|-------------|-----|
+| `/.well-known/oauth-authorization-server` | Authorization Server Metadata | RFC 8414 |
+| `/.well-known/oauth-protected-resource` | Protected Resource Metadata | RFC 9728 |
+| `/oauth/register` | Dynamic Client Registration | RFC 7591 |
+| `/oauth/authorize` | OAuth Authorization | RFC 6749 |
+| `/oauth/token` | Token Endpoint | RFC 6749 |
+| `/oauth/callback` | OAuth Callback (from Dex) | RFC 6749 |
+| `/oauth/revoke` | Token Revocation | RFC 7009 |
+| `/mcp` | Protected MCP endpoint (requires Bearer token) | - |
+
+### Implementation Order
+
+1. **Server OAuth Protection** (first priority):
+   - Add mcp-oauth dependency
+   - Create OAuth configuration types
+   - Implement OAuth HTTP server wrapper for aggregator
+   - Add CLI flags and Helm chart values
+   - Test with manual curl requests
+
+2. **Agent OAuth Client** (second priority):
+   - Implement 401 detection during SSE/HTTP connection
+   - Parse `WWW-Authenticate` header
+   - Implement synthetic `authenticate_muster` tool
+   - Implement PKCE flow with local callback listener
+   - Token storage (XDG-compliant)
+   - Retry logic with Bearer token
+
+3. **Agent CIMD Configuration** (third priority):
+   - Host `muster-agent.json` on GitHub Pages
+   - Document client registration process
+
+### Differences from mcp-kubernetes
+
+| Aspect | mcp-kubernetes | Muster |
+|--------|----------------|--------|
+| **Primary Use Case** | Direct K8s API access | Aggregating remote MCPs |
+| **Downstream Auth** | ID token → K8s OIDC | OAuth Proxy (ADR 004) |
+| **Token Storage Location** | Server-side (Valkey) | Server + Agent (local) |
+| **CAPI Federation** | Kubeconfig discovery | Remote MCP aggregation |
+| **Agent Component** | N/A (direct HTTP) | Stdio MCP server (for Cursor) |
+
+### Dependencies
+
+Add to `go.mod`:
+
+```go
+require (
+    github.com/giantswarm/mcp-oauth v0.2.26
+    golang.org/x/oauth2 v0.34.0
+)
+```
+
+### References
+
+- [mcp-oauth Library](https://github.com/giantswarm/mcp-oauth)
+- [mcp-kubernetes OAuth Implementation](https://github.com/giantswarm/mcp-kubernetes/tree/main/internal/mcp/oauth)
+- [OAuth 2.1 Specification](https://oauth.net/2.1/)
+- [RFC 7636: PKCE](https://datatracker.ietf.org/doc/html/rfc7636)
