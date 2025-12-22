@@ -386,6 +386,10 @@
                 }
               }
             },
+            "existingSecret": {
+              "type": "string",
+              "description": "Use an existing secret for OAuth credentials"
+            },
             "storage": {
               "type": "object",
               "description": "Token storage backend configuration",
@@ -400,23 +404,36 @@
                   "properties": {
                     "url": {
                       "type": "string",
-                      "description": "Valkey/Redis URL"
+                      "description": "Valkey server URL"
                     },
                     "password": {
                       "type": "string",
-                      "description": "Valkey/Redis password"
+                      "description": "Valkey password (use existingSecret for production)"
                     },
-                    "db": {
-                      "type": "integer",
-                      "description": "Valkey/Redis database number"
+                    "tls": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "Enable TLS for Valkey connection"
+                        }
+                      }
                     },
                     "keyPrefix": {
                       "type": "string",
                       "description": "Key prefix for stored data"
                     },
-                    "tlsEnabled": {
-                      "type": "boolean",
-                      "description": "Enable TLS for Valkey connection"
+                    "db": {
+                      "type": "integer",
+                      "description": "Valkey database number"
+                    },
+                    "existingSecret": {
+                      "type": "string",
+                      "description": "Use an existing secret for Valkey password"
+                    },
+                    "secretKeyPassword": {
+                      "type": "string",
+                      "description": "Key in the secret containing the Valkey password"
                     }
                   }
                 }
@@ -431,6 +448,10 @@
               "description": "Allow unauthenticated dynamic client registration"
             },
             "encryptionKey": {
+              "type": "boolean",
+              "description": "Enable token encryption at rest"
+            },
+            "encryptionKeyValue": {
               "type": "string",
               "description": "AES-256 encryption key for tokens at rest (base64)"
             },

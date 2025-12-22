@@ -234,7 +234,7 @@ muster:
       issuerUrl: ""
       # OAuth client ID registered in Dex
       clientId: ""
-      # OAuth client secret (use secret reference in production)
+      # OAuth client secret (use secret reference in production via existingSecret)
       clientSecret: ""
       # Optional connector ID to bypass Dex connector selection
       connectorId: ""
@@ -249,28 +249,76 @@ muster:
       clientId: ""
       clientSecret: ""
 
-    # Token storage backend: "memory" or "valkey"
-    # Use "valkey" for production with multiple replicas
+    # Use an existing secret for OAuth credentials
+    # The secret should contain keys: dex-client-secret, registration-token,
+    # oauth-encryption-key (optional), valkey-password (if using Valkey)
+    #
+    # Example secret creation:
+    #   kubectl create secret generic muster-oauth \
+    #     --from-literal=dex-client-secret=<your-dex-client-secret> \
+    #     --from-literal=registration-token=$(openssl rand -hex 32) \
+    #     --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \
+    #     --from-literal=valkey-password=<your-valkey-password>
+    existingSecret: ""
+
+    # Token storage configuration
+    # In-memory storage is default but NOT recommended for production
+    # Use Valkey for production deployments to enable:
+    #   - Session persistence across pod restarts
+    #   - Horizontal scaling with shared session state
+    #   - Rolling updates without user session loss
     storage:
+      # Storage backend type: "memory" or "valkey"
+      # Default: "memory" (NOT recommended for production)
       type: "memory"
+
+      # Valkey (Redis-compatible) storage configuration
+      # Required when storage.type is "valkey"
       valkey:
+        # Valkey server URL (e.g., "valkey.namespace.svc:6379")
+        # Required when using Valkey storage
         url: ""
+
+        # Valkey password for authentication (optional)
+        # Should be set via existingSecret for production security
         password: ""
-        db: 0
+
+        # Enable TLS for Valkey connections
+        # Recommended for production
+        tls:
+          enabled: false
+
+        # Key prefix for all Valkey keys
+        # Useful for multi-tenant deployments sharing a Valkey instance
         keyPrefix: "muster:"
-        tlsEnabled: false
+
+        # Valkey database number (0-15)
+        db: 0
+
+        # Use an existing secret for Valkey password
+        # The secret should contain key: valkey-password
+        existingSecret: ""
+
+        # Key in the secret containing the Valkey password
+        secretKeyPassword: "valkey-password"
 
     # Registration token for dynamic client registration
     # Required if allowPublicClientRegistration is false
+    # Should be set via existingSecret for production security
     registrationToken: ""
 
     # Allow unauthenticated dynamic client registration
     # WARNING: Can lead to DoS attacks. Default: false
     allowPublicClientRegistration: false
 
-    # AES-256 encryption key for tokens at rest (32 bytes, base64-encoded)
-    # Required for production deployments
-    encryptionKey: ""
+    # Enable token encryption at rest
+    # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
+    encryptionKey: false
+
+    # Encryption key value (32 bytes, base64-encoded)
+    # Only used if encryptionKey is true and existingSecret is not set
+    # SECURITY: Use existingSecret for production deployments
+    encryptionKeyValue: ""
 
     # URI schemes allowed for unauthenticated client registration
     # Enables Cursor/VSCode without registration tokens
