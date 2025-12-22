@@ -181,7 +181,7 @@ muster:
     publicUrl: ""
 
     # OAuth client identifier (Client ID Metadata Document URL)
-    # 
+    #
     # SELF-HOSTED CIMD (Recommended):
     # Leave this empty to let muster auto-generate and serve its own CIMD.
     # The clientId will be automatically derived as {publicUrl}/.well-known/oauth-client.json
@@ -341,4 +341,3 @@ ciliumNetworkPolicy:
   labels: {}
   # Additional annotations to add to the CiliumNetworkPolicy
   annotations: {}
-
