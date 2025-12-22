@@ -1,0 +1,20 @@
+{
+  "client_id": "https://giantswarm.github.io/muster/muster-agent.json",
+  "client_name": "Muster Agent",
+  "client_uri": "https://github.com/giantswarm/muster",
+  "redirect_uris": [
+    "http://localhost:3000/callback"
+  ],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "scope": "openid profile email offline_access",
+  "software_id": "giantswarm-muster-agent",
+  "software_version": "1.0.0"
+}
+

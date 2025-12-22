@@ -333,6 +333,10 @@ func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*OAuthM
 	return &metadata, nil
 }
 
+// DefaultAgentClientID is the CIMD URL for the Muster Agent.
+// This is hosted on GitHub Pages and serves as the client_id for OAuth.
+const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
+
 // buildAuthorizationURL constructs the OAuth authorization URL.
 func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *PKCEChallenge) (string, error) {
 	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
@@ -349,9 +353,8 @@ func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, sta
 		"scope":                 {"openid profile email offline_access"},
 	}
 
-	// Use the client ID from our CIMD (muster-agent's client ID)
-	// For now, use a placeholder - this should be configurable
-	params.Set("client_id", "muster-agent")
+	// Use the CIMD URL as the client_id per MCP OAuth 2.1 spec
+	params.Set("client_id", DefaultAgentClientID)
 
 	authURL.RawQuery = params.Encode()
 	return authURL.String(), nil
@@ -364,7 +367,7 @@ func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) 
 		"code":          {code},
 		"redirect_uri":  {flow.CallbackServer.GetRedirectURI()},
 		"code_verifier": {flow.PKCE.CodeVerifier},
-		"client_id":     {"muster-agent"},
+		"client_id":     {DefaultAgentClientID},
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, flow.Metadata.TokenEndpoint, strings.NewReader(data.Encode()))
