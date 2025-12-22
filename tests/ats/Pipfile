@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pytest-helm-charts = ">=1.0.2"
+pytest = ">=6.2.5"
+pykube-ng = ">=22.1.0"
+pytest-rerunfailures = "~=16.0"
+requests = "~=2.32.1"
+
+[dev-packages]
+
+[requires]
+python_version = "3.13"
+python_full_version = "3.13.11"

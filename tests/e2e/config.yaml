@@ -1,0 +1,7 @@
+appName: "muster"
+repoName: "muster"
+appCatalog: "giantswarm-catalog"
+
+# CAPI providers to test against when triggering `/run app-test-suites` from a PR
+providers:
+- capa
