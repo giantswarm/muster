@@ -167,8 +167,25 @@ type AggregatorConfig struct {
 	// Default value is "x".
 	MusterPrefix string
 
-	// OAuth configuration for remote MCP server authentication
+	// OAuth configuration for remote MCP server authentication (client role)
 	OAuth OAuthProxyConfig
+
+	// OAuthServer configuration for protecting the Muster Server (resource server role)
+	OAuthServer OAuthServerConfig
+
+	// Debug enables debug logging
+	Debug bool
+}
+
+// OAuthServerConfig holds OAuth server configuration for protecting the Muster Server.
+// This is a simplified configuration that references the full config from the config package.
+type OAuthServerConfig struct {
+	// Enabled controls whether OAuth server protection is active.
+	Enabled bool
+
+	// Config holds the full OAuth server configuration.
+	// This is populated from the config.OAuthServerConfig during initialization.
+	Config interface{}
 }
 
 // OAuthProxyConfig holds OAuth proxy configuration for the aggregator.

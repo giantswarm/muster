@@ -190,11 +190,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
 			Yolo:         cfg.Yolo,
 			ConfigDir:    cfg.ConfigPath,
+			Debug:        cfg.Debug,
 			OAuth: aggregator.OAuthProxyConfig{
 				Enabled:      cfg.OAuthEnabled,
 				PublicURL:    cfg.OAuthPublicURL,
 				ClientID:     cfg.OAuthClientID,
 				CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
+			},
+			OAuthServer: aggregator.OAuthServerConfig{
+				Enabled: cfg.MusterConfig.Aggregator.OAuthServer.Enabled,
+				Config:  cfg.MusterConfig.Aggregator.OAuthServer,
 			},
 		}
 

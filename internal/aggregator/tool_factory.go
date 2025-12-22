@@ -10,7 +10,7 @@ import (
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // createToolsFromProviders creates MCP tools from all registered tool providers in the system.
@@ -27,8 +27,8 @@ import (
 // and ensure consistent tool naming across the aggregator.
 //
 // Returns a slice of MCP server tools ready to be registered with the aggregator server.
-func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
-	var tools []server.ServerTool
+func (a *AggregatorServer) createToolsFromProviders() []mcpserver.ServerTool {
+	var tools []mcpserver.ServerTool
 
 	// Integrate workflow management tools
 	if workflowHandler := api.GetWorkflow(); workflowHandler != nil {
@@ -38,7 +38,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
@@ -60,7 +60,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
@@ -82,7 +82,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
@@ -104,7 +104,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
@@ -126,7 +126,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,
@@ -148,7 +148,7 @@ func (a *AggregatorServer) createToolsFromProviders() []server.ServerTool {
 				mcpToolName := a.prefixToolName(toolMeta.Name)
 				a.toolManager.setActive(mcpToolName, true)
 
-				tool := server.ServerTool{
+				tool := mcpserver.ServerTool{
 					Tool: mcp.Tool{
 						Name:        mcpToolName,
 						Description: toolMeta.Description,

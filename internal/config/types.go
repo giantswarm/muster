@@ -35,8 +35,11 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
-	// OAuth Proxy configuration for remote MCP server authentication
+	// OAuth Proxy configuration for remote MCP server authentication (client role)
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
+
+	// OAuthServer configuration for protecting the Muster Server itself (resource server role)
+	OAuthServer OAuthServerConfig `yaml:"oauthServer,omitempty"`
 }
 
 // OAuthConfig defines the OAuth proxy configuration for remote MCP server authentication.
@@ -126,4 +129,126 @@ func (c *OAuthConfig) GetRedirectURI() string {
 		callbackPath = DefaultOAuthCallbackPath
 	}
 	return strings.TrimSuffix(c.PublicURL, "/") + callbackPath
+}
+
+// OAuthServerConfig defines the OAuth server configuration for protecting the Muster Server.
+// When enabled, the Muster Server acts as an OAuth Resource Server, requiring valid
+// access tokens from clients (e.g., Muster Agent) to access protected endpoints.
+// This implements ADR 005 (OAuth Protection for Muster Server).
+type OAuthServerConfig struct {
+	// Enabled controls whether OAuth server protection is active.
+	// When true, all MCP endpoints require valid OAuth tokens.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// BaseURL is the publicly accessible base URL of the Muster Server.
+	// This is used as the OAuth issuer URL (e.g., https://muster.example.com).
+	// Required when OAuth server is enabled.
+	BaseURL string `yaml:"baseUrl,omitempty"`
+
+	// Provider specifies the OAuth provider to use: "dex" or "google".
+	// Default: "dex"
+	Provider string `yaml:"provider,omitempty"`
+
+	// Dex configuration (used when Provider is "dex")
+	Dex DexConfig `yaml:"dex,omitempty"`
+
+	// Google configuration (used when Provider is "google")
+	Google GoogleConfig `yaml:"google,omitempty"`
+
+	// Storage configuration for OAuth tokens and client registrations.
+	Storage OAuthStorageConfig `yaml:"storage,omitempty"`
+
+	// RegistrationToken is the token required for dynamic client registration.
+	// Required if AllowPublicClientRegistration is false.
+	RegistrationToken string `yaml:"registrationToken,omitempty"`
+
+	// AllowPublicClientRegistration allows unauthenticated dynamic client registration.
+	// WARNING: This can lead to DoS attacks. Default: false.
+	AllowPublicClientRegistration bool `yaml:"allowPublicClientRegistration,omitempty"`
+
+	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes, base64-encoded).
+	// Required for production deployments.
+	EncryptionKey string `yaml:"encryptionKey,omitempty"`
+
+	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
+	// client registration. Enables Cursor/VSCode without registration tokens.
+	// Example: ["cursor", "vscode"]
+	TrustedPublicRegistrationSchemes []string `yaml:"trustedPublicRegistrationSchemes,omitempty"`
+
+	// EnableCIMD enables Client ID Metadata Documents per MCP 2025-11-25 spec.
+	// Default: true
+	EnableCIMD bool `yaml:"enableCIMD,omitempty"`
+
+	// AllowedOrigins is a comma-separated list of allowed CORS origins.
+	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
+
+	// EnableHSTS enables HSTS header (for reverse proxy scenarios).
+	EnableHSTS bool `yaml:"enableHSTS,omitempty"`
+
+	// TLSCertFile is the path to the TLS certificate file (PEM format).
+	// If both TLSCertFile and TLSKeyFile are provided, the server will use HTTPS.
+	TLSCertFile string `yaml:"tlsCertFile,omitempty"`
+
+	// TLSKeyFile is the path to the TLS private key file (PEM format).
+	TLSKeyFile string `yaml:"tlsKeyFile,omitempty"`
+}
+
+// DexConfig holds configuration for the Dex OIDC provider.
+type DexConfig struct {
+	// IssuerURL is the Dex OIDC issuer URL.
+	IssuerURL string `yaml:"issuerUrl,omitempty"`
+
+	// ClientID is the Dex OAuth client ID.
+	ClientID string `yaml:"clientId,omitempty"`
+
+	// ClientSecret is the Dex OAuth client secret.
+	ClientSecret string `yaml:"clientSecret,omitempty"`
+
+	// ConnectorID is the optional Dex connector ID to bypass connector selection.
+	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// CAFile is the path to a CA certificate file for Dex TLS verification.
+	// Use this when Dex uses a private/internal CA.
+	CAFile string `yaml:"caFile,omitempty"`
+
+	// KubernetesAuthenticatorClientID is the client ID of the Kubernetes authenticator
+	// in Dex (typically "dex-k8s-authenticator"). When set, requests tokens with this
+	// audience via Dex cross-client authentication.
+	KubernetesAuthenticatorClientID string `yaml:"kubernetesAuthenticatorClientId,omitempty"`
+}
+
+// GoogleConfig holds configuration for the Google OAuth provider.
+type GoogleConfig struct {
+	// ClientID is the Google OAuth client ID.
+	ClientID string `yaml:"clientId,omitempty"`
+
+	// ClientSecret is the Google OAuth client secret.
+	ClientSecret string `yaml:"clientSecret,omitempty"`
+}
+
+// OAuthStorageConfig holds configuration for OAuth token storage backend.
+type OAuthStorageConfig struct {
+	// Type is the storage backend type: "memory" or "valkey" (default: "memory").
+	Type string `yaml:"type,omitempty"`
+
+	// Valkey configuration (used when Type is "valkey").
+	Valkey ValkeyConfig `yaml:"valkey,omitempty"`
+}
+
+// ValkeyConfig holds configuration for Valkey storage backend.
+type ValkeyConfig struct {
+	// URL is the Valkey server address (e.g., "valkey.namespace.svc:6379").
+	URL string `yaml:"url,omitempty"`
+
+	// Password is the optional password for Valkey authentication.
+	Password string `yaml:"password,omitempty"`
+
+	// TLSEnabled enables TLS for Valkey connections.
+	TLSEnabled bool `yaml:"tlsEnabled,omitempty"`
+
+	// KeyPrefix is the prefix for all Valkey keys (default: "muster:").
+	KeyPrefix string `yaml:"keyPrefix,omitempty"`
+
+	// DB is the Valkey database number (default: 0).
+	DB int `yaml:"db,omitempty"`
 }

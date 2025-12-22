@@ -13,11 +13,12 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/config"
+	"muster/internal/server"
 	"muster/pkg/logging"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -40,18 +41,21 @@ import (
 // All public methods are thread-safe and can be called concurrently. Internal state
 // is protected by appropriate synchronization mechanisms.
 type AggregatorServer struct {
-	config        AggregatorConfig  // Configuration args for the aggregator
-	registry      *ServerRegistry   // Registry of backend MCP servers
-	server        *server.MCPServer // Core MCP server implementation
-	errorCallback func(error)       // Callback for propagating async errors in the aggregator upwards
+	config        AggregatorConfig     // Configuration args for the aggregator
+	registry      *ServerRegistry      // Registry of backend MCP servers
+	mcpServer     *mcpserver.MCPServer // Core MCP server implementation
+	errorCallback func(error)          // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
-	sseServer            *server.SSEServer            // Server-Sent Events transport
-	streamableHTTPServer *server.StreamableHTTPServer // Streamable HTTP transport
-	stdioServer          *server.StdioServer          // Standard I/O transport
+	sseServer            *mcpserver.SSEServer            // Server-Sent Events transport
+	streamableHTTPServer *mcpserver.StreamableHTTPServer // Streamable HTTP transport
+	stdioServer          *mcpserver.StdioServer          // Standard I/O transport
 
 	// HTTP servers with socket options (when socket reuse is enabled)
 	httpServer []*http.Server
+
+	// OAuth HTTP server for protecting MCP endpoints (when OAuth server is enabled)
+	oauthHTTPServer *server.OAuthHTTPServer
 
 	// Lifecycle management for coordinating startup and shutdown
 	ctx        context.Context    // Context for coordinating shutdown
@@ -115,7 +119,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 // Returns an error if startup fails at any stage, or nil on successful startup.
 func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.mu.Lock()
-	if a.server != nil {
+	if a.mcpServer != nil {
 		a.mu.Unlock()
 		return fmt.Errorf("aggregator server already started")
 	}
@@ -124,15 +128,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.ctx, a.cancelFunc = context.WithCancel(ctx)
 
 	// Create MCP server with full capabilities enabled
-	mcpServer := server.NewMCPServer(
+	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		"1.0.0",
-		server.WithToolCapabilities(true), // Enable tool execution
-		server.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
-		server.WithPromptCapabilities(true),         // Enable prompt retrieval
+		mcpserver.WithToolCapabilities(true), // Enable tool execution
+		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
+		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 	)
 
-	a.server = mcpServer
+	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
 
 	// Start background monitoring for registry changes
@@ -181,13 +185,13 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	switch a.config.Transport {
 	case config.MCPTransportSSE:
 		baseURL := fmt.Sprintf("http://%s:%d", a.config.Host, a.config.Port)
-		a.sseServer = server.NewSSEServer(
-			a.server,
-			server.WithBaseURL(baseURL),
-			server.WithSSEEndpoint("/sse"),               // Main SSE endpoint for events
-			server.WithMessageEndpoint("/message"),       // Endpoint for sending messages
-			server.WithKeepAlive(true),                   // Enable keep-alive for connection stability
-			server.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
+		a.sseServer = mcpserver.NewSSEServer(
+			a.mcpServer,
+			mcpserver.WithBaseURL(baseURL),
+			mcpserver.WithSSEEndpoint("/sse"),               // Main SSE endpoint for events
+			mcpserver.WithMessageEndpoint("/message"),       // Endpoint for sending messages
+			mcpserver.WithKeepAlive(true),                   // Enable keep-alive for connection stability
+			mcpserver.WithKeepAliveInterval(30*time.Second), // Keep-alive interval
 		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
@@ -225,7 +229,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	case config.MCPTransportStdio:
 		// Standard I/O transport for CLI integration
 		logging.Info("Aggregator", "Starting MCP aggregator server with stdio transport")
-		a.stdioServer = server.NewStdioServer(a.server)
+		a.stdioServer = mcpserver.NewStdioServer(a.mcpServer)
 		stdioServer := a.stdioServer
 		if stdioServer != nil {
 			go func() {
@@ -240,7 +244,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		fallthrough
 	default:
 		// Streamable HTTP transport (default) - HTTP-based streaming protocol
-		a.streamableHTTPServer = server.NewStreamableHTTPServer(a.server)
+		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer)
 
 		// Create a mux that routes to both MCP and OAuth handlers
 		handler := a.createHTTPMux(a.streamableHTTPServer)
@@ -306,7 +310,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	if a.isShuttingDown {
 		a.mu.Unlock()
 		return nil
-	} else if a.server == nil {
+	} else if a.mcpServer == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("aggregator server not started")
 	}
@@ -351,7 +355,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Reset internal state to allow for clean restart
 	a.mu.Lock()
-	a.server = nil
+	a.mcpServer = nil
 	a.sseServer = nil
 	a.streamableHTTPServer = nil
 	a.stdioServer = nil
@@ -482,7 +486,7 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 //   - When tool update events are received from core components
 func (a *AggregatorServer) updateCapabilities() {
 	a.mu.RLock()
-	if a.server == nil {
+	if a.mcpServer == nil {
 		a.mu.RUnlock()
 		return
 	}
@@ -529,7 +533,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 		a.toolManager,
 		collected.newTools,
 		func(items []string) {
-			a.server.DeleteTools(items...)
+			a.mcpServer.DeleteTools(items...)
 		},
 	)
 
@@ -538,7 +542,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 		a.promptManager,
 		collected.newPrompts,
 		func(items []string) {
-			a.server.DeletePrompts(items...)
+			a.mcpServer.DeletePrompts(items...)
 		},
 	)
 
@@ -552,7 +556,7 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 			// This will cause multiple notifications to the client.
 			// TODO: Consider requesting a RemoveResources/DeleteResources method in the MCP library
 			for _, uri := range items {
-				a.server.RemoveResource(uri)
+				a.mcpServer.RemoveResource(uri)
 			}
 		},
 	)
@@ -575,9 +579,9 @@ func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
 // Args:
 //   - servers: Map of all registered backend servers and their information
 func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
-	var toolsToAdd []server.ServerTool
-	var promptsToAdd []server.ServerPrompt
-	var resourcesToAdd []server.ServerResource
+	var toolsToAdd []mcpserver.ServerTool
+	var promptsToAdd []mcpserver.ServerPrompt
+	var resourcesToAdd []mcpserver.ServerResource
 
 	// Process each registered backend server
 	for serverName, info := range servers {
@@ -607,17 +611,17 @@ func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
 	// Register all new items in batches to minimize client notifications
 	if len(toolsToAdd) > 0 {
 		logging.Debug("Aggregator", "Adding %d tools in batch", len(toolsToAdd))
-		a.server.AddTools(toolsToAdd...)
+		a.mcpServer.AddTools(toolsToAdd...)
 	}
 
 	if len(promptsToAdd) > 0 {
 		logging.Debug("Aggregator", "Adding %d prompts in batch", len(promptsToAdd))
-		a.server.AddPrompts(promptsToAdd...)
+		a.mcpServer.AddPrompts(promptsToAdd...)
 	}
 
 	if len(resourcesToAdd) > 0 {
 		logging.Debug("Aggregator", "Adding %d resources in batch", len(resourcesToAdd))
-		a.server.AddResources(resourcesToAdd...)
+		a.mcpServer.AddResources(resourcesToAdd...)
 	}
 }
 
@@ -656,10 +660,26 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 // createHTTPMux creates an HTTP mux that routes to both MCP and OAuth handlers.
 // This allows the aggregator to serve both MCP protocol traffic and OAuth callbacks
 // on the same port.
+//
+// If OAuth server protection is enabled (OAuthServer.Enabled), the MCP handler is
+// wrapped with OAuth ValidateToken middleware, requiring valid access tokens for
+// all MCP requests.
 func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
+	// Check if OAuth server protection is enabled
+	if a.config.OAuthServer.Enabled && a.config.OAuthServer.Config != nil {
+		return a.createOAuthProtectedMux(mcpHandler)
+	}
+
+	// Standard mux without OAuth server protection
+	return a.createStandardMux(mcpHandler)
+}
+
+// createStandardMux creates a standard HTTP mux without OAuth server protection.
+// This is used when OAuth server protection is disabled.
+func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
-	// Check if OAuth is enabled and mount OAuth-related handlers
+	// Check if OAuth proxy is enabled and mount OAuth-related handlers (for downstream auth)
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() {
 		// Mount the OAuth callback handler
@@ -684,6 +704,29 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
 	mux.Handle("/", mcpHandler)
 
 	return mux
+}
+
+// createOAuthProtectedMux creates an HTTP mux with OAuth 2.1 protection.
+// All MCP endpoints are protected by the ValidateToken middleware.
+func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) http.Handler {
+	// Import the config type and create OAuth HTTP server
+	cfg, ok := a.config.OAuthServer.Config.(config.OAuthServerConfig)
+	if !ok {
+		logging.Error("Aggregator", nil, "Invalid OAuth server config type, falling back to standard mux")
+		return a.createStandardMux(mcpHandler)
+	}
+
+	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	if err != nil {
+		logging.Error("Aggregator", err, "Failed to create OAuth HTTP server, falling back to standard mux")
+		return a.createStandardMux(mcpHandler)
+	}
+
+	// Store the OAuth HTTP server for cleanup during shutdown
+	a.oauthHTTPServer = oauthHTTPServer
+
+	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
+	return oauthHTTPServer.CreateMux()
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
@@ -1359,7 +1402,7 @@ const defaultSessionID = "default-session"
 // since stdio is inherently single-user (one process = one user).
 func getSessionIDFromContext(ctx context.Context) string {
 	// Try to get session ID from MCP client session (set by mcp-go library)
-	if session := server.ClientSessionFromContext(ctx); session != nil {
+	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 		sessionID := session.SessionID()
 		if sessionID != "" {
 			return sessionID
