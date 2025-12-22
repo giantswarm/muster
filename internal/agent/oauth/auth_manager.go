@@ -1,0 +1,324 @@
+package oauth
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+)
+
+// AuthState represents the current authentication state of the agent.
+type AuthState int
+
+const (
+	// AuthStateUnknown means auth state hasn't been determined yet.
+	AuthStateUnknown AuthState = iota
+
+	// AuthStateAuthenticated means we have a valid token.
+	AuthStateAuthenticated
+
+	// AuthStatePendingAuth means we received 401 and are waiting for user to authenticate.
+	AuthStatePendingAuth
+
+	// AuthStateError means authentication failed.
+	AuthStateError
+)
+
+// String returns the string representation of the auth state.
+func (s AuthState) String() string {
+	switch s {
+	case AuthStateUnknown:
+		return "unknown"
+	case AuthStateAuthenticated:
+		return "authenticated"
+	case AuthStatePendingAuth:
+		return "pending_auth"
+	case AuthStateError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
+// AuthManager manages OAuth authentication for the Muster Agent.
+// It handles 401 detection, auth flow orchestration, and state transitions.
+type AuthManager struct {
+	mu            sync.RWMutex
+	client        *Client
+	state         AuthState
+	serverURL     string
+	authChallenge *AuthChallenge
+	authURL       string
+	lastError     error
+	waitFunc      func() error // Called when waiting for auth to complete
+}
+
+// AuthManagerConfig configures the auth manager.
+type AuthManagerConfig struct {
+	// CallbackPort is the port for the local OAuth callback server.
+	CallbackPort int
+
+	// TokenStorageDir is the directory for storing tokens.
+	TokenStorageDir string
+
+	// FileMode enables file-based token persistence.
+	FileMode bool
+}
+
+// NewAuthManager creates a new auth manager.
+func NewAuthManager(cfg AuthManagerConfig) (*AuthManager, error) {
+	clientCfg := ClientConfig{
+		CallbackPort: cfg.CallbackPort,
+		TokenStoreConfig: TokenStoreConfig{
+			StorageDir: cfg.TokenStorageDir,
+			FileMode:   cfg.FileMode,
+		},
+	}
+
+	client, err := NewClient(clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OAuth client: %w", err)
+	}
+
+	return &AuthManager{
+		client: client,
+		state:  AuthStateUnknown,
+	}, nil
+}
+
+// CheckConnection attempts to connect to the server and detect auth requirements.
+// It returns the auth state and any error that occurred.
+//
+// If a 401 is received, the manager transitions to AuthStatePendingAuth and
+// extracts the auth challenge from the WWW-Authenticate header.
+func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (AuthState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.serverURL = serverURL
+
+	// First, check if we have a valid token
+	if m.client.HasValidToken(serverURL) {
+		m.state = AuthStateAuthenticated
+		return m.state, nil
+	}
+
+	// Try to make a request to the server to detect 401
+	challenge, err := m.probeServerAuth(ctx, serverURL)
+	if err != nil {
+		if errors.Is(err, ErrAuthRequired) && challenge != nil {
+			// Server requires auth
+			m.state = AuthStatePendingAuth
+			m.authChallenge = challenge
+			return m.state, nil
+		}
+		m.state = AuthStateError
+		m.lastError = err
+		return m.state, err
+	}
+
+	// No auth required (unlikely for protected servers, but possible)
+	m.state = AuthStateAuthenticated
+	return m.state, nil
+}
+
+// probeServerAuth probes the server to detect authentication requirements.
+// Returns an AuthChallenge if 401 is received, nil otherwise.
+func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*AuthChallenge, error) {
+	// Normalize URL
+	serverURL = strings.TrimSuffix(serverURL, "/")
+
+	// Try a request to the MCP endpoint
+	// The actual endpoint depends on the transport type
+	probeURLs := []string{
+		serverURL + "/mcp",
+		serverURL + "/sse",
+		serverURL,
+	}
+
+	httpClient := &http.Client{
+		Timeout: DefaultHTTPTimeout,
+	}
+
+	for _, probeURL := range probeURLs {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+		if err != nil {
+			continue
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+		defer func() {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}()
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			challenge := ExtractAuthChallengeFromResponse(resp)
+			if challenge != nil {
+				return challenge, ErrAuthRequired
+			}
+			return nil, ErrAuthRequired
+		}
+
+		// Server responded without 401 - might not require auth
+		// or might require auth at a later stage
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusMethodNotAllowed {
+			return nil, nil
+		}
+	}
+
+	// Couldn't determine auth status
+	return nil, fmt.Errorf("failed to probe server authentication status")
+}
+
+// StartAuthFlow initiates the OAuth authentication flow.
+// Returns the authorization URL that the user should open in their browser.
+// This should only be called when in AuthStatePendingAuth.
+func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state != AuthStatePendingAuth {
+		return "", fmt.Errorf("cannot start auth flow in state: %s", m.state)
+	}
+
+	if m.authChallenge == nil {
+		return "", errors.New("no auth challenge available")
+	}
+
+	issuerURL := m.authChallenge.Issuer
+	if issuerURL == "" {
+		return "", errors.New("no issuer URL in auth challenge")
+	}
+
+	authURL, waitFn, err := m.client.CompleteAuthFlow(ctx, m.serverURL, issuerURL)
+	if err != nil {
+		m.lastError = err
+		return "", err
+	}
+
+	m.authURL = authURL
+	m.waitFunc = func() error {
+		_, err := waitFn()
+		return err
+	}
+
+	return authURL, nil
+}
+
+// WaitForAuth waits for the authentication flow to complete.
+// This blocks until the user completes authentication or the context is cancelled.
+func (m *AuthManager) WaitForAuth(ctx context.Context) error {
+	m.mu.RLock()
+	waitFn := m.waitFunc
+	m.mu.RUnlock()
+
+	if waitFn == nil {
+		return errors.New("no auth flow in progress")
+	}
+
+	if err := waitFn(); err != nil {
+		m.mu.Lock()
+		m.state = AuthStateError
+		m.lastError = err
+		m.mu.Unlock()
+		return err
+	}
+
+	m.mu.Lock()
+	m.state = AuthStateAuthenticated
+	m.authURL = ""
+	m.waitFunc = nil
+	m.mu.Unlock()
+
+	return nil
+}
+
+// GetAccessToken returns the access token for the server.
+// Returns an error if not authenticated.
+func (m *AuthManager) GetAccessToken() (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.state != AuthStateAuthenticated {
+		return "", fmt.Errorf("not authenticated (state: %s)", m.state)
+	}
+
+	token, err := m.client.GetToken(m.serverURL)
+	if err != nil {
+		return "", err
+	}
+
+	return token.AccessToken, nil
+}
+
+// GetBearerToken returns the token formatted as a Bearer authorization header value.
+func (m *AuthManager) GetBearerToken() (string, error) {
+	token, err := m.GetAccessToken()
+	if err != nil {
+		return "", err
+	}
+	return "Bearer " + token, nil
+}
+
+// GetState returns the current auth state.
+func (m *AuthManager) GetState() AuthState {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.state
+}
+
+// GetAuthChallenge returns the current auth challenge (if in pending auth state).
+func (m *AuthManager) GetAuthChallenge() *AuthChallenge {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.authChallenge
+}
+
+// GetAuthURL returns the authorization URL (if auth flow has been started).
+func (m *AuthManager) GetAuthURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.authURL
+}
+
+// GetLastError returns the last error that occurred.
+func (m *AuthManager) GetLastError() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastError
+}
+
+// GetServerURL returns the server URL being authenticated to.
+func (m *AuthManager) GetServerURL() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.serverURL
+}
+
+// ClearToken clears the stored token for the current server.
+func (m *AuthManager) ClearToken() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.serverURL == "" {
+		return nil
+	}
+
+	m.state = AuthStateUnknown
+	return m.client.ClearToken(m.serverURL)
+}
+
+// Close cleans up resources.
+func (m *AuthManager) Close() error {
+	if m.client != nil {
+		return m.client.Close()
+	}
+	return nil
+}
