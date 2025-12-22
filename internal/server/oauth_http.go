@@ -119,6 +119,13 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 func (s *OAuthHTTPServer) CreateMux() http.Handler {
 	mux := http.NewServeMux()
 
+	// Health check endpoint for Kubernetes probes (unauthenticated)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Setup OAuth 2.1 endpoints
 	s.setupOAuthRoutes(mux)
 

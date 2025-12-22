@@ -10,4 +10,36 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- if .Values.muster.oauthServer.enabled }}
+      oauthServer:
+        enabled: true
+        baseUrl: {{ .Values.muster.oauthServer.baseUrl | quote }}
+        provider: {{ .Values.muster.oauthServer.provider | default "dex" | quote }}
+        {{- if eq (.Values.muster.oauthServer.provider | default "dex") "dex" }}
+        dex:
+          issuerUrl: {{ .Values.muster.oauthServer.dex.issuerUrl | quote }}
+          clientId: {{ .Values.muster.oauthServer.dex.clientId | quote }}
+          {{- if .Values.muster.oauthServer.dex.connectorId }}
+          connectorId: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
+          {{- end }}
+          {{- if .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId }}
+          kubernetesAuthenticatorClientId: {{ .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId | quote }}
+          {{- end }}
+        {{- end }}
+        storage:
+          type: {{ .Values.muster.oauthServer.storage.type | default "memory" | quote }}
+          {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
+          valkey:
+            url: {{ .Values.muster.oauthServer.storage.valkey.url | quote }}
+            {{- if .Values.muster.oauthServer.storage.valkey.keyPrefix }}
+            keyPrefix: {{ .Values.muster.oauthServer.storage.valkey.keyPrefix | quote }}
+            {{- end }}
+            {{- if .Values.muster.oauthServer.storage.valkey.db }}
+            db: {{ .Values.muster.oauthServer.storage.valkey.db }}
+            {{- end }}
+            {{- if .Values.muster.oauthServer.storage.valkey.tls.enabled }}
+            tlsEnabled: true
+            {{- end }}
+          {{- end }}
+      {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
