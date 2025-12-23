@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -413,23 +413,23 @@ type WorkflowStatus struct {
 
 ## Implementation Checklist
 
-- [ ] Update `MCPServerStatus` type in `pkg/apis/muster/v1alpha1/`
-- [ ] Update `ServiceClassStatus` type
-- [ ] Update `WorkflowStatus` type
-- [ ] Add `UpdateMCPServerStatus()` to `MusterClient` interface
-- [ ] Add `UpdateServiceClassStatus()` to `MusterClient` interface
-- [ ] Add `UpdateWorkflowStatus()` to `MusterClient` interface
-- [ ] Implement status methods in `kubernetesClient`
-- [ ] Implement status methods in `filesystemClient`
-- [ ] Update `MCPServerReconciler` to sync status
-- [ ] Update `ServiceClassReconciler` to sync status
-- [ ] Update `WorkflowReconciler` to sync status
-- [ ] Add state change callbacks for real-time sync
-- [ ] Update CRD YAML manifests
-- [ ] Regenerate CRD with controller-gen
+- [x] Update `MCPServerStatus` type in `pkg/apis/muster/v1alpha1/`
+- [x] Update `ServiceClassStatus` type
+- [x] Update `WorkflowStatus` type
+- [x] Add `UpdateMCPServerStatus()` to `MusterClient` interface
+- [x] Add `UpdateServiceClassStatus()` to `MusterClient` interface
+- [x] Add `UpdateWorkflowStatus()` to `MusterClient` interface
+- [x] Implement status methods in `kubernetesClient`
+- [x] Implement status methods in `filesystemClient`
+- [x] Update `MCPServerReconciler` to sync status
+- [x] Update `ServiceClassReconciler` to sync status
+- [x] Update `WorkflowReconciler` to sync status
+- [x] Add state change callbacks for real-time sync (`StateChangeBridge`)
+- [x] Update CRD YAML manifests
+- [x] Regenerate CRD with controller-gen
 - [ ] Update documentation in `docs/reference/crds.md`
-- [ ] Add tests for status sync
-- [ ] Add migration notes for existing deployments
+- [x] Add tests for status sync
+- [x] Add migration notes for existing deployments (see CHANGELOG)
 
 ## Related ADRs
 
