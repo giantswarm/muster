@@ -160,7 +160,12 @@ type OAuthServerConfig struct {
 
 	// RegistrationToken is the token required for dynamic client registration.
 	// Required if AllowPublicClientRegistration is false.
+	// For production, use RegistrationTokenFile instead to avoid secrets in config files.
 	RegistrationToken string `yaml:"registrationToken,omitempty"`
+
+	// RegistrationTokenFile is the path to a file containing the registration token.
+	// This is the recommended way to provide secrets in production deployments.
+	RegistrationTokenFile string `yaml:"registrationTokenFile,omitempty"`
 
 	// AllowPublicClientRegistration allows unauthenticated dynamic client registration.
 	// WARNING: This can lead to DoS attacks. Default: false.
@@ -168,7 +173,12 @@ type OAuthServerConfig struct {
 
 	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes, base64-encoded).
 	// Required for production deployments.
+	// For production, use EncryptionKeyFile instead to avoid secrets in config files.
 	EncryptionKey string `yaml:"encryptionKey,omitempty"`
+
+	// EncryptionKeyFile is the path to a file containing the encryption key.
+	// This is the recommended way to provide secrets in production deployments.
+	EncryptionKeyFile string `yaml:"encryptionKeyFile,omitempty"`
 
 	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
 	// client registration. Enables Cursor/VSCode without registration tokens.
@@ -202,7 +212,13 @@ type DexConfig struct {
 	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Dex OAuth client secret.
+	// For production, use ClientSecretFile instead to avoid secrets in config files.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
+
+	// ClientSecretFile is the path to a file containing the Dex OAuth client secret.
+	// This is the recommended way to provide secrets in production deployments.
+	// The file should contain only the secret value (no newlines at the end).
+	ClientSecretFile string `yaml:"clientSecretFile,omitempty"`
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
@@ -223,7 +239,12 @@ type GoogleConfig struct {
 	ClientID string `yaml:"clientId,omitempty"`
 
 	// ClientSecret is the Google OAuth client secret.
+	// For production, use ClientSecretFile instead to avoid secrets in config files.
 	ClientSecret string `yaml:"clientSecret,omitempty"`
+
+	// ClientSecretFile is the path to a file containing the Google OAuth client secret.
+	// This is the recommended way to provide secrets in production deployments.
+	ClientSecretFile string `yaml:"clientSecretFile,omitempty"`
 }
 
 // OAuthStorageConfig holds configuration for OAuth token storage backend.
@@ -241,7 +262,12 @@ type ValkeyConfig struct {
 	URL string `yaml:"url,omitempty"`
 
 	// Password is the optional password for Valkey authentication.
+	// For production, use PasswordFile instead to avoid secrets in config files.
 	Password string `yaml:"password,omitempty"`
+
+	// PasswordFile is the path to a file containing the Valkey password.
+	// This is the recommended way to provide secrets in production deployments.
+	PasswordFile string `yaml:"passwordFile,omitempty"`
 
 	// TLSEnabled enables TLS for Valkey connections.
 	TLSEnabled bool `yaml:"tlsEnabled,omitempty"`
