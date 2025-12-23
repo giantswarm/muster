@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// requestKey generates a unique key for a reconcile request.
+// This is used for deduplication and tracking across queue implementations.
+func requestKey(req ReconcileRequest) string {
+	if req.Namespace != "" {
+		return string(req.Type) + "/" + req.Namespace + "/" + req.Name
+	}
+	return string(req.Type) + "/" + req.Name
+}
+
 // workQueue implements ReconcileQueue with deduplication and rate limiting.
 type workQueue struct {
 	mu sync.Mutex
@@ -37,14 +46,6 @@ func NewQueue() ReconcileQueue {
 	return q
 }
 
-// key generates a unique key for a reconcile request.
-func (q *workQueue) key(req ReconcileRequest) string {
-	if req.Namespace != "" {
-		return string(req.Type) + "/" + req.Namespace + "/" + req.Name
-	}
-	return string(req.Type) + "/" + req.Name
-}
-
 // Add adds or updates a request in the queue.
 func (q *workQueue) Add(req ReconcileRequest) {
 	q.mu.Lock()
@@ -54,7 +55,7 @@ func (q *workQueue) Add(req ReconcileRequest) {
 		return
 	}
 
-	key := q.key(req)
+	key := requestKey(req)
 
 	// If already being processed, mark as dirty for reprocessing
 	if q.processing[key] {
@@ -64,7 +65,7 @@ func (q *workQueue) Add(req ReconcileRequest) {
 
 	// Check if already in queue
 	for i, existing := range q.queue {
-		if q.key(existing) == key {
+		if requestKey(existing) == key {
 			// Update the existing entry
 			q.queue[i] = req
 			return
@@ -83,7 +84,17 @@ func (q *workQueue) Get(ctx context.Context) (ReconcileRequest, bool) {
 
 	// Wait for item or shutdown
 	for len(q.queue) == 0 && !q.shuttingDown {
-		// Use a separate goroutine to handle context cancellation
+		// Check context before waiting
+		select {
+		case <-ctx.Done():
+			return ReconcileRequest{}, false
+		default:
+		}
+
+		// Use a separate goroutine to handle context cancellation.
+		// The goroutine exits cleanly when either:
+		// 1. The context is cancelled (broadcasts to wake us up)
+		// 2. The done channel is closed (we woke up normally)
 		done := make(chan struct{})
 		go func() {
 			select {
@@ -92,6 +103,7 @@ func (q *workQueue) Get(ctx context.Context) (ReconcileRequest, bool) {
 				q.cond.Broadcast()
 				q.mu.Unlock()
 			case <-done:
+				// Normal wakeup, goroutine exits cleanly
 			}
 		}()
 
@@ -115,7 +127,7 @@ func (q *workQueue) Get(ctx context.Context) (ReconcileRequest, bool) {
 	q.queue = q.queue[1:]
 
 	// Mark as processing
-	key := q.key(req)
+	key := requestKey(req)
 	q.processing[key] = true
 
 	return req, true
@@ -126,7 +138,7 @@ func (q *workQueue) Done(req ReconcileRequest) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	key := q.key(req)
+	key := requestKey(req)
 	delete(q.processing, key)
 
 	// Check if marked dirty during processing
@@ -170,14 +182,6 @@ func NewDelayedQueue() *delayedQueue {
 	}
 }
 
-// key generates a unique key for a reconcile request.
-func (d *delayedQueue) key(req ReconcileRequest) string {
-	if req.Namespace != "" {
-		return string(req.Type) + "/" + req.Namespace + "/" + req.Name
-	}
-	return string(req.Type) + "/" + req.Name
-}
-
 // Add adds a request immediately.
 func (d *delayedQueue) Add(req ReconcileRequest) {
 	d.queue.Add(req)
@@ -188,7 +192,7 @@ func (d *delayedQueue) AddAfter(req ReconcileRequest, delay time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	key := d.key(req)
+	key := requestKey(req)
 
 	// Cancel any existing timer for this key
 	if timer, ok := d.delayedMap[key]; ok {
