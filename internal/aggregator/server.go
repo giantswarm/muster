@@ -30,6 +30,7 @@ import (
 //   - Providing intelligent name collision resolution
 //   - Implementing security filtering through the denylist system
 //   - Real-time capability updates when backend servers change
+//   - Session-scoped tool visibility for OAuth-protected servers
 //
 // Architecture:
 // The server maintains a registry of backend MCP servers and dynamically updates its
@@ -37,14 +38,20 @@ import (
 // transport protocols simultaneously and provides both external MCP compatibility
 // and internal tool calling capabilities.
 //
+// Session-Scoped Tool Visibility:
+// For OAuth-protected servers, each user session maintains its own view of available
+// tools based on which servers they have authenticated with. This is implemented via
+// the SessionRegistry which tracks per-session connections and capabilities.
+//
 // Thread Safety:
 // All public methods are thread-safe and can be called concurrently. Internal state
 // is protected by appropriate synchronization mechanisms.
 type AggregatorServer struct {
-	config        AggregatorConfig     // Configuration args for the aggregator
-	registry      *ServerRegistry      // Registry of backend MCP servers
-	mcpServer     *mcpserver.MCPServer // Core MCP server implementation
-	errorCallback func(error)          // Callback for propagating async errors in the aggregator upwards
+	config          AggregatorConfig     // Configuration args for the aggregator
+	registry        *ServerRegistry      // Registry of backend MCP servers
+	sessionRegistry *SessionRegistry     // Registry of per-session state for OAuth servers
+	mcpServer       *mcpserver.MCPServer // Core MCP server implementation
+	errorCallback   func(error)          // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
 	sseServer            *mcpserver.SSEServer            // Server-Sent Events transport
@@ -70,6 +77,9 @@ type AggregatorServer struct {
 	isShuttingDown  bool               // Indicates whether the server is currently stopping
 }
 
+// DefaultSessionTimeout is the default timeout for idle session cleanup.
+const DefaultSessionTimeout = 30 * time.Minute
+
 // NewAggregatorServer creates a new aggregator server with the specified configuration.
 //
 // This constructor initializes all necessary components but does not start any servers.
@@ -77,6 +87,7 @@ type AggregatorServer struct {
 //
 // The server is configured with:
 //   - A server registry using the specified muster prefix
+//   - A session registry for per-session state management (OAuth)
 //   - Active item managers for tracking capabilities
 //   - Default transport settings based on configuration
 //
@@ -88,6 +99,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
+		sessionRegistry: NewSessionRegistry(DefaultSessionTimeout),
 		toolManager:     newActiveItemManager(itemTypeTool),
 		promptManager:   newActiveItemManager(itemTypePrompt),
 		resourceManager: newActiveItemManager(itemTypeResource),
@@ -359,6 +371,11 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		}
 	}
 
+	// Stop session registry (closes all session-specific connections)
+	if a.sessionRegistry != nil {
+		a.sessionRegistry.Stop()
+	}
+
 	// Reset internal state to allow for clean restart
 	a.mu.Lock()
 	a.mcpServer = nil
@@ -415,6 +432,17 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 // Returns the ServerRegistry instance managing all backend servers.
 func (a *AggregatorServer) GetRegistry() *ServerRegistry {
 	return a.registry
+}
+
+// GetSessionRegistry returns the session registry for per-session state management.
+//
+// This method provides access to the session registry for managing per-session
+// connections to OAuth-protected servers. It is used for session-scoped tool
+// visibility and connection management.
+//
+// Returns the SessionRegistry instance managing per-session state.
+func (a *AggregatorServer) GetSessionRegistry() *SessionRegistry {
+	return a.sessionRegistry
 }
 
 // monitorRegistryUpdates runs a background monitoring loop for registry changes.
@@ -781,9 +809,119 @@ func (a *AggregatorServer) GetEndpoint() string {
 // conflicts would otherwise occur, following the pattern:
 // {muster_prefix}_{server_prefix}_{original_name}
 //
+// Note: This returns the global tool view. For session-specific tool visibility,
+// use GetToolsForSession instead.
+//
 // Returns a slice of MCP tools ready for client consumption.
 func (a *AggregatorServer) GetTools() []mcp.Tool {
 	return a.registry.GetAllTools()
+}
+
+// GetToolsForSession returns a session-specific view of all available tools.
+//
+// This method computes the tool view based on the session's authentication state:
+//   - Global tools from servers that don't require authentication
+//   - Tools from OAuth servers where the session has authenticated
+//   - Synthetic auth tools for OAuth servers the session hasn't authenticated with
+//
+// This implements per-session tool visibility as described in ADR-006.
+//
+// Args:
+//   - sessionID: The session to compute the tool view for
+//
+// Returns a slice of MCP tools specific to this session.
+func (a *AggregatorServer) GetToolsForSession(sessionID string) []mcp.Tool {
+	return a.registry.GetAllToolsForSession(a.sessionRegistry, sessionID)
+}
+
+// GetResourcesForSession returns a session-specific view of all available resources.
+//
+// Similar to GetToolsForSession, this returns resources based on session authentication state.
+func (a *AggregatorServer) GetResourcesForSession(sessionID string) []mcp.Resource {
+	return a.registry.GetAllResourcesForSession(a.sessionRegistry, sessionID)
+}
+
+// GetPromptsForSession returns a session-specific view of all available prompts.
+//
+// Similar to GetToolsForSession, this returns prompts based on session authentication state.
+func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
+	return a.registry.GetAllPromptsForSession(a.sessionRegistry, sessionID)
+}
+
+// NotifySessionToolsChanged sends a tools/list_changed notification to a specific session.
+//
+// This method is used to notify a specific session that their tool list has changed,
+// typically after they complete OAuth authentication with a new server. This implements
+// targeted notifications as described in ADR-006, avoiding broadcast to all sessions.
+//
+// Args:
+//   - sessionID: The session to notify
+func (a *AggregatorServer) NotifySessionToolsChanged(sessionID string) {
+	a.mu.RLock()
+	mcpServer := a.mcpServer
+	a.mu.RUnlock()
+
+	if mcpServer == nil {
+		logging.Warn("Aggregator", "Cannot notify session %s: MCP server not initialized",
+			truncateSessionID(sessionID))
+		return
+	}
+
+	// Send targeted notification to the specific session
+	err := mcpServer.SendNotificationToSpecificClient(
+		sessionID,
+		"notifications/tools/list_changed",
+		nil,
+	)
+	if err != nil {
+		logging.Warn("Aggregator", "Failed to send tools/list_changed notification to session %s: %v",
+			truncateSessionID(sessionID), err)
+	} else {
+		logging.Debug("Aggregator", "Sent tools/list_changed notification to session %s",
+			truncateSessionID(sessionID))
+	}
+}
+
+// NotifySessionResourcesChanged sends a resources/list_changed notification to a specific session.
+func (a *AggregatorServer) NotifySessionResourcesChanged(sessionID string) {
+	a.mu.RLock()
+	mcpServer := a.mcpServer
+	a.mu.RUnlock()
+
+	if mcpServer == nil {
+		return
+	}
+
+	err := mcpServer.SendNotificationToSpecificClient(
+		sessionID,
+		"notifications/resources/list_changed",
+		nil,
+	)
+	if err != nil {
+		logging.Warn("Aggregator", "Failed to send resources/list_changed notification to session %s: %v",
+			truncateSessionID(sessionID), err)
+	}
+}
+
+// NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
+func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
+	a.mu.RLock()
+	mcpServer := a.mcpServer
+	a.mu.RUnlock()
+
+	if mcpServer == nil {
+		return
+	}
+
+	err := mcpServer.SendNotificationToSpecificClient(
+		sessionID,
+		"notifications/prompts/list_changed",
+		nil,
+	)
+	if err != nil {
+		logging.Warn("Aggregator", "Failed to send prompts/list_changed notification to session %s: %v",
+			truncateSessionID(sessionID), err)
+	}
 }
 
 // GetToolsWithStatus returns all available tools along with their security blocking status.
