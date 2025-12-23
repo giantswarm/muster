@@ -48,9 +48,8 @@ func TestConvertCRDToServiceClass(t *testing.T) {
 					},
 				},
 				Status: musterv1alpha1.ServiceClassStatus{
-					Available:     true,
-					RequiredTools: []string{"docker_run", "docker_stop"},
-					MissingTools:  []string{},
+					Valid:           true,
+					ReferencedTools: []string{"docker_run", "docker_stop"},
 				},
 			},
 			expected: api.ServiceClass{
@@ -400,63 +399,8 @@ func TestConvertInterfaceToRawExtension(t *testing.T) {
 	}
 }
 
-func TestGetToolAvailability(t *testing.T) {
-	tests := []struct {
-		name     string
-		status   *musterv1alpha1.ToolAvailabilityStatus
-		toolType string
-		expected bool
-	}{
-		{
-			name:     "nil status",
-			status:   nil,
-			toolType: "start",
-			expected: false,
-		},
-		{
-			name: "start tool available",
-			status: &musterv1alpha1.ToolAvailabilityStatus{
-				StartToolAvailable: true,
-			},
-			toolType: "start",
-			expected: true,
-		},
-		{
-			name: "stop tool available",
-			status: &musterv1alpha1.ToolAvailabilityStatus{
-				StopToolAvailable: true,
-			},
-			toolType: "stop",
-			expected: true,
-		},
-		{
-			name: "health check tool available",
-			status: &musterv1alpha1.ToolAvailabilityStatus{
-				HealthCheckToolAvailable: true,
-			},
-			toolType: "healthCheck",
-			expected: true,
-		},
-		{
-			name: "unknown tool type",
-			status: &musterv1alpha1.ToolAvailabilityStatus{
-				StartToolAvailable: true,
-			},
-			toolType: "unknown",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getToolAvailability(tt.status, tt.toolType)
-
-			if result != tt.expected {
-				t.Errorf("Tool availability mismatch: got %v, want %v", result, tt.expected)
-			}
-		})
-	}
-}
+// TestGetToolAvailability was removed as part of ADR 007.
+// Tool availability is now computed at runtime per-session, not stored in CRD status.
 
 func TestIsHealthCheckConfigEmpty(t *testing.T) {
 	tests := []struct {

@@ -10,6 +10,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/coreos/go-systemd/v22 v22.6.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/giantswarm/mcp-oauth v0.2.27
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.7.8
@@ -43,7 +44,6 @@ require (
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.16.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect

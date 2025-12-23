@@ -258,6 +258,33 @@ func (k *kubernetesClient) IsKubernetesMode() bool {
 	return true
 }
 
+// UpdateMCPServerStatus updates only the status subresource of an MCPServer.
+func (k *kubernetesClient) UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error {
+	err := k.Client.Status().Update(ctx, server)
+	if err != nil {
+		return fmt.Errorf("failed to update MCPServer status %s/%s: %w", server.Namespace, server.Name, err)
+	}
+	return nil
+}
+
+// UpdateServiceClassStatus updates only the status subresource of a ServiceClass.
+func (k *kubernetesClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
+	err := k.Client.Status().Update(ctx, serviceClass)
+	if err != nil {
+		return fmt.Errorf("failed to update ServiceClass status %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
+	}
+	return nil
+}
+
+// UpdateWorkflowStatus updates only the status subresource of a Workflow.
+func (k *kubernetesClient) UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	err := k.Client.Status().Update(ctx, workflow)
+	if err != nil {
+		return fmt.Errorf("failed to update Workflow status %s/%s: %w", workflow.Namespace, workflow.Name, err)
+	}
+	return nil
+}
+
 // Close performs cleanup for the Kubernetes client.
 //
 // Currently, controller-runtime clients don't require explicit cleanup,

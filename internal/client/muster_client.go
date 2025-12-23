@@ -47,6 +47,13 @@ type MusterClient interface {
 	UpdateWorkflow(ctx context.Context, workflow *musterv1alpha1.Workflow) error
 	DeleteWorkflow(ctx context.Context, name, namespace string) error
 
+	// Status update operations (uses Status subresource in Kubernetes mode)
+	// These methods update only the Status field of the resource.
+	// See ADR 007 for details on what status fields are synced.
+	UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
+	UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+
 	// Service operations (to be implemented in future)
 	// WorkflowExecution operations (to be implemented in future)
 

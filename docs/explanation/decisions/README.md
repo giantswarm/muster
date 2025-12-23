@@ -15,3 +15,4 @@ Each ADR follows this structure:
 - [ADR-004: OAuth Proxy for Remote MCP Servers](004-oauth-proxy.md)
 - [ADR-005: OAuth Protection for Muster Server](005-muster-auth.md)
 - [ADR-006: Session-Scoped Tool Visibility](006-session-scoped-tool-visibility.md)
+- [ADR-007: CRD Status Reconciliation](007-crd-status-reconciliation.md)

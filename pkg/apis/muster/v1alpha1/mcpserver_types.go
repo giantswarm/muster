@@ -67,11 +67,14 @@ type MCPServerStatus struct {
 	// +kubebuilder:validation:Enum=unknown;healthy;unhealthy;checking
 	Health string `json:"health,omitempty" yaml:"health,omitempty"`
 
-	// AvailableTools contains a list of tool names provided by this MCP server
-	AvailableTools []string `json:"availableTools,omitempty" yaml:"availableTools,omitempty"`
-
 	// LastError contains any error message from the most recent server operation
 	LastError string `json:"lastError,omitempty" yaml:"lastError,omitempty"`
+
+	// LastConnected indicates when the server was last successfully connected
+	LastConnected *metav1.Time `json:"lastConnected,omitempty" yaml:"lastConnected,omitempty"`
+
+	// RestartCount tracks how many times this server has been restarted
+	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
 
 	// Conditions represent the latest available observations of the MCPServer's current state
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`

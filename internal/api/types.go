@@ -604,3 +604,96 @@ type AuthInfo struct {
 	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
 	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
 }
+
+// ReconcileManagerHandler provides access to reconciliation status and control.
+// This handler enables monitoring and manual triggering of reconciliation operations
+// for resources managed by the reconciliation system.
+//
+// The reconciliation system ensures that resource definitions (CRDs or YAML files)
+// are automatically synchronized with running services.
+type ReconcileManagerHandler interface {
+	// IsRunning returns whether the reconciliation manager is active.
+	IsRunning() bool
+
+	// GetQueueLength returns the current number of items in the reconciliation queue.
+	GetQueueLength() int
+
+	// GetStatus returns the reconciliation status for a specific resource.
+	GetStatus(resourceType, name, namespace string) (*ReconcileStatusInfo, bool)
+
+	// GetAllStatuses returns all reconciliation statuses.
+	GetAllStatuses() []ReconcileStatusInfo
+
+	// TriggerReconcile manually triggers reconciliation for a resource.
+	TriggerReconcile(resourceType, name, namespace string)
+
+	// GetWatchMode returns the current watch mode (kubernetes/filesystem).
+	GetWatchMode() string
+
+	// GetEnabledResourceTypes returns the list of resource types with reconciliation enabled.
+	GetEnabledResourceTypes() []string
+}
+
+// ReconcileStatusInfo represents the reconciliation status for a resource.
+// This is exposed via the API for observability.
+type ReconcileStatusInfo struct {
+	// ResourceType is the type of the resource (MCPServer, ServiceClass, Workflow).
+	ResourceType string `json:"resource_type"`
+
+	// Name is the name of the resource.
+	Name string `json:"name"`
+
+	// Namespace is the Kubernetes namespace (empty for filesystem mode).
+	Namespace string `json:"namespace,omitempty"`
+
+	// LastReconcileTime is when the resource was last successfully reconciled.
+	LastReconcileTime *string `json:"last_reconcile_time,omitempty"`
+
+	// LastError is the most recent error, if any.
+	LastError string `json:"last_error,omitempty"`
+
+	// RetryCount is the number of retry attempts.
+	RetryCount int `json:"retry_count"`
+
+	// State describes the current reconciliation state (Pending, Reconciling, Synced, Error, Failed).
+	State string `json:"state"`
+}
+
+// ReconcileOverview provides a summary of the reconciliation system status.
+type ReconcileOverview struct {
+	// Running indicates whether the reconciliation system is active.
+	Running bool `json:"running"`
+
+	// WatchMode is the current mode (kubernetes or filesystem).
+	WatchMode string `json:"watch_mode"`
+
+	// QueueLength is the current number of items awaiting reconciliation.
+	QueueLength int `json:"queue_length"`
+
+	// EnabledResourceTypes lists the resource types being watched.
+	EnabledResourceTypes []string `json:"enabled_resource_types"`
+
+	// StatusSummary provides counts by state.
+	StatusSummary ReconcileStatusSummary `json:"status_summary"`
+}
+
+// ReconcileStatusSummary provides aggregate counts of reconciliation states.
+type ReconcileStatusSummary struct {
+	// Total is the total number of tracked resources.
+	Total int `json:"total"`
+
+	// Synced is the count of successfully synced resources.
+	Synced int `json:"synced"`
+
+	// Pending is the count of resources awaiting reconciliation.
+	Pending int `json:"pending"`
+
+	// Reconciling is the count of resources currently being reconciled.
+	Reconciling int `json:"reconciling"`
+
+	// Error is the count of resources that failed but may be retried.
+	Error int `json:"error"`
+
+	// Failed is the count of resources that failed permanently.
+	Failed int `json:"failed"`
+}

@@ -26,14 +26,10 @@ func convertCRDToServiceClass(sc *musterv1alpha1.ServiceClass) api.ServiceClass 
 			Timeout:        convertTimeoutConfigFromCRD(sc.Spec.ServiceConfig.Timeout),
 			Outputs:        convertStringMapFromCRD(sc.Spec.ServiceConfig.Outputs),
 		},
-		// Status fields from CRD status
-		Available:                sc.Status.Available,
-		RequiredTools:            sc.Status.RequiredTools,
-		MissingTools:             sc.Status.MissingTools,
-		CreateToolAvailable:      getToolAvailability(sc.Status.ToolAvailability, "start"),
-		DeleteToolAvailable:      getToolAvailability(sc.Status.ToolAvailability, "stop"),
-		HealthCheckToolAvailable: getToolAvailability(sc.Status.ToolAvailability, "healthCheck"),
-		StatusToolAvailable:      getToolAvailability(sc.Status.ToolAvailability, "status"),
+		// Map CRD validation status to the Available field.
+		// Note: Tool availability for execution is computed per-session at runtime
+		// and not stored in the CRD status (see ADR 007).
+		Available: sc.Status.Valid,
 	}
 
 	return serviceClass
@@ -202,27 +198,6 @@ func convertRawExtensionToInterface(raw *runtime.RawExtension) interface{} {
 
 	// Return as-is if not quoted
 	return rawStr
-}
-
-// getToolAvailability extracts tool availability from CRD status
-func getToolAvailability(status *musterv1alpha1.ToolAvailabilityStatus, toolType string) bool {
-	if status == nil {
-		return false
-	}
-	switch toolType {
-	case "start":
-		return status.StartToolAvailable
-	case "stop":
-		return status.StopToolAvailable
-	case "restart":
-		return status.RestartToolAvailable
-	case "healthCheck":
-		return status.HealthCheckToolAvailable
-	case "status":
-		return status.StatusToolAvailable
-	default:
-		return false
-	}
 }
 
 // convertRequestToCRD converts API request to ServiceClass CRD

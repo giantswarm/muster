@@ -407,15 +407,28 @@ func (sr *SessionRegistry) cleanup() {
 	count := 0
 
 	for sessionID, session := range sr.sessions {
-		session.mu.RLock()
+		// Acquire write lock directly since we may need to close connections.
+		// This avoids a race condition where LastActivity could be updated
+		// between checking and closing.
+		session.mu.Lock()
 		lastActivity := session.LastActivity
-		session.mu.RUnlock()
-
 		if now.Sub(lastActivity) > sr.sessionTimeout {
-			session.CloseAllConnections()
+			// Close connections inline while holding the lock
+			for serverName, conn := range session.Connections {
+				if conn.Client != nil {
+					if err := conn.Client.Close(); err != nil {
+						logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
+							logging.TruncateSessionID(session.SessionID), serverName, err)
+					}
+				}
+			}
+			session.Connections = make(map[string]*SessionConnection)
+			session.mu.Unlock()
 			delete(sr.sessions, sessionID)
 			count++
+			continue
 		}
+		session.mu.Unlock()
 	}
 
 	if count > 0 {

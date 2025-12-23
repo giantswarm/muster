@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: mcpservers.muster.giantswarm.io
 spec:
   group: muster.giantswarm.io
@@ -60,20 +60,13 @@ spec:
           spec:
             description: MCPServerSpec defines the desired state of MCPServer
             properties:
-              description:
-                description: Description provides a human-readable description of
-                  this MCP server's purpose.
-                maxLength: 500
-                type: string
-              type:
+              args:
                 description: |-
-                  Type specifies how this MCP server should be executed.
-                  Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
-                enum:
-                - stdio
-                - streamable-http
-                - sse
-                type: string
+                  Args specifies the command line arguments for stdio type servers.
+                  This field is only available when Type is "stdio".
+                items:
+                  type: string
+                type: array
               autoStart:
                 default: false
                 description: |-
@@ -85,19 +78,10 @@ spec:
                   Command specifies the executable path for stdio type servers.
                   This field is required when Type is "stdio".
                 type: string
-              args:
-                description: |-
-                  Args specifies the command line arguments for stdio type servers.
-                  This field is only available when Type is "stdio".
-                items:
-                  type: string
-                type: array
-              url:
-                description: |-
-                  URL is the endpoint where the remote MCP server can be reached
-                  This field is required when Type is "streamable-http" or "sse".
-                  Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
-                pattern: ^https?://[^\s/$.?#].[^\s]*$
+              description:
+                description: Description provides a human-readable description of
+                  this MCP server's purpose.
+                maxLength: 500
                 type: string
               env:
                 additionalProperties:
@@ -116,8 +100,8 @@ spec:
                 type: object
               timeout:
                 default: 30
-                description: Timeout specifies the connection timeout for remote
-                  operations (in seconds)
+                description: Timeout specifies the connection timeout for remote operations
+                  (in seconds)
                 maximum: 300
                 minimum: 1
                 type: integer
@@ -128,18 +112,28 @@ spec:
                   servers provide tools with similar names.
                 pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
                 type: string
+              type:
+                description: |-
+                  Type specifies how this MCP server should be executed.
+                  Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
+                enum:
+                - stdio
+                - streamable-http
+                - sse
+                type: string
+              url:
+                description: |-
+                  URL is the endpoint where the remote MCP server can be reached
+                  This field is required when Type is "streamable-http" or "sse".
+                  Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
+                pattern: ^https?://[^\s/$.?#].[^\s]*$
+                type: string
             required:
             - type
             type: object
           status:
             description: MCPServerStatus defines the observed state of MCPServer
             properties:
-              availableTools:
-                description: AvailableTools contains a list of tool names provided
-                  by this MCP server
-                items:
-                  type: string
-                type: array
               conditions:
                 description: Conditions represent the latest available observations
                   of the MCPServer's current state
@@ -206,10 +200,19 @@ spec:
                 - unhealthy
                 - checking
                 type: string
+              lastConnected:
+                description: LastConnected indicates when the server was last successfully
+                  connected
+                format: date-time
+                type: string
               lastError:
                 description: LastError contains any error message from the most recent
                   server operation
                 type: string
+              restartCount:
+                description: RestartCount tracks how many times this server has been
+                  restarted
+                type: integer
               state:
                 description: State represents the current operational state of the
                   MCP server
@@ -223,6 +226,15 @@ spec:
                 type: string
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: command is required when type is stdio
+          rule: self.type != 'stdio' || has(self.command)
+        - message: url is required when type is streamable-http or sse
+          rule: self.type == 'stdio' || has(self.url)
+        - message: args field is only allowed when type is stdio
+          rule: self.type == 'stdio' || !has(self.args)
+        - message: headers field is only allowed when type is streamable-http or sse
+          rule: self.type != 'stdio' || !has(self.headers)
     served: true
     storage: true
     subresources:

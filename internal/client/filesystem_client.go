@@ -773,6 +773,24 @@ func (f *filesystemClient) IsKubernetesMode() bool {
 	return false
 }
 
+// UpdateMCPServerStatus updates only the status of an MCPServer.
+// In filesystem mode, this updates the entire file (status is embedded in the YAML).
+func (f *filesystemClient) UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error {
+	return f.UpdateMCPServer(ctx, server)
+}
+
+// UpdateServiceClassStatus updates only the status of a ServiceClass.
+// In filesystem mode, this updates the entire file (status is embedded in the YAML).
+func (f *filesystemClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
+	return f.UpdateServiceClass(ctx, serviceClass)
+}
+
+// UpdateWorkflowStatus updates only the status of a Workflow.
+// In filesystem mode, this updates the entire file (status is embedded in the YAML).
+func (f *filesystemClient) UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	return f.UpdateWorkflow(ctx, workflow)
+}
+
 // Close performs cleanup for the filesystem client.
 func (f *filesystemClient) Close() error {
 	// Filesystem client doesn't require cleanup

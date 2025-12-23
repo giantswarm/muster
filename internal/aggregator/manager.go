@@ -283,7 +283,7 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 	registeredCount := 0
 	for _, service := range mcpServices {
 		// Only register servers that are running AND healthy (client is guaranteed ready)
-		if string(service.GetState()) != "running" || string(service.GetHealth()) != "healthy" {
+		if service.GetState() != api.StateRunning || service.GetHealth() != api.HealthHealthy {
 			continue
 		}
 
@@ -654,7 +654,7 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 
 	for _, service := range mcpServices {
 		// Only try services that are running and healthy
-		if string(service.GetState()) != "running" || string(service.GetHealth()) != "healthy" {
+		if service.GetState() != api.StateRunning || service.GetHealth() != api.HealthHealthy {
 			continue
 		}
 

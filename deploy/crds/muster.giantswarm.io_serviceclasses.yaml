@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: serviceclasses.muster.giantswarm.io
 spec:
   group: muster.giantswarm.io
@@ -17,14 +17,11 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.serviceConfig.serviceType
-      name: ServiceType
-      type: string
-    - jsonPath: .status.available
-      name: Available
+    - jsonPath: .status.valid
+      name: Valid
       type: boolean
-    - jsonPath: .status.requiredTools
-      name: RequiredTools
+    - jsonPath: .status.referencedTools
+      name: ReferencedTools
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -319,9 +316,6 @@ spec:
           status:
             description: ServiceClassStatus defines the observed state of ServiceClass
             properties:
-              available:
-                description: Available indicates whether all required tools are available.
-                type: boolean
               conditions:
                 description: Conditions represent the latest available observations.
                 items:
@@ -379,40 +373,23 @@ spec:
                   - type
                   type: object
                 type: array
-              missingTools:
-                description: MissingTools lists tools that are currently unavailable.
+              referencedTools:
+                description: |-
+                  ReferencedTools lists all tools mentioned in the ServiceClass lifecycle definitions.
+                  This is informational only; actual availability depends on the user's session.
+                  See ADR 007 for details on session-scoped tool visibility.
                 items:
                   type: string
                 type: array
-              requiredTools:
-                description: RequiredTools lists all tools needed by this ServiceClass.
+              valid:
+                description: Valid indicates whether the ServiceClass spec passes
+                  structural validation.
+                type: boolean
+              validationErrors:
+                description: ValidationErrors contains any spec validation error messages.
                 items:
                   type: string
                 type: array
-              toolAvailability:
-                description: ToolAvailability provides detailed tool availability
-                  status.
-                properties:
-                  healthCheckToolAvailable:
-                    description: HealthCheckToolAvailable indicates if the health
-                      check tool is available.
-                    type: boolean
-                  restartToolAvailable:
-                    description: RestartToolAvailable indicates if the restart tool
-                      is available.
-                    type: boolean
-                  startToolAvailable:
-                    description: StartToolAvailable indicates if the start tool is
-                      available.
-                    type: boolean
-                  statusToolAvailable:
-                    description: StatusToolAvailable indicates if the status tool
-                      is available.
-                    type: boolean
-                  stopToolAvailable:
-                    description: StopToolAvailable indicates if the stop tool is available.
-                    type: boolean
-                type: object
             type: object
         type: object
     served: true

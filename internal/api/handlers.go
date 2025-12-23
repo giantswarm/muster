@@ -18,6 +18,7 @@ var (
 	configHandler              ConfigHandler
 	workflowHandler            WorkflowHandler
 	eventManagerHandler        EventManagerHandler
+	reconcileManagerHandler    ReconcileManagerHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
 	// Access is protected by toolUpdateMutex.
@@ -554,4 +555,39 @@ func GetEventManager() EventManagerHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return eventManagerHandler
+}
+
+// RegisterReconcileManager registers the reconcile manager handler implementation.
+// This handler provides reconciliation status and control functionality,
+// enabling automatic synchronization of resource definitions with running services.
+//
+// The registration is thread-safe and should be called during system initialization.
+// Only one reconcile manager handler can be registered at a time; subsequent
+// registrations will replace the previous handler.
+//
+// Args:
+//   - h: ReconcileManagerHandler implementation that manages reconciliation operations
+//
+// Thread-safe: Yes, protected by handlerMutex.
+func RegisterReconcileManager(h ReconcileManagerHandler) {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	logging.Debug("API", "Registering reconcile manager handler: %v", h != nil)
+	reconcileManagerHandler = h
+}
+
+// GetReconcileManager returns the registered reconcile manager handler.
+// This provides access to reconciliation status and control functionality.
+//
+// Returns nil if no handler has been registered yet. Callers should always
+// check for nil before using the returned handler.
+//
+// Returns:
+//   - ReconcileManagerHandler: The registered handler, or nil if not registered
+//
+// Thread-safe: Yes, protected by handlerMutex read lock.
+func GetReconcileManager() ReconcileManagerHandler {
+	handlerMutex.RLock()
+	defer handlerMutex.RUnlock()
+	return reconcileManagerHandler
 }

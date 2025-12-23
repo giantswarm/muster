@@ -195,6 +195,19 @@ func (m *mockMusterClient) DeleteWorkflow(ctx context.Context, name, namespace s
 	return nil
 }
 
+// Status update methods - implement as no-ops for testing
+func (m *mockMusterClient) UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error {
+	return nil
+}
+
+func (m *mockMusterClient) UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
+	return nil
+}
+
+func (m *mockMusterClient) UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error {
+	return nil
+}
+
 func TestEventGenerator_MCPServerEvent(t *testing.T) {
 	mockClient := &mockMusterClient{isKubernetes: true}
 	generator := NewEventGenerator(mockClient)
