@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 
 	"muster/internal/aggregator"
 	"muster/internal/api"
@@ -265,8 +266,8 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 	return musterClient, nil
 }
 
-// mergeOAuthServerConfig merges OAuth server configuration from CLI flags and config file.
-// CLI flags override config file settings where specified.
+// mergeOAuthServerConfig merges OAuth server configuration from CLI flags, config file, and environment variables.
+// Priority order (highest to lowest): CLI flags > environment variables > config file.
 func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 	serverCfg := cfg.MusterConfig.Aggregator.OAuthServer
 
@@ -278,6 +279,24 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 	// Enable from CLI flag if specified
 	if cfg.OAuthServerEnabled {
 		serverCfg.Enabled = true
+	}
+
+	// Read secrets from environment variables (for Kubernetes deployments)
+	// These override config file values to keep secrets out of ConfigMaps
+	if clientSecret := os.Getenv("DEX_CLIENT_SECRET"); clientSecret != "" {
+		serverCfg.Dex.ClientSecret = clientSecret
+	}
+	if googleClientID := os.Getenv("GOOGLE_CLIENT_ID"); googleClientID != "" {
+		serverCfg.Google.ClientID = googleClientID
+	}
+	if googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET"); googleClientSecret != "" {
+		serverCfg.Google.ClientSecret = googleClientSecret
+	}
+	if valkeyPassword := os.Getenv("VALKEY_PASSWORD"); valkeyPassword != "" {
+		serverCfg.Storage.Valkey.Password = valkeyPassword
+	}
+	if encryptionKey := os.Getenv("OAUTH_ENCRYPTION_KEY"); encryptionKey != "" {
+		serverCfg.EncryptionKey = encryptionKey
 	}
 
 	return serverCfg
