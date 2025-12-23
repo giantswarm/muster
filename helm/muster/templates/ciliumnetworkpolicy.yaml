@@ -66,6 +66,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             app.kubernetes.io/name: valkey
+            k8s:io.kubernetes.pod.namespace: {{ .Release.Namespace }}
       toPorts:
         - ports:
             - port: "6379"
