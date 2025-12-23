@@ -89,10 +89,10 @@ type MCPServerStatus struct {
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state"
 // +kubebuilder:printcolumn:name="Health",type="string",JSONPath=".status.health"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:validation:XValidation:rule="self.type != 'stdio' || has(self.command)",message="command is required when type is stdio"
-// +kubebuilder:validation:XValidation:rule="self.type == 'stdio' || has(self.url)",message="url is required when type is streamable-http or sse"
-// +kubebuilder:validation:XValidation:rule="self.type == 'stdio' || !has(self.args)",message="args field is only allowed when type is stdio"
-// +kubebuilder:validation:XValidation:rule="self.type != 'stdio' || !has(self.headers)",message="headers field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || has(self.spec.command)",message="command is required when type is stdio"
+// +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.args)",message="args field is only allowed when type is stdio"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headers)",message="headers field is only allowed when type is streamable-http or sse"
 
 // MCPServer is the Schema for the mcpservers API
 type MCPServer struct {
