@@ -264,6 +264,24 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			}
 		}
 
+		// Get ServiceClass manager and register ServiceClass reconciler
+		serviceClassMgr := api.GetServiceClassManager()
+		if serviceClassMgr != nil {
+			serviceClassReconciler := reconciler.NewServiceClassReconciler(serviceClassMgr)
+			if err := reconcileManager.RegisterReconciler(serviceClassReconciler); err != nil {
+				logging.Warn("Services", "Failed to register ServiceClass reconciler: %v", err)
+			}
+		}
+
+		// Get Workflow manager and register Workflow reconciler
+		workflowMgr := api.GetWorkflow()
+		if workflowMgr != nil {
+			workflowReconciler := reconciler.NewWorkflowReconciler(workflowMgr)
+			if err := reconcileManager.RegisterReconciler(workflowReconciler); err != nil {
+				logging.Warn("Services", "Failed to register Workflow reconciler: %v", err)
+			}
+		}
+
 		// Create and register reconciler API adapter
 		reconcileAdapter := reconciler.NewAdapter(reconcileManager)
 		reconcileAdapter.Register()
