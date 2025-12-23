@@ -57,12 +57,13 @@ spec:
   # Optional: Connection timeout in seconds (all types)
   timeout: 30
 
-# Status is managed automatically by muster
+# Status is managed automatically by muster (via reconciliation)
 status:
   state: running          # unknown|starting|running|stopping|stopped|failed
   health: healthy         # unknown|healthy|unhealthy|checking
-  availableTools: []      # List of tool names provided by this server
   lastError: ""           # Any error from recent operations
+  lastConnected: ""       # When the server was last successfully connected
+  restartCount: 0         # Number of times the server has been restarted
   conditions: []          # Kubernetes standard conditions
 ```
 
@@ -89,9 +90,12 @@ status:
 |-------|------|-------------|
 | `state` | `string` | Current operational state: `unknown`, `starting`, `running`, `stopping`, `stopped`, `failed` |
 | `health` | `string` | Health status: `unknown`, `healthy`, `unhealthy`, `checking` |
-| `availableTools` | `[]string` | List of tool names provided by this MCP server |
 | `lastError` | `string` | Error message from the most recent operation |
+| `lastConnected` | `*metav1.Time` | When the server was last successfully connected |
+| `restartCount` | `int` | Number of times the server has been restarted |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
+
+> **Note**: Available tools are computed per-session at runtime based on user authentication. See [ADR 007](../explanation/decisions/007-crd-status-reconciliation.md) for details on session-scoped tool visibility.
 
 ### Examples
 
@@ -284,17 +288,11 @@ spec:
     outputs:
       <output_name>: "<template>"
 
-# Status is managed automatically by muster
+# Status is managed automatically by muster (via reconciliation)
 status:
-  available: true|false              # All required tools available
-  requiredTools: []                  # List of required tool names
-  missingTools: []                   # List of unavailable tools
-  toolAvailability:                  # Detailed tool availability
-    startToolAvailable: true|false
-    stopToolAvailable: true|false
-    restartToolAvailable: true|false
-    healthCheckToolAvailable: true|false
-    statusToolAvailable: true|false
+  valid: true|false                  # Spec passes structural validation
+  validationErrors: []               # Any spec validation error messages
+  referencedTools: []                # Tools mentioned in lifecycle definitions (informational)
   conditions: []                     # Kubernetes standard conditions
 ```
 
@@ -574,12 +572,12 @@ spec:
         <var_name>: <output_template>
       description: "<step_description>"
 
-# Status is managed automatically by muster
+# Status is managed automatically by muster (via reconciliation)
 status:
-  available: true|false              # All required tools available
-  requiredTools: []                  # List of required tool names  
-  missingTools: []                   # List of unavailable tools
-  stepValidation: []                 # Validation results per step
+  valid: true|false                  # Spec passes structural validation
+  validationErrors: []               # Any spec validation error messages
+  referencedTools: []                # Tools mentioned in steps (informational)
+  stepCount: 0                       # Number of steps in the workflow
   conditions: []                     # Kubernetes standard conditions
 ```
 
@@ -629,20 +627,13 @@ status:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `available` | `boolean` | All required tools available |
-| `requiredTools` | `[]string` | List of required tool names |
-| `missingTools` | `[]string` | List of unavailable tools |
-| `stepValidation` | `[]StepValidationResult` | Validation results for each step |
+| `valid` | `boolean` | Whether the spec passes structural validation |
+| `validationErrors` | `[]string` | Any spec validation error messages |
+| `referencedTools` | `[]string` | Tools mentioned in workflow steps (informational only) |
+| `stepCount` | `int` | Number of steps in the workflow |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
 
-#### StepValidationResult Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `stepId` | `string` | Identifies the workflow step |
-| `valid` | `boolean` | Whether the step passed validation |
-| `toolAvailable` | `boolean` | Whether the required tool is available |
-| `validationErrors` | `[]string` | Any validation error messages |
+> **Note**: Tool availability is computed per-session at runtime based on user authentication. A workflow may show all referenced tools but only be executable by users with access to those tools. See [ADR 007](../explanation/decisions/007-crd-status-reconciliation.md) for details.
 
 ### Examples
 
@@ -927,6 +918,20 @@ Muster automatically discovers available tools from:
 2. **MCP Server Tools**: Tools provided by registered MCPServer resources
 3. **Dynamic Tools**: Workflow execution tools (`workflow_<name>`)
 
+### Session-Scoped Tool Visibility
+
+**Important**: With session-scoped tool visibility (see [ADR 007](../explanation/decisions/007-crd-status-reconciliation.md)), tool availability is no longer a global property stored in CRD status. Instead:
+
+- Tool availability is computed **per-session at runtime**
+- Different users may have access to different tools based on their OAuth authentication
+- CRD status fields show `referencedTools` (what tools the resource uses), not availability
+- Actual executability depends on the user's authenticated session
+
+This means:
+- A Workflow requiring `kubernetes_deploy` is executable by users authenticated with `mcp-kubernetes`
+- The same Workflow is not executable by users who haven't authenticated
+- The `valid` status field indicates spec correctness, not tool availability
+
 ### Dependency Resolution
 
 #### ServiceClass Dependencies
@@ -936,25 +941,30 @@ spec:
     dependencies: ["database", "cache"]  # Must be available ServiceClasses
 ```
 
-#### Tool Dependencies
-The system automatically validates that all referenced tools are available:
-- ServiceClass lifecycle tools must be available for the ServiceClass to be marked `available: true`
-- Workflow step tools must be available for the Workflow to be marked `available: true`
-
 ### Status Monitoring
 
-All CRDs provide status information about tool availability:
+CRDs provide status information about validation and referenced tools:
 
 ```bash
-# Check ServiceClass tool availability
-kubectl get serviceclass postgres-database -o jsonpath='{.status.toolAvailability}'
+# Check ServiceClass validation status
+kubectl get serviceclass postgres-database -o jsonpath='{.status.valid}'
 
-# Check Workflow tool availability  
-kubectl get workflow deploy-app -o jsonpath='{.status.missingTools}'
+# Check referenced tools (informational)
+kubectl get workflow deploy-app -o jsonpath='{.status.referencedTools}'
 
-# Check MCP Server status
+# Check MCP Server runtime state
 kubectl get mcpserver git-tools -o jsonpath='{.status.state}'
 ```
+
+### Reconciliation
+
+Muster automatically reconciles CRD status with runtime state:
+
+- **MCPServer**: Status reflects actual process state (running, stopped, healthy, unhealthy)
+- **ServiceClass**: Status reflects spec validation and lists referenced tools
+- **Workflow**: Status reflects spec validation and lists referenced tools
+
+Reconciliation works in both filesystem mode (watching YAML files) and Kubernetes mode (using informers). See the [reconciler package documentation](../../internal/reconciler/doc.go) for implementation details.
 
 ---
 
