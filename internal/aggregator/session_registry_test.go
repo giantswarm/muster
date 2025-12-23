@@ -449,3 +449,197 @@ func TestSessionConnection_UpdatePrompts(t *testing.T) {
 		t.Errorf("Expected 2 prompts, got %d", len(retrievedPrompts))
 	}
 }
+
+// Security-related tests
+
+func TestValidateSessionID(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessionID string
+		wantErr   bool
+	}{
+		{
+			name:      "valid session ID",
+			sessionID: "abc123-def456",
+			wantErr:   false,
+		},
+		{
+			name:      "empty session ID",
+			sessionID: "",
+			wantErr:   true,
+		},
+		{
+			name:      "session ID at max length",
+			sessionID: string(make([]byte, MaxSessionIDLength)),
+			wantErr:   false,
+		},
+		{
+			name:      "session ID exceeds max length",
+			sessionID: string(make([]byte, MaxSessionIDLength+1)),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSessionID(tt.sessionID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSessionID() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSessionRegistry_SessionLimit(t *testing.T) {
+	// Create registry with small limit for testing
+	sr := NewSessionRegistryWithLimits(5*time.Minute, 3)
+	defer sr.Stop()
+
+	// Create sessions up to limit
+	for i := 0; i < 3; i++ {
+		session, err := sr.GetOrCreateSessionWithError(fmt.Sprintf("session-%d", i))
+		if err != nil {
+			t.Fatalf("Unexpected error creating session %d: %v", i, err)
+		}
+		if session == nil {
+			t.Fatalf("Expected non-nil session for session-%d", i)
+		}
+	}
+
+	if sr.Count() != 3 {
+		t.Errorf("Expected 3 sessions, got %d", sr.Count())
+	}
+
+	// Try to create one more - should fail
+	session, err := sr.GetOrCreateSessionWithError("session-4")
+	if err == nil {
+		t.Error("Expected error when exceeding session limit")
+	}
+	if session != nil {
+		t.Error("Expected nil session when limit exceeded")
+	}
+
+	// Verify it's the right error type
+	if _, ok := err.(*SessionLimitExceededError); !ok {
+		t.Errorf("Expected SessionLimitExceededError, got %T", err)
+	}
+}
+
+func TestSessionRegistry_InvalidSessionID(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	// Test empty session ID
+	session, err := sr.GetOrCreateSessionWithError("")
+	if err == nil {
+		t.Error("Expected error for empty session ID")
+	}
+	if session != nil {
+		t.Error("Expected nil session for empty session ID")
+	}
+
+	// Verify it's the right error type
+	if _, ok := err.(*InvalidSessionIDError); !ok {
+		t.Errorf("Expected InvalidSessionIDError, got %T", err)
+	}
+
+	// Test excessively long session ID
+	longID := string(make([]byte, MaxSessionIDLength+100))
+	session, err = sr.GetOrCreateSessionWithError(longID)
+	if err == nil {
+		t.Error("Expected error for excessively long session ID")
+	}
+	if session != nil {
+		t.Error("Expected nil session for excessively long session ID")
+	}
+}
+
+func TestSessionRegistry_UpgradeAlreadyConnected(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	sessionID := "test-session-upgrade-twice"
+	serverName := "oauth-server"
+
+	// Set pending auth
+	sr.SetPendingAuth(sessionID, serverName)
+
+	// First upgrade should succeed
+	err := sr.UpgradeConnection(sessionID, serverName, nil, nil)
+	if err != nil {
+		t.Fatalf("First upgrade should succeed: %v", err)
+	}
+
+	// Verify connection is connected
+	conn, exists := sr.GetConnection(sessionID, serverName)
+	if !exists {
+		t.Fatal("Expected connection to exist")
+	}
+	if conn.Status != StatusSessionConnected {
+		t.Errorf("Expected status connected, got %s", conn.Status)
+	}
+
+	// Second upgrade should fail
+	err = sr.UpgradeConnection(sessionID, serverName, nil, nil)
+	if err == nil {
+		t.Error("Expected error when upgrading already connected session")
+	}
+
+	// Verify it's the right error type
+	if _, ok := err.(*ConnectionAlreadyEstablishedError); !ok {
+		t.Errorf("Expected ConnectionAlreadyEstablishedError, got %T", err)
+	}
+}
+
+func TestConnectionAlreadyEstablishedError(t *testing.T) {
+	err := &ConnectionAlreadyEstablishedError{ServerName: "test-server"}
+	expected := "connection already established: test-server"
+
+	if err.Error() != expected {
+		t.Errorf("Expected error message %q, got %q", expected, err.Error())
+	}
+}
+
+func TestInvalidSessionIDError(t *testing.T) {
+	err := &InvalidSessionIDError{Reason: "too long"}
+	expected := "invalid session ID: too long"
+
+	if err.Error() != expected {
+		t.Errorf("Expected error message %q, got %q", expected, err.Error())
+	}
+}
+
+func TestSessionLimitExceededError(t *testing.T) {
+	err := &SessionLimitExceededError{Limit: 100, Current: 100}
+	expected := "session limit exceeded: 100/100 sessions"
+
+	if err.Error() != expected {
+		t.Errorf("Expected error message %q, got %q", expected, err.Error())
+	}
+}
+
+func TestNewSessionRegistryWithLimits_Defaults(t *testing.T) {
+	// Test that negative maxSessions defaults to DefaultMaxSessions
+	sr := NewSessionRegistryWithLimits(5*time.Minute, -1)
+	defer sr.Stop()
+
+	if sr.maxSessions != DefaultMaxSessions {
+		t.Errorf("Expected maxSessions to be %d, got %d", DefaultMaxSessions, sr.maxSessions)
+	}
+
+	// Test that 0 maxSessions means unlimited
+	sr2 := NewSessionRegistryWithLimits(5*time.Minute, 0)
+	defer sr2.Stop()
+
+	if sr2.maxSessions != 0 {
+		t.Errorf("Expected maxSessions to be 0, got %d", sr2.maxSessions)
+	}
+
+	// With 0 limit, we should be able to create many sessions
+	for i := 0; i < 100; i++ {
+		_, err := sr2.GetOrCreateSessionWithError(fmt.Sprintf("session-%d", i))
+		if err != nil {
+			t.Fatalf("Unexpected error with unlimited sessions: %v", err)
+		}
+	}
+}

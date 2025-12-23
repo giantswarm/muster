@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -8,6 +9,17 @@ import (
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
+)
+
+// Session ID validation constants.
+const (
+	// MaxSessionIDLength is the maximum allowed length for session IDs.
+	// This prevents memory exhaustion attacks using extremely long session IDs.
+	MaxSessionIDLength = 256
+
+	// DefaultMaxSessions is the default maximum number of concurrent sessions.
+	// This provides DoS protection by limiting session creation.
+	DefaultMaxSessions = 10000
 )
 
 // ConnectionStatus represents the connection status of a session to a server.
@@ -36,12 +48,14 @@ const (
 //   - Per-session connection tracking for OAuth-protected servers
 //   - Session-specific tool caching
 //   - Thread-safe access to session state
+//   - DoS protection via session limits and validation
 type SessionRegistry struct {
 	mu       sync.RWMutex
 	sessions map[string]*SessionState // sessionID -> state
 
 	// Configuration
 	sessionTimeout time.Duration // Duration after which idle sessions are cleaned up
+	maxSessions    int           // Maximum number of concurrent sessions (DoS protection)
 	stopCleanup    chan struct{}
 }
 
@@ -85,7 +99,8 @@ type SessionConnection struct {
 	Prompts   []mcp.Prompt
 }
 
-// NewSessionRegistry creates a new session registry with the specified timeout.
+// NewSessionRegistry creates a new session registry with the specified timeout
+// and default session limits.
 //
 // The registry starts a background goroutine for periodic cleanup of idle sessions.
 // Callers MUST call Stop() when done to prevent goroutine leaks.
@@ -95,13 +110,31 @@ type SessionConnection struct {
 //
 // Returns a new session registry ready for use.
 func NewSessionRegistry(sessionTimeout time.Duration) *SessionRegistry {
+	return NewSessionRegistryWithLimits(sessionTimeout, DefaultMaxSessions)
+}
+
+// NewSessionRegistryWithLimits creates a new session registry with custom limits.
+//
+// This constructor allows fine-grained control over session limits for
+// different deployment scenarios (e.g., higher limits for enterprise deployments).
+//
+// Args:
+//   - sessionTimeout: Duration after which idle sessions are cleaned up (default: 30 minutes)
+//   - maxSessions: Maximum number of concurrent sessions (0 = unlimited, not recommended)
+//
+// Returns a new session registry ready for use.
+func NewSessionRegistryWithLimits(sessionTimeout time.Duration, maxSessions int) *SessionRegistry {
 	if sessionTimeout <= 0 {
 		sessionTimeout = 30 * time.Minute
+	}
+	if maxSessions < 0 {
+		maxSessions = DefaultMaxSessions
 	}
 
 	sr := &SessionRegistry{
 		sessions:       make(map[string]*SessionState),
 		sessionTimeout: sessionTimeout,
+		maxSessions:    maxSessions,
 		stopCleanup:    make(chan struct{}),
 	}
 
@@ -111,21 +144,71 @@ func NewSessionRegistry(sessionTimeout time.Duration) *SessionRegistry {
 	return sr
 }
 
+// ValidateSessionID checks if a session ID is valid.
+//
+// A valid session ID must be:
+//   - Non-empty
+//   - Not longer than MaxSessionIDLength (256 bytes)
+//
+// Returns an error describing the validation failure, or nil if valid.
+func ValidateSessionID(sessionID string) error {
+	if sessionID == "" {
+		return &InvalidSessionIDError{Reason: "session ID cannot be empty"}
+	}
+	if len(sessionID) > MaxSessionIDLength {
+		return &InvalidSessionIDError{Reason: fmt.Sprintf("session ID exceeds maximum length of %d", MaxSessionIDLength)}
+	}
+	return nil
+}
+
 // GetOrCreateSession returns the session state for a session ID, creating it if necessary.
 //
 // This method is the primary entry point for session management. It ensures that
 // a session always exists when needed and updates the last activity timestamp.
 //
+// The method validates the session ID and enforces session limits:
+//   - Empty or excessively long session IDs are rejected
+//   - New sessions are rejected if the maximum session limit is reached
+//
 // Args:
 //   - sessionID: Unique identifier for the session
 //
-// Returns the session state (never nil).
+// Returns the session state, or nil if validation fails or limits are exceeded.
+// Callers should use GetOrCreateSessionWithError for detailed error information.
 func (sr *SessionRegistry) GetOrCreateSession(sessionID string) *SessionState {
+	session, _ := sr.GetOrCreateSessionWithError(sessionID)
+	return session
+}
+
+// GetOrCreateSessionWithError returns the session state for a session ID, creating it if necessary.
+//
+// This method provides detailed error information for validation and limit failures.
+//
+// Args:
+//   - sessionID: Unique identifier for the session
+//
+// Returns:
+//   - The session state (nil on error)
+//   - An error if validation fails or limits are exceeded
+func (sr *SessionRegistry) GetOrCreateSessionWithError(sessionID string) (*SessionState, error) {
+	// Validate session ID before acquiring lock
+	if err := ValidateSessionID(sessionID); err != nil {
+		logging.Warn("SessionRegistry", "Rejected invalid session ID: %v", err)
+		return nil, err
+	}
+
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	session, exists := sr.sessions[sessionID]
 	if !exists {
+		// Check session limit before creating new session
+		if sr.maxSessions > 0 && len(sr.sessions) >= sr.maxSessions {
+			logging.Warn("SessionRegistry", "Session limit reached (%d), rejecting new session: %s",
+				sr.maxSessions, logging.TruncateSessionID(sessionID))
+			return nil, &SessionLimitExceededError{Limit: sr.maxSessions, Current: len(sr.sessions)}
+		}
+
 		session = &SessionState{
 			SessionID:    sessionID,
 			CreatedAt:    time.Now(),
@@ -133,12 +216,13 @@ func (sr *SessionRegistry) GetOrCreateSession(sessionID string) *SessionState {
 			Connections:  make(map[string]*SessionConnection),
 		}
 		sr.sessions[sessionID] = session
-		logging.Debug("SessionRegistry", "Created new session: %s", logging.TruncateSessionID(sessionID))
+		logging.Debug("SessionRegistry", "Created new session: %s (total: %d)",
+			logging.TruncateSessionID(sessionID), len(sr.sessions))
 	} else {
 		session.UpdateActivity()
 	}
 
-	return session
+	return session, nil
 }
 
 // GetSession returns the session state for a session ID.
@@ -147,7 +231,13 @@ func (sr *SessionRegistry) GetOrCreateSession(sessionID string) *SessionState {
 //   - sessionID: Unique identifier for the session
 //
 // Returns the session state and true if found, nil and false otherwise.
+// Invalid session IDs return nil and false.
 func (sr *SessionRegistry) GetSession(sessionID string) (*SessionState, bool) {
+	// Validate session ID before lookup
+	if err := ValidateSessionID(sessionID); err != nil {
+		return nil, false
+	}
+
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
@@ -359,6 +449,12 @@ func (s *SessionState) SetConnection(serverName string, conn *SessionConnection)
 }
 
 // UpgradeConnection upgrades a connection from pending_auth to connected.
+//
+// This method validates the connection state before upgrading:
+//   - The connection must exist
+//   - The connection must be in pending_auth state (not already connected)
+//
+// Returns an error if validation fails.
 func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, tokenKey *oauth.TokenKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -366,6 +462,11 @@ func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, to
 	conn, exists := s.Connections[serverName]
 	if !exists {
 		return &ConnectionNotFoundError{ServerName: serverName}
+	}
+
+	// Validate connection state - prevent double upgrades
+	if conn.Status == StatusSessionConnected {
+		return &ConnectionAlreadyEstablishedError{ServerName: serverName}
 	}
 
 	conn.Client = client
@@ -483,5 +584,34 @@ type ConnectionNotFoundError struct {
 
 func (e *ConnectionNotFoundError) Error() string {
 	return "connection not found: " + e.ServerName
+}
+
+// ConnectionAlreadyEstablishedError is returned when attempting to upgrade
+// a connection that is already in connected state.
+type ConnectionAlreadyEstablishedError struct {
+	ServerName string
+}
+
+func (e *ConnectionAlreadyEstablishedError) Error() string {
+	return "connection already established: " + e.ServerName
+}
+
+// InvalidSessionIDError is returned when a session ID fails validation.
+type InvalidSessionIDError struct {
+	Reason string
+}
+
+func (e *InvalidSessionIDError) Error() string {
+	return "invalid session ID: " + e.Reason
+}
+
+// SessionLimitExceededError is returned when the maximum session limit is reached.
+type SessionLimitExceededError struct {
+	Limit   int
+	Current int
+}
+
+func (e *SessionLimitExceededError) Error() string {
+	return fmt.Sprintf("session limit exceeded: %d/%d sessions", e.Current, e.Limit)
 }
 
