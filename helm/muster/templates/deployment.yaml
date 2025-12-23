@@ -115,9 +115,19 @@ spec:
             name: {{ include "muster.fullname" . }}-config
         {{- if .Values.muster.oauthServer.enabled }}
         - name: oauth-secrets
-          secret:
-            secretName: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-            optional: false
+          projected:
+            sources:
+              # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
+              - secret:
+                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
+              {{- if and (eq .Values.muster.oauthServer.storage.type "valkey") (or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.storage.valkey.password) }}
+              # Valkey password (mounted as valkey-password)
+              - secret:
+                  name: {{ .Values.muster.oauthServer.storage.valkey.existingSecret | default .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
+                  items:
+                    - key: {{ .Values.muster.oauthServer.storage.valkey.secretKeyPassword | default "valkey-password" }}
+                      path: valkey-password
+              {{- end }}
         {{- end }}
         - name: sa-token
           projected:
