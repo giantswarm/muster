@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Reconciliation Framework** - Automatic synchronization between resource definitions (CRDs/YAML) and running services
+  - Supports both Kubernetes mode (using controller-runtime informers) and filesystem mode (using fsnotify)
+  - Auto-detects operating mode based on environment
+  - Configurable per-resource-type enable/disable
+  - Work queue with deduplication and exponential backoff
+  - Status tracking and API for observability
+  - See [ADR 007](docs/explanation/decisions/007-crd-status-reconciliation.md) for design details
+- **StateChangeBridge** - Real-time sync of runtime state changes to CRD status subresources
+  - Subscribes to orchestrator service state changes
+  - Triggers reconciliation to update CRD status when services start/stop/crash
+
+### Changed
+- **BREAKING: CRD Status Field Changes** - Status fields have been redesigned for session-aware tool availability
+  - **MCPServerStatus**: Removed `availableTools` (session-dependent), added `lastConnected` and `restartCount`
+  - **ServiceClassStatus**: Replaced `available`/`requiredTools`/`missingTools`/`toolAvailability` with `valid`/`validationErrors`/`referencedTools`
+  - **WorkflowStatus**: Replaced `available`/`requiredTools`/`missingTools`/`stepValidation` with `valid`/`validationErrors`/`referencedTools`/`stepCount`
+  - Tool availability is now computed per-session at runtime, not stored in CRs
+  - Existing CRs will have stale status fields that will be updated on first reconciliation
+
 ### Fixed
 - **Helm CiliumNetworkPolicy**: Fixed incorrect values path for OAuth storage check (was `.Values.muster.oauth.storage`, should be `.Values.muster.oauthServer.storage`)
 
