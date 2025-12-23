@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -62,7 +63,7 @@ func (r *ServiceClassReconciler) Reconcile(ctx context.Context, req ReconcileReq
 	serviceClass, err := r.serviceClassManager.GetServiceClass(req.Name)
 	if err != nil {
 		// If not found, this might be a delete operation
-		if isNotFoundError(err) {
+		if IsNotFoundError(err) {
 			return r.reconcileDelete(ctx, req)
 		}
 		return ReconcileResult{
@@ -143,11 +144,12 @@ func (r *ServiceClassReconciler) extractReferencedTools(sc *api.ServiceClass) []
 		toolSet[sc.ServiceConfig.LifecycleTools.Status.Tool] = true
 	}
 
-	// Convert to sorted slice
+	// Convert to sorted slice for deterministic output
 	tools := make([]string, 0, len(toolSet))
 	for tool := range toolSet {
 		tools = append(tools, tool)
 	}
+	sort.Strings(tools)
 	return tools
 }
 
@@ -159,7 +161,7 @@ func (r *ServiceClassReconciler) reconcileCreateOrUpdate(ctx context.Context, re
 	if err := r.validateServiceClass(sc); err != nil {
 		logging.Warn("ServiceClassReconciler", "ServiceClass %s validation failed: %v", req.Name, err)
 		return ReconcileResult{
-			Error:   fmt.Errorf("ServiceClass validation failed: %w", err),
+			Error:   fmt.Errorf("serviceClass validation failed: %w", err),
 			Requeue: true,
 		}
 	}

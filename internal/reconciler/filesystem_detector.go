@@ -92,7 +92,7 @@ func (d *FilesystemDetector) Start(ctx context.Context, changes chan<- ChangeEve
 
 	// Add watches for all registered resource types
 	if err := d.setupWatches(); err != nil {
-		d.Stop()
+		_ = d.Stop() // ignore stop error as we're already failing
 		return err
 	}
 

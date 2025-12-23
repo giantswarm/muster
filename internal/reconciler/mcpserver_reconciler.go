@@ -3,10 +3,9 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"strings"
+	"slices"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"muster/internal/api"
@@ -78,7 +77,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(req.Name)
 	if err != nil {
 		// If not found, this might be a delete operation
-		if isNotFoundError(err) {
+		if IsNotFoundError(err) {
 			return r.reconcileDelete(ctx, req)
 		}
 		return ReconcileResult{
@@ -221,7 +220,7 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	// Stop the service
 	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
 		// If service not found, it's already stopped
-		if isNotFoundError(err) {
+		if IsNotFoundError(err) {
 			return ReconcileResult{}
 		}
 		return ReconcileResult{
@@ -265,11 +264,15 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 		}
 	}
 
-	// Args change requires restart (simplified comparison)
-	// In production, this would need deep comparison
-	if len(desired.Args) > 0 {
+	// Args change requires restart
+	if len(desired.Args) > 0 || serviceData["args"] != nil {
 		existingArgs, ok := serviceData["args"].([]string)
-		if !ok || len(existingArgs) != len(desired.Args) {
+		if !ok {
+			// Type mismatch or nil, needs restart if desired has args
+			if len(desired.Args) > 0 {
+				return true
+			}
+		} else if !slices.Equal(existingArgs, desired.Args) {
 			return true
 		}
 	}
@@ -277,22 +280,4 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 	return false
 }
 
-// isNotFoundError checks if an error indicates a resource was not found.
-// It checks for Kubernetes NotFound errors first, then falls back to
-// case-insensitive string matching for common "not found" patterns.
-func isNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// Check for Kubernetes NotFound errors
-	if apierrors.IsNotFound(err) {
-		return true
-	}
-
-	// Fall back to string matching for non-K8s errors (case-insensitive)
-	errMsg := strings.ToLower(err.Error())
-	return strings.Contains(errMsg, "not found") ||
-		strings.Contains(errMsg, "does not exist")
-}
 

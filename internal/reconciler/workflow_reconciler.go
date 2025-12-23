@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -62,7 +63,7 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ReconcileRequest
 	workflow, err := r.workflowManager.GetWorkflow(req.Name)
 	if err != nil {
 		// If not found, this might be a delete operation
-		if isNotFoundError(err) {
+		if IsNotFoundError(err) {
 			return r.reconcileDelete(ctx, req)
 		}
 		return ReconcileResult{
@@ -139,11 +140,12 @@ func (r *WorkflowReconciler) extractReferencedTools(wf *api.Workflow) []string {
 		}
 	}
 
-	// Convert to slice
+	// Convert to sorted slice for deterministic output
 	tools := make([]string, 0, len(toolSet))
 	for tool := range toolSet {
 		tools = append(tools, tool)
 	}
+	sort.Strings(tools)
 	return tools
 }
 
@@ -155,7 +157,7 @@ func (r *WorkflowReconciler) reconcileCreateOrUpdate(ctx context.Context, req Re
 	if err := r.validateWorkflow(wf); err != nil {
 		logging.Warn("WorkflowReconciler", "Workflow %s validation failed: %v", req.Name, err)
 		return ReconcileResult{
-			Error:   fmt.Errorf("Workflow validation failed: %w", err),
+			Error:   fmt.Errorf("workflow validation failed: %w", err),
 			Requeue: true,
 		}
 	}

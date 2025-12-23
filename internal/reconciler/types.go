@@ -2,7 +2,10 @@ package reconciler
 
 import (
 	"context"
+	"strings"
 	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
@@ -319,5 +322,24 @@ func (c *BaseStatusConfig) GetNamespace(reqNamespace string) string {
 		return c.Namespace
 	}
 	return DefaultNamespace
+}
+
+// IsNotFoundError checks if an error indicates a resource was not found.
+// It checks for Kubernetes NotFound errors first, then falls back to
+// case-insensitive string matching for common "not found" patterns.
+func IsNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for Kubernetes NotFound errors
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+
+	// Fall back to string matching for non-K8s errors (case-insensitive)
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "not found") ||
+		strings.Contains(errMsg, "does not exist")
 }
 

@@ -376,11 +376,12 @@ func (m *Manager) updateStatus(resourceType ResourceType, name, namespace string
 	status.State = state
 	status.LastError = errMsg
 
-	if state == StateSynced {
+	switch state {
+	case StateSynced:
 		now := time.Now()
 		status.LastReconcileTime = &now
 		status.RetryCount = 0
-	} else if state == StateError {
+	case StateError:
 		status.RetryCount++
 	}
 }
