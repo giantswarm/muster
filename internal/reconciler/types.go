@@ -200,6 +200,11 @@ type ManagerConfig struct {
 
 	// Debug enables debug logging for reconciliation operations.
 	Debug bool
+
+	// DisabledResourceTypes is a set of resource types that should not be reconciled.
+	// This allows selective disabling of reconciliation for specific resource types.
+	// Empty or nil means all registered resource types are enabled.
+	DisabledResourceTypes map[ResourceType]bool
 }
 
 // WatchMode specifies how to detect configuration changes.
