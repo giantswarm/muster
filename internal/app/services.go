@@ -101,6 +101,11 @@ type Services struct {
 //
 // Returns a fully initialized Services struct or an error if critical initialization fails.
 func InitializeServices(cfg *Config) (*Services, error) {
+	// Validate required configuration
+	if cfg.ConfigPath == "" {
+		return nil, fmt.Errorf("ConfigPath is required for service initialization")
+	}
+
 	// Create API-based tool checker and caller
 	toolChecker := api.NewToolChecker()
 	toolCaller := api.NewToolCaller()
@@ -153,10 +158,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)
 	serviceClassAdapter.Register()
 
-	// Load ServiceClass definitions to ensure they're available
-	if cfg.ConfigPath == "" {
-		panic("Logic error: empty ConfigPath")
-	}
 	// Trigger ServiceClass loading by calling ListServiceClasses
 	// This ensures filesystem-based ServiceClasses are loaded into memory
 	serviceClasses := serviceClassAdapter.ListServiceClasses()
@@ -187,10 +188,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
-		if cfg.ConfigPath == "" {
-			panic("Logic error: empty ConfigPath")
-		}
-
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
 			Port:         cfg.MusterConfig.Aggregator.Port,
