@@ -207,7 +207,8 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 			return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
 		}
 		client.SetAuthorizationHeader(bearerToken)
-		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+		// Pass auth manager for re-authentication support when token expires mid-session
+		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 
 	case oauth.AuthStatePendingAuth:
 		// Need to authenticate - start pending auth MCP server
@@ -221,6 +222,11 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 
 // runMCPServerDirect runs the MCP server with a direct connection (no auth required).
 func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, nil)
+}
+
+// runMCPServerDirectWithAuth runs the MCP server with optional auth manager for re-auth support.
+func runMCPServerDirectWithAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType, authManager *oauth.AuthManager) error {
 	// Connect with retry
 	if err := connectWithRetry(ctx, client, logger, endpoint, transport); err != nil {
 		return err
@@ -231,6 +237,11 @@ func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent
 	server, err := agent.NewMCPServer(client, logger, true) // Enable notifications
 	if err != nil {
 		return fmt.Errorf("failed to create MCP server: %w", err)
+	}
+
+	// Set auth manager for re-authentication support if available
+	if authManager != nil {
+		server.SetAuthManager(authManager, endpoint)
 	}
 
 	logger.Info("Starting muster agent MCP server (stdio transport)...")
