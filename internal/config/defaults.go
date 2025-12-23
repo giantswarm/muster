@@ -33,15 +33,15 @@ func GetDefaultConfigWithRoles() MusterConfig {
 				ClientID:     DefaultOAuthClientID,
 				Enabled:      false, // Disabled by default, requires explicit enablement
 			},
-		OAuthServer: OAuthServerConfig{
-			Enabled:                    false, // Disabled by default, requires explicit enablement
-			Provider:                   DefaultOAuthServerProvider,
-			EnableCIMD:                 true, // Enable CIMD by default for MCP 2025-11-25 compliance
-			AllowLocalhostRedirectURIs: true, // Enable localhost redirects for native apps per RFC 8252
-			Storage: OAuthStorageConfig{
-				Type: DefaultOAuthStorageType,
+			OAuthServer: OAuthServerConfig{
+				Enabled:                    false, // Disabled by default, requires explicit enablement
+				Provider:                   DefaultOAuthServerProvider,
+				EnableCIMD:                 true, // Enable CIMD by default for MCP 2025-11-25 compliance
+				AllowLocalhostRedirectURIs: true, // Enable localhost redirects for native apps per RFC 8252
+				Storage: OAuthStorageConfig{
+					Type: DefaultOAuthStorageType,
+				},
 			},
-		},
 		},
 	}
 }

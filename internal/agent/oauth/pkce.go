@@ -7,6 +7,13 @@ import (
 	"fmt"
 )
 
+const (
+	// oauthStateBytes is the number of random bytes for the OAuth state parameter.
+	// 32 bytes encodes to 43 base64url characters, satisfying OAuth servers that
+	// require a minimum of 32 characters.
+	oauthStateBytes = 32
+)
+
 // PKCEChallenge represents a PKCE (Proof Key for Code Exchange) challenge.
 // PKCE is required for OAuth 2.1 public clients to prevent authorization code interception.
 type PKCEChallenge struct {
@@ -52,7 +59,7 @@ func GeneratePKCE() (*PKCEChallenge, error) {
 // The state is used to prevent CSRF attacks and link the authorization
 // response back to the original request.
 func GenerateState() (string, error) {
-	stateBytes := make([]byte, 32) // 256 bits, encodes to 43 base64url chars (>32 required by some servers)
+	stateBytes := make([]byte, oauthStateBytes)
 	if _, err := rand.Read(stateBytes); err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
