@@ -45,6 +45,17 @@ func (s AuthState) String() string {
 	}
 }
 
+// normalizeServerURL normalizes a server URL by stripping transport-specific
+// path suffixes (/mcp, /sse) to get the base server URL. This ensures consistent
+// token storage and OAuth metadata discovery regardless of which endpoint path
+// is used when connecting.
+func normalizeServerURL(serverURL string) string {
+	serverURL = strings.TrimSuffix(serverURL, "/")
+	serverURL = strings.TrimSuffix(serverURL, "/mcp")
+	serverURL = strings.TrimSuffix(serverURL, "/sse")
+	return serverURL
+}
+
 // AuthManager manages OAuth authentication for the Muster Agent.
 // It handles 401 detection, auth flow orchestration, and state transitions.
 type AuthManager struct {
@@ -100,10 +111,12 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.serverURL = serverURL
+	// Normalize server URL for consistent token storage (strip /mcp, /sse suffixes)
+	normalizedURL := normalizeServerURL(serverURL)
+	m.serverURL = normalizedURL
 
 	// First, check if we have a valid token
-	if m.client.HasValidToken(serverURL) {
+	if m.client.HasValidToken(normalizedURL) {
 		m.state = AuthStateAuthenticated
 		return m.state, nil
 	}
@@ -182,15 +195,15 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 // probeServerAuth probes the server to detect authentication requirements.
 // Returns an AuthChallenge if 401 is received, nil otherwise.
 func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*AuthChallenge, error) {
-	// Normalize URL
-	serverURL = strings.TrimSuffix(serverURL, "/")
+	// Normalize to base URL first, then construct probe URLs
+	baseURL := normalizeServerURL(serverURL)
 
 	// Try a request to the MCP endpoint
 	// The actual endpoint depends on the transport type
 	probeURLs := []string{
-		serverURL + "/mcp",
-		serverURL + "/sse",
-		serverURL,
+		baseURL + "/mcp",
+		baseURL + "/sse",
+		baseURL,
 	}
 
 	// Reuse the HTTP client from the OAuth client to avoid resource leaks
@@ -239,11 +252,12 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 // discoverOAuthMetadata attempts to discover OAuth metadata from well-known endpoints.
 // This is used when the server returns 401 without a WWW-Authenticate header.
 func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL string) (*AuthChallenge, error) {
-	serverURL = strings.TrimSuffix(serverURL, "/")
+	// Normalize to base URL for well-known discovery
+	baseURL := normalizeServerURL(serverURL)
 	httpClient := m.client.GetHTTPClient()
 
 	// Try the OAuth Protected Resource Metadata endpoint (RFC 9728)
-	metadataURL := serverURL + "/.well-known/oauth-protected-resource"
+	metadataURL := baseURL + "/.well-known/oauth-protected-resource"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
