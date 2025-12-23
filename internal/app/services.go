@@ -10,6 +10,7 @@ import (
 	"muster/internal/events"
 	mcpserverPkg "muster/internal/mcpserver"
 	"muster/internal/orchestrator"
+	"muster/internal/reconciler"
 	"muster/internal/serviceclass"
 	"muster/internal/services"
 	aggregatorService "muster/internal/services/aggregator"
@@ -29,6 +30,7 @@ import (
 //   - Orchestrator: Core service orchestrator responsible for service lifecycle management
 //   - OrchestratorAPI: API interface for orchestrator operations (start, stop, status)
 //   - AggregatorPort: Port number where the MCP aggregator service is listening
+//   - ReconcileManager: Reconciliation manager for automatic change detection
 //
 // Service Dependencies:
 // The services are initialized in a specific order to handle dependencies:
@@ -37,6 +39,7 @@ import (
 //  3. Manager instances (ServiceClass, Workflow, MCPServer)
 //  4. Concrete service instances
 //  5. Aggregator service (when enabled)
+//  6. Reconciliation manager (for automatic change detection)
 type Services struct {
 	// Orchestrator manages the lifecycle of all registered services.
 	// It handles service startup, shutdown, dependency resolution, and health monitoring.
@@ -56,6 +59,12 @@ type Services struct {
 	// This port is used by external MCP clients to connect to the aggregator
 	// for tool discovery and execution.
 	AggregatorPort int
+
+	// ReconcileManager handles automatic detection and reconciliation of
+	// configuration changes for MCPServers, ServiceClasses, and Workflows.
+	// This enables automatic synchronization between desired state (YAML/CRDs)
+	// and actual state (running services).
+	ReconcileManager *reconciler.Manager
 }
 
 // InitializeServices creates and registers all required services for the application.
@@ -227,11 +236,47 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		aggAdapter.Register()
 	}
 
+	// Step 5: Initialize reconciliation manager for automatic change detection
+	var reconcileManager *reconciler.Manager
+	if cfg.ConfigPath != "" {
+		reconcileConfig := reconciler.ManagerConfig{
+			Mode:           reconciler.WatchModeFilesystem,
+			FilesystemPath: cfg.ConfigPath,
+			Namespace:      namespace,
+			WorkerCount:    2,
+			MaxRetries:     5,
+			Debug:          cfg.Debug,
+		}
+
+		reconcileManager = reconciler.NewManager(reconcileConfig)
+
+		// Get handlers for reconciler dependencies
+		mcpServerMgr := api.GetMCPServerManager()
+		if mcpServerMgr != nil {
+			// Create and register MCPServer reconciler
+			mcpReconciler := reconciler.NewMCPServerReconciler(
+				orchestratorAPI,
+				mcpServerMgr,
+				registryHandler,
+			)
+			if err := reconcileManager.RegisterReconciler(mcpReconciler); err != nil {
+				logging.Warn("Services", "Failed to register MCPServer reconciler: %v", err)
+			}
+		}
+
+		// Create and register reconciler API adapter
+		reconcileAdapter := reconciler.NewAdapter(reconcileManager)
+		reconcileAdapter.Register()
+
+		logging.Info("Services", "Initialized reconciliation manager with filesystem watching for %s", cfg.ConfigPath)
+	}
+
 	return &Services{
-		Orchestrator:    orch,
-		OrchestratorAPI: orchestratorAPI,
-		ConfigAPI:       configAPI,
-		AggregatorPort:  cfg.MusterConfig.Aggregator.Port,
+		Orchestrator:     orch,
+		OrchestratorAPI:  orchestratorAPI,
+		ConfigAPI:        configAPI,
+		AggregatorPort:   cfg.MusterConfig.Aggregator.Port,
+		ReconcileManager: reconcileManager,
 	}, nil
 }
 

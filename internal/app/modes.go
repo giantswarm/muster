@@ -16,6 +16,7 @@ import (
 //
 // Behavior:
 //   - Starts all configured services through the orchestrator
+//   - Starts the reconciliation manager for automatic change detection
 //   - Logs service startup progress to stdout
 //   - Blocks waiting for interrupt signals (SIGINT, SIGTERM)
 //   - Performs graceful shutdown when signaled
@@ -54,6 +55,16 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		return err
 	}
 
+	// Start the reconciliation manager for automatic change detection
+	if services.ReconcileManager != nil {
+		if err := services.ReconcileManager.Start(ctx); err != nil {
+			logging.Warn("CLI", "Failed to start reconciliation manager: %v", err)
+			// Continue without reconciliation - not a critical failure
+		} else {
+			logging.Info("CLI", "Reconciliation manager started - watching for configuration changes")
+		}
+	}
+
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
 
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -64,6 +75,14 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 
 	// Graceful shutdown sequence
 	logging.Info("CLI", "\n--- Shutting down services ---")
+
+	// Stop reconciliation manager first to prevent new reconciliations during shutdown
+	if services.ReconcileManager != nil {
+		if err := services.ReconcileManager.Stop(); err != nil {
+			logging.Error("CLI", err, "Error stopping reconciliation manager")
+		}
+	}
+
 	services.Orchestrator.Stop()
 
 	return nil

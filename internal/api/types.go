@@ -604,3 +604,17 @@ type AuthInfo struct {
 	// ResourceMetadataURL is the URL to fetch OAuth metadata (MCP-specific)
 	ResourceMetadataURL string `json:"resource_metadata_url,omitempty"`
 }
+
+// ReconcileManagerHandler provides access to reconciliation status and control.
+// This handler enables monitoring and manual triggering of reconciliation operations
+// for resources managed by the reconciliation system.
+//
+// The reconciliation system ensures that resource definitions (CRDs or YAML files)
+// are automatically synchronized with running services.
+type ReconcileManagerHandler interface {
+	// IsRunning returns whether the reconciliation manager is active.
+	IsRunning() bool
+
+	// GetQueueLength returns the current number of items in the reconciliation queue.
+	GetQueueLength() int
+}
