@@ -314,5 +314,96 @@ func TestManager_Defaults(t *testing.T) {
 	if manager.config.DebounceInterval != 500*time.Millisecond {
 		t.Errorf("expected default DebounceInterval 500ms, got %v", manager.config.DebounceInterval)
 	}
+	if manager.config.DisabledResourceTypes == nil {
+		t.Error("expected DisabledResourceTypes to be initialized")
+	}
+}
+
+func TestManager_ResourceTypeEnableDisable(t *testing.T) {
+	config := ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: "/tmp/test",
+	}
+	manager := NewManager(config)
+
+	// Register a reconciler
+	reconciler := &mockReconciler{resourceType: ResourceTypeMCPServer}
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
+
+	// Initially enabled
+	if !manager.IsResourceTypeEnabled(ResourceTypeMCPServer) {
+		t.Error("expected MCPServer to be enabled by default")
+	}
+
+	// Disable
+	manager.DisableResourceType(ResourceTypeMCPServer)
+	if manager.IsResourceTypeEnabled(ResourceTypeMCPServer) {
+		t.Error("expected MCPServer to be disabled after DisableResourceType")
+	}
+
+	// Check GetEnabledResourceTypes
+	enabled := manager.GetEnabledResourceTypes()
+	for _, rt := range enabled {
+		if rt == string(ResourceTypeMCPServer) {
+			t.Error("MCPServer should not be in enabled list after disabling")
+		}
+	}
+
+	// Re-enable
+	manager.EnableResourceType(ResourceTypeMCPServer)
+	if !manager.IsResourceTypeEnabled(ResourceTypeMCPServer) {
+		t.Error("expected MCPServer to be enabled after EnableResourceType")
+	}
+}
+
+func TestManager_DisabledResourceTypeSkipsReconciliation(t *testing.T) {
+	config := ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: "/tmp/test",
+		DisabledResourceTypes: map[ResourceType]bool{
+			ResourceTypeMCPServer: true,
+		},
+	}
+	manager := NewManager(config)
+
+	// Register a reconciler
+	reconciler := &mockReconciler{resourceType: ResourceTypeMCPServer}
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
+
+	// MCPServer should be disabled
+	if manager.IsResourceTypeEnabled(ResourceTypeMCPServer) {
+		t.Error("expected MCPServer to be disabled from config")
+	}
+
+	// Trigger reconcile - should be skipped
+	manager.handleChangeEvent(ChangeEvent{
+		Type:      ResourceTypeMCPServer,
+		Name:      "test-server",
+		Operation: OperationCreate,
+		Source:    SourceManual,
+	})
+
+	// Queue should be empty since event was skipped
+	if manager.GetQueueLength() != 0 {
+		t.Errorf("expected queue length 0 (event skipped), got %d", manager.GetQueueLength())
+	}
+}
+
+func TestManager_GetWatchMode(t *testing.T) {
+	config := ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: "/tmp/test",
+	}
+	manager := NewManager(config)
+
+	// Without a detector, should return config mode
+	mode := manager.GetWatchMode()
+	if mode != string(WatchModeFilesystem) {
+		t.Errorf("expected watch mode %s, got %s", WatchModeFilesystem, mode)
+	}
 }
 
