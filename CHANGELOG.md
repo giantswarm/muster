@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Helm CiliumNetworkPolicy**: Fixed incorrect values path for OAuth storage check (was `.Values.muster.oauth.storage`, should be `.Values.muster.oauthServer.storage`)
+
 ### Added
 - **Remote MCP Server Support for Kubernetes Environments**
   - Added comprehensive support for `stdio`, `streamable-http` and `sse` transport protocols
