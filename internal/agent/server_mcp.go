@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"muster/internal/agent/oauth"
 
@@ -115,15 +116,18 @@ func (m *MCPServer) SetAuthManager(authManager *oauth.AuthManager, endpoint stri
 	m.endpoint = endpoint
 }
 
+// reauthTimeout is the maximum time to wait for re-authentication to complete.
+const reauthTimeout = 5 * time.Minute
+
 // handleTokenExpiredError handles a token expiration error by triggering re-authentication.
 // It clears the expired token, starts a new OAuth flow, and opens the browser.
 // Returns a user-friendly error message with the auth URL.
 func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr error) *mcp.CallToolResult {
 	m.authMu.Lock()
-	defer m.authMu.Unlock()
 
 	// If no auth manager is configured, return the original error
 	if m.authManager == nil {
+		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
 			"Authentication token expired: %v\n\nPlease restart the muster agent to re-authenticate.",
 			originalErr,
@@ -132,13 +136,14 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 
 	// Prevent concurrent re-auth attempts
 	if m.reauthInProg {
+		m.authMu.Unlock()
 		return mcp.NewToolResultError(
 			"Re-authentication is already in progress.\n" +
 				"Please complete the sign-in in your browser, then retry your request.",
 		)
 	}
 	m.reauthInProg = true
-	defer func() { m.reauthInProg = false }()
+	// Note: reauthInProg is reset by waitForReauthCompletion when auth completes or times out
 
 	// Clear the expired token
 	if err := m.authManager.ClearToken(); err != nil {
@@ -150,6 +155,8 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 	// Re-check connection to get the auth challenge
 	authState, err := m.authManager.CheckConnection(ctx, m.endpoint)
 	if err != nil || authState != oauth.AuthStatePendingAuth {
+		m.reauthInProg = false
+		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
 			"Authentication token expired but could not start re-authentication: %v\n\n"+
 				"Please restart the muster agent to re-authenticate.",
@@ -160,6 +167,8 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 	// Start the OAuth flow
 	authURL, err := m.authManager.StartAuthFlow(ctx)
 	if err != nil {
+		m.reauthInProg = false
+		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
 			"Authentication token expired but could not start re-authentication: %v\n\n"+
 				"Please restart the muster agent to re-authenticate.",
@@ -180,8 +189,12 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 		}
 	}
 
-	// Start waiting for auth completion in background
-	go m.waitForReauthCompletion(ctx)
+	m.authMu.Unlock()
+
+	// Start waiting for auth completion in background with its own context and timeout.
+	// We use a background context because the request context may be cancelled when
+	// the handler returns, but we need the re-auth flow to complete independently.
+	go m.waitForReauthCompletion()
 
 	// Return a user-friendly message
 	if browserOpened {
@@ -201,10 +214,23 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 }
 
 // waitForReauthCompletion waits for re-authentication to complete and updates the client.
-func (m *MCPServer) waitForReauthCompletion(ctx context.Context) {
+// It uses its own context with a timeout to ensure the re-auth flow can complete
+// independently of the original request context.
+func (m *MCPServer) waitForReauthCompletion() {
+	// Always reset reauthInProg when done, regardless of success or failure
+	defer func() {
+		m.authMu.Lock()
+		m.reauthInProg = false
+		m.authMu.Unlock()
+	}()
+
 	if m.authManager == nil {
 		return
 	}
+
+	// Create a new context with timeout for the re-auth wait
+	ctx, cancel := context.WithTimeout(context.Background(), reauthTimeout)
+	defer cancel()
 
 	err := m.authManager.WaitForAuth(ctx)
 	if err != nil {

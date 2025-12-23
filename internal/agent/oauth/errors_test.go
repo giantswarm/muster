@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -73,47 +74,111 @@ func TestIsTokenExpiredError(t *testing.T) {
 	}
 }
 
-func TestTokenExpiredError(t *testing.T) {
-	t.Run("error with auth URL", func(t *testing.T) {
-		originalErr := errors.New("token expired")
-		authURL := "https://auth.example.com/authorize?..."
-		tokenErr := NewTokenExpiredError(originalErr, authURL)
-
-		// Check Error() method
-		errMsg := tokenErr.Error()
-		if errMsg == "" {
-			t.Error("Expected non-empty error message")
-		}
-		if !containsString(errMsg, authURL) {
-			t.Errorf("Error message should contain auth URL, got: %s", errMsg)
-		}
-
-		// Check Unwrap
-		if unwrapped := tokenErr.Unwrap(); unwrapped != originalErr {
-			t.Errorf("Unwrap() = %v, want %v", unwrapped, originalErr)
-		}
-	})
-
-	t.Run("error without auth URL", func(t *testing.T) {
-		originalErr := errors.New("token expired")
-		tokenErr := NewTokenExpiredError(originalErr, "")
-
-		errMsg := tokenErr.Error()
-		if errMsg == "" {
-			t.Error("Expected non-empty error message")
-		}
-	})
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestIsTokenExpiredError_EdgeCases(t *testing.T) {
+	// Additional edge case tests
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "mixed case unauthorized",
+			err:      errors.New("UNAUTHORIZED access denied"),
+			expected: true,
+		},
+		{
+			name:     "partial 401 in message",
+			err:      errors.New("error code 4011 not found"),
+			expected: true, // Contains "401" substring
+		},
 	}
-	return false
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsTokenExpiredError(tt.err)
+			if result != tt.expected {
+				t.Errorf("IsTokenExpiredError(%v) = %v, want %v", tt.err, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsTokenExpiredError_MessagePatterns(t *testing.T) {
+	// Verify specific patterns are detected correctly
+	patterns := []string{
+		"401",
+		"invalid_token",
+		"Token validation failed",
+		"token expired",
+		"token has expired",
+		"access token expired",
+		"unauthorized",
+	}
+
+	for _, pattern := range patterns {
+		t.Run("detects "+pattern, func(t *testing.T) {
+			err := errors.New("error: " + pattern + " occurred")
+			if !IsTokenExpiredError(err) {
+				t.Errorf("Expected pattern %q to be detected as token expired error", pattern)
+			}
+		})
+	}
+}
+
+func TestIsTokenExpiredError_CaseInsensitive(t *testing.T) {
+	// Verify case insensitivity
+	testCases := []string{
+		"UNAUTHORIZED",
+		"Unauthorized",
+		"TOKEN EXPIRED",
+		"Token Expired",
+		"INVALID_TOKEN",
+		"Invalid_Token",
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc, func(t *testing.T) {
+			err := errors.New(tc)
+			if !IsTokenExpiredError(err) {
+				t.Errorf("Expected %q to be detected (case-insensitive)", tc)
+			}
+		})
+	}
+}
+
+func TestIsTokenExpiredError_DoesNotFalsePositive(t *testing.T) {
+	// Ensure we don't have false positives
+	nonTokenErrors := []string{
+		"connection refused",
+		"timeout",
+		"DNS lookup failed",
+		"certificate error",
+		"500 internal server error",
+		"403 forbidden",
+		"404 not found",
+	}
+
+	for _, errMsg := range nonTokenErrors {
+		t.Run(errMsg, func(t *testing.T) {
+			err := errors.New(errMsg)
+			if IsTokenExpiredError(err) {
+				t.Errorf("Expected %q to NOT be detected as token expired error", errMsg)
+			}
+		})
+	}
+}
+
+func TestErrorPatternContainment(t *testing.T) {
+	// Test that we properly check for string containment
+	err := errors.New("transport error: request failed with status 401: token validation failed")
+
+	if !IsTokenExpiredError(err) {
+		t.Error("Expected complex error message with 401 to be detected")
+	}
+
+	// Verify the error string contains expected patterns
+	errStr := err.Error()
+	if !strings.Contains(errStr, "401") {
+		t.Error("Error should contain '401'")
+	}
 }

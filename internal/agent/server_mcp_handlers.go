@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"muster/internal/agent/oauth"
-
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -26,9 +24,8 @@ import (
 //   - Error message if formatting fails
 func (m *MCPServer) handleListTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := m.client.RefreshToolCache(ctx); err != nil {
-		// Check for token expiration and handle re-authentication
-		if oauth.IsTokenExpiredError(err) {
-			return m.handleTokenExpiredError(ctx, err), nil
+		if result := m.checkAndHandleTokenExpiration(ctx, err); result != nil {
+			return result, nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
 	}
@@ -58,8 +55,8 @@ func (m *MCPServer) handleListTools(ctx context.Context, request mcp.CallToolReq
 //   - Error message if formatting fails
 func (m *MCPServer) handleListResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := m.client.RefreshResourceCache(ctx); err != nil {
-		if oauth.IsTokenExpiredError(err) {
-			return m.handleTokenExpiredError(ctx, err), nil
+		if result := m.checkAndHandleTokenExpiration(ctx, err); result != nil {
+			return result, nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh resource cache: %v", err)), nil
 	}
@@ -89,8 +86,8 @@ func (m *MCPServer) handleListResources(ctx context.Context, request mcp.CallToo
 //   - Error message if formatting fails
 func (m *MCPServer) handleListPrompts(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := m.client.RefreshPromptCache(ctx); err != nil {
-		if oauth.IsTokenExpiredError(err) {
-			return m.handleTokenExpiredError(ctx, err), nil
+		if result := m.checkAndHandleTokenExpiration(ctx, err); result != nil {
+			return result, nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh prompt cache: %v", err)), nil
 	}
@@ -257,6 +254,9 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 	// Execute the tool via the client
 	result, err := m.client.CallTool(ctx, name, args)
 	if err != nil {
+		if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
+			return tokenResult, nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: %v", err)), nil
 	}
 
@@ -320,6 +320,9 @@ func (m *MCPServer) handleGetResource(ctx context.Context, request mcp.CallToolR
 	// Retrieve the resource via the client
 	result, err := m.client.GetResource(ctx, uri)
 	if err != nil {
+		if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
+			return tokenResult, nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Resource retrieval failed: %v", err)), nil
 	}
 
@@ -376,6 +379,9 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 	// Get the prompt via the client
 	result, err := m.client.GetPrompt(ctx, name, args)
 	if err != nil {
+		if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
+			return tokenResult, nil
+		}
 		return mcp.NewToolResultError(fmt.Sprintf("Prompt retrieval failed: %v", err)), nil
 	}
 
@@ -454,8 +460,8 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 //   - Error message if formatting fails
 func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := m.client.RefreshToolCache(ctx); err != nil {
-		if oauth.IsTokenExpiredError(err) {
-			return m.handleTokenExpiredError(ctx, err), nil
+		if result := m.checkAndHandleTokenExpiration(ctx, err); result != nil {
+			return result, nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
 	}
@@ -550,8 +556,8 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 //   - Error message if formatting fails
 func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := m.client.RefreshToolCache(ctx); err != nil {
-		if oauth.IsTokenExpiredError(err) {
-			return m.handleTokenExpiredError(ctx, err), nil
+		if result := m.checkAndHandleTokenExpiration(ctx, err); result != nil {
+			return result, nil
 		}
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to refresh tool cache: %v", err)), nil
 	}
