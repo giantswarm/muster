@@ -189,6 +189,11 @@ type OAuthServerConfig struct {
 	// Default: true
 	EnableCIMD bool `yaml:"enableCIMD,omitempty"`
 
+	// AllowLocalhostRedirectURIs allows http://localhost and http://127.0.0.1 redirect URIs.
+	// Required for native apps (like muster agent) per RFC 8252 Section 7.3.
+	// Default: true (native app support enabled by default)
+	AllowLocalhostRedirectURIs bool `yaml:"allowLocalhostRedirectURIs,omitempty"`
+
 	// AllowedOrigins is a comma-separated list of allowed CORS origins.
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
 

@@ -59,5 +59,8 @@ data:
             tlsEnabled: true
             {{- end }}
           {{- end }}
+        {{- if .Values.muster.oauthServer.allowLocalhostRedirectURIs }}
+        allowLocalhostRedirectURIs: true
+        {{- end }}
       {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
