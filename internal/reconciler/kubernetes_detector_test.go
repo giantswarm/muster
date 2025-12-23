@@ -372,4 +372,3 @@ func TestSendChangeEventChannelFull(t *testing.T) {
 		t.Error("sendChangeEvent blocked when channel was full")
 	}
 }
-

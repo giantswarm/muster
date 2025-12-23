@@ -208,4 +208,3 @@ func TestValidResourceTypesCompleteness(t *testing.T) {
 		t.Errorf("ValidResourceTypes has %d entries, expected %d", len(ValidResourceTypes), len(expectedTypes))
 	}
 }
-

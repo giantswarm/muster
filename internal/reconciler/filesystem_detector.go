@@ -15,9 +15,9 @@ import (
 
 // resourceDirMapping maps resource types to their directory names.
 var resourceDirMapping = map[ResourceType]string{
-	ResourceTypeMCPServer:     "mcpservers",
-	ResourceTypeServiceClass:  "serviceclasses",
-	ResourceTypeWorkflow:      "workflows",
+	ResourceTypeMCPServer:    "mcpservers",
+	ResourceTypeServiceClass: "serviceclasses",
+	ResourceTypeWorkflow:     "workflows",
 }
 
 // FilesystemDetector implements ChangeDetector for filesystem-based configurations.
@@ -44,6 +44,9 @@ type FilesystemDetector struct {
 
 	// stopCh signals shutdown
 	stopCh chan struct{}
+
+	// wg tracks running goroutines for graceful shutdown
+	wg sync.WaitGroup
 
 	// running indicates if the detector is active
 	running bool
@@ -96,8 +99,15 @@ func (d *FilesystemDetector) Start(ctx context.Context, changes chan<- ChangeEve
 		return err
 	}
 
+	// Capture watcher channels under lock for safe access in goroutine
+	d.mu.RLock()
+	eventsCh := d.watcher.Events
+	errorsCh := d.watcher.Errors
+	d.mu.RUnlock()
+
 	// Start the event processing loop
-	go d.processEvents(ctx, changes)
+	d.wg.Add(1)
+	go d.processEvents(ctx, changes, eventsCh, errorsCh)
 
 	logging.Info("FilesystemDetector", "Started watching %s for configuration changes", d.basePath)
 	return nil
@@ -142,7 +152,10 @@ func (d *FilesystemDetector) addWatchForType(resourceType ResourceType) error {
 }
 
 // processEvents handles filesystem events and generates change events.
-func (d *FilesystemDetector) processEvents(ctx context.Context, changes chan<- ChangeEvent) {
+// The eventsCh and errorsCh are passed in to avoid race conditions with Stop().
+func (d *FilesystemDetector) processEvents(ctx context.Context, changes chan<- ChangeEvent, eventsCh <-chan fsnotify.Event, errorsCh <-chan error) {
+	defer d.wg.Done()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -153,13 +166,13 @@ func (d *FilesystemDetector) processEvents(ctx context.Context, changes chan<- C
 			d.cleanupPendingEvents()
 			return
 
-		case event, ok := <-d.watcher.Events:
+		case event, ok := <-eventsCh:
 			if !ok {
 				return
 			}
 			d.handleFsEvent(event, changes)
 
-		case err, ok := <-d.watcher.Errors:
+		case err, ok := <-errorsCh:
 			if !ok {
 				return
 			}
@@ -340,21 +353,30 @@ func (d *FilesystemDetector) cleanupPendingEvents() {
 // Stop gracefully stops the filesystem detector.
 func (d *FilesystemDetector) Stop() error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if !d.running {
+		d.mu.Unlock()
 		return nil
 	}
 
 	d.running = false
 	close(d.stopCh)
 
-	if d.watcher != nil {
-		if err := d.watcher.Close(); err != nil {
+	// Capture watcher reference before releasing lock
+	watcher := d.watcher
+	d.mu.Unlock()
+
+	// Wait for the processEvents goroutine to finish
+	d.wg.Wait()
+
+	// Now safe to close the watcher
+	d.mu.Lock()
+	if watcher != nil {
+		if err := watcher.Close(); err != nil {
 			logging.Error("FilesystemDetector", err, "Error closing filesystem watcher")
 		}
-		d.watcher = nil
 	}
+	d.watcher = nil
+	d.mu.Unlock()
 
 	logging.Info("FilesystemDetector", "Stopped filesystem detector")
 	return nil
@@ -398,4 +420,3 @@ func isYAMLFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".yaml" || ext == ".yml"
 }
-

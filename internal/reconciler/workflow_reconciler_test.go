@@ -256,4 +256,3 @@ func TestWorkflowReconciler_ValidateWorkflow(t *testing.T) {
 		})
 	}
 }
-

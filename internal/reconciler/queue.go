@@ -245,4 +245,3 @@ func (d *delayedQueue) Shutdown() {
 
 	d.queue.Shutdown()
 }
-

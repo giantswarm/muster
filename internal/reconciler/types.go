@@ -28,9 +28,9 @@ const (
 // ValidResourceTypes is the set of all valid resource types.
 // Used for input validation when accepting resource types from external sources.
 var ValidResourceTypes = map[ResourceType]bool{
-	ResourceTypeMCPServer:     true,
-	ResourceTypeServiceClass:  true,
-	ResourceTypeWorkflow:      true,
+	ResourceTypeMCPServer:    true,
+	ResourceTypeServiceClass: true,
+	ResourceTypeWorkflow:     true,
 }
 
 // IsValidResourceType checks if a resource type string is valid.
@@ -407,4 +407,3 @@ func SanitizeErrorMessage(errMsg string) string {
 
 	return errMsg
 }
-

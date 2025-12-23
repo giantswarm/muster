@@ -554,4 +554,3 @@ func (m *Manager) EnableResourceType(resourceType ResourceType) {
 	delete(m.config.DisabledResourceTypes, resourceType)
 	logging.Info("ReconcileManager", "Enabled reconciliation for %s", resourceType)
 }
-

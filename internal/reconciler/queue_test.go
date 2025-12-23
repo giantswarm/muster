@@ -264,4 +264,3 @@ func TestDelayedQueue_CancelPending(t *testing.T) {
 		t.Errorf("expected empty queue after shutdown, got %d", q.Len())
 	}
 }
-

@@ -207,4 +207,3 @@ func (r *ServiceClassReconciler) validateServiceClass(sc *api.ServiceClass) erro
 
 	return nil
 }
-

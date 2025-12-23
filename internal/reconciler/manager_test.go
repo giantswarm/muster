@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -192,12 +193,12 @@ func TestManager_RetryOnError(t *testing.T) {
 	}
 	manager := NewManager(config)
 
-	callCount := 0
+	var callCount int32
 	reconciler := &mockReconciler{
 		resourceType: ResourceTypeMCPServer,
 		reconcileFunc: func(ctx context.Context, req ReconcileRequest) ReconcileResult {
-			callCount++
-			if callCount < 3 {
+			count := atomic.AddInt32(&callCount, 1)
+			if count < 3 {
 				return ReconcileResult{
 					Error:   context.DeadlineExceeded,
 					Requeue: true,
@@ -224,8 +225,9 @@ func TestManager_RetryOnError(t *testing.T) {
 	// Wait for retries
 	time.Sleep(500 * time.Millisecond)
 
-	if callCount < 3 {
-		t.Errorf("expected at least 3 calls, got %d", callCount)
+	finalCount := atomic.LoadInt32(&callCount)
+	if finalCount < 3 {
+		t.Errorf("expected at least 3 calls, got %d", finalCount)
 	}
 }
 
@@ -367,4 +369,3 @@ func TestManager_GetWatchMode(t *testing.T) {
 		t.Errorf("expected watch mode %s, got %s", WatchModeFilesystem, mode)
 	}
 }
-

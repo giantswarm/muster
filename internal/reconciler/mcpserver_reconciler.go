@@ -293,5 +293,3 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 
 	return false
 }
-
-

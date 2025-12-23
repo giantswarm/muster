@@ -12,11 +12,11 @@ func TestFilesystemDetector_ParseFilePath(t *testing.T) {
 	detector := NewFilesystemDetector("/tmp/muster", 100*time.Millisecond)
 
 	tests := []struct {
-		name             string
-		path             string
-		expectedType     ResourceType
-		expectedName     string
-		shouldBeEmpty    bool
+		name          string
+		path          string
+		expectedType  ResourceType
+		expectedName  string
+		shouldBeEmpty bool
 	}{
 		{
 			name:         "MCPServer YAML",
@@ -280,4 +280,3 @@ loop:
 		t.Errorf("expected 1-2 debounced events, got %d", eventCount)
 	}
 }
-

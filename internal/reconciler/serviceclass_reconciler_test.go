@@ -236,4 +236,3 @@ func TestServiceClassReconciler_ValidateServiceClass(t *testing.T) {
 		})
 	}
 }
-

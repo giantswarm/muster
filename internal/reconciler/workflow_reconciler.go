@@ -217,4 +217,3 @@ func (r *WorkflowReconciler) validateWorkflow(wf *api.Workflow) error {
 
 	return nil
 }
-
