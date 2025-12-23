@@ -193,7 +193,18 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 		// Already have a valid token, use it
 		bearerToken, err := authManager.GetBearerToken()
 		if err != nil {
-			return fmt.Errorf("failed to get bearer token: %w", err)
+			// Token might have expired between check and now
+			// Clear the invalid token and fall through to pending auth
+			logger.Info("Token expired or invalid, clearing and re-authenticating")
+			_ = authManager.ClearToken()
+
+			// Re-check to get the auth challenge
+			authState, err = authManager.CheckConnection(ctx, endpoint)
+			if err != nil || authState != oauth.AuthStatePendingAuth {
+				// Can't determine auth requirements, try direct connection
+				return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+			}
+			return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
 		}
 		client.SetAuthorizationHeader(bearerToken)
 		return runMCPServerDirect(ctx, client, logger, endpoint, transport)

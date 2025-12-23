@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -110,17 +111,46 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	// Try to make a request to the server to detect 401
 	challenge, err := m.probeServerAuth(ctx, serverURL)
 	if err != nil {
-		if errors.Is(err, ErrAuthRequired) && challenge != nil {
-			// Server requires auth
-			slog.Info("OAuth authentication required for Muster Server",
+		if errors.Is(err, ErrAuthRequired) {
+			// Server requires auth - we got a 401 response
+			if challenge != nil {
+				// Got a proper WWW-Authenticate header with OAuth info
+				slog.Info("OAuth authentication required for Muster Server",
+					"server_url", serverURL,
+					"issuer", challenge.Issuer,
+					"realm", challenge.Realm,
+				)
+				m.state = AuthStatePendingAuth
+				m.authChallenge = challenge
+				return m.state, nil
+			}
+
+			// Got 401 but no WWW-Authenticate header - try to discover OAuth metadata
+			slog.Info("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
 				"server_url", serverURL,
-				"issuer", challenge.Issuer,
-				"realm", challenge.Realm,
 			)
-			m.state = AuthStatePendingAuth
-			m.authChallenge = challenge
-			return m.state, nil
+
+			discoveredChallenge, discoverErr := m.discoverOAuthMetadata(ctx, serverURL)
+			if discoverErr == nil && discoveredChallenge != nil {
+				slog.Info("Discovered OAuth metadata for Muster Server",
+					"server_url", serverURL,
+					"issuer", discoveredChallenge.Issuer,
+				)
+				m.state = AuthStatePendingAuth
+				m.authChallenge = discoveredChallenge
+				return m.state, nil
+			}
+
+			// Could not discover OAuth metadata
+			slog.Warn("Server requires authentication but OAuth metadata could not be discovered",
+				"server_url", serverURL,
+				"discover_error", discoverErr,
+			)
+			m.state = AuthStateError
+			m.lastError = fmt.Errorf("server requires authentication but OAuth metadata could not be discovered: %w", err)
+			return m.state, m.lastError
 		}
+
 		slog.Warn("Failed to probe server authentication status",
 			"server_url", serverURL,
 			"error", err.Error(),
@@ -130,8 +160,14 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 		return m.state, err
 	}
 
-	// No auth required (unlikely for protected servers, but possible)
-	m.state = AuthStateAuthenticated
+	// Probe returned nil, nil - server responded without 401.
+	// This means either auth is not required, or the server doesn't protect
+	// the probe endpoints. We'll return AuthStateUnknown and let the caller
+	// try a direct connection.
+	slog.Debug("Server probe succeeded without 401, auth may not be required",
+		"server_url", serverURL,
+	)
+	m.state = AuthStateUnknown
 	return m.state, nil
 }
 
@@ -190,6 +226,61 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 
 	// Couldn't determine auth status
 	return nil, fmt.Errorf("failed to probe server authentication status")
+}
+
+// discoverOAuthMetadata attempts to discover OAuth metadata from well-known endpoints.
+// This is used when the server returns 401 without a WWW-Authenticate header.
+func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL string) (*AuthChallenge, error) {
+	serverURL = strings.TrimSuffix(serverURL, "/")
+	httpClient := m.client.GetHTTPClient()
+
+	// Try the OAuth Protected Resource Metadata endpoint (RFC 9728)
+	metadataURL := serverURL + "/.well-known/oauth-protected-resource"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metadata request: %w", err)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("OAuth metadata endpoint returned status %d", resp.StatusCode)
+	}
+
+	// Parse the metadata response
+	var metadata struct {
+		Resource             string   `json:"resource"`
+		AuthorizationServers []string `json:"authorization_servers"`
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read metadata response: %w", err)
+	}
+
+	if err := json.Unmarshal(body, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse OAuth metadata: %w", err)
+	}
+
+	if len(metadata.AuthorizationServers) == 0 {
+		return nil, fmt.Errorf("no authorization servers found in OAuth metadata")
+	}
+
+	// Use the first authorization server as the issuer
+	issuer := metadata.AuthorizationServers[0]
+
+	return &AuthChallenge{
+		Issuer: issuer,
+		Realm:  issuer,
+	}, nil
 }
 
 // StartAuthFlow initiates the OAuth authentication flow.
