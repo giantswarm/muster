@@ -11,22 +11,24 @@ data:
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
       {{- if .Values.muster.oauthServer.enabled }}
+      {{- $secretsPath := "/etc/muster/secrets" }}
       oauthServer:
         enabled: true
         baseUrl: {{ .Values.muster.oauthServer.baseUrl | quote }}
         provider: {{ .Values.muster.oauthServer.provider | default "dex" | quote }}
         {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
-        {{- if or .Values.muster.oauthServer.existingSecret (not .Values.muster.oauthServer.allowPublicClientRegistration) }}
-        registrationTokenFile: "/etc/muster/secrets/registration-token"
+        {{- /* Only reference registration token file if it will exist in the secret */}}
+        {{- if or .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.registrationToken }}
+        registrationTokenFile: {{ printf "%s/registration-token" $secretsPath | quote }}
         {{- end }}
         {{- if .Values.muster.oauthServer.encryptionKey }}
-        encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"
+        encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
         {{- end }}
         {{- if eq (.Values.muster.oauthServer.provider | default "dex") "dex" }}
         dex:
           issuerUrl: {{ .Values.muster.oauthServer.dex.issuerUrl | quote }}
           clientId: {{ .Values.muster.oauthServer.dex.clientId | quote }}
-          clientSecretFile: "/etc/muster/secrets/dex-client-secret"
+          clientSecretFile: {{ printf "%s/dex-client-secret" $secretsPath | quote }}
           {{- if .Values.muster.oauthServer.dex.connectorId }}
           connectorId: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
           {{- end }}
@@ -36,15 +38,16 @@ data:
         {{- else if eq .Values.muster.oauthServer.provider "google" }}
         google:
           clientId: {{ .Values.muster.oauthServer.google.clientId | quote }}
-          clientSecretFile: "/etc/muster/secrets/google-client-secret"
+          clientSecretFile: {{ printf "%s/google-client-secret" $secretsPath | quote }}
         {{- end }}
         storage:
           type: {{ .Values.muster.oauthServer.storage.type | default "memory" | quote }}
           {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
           valkey:
             url: {{ .Values.muster.oauthServer.storage.valkey.url | quote }}
-            {{- if or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret }}
-            passwordFile: "/etc/muster/secrets/valkey-password"
+            {{- /* Only reference password file if Valkey password is configured */}}
+            {{- if or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.storage.valkey.password }}
+            passwordFile: {{ printf "%s/valkey-password" $secretsPath | quote }}
             {{- end }}
             {{- if .Values.muster.oauthServer.storage.valkey.keyPrefix }}
             keyPrefix: {{ .Values.muster.oauthServer.storage.valkey.keyPrefix | quote }}

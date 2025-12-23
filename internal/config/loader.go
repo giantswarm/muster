@@ -58,60 +58,36 @@ func LoadConfig(configPath string) (MusterConfig, error) {
 	return config, nil
 }
 
+// secretMapping defines a secret file to load and where to store it.
+type secretMapping struct {
+	file   string
+	target *string
+	name   string
+}
+
 // resolveSecretFiles reads secrets from file paths specified in *File config options.
 // This is the recommended way to handle secrets in production, keeping them out of
 // config files and environment variables (per MCP OAuth security recommendations).
 func resolveSecretFiles(config *MusterConfig) error {
 	oauthServer := &config.Aggregator.OAuthServer
 
-	// Dex client secret
-	if oauthServer.Dex.ClientSecretFile != "" && oauthServer.Dex.ClientSecret == "" {
-		secret, err := readSecretFile(oauthServer.Dex.ClientSecretFile)
-		if err != nil {
-			return fmt.Errorf("failed to read Dex client secret from %s: %w", oauthServer.Dex.ClientSecretFile, err)
-		}
-		oauthServer.Dex.ClientSecret = secret
-		logging.Info("ConfigLoader", "Loaded Dex client secret from file")
+	secrets := []secretMapping{
+		{oauthServer.Dex.ClientSecretFile, &oauthServer.Dex.ClientSecret, "Dex client secret"},
+		{oauthServer.Google.ClientSecretFile, &oauthServer.Google.ClientSecret, "Google client secret"},
+		{oauthServer.RegistrationTokenFile, &oauthServer.RegistrationToken, "registration token"},
+		{oauthServer.EncryptionKeyFile, &oauthServer.EncryptionKey, "encryption key"},
+		{oauthServer.Storage.Valkey.PasswordFile, &oauthServer.Storage.Valkey.Password, "Valkey password"},
 	}
 
-	// Google client secret
-	if oauthServer.Google.ClientSecretFile != "" && oauthServer.Google.ClientSecret == "" {
-		secret, err := readSecretFile(oauthServer.Google.ClientSecretFile)
-		if err != nil {
-			return fmt.Errorf("failed to read Google client secret from %s: %w", oauthServer.Google.ClientSecretFile, err)
+	for _, s := range secrets {
+		if s.file != "" && *s.target == "" {
+			secret, err := readSecretFile(s.file)
+			if err != nil {
+				return fmt.Errorf("failed to read %s from %s: %w", s.name, s.file, err)
+			}
+			*s.target = secret
+			logging.Info("ConfigLoader", "Loaded %s from file", s.name)
 		}
-		oauthServer.Google.ClientSecret = secret
-		logging.Info("ConfigLoader", "Loaded Google client secret from file")
-	}
-
-	// Registration token
-	if oauthServer.RegistrationTokenFile != "" && oauthServer.RegistrationToken == "" {
-		secret, err := readSecretFile(oauthServer.RegistrationTokenFile)
-		if err != nil {
-			return fmt.Errorf("failed to read registration token from %s: %w", oauthServer.RegistrationTokenFile, err)
-		}
-		oauthServer.RegistrationToken = secret
-		logging.Info("ConfigLoader", "Loaded registration token from file")
-	}
-
-	// Encryption key
-	if oauthServer.EncryptionKeyFile != "" && oauthServer.EncryptionKey == "" {
-		secret, err := readSecretFile(oauthServer.EncryptionKeyFile)
-		if err != nil {
-			return fmt.Errorf("failed to read encryption key from %s: %w", oauthServer.EncryptionKeyFile, err)
-		}
-		oauthServer.EncryptionKey = secret
-		logging.Info("ConfigLoader", "Loaded encryption key from file")
-	}
-
-	// Valkey password
-	if oauthServer.Storage.Valkey.PasswordFile != "" && oauthServer.Storage.Valkey.Password == "" {
-		secret, err := readSecretFile(oauthServer.Storage.Valkey.PasswordFile)
-		if err != nil {
-			return fmt.Errorf("failed to read Valkey password from %s: %w", oauthServer.Storage.Valkey.PasswordFile, err)
-		}
-		oauthServer.Storage.Valkey.Password = secret
-		logging.Info("ConfigLoader", "Loaded Valkey password from file")
 	}
 
 	return nil
