@@ -67,6 +67,9 @@ func NewManager(config ManagerConfig) *Manager {
 	if config.DebounceInterval == 0 {
 		config.DebounceInterval = 500 * time.Millisecond
 	}
+	if config.ReconcileTimeout == 0 {
+		config.ReconcileTimeout = 30 * time.Second
+	}
 	if config.DisabledResourceTypes == nil {
 		config.DisabledResourceTypes = make(map[ResourceType]bool)
 	}
@@ -272,6 +275,7 @@ func (m *Manager) worker(id int) {
 func (m *Manager) processRequest(req ReconcileRequest) {
 	m.mu.RLock()
 	reconciler, ok := m.reconcilers[req.Type]
+	timeout := m.config.ReconcileTimeout
 	m.mu.RUnlock()
 
 	if !ok {
@@ -285,8 +289,17 @@ func (m *Manager) processRequest(req ReconcileRequest) {
 	logging.Debug("ReconcileManager", "Reconciling %s/%s (attempt %d)",
 		req.Type, req.Name, req.Attempt)
 
-	// Execute reconciliation
-	result := reconciler.Reconcile(m.ctx, req)
+	// Execute reconciliation with timeout to prevent hung reconcilers from blocking workers
+	ctx, cancel := context.WithTimeout(m.ctx, timeout)
+	defer cancel()
+
+	result := reconciler.Reconcile(ctx, req)
+
+	// Check if the context was cancelled due to timeout
+	if ctx.Err() == context.DeadlineExceeded {
+		result.Error = fmt.Errorf("reconciliation timed out after %v", timeout)
+		result.Requeue = true
+	}
 
 	// Handle result
 	if result.Error != nil {
@@ -306,16 +319,19 @@ func (m *Manager) handleReconcileError(req ReconcileRequest, result ReconcileRes
 	logging.Warn("ReconcileManager", "Reconciliation failed for %s/%s: %v",
 		req.Type, req.Name, result.Error)
 
+	// Sanitize error message before storing in status (removes sensitive data)
+	sanitizedError := SanitizeErrorMessage(result.Error.Error())
+
 	// Check if we should retry
 	if req.Attempt >= m.config.MaxRetries {
 		logging.Error("ReconcileManager", result.Error,
 			"Max retries exceeded for %s/%s", req.Type, req.Name)
-		m.updateStatus(req.Type, req.Name, req.Namespace, StateFailed, result.Error.Error())
+		m.updateStatus(req.Type, req.Name, req.Namespace, StateFailed, sanitizedError)
 		return
 	}
 
 	// Update status
-	m.updateStatus(req.Type, req.Name, req.Namespace, StateError, result.Error.Error())
+	m.updateStatus(req.Type, req.Name, req.Namespace, StateError, sanitizedError)
 
 	// Calculate backoff
 	backoff := m.calculateBackoff(req.Attempt)

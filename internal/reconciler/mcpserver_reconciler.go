@@ -139,7 +139,8 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		server.Status.State = string(service.GetState())
 		server.Status.Health = string(service.GetHealth())
 		if service.GetLastError() != nil {
-			server.Status.LastError = service.GetLastError().Error()
+			// Sanitize error message to remove sensitive data before CRD exposure
+			server.Status.LastError = SanitizeErrorMessage(service.GetLastError().Error())
 		} else {
 			server.Status.LastError = ""
 		}
@@ -153,7 +154,8 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		server.Status.State = ServiceStateStopped
 		server.Status.Health = ServiceHealthUnknown
 		if reconcileErr != nil {
-			server.Status.LastError = reconcileErr.Error()
+			// Sanitize error message to remove sensitive data before CRD exposure
+			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
 	}
 

@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,6 +24,20 @@ const (
 	// ResourceTypeWorkflow represents Workflow CRD/YAML resources.
 	ResourceTypeWorkflow ResourceType = "Workflow"
 )
+
+// ValidResourceTypes is the set of all valid resource types.
+// Used for input validation when accepting resource types from external sources.
+var ValidResourceTypes = map[ResourceType]bool{
+	ResourceTypeMCPServer:     true,
+	ResourceTypeServiceClass:  true,
+	ResourceTypeWorkflow:      true,
+}
+
+// IsValidResourceType checks if a resource type string is valid.
+// This should be used when accepting resource type input from APIs or external sources.
+func IsValidResourceType(resourceType string) bool {
+	return ValidResourceTypes[ResourceType(resourceType)]
+}
 
 // ChangeEvent represents a detected change in a resource.
 type ChangeEvent struct {
@@ -208,6 +223,11 @@ type ManagerConfig struct {
 	// Defaults to 500ms if not specified.
 	DebounceInterval time.Duration
 
+	// ReconcileTimeout is the maximum duration for a single reconciliation operation.
+	// If a reconciler takes longer than this, the context will be cancelled.
+	// Defaults to 30 seconds if not specified.
+	ReconcileTimeout time.Duration
+
 	// Debug enables debug logging for reconciliation operations.
 	Debug bool
 
@@ -350,5 +370,41 @@ func IsNotFoundError(err error) bool {
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "not found") ||
 		strings.Contains(errMsg, "does not exist")
+}
+
+// SanitizeErrorMessage sanitizes an error message for external exposure.
+// It removes potentially sensitive information like absolute file paths,
+// credentials, and internal implementation details.
+//
+// This should be used when error messages are exposed via APIs or stored
+// in CRD status fields that may be visible to users.
+func SanitizeErrorMessage(errMsg string) string {
+	if errMsg == "" {
+		return ""
+	}
+
+	// Replace absolute file paths with just the filename
+	// Match patterns like /home/user/path/to/file.yaml or /var/lib/something
+	pathPattern := regexp.MustCompile(`(?:/[\w.-]+)+/`)
+	errMsg = pathPattern.ReplaceAllStringFunc(errMsg, func(path string) string {
+		// Keep just "[path]/" to indicate there was a path
+		return "[path]/"
+	})
+
+	// Redact potential secrets/tokens (anything that looks like a bearer token or API key)
+	tokenPattern := regexp.MustCompile(`(?i)(bearer\s+|token[=:]\s*|apikey[=:]\s*|password[=:]\s*|secret[=:]\s*)[\w\-._~+/]+=*`)
+	errMsg = tokenPattern.ReplaceAllString(errMsg, "$1[REDACTED]")
+
+	// Redact base64-encoded looking strings (potential secrets) longer than 20 chars
+	base64Pattern := regexp.MustCompile(`[A-Za-z0-9+/]{20,}={0,2}`)
+	errMsg = base64Pattern.ReplaceAllStringFunc(errMsg, func(match string) string {
+		// Only redact if it looks like a secret (not a filename or normal text)
+		if len(match) > 40 {
+			return "[REDACTED]"
+		}
+		return match
+	})
+
+	return errMsg
 }
 

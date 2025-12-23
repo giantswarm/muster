@@ -31,6 +31,9 @@ func (a *Adapter) GetManager() *Manager {
 // GetStatus returns the reconciliation status for a resource.
 // Implements api.ReconcileManagerHandler interface.
 func (a *Adapter) GetStatus(resourceType, name, namespace string) (*api.ReconcileStatusInfo, bool) {
+	if !IsValidResourceType(resourceType) {
+		return nil, false
+	}
 	rt := ResourceType(resourceType)
 	status, ok := a.manager.GetStatus(rt, name, namespace)
 	if !ok {
@@ -52,7 +55,11 @@ func (a *Adapter) GetAllStatuses() []api.ReconcileStatusInfo {
 
 // TriggerReconcile manually triggers reconciliation for a resource.
 // Implements api.ReconcileManagerHandler interface.
+// Does nothing if the resource type is invalid.
 func (a *Adapter) TriggerReconcile(resourceType, name, namespace string) {
+	if !IsValidResourceType(resourceType) {
+		return
+	}
 	rt := ResourceType(resourceType)
 	a.manager.TriggerReconcile(rt, name, namespace)
 }
@@ -82,19 +89,31 @@ func (a *Adapter) GetEnabledResourceTypes() []string {
 }
 
 // IsResourceTypeEnabled checks if reconciliation is enabled for a resource type.
+// Returns false for invalid resource types.
 func (a *Adapter) IsResourceTypeEnabled(resourceType string) bool {
+	if !IsValidResourceType(resourceType) {
+		return false
+	}
 	rt := ResourceType(resourceType)
 	return a.manager.IsResourceTypeEnabled(rt)
 }
 
 // DisableResourceType disables reconciliation for a specific resource type.
+// Does nothing if the resource type is invalid.
 func (a *Adapter) DisableResourceType(resourceType string) {
+	if !IsValidResourceType(resourceType) {
+		return
+	}
 	rt := ResourceType(resourceType)
 	a.manager.DisableResourceType(rt)
 }
 
 // EnableResourceType enables reconciliation for a specific resource type.
+// Does nothing if the resource type is invalid.
 func (a *Adapter) EnableResourceType(resourceType string) {
+	if !IsValidResourceType(resourceType) {
+		return
+	}
 	rt := ResourceType(resourceType)
 	a.manager.EnableResourceType(rt)
 }
@@ -132,6 +151,7 @@ func (a *Adapter) GetOverview() *api.ReconcileOverview {
 }
 
 // convertToAPIStatus converts internal ReconcileStatus to API format.
+// Error messages are sanitized to remove potentially sensitive information.
 func convertToAPIStatus(status *ReconcileStatus) *api.ReconcileStatusInfo {
 	var lastReconcileTime *string
 	if status.LastReconcileTime != nil {
@@ -139,12 +159,15 @@ func convertToAPIStatus(status *ReconcileStatus) *api.ReconcileStatusInfo {
 		lastReconcileTime = &t
 	}
 
+	// Sanitize error message to remove sensitive data before API exposure
+	sanitizedError := SanitizeErrorMessage(status.LastError)
+
 	return &api.ReconcileStatusInfo{
 		ResourceType:      string(status.ResourceType),
 		Name:              status.Name,
 		Namespace:         status.Namespace,
 		LastReconcileTime: lastReconcileTime,
-		LastError:         status.LastError,
+		LastError:         sanitizedError,
 		RetryCount:        status.RetryCount,
 		State:             string(status.State),
 	}
