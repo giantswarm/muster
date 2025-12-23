@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -205,30 +206,14 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 }
 
 // isNotFoundError checks if an error indicates a resource was not found.
+// It performs case-insensitive matching for common "not found" error patterns.
 func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check for common not found error patterns
-	errMsg := err.Error()
-	return contains(errMsg, "not found") ||
-		contains(errMsg, "NotFound") ||
-		contains(errMsg, "does not exist")
-}
-
-// contains checks if a string contains a substring (case insensitive).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr ||
-		findSubstring(s, substr))
-}
-
-// findSubstring performs a simple substring search.
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	// Check for common not found error patterns (case-insensitive)
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "not found") ||
+		strings.Contains(errMsg, "does not exist")
 }
 
