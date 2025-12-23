@@ -86,9 +86,9 @@ type SessionState struct {
 type SessionConnection struct {
 	ServerName  string
 	Status      ConnectionStatus
-	Client      MCPClient        // Session-specific MCP client (with user's token)
-	TokenKey    *oauth.TokenKey  // Reference to the token in the token store
-	ConnectedAt time.Time        // When the connection was established
+	Client      MCPClient       // Session-specific MCP client (with user's token)
+	TokenKey    *oauth.TokenKey // Reference to the token in the token store
+	ConnectedAt time.Time       // When the connection was established
 
 	// Cached capabilities for this session's connection
 	// These may differ from other sessions if the server returns different
@@ -489,8 +489,8 @@ func (s *SessionState) CloseAllConnections() {
 	for serverName, conn := range s.Connections {
 		if conn.Client != nil {
 			if err := conn.Client.Close(); err != nil {
-			logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
-				logging.TruncateSessionID(s.SessionID), serverName, err)
+				logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
+					logging.TruncateSessionID(s.SessionID), serverName, err)
 			}
 		}
 	}
@@ -614,4 +614,3 @@ type SessionLimitExceededError struct {
 func (e *SessionLimitExceededError) Error() string {
 	return fmt.Sprintf("session limit exceeded: %d/%d sessions", e.Current, e.Limit)
 }
-

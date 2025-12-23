@@ -128,4 +128,3 @@ func TestRedactedToken_InError(t *testing.T) {
 		t.Errorf("Expected redacted error, got %s", err.Error())
 	}
 }
-

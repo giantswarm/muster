@@ -55,4 +55,3 @@ func (t RedactedToken) MarshalText() ([]byte, error) {
 func (t RedactedToken) MarshalJSON() ([]byte, error) {
 	return []byte(`"[REDACTED]"`), nil
 }
-
