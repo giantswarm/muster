@@ -7,17 +7,6 @@ import (
 	"muster/pkg/logging"
 )
 
-// truncateSessionID returns a truncated session ID for secure logging.
-// This prevents full session IDs from appearing in logs while still
-// providing enough context for debugging correlation.
-// Format: first 8 chars + "..." (e.g., "abc12345...")
-func truncateSessionID(sessionID string) string {
-	if len(sessionID) <= 8 {
-		return sessionID
-	}
-	return sessionID[:8] + "..."
-}
-
 // tokenExpiryMargin is the margin added when checking token expiration.
 // This accounts for clock skew between systems and network latency.
 const tokenExpiryMargin = 30 * time.Second
@@ -64,7 +53,7 @@ func (ts *TokenStore) Store(key TokenKey, token *Token) {
 
 	ts.tokens[key] = token
 	logging.Debug("OAuth", "Stored token for session=%s issuer=%s scope=%s (expires: %v)",
-		truncateSessionID(key.SessionID), key.Issuer, key.Scope, token.ExpiresAt)
+		logging.TruncateSessionID(key.SessionID), key.Issuer, key.Scope, token.ExpiresAt)
 }
 
 // Get retrieves a token from the store by key.
@@ -80,7 +69,7 @@ func (ts *TokenStore) Get(key TokenKey) *Token {
 
 	// Check if token is expired (with margin for clock skew)
 	if token.IsExpired(tokenExpiryMargin) {
-		logging.Debug("OAuth", "Token expired for session=%s issuer=%s", truncateSessionID(key.SessionID), key.Issuer)
+		logging.Debug("OAuth", "Token expired for session=%s issuer=%s", logging.TruncateSessionID(key.SessionID), key.Issuer)
 		return nil
 	}
 
@@ -141,7 +130,7 @@ func (ts *TokenStore) Delete(key TokenKey) {
 	defer ts.mu.Unlock()
 
 	delete(ts.tokens, key)
-	logging.Debug("OAuth", "Deleted token for session=%s issuer=%s", truncateSessionID(key.SessionID), key.Issuer)
+	logging.Debug("OAuth", "Deleted token for session=%s issuer=%s", logging.TruncateSessionID(key.SessionID), key.Issuer)
 }
 
 // DeleteBySession removes all tokens for a given session.
@@ -156,7 +145,7 @@ func (ts *TokenStore) DeleteBySession(sessionID string) {
 			count++
 		}
 	}
-	logging.Debug("OAuth", "Deleted %d tokens for session=%s", count, truncateSessionID(sessionID))
+	logging.Debug("OAuth", "Deleted %d tokens for session=%s", count, logging.TruncateSessionID(sessionID))
 }
 
 // Count returns the number of tokens in the store.

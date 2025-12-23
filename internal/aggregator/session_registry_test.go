@@ -1,8 +1,13 @@
 package aggregator
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
+
+	"muster/internal/oauth"
+	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -163,7 +168,7 @@ func TestSessionRegistry_UpgradeConnection(t *testing.T) {
 	sr.SetPendingAuth(sessionID, serverName)
 
 	// Upgrade connection with nil client for simplicity
-	tokenKey := &TokenKey{
+	tokenKey := &oauth.TokenKey{
 		SessionID: sessionID,
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
@@ -252,8 +257,10 @@ func TestSessionConnection_UpdateTools(t *testing.T) {
 }
 
 func TestSessionRegistry_Cleanup(t *testing.T) {
-	// Create registry with very short timeout for testing
-	sr := NewSessionRegistry(50 * time.Millisecond)
+	// Create registry with short timeout for testing
+	// Note: minCleanupInterval is 1 second, so timeout must be >= 2 seconds
+	// for cleanup to run at timeout/2 interval
+	sr := NewSessionRegistry(2 * time.Second)
 	defer sr.Stop()
 
 	sessionID := "test-session-cleanup"
@@ -269,8 +276,9 @@ func TestSessionRegistry_Cleanup(t *testing.T) {
 		t.Errorf("Expected 1 session, got %d", sr.Count())
 	}
 
-	// Wait for cleanup to run (cleanup runs at timeout/2 interval)
-	time.Sleep(100 * time.Millisecond)
+	// Wait for cleanup to run (cleanup runs at timeout/2 = 1 second interval)
+	// and for session to expire (2 second timeout)
+	time.Sleep(3 * time.Second)
 
 	// Session should be cleaned up due to inactivity
 	if sr.Count() != 0 {
@@ -279,17 +287,18 @@ func TestSessionRegistry_Cleanup(t *testing.T) {
 }
 
 func TestSessionRegistry_ActivityPreventsCleanup(t *testing.T) {
-	// Create registry with short timeout
-	sr := NewSessionRegistry(100 * time.Millisecond)
+	// Create registry with timeout that's longer than minCleanupInterval
+	sr := NewSessionRegistry(3 * time.Second)
 	defer sr.Stop()
 
 	sessionID := "test-session-activity"
 
 	sr.GetOrCreateSession(sessionID)
 
-	// Keep session active
-	for i := 0; i < 5; i++ {
-		time.Sleep(30 * time.Millisecond)
+	// Keep session active by repeatedly accessing it over 2 seconds
+	// This should prevent cleanup from removing the session
+	for i := 0; i < 4; i++ {
+		time.Sleep(500 * time.Millisecond)
 		sr.GetOrCreateSession(sessionID) // This updates LastActivity
 	}
 
@@ -329,10 +338,56 @@ func TestTruncateSessionID(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := truncateSessionID(tt.input)
+		result := logging.TruncateSessionID(tt.input)
 		if result != tt.expected {
-			t.Errorf("truncateSessionID(%q) = %q, expected %q", tt.input, result, tt.expected)
+			t.Errorf("TruncateSessionID(%q) = %q, expected %q", tt.input, result, tt.expected)
 		}
+	}
+}
+
+func TestSessionRegistry_ConcurrentAccess(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	numSessions := 10
+
+	// Test concurrent GetOrCreateSession and GetSession
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			sessionID := fmt.Sprintf("session-%d", id%numSessions)
+
+			// Mix of operations
+			session := sr.GetOrCreateSession(sessionID)
+			if session == nil {
+				t.Errorf("GetOrCreateSession returned nil for %s", sessionID)
+				return
+			}
+
+			_, _ = sr.GetSession(sessionID)
+
+			// Set and get connections
+			serverName := fmt.Sprintf("server-%d", id%3)
+			sr.SetConnection(sessionID, serverName, &SessionConnection{
+				ServerName: serverName,
+				Status:     StatusSessionConnected,
+			})
+
+			_, _ = sr.GetConnection(sessionID, serverName)
+
+			// Get connected servers
+			_ = session.GetConnectedServers()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify no panics occurred and state is consistent
+	if sr.Count() != numSessions {
+		t.Errorf("Expected %d sessions, got %d", numSessions, sr.Count())
 	}
 }
 

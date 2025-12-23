@@ -79,7 +79,7 @@ func (ss *StateStore) GenerateState(sessionID, serverName, issuer, codeVerifier 
 	ss.states[nonce] = state
 	ss.mu.Unlock()
 
-	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", truncateSessionID(sessionID), serverName, issuer)
+	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", logging.TruncateSessionID(sessionID), serverName, issuer)
 	return encodedState, nil
 }
 

@@ -199,3 +199,14 @@ func CloseTUIChannel() {
 		tuiLogChannel = nil // Prevent further use
 	}
 }
+
+// TruncateSessionID returns a truncated session ID for secure logging.
+// This prevents full session IDs from appearing in logs while still
+// providing enough context for debugging correlation.
+// Format: first 8 chars + "..." (e.g., "abc12345...")
+func TruncateSessionID(sessionID string) string {
+	if len(sessionID) <= 8 {
+		return sessionID
+	}
+	return sessionID[:8] + "..."
+}

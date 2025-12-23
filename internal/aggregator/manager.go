@@ -463,9 +463,19 @@ func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessi
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	// Fetch resources and prompts (optional)
-	resources, _ := client.ListResources(ctx)
-	prompts, _ := client.ListPrompts(ctx)
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("Aggregator-Manager", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("Aggregator-Manager", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		prompts = nil
+	}
 
 	// Get session registry and upgrade the connection
 	sessionRegistry := aggregatorServer.GetSessionRegistry()
@@ -488,7 +498,7 @@ func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessi
 	aggregatorServer.NotifySessionToolsChanged(sessionID)
 
 	logging.Info("Aggregator-Manager", "Session %s connected to %s with %d tools, %d resources, %d prompts",
-		truncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
+		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
 
 	return nil
 }

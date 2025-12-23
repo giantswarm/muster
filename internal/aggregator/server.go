@@ -863,7 +863,7 @@ func (a *AggregatorServer) NotifySessionToolsChanged(sessionID string) {
 
 	if mcpServer == nil {
 		logging.Warn("Aggregator", "Cannot notify session %s: MCP server not initialized",
-			truncateSessionID(sessionID))
+			logging.TruncateSessionID(sessionID))
 		return
 	}
 
@@ -875,10 +875,10 @@ func (a *AggregatorServer) NotifySessionToolsChanged(sessionID string) {
 	)
 	if err != nil {
 		logging.Warn("Aggregator", "Failed to send tools/list_changed notification to session %s: %v",
-			truncateSessionID(sessionID), err)
+			logging.TruncateSessionID(sessionID), err)
 	} else {
 		logging.Debug("Aggregator", "Sent tools/list_changed notification to session %s",
-			truncateSessionID(sessionID))
+			logging.TruncateSessionID(sessionID))
 	}
 }
 
@@ -899,7 +899,7 @@ func (a *AggregatorServer) NotifySessionResourcesChanged(sessionID string) {
 	)
 	if err != nil {
 		logging.Warn("Aggregator", "Failed to send resources/list_changed notification to session %s: %v",
-			truncateSessionID(sessionID), err)
+			logging.TruncateSessionID(sessionID), err)
 	}
 }
 
@@ -920,7 +920,7 @@ func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
 	)
 	if err != nil {
 		logging.Warn("Aggregator", "Failed to send prompts/list_changed notification to session %s: %v",
-			truncateSessionID(sessionID), err)
+			logging.TruncateSessionID(sessionID), err)
 	}
 }
 

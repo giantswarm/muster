@@ -633,7 +633,7 @@ func (r *ServerRegistry) GetAllToolsForSession(sessionRegistry *SessionRegistry,
 					allTools = append(allTools, exposedTool)
 				}
 				logging.Debug("Aggregator", "Session %s has %d tools from authenticated server %s",
-					truncateSessionID(sessionID), len(tools), serverName)
+					logging.TruncateSessionID(sessionID), len(tools), serverName)
 			} else {
 				// Session not authenticated - include synthetic auth tool
 				info.mu.RLock()
@@ -644,7 +644,7 @@ func (r *ServerRegistry) GetAllToolsForSession(sessionRegistry *SessionRegistry,
 				}
 				info.mu.RUnlock()
 				logging.Debug("Aggregator", "Session %s sees synthetic auth tool for server %s",
-					truncateSessionID(sessionID), serverName)
+					logging.TruncateSessionID(sessionID), serverName)
 			}
 			continue
 		}
@@ -665,7 +665,7 @@ func (r *ServerRegistry) GetAllToolsForSession(sessionRegistry *SessionRegistry,
 	}
 
 	logging.Debug("Aggregator", "GetAllToolsForSession: returning %d tools for session %s",
-		len(allTools), truncateSessionID(sessionID))
+		len(allTools), logging.TruncateSessionID(sessionID))
 
 	return allTools
 }

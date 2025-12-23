@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/oauth"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -69,11 +70,11 @@ type SessionState struct {
 //   - The remote MCP server may expose different tools based on user identity
 //   - Connection state (ping, health) is per-user
 type SessionConnection struct {
-	ServerName string
-	Status     ConnectionStatus
-	Client     MCPClient  // Session-specific MCP client (with user's token)
-	TokenKey   *TokenKey  // Reference to the token in the token store
-	ConnectedAt time.Time // When the connection was established
+	ServerName  string
+	Status      ConnectionStatus
+	Client      MCPClient        // Session-specific MCP client (with user's token)
+	TokenKey    *oauth.TokenKey  // Reference to the token in the token store
+	ConnectedAt time.Time        // When the connection was established
 
 	// Cached capabilities for this session's connection
 	// These may differ from other sessions if the server returns different
@@ -82,14 +83,6 @@ type SessionConnection struct {
 	Tools     []mcp.Tool
 	Resources []mcp.Resource
 	Prompts   []mcp.Prompt
-}
-
-// TokenKey identifies a token in the OAuth token store.
-// This is used to link session connections to their tokens.
-type TokenKey struct {
-	SessionID string
-	Issuer    string
-	Scope     string
 }
 
 // NewSessionRegistry creates a new session registry with the specified timeout.
@@ -140,7 +133,7 @@ func (sr *SessionRegistry) GetOrCreateSession(sessionID string) *SessionState {
 			Connections:  make(map[string]*SessionConnection),
 		}
 		sr.sessions[sessionID] = session
-		logging.Debug("SessionRegistry", "Created new session: %s", truncateSessionID(sessionID))
+		logging.Debug("SessionRegistry", "Created new session: %s", logging.TruncateSessionID(sessionID))
 	} else {
 		session.UpdateActivity()
 	}
@@ -185,7 +178,7 @@ func (sr *SessionRegistry) DeleteSession(sessionID string) {
 	session.CloseAllConnections()
 
 	delete(sr.sessions, sessionID)
-	logging.Debug("SessionRegistry", "Deleted session: %s", truncateSessionID(sessionID))
+	logging.Debug("SessionRegistry", "Deleted session: %s", logging.TruncateSessionID(sessionID))
 }
 
 // GetConnection returns a session's connection to a specific server.
@@ -243,7 +236,7 @@ func (sr *SessionRegistry) SetPendingAuth(sessionID, serverName string) {
 //   - tokenKey: Reference to the token in the token store
 //
 // Returns an error if the session or connection is not found.
-func (sr *SessionRegistry) UpgradeConnection(sessionID, serverName string, client MCPClient, tokenKey *TokenKey) error {
+func (sr *SessionRegistry) UpgradeConnection(sessionID, serverName string, client MCPClient, tokenKey *oauth.TokenKey) error {
 	session, exists := sr.GetSession(sessionID)
 	if !exists {
 		return &SessionNotFoundError{SessionID: sessionID}
@@ -292,9 +285,17 @@ func (sr *SessionRegistry) Stop() {
 	logging.Debug("SessionRegistry", "Session registry stopped")
 }
 
+// minCleanupInterval is the minimum interval between cleanup runs.
+// This prevents excessive cleanup frequency when sessionTimeout is very short.
+const minCleanupInterval = time.Second
+
 // cleanupLoop periodically removes idle sessions from the registry.
 func (sr *SessionRegistry) cleanupLoop() {
-	ticker := time.NewTicker(sr.sessionTimeout / 2)
+	cleanupInterval := sr.sessionTimeout / 2
+	if cleanupInterval < minCleanupInterval {
+		cleanupInterval = minCleanupInterval
+	}
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	for {
@@ -358,7 +359,7 @@ func (s *SessionState) SetConnection(serverName string, conn *SessionConnection)
 }
 
 // UpgradeConnection upgrades a connection from pending_auth to connected.
-func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, tokenKey *TokenKey) error {
+func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, tokenKey *oauth.TokenKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -374,7 +375,7 @@ func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, to
 	s.LastActivity = time.Now()
 
 	logging.Debug("SessionRegistry", "Upgraded connection for session=%s server=%s",
-		truncateSessionID(s.SessionID), serverName)
+		logging.TruncateSessionID(s.SessionID), serverName)
 
 	return nil
 }
@@ -387,8 +388,8 @@ func (s *SessionState) CloseAllConnections() {
 	for serverName, conn := range s.Connections {
 		if conn.Client != nil {
 			if err := conn.Client.Close(); err != nil {
-				logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
-					truncateSessionID(s.SessionID), serverName, err)
+			logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
+				logging.TruncateSessionID(s.SessionID), serverName, err)
 			}
 		}
 	}
@@ -472,7 +473,7 @@ type SessionNotFoundError struct {
 }
 
 func (e *SessionNotFoundError) Error() string {
-	return "session not found: " + truncateSessionID(e.SessionID)
+	return "session not found: " + logging.TruncateSessionID(e.SessionID)
 }
 
 // ConnectionNotFoundError is returned when a connection is not found.
@@ -482,15 +483,5 @@ type ConnectionNotFoundError struct {
 
 func (e *ConnectionNotFoundError) Error() string {
 	return "connection not found: " + e.ServerName
-}
-
-// truncateSessionID returns a truncated session ID for secure logging.
-// This prevents full session IDs from appearing in logs while still
-// providing enough context for debugging correlation.
-func truncateSessionID(sessionID string) string {
-	if len(sessionID) <= 8 {
-		return sessionID
-	}
-	return sessionID[:8] + "..."
 }
 
