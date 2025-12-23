@@ -195,7 +195,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
-		handler := a.createHTTPMux(a.sseServer)
+		handler, err := a.createHTTPMux(a.sseServer)
+		if err != nil {
+			return fmt.Errorf("failed to create HTTP mux with OAuth protection: %w", err)
+		}
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
@@ -247,7 +250,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer)
 
 		// Create a mux that routes to both MCP and OAuth handlers
-		handler := a.createHTTPMux(a.streamableHTTPServer)
+		handler, err := a.createHTTPMux(a.streamableHTTPServer)
+		if err != nil {
+			return fmt.Errorf("failed to create HTTP mux with OAuth protection: %w", err)
+		}
 
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
@@ -664,14 +670,16 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 // If OAuth server protection is enabled (OAuthServer.Enabled), the MCP handler is
 // wrapped with OAuth ValidateToken middleware, requiring valid access tokens for
 // all MCP requests.
-func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) http.Handler {
+//
+// Returns an error if OAuth is enabled but cannot be initialized (security requirement).
+func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler, error) {
 	// Check if OAuth server protection is enabled
 	if a.config.OAuthServer.Enabled && a.config.OAuthServer.Config != nil {
 		return a.createOAuthProtectedMux(mcpHandler)
 	}
 
 	// Standard mux without OAuth server protection
-	return a.createStandardMux(mcpHandler)
+	return a.createStandardMux(mcpHandler), nil
 }
 
 // createStandardMux creates a standard HTTP mux without OAuth server protection.
@@ -715,25 +723,27 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 
 // createOAuthProtectedMux creates an HTTP mux with OAuth 2.1 protection.
 // All MCP endpoints are protected by the ValidateToken middleware.
-func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) http.Handler {
+//
+// SECURITY: This function returns an error instead of silently falling back to
+// an unprotected mux. When OAuth is enabled, authentication MUST work - running
+// without authentication is a security vulnerability.
+func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (http.Handler, error) {
 	// Import the config type and create OAuth HTTP server
 	cfg, ok := a.config.OAuthServer.Config.(config.OAuthServerConfig)
 	if !ok {
-		logging.Error("Aggregator", nil, "Invalid OAuth server config type, falling back to standard mux")
-		return a.createStandardMux(mcpHandler)
+		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
 	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
 	if err != nil {
-		logging.Error("Aggregator", err, "Failed to create OAuth HTTP server, falling back to standard mux")
-		return a.createStandardMux(mcpHandler)
+		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
 
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
 	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
-	return oauthHTTPServer.CreateMux()
+	return oauthHTTPServer.CreateMux(), nil
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.

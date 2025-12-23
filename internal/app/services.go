@@ -250,10 +250,13 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 	}
 
 	// Create client config with the filesystem path
+	// When a config path is explicitly provided, force filesystem mode since
+	// that's where the CRD YAML files are stored. This ensures tests and local
+	// development use the correct storage backend.
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
 		Namespace:           namespace,
-		ForceFilesystemMode: false,
+		ForceFilesystemMode: true,
 		Debug:               debug,
 	}
 
