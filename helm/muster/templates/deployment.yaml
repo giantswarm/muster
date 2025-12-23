@@ -86,85 +86,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            {{- if .Values.muster.oauthServer.enabled }}
-            # OAuth Server configuration (ADR 005)
-            - name: OAUTH_PROVIDER
-              value: {{ .Values.muster.oauthServer.provider | default "dex" | quote }}
-            {{- if eq (.Values.muster.oauthServer.provider | default "dex") "dex" }}
-            - name: DEX_ISSUER_URL
-              value: {{ required "muster.oauthServer.dex.issuerUrl is required when OAuth server is enabled with Dex provider" .Values.muster.oauthServer.dex.issuerUrl | quote }}
-            - name: DEX_CLIENT_ID
-              value: {{ required "muster.oauthServer.dex.clientId is required when OAuth server is enabled with Dex provider" .Values.muster.oauthServer.dex.clientId | quote }}
-            - name: DEX_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: dex-client-secret
-            {{- if .Values.muster.oauthServer.dex.connectorId }}
-            - name: DEX_CONNECTOR_ID
-              value: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId }}
-            - name: DEX_K8S_AUTHENTICATOR_CLIENT_ID
-              value: {{ .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId | quote }}
-            {{- end }}
-            {{- else if eq .Values.muster.oauthServer.provider "google" }}
-            - name: GOOGLE_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: google-client-id
-            - name: GOOGLE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: google-client-secret
-            {{- end }}
-            {{- if not .Values.muster.oauthServer.allowPublicClientRegistration }}
-            {{- if or .Values.muster.oauthServer.registrationToken .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.trustedPublicRegistrationSchemes }}
-            - name: REGISTRATION_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: registration-token
-                  optional: true
-            {{- end }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.encryptionKey }}
-            - name: OAUTH_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: oauth-encryption-key
-            {{- end }}
-            # Valkey storage configuration
-            {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
-            - name: OAUTH_STORAGE_TYPE
-              value: "valkey"
-            - name: VALKEY_URL
-              value: {{ required "muster.oauthServer.storage.valkey.url is required when using Valkey storage" .Values.muster.oauthServer.storage.valkey.url | quote }}
-            {{- if .Values.muster.oauthServer.storage.valkey.tls.enabled }}
-            - name: VALKEY_TLS_ENABLED
-              value: "true"
-            {{- end }}
-            {{- if .Values.muster.oauthServer.storage.valkey.keyPrefix }}
-            - name: VALKEY_KEY_PREFIX
-              value: {{ .Values.muster.oauthServer.storage.valkey.keyPrefix | quote }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.storage.valkey.db }}
-            - name: VALKEY_DB
-              value: {{ .Values.muster.oauthServer.storage.valkey.db | quote }}
-            {{- end }}
-            {{- if or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret }}
-            - name: VALKEY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.muster.oauthServer.storage.valkey.existingSecret | default .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-                  key: {{ .Values.muster.oauthServer.storage.valkey.secretKeyPassword | default "valkey-password" }}
-                  optional: true
-            {{- end }}
-            {{- end }}
-            {{- end }}
+            # Note: OAuth secrets are loaded from mounted files (per MCP OAuth security recommendations)
+            # See /etc/muster/secrets/ volume mount
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
@@ -176,6 +99,11 @@ spec:
             - name: config
               mountPath: /etc/muster
               readOnly: true
+            {{- if .Values.muster.oauthServer.enabled }}
+            - name: oauth-secrets
+              mountPath: /etc/muster/secrets
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -185,6 +113,12 @@ spec:
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
+        {{- if .Values.muster.oauthServer.enabled }}
+        - name: oauth-secrets
+          secret:
+            secretName: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
+            optional: false
+        {{- end }}
         - name: sa-token
           projected:
             sources:

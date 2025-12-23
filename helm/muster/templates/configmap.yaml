@@ -15,22 +15,37 @@ data:
         enabled: true
         baseUrl: {{ .Values.muster.oauthServer.baseUrl | quote }}
         provider: {{ .Values.muster.oauthServer.provider | default "dex" | quote }}
+        {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
+        {{- if or .Values.muster.oauthServer.existingSecret (not .Values.muster.oauthServer.allowPublicClientRegistration) }}
+        registrationTokenFile: "/etc/muster/secrets/registration-token"
+        {{- end }}
+        {{- if .Values.muster.oauthServer.encryptionKey }}
+        encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"
+        {{- end }}
         {{- if eq (.Values.muster.oauthServer.provider | default "dex") "dex" }}
         dex:
           issuerUrl: {{ .Values.muster.oauthServer.dex.issuerUrl | quote }}
           clientId: {{ .Values.muster.oauthServer.dex.clientId | quote }}
+          clientSecretFile: "/etc/muster/secrets/dex-client-secret"
           {{- if .Values.muster.oauthServer.dex.connectorId }}
           connectorId: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
           {{- end }}
           {{- if .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId }}
           kubernetesAuthenticatorClientId: {{ .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId | quote }}
           {{- end }}
+        {{- else if eq .Values.muster.oauthServer.provider "google" }}
+        google:
+          clientId: {{ .Values.muster.oauthServer.google.clientId | quote }}
+          clientSecretFile: "/etc/muster/secrets/google-client-secret"
         {{- end }}
         storage:
           type: {{ .Values.muster.oauthServer.storage.type | default "memory" | quote }}
           {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
           valkey:
             url: {{ .Values.muster.oauthServer.storage.valkey.url | quote }}
+            {{- if or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret }}
+            passwordFile: "/etc/muster/secrets/valkey-password"
+            {{- end }}
             {{- if .Values.muster.oauthServer.storage.valkey.keyPrefix }}
             keyPrefix: {{ .Values.muster.oauthServer.storage.valkey.keyPrefix | quote }}
             {{- end }}
