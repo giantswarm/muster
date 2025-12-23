@@ -67,6 +67,9 @@ func NewManager(config ManagerConfig) *Manager {
 	if config.DebounceInterval == 0 {
 		config.DebounceInterval = 500 * time.Millisecond
 	}
+	if config.DisabledResourceTypes == nil {
+		config.DisabledResourceTypes = make(map[ResourceType]bool)
+	}
 
 	return &Manager{
 		config:        config,
@@ -153,9 +156,7 @@ func (m *Manager) Start(ctx context.Context) error {
 func (m *Manager) setupChangeDetector() error {
 	mode := m.config.Mode
 	if mode == WatchModeAuto || mode == "" {
-		// Auto-detect: use filesystem for now
-		// TODO: Add Kubernetes detection when implemented
-		mode = WatchModeFilesystem
+		mode = m.autoDetectMode()
 	}
 
 	switch mode {
@@ -166,14 +167,42 @@ func (m *Manager) setupChangeDetector() error {
 		m.changeDetector = NewFilesystemDetector(m.config.FilesystemPath, m.config.DebounceInterval)
 
 	case WatchModeKubernetes:
-		// TODO: Implement Kubernetes detector
-		return fmt.Errorf("kubernetes mode not yet implemented")
+		restConfig, err := GetRestConfig()
+		if err != nil {
+			return fmt.Errorf("failed to get Kubernetes config: %w", err)
+		}
+
+		detector, err := NewKubernetesDetector(restConfig, m.config.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to create Kubernetes detector: %w", err)
+		}
+		m.changeDetector = detector
 
 	default:
 		return fmt.Errorf("unknown watch mode: %s", mode)
 	}
 
 	return nil
+}
+
+// autoDetectMode automatically determines the watch mode based on environment.
+// It checks for Kubernetes cluster availability first, falling back to filesystem mode.
+func (m *Manager) autoDetectMode() WatchMode {
+	// Check if Kubernetes is available
+	if IsKubernetesAvailable() {
+		logging.Info("ReconcileManager", "Auto-detected Kubernetes mode")
+		return WatchModeKubernetes
+	}
+
+	// Fall back to filesystem mode
+	if m.config.FilesystemPath != "" {
+		logging.Info("ReconcileManager", "Auto-detected filesystem mode")
+		return WatchModeFilesystem
+	}
+
+	// Default to filesystem if a path is configured
+	logging.Debug("ReconcileManager", "Auto-detection: defaulting to filesystem mode")
+	return WatchModeFilesystem
 }
 
 // processChangeEvents converts change events to reconcile requests.
@@ -196,6 +225,13 @@ func (m *Manager) processChangeEvents() {
 
 // handleChangeEvent processes a single change event.
 func (m *Manager) handleChangeEvent(event ChangeEvent) {
+	// Check if this resource type is enabled
+	if !m.IsResourceTypeEnabled(event.Type) {
+		logging.Debug("ReconcileManager", "Skipping change event for disabled resource type: %s %s/%s",
+			event.Operation, event.Type, event.Name)
+		return
+	}
+
 	logging.Debug("ReconcileManager", "Handling change event: %s %s/%s",
 		event.Operation, event.Type, event.Name)
 
@@ -436,5 +472,66 @@ func (m *Manager) IsRunning() bool {
 // GetQueueLength returns the current queue length.
 func (m *Manager) GetQueueLength() int {
 	return m.queue.Len()
+}
+
+// GetWatchMode returns the current watch mode.
+func (m *Manager) GetWatchMode() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.changeDetector == nil {
+		return string(m.config.Mode)
+	}
+
+	switch m.changeDetector.GetSource() {
+	case SourceKubernetes:
+		return string(WatchModeKubernetes)
+	case SourceFilesystem:
+		return string(WatchModeFilesystem)
+	default:
+		return string(m.config.Mode)
+	}
+}
+
+// GetEnabledResourceTypes returns the list of resource types with reconciliation enabled.
+func (m *Manager) GetEnabledResourceTypes() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	types := make([]string, 0, len(m.reconcilers))
+	for rt := range m.reconcilers {
+		if !m.config.DisabledResourceTypes[rt] {
+			types = append(types, string(rt))
+		}
+	}
+	return types
+}
+
+// IsResourceTypeEnabled checks if reconciliation is enabled for a resource type.
+func (m *Manager) IsResourceTypeEnabled(resourceType ResourceType) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Must be registered and not disabled
+	_, registered := m.reconcilers[resourceType]
+	return registered && !m.config.DisabledResourceTypes[resourceType]
+}
+
+// DisableResourceType disables reconciliation for a specific resource type.
+func (m *Manager) DisableResourceType(resourceType ResourceType) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.config.DisabledResourceTypes[resourceType] = true
+	logging.Info("ReconcileManager", "Disabled reconciliation for %s", resourceType)
+}
+
+// EnableResourceType enables reconciliation for a specific resource type.
+func (m *Manager) EnableResourceType(resourceType ResourceType) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.config.DisabledResourceTypes, resourceType)
+	logging.Info("ReconcileManager", "Enabled reconciliation for %s", resourceType)
 }
 
