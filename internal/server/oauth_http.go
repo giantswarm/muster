@@ -425,6 +425,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		MaxClientsPerIP:                  maxClientsPerIP,
 		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
 		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
+		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
 
 		// Instrumentation
 		Instrumentation: oauthserver.InstrumentationConfig{

@@ -328,6 +328,11 @@ muster:
     # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
     enableCIMD: true
 
+    # Allow localhost/loopback redirect URIs for native apps (RFC 8252)
+    # Required for muster agent and other native OAuth clients
+    # Default: true
+    allowLocalhostRedirectURIs: true
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions

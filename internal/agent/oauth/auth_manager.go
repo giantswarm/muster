@@ -113,8 +113,8 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	if err != nil {
 		if errors.Is(err, ErrAuthRequired) {
 			// Server requires auth - we got a 401 response
-			if challenge != nil {
-				// Got a proper WWW-Authenticate header with OAuth info
+			if challenge != nil && challenge.Issuer != "" {
+				// Got a proper WWW-Authenticate header with OAuth info including issuer
 				slog.Info("OAuth authentication required for Muster Server",
 					"server_url", serverURL,
 					"issuer", challenge.Issuer,
@@ -125,10 +125,18 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 				return m.state, nil
 			}
 
-			// Got 401 but no WWW-Authenticate header - try to discover OAuth metadata
-			slog.Info("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
-				"server_url", serverURL,
-			)
+			// Got 401 but either no WWW-Authenticate header or no issuer in it
+			// Try to discover OAuth metadata from well-known endpoints
+			if challenge != nil {
+				slog.Info("Server returned 401 with WWW-Authenticate but no issuer, attempting to discover OAuth metadata",
+					"server_url", serverURL,
+					"resource_metadata_url", challenge.ResourceMetadataURL,
+				)
+			} else {
+				slog.Info("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
+					"server_url", serverURL,
+				)
+			}
 
 			discoveredChallenge, discoverErr := m.discoverOAuthMetadata(ctx, serverURL)
 			if discoverErr == nil && discoveredChallenge != nil {

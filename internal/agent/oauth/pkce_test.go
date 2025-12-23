@@ -64,9 +64,11 @@ func TestGenerateState(t *testing.T) {
 		t.Error("State is empty")
 	}
 
-	// Verify state length (16 bytes base64url encoded = ~22 chars)
-	if len(state) < 20 {
-		t.Errorf("State too short: %d chars", len(state))
+	// Verify state length meets OAuth server minimum requirements.
+	// We generate 32 bytes which encodes to 43 base64url chars.
+	// Some OAuth servers require at least 32 characters.
+	if len(state) < 32 {
+		t.Errorf("State too short: %d chars (must be >= 32)", len(state))
 	}
 }
 
