@@ -103,6 +103,38 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *Token {
 	return nil
 }
 
+// GetTokenKeyByIssuer finds the token key for a given session and issuer.
+// This is useful for linking session connections to their tokens.
+func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	for key, token := range ts.tokens {
+		if key.SessionID == sessionID && key.Issuer == issuer {
+			if !token.IsExpired(tokenExpiryMargin) {
+				keyCopy := key
+				return &keyCopy
+			}
+		}
+	}
+	return nil
+}
+
+// GetAllForSession returns all valid tokens for a session.
+// This is useful for listing all servers a session is authenticated with.
+func (ts *TokenStore) GetAllForSession(sessionID string) map[TokenKey]*Token {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	result := make(map[TokenKey]*Token)
+	for key, token := range ts.tokens {
+		if key.SessionID == sessionID && !token.IsExpired(tokenExpiryMargin) {
+			result[key] = token
+		}
+	}
+	return result
+}
+
 // Delete removes a token from the store.
 func (ts *TokenStore) Delete(key TokenKey) {
 	ts.mu.Lock()
