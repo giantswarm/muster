@@ -420,10 +420,10 @@ func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverN
 //   - ctx: Context for the operation
 //   - sessionID: The session to upgrade
 //   - serverName: The server the session authenticated with
-//   - token: The OAuth access token
+//   - token: The OAuth access token (wrapped in RedactedToken for safety)
 //
 // Returns an error if the upgrade fails.
-func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessionID, serverName, token string) error {
+func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessionID, serverName string, token oauth.RedactedToken) error {
 	am.mu.RLock()
 	if am.aggregatorServer == nil {
 		am.mu.RUnlock()
@@ -431,6 +431,11 @@ func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessi
 	}
 	aggregatorServer := am.aggregatorServer
 	am.mu.RUnlock()
+
+	// Validate token is not empty
+	if token.IsEmpty() {
+		return fmt.Errorf("token cannot be empty")
+	}
 
 	// Get server info to determine connection type and URL
 	serverInfo, exists := aggregatorServer.GetRegistry().GetServerInfo(serverName)
@@ -443,8 +448,9 @@ func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessi
 	}
 
 	// Create an authenticated MCP client with the user's token
+	// Note: token.Value() is only called here to construct the header
 	headers := map[string]string{
-		"Authorization": "Bearer " + token,
+		"Authorization": "Bearer " + token.Value(),
 	}
 
 	// Determine the client type based on server URL
