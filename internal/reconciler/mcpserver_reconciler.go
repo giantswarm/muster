@@ -70,6 +70,11 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 }
 
 // Reconcile processes a single MCPServer reconciliation request.
+//
+// After successful reconciliation, this returns RequeueAfter to enable periodic
+// status sync. This ensures that runtime state changes (service crashes, health
+// check failures, etc.) are eventually reflected in the CRD status even if
+// state change events are missed.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
 	logging.Debug("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
 
@@ -100,6 +105,13 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 	// Sync status back to CRD after reconciliation
 	r.syncStatus(ctx, req.Name, req.Namespace, result.Error)
+
+	// If reconciliation succeeded, schedule periodic requeue for status sync.
+	// This implements the idiomatic Kubernetes controller pattern where status
+	// is periodically refreshed to ensure eventual consistency.
+	if result.Error == nil && !result.Requeue {
+		result.RequeueAfter = DefaultStatusSyncInterval
+	}
 
 	return result
 }

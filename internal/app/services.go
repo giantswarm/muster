@@ -65,6 +65,11 @@ type Services struct {
 	// This enables automatic synchronization between desired state (YAML/CRDs)
 	// and actual state (running services).
 	ReconcileManager *reconciler.Manager
+
+	// StateChangeBridge bridges service state changes from the orchestrator to
+	// the reconciliation system. This enables status sync when services change
+	// state at runtime (e.g., crash, health check failure, restart).
+	StateChangeBridge *reconciler.StateChangeBridge
 }
 
 // InitializeServices creates and registers all required services for the application.
@@ -286,12 +291,25 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		logging.Info("Services", "Initialized reconciliation manager with filesystem watching for %s", cfg.ConfigPath)
 	}
 
+	// Step 6: Create StateChangeBridge to sync runtime state changes to CRD status
+	// This bridges service state changes from the orchestrator to the reconciliation system.
+	var stateChangeBridge *reconciler.StateChangeBridge
+	if reconcileManager != nil {
+		stateChangeBridge = reconciler.NewStateChangeBridge(
+			orchestratorAPI,
+			reconcileManager,
+			namespace,
+		)
+		logging.Info("Services", "Initialized state change bridge for runtime status sync")
+	}
+
 	return &Services{
-		Orchestrator:     orch,
-		OrchestratorAPI:  orchestratorAPI,
-		ConfigAPI:        configAPI,
-		AggregatorPort:   cfg.MusterConfig.Aggregator.Port,
-		ReconcileManager: reconcileManager,
+		Orchestrator:      orch,
+		OrchestratorAPI:   orchestratorAPI,
+		ConfigAPI:         configAPI,
+		AggregatorPort:    cfg.MusterConfig.Aggregator.Port,
+		ReconcileManager:  reconcileManager,
+		StateChangeBridge: stateChangeBridge,
 	}, nil
 }
 

@@ -291,8 +291,11 @@ func (m *Manager) processRequest(req ReconcileRequest) {
 	// Handle result
 	if result.Error != nil {
 		m.handleReconcileError(req, result)
-	} else if result.Requeue {
+	} else if result.Requeue || result.RequeueAfter > 0 {
+		// Support both explicit Requeue and RequeueAfter for periodic status sync
 		m.handleRequeue(req, result)
+		// Also mark as synced since there was no error
+		m.updateStatus(req.Type, req.Name, req.Namespace, StateSynced, "")
 	} else {
 		m.handleSuccess(req)
 	}

@@ -74,6 +74,11 @@ const (
 
 	// SourceManual indicates the change was triggered manually (e.g., API call).
 	SourceManual ChangeSource = "Manual"
+
+	// SourceServiceState indicates the change came from a service state change.
+	// This is used when runtime state changes (e.g., service crashes, health check fails)
+	// trigger reconciliation to sync status back to the CRD.
+	SourceServiceState ChangeSource = "ServiceState"
 )
 
 // ReconcileResult represents the outcome of a reconciliation attempt.
@@ -282,6 +287,10 @@ const (
 
 // DefaultNamespace is the default namespace for Kubernetes resources.
 const DefaultNamespace = "default"
+
+// DefaultStatusSyncInterval is how often to requeue for periodic status sync.
+// This ensures status is eventually consistent even if state change events are missed.
+const DefaultStatusSyncInterval = 30 * time.Second
 
 // StatusUpdater is an interface for updating CRD status.
 // This is implemented by the MusterClient.

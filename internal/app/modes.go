@@ -65,6 +65,17 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}
 
+	// Start the state change bridge to sync runtime state changes to CRD status
+	// This must be started after the reconciliation manager since it depends on it
+	if services.StateChangeBridge != nil {
+		if err := services.StateChangeBridge.Start(ctx); err != nil {
+			logging.Warn("CLI", "Failed to start state change bridge: %v", err)
+			// Continue without state change bridge - not a critical failure
+		} else {
+			logging.Info("CLI", "State change bridge started - syncing runtime state to CRD status")
+		}
+	}
+
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
 
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -76,7 +87,14 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 	// Graceful shutdown sequence
 	logging.Info("CLI", "\n--- Shutting down services ---")
 
-	// Stop reconciliation manager first to prevent new reconciliations during shutdown
+	// Stop state change bridge first to prevent new reconciliation triggers during shutdown
+	if services.StateChangeBridge != nil {
+		if err := services.StateChangeBridge.Stop(); err != nil {
+			logging.Error("CLI", err, "Error stopping state change bridge")
+		}
+	}
+
+	// Stop reconciliation manager next to prevent new reconciliations during shutdown
 	if services.ReconcileManager != nil {
 		if err := services.ReconcileManager.Stop(); err != nil {
 			logging.Error("CLI", err, "Error stopping reconciliation manager")
