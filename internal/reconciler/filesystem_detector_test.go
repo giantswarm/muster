@@ -152,7 +152,9 @@ func TestFilesystemDetector_StartStop(t *testing.T) {
 	}
 
 	detector := NewFilesystemDetector(tempDir, 100*time.Millisecond)
-	detector.AddResourceType(ResourceTypeMCPServer)
+	if err := detector.AddResourceType(ResourceTypeMCPServer); err != nil {
+		t.Fatalf("failed to add resource type: %v", err)
+	}
 
 	ctx := context.Background()
 	changes := make(chan ChangeEvent, 10)
@@ -182,7 +184,9 @@ func TestFilesystemDetector_DetectFileChange(t *testing.T) {
 	}
 
 	detector := NewFilesystemDetector(tempDir, 50*time.Millisecond)
-	detector.AddResourceType(ResourceTypeMCPServer)
+	if err := detector.AddResourceType(ResourceTypeMCPServer); err != nil {
+		t.Fatalf("failed to add resource type: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -193,7 +197,7 @@ func TestFilesystemDetector_DetectFileChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start detector: %v", err)
 	}
-	defer detector.Stop()
+	defer func() { _ = detector.Stop() }()
 
 	// Create a new file
 	testFile := filepath.Join(mcpDir, "test-server.yaml")
@@ -229,7 +233,9 @@ func TestFilesystemDetector_Debouncing(t *testing.T) {
 
 	// Use a longer debounce for this test
 	detector := NewFilesystemDetector(tempDir, 200*time.Millisecond)
-	detector.AddResourceType(ResourceTypeMCPServer)
+	if err := detector.AddResourceType(ResourceTypeMCPServer); err != nil {
+		t.Fatalf("failed to add resource type: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -240,7 +246,7 @@ func TestFilesystemDetector_Debouncing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start detector: %v", err)
 	}
-	defer detector.Stop()
+	defer func() { _ = detector.Stop() }()
 
 	// Create a file
 	testFile := filepath.Join(mcpDir, "debounce-test.yaml")

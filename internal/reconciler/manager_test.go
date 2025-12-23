@@ -26,53 +26,6 @@ func (m *mockReconciler) GetResourceType() ResourceType {
 	return m.resourceType
 }
 
-// mockChangeDetector implements ChangeDetector for testing.
-type mockChangeDetector struct {
-	source        ChangeSource
-	resourceTypes map[ResourceType]bool
-	started       bool
-	stopped       bool
-	changeChan    chan<- ChangeEvent
-}
-
-func newMockChangeDetector() *mockChangeDetector {
-	return &mockChangeDetector{
-		source:        SourceFilesystem,
-		resourceTypes: make(map[ResourceType]bool),
-	}
-}
-
-func (m *mockChangeDetector) Start(ctx context.Context, changes chan<- ChangeEvent) error {
-	m.started = true
-	m.changeChan = changes
-	return nil
-}
-
-func (m *mockChangeDetector) Stop() error {
-	m.stopped = true
-	return nil
-}
-
-func (m *mockChangeDetector) GetSource() ChangeSource {
-	return m.source
-}
-
-func (m *mockChangeDetector) AddResourceType(resourceType ResourceType) error {
-	m.resourceTypes[resourceType] = true
-	return nil
-}
-
-func (m *mockChangeDetector) RemoveResourceType(resourceType ResourceType) error {
-	delete(m.resourceTypes, resourceType)
-	return nil
-}
-
-func (m *mockChangeDetector) SendEvent(event ChangeEvent) {
-	if m.changeChan != nil {
-		m.changeChan <- event
-	}
-}
-
 func TestManager_RegisterReconciler(t *testing.T) {
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -108,7 +61,9 @@ func TestManager_StartStop(t *testing.T) {
 	reconciler := &mockReconciler{
 		resourceType: ResourceTypeMCPServer,
 	}
-	manager.RegisterReconciler(reconciler)
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -154,14 +109,16 @@ func TestManager_TriggerReconcile(t *testing.T) {
 		},
 	}
 
-	manager.RegisterReconciler(reconciler)
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
 
 	ctx := context.Background()
 	err := manager.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start manager: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Trigger a manual reconcile
 	manager.TriggerReconcile(ResourceTypeMCPServer, "test-server", "")
@@ -192,14 +149,16 @@ func TestManager_StatusTracking(t *testing.T) {
 		resourceType:    ResourceTypeMCPServer,
 		reconcileResult: ReconcileResult{}, // Success
 	}
-	manager.RegisterReconciler(reconciler)
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
 
 	ctx := context.Background()
 	err := manager.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start manager: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Trigger a reconcile
 	manager.TriggerReconcile(ResourceTypeMCPServer, "status-test", "")
@@ -248,14 +207,16 @@ func TestManager_RetryOnError(t *testing.T) {
 		},
 	}
 
-	manager.RegisterReconciler(reconciler)
+	if err := manager.RegisterReconciler(reconciler); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
 
 	ctx := context.Background()
 	err := manager.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start manager: %v", err)
 	}
-	defer manager.Stop()
+	defer func() { _ = manager.Stop() }()
 
 	// Trigger a reconcile
 	manager.TriggerReconcile(ResourceTypeMCPServer, "retry-test", "")
