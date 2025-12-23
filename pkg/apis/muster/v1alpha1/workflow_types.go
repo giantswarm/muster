@@ -85,42 +85,29 @@ type WorkflowConditionExpectation struct {
 
 // WorkflowStatus defines the observed state of Workflow
 type WorkflowStatus struct {
-	// Available indicates whether all required tools for this workflow are available.
-	Available bool `json:"available,omitempty" yaml:"available,omitempty"`
+	// Valid indicates whether the Workflow spec passes structural validation.
+	Valid bool `json:"valid,omitempty" yaml:"valid,omitempty"`
 
-	// RequiredTools lists all tools required by workflow steps.
-	RequiredTools []string `json:"requiredTools,omitempty" yaml:"requiredTools,omitempty"`
+	// ValidationErrors contains any spec validation error messages.
+	ValidationErrors []string `json:"validationErrors,omitempty" yaml:"validationErrors,omitempty"`
 
-	// MissingTools lists required tools that are currently unavailable.
-	MissingTools []string `json:"missingTools,omitempty" yaml:"missingTools,omitempty"`
+	// ReferencedTools lists all tools mentioned in the Workflow steps.
+	// This is informational only; actual availability depends on the user's session.
+	// See ADR 007 for details on session-scoped tool visibility.
+	ReferencedTools []string `json:"referencedTools,omitempty" yaml:"referencedTools,omitempty"`
 
-	// StepValidation contains validation results for each workflow step.
-	StepValidation []StepValidationResult `json:"stepValidation,omitempty" yaml:"stepValidation,omitempty"`
+	// StepCount is the number of steps in the workflow.
+	StepCount int `json:"stepCount,omitempty" yaml:"stepCount,omitempty"`
 
 	// Conditions represent the latest available observations of the workflow's state.
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
-// StepValidationResult contains validation results for a workflow step
-type StepValidationResult struct {
-	// StepID identifies the workflow step.
-	StepID string `json:"stepId" yaml:"stepId"`
-
-	// Valid indicates whether the step passed validation.
-	Valid bool `json:"valid" yaml:"valid"`
-
-	// ToolAvailable indicates whether the required tool is available.
-	ToolAvailable bool `json:"toolAvailable" yaml:"toolAvailable"`
-
-	// ValidationErrors contains any validation error messages.
-	ValidationErrors []string `json:"validationErrors,omitempty" yaml:"validationErrors,omitempty"`
-}
-
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=wf
-//+kubebuilder:printcolumn:name="Available",type="boolean",JSONPath=".status.available"
-//+kubebuilder:printcolumn:name="Steps",type="integer",JSONPath=".spec.steps[*].id"
+//+kubebuilder:printcolumn:name="Valid",type="boolean",JSONPath=".status.valid"
+//+kubebuilder:printcolumn:name="Steps",type="integer",JSONPath=".status.stepCount"
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Workflow is the Schema for the workflows API

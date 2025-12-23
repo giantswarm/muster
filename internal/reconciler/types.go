@@ -3,6 +3,8 @@ package reconciler
 import (
 	"context"
 	"time"
+
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
 // ResourceType represents the type of resource being reconciled.
@@ -264,4 +266,58 @@ const (
 	// StateFailed means reconciliation failed permanently (max retries exceeded).
 	StateFailed ReconcileState = "Failed"
 )
+
+// Service state constants for status syncing.
+// These are used when a service doesn't exist or has no state.
+const (
+	// ServiceStateStopped indicates the service is not running.
+	ServiceStateStopped = "stopped"
+
+	// ServiceHealthUnknown indicates the health status is unknown.
+	ServiceHealthUnknown = "unknown"
+)
+
+// DefaultNamespace is the default namespace for Kubernetes resources.
+const DefaultNamespace = "default"
+
+// StatusUpdater is an interface for updating CRD status.
+// This is implemented by the MusterClient.
+type StatusUpdater interface {
+	GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error)
+	UpdateMCPServerStatus(ctx context.Context, server *musterv1alpha1.MCPServer) error
+	GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error)
+	UpdateServiceClassStatus(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error
+	GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error)
+	UpdateWorkflowStatus(ctx context.Context, workflow *musterv1alpha1.Workflow) error
+	IsKubernetesMode() bool
+}
+
+// BaseStatusConfig holds common configuration for status updates.
+// This is used by reconcilers that sync status back to CRDs.
+type BaseStatusConfig struct {
+	// StatusUpdater provides access to update CRD status (optional)
+	StatusUpdater StatusUpdater
+
+	// Namespace is the namespace to use for status updates
+	Namespace string
+}
+
+// SetStatusUpdater sets the status updater and namespace.
+func (c *BaseStatusConfig) SetStatusUpdater(updater StatusUpdater, namespace string) {
+	c.StatusUpdater = updater
+	if namespace != "" {
+		c.Namespace = namespace
+	}
+}
+
+// GetNamespace returns the namespace to use, falling back to the default.
+func (c *BaseStatusConfig) GetNamespace(reqNamespace string) string {
+	if reqNamespace != "" {
+		return reqNamespace
+	}
+	if c.Namespace != "" {
+		return c.Namespace
+	}
+	return DefaultNamespace
+}
 

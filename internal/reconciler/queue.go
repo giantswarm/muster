@@ -92,9 +92,12 @@ func (q *workQueue) Get(ctx context.Context) (ReconcileRequest, bool) {
 		}
 
 		// Use a separate goroutine to handle context cancellation.
+		// The goroutine races to handle context cancellation vs normal wakeup.
+		// Closing `done` ensures the goroutine exits regardless of which wins.
+		//
 		// The goroutine exits cleanly when either:
 		// 1. The context is cancelled (broadcasts to wake us up)
-		// 2. The done channel is closed (we woke up normally)
+		// 2. The done channel is closed (we woke up normally from Add/Shutdown)
 		done := make(chan struct{})
 		go func() {
 			select {

@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -25,7 +29,12 @@ type MCPServerManager interface {
 //   - Create: Register and start a new MCPServer service
 //   - Update: Update the service configuration and restart if needed
 //   - Delete: Stop and unregister the MCPServer service
+//
+// After each reconciliation, the reconciler syncs the service state
+// back to the CRD's Status field. See ADR 007 for details.
 type MCPServerReconciler struct {
+	BaseStatusConfig
+
 	// orchestratorAPI provides access to service lifecycle management
 	orchestratorAPI api.OrchestratorAPI
 
@@ -43,10 +52,17 @@ func NewMCPServerReconciler(
 	serviceRegistry api.ServiceRegistryHandler,
 ) *MCPServerReconciler {
 	return &MCPServerReconciler{
+		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
 		orchestratorAPI:  orchestratorAPI,
 		mcpServerManager: mcpServerManager,
 		serviceRegistry:  serviceRegistry,
 	}
+}
+
+// WithStatusUpdater sets the status updater for syncing status back to CRDs.
+func (r *MCPServerReconciler) WithStatusUpdater(updater StatusUpdater, namespace string) *MCPServerReconciler {
+	r.SetStatusUpdater(updater, namespace)
+	return r
 }
 
 // GetResourceType returns the resource type this reconciler handles.
@@ -74,13 +90,69 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	// Check if service exists
 	existingService, exists := r.serviceRegistry.Get(req.Name)
 
+	var result ReconcileResult
 	if !exists {
 		// Service doesn't exist, create it
-		return r.reconcileCreate(ctx, req, mcpServerInfo)
+		result = r.reconcileCreate(ctx, req, mcpServerInfo)
+	} else {
+		// Service exists, check if update is needed
+		result = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
 	}
 
-	// Service exists, check if update is needed
-	return r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+	// Sync status back to CRD after reconciliation
+	r.syncStatus(ctx, req.Name, req.Namespace, result.Error)
+
+	return result
+}
+
+// syncStatus syncs the current service state to the MCPServer CRD status.
+func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
+	if r.StatusUpdater == nil {
+		return
+	}
+
+	namespace = r.GetNamespace(namespace)
+
+	// Get the current CRD
+	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
+	if err != nil {
+		logging.Debug("MCPServerReconciler", "Failed to get MCPServer for status sync: %v", err)
+		return
+	}
+
+	// Get the current service state
+	service, exists := r.serviceRegistry.Get(name)
+
+	if exists {
+		// Update status from service state
+		server.Status.State = string(service.GetState())
+		server.Status.Health = string(service.GetHealth())
+		if service.GetLastError() != nil {
+			server.Status.LastError = service.GetLastError().Error()
+		} else {
+			server.Status.LastError = ""
+		}
+		// Update LastConnected if service is running
+		if service.GetState() == api.StateRunning {
+			now := metav1.NewTime(time.Now())
+			server.Status.LastConnected = &now
+		}
+	} else {
+		// Service doesn't exist - use typed constants
+		server.Status.State = ServiceStateStopped
+		server.Status.Health = ServiceHealthUnknown
+		if reconcileErr != nil {
+			server.Status.LastError = reconcileErr.Error()
+		}
+	}
+
+	// Update the CRD status
+	if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
+		logging.Debug("MCPServerReconciler", "Failed to update MCPServer status: %v", err)
+	} else {
+		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status: state=%s, health=%s",
+			name, server.Status.State, server.Status.Health)
+	}
 }
 
 // reconcileCreate handles creating a new MCPServer service.
@@ -206,12 +278,19 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 }
 
 // isNotFoundError checks if an error indicates a resource was not found.
-// It performs case-insensitive matching for common "not found" error patterns.
+// It checks for Kubernetes NotFound errors first, then falls back to
+// case-insensitive string matching for common "not found" patterns.
 func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check for common not found error patterns (case-insensitive)
+
+	// Check for Kubernetes NotFound errors
+	if apierrors.IsNotFound(err) {
+		return true
+	}
+
+	// Fall back to string matching for non-K8s errors (case-insensitive)
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "not found") ||
 		strings.Contains(errMsg, "does not exist")

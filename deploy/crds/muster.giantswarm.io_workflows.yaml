@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.20.0
   name: workflows.muster.giantswarm.io
 spec:
   group: muster.giantswarm.io
@@ -17,10 +17,10 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.available
-      name: Available
+    - jsonPath: .status.valid
+      name: Valid
       type: boolean
-    - jsonPath: .spec.steps[*].id
+    - jsonPath: .status.stepCount
       name: Steps
       type: integer
     - jsonPath: .metadata.creationTimestamp
@@ -203,10 +203,6 @@ spec:
           status:
             description: WorkflowStatus defines the observed state of Workflow
             properties:
-              available:
-                description: Available indicates whether all required tools for this
-                  workflow are available.
-                type: boolean
               conditions:
                 description: Conditions represent the latest available observations
                   of the workflow's state.
@@ -265,45 +261,25 @@ spec:
                   - type
                   type: object
                 type: array
-              missingTools:
-                description: MissingTools lists required tools that are currently
-                  unavailable.
+              referencedTools:
+                description: |-
+                  ReferencedTools lists all tools mentioned in the Workflow steps.
+                  This is informational only; actual availability depends on the user's session.
+                  See ADR 007 for details on session-scoped tool visibility.
                 items:
                   type: string
                 type: array
-              requiredTools:
-                description: RequiredTools lists all tools required by workflow steps.
+              stepCount:
+                description: StepCount is the number of steps in the workflow.
+                type: integer
+              valid:
+                description: Valid indicates whether the Workflow spec passes structural
+                  validation.
+                type: boolean
+              validationErrors:
+                description: ValidationErrors contains any spec validation error messages.
                 items:
                   type: string
-                type: array
-              stepValidation:
-                description: StepValidation contains validation results for each workflow
-                  step.
-                items:
-                  description: StepValidationResult contains validation results for
-                    a workflow step
-                  properties:
-                    stepId:
-                      description: StepID identifies the workflow step.
-                      type: string
-                    toolAvailable:
-                      description: ToolAvailable indicates whether the required tool
-                        is available.
-                      type: boolean
-                    valid:
-                      description: Valid indicates whether the step passed validation.
-                      type: boolean
-                    validationErrors:
-                      description: ValidationErrors contains any validation error
-                        messages.
-                      items:
-                        type: string
-                      type: array
-                  required:
-                  - stepId
-                  - toolAvailable
-                  - valid
-                  type: object
                 type: array
             type: object
         type: object

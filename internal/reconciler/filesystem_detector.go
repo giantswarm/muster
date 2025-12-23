@@ -237,6 +237,11 @@ func (d *FilesystemDetector) debounceEvent(event ChangeEvent, changes chan<- Cha
 	// Create new timer
 	timer := time.AfterFunc(d.debounceInterval, func() {
 		d.mu.Lock()
+		// Check if detector has been stopped before sending events
+		if !d.running {
+			d.mu.Unlock()
+			return
+		}
 		entry, ok := d.pendingEvents[key]
 		if ok {
 			delete(d.pendingEvents, key)

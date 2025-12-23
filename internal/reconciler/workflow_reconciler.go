@@ -23,7 +23,12 @@ type WorkflowManager interface {
 //   - Create: Validate and register the Workflow definition
 //   - Update: Re-validate and update the Workflow configuration
 //   - Delete: Remove the Workflow from the system
+//
+// After each reconciliation, the reconciler syncs validation status
+// back to the CRD's Status field. See ADR 007 for details.
 type WorkflowReconciler struct {
+	BaseStatusConfig
+
 	// workflowManager provides access to Workflow definitions
 	workflowManager WorkflowManager
 }
@@ -33,8 +38,15 @@ func NewWorkflowReconciler(
 	workflowManager WorkflowManager,
 ) *WorkflowReconciler {
 	return &WorkflowReconciler{
-		workflowManager: workflowManager,
+		BaseStatusConfig: BaseStatusConfig{Namespace: DefaultNamespace},
+		workflowManager:  workflowManager,
 	}
+}
+
+// WithStatusUpdater sets the status updater for syncing status back to CRDs.
+func (r *WorkflowReconciler) WithStatusUpdater(updater StatusUpdater, namespace string) *WorkflowReconciler {
+	r.SetStatusUpdater(updater, namespace)
+	return r
 }
 
 // GetResourceType returns the resource type this reconciler handles.
@@ -60,7 +72,79 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ReconcileRequest
 	}
 
 	// Workflow exists, ensure it's valid and properly registered
-	return r.reconcileCreateOrUpdate(ctx, req, workflow)
+	result := r.reconcileCreateOrUpdate(ctx, req, workflow)
+
+	// Sync status back to CRD after reconciliation
+	r.syncStatus(ctx, req.Name, req.Namespace, workflow, result.Error)
+
+	return result
+}
+
+// syncStatus syncs the validation status to the Workflow CRD status.
+func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace string, wf *api.Workflow, reconcileErr error) {
+	if r.StatusUpdater == nil {
+		return
+	}
+
+	namespace = r.GetNamespace(namespace)
+
+	// Get the current CRD
+	workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
+	if err != nil {
+		logging.Debug("WorkflowReconciler", "Failed to get Workflow for status sync: %v", err)
+		return
+	}
+
+	// Extract referenced tools from steps
+	referencedTools := r.extractReferencedTools(wf)
+
+	// Validate the spec
+	validationErrors := []string{}
+	if validateErr := r.validateWorkflow(wf); validateErr != nil {
+		validationErrors = append(validationErrors, validateErr.Error())
+	}
+
+	// Update status
+	workflow.Status.Valid = len(validationErrors) == 0
+	workflow.Status.ValidationErrors = validationErrors
+	workflow.Status.ReferencedTools = referencedTools
+	if wf != nil {
+		workflow.Status.StepCount = len(wf.Steps)
+	}
+
+	// Update the CRD status
+	if err := r.StatusUpdater.UpdateWorkflowStatus(ctx, workflow); err != nil {
+		logging.Debug("WorkflowReconciler", "Failed to update Workflow status: %v", err)
+	} else {
+		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
+			name, workflow.Status.Valid, workflow.Status.StepCount, referencedTools)
+	}
+}
+
+// extractReferencedTools extracts all tool names referenced in the Workflow steps.
+func (r *WorkflowReconciler) extractReferencedTools(wf *api.Workflow) []string {
+	if wf == nil {
+		return []string{}
+	}
+
+	toolSet := make(map[string]bool)
+
+	for _, step := range wf.Steps {
+		if step.Tool != "" {
+			toolSet[step.Tool] = true
+		}
+		// Also extract tools from conditions
+		if step.Condition != nil && step.Condition.Tool != "" {
+			toolSet[step.Condition.Tool] = true
+		}
+	}
+
+	// Convert to slice
+	tools := make([]string, 0, len(toolSet))
+	for tool := range toolSet {
+		tools = append(tools, tool)
+	}
+	return tools
 }
 
 // reconcileCreateOrUpdate handles creating or updating a Workflow.
@@ -99,11 +183,11 @@ func (r *WorkflowReconciler) reconcileDelete(ctx context.Context, req ReconcileR
 // validateWorkflow performs validation on a Workflow definition.
 func (r *WorkflowReconciler) validateWorkflow(wf *api.Workflow) error {
 	if wf.Name == "" {
-		return fmt.Errorf("Workflow name is required")
+		return fmt.Errorf("workflow name is required")
 	}
 
 	if len(wf.Steps) == 0 {
-		return fmt.Errorf("Workflow must have at least one step")
+		return fmt.Errorf("workflow must have at least one step")
 	}
 
 	// Validate each step has required fields

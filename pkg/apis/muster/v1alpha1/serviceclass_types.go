@@ -159,46 +159,26 @@ type TimeoutConfig struct {
 
 // ServiceClassStatus defines the observed state of ServiceClass
 type ServiceClassStatus struct {
-	// Available indicates whether all required tools are available.
-	Available bool `json:"available,omitempty" yaml:"available,omitempty"`
+	// Valid indicates whether the ServiceClass spec passes structural validation.
+	Valid bool `json:"valid,omitempty" yaml:"valid,omitempty"`
 
-	// RequiredTools lists all tools needed by this ServiceClass.
-	RequiredTools []string `json:"requiredTools,omitempty" yaml:"requiredTools,omitempty"`
+	// ValidationErrors contains any spec validation error messages.
+	ValidationErrors []string `json:"validationErrors,omitempty" yaml:"validationErrors,omitempty"`
 
-	// MissingTools lists tools that are currently unavailable.
-	MissingTools []string `json:"missingTools,omitempty" yaml:"missingTools,omitempty"`
-
-	// ToolAvailability provides detailed tool availability status.
-	ToolAvailability *ToolAvailabilityStatus `json:"toolAvailability,omitempty" yaml:"toolAvailability,omitempty"`
+	// ReferencedTools lists all tools mentioned in the ServiceClass lifecycle definitions.
+	// This is informational only; actual availability depends on the user's session.
+	// See ADR 007 for details on session-scoped tool visibility.
+	ReferencedTools []string `json:"referencedTools,omitempty" yaml:"referencedTools,omitempty"`
 
 	// Conditions represent the latest available observations.
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
-// ToolAvailabilityStatus tracks individual tool availability
-type ToolAvailabilityStatus struct {
-	// StartToolAvailable indicates if the start tool is available.
-	StartToolAvailable bool `json:"startToolAvailable,omitempty" yaml:"startToolAvailable,omitempty"`
-
-	// StopToolAvailable indicates if the stop tool is available.
-	StopToolAvailable bool `json:"stopToolAvailable,omitempty" yaml:"stopToolAvailable,omitempty"`
-
-	// RestartToolAvailable indicates if the restart tool is available.
-	RestartToolAvailable bool `json:"restartToolAvailable,omitempty" yaml:"restartToolAvailable,omitempty"`
-
-	// HealthCheckToolAvailable indicates if the health check tool is available.
-	HealthCheckToolAvailable bool `json:"healthCheckToolAvailable,omitempty" yaml:"healthCheckToolAvailable,omitempty"`
-
-	// StatusToolAvailable indicates if the status tool is available.
-	StatusToolAvailable bool `json:"statusToolAvailable,omitempty" yaml:"statusToolAvailable,omitempty"`
-}
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=sc
-// +kubebuilder:printcolumn:name="ServiceType",type="string",JSONPath=".spec.serviceConfig.serviceType"
-// +kubebuilder:printcolumn:name="Available",type="boolean",JSONPath=".status.available"
-// +kubebuilder:printcolumn:name="RequiredTools",type="string",JSONPath=".status.requiredTools"
+// +kubebuilder:printcolumn:name="Valid",type="boolean",JSONPath=".status.valid"
+// +kubebuilder:printcolumn:name="ReferencedTools",type="string",JSONPath=".status.referencedTools"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ServiceClass is the Schema for the serviceclasses API
