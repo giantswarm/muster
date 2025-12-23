@@ -595,3 +595,183 @@ func (r *ServerRegistry) IsSyntheticAuthTool(toolName string) (serverName string
 
 	return "", false
 }
+
+// GetAllToolsForSession returns a session-specific view of all available tools.
+//
+// The returned tool list is computed based on the session's authentication state:
+//   - GlobalTools: Tools from servers that don't require authentication
+//   - AuthenticatedServerTools: Tools from OAuth servers where the session has a valid connection
+//   - SyntheticAuthTools: authenticate_<server> tools for OAuth servers the session hasn't authenticated with
+//
+// This implements per-session tool visibility as described in ADR-006.
+//
+// Args:
+//   - sessionRegistry: The session registry containing per-session state
+//   - sessionID: The session to compute the tool view for
+//
+// Returns a slice of MCP tools specific to this session.
+func (r *ServerRegistry) GetAllToolsForSession(sessionRegistry *SessionRegistry, sessionID string) []mcp.Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allTools []mcp.Tool
+
+	// Get session state (creates if doesn't exist for convenience)
+	session := sessionRegistry.GetOrCreateSession(sessionID)
+
+	for serverName, info := range r.servers {
+		// Check if this server requires OAuth
+		if info.Status == StatusAuthRequired {
+			// Server requires auth - check if session has authenticated
+			conn, hasConnection := session.GetConnection(serverName)
+			if hasConnection && conn.Status == StatusSessionConnected {
+				// Session is authenticated - include tools from session connection
+				tools := conn.GetTools()
+				for _, tool := range tools {
+					exposedTool := tool
+					exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+					allTools = append(allTools, exposedTool)
+				}
+				logging.Debug("Aggregator", "Session %s has %d tools from authenticated server %s",
+					logging.TruncateSessionID(sessionID), len(tools), serverName)
+			} else {
+				// Session not authenticated - include synthetic auth tool
+				info.mu.RLock()
+				for _, tool := range info.Tools {
+					exposedTool := tool
+					exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+					allTools = append(allTools, exposedTool)
+				}
+				info.mu.RUnlock()
+				logging.Debug("Aggregator", "Session %s sees synthetic auth tool for server %s",
+					logging.TruncateSessionID(sessionID), serverName)
+			}
+			continue
+		}
+
+		// Global server (no auth required) - include all tools for everyone
+		if !info.IsConnected() {
+			logging.Debug("Aggregator", "Server %s is not connected, skipping tools", serverName)
+			continue
+		}
+
+		info.mu.RLock()
+		for _, tool := range info.Tools {
+			exposedTool := tool
+			exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+			allTools = append(allTools, exposedTool)
+		}
+		info.mu.RUnlock()
+	}
+
+	logging.Debug("Aggregator", "GetAllToolsForSession: returning %d tools for session %s",
+		len(allTools), logging.TruncateSessionID(sessionID))
+
+	return allTools
+}
+
+// GetAllResourcesForSession returns a session-specific view of all available resources.
+//
+// Similar to GetAllToolsForSession, this returns resources based on session authentication state.
+func (r *ServerRegistry) GetAllResourcesForSession(sessionRegistry *SessionRegistry, sessionID string) []mcp.Resource {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allResources []mcp.Resource
+	session := sessionRegistry.GetOrCreateSession(sessionID)
+
+	for serverName, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			conn, hasConnection := session.GetConnection(serverName)
+			if hasConnection && conn.Status == StatusSessionConnected {
+				resources := conn.GetResources()
+				for _, resource := range resources {
+					exposedResource := resource
+					exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
+					allResources = append(allResources, exposedResource)
+				}
+			}
+			continue
+		}
+
+		if !info.IsConnected() {
+			continue
+		}
+
+		info.mu.RLock()
+		for _, resource := range info.Resources {
+			exposedResource := resource
+			exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
+			allResources = append(allResources, exposedResource)
+		}
+		info.mu.RUnlock()
+	}
+
+	return allResources
+}
+
+// GetAllPromptsForSession returns a session-specific view of all available prompts.
+//
+// Similar to GetAllToolsForSession, this returns prompts based on session authentication state.
+func (r *ServerRegistry) GetAllPromptsForSession(sessionRegistry *SessionRegistry, sessionID string) []mcp.Prompt {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allPrompts []mcp.Prompt
+	session := sessionRegistry.GetOrCreateSession(sessionID)
+
+	for serverName, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			conn, hasConnection := session.GetConnection(serverName)
+			if hasConnection && conn.Status == StatusSessionConnected {
+				prompts := conn.GetPrompts()
+				for _, prompt := range prompts {
+					exposedPrompt := prompt
+					exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
+					allPrompts = append(allPrompts, exposedPrompt)
+				}
+			}
+			continue
+		}
+
+		if !info.IsConnected() {
+			continue
+		}
+
+		info.mu.RLock()
+		for _, prompt := range info.Prompts {
+			exposedPrompt := prompt
+			exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
+			allPrompts = append(allPrompts, exposedPrompt)
+		}
+		info.mu.RUnlock()
+	}
+
+	return allPrompts
+}
+
+// GetOAuthServers returns a list of servers that require OAuth authentication.
+func (r *ServerRegistry) GetOAuthServers() []*ServerInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var servers []*ServerInfo
+	for _, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			servers = append(servers, info)
+		}
+	}
+	return servers
+}
+
+// IsOAuthServer checks if a server requires OAuth authentication.
+func (r *ServerRegistry) IsOAuthServer(serverName string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	info, exists := r.servers[serverName]
+	if !exists {
+		return false
+	}
+	return info.Status == StatusAuthRequired
+}

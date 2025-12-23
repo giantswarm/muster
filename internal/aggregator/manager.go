@@ -8,6 +8,7 @@ import (
 
 	"muster/internal/api"
 	configPkg "muster/internal/config"
+	"muster/internal/mcpserver"
 	"muster/internal/oauth"
 	"muster/pkg/logging"
 )
@@ -380,6 +381,9 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 // after successful OAuth authentication. This is called when the OAuth callback
 // is received and a token is available.
 //
+// Note: This method upgrades the global server state. For session-scoped tool
+// visibility, use UpgradeSessionConnection instead.
+//
 // Args:
 //   - ctx: Context for the operation
 //   - serverName: Name of the server to upgrade
@@ -404,6 +408,111 @@ func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverN
 
 	logging.Info("Aggregator-Manager", "Server %s upgraded to connected after OAuth authentication", serverName)
 	return nil
+}
+
+// UpgradeSessionConnection upgrades a session's connection to an OAuth server
+// after successful authentication. This creates a session-specific MCP client
+// with the user's token and fetches their available tools.
+//
+// This implements session-scoped tool visibility as described in ADR-006.
+//
+// Args:
+//   - ctx: Context for the operation
+//   - sessionID: The session to upgrade
+//   - serverName: The server the session authenticated with
+//   - token: The OAuth access token (wrapped in RedactedToken for safety)
+//
+// Returns an error if the upgrade fails.
+func (am *AggregatorManager) UpgradeSessionConnection(ctx context.Context, sessionID, serverName string, token oauth.RedactedToken) error {
+	am.mu.RLock()
+	if am.aggregatorServer == nil {
+		am.mu.RUnlock()
+		return fmt.Errorf("aggregator server not available")
+	}
+	aggregatorServer := am.aggregatorServer
+	am.mu.RUnlock()
+
+	// Validate token is not empty
+	if token.IsEmpty() {
+		return fmt.Errorf("token cannot be empty")
+	}
+
+	// Get server info to determine connection type and URL
+	serverInfo, exists := aggregatorServer.GetRegistry().GetServerInfo(serverName)
+	if !exists {
+		return fmt.Errorf("server %s not found", serverName)
+	}
+
+	if serverInfo.Status != StatusAuthRequired {
+		return fmt.Errorf("server %s is not in auth_required state", serverName)
+	}
+
+	// Create an authenticated MCP client with the user's token
+	// Note: token.Value() is only called here to construct the header
+	headers := map[string]string{
+		"Authorization": "Bearer " + token.Value(),
+	}
+
+	// Determine the client type based on server URL
+	// For now, we assume streamable-http for remote OAuth servers
+	client := newAuthenticatedClient(serverInfo.URL, headers)
+
+	// Initialize the client
+	if err := client.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize authenticated client: %w", err)
+	}
+
+	// Fetch tools from the server for this user
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("Aggregator-Manager", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("Aggregator-Manager", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		prompts = nil
+	}
+
+	// Get session registry and upgrade the connection
+	sessionRegistry := aggregatorServer.GetSessionRegistry()
+	session := sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Create the session connection
+	conn := &SessionConnection{
+		ServerName:  serverName,
+		Status:      StatusSessionConnected,
+		Client:      client,
+		ConnectedAt: time.Now(),
+	}
+	conn.UpdateTools(tools)
+	conn.UpdateResources(resources)
+	conn.UpdatePrompts(prompts)
+
+	session.SetConnection(serverName, conn)
+
+	// Send targeted notification to the session that their tools have changed
+	aggregatorServer.NotifySessionToolsChanged(sessionID)
+
+	logging.Info("Aggregator-Manager", "Session %s connected to %s with %d tools, %d resources, %d prompts",
+		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
+
+	return nil
+}
+
+// newAuthenticatedClient creates an MCP client with OAuth token authentication.
+func newAuthenticatedClient(url string, headers map[string]string) MCPClient {
+	// Use streamable HTTP by default for remote OAuth servers
+	return mcpserver.NewStreamableHTTPClientWithHeaders(url, headers)
 }
 
 // isServerAuthRequired checks if a server is currently in auth_required state.

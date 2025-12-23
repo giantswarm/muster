@@ -158,7 +158,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, iss
 	authURL.RawQuery = query.Encode()
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
-		truncateSessionID(sessionID), serverName, issuer)
+		logging.TruncateSessionID(sessionID), serverName, issuer)
 
 	return authURL.String(), nil
 }
