@@ -12,7 +12,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/giantswarm/mcp-oauth v0.2.27
 	github.com/google/uuid v1.6.0
-	github.com/jedib0t/go-pretty/v6 v6.7.7
+	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
