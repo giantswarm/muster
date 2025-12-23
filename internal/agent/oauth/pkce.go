@@ -52,7 +52,7 @@ func GeneratePKCE() (*PKCEChallenge, error) {
 // The state is used to prevent CSRF attacks and link the authorization
 // response back to the original request.
 func GenerateState() (string, error) {
-	stateBytes := make([]byte, 16) // 128 bits
+	stateBytes := make([]byte, 32) // 256 bits, encodes to 43 base64url chars (>32 required by some servers)
 	if _, err := rand.Read(stateBytes); err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
