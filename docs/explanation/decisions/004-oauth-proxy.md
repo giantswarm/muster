@@ -25,7 +25,7 @@ We will implement an **OAuth Proxy** pattern where the **Muster Server** acts as
     *   Maintains OAuth configurations for downstream Remote MCP servers.
     *   Acts as the registered OAuth Client (using CIMD).
     *   Initiates the Authorization Code flow.
-    *   Hosts the Redirect URI endpoint (`/oauth/callback`) to receive authorization codes.
+    *   Hosts the Redirect URI endpoint (`/oauth/proxy/callback`) to receive authorization codes.
     *   Exchanges codes for Access/Refresh tokens.
     *   Stores tokens securely, associated with the user's session.
     *   Injects the Access Token into outgoing requests to the Remote MCP.
@@ -49,7 +49,7 @@ We will implement an **OAuth Proxy** pattern where the **Muster Server** acts as
 5.  **Browser Flow**:
     *   User clicks the link.
     *   User authenticates with the Identity Provider (e.g., Dex/Google).
-    *   Browser redirects to `muster server`'s callback URL: `https://muster.giantswarm.io/oauth/callback?code=...&state=...`.
+    *   Browser redirects to `muster server`'s callback URL: `https://muster.example.com/oauth/proxy/callback?code=...&state=...`.
 6.  **Token Exchange**:
     *   `muster server` receives the code.
     *   Exchanges it for an Access Token (and Refresh Token).
@@ -78,7 +78,7 @@ Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, elimin
     {
       "client_id": "https://muster.example.com/.well-known/oauth-client.json",
       "client_name": "Muster MCP Aggregator",
-      "redirect_uris": ["https://muster.example.com/oauth/callback"],
+      "redirect_uris": ["https://muster.example.com/oauth/proxy/callback"],
       "grant_types": ["authorization_code", "refresh_token"],
       "response_types": ["code"],
       "token_endpoint_auth_method": "none"
@@ -108,7 +108,7 @@ To support SSO across multiple MCP servers that share the same Authenticator (Id
 
 1.  **Muster Server**:
     *   Add `internal/oauth/client` package.
-    *   Implement `/oauth/callback` handler.
+    *   Implement `/oauth/proxy/callback` handler.
     *   Implement `/.well-known/oauth-client.json` handler for self-hosted CIMD.
     *   Add Session/Token Store (In-Memory).
     *   Update `aggregator` to intercept 401s and trigger flow.

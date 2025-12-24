@@ -44,7 +44,7 @@ helm install muster ./helm/muster
 | `muster.oauth.enabled` | Enable OAuth proxy for remote MCP auth | `false` |
 | `muster.oauth.publicUrl` | Public URL for OAuth callbacks | `""` |
 | `muster.oauth.clientId` | OAuth client ID (CIMD URL) | Giant Swarm hosted |
-| `muster.oauth.callbackPath` | OAuth callback endpoint path | `/oauth/callback` |
+| `muster.oauth.callbackPath` | OAuth proxy callback endpoint path | `/oauth/proxy/callback` |
 | `rbac.create` | Create RBAC resources | `true` |
 | `rbac.profile` | RBAC profile (minimal, readonly, standard) | `standard` |
 | `crds.install` | Install CRDs with the chart | `true` |

@@ -23,7 +23,7 @@ func TestNewManager_Enabled(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "https://external.example.com/oauth-client.json",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -49,7 +49,7 @@ func TestManager_GetCallbackPath(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -59,8 +59,8 @@ func TestManager_GetCallbackPath(t *testing.T) {
 	defer manager.Stop()
 
 	path := manager.GetCallbackPath()
-	if path != "/oauth/callback" {
-		t.Errorf("Expected callback path %q, got %q", "/oauth/callback", path)
+	if path != "/oauth/proxy/callback" {
+		t.Errorf("Expected callback path %q, got %q", "/oauth/proxy/callback", path)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestManager_GetHTTPHandler(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -105,7 +105,7 @@ func TestManager_RegisterServer(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -165,7 +165,7 @@ func TestManager_GetToken_NoServerConfig(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -208,7 +208,7 @@ func TestManager_Stop(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -225,7 +225,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -268,7 +268,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -306,7 +306,7 @@ func TestManager_GetCIMDPath(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 		CIMDPath:     "/.well-known/oauth-client.json",
 	}
 
@@ -335,7 +335,7 @@ func TestManager_ShouldServeCIMD(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty means self-host
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -361,7 +361,7 @@ func TestManager_GetCIMDHandler(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -407,7 +407,7 @@ func TestManager_HandleCallback_InvalidState(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -428,7 +428,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -469,7 +469,7 @@ func TestNewManager_SelfHostedCIMD(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty - should auto-derive and self-host
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 		CIMDPath:     "/.well-known/oauth-client.json",
 	}
 
