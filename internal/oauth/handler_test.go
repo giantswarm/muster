@@ -353,9 +353,9 @@ func TestClient_GetCIMDURL(t *testing.T) {
 		},
 		{
 			name:         "external CIMD URL",
-			clientID:     "https://giantswarm.github.io/muster/oauth-client.json",
+			clientID:     "https://external.example.com/oauth-client.json",
 			publicURL:    "https://muster.example.com",
-			expectedCIMD: "https://giantswarm.github.io/muster/oauth-client.json",
+			expectedCIMD: "https://external.example.com/oauth-client.json",
 		},
 	}
 

@@ -182,19 +182,12 @@ muster:
 
     # OAuth client identifier (Client ID Metadata Document URL)
     #
-    # SELF-HOSTED CIMD (Recommended):
-    # Leave this empty to let muster auto-generate and serve its own CIMD.
-    # The clientId will be automatically derived as {publicUrl}/.well-known/oauth-client.json
-    # and muster will serve the CIMD at that path with the correct redirect_uri.
-    # This eliminates the need for external static file hosting.
+    # Leave empty (default) to use self-hosted CIMD:
+    # - Muster auto-derives clientId as {publicUrl}/.well-known/oauth-client.json
+    # - Muster serves the CIMD at that path with the correct redirect_uri
+    # - No external static file hosting required
     #
-    # EXTERNAL CIMD:
-    # Set this to a URL of an externally hosted CIMD file if you prefer
-    # to manage the CIMD separately (e.g., on GitHub Pages or S3).
-    # The CIMD's redirect_uris must match your deployment's callback URL.
-    #
-    # Legacy default: "https://giantswarm.github.io/muster/oauth-client.json"
-    # (only works for muster.giantswarm.io deployments)
+    # Set to a URL only if you need to use an externally hosted CIMD file.
     clientId: ""
 
     # Path for the OAuth callback endpoint

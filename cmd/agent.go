@@ -411,7 +411,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		default:
 		}
 
-		serverName := strings.TrimPrefix(toolName, "authenticate_")
+		serverName := extractServerNameFromAuthTool(toolName)
 		logger.Info("[%d/%d] Authenticating with %s...", i+1, len(pendingAuthTools), serverName)
 
 		// Call the authenticate tool to get the auth URL
@@ -508,16 +508,30 @@ func extractAuthURLFromResult(result *mcp.CallToolResult) string {
 	return ""
 }
 
-// findPendingAuthTools finds all authenticate_* tools from the tool list,
-// excluding authenticate_muster which is the main muster auth tool.
+// findPendingAuthTools finds all authentication tools for remote MCP servers.
+// These are synthetic tools exposed by the aggregator for servers in auth_required state.
+// Tool names follow the pattern: x_<serverName>_authenticate
 func findPendingAuthTools(tools []mcp.Tool) []string {
 	var pendingAuthTools []string
 	for _, tool := range tools {
-		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
+		// Match tools that end with "_authenticate" (e.g., x_mcp-kubernetes_authenticate)
+		// but exclude authenticate_muster which is the synthetic tool for local Muster auth
+		if strings.HasSuffix(tool.Name, "_authenticate") && tool.Name != "authenticate_muster" {
 			pendingAuthTools = append(pendingAuthTools, tool.Name)
 		}
 	}
 	return pendingAuthTools
+}
+
+// extractServerNameFromAuthTool extracts the server name from an auth tool name.
+// Tool names follow the pattern: x_<serverName>_authenticate
+// Example: "x_mcp-kubernetes_authenticate" -> "mcp-kubernetes"
+func extractServerNameFromAuthTool(toolName string) string {
+	// Remove the "_authenticate" suffix
+	name := strings.TrimSuffix(toolName, "_authenticate")
+	// Remove the "x_" prefix if present
+	name = strings.TrimPrefix(name, "x_")
+	return name
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic

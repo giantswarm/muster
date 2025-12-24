@@ -11,10 +11,10 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 		{
 			name: "explicit clientId is returned as-is",
 			config: OAuthConfig{
-				ClientID:  "https://giantswarm.github.io/muster/oauth-client.json",
+				ClientID:  "https://external.example.com/oauth-client.json",
 				PublicURL: "https://muster.example.com",
 			},
-			expected: "https://giantswarm.github.io/muster/oauth-client.json",
+			expected: "https://external.example.com/oauth-client.json",
 		},
 		{
 			name: "auto-derived from publicUrl when clientId is empty",
@@ -42,12 +42,12 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 			expected: "https://muster.example.com/.well-known/oauth-client.json",
 		},
 		{
-			name: "falls back to default when both are empty",
+			name: "returns empty when both clientId and publicUrl are empty",
 			config: OAuthConfig{
 				ClientID:  "",
 				PublicURL: "",
 			},
-			expected: DefaultOAuthClientID,
+			expected: "",
 		},
 	}
 
@@ -108,7 +108,7 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 			config: OAuthConfig{
 				Enabled:   true,
 				PublicURL: "https://muster.example.com",
-				ClientID:  "https://giantswarm.github.io/muster/oauth-client.json",
+				ClientID:  "https://external.example.com/oauth-client.json",
 			},
 			expected: false,
 		},

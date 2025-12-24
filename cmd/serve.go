@@ -109,7 +109,9 @@ func init() {
 	// OAuth Proxy flags (for authenticating to remote MCP servers - ADR 004)
 	serveCmd.Flags().BoolVar(&serveOAuthEnabled, "oauth", false, "Enable OAuth proxy for remote MCP server authentication")
 	serveCmd.Flags().StringVar(&serveOAuthPublicURL, "oauth-public-url", "", "Publicly accessible URL of the Muster Server for OAuth callbacks")
-	serveCmd.Flags().StringVar(&serveOAuthClientID, "oauth-client-id", config.DefaultOAuthClientID, "OAuth client identifier (CIMD URL)")
+	// Note: When --oauth-client-id is empty (default), the client ID is auto-derived from publicUrl
+	// as {publicUrl}/.well-known/oauth-client.json and muster serves its own CIMD
+	serveCmd.Flags().StringVar(&serveOAuthClientID, "oauth-client-id", "", "OAuth client identifier (CIMD URL). If empty, auto-derived from public URL")
 
 	// OAuth Server protection flags (for protecting the Muster Server - ADR 005)
 	// Note: Full OAuth server configuration should be done via config file (config.yaml)

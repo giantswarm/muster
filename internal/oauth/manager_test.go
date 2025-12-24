@@ -22,7 +22,7 @@ func TestNewManager_Enabled(t *testing.T) {
 	cfg := config.OAuthConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
-		ClientID:     "https://giantswarm.github.io/muster/oauth-client.json",
+		ClientID:     "https://external.example.com/oauth-client.json",
 		CallbackPath: "/oauth/callback",
 	}
 
