@@ -169,14 +169,21 @@ func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
 }
 
 // setupOAuthProxyRoutes registers endpoints for the OAuth proxy (for downstream auth).
-// This includes the self-hosted CIMD and OAuth callback for authenticating with remote MCP servers.
+// This includes:
+//   - The OAuth proxy callback for authenticating with remote MCP servers (at /oauth/proxy/callback)
+//   - The self-hosted CIMD for remote servers to fetch our client metadata
+//
+// Note: The proxy callback path (/oauth/proxy/callback) is different from the OAuth server
+// callback (/oauth/callback) to avoid route conflicts. They handle different OAuth flows:
+//   - /oauth/callback: Cursor authenticating TO muster (OAuth server flow)
+//   - /oauth/proxy/callback: Muster authenticating WITH remote servers (OAuth proxy flow)
 func (s *OAuthHTTPServer) setupOAuthProxyRoutes(mux *http.ServeMux) {
 	oauthProxyHandler := api.GetOAuthHandler()
 	if oauthProxyHandler == nil || !oauthProxyHandler.IsEnabled() {
 		return
 	}
 
-	// Mount the OAuth callback handler for remote server auth
+	// Mount the OAuth proxy callback handler for remote server authentication
 	callbackPath := oauthProxyHandler.GetCallbackPath()
 	if callbackPath != "" {
 		mux.Handle(callbackPath, oauthProxyHandler.GetHTTPHandler())
@@ -184,6 +191,7 @@ func (s *OAuthHTTPServer) setupOAuthProxyRoutes(mux *http.ServeMux) {
 	}
 
 	// Mount the self-hosted CIMD if enabled
+	// This allows remote MCP servers to fetch muster's client metadata
 	if oauthProxyHandler.ShouldServeCIMD() {
 		cimdPath := oauthProxyHandler.GetCIMDPath()
 		cimdHandler := oauthProxyHandler.GetCIMDHandler()

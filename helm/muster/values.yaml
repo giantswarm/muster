@@ -190,8 +190,9 @@ muster:
     # Set to a URL only if you need to use an externally hosted CIMD file.
     clientId: ""
 
-    # Path for the OAuth callback endpoint
-    callbackPath: "/oauth/callback"
+    # Path for the OAuth proxy callback endpoint (for authenticating with remote MCP servers)
+    # NOTE: This is different from /oauth/callback which is used by the OAuth server
+    callbackPath: "/oauth/proxy/callback"
 
     # Path for serving the Client ID Metadata Document (CIMD)
     # Only used when clientId is empty (self-hosted CIMD mode)

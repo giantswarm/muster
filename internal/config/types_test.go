@@ -179,12 +179,12 @@ func TestOAuthConfig_GetRedirectURI(t *testing.T) {
 			expected: "https://muster.example.com/oauth/callback",
 		},
 		{
-			name: "uses default callback path when not set",
+			name: "uses default proxy callback path when not set",
 			config: OAuthConfig{
 				PublicURL:    "https://muster.example.com",
 				CallbackPath: "",
 			},
-			expected: "https://muster.example.com/oauth/callback",
+			expected: "https://muster.example.com/oauth/proxy/callback",
 		},
 	}
 

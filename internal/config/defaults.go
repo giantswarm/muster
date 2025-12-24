@@ -1,8 +1,12 @@
 package config
 
 const (
-	// DefaultOAuthCallbackPath is the default path for OAuth callbacks
+	// DefaultOAuthCallbackPath is the default path for OAuth server callbacks (Cursor -> Muster auth)
 	DefaultOAuthCallbackPath = "/oauth/callback"
+
+	// DefaultOAuthProxyCallbackPath is the default path for OAuth proxy callbacks (Muster -> Remote server auth)
+	// This MUST be different from DefaultOAuthCallbackPath to avoid route conflicts
+	DefaultOAuthProxyCallbackPath = "/oauth/proxy/callback"
 
 	// DefaultOAuthCIMDPath is the default path for serving the Client ID Metadata Document (CIMD)
 	DefaultOAuthCIMDPath = "/.well-known/oauth-client.json"
@@ -22,7 +26,7 @@ func GetDefaultConfigWithRoles() MusterConfig {
 			Host:      "localhost",
 			Transport: MCPTransportStreamableHTTP,
 			OAuth: OAuthConfig{
-				CallbackPath: DefaultOAuthCallbackPath,
+				CallbackPath: DefaultOAuthProxyCallbackPath,
 				CIMDPath:     DefaultOAuthCIMDPath,
 				// ClientID is intentionally NOT set here - when empty, GetEffectiveClientID()
 				// auto-derives from PublicURL. Setting a default would prevent self-hosted CIMD.

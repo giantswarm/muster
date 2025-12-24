@@ -11,7 +11,7 @@ func TestNewAdapter(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -31,7 +31,7 @@ func TestAdapter_IsEnabled(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -51,7 +51,7 @@ func TestAdapter_GetToken(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -74,7 +74,7 @@ func TestAdapter_GetTokenByIssuer(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -97,7 +97,7 @@ func TestAdapter_GetHTTPHandler(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -118,7 +118,7 @@ func TestAdapter_GetCallbackPath(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -129,8 +129,8 @@ func TestAdapter_GetCallbackPath(t *testing.T) {
 
 	adapter := NewAdapter(manager)
 	path := adapter.GetCallbackPath()
-	if path != "/oauth/callback" {
-		t.Errorf("Expected callback path %q, got %q", "/oauth/callback", path)
+	if path != "/oauth/proxy/callback" {
+		t.Errorf("Expected callback path %q, got %q", "/oauth/proxy/callback", path)
 	}
 }
 
@@ -139,7 +139,7 @@ func TestAdapter_GetCIMDPath(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 		CIMDPath:     "/.well-known/oauth-client.json",
 	}
 
@@ -161,7 +161,7 @@ func TestAdapter_ShouldServeCIMD(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty means self-host
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -181,7 +181,7 @@ func TestAdapter_GetCIMDHandler(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -202,7 +202,7 @@ func TestAdapter_RegisterServer(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
@@ -228,7 +228,7 @@ func TestAdapter_Stop(t *testing.T) {
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
-		CallbackPath: "/oauth/callback",
+		CallbackPath: "/oauth/proxy/callback",
 	}
 
 	manager := NewManager(cfg)
