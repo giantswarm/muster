@@ -327,14 +327,13 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 		namespace = "default"
 	}
 
-	// Create client config with the filesystem path
-	// When a config path is explicitly provided, force filesystem mode since
-	// that's where the CRD YAML files are stored. This ensures tests and local
-	// development use the correct storage backend.
+	// Create client config with the filesystem path as fallback.
+	// When kubernetes=true in config, use Kubernetes CRD mode.
+	// Otherwise, force filesystem mode for local development and tests.
 	clientConfig := &client.MusterClientConfig{
 		FilesystemPath:      configPath,
 		Namespace:           namespace,
-		ForceFilesystemMode: true,
+		ForceFilesystemMode: !musterConfig.Kubernetes,
 		Debug:               debug,
 	}
 

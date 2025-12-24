@@ -64,3 +64,4 @@ data:
         {{- end }}
       {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
+    kubernetes: true
