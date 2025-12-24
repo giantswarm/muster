@@ -612,6 +612,20 @@ func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *api.AuthChalle
 //
 //	After authenticating, return here and retry your request.
 func (f *Formatters) FormatAuthChallenge(challenge *api.AuthChallenge) string {
+	return f.FormatAuthChallengeWithBrowserStatus(challenge, false)
+}
+
+// FormatAuthChallengeWithBrowserStatus formats an authentication challenge for user display.
+// This produces a user-friendly message with clear instructions on how to
+// authenticate, including information about whether the browser was opened.
+//
+// Args:
+//   - challenge: The authentication challenge to format
+//   - browserOpened: Whether the browser was successfully opened
+//
+// Returns:
+//   - Formatted string with authentication instructions
+func (f *Formatters) FormatAuthChallengeWithBrowserStatus(challenge *api.AuthChallenge, browserOpened bool) string {
 	var output []string
 
 	output = append(output, "[Authentication Required]")
@@ -622,13 +636,19 @@ func (f *Formatters) FormatAuthChallenge(challenge *api.AuthChallenge) string {
 
 	output = append(output, "")
 
-	if challenge.Message != "" {
-		output = append(output, challenge.Message)
+	if browserOpened {
+		output = append(output, "Your browser has been opened for authentication.")
+		output = append(output, "")
+		output = append(output, "If it didn't open, click here:")
 	} else {
-		output = append(output, "Authentication is required to access this resource.")
+		if challenge.Message != "" {
+			output = append(output, challenge.Message)
+		} else {
+			output = append(output, "Authentication is required to access this resource.")
+		}
+		output = append(output, "Please visit the following URL to authenticate:")
 	}
 
-	output = append(output, "Please visit the following URL to authenticate:")
 	output = append(output, "")
 	output = append(output, challenge.AuthURL)
 	output = append(output, "")

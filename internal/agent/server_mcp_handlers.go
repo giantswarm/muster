@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"muster/internal/agent/oauth"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -263,8 +265,19 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 	// Check for authentication challenge
 	formatters := NewFormatters()
 	if challenge := formatters.IsAuthChallenge(result); challenge != nil {
-		// Format as a user-friendly authentication challenge
-		formattedChallenge := formatters.FormatAuthChallenge(challenge)
+		// Try to open the browser automatically for auth challenges
+		browserOpened := false
+		if challenge.AuthURL != "" {
+			if err := oauth.OpenBrowser(challenge.AuthURL); err == nil {
+				browserOpened = true
+				if m.logger != nil {
+					m.logger.Info("Opened browser for remote server authentication")
+				}
+			}
+		}
+
+		// Format as a user-friendly authentication challenge (includes browser status)
+		formattedChallenge := formatters.FormatAuthChallengeWithBrowserStatus(challenge, browserOpened)
 		return mcp.NewToolResultText(formattedChallenge), nil
 	}
 
