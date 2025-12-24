@@ -184,8 +184,9 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	authState, err := authManager.CheckConnection(ctx, endpoint)
 	if err != nil && authState != oauth.AuthStatePendingAuth {
 		// Error that's not auth-related, try regular connection
-		logger.Info("Auth check failed: %v, attempting direct connection", err)
-		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+		// Still pass auth manager for potential re-auth if token expires later
+		logger.Info("Auth check failed: %v, attempting direct connection with re-auth support", err)
+		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 	}
 
 	switch authState {
@@ -201,8 +202,8 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 			// Re-check to get the auth challenge
 			authState, err = authManager.CheckConnection(ctx, endpoint)
 			if err != nil || authState != oauth.AuthStatePendingAuth {
-				// Can't determine auth requirements, try direct connection
-				return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+				// Can't determine auth requirements, try direct connection with re-auth support
+				return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 			}
 			return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
 		}
@@ -216,7 +217,8 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 
 	default:
 		// No auth required or unknown state, try direct connection
-		return runMCPServerDirect(ctx, client, logger, endpoint, transport)
+		// Still pass auth manager for potential re-auth if server starts requiring auth later
+		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 	}
 }
 
