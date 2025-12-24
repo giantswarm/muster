@@ -20,16 +20,16 @@ import (
 )
 
 var (
-	agentEndpoint   string
-	agentTimeout    time.Duration
-	agentVerbose    bool
-	agentNoColor    bool
-	agentJSONRPC    bool
-	agentREPL       bool
-	agentMCPServer  bool
-	agentTransport  string
-	agentConfigPath string
-	agentAutoSSO    bool
+	agentEndpoint       string
+	agentTimeout        time.Duration
+	agentVerbose        bool
+	agentNoColor        bool
+	agentJSONRPC        bool
+	agentREPL           bool
+	agentMCPServer      bool
+	agentTransport      string
+	agentConfigPath     string
+	agentDisableAutoSSO bool
 )
 
 // agentCmd represents the agent command
@@ -85,7 +85,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	agentCmd.Flags().BoolVar(&agentAutoSSO, "auto-sso", false, "Automatically authenticate with remote MCP servers after Muster auth (opens browser tabs)")
+	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -364,8 +364,8 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 
 	// Auto-trigger authentication for any remote MCP servers that require auth
 	// This provides a seamless SSO experience when the same IdP is used
-	// Only runs if --auto-sso flag is set to avoid unexpected browser tabs
-	if agentAutoSSO {
+	// Enabled by default, can be disabled with --disable-auto-sso
+	if !agentDisableAutoSSO {
 		go triggerPendingRemoteAuth(ctx, client, logger)
 	}
 }
