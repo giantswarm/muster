@@ -58,7 +58,9 @@ type OAuthConfig struct {
 	// {PublicURL}/.well-known/oauth-client.json and muster will serve the CIMD itself.
 	ClientID string `yaml:"clientId,omitempty"`
 
-	// CallbackPath is the path for the OAuth callback endpoint (default: "/oauth/callback").
+	// CallbackPath is the path for the OAuth proxy callback endpoint (default: "/oauth/proxy/callback").
+	// This is used when muster authenticates with remote MCP servers.
+	// NOTE: This MUST be different from the OAuth server callback (/oauth/callback) to avoid conflicts.
 	CallbackPath string `yaml:"callbackPath,omitempty"`
 
 	// CIMDPath is the path for serving the Client ID Metadata Document (default: "/.well-known/oauth-client.json").
@@ -122,11 +124,12 @@ func (c *OAuthConfig) GetCIMDPath() string {
 	return DefaultOAuthCIMDPath
 }
 
-// GetRedirectURI returns the full redirect URI for OAuth callbacks.
+// GetRedirectURI returns the full redirect URI for OAuth proxy callbacks.
+// This is where remote MCP server IdPs will redirect after authentication.
 func (c *OAuthConfig) GetRedirectURI() string {
 	callbackPath := c.CallbackPath
 	if callbackPath == "" {
-		callbackPath = DefaultOAuthCallbackPath
+		callbackPath = DefaultOAuthProxyCallbackPath
 	}
 	return strings.TrimSuffix(c.PublicURL, "/") + callbackPath
 }
