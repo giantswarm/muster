@@ -48,7 +48,7 @@ tests:
   # RBAC Profile Tests
   # ==========================================
 
-  - it: should create minimal profile with muster CRDs only
+  - it: should create minimal profile with muster CRDs and events access
     set:
       serviceAccount.create: true
       rbac.create: true
@@ -67,6 +67,14 @@ tests:
             apiGroups: ["muster.giantswarm.io"]
             resources: ["mcpservers", "serviceclasses", "workflows"]
             verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        documentIndex: 0
+      # Minimal profile should include events access for core_events tool
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["events"]
+            verbs: ["get", "list", "watch", "create"]
         documentIndex: 0
 
   - it: should create readonly profile with get/list/watch verbs only

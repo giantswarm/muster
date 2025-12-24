@@ -36,10 +36,11 @@ rbac:
 
   # RBAC profile controls the permission level
   # Options:
-  #   - "minimal":  Only muster CRDs access (for minimal deployment)
+  #   - "minimal":  Muster CRDs + events access (for minimal deployment)
   #   - "readonly": Read-only access to common K8s resources + muster CRDs
   #   - "standard": Read + limited write (for full muster functionality)
   #
+  # All profiles include events access for the core_events tool.
   # Muster always needs access to its own CRDs (MCPServer, ServiceClass, Workflow)
   # The profile controls additional Kubernetes API access.
   profile: "standard"

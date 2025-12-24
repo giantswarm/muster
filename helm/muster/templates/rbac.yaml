@@ -5,9 +5,12 @@ Muster needs access to its own CRDs (MCPServer, ServiceClass, Workflow)
 plus optional Kubernetes API access based on the RBAC profile.
 
 RBAC Profiles:
-  - minimal:  Only muster CRDs (MCPServer, ServiceClass, Workflow)
+  - minimal:  Muster CRDs + events (for core_events tool)
   - readonly: Read-only access to common K8s resources + muster CRDs
   - standard: Read + limited write for full muster functionality
+
+Note: All profiles include events access because the core_events tool
+is a core muster functionality that requires Kubernetes events access.
 */}}
 
 {{- define "muster.rbac.musterCRDRules" -}}
@@ -28,8 +31,13 @@ RBAC Profiles:
 {{- end }}
 
 {{- define "muster.rbac.minimalRules" -}}
-# Minimal profile: Only muster CRDs
+# Minimal profile: Only muster CRDs + events for core_events tool
 {{- include "muster.rbac.musterCRDRules" . }}
+
+# Events are required for the core_events tool (core muster functionality)
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
 {{- end }}
 
 {{- define "muster.rbac.readonlyRules" -}}
