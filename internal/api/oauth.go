@@ -33,7 +33,7 @@ type OAuthHandler interface {
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler
 
-	// GetCallbackPath returns the configured callback path (e.g., "/oauth/callback").
+	// GetCallbackPath returns the configured callback path (e.g., "/oauth/proxy/callback").
 	GetCallbackPath() string
 
 	// GetCIMDPath returns the path for serving the CIMD (e.g., "/.well-known/oauth-client.json").

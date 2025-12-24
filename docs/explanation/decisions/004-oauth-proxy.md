@@ -209,7 +209,7 @@ The served CIMD includes additional fields beyond the original design:
   "client_id": "https://muster.example.com/.well-known/oauth-client.json",
   "client_name": "Muster MCP Aggregator",
   "client_uri": "https://github.com/giantswarm/muster",
-  "redirect_uris": ["https://muster.example.com/oauth/callback"],
+  "redirect_uris": ["https://muster.example.com/oauth/proxy/callback"],
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
