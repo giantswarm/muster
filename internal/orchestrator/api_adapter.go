@@ -2,10 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/mcpserver"
 	"muster/internal/services"
 )
 
@@ -432,6 +435,21 @@ func (a *Adapter) handleServiceStart(args map[string]interface{}) (*api.CallTool
 	}
 
 	if err := a.StartService(name); err != nil {
+		// Check if this is an authentication required error
+		var authErr *mcpserver.AuthRequiredError
+		if errors.As(err, &authErr) || strings.Contains(err.Error(), "authentication required") {
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf(
+					"Service '%s' requires OAuth authentication.\n\n"+
+						"To connect to this server, use the authenticate tool:\n"+
+						"  x_%s_authenticate\n\n"+
+						"The service start command cannot be used for OAuth-protected servers "+
+						"because authentication is session-scoped.",
+					name, name,
+				)},
+				IsError: true,
+			}, nil
+		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to start service: %v", err)},
 			IsError: true,
@@ -493,6 +511,21 @@ func (a *Adapter) handleServiceRestart(args map[string]interface{}) (*api.CallTo
 	}
 
 	if err := a.RestartService(name); err != nil {
+		// Check if this is an authentication required error
+		var authErr *mcpserver.AuthRequiredError
+		if errors.As(err, &authErr) || strings.Contains(err.Error(), "authentication required") {
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf(
+					"Service '%s' requires OAuth authentication.\n\n"+
+						"To connect to this server, use the authenticate tool:\n"+
+						"  x_%s_authenticate\n\n"+
+						"The service restart command cannot be used for OAuth-protected servers "+
+						"because authentication is session-scoped.",
+					name, name,
+				)},
+				IsError: true,
+			}, nil
+		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to restart service: %v", err)},
 			IsError: true,

@@ -13,6 +13,7 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/config"
+	internalmcp "muster/internal/mcpserver"
 	"muster/internal/server"
 	"muster/pkg/logging"
 
@@ -1456,18 +1457,25 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 	if token != nil {
 		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
 
-		// We have a token - try to reinitialize the server
-		// This will be handled by the manager's UpgradeServerAfterAuth method
-		// For now, return a message telling the user to retry
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.NewTextContent(fmt.Sprintf(
-					"Token found for %s. Connection in progress. Please wait and try your operation again.",
-					serverName,
-				)),
-			},
-			IsError: false,
-		}, nil
+		// Try to establish connection using the existing token
+		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, token.AccessToken)
+		if connectErr == nil {
+			// Connection successful
+			return connectResult, nil
+		}
+
+		// Check if the error is a 401 - token is expired/invalid
+		if strings.Contains(connectErr.Error(), "401") || strings.Contains(connectErr.Error(), "Unauthorized") {
+			logging.Info("Aggregator", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
+			// Token is invalid - fall through to create a fresh auth challenge
+		} else {
+			// Some other error - report it
+			logging.Error("Aggregator", connectErr, "Failed to connect to server %s with existing token", serverName)
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"Failed to connect to %s: %v\n\nPlease try again or check the server status.",
+				serverName, connectErr,
+			)), nil
+		}
 	}
 
 	// No token - need to create an auth challenge
@@ -1492,6 +1500,82 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 				serverName,
 				challenge.Message,
 				challenge.AuthURL,
+			)),
+		},
+		IsError: false,
+	}, nil
+}
+
+// tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
+// On success, it upgrades the session connection and returns a success result.
+// On failure, it returns an error that the caller can use to determine next steps.
+func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, accessToken string) (*mcp.CallToolResult, error) {
+	// Create an authenticated MCP client with the token
+	headers := map[string]string{
+		"Authorization": "Bearer " + accessToken,
+	}
+
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+
+	// Try to initialize the client
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to initialize connection: %w", err)
+	}
+
+	// Fetch tools from the server
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("Aggregator", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("Aggregator", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		prompts = nil
+	}
+
+	// Upgrade the session connection
+	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Create the session connection
+	conn := &SessionConnection{
+		ServerName:  serverName,
+		Status:      StatusSessionConnected,
+		Client:      client,
+		ConnectedAt: time.Now(),
+	}
+	conn.UpdateTools(tools)
+	conn.UpdateResources(resources)
+	conn.UpdatePrompts(prompts)
+
+	session.SetConnection(serverName, conn)
+
+	// Send targeted notification to the session that their tools have changed
+	a.NotifySessionToolsChanged(sessionID)
+
+	logging.Info("Aggregator", "Session %s connected to %s with %d tools, %d resources, %d prompts",
+		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(fmt.Sprintf(
+				"Successfully connected to %s!\n\n"+
+					"Available capabilities:\n"+
+					"- Tools: %d\n"+
+					"- Resources: %d\n"+
+					"- Prompts: %d\n\n"+
+					"You can now use the tools from this server.",
+				serverName, len(tools), len(resources), len(prompts),
 			)),
 		},
 		IsError: false,
