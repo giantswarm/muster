@@ -58,6 +58,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer, ServiceClass, and Workflow CRs |
+| `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 
 ### Aggregator Configuration
@@ -99,6 +100,7 @@ aggregator:
 #### Production Configuration (Kubernetes)
 ```yaml
 namespace: "muster-system"      # Use dedicated namespace for muster CRs
+kubernetes: true                # Use Kubernetes CRDs instead of filesystem
 aggregator:
   port: 80
   host: "0.0.0.0"
