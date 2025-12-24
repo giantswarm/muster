@@ -1467,6 +1467,8 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		// Check if the error is a 401 - token is expired/invalid
 		if strings.Contains(connectErr.Error(), "401") || strings.Contains(connectErr.Error(), "Unauthorized") {
 			logging.Info("Aggregator", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
+			// Clear the invalid token before requesting fresh authentication
+			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
 			// Token is invalid - fall through to create a fresh auth challenge
 		} else {
 			// Some other error - report it

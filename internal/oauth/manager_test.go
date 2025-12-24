@@ -301,6 +301,55 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	}
 }
 
+func TestManager_ClearTokenByIssuer(t *testing.T) {
+	cfg := config.OAuthConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "client-id",
+		CallbackPath: "/oauth/proxy/callback",
+	}
+
+	manager := NewManager(cfg)
+	if manager == nil {
+		t.Fatal("Expected non-nil manager")
+	}
+	defer manager.Stop()
+
+	issuer := "https://auth.example.com"
+	sessionID := "session-123"
+
+	// Store a token directly
+	testToken := &Token{
+		AccessToken: "test-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Scope:       "openid",
+		Issuer:      issuer,
+	}
+	manager.client.StoreToken(sessionID, testToken)
+
+	// Verify token exists
+	token := manager.GetTokenByIssuer(sessionID, issuer)
+	if token == nil {
+		t.Fatal("Expected token before clearing")
+	}
+
+	// Clear the token
+	manager.ClearTokenByIssuer(sessionID, issuer)
+
+	// Verify token is gone
+	token = manager.GetTokenByIssuer(sessionID, issuer)
+	if token != nil {
+		t.Error("Expected nil token after clearing")
+	}
+}
+
+func TestManager_ClearTokenByIssuer_NilManager(t *testing.T) {
+	var manager *Manager
+	// Should not panic
+	manager.ClearTokenByIssuer("session", "issuer")
+}
+
 func TestManager_GetCIMDPath(t *testing.T) {
 	cfg := config.OAuthConfig{
 		Enabled:      true,

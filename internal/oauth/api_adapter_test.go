@@ -92,6 +92,51 @@ func TestAdapter_GetTokenByIssuer(t *testing.T) {
 	}
 }
 
+func TestAdapter_ClearTokenByIssuer(t *testing.T) {
+	cfg := config.OAuthConfig{
+		Enabled:      true,
+		PublicURL:    "https://muster.example.com",
+		ClientID:     "client-id",
+		CallbackPath: "/oauth/proxy/callback",
+	}
+
+	manager := NewManager(cfg)
+	if manager == nil {
+		t.Fatal("Expected non-nil manager")
+	}
+	defer manager.Stop()
+
+	adapter := NewAdapter(manager)
+
+	issuer := "https://auth.example.com"
+	sessionID := "session-123"
+
+	// Store a token directly
+	testToken := &Token{
+		AccessToken: "test-token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Scope:       "openid",
+		Issuer:      issuer,
+	}
+	manager.client.StoreToken(sessionID, testToken)
+
+	// Verify token exists
+	token := adapter.GetTokenByIssuer(sessionID, issuer)
+	if token == nil {
+		t.Fatal("Expected token before clearing")
+	}
+
+	// Clear the token via adapter
+	adapter.ClearTokenByIssuer(sessionID, issuer)
+
+	// Verify token is gone
+	token = adapter.GetTokenByIssuer(sessionID, issuer)
+	if token != nil {
+		t.Error("Expected nil token after clearing")
+	}
+}
+
 func TestAdapter_GetHTTPHandler(t *testing.T) {
 	cfg := config.OAuthConfig{
 		Enabled:      true,
