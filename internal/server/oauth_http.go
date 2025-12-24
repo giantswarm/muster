@@ -22,6 +22,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 
+	"muster/internal/api"
 	"muster/internal/config"
 	"muster/pkg/logging"
 )
@@ -129,6 +130,9 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 	// Setup OAuth 2.1 endpoints
 	s.setupOAuthRoutes(mux)
 
+	// Setup OAuth proxy endpoints (for downstream auth to remote MCP servers)
+	s.setupOAuthProxyRoutes(mux)
+
 	// Setup MCP endpoint with OAuth protection
 	s.setupMCPRoutes(mux)
 
@@ -162,6 +166,32 @@ func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth/introspect", s.oauthHandler.ServeTokenIntrospection)
 
 	logging.Info("OAuth", "Registered OAuth 2.1 endpoints")
+}
+
+// setupOAuthProxyRoutes registers endpoints for the OAuth proxy (for downstream auth).
+// This includes the self-hosted CIMD and OAuth callback for authenticating with remote MCP servers.
+func (s *OAuthHTTPServer) setupOAuthProxyRoutes(mux *http.ServeMux) {
+	oauthProxyHandler := api.GetOAuthHandler()
+	if oauthProxyHandler == nil || !oauthProxyHandler.IsEnabled() {
+		return
+	}
+
+	// Mount the OAuth callback handler for remote server auth
+	callbackPath := oauthProxyHandler.GetCallbackPath()
+	if callbackPath != "" {
+		mux.Handle(callbackPath, oauthProxyHandler.GetHTTPHandler())
+		logging.Info("OAuth", "Mounted OAuth proxy callback at %s", callbackPath)
+	}
+
+	// Mount the self-hosted CIMD if enabled
+	if oauthProxyHandler.ShouldServeCIMD() {
+		cimdPath := oauthProxyHandler.GetCIMDPath()
+		cimdHandler := oauthProxyHandler.GetCIMDHandler()
+		if cimdPath != "" && cimdHandler != nil {
+			mux.HandleFunc(cimdPath, cimdHandler)
+			logging.Info("OAuth", "Mounted self-hosted CIMD at %s", cimdPath)
+		}
+	}
 }
 
 // setupMCPRoutes registers MCP endpoints with OAuth protection.
