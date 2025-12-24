@@ -370,17 +370,17 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 	}
 }
 
+// failedServer represents a server that failed SSO authentication.
+type failedServer struct {
+	name string
+	url  string
+}
+
 // triggerPendingRemoteAuth detects remote MCP servers that require authentication
 // and automatically triggers the OAuth flow for each one. Since they typically share
 // the same IdP (Dex), the browser session from Muster auth will provide SSO.
 func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
-	// Brief delay to ensure the tool registration from upgradeToConnectedServer
-	// has propagated. The MCP server needs time to process RegisterClientToolsOnServer
-	// and send the tools/list_changed notification before we query the tool cache.
-	// 500ms is conservative - the actual registration is typically <100ms.
-	time.Sleep(500 * time.Millisecond)
-
-	// Get all tools from the cache
+	// Get all tools from the cache (already populated by upgradeToConnectedServer)
 	tools := client.GetToolCache()
 	if len(tools) == 0 {
 		logger.Info("SSO chain skipped: no tools available in cache")
@@ -399,10 +399,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 
 	// Track results for summary
 	var successCount, failureCount int
-	var failedServers []struct {
-		name string
-		url  string
-	}
+	var failedServers []failedServer
 
 	// Trigger auth for each pending server sequentially
 	// Sequential is better for SSO as the browser session builds up
@@ -422,10 +419,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		if err != nil {
 			logger.Error("Failed to call %s: %v", toolName, err)
 			failureCount++
-			failedServers = append(failedServers, struct {
-				name string
-				url  string
-			}{name: serverName, url: ""})
+			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
 			continue
 		}
 
@@ -434,10 +428,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		if authURL == "" {
 			logger.Error("Could not extract auth URL from %s response", toolName)
 			failureCount++
-			failedServers = append(failedServers, struct {
-				name string
-				url  string
-			}{name: serverName, url: ""})
+			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
 			continue
 		}
 
@@ -445,10 +436,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		if err := oauth.OpenBrowser(authURL); err != nil {
 			logger.Error("Failed to open browser for %s: %v", serverName, err)
 			failureCount++
-			failedServers = append(failedServers, struct {
-				name string
-				url  string
-			}{name: serverName, url: authURL})
+			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
 		} else {
 			successCount++
 		}
@@ -474,18 +462,13 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 
 	// Display failed URLs together for easy manual authentication
 	if len(failedServers) > 0 {
-		var urlsToShow []struct {
-			name string
-			url  string
-		}
+		var hasURLs bool
 		for _, fs := range failedServers {
 			if fs.url != "" {
-				urlsToShow = append(urlsToShow, fs)
-			}
-		}
-		if len(urlsToShow) > 0 {
-			logger.Info("Manual authentication required for the following servers:")
-			for _, fs := range urlsToShow {
+				if !hasURLs {
+					logger.Info("Manual authentication required for the following servers:")
+					hasURLs = true
+				}
 				logger.Info("  %s: %s", fs.name, fs.url)
 			}
 		}
