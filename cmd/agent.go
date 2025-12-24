@@ -231,6 +231,21 @@ func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent
 func runMCPServerDirectWithAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType, authManager *oauth.AuthManager) error {
 	// Connect with retry
 	if err := connectWithRetry(ctx, client, logger, endpoint, transport); err != nil {
+		// Check if this is a 401 error - if so, the cached token is invalid
+		// and we need to fall back to the pending auth flow
+		if authManager != nil && oauth.IsTokenExpiredError(err) {
+			logger.Info("Connection failed with 401 - cached token is invalid, clearing and re-authenticating")
+			_ = authManager.ClearToken()
+
+			// Re-check connection to get the auth challenge
+			authState, checkErr := authManager.CheckConnection(ctx, endpoint)
+			if checkErr == nil && authState == oauth.AuthStatePendingAuth {
+				// Fall back to pending auth flow
+				return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
+			}
+			// If we can't get auth challenge, return original error
+			logger.Info("Could not start re-authentication flow: %v", checkErr)
+		}
 		return err
 	}
 	defer client.Close()
