@@ -56,7 +56,6 @@ type OAuthConfig struct {
 	// This should be the URL of the Client ID Metadata Document (CIMD).
 	// If not set and PublicURL is set, the ClientID will be auto-derived as
 	// {PublicURL}/.well-known/oauth-client.json and muster will serve the CIMD itself.
-	// Legacy value: "https://giantswarm.github.io/muster/oauth-client.json"
 	ClientID string `yaml:"clientId,omitempty"`
 
 	// CallbackPath is the path for the OAuth callback endpoint (default: "/oauth/callback").
@@ -74,7 +73,7 @@ type OAuthConfig struct {
 // GetEffectiveClientID returns the effective OAuth client ID.
 // If ClientID is explicitly set, it is returned as-is.
 // If ClientID is empty but PublicURL is set, returns the self-hosted CIMD URL.
-// Otherwise, returns the default Giant Swarm hosted CIMD URL.
+// Otherwise, returns empty string (OAuth proxy requires publicUrl to function).
 func (c *OAuthConfig) GetEffectiveClientID() string {
 	if c.ClientID != "" {
 		return c.ClientID
@@ -89,8 +88,8 @@ func (c *OAuthConfig) GetEffectiveClientID() string {
 		return strings.TrimSuffix(c.PublicURL, "/") + cimdPath
 	}
 
-	// Fall back to default
-	return DefaultOAuthClientID
+	// No publicUrl means OAuth proxy won't work - return empty
+	return ""
 }
 
 // ShouldServeCIMD returns true if muster should serve its own CIMD.

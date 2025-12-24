@@ -67,24 +67,24 @@ To link the Tool Call (Step 1) with the Callback (Step 6), we need a session ide
 *   This `session_id` is sent with every request to `muster server` (e.g., in a Header `X-Muster-Session-ID`).
 *   The `muster server` uses this ID to store and retrieve tokens.
 
-### 4. Client Registration (CIMD on GitHub Pages)
+### 4. Client Registration (Self-Hosted CIMD)
 
-To simplify registration and establish trust with Remote MCP servers, we will publish the **Client ID Metadata Document (CIMD)** on GitHub Pages (or similar static hosting), following the pattern used by `mcp-debug`.
+Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, eliminating the need for external static hosting.
 
-*   **Hosting**: The metadata document will be hosted at a stable HTTPS URL, e.g., `https://giantswarm.github.io/muster/oauth-client.json`.
-*   **Client ID**: This URL itself will be the `client_id` used by Muster Server when authenticating with `mcp-kubernetes`.
-*   **Content**: The JSON document will define the client's properties:
+*   **Self-Hosted**: When `oauth.publicUrl` is set, muster auto-derives the client ID as `{publicUrl}/.well-known/oauth-client.json` and serves the CIMD at that path.
+*   **Client ID**: The CIMD URL is used as the `client_id` when authenticating with remote MCP servers.
+*   **Content**: The JSON document defines the client's properties with the correct redirect URI for the deployment:
     ```json
     {
-      "client_id": "https://giantswarm.github.io/muster/oauth-client.json",
-      "client_name": "Muster Aggregator",
-      "redirect_uris": ["https://muster.giantswarm.io/oauth/callback"],
+      "client_id": "https://muster.example.com/.well-known/oauth-client.json",
+      "client_name": "Muster MCP Aggregator",
+      "redirect_uris": ["https://muster.example.com/oauth/callback"],
       "grant_types": ["authorization_code", "refresh_token"],
       "response_types": ["code"],
       "token_endpoint_auth_method": "none"
     }
     ```
-*   **Dynamic vs Static**: Since the `redirect_uris` might depend on the specific deployment of Muster Server (e.g., customer environments vs SaaS), we may need multiple CIMD files or a way to parameterize/host them. For the SaaS/Managed instance, a static GitHub Pages file is sufficient. For self-hosted, users might host their own CIMD or rely on manual registration.
+*   **No External Hosting Required**: Each deployment automatically gets the correct redirect URI without needing to maintain external CIMD files.
 
 ### 5. Single Sign-On (SSO) and Token Reuse
 
@@ -103,24 +103,21 @@ To support SSO across multiple MCP servers that share the same Authenticator (Id
 *   **Public Reachability**: `muster server` requires a public URL (Ingress) to receive OAuth callbacks.
 *   **Stateful Server**: The server needs to manage user sessions and tokens. For HA, a distributed store (e.g., Redis/Valkey) might be needed in the future, but in-memory is sufficient for the initial MVP (single replica).
 *   **User Experience**: The user must manually click a link and then retry the action in Cursor. This is a limitation of the decoupled architecture but provides high security (token never leaves the server boundary). With SSO/Token Reuse, subsequent auths become transparent or one-click.
-*   **CIMD Hosting**: We need to maintain the `oauth-client.json` file in the `gh-pages` branch or `docs/` folder of the repo.
 
 ## Implementation Steps
 
 1.  **Muster Server**:
     *   Add `internal/oauth/client` package.
     *   Implement `/oauth/callback` handler.
-    *   Implement `/.well-known/oauth-client` handler (optional, if self-hosting CIMD).
+    *   Implement `/.well-known/oauth-client.json` handler for self-hosted CIMD.
     *   Add Session/Token Store (In-Memory).
     *   Update `aggregator` to intercept 401s and trigger flow.
     *   **New**: Implement logic to parse `WWW-Authenticate` headers and lookup reusable tokens.
 2.  **Muster Agent**:
     *   Update `agent` to handle "Auth Required" responses and format them for Cursor.
 3.  **Configuration**:
-    *   Add flags for `public-url` (for callback construction).
-    *   Add flag for `client-id` (to use the CIMD URL).
-4.  **Documentation**:
-    *   Create and publish `oauth-client.json` to GitHub Pages.
+    *   Add flags for `public-url` (for callback construction and CIMD generation).
+    *   Add optional flag for `client-id` (only needed for external CIMD hosting).
 
 ## Implementation Notes
 
@@ -137,22 +134,19 @@ The implementation uses PKCE with S256 code challenge method for enhanced securi
 
 ### 2. Self-Hosted CIMD (Dynamic Client Metadata)
 
-Instead of requiring external static hosting (GitHub Pages), muster can serve its own CIMD dynamically:
+Muster serves its own CIMD dynamically:
 
-*   When `oauth.publicUrl` is set but `oauth.clientId` is empty, muster auto-derives the client ID as `{publicUrl}/.well-known/oauth-client.json`
+*   When `oauth.publicUrl` is set, muster auto-derives the client ID as `{publicUrl}/.well-known/oauth-client.json`
 *   Muster serves the CIMD at this path with dynamically generated content matching the deployment's actual redirect URI
-*   This eliminates the need to maintain external CIMD files for self-hosted deployments
-*   Legacy GitHub Pages hosting (`https://giantswarm.github.io/muster/oauth-client.json`) remains available as a fallback
+*   This eliminates the need to maintain external CIMD files
 
-Configuration options:
+Configuration:
 ```yaml
 aggregator:
   oauth:
     enabled: true
     publicUrl: "https://muster.example.com"
-    # clientId: "" # Empty = auto-derive and self-host CIMD
-    callbackPath: "/oauth/callback"
-    cimdPath: "/.well-known/oauth-client.json"
+    # clientId is auto-derived from publicUrl
 ```
 
 ### 3. OAuth Metadata Discovery with Fallback
