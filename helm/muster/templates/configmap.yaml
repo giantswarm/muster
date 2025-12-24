@@ -10,6 +10,16 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- if .Values.muster.oauth.enabled }}
+      oauth:
+        enabled: true
+        publicUrl: {{ .Values.muster.oauth.publicUrl | quote }}
+        {{- if .Values.muster.oauth.clientId }}
+        clientId: {{ .Values.muster.oauth.clientId | quote }}
+        {{- end }}
+        callbackPath: {{ .Values.muster.oauth.callbackPath | default "/oauth/callback" | quote }}
+        cimdPath: {{ .Values.muster.oauth.cimdPath | default "/.well-known/oauth-client.json" | quote }}
+      {{- end }}
       {{- if .Values.muster.oauthServer.enabled }}
       {{- $secretsPath := "/etc/muster/secrets" }}
       oauthServer:
