@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -356,6 +359,115 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
 
 	logger.Info("Upgraded to full tool set - %d tools available", len(client.GetToolCache()))
+
+	// Auto-trigger authentication for any remote MCP servers that require auth
+	// This provides a seamless SSO experience when the same IdP is used
+	go triggerPendingRemoteAuth(ctx, client, logger)
+}
+
+// triggerPendingRemoteAuth detects remote MCP servers that require authentication
+// and automatically triggers the OAuth flow for each one. Since they typically share
+// the same IdP (Dex), the browser session from Muster auth will provide SSO.
+func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
+	// Small delay to ensure the upgrade is complete and tools are registered
+	time.Sleep(500 * time.Millisecond)
+
+	// Get all tools from the cache
+	tools := client.GetToolCache()
+	if len(tools) == 0 {
+		return
+	}
+
+	// Find all authenticate_* tools (excluding authenticate_muster)
+	var pendingAuthTools []string
+	for _, tool := range tools {
+		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
+			pendingAuthTools = append(pendingAuthTools, tool.Name)
+		}
+	}
+
+	if len(pendingAuthTools) == 0 {
+		return
+	}
+
+	logger.Info("Found %d remote server(s) requiring authentication, starting SSO chain...", len(pendingAuthTools))
+
+	// Trigger auth for each pending server sequentially
+	// Sequential is better for SSO as the browser session builds up
+	for i, toolName := range pendingAuthTools {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		serverName := strings.TrimPrefix(toolName, "authenticate_")
+		logger.Info("[%d/%d] Authenticating with %s...", i+1, len(pendingAuthTools), serverName)
+
+		// Call the authenticate tool to get the auth URL
+		result, err := client.CallTool(ctx, toolName, nil)
+		if err != nil {
+			logger.Error("Failed to call %s: %v", toolName, err)
+			continue
+		}
+
+		// Extract the auth URL from the result
+		authURL := extractAuthURLFromResult(result)
+		if authURL == "" {
+			logger.Error("Could not extract auth URL from %s response", toolName)
+			continue
+		}
+
+		// Open the browser for this auth flow
+		if err := oauth.OpenBrowser(authURL); err != nil {
+			logger.Error("Failed to open browser for %s: %v", serverName, err)
+			// Still log the URL so user can manually click
+			logger.Info("Please authenticate manually: %s", authURL)
+		} else {
+			logger.Info("Browser opened for %s authentication", serverName)
+		}
+
+		// Wait a bit between auth flows to avoid overwhelming the user
+		// With SSO, this should be quick automatic redirects
+		if i < len(pendingAuthTools)-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	logger.Success("SSO chain complete - all remote servers have been authenticated")
+}
+
+// extractAuthURLFromResult parses the auth URL from a tool call result.
+// The result typically contains JSON with an "auth_url" field.
+func extractAuthURLFromResult(result *mcp.CallToolResult) string {
+	if result == nil || len(result.Content) == 0 {
+		return ""
+	}
+
+	// The content is typically a TextContent with JSON
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			// Try to parse as JSON first
+			var authResp struct {
+				AuthURL string `json:"auth_url"`
+			}
+			if err := json.Unmarshal([]byte(textContent.Text), &authResp); err == nil && authResp.AuthURL != "" {
+				return authResp.AuthURL
+			}
+
+			// Fallback: look for URL pattern in the text
+			// The response often contains "Please sign in to connect..." with a URL
+			lines := strings.Split(textContent.Text, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+					return line
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic
