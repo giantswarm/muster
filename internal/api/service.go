@@ -31,6 +31,24 @@ type ServiceInfo interface {
 	GetServiceData() map[string]interface{}
 }
 
+// ConfigurableService extends ServiceInfo with the ability to update configuration.
+// Services that can have their configuration updated at runtime should implement
+// this interface to allow reconcilers and managers to update configuration
+// before restarting the service.
+type ConfigurableService interface {
+	ServiceInfo
+
+	// UpdateConfiguration updates the service's internal configuration.
+	// This should be called before restarting a service when its definition changes.
+	//
+	// Args:
+	//   - config: The new configuration (type depends on service implementation)
+	//
+	// Returns:
+	//   - error: Error if the configuration is invalid or update fails
+	UpdateConfiguration(config interface{}) error
+}
+
 // ServiceRegistryHandler provides access to registered services in the system.
 // This handler implements the service discovery aspect of the Service Locator Pattern,
 // allowing components to find and access service information without direct coupling.
