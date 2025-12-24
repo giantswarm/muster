@@ -2,6 +2,11 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"muster/internal/agent/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -24,11 +29,18 @@ import (
 //   - Error handling with detailed error messages
 //   - Optional client notification support
 //   - Tool availability caching and refresh
+//   - Automatic re-authentication when tokens expire
 type MCPServer struct {
 	client        *Client
 	logger        *Logger
 	mcpServer     *server.MCPServer
 	notifyClients bool
+
+	// Auth support for re-authentication
+	authManager  *oauth.AuthManager
+	authMu       sync.Mutex
+	endpoint     string
+	reauthInProg bool
 }
 
 // NewMCPServer creates a new MCP server that exposes agent functionality as MCP tools.
@@ -92,6 +104,171 @@ func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServe
 func (m *MCPServer) Start(ctx context.Context) error {
 	// Start the stdio server
 	return server.ServeStdio(m.mcpServer)
+}
+
+// SetAuthManager sets the auth manager for re-authentication support.
+// When set, the server can automatically trigger browser-based re-authentication
+// when tokens expire during operations.
+func (m *MCPServer) SetAuthManager(authManager *oauth.AuthManager, endpoint string) {
+	m.authMu.Lock()
+	defer m.authMu.Unlock()
+	m.authManager = authManager
+	m.endpoint = endpoint
+}
+
+// reauthTimeout is the maximum time to wait for re-authentication to complete.
+const reauthTimeout = 5 * time.Minute
+
+// handleTokenExpiredError handles a token expiration error by triggering re-authentication.
+// It clears the expired token, starts a new OAuth flow, and opens the browser.
+// Returns a user-friendly error message with the auth URL.
+func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr error) *mcp.CallToolResult {
+	m.authMu.Lock()
+
+	// If no auth manager is configured, return the original error
+	if m.authManager == nil {
+		m.authMu.Unlock()
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Authentication token expired: %v\n\nPlease restart the muster agent to re-authenticate.",
+			originalErr,
+		))
+	}
+
+	// Prevent concurrent re-auth attempts
+	if m.reauthInProg {
+		m.authMu.Unlock()
+		return mcp.NewToolResultError(
+			"Re-authentication is already in progress.\n" +
+				"Please complete the sign-in in your browser, then retry your request.",
+		)
+	}
+	m.reauthInProg = true
+	// Note: reauthInProg is reset by waitForReauthCompletion when auth completes or times out
+
+	// Clear the expired token
+	if err := m.authManager.ClearToken(); err != nil {
+		if m.logger != nil {
+			m.logger.Error("Failed to clear expired token: %v", err)
+		}
+	}
+
+	// Re-check connection to get the auth challenge
+	authState, err := m.authManager.CheckConnection(ctx, m.endpoint)
+	if err != nil || authState != oauth.AuthStatePendingAuth {
+		m.reauthInProg = false
+		m.authMu.Unlock()
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Authentication token expired but could not start re-authentication: %v\n\n"+
+				"Please restart the muster agent to re-authenticate.",
+			err,
+		))
+	}
+
+	// Start the OAuth flow
+	authURL, err := m.authManager.StartAuthFlow(ctx)
+	if err != nil {
+		m.reauthInProg = false
+		m.authMu.Unlock()
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Authentication token expired but could not start re-authentication: %v\n\n"+
+				"Please restart the muster agent to re-authenticate.",
+			err,
+		))
+	}
+
+	// Try to open the browser automatically
+	browserOpened := false
+	if err := oauth.OpenBrowser(authURL); err == nil {
+		browserOpened = true
+		if m.logger != nil {
+			m.logger.Info("Opened browser for re-authentication")
+		}
+	} else {
+		if m.logger != nil {
+			m.logger.Error("Failed to open browser: %v", err)
+		}
+	}
+
+	m.authMu.Unlock()
+
+	// Start waiting for auth completion in background with its own context and timeout.
+	// We use a background context because the request context may be cancelled when
+	// the handler returns, but we need the re-auth flow to complete independently.
+	go m.waitForReauthCompletion()
+
+	// Return a user-friendly message
+	if browserOpened {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"Authentication token expired. Your browser has been opened for re-authentication.\n\n"+
+				"If the browser did not open, please visit:\n%s\n\n"+
+				"After signing in, retry your request.",
+			authURL,
+		))
+	}
+
+	return mcp.NewToolResultError(fmt.Sprintf(
+		"Authentication token expired. Please authenticate by visiting:\n%s\n\n"+
+			"After signing in, retry your request.",
+		authURL,
+	))
+}
+
+// waitForReauthCompletion waits for re-authentication to complete and updates the client.
+// It uses its own context with a timeout to ensure the re-auth flow can complete
+// independently of the original request context.
+func (m *MCPServer) waitForReauthCompletion() {
+	// Always reset reauthInProg when done, regardless of success or failure
+	defer func() {
+		m.authMu.Lock()
+		m.reauthInProg = false
+		m.authMu.Unlock()
+	}()
+
+	if m.authManager == nil {
+		return
+	}
+
+	// Create a new context with timeout for the re-auth wait
+	ctx, cancel := context.WithTimeout(context.Background(), reauthTimeout)
+	defer cancel()
+
+	err := m.authManager.WaitForAuth(ctx)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("Re-authentication failed: %v", err)
+		}
+		return
+	}
+
+	// Get the new bearer token and update the client
+	bearerToken, err := m.authManager.GetBearerToken()
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("Failed to get bearer token after re-auth: %v", err)
+		}
+		return
+	}
+
+	m.client.SetAuthorizationHeader(bearerToken)
+
+	if m.logger != nil {
+		m.logger.Success("Re-authentication successful! Token updated.")
+	}
+}
+
+// checkAndHandleTokenExpiration checks if an error is a token expiration error
+// and handles it appropriately. Returns the error result if it was a token error,
+// or nil if it wasn't.
+func (m *MCPServer) checkAndHandleTokenExpiration(ctx context.Context, err error) *mcp.CallToolResult {
+	if err == nil {
+		return nil
+	}
+
+	if oauth.IsTokenExpiredError(err) {
+		return m.handleTokenExpiredError(ctx, err)
+	}
+
+	return nil
 }
 
 // registerTools registers all MCP tools
