@@ -508,12 +508,15 @@ func extractAuthURLFromResult(result *mcp.CallToolResult) string {
 	return ""
 }
 
-// findPendingAuthTools finds all authenticate_* tools from the tool list,
-// excluding authenticate_muster which is the main muster auth tool.
+// findPendingAuthTools finds all authentication tools for remote MCP servers.
+// These are synthetic tools exposed by the aggregator for servers in auth_required state.
+// Tool names follow the pattern: x_<serverName>_authenticate
 func findPendingAuthTools(tools []mcp.Tool) []string {
 	var pendingAuthTools []string
 	for _, tool := range tools {
-		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
+		// Match tools that end with "_authenticate" (e.g., x_gazelle-mcp-kubernetes_authenticate)
+		// but exclude authenticate_muster which is the synthetic tool for local Muster auth
+		if strings.HasSuffix(tool.Name, "_authenticate") && tool.Name != "authenticate_muster" {
 			pendingAuthTools = append(pendingAuthTools, tool.Name)
 		}
 	}

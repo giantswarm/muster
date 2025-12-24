@@ -194,30 +194,30 @@ func TestFindPendingAuthTools(t *testing.T) {
 		{
 			name: "single remote auth tool",
 			tools: []mcp.Tool{
-				{Name: "authenticate_github"},
+				{Name: "x_github_authenticate"},
 				{Name: "list_tools"},
 			},
-			expected: []string{"authenticate_github"},
+			expected: []string{"x_github_authenticate"},
 		},
 		{
 			name: "multiple remote auth tools",
 			tools: []mcp.Tool{
-				{Name: "authenticate_github"},
-				{Name: "authenticate_slack"},
-				{Name: "authenticate_kubernetes"},
+				{Name: "x_github_authenticate"},
+				{Name: "x_slack_authenticate"},
+				{Name: "x_mcp-kubernetes_authenticate"},
 				{Name: "list_tools"},
 			},
-			expected: []string{"authenticate_github", "authenticate_slack", "authenticate_kubernetes"},
+			expected: []string{"x_github_authenticate", "x_slack_authenticate", "x_mcp-kubernetes_authenticate"},
 		},
 		{
 			name: "mixed with authenticate_muster",
 			tools: []mcp.Tool{
 				{Name: "authenticate_muster"},
-				{Name: "authenticate_github"},
-				{Name: "authenticate_gitlab"},
+				{Name: "x_github_authenticate"},
+				{Name: "x_gitlab_authenticate"},
 				{Name: "call_tool"},
 			},
-			expected: []string{"authenticate_github", "authenticate_gitlab"},
+			expected: []string{"x_github_authenticate", "x_gitlab_authenticate"},
 		},
 	}
 
