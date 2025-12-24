@@ -70,11 +70,38 @@ func (p *PendingAuthMCPServer) handleAuthenticate(ctx context.Context, request m
 
 	p.authURL = authURL
 
+	// Try to open the browser automatically
+	browserOpened := false
+	if err := oauth.OpenBrowser(authURL); err == nil {
+		browserOpened = true
+		if p.logger != nil {
+			p.logger.Info("Opened browser for authentication")
+		}
+	}
+
+	// Build a user-friendly message with clickable markdown link
+	var message string
+	if browserOpened {
+		message = fmt.Sprintf(
+			"Your browser has been opened for authentication.\n\n"+
+				"If it didn't open, click here: [Authenticate with Muster](%s)\n\n"+
+				"After signing in, the muster tools will become available automatically.",
+			authURL,
+		)
+	} else {
+		message = fmt.Sprintf(
+			"Please authenticate by clicking this link: [Authenticate with Muster](%s)\n\n"+
+				"After signing in, the muster tools will become available automatically.",
+			authURL,
+		)
+	}
+
 	// Return the auth URL to the user
 	response := AuthenticateResponse{
-		Status:  "auth_required",
-		AuthURL: authURL,
-		Message: "Please authenticate by opening this URL in your browser:",
+		Status:       "auth_required",
+		AuthURL:      authURL,
+		ClickableURL: fmt.Sprintf("[Authenticate with Muster](%s)", authURL),
+		Message:      message,
 	}
 
 	jsonBytes, err := json.MarshalIndent(response, "", "  ")
@@ -92,9 +119,10 @@ func (p *PendingAuthMCPServer) handleAuthenticate(ctx context.Context, request m
 
 // AuthenticateResponse is the structured response from the authenticate_muster tool.
 type AuthenticateResponse struct {
-	Status  string `json:"status"`
-	AuthURL string `json:"auth_url"`
-	Message string `json:"message"`
+	Status       string `json:"status"`
+	AuthURL      string `json:"auth_url"`
+	ClickableURL string `json:"clickable_url"`
+	Message      string `json:"message"`
 }
 
 // waitForAuthCompletion waits for the OAuth callback and notifies completion.
