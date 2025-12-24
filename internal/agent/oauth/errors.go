@@ -5,13 +5,22 @@ import (
 )
 
 // tokenExpirationPatterns are the patterns we look for to detect token expiration errors.
+// These patterns are designed to be specific enough to avoid false positives while
+// catching the common error formats from HTTP clients and OAuth servers.
 var tokenExpirationPatterns = []string{
-	"401",
+	// HTTP status code patterns - more specific to avoid matching unrelated numbers
+	"status 401",
+	"status: 401",
+	"401 unauthorized",
+	" 401:",
+	" 401 ",
+	// OAuth-specific error codes
 	"invalid_token",
 	"token validation failed",
 	"token expired",
 	"token has expired",
 	"access token expired",
+	// General authentication failure
 	"unauthorized",
 }
 
@@ -22,6 +31,9 @@ var tokenExpirationPatterns = []string{
 // The function checks for common patterns in error messages that indicate
 // authentication failures, including HTTP 401 status codes and OAuth-specific
 // error codes like "invalid_token".
+//
+// Security note: Patterns are designed to be specific to avoid false positives
+// that could trigger unnecessary re-authentication flows.
 func IsTokenExpiredError(err error) bool {
 	if err == nil {
 		return false

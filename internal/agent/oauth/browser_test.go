@@ -44,18 +44,80 @@ func TestOpenBrowser_FunctionSignature(t *testing.T) {
 }
 
 func TestOpenBrowser_EmptyURL(t *testing.T) {
-	// Test behavior with empty URL - the function will attempt to open
-	// an empty URL which may or may not fail depending on the OS command.
-	// We're mainly testing that it doesn't panic.
-	switch runtime.GOOS {
-	case "linux", "darwin", "windows":
-		// On supported platforms, we skip actually calling it to avoid
-		// side effects. The important thing is that the function handles
-		// empty URLs without panicking (verified by the signature test above).
-	default:
-		err := OpenBrowser("")
-		if err == nil {
-			t.Error("Expected error on unsupported platform even with empty URL")
-		}
+	// Empty URL should be rejected with a clear error
+	err := OpenBrowser("")
+	if err == nil {
+		t.Error("Expected error for empty URL")
+	}
+	if !strings.Contains(err.Error(), "cannot be empty") {
+		t.Errorf("Expected 'cannot be empty' in error, got: %s", err.Error())
+	}
+}
+
+func TestOpenBrowser_InvalidURLScheme(t *testing.T) {
+	// Test that non-http/https schemes are rejected for security
+	invalidSchemes := []struct {
+		name string
+		url  string
+	}{
+		{"file scheme", "file:///etc/passwd"},
+		{"javascript scheme", "javascript:alert(1)"},
+		{"data scheme", "data:text/html,<script>alert(1)</script>"},
+		{"ftp scheme", "ftp://example.com/file"},
+		{"no scheme", "example.com"},
+		{"custom scheme", "myapp://callback"},
+	}
+
+	for _, tc := range invalidSchemes {
+		t.Run(tc.name, func(t *testing.T) {
+			err := OpenBrowser(tc.url)
+			if err == nil {
+				t.Errorf("Expected error for URL with %s: %s", tc.name, tc.url)
+			}
+			if !strings.Contains(err.Error(), "invalid URL scheme") && !strings.Contains(err.Error(), "invalid URL") {
+				t.Errorf("Expected 'invalid URL scheme' or 'invalid URL' in error, got: %s", err.Error())
+			}
+		})
+	}
+}
+
+func TestOpenBrowser_ValidURLSchemes(t *testing.T) {
+	// Test that http and https schemes are accepted
+	// Note: We can't actually test the browser opening, but we can verify
+	// the URL validation passes by checking error type on supported platforms
+	validURLs := []string{
+		"https://example.com",
+		"https://example.com/path?query=value",
+		"http://localhost:8080",
+		"https://auth.example.com/oauth/authorize?client_id=123",
+	}
+
+	for _, url := range validURLs {
+		t.Run(url, func(t *testing.T) {
+			err := OpenBrowser(url)
+			// On unsupported platforms, we'll get an "unsupported platform" error
+			// On supported platforms, we might get "failed to open browser" if the command fails
+			// But we should NOT get "invalid URL scheme" for valid URLs
+			if err != nil && strings.Contains(err.Error(), "invalid URL scheme") {
+				t.Errorf("Valid URL %s should not be rejected for invalid scheme: %s", url, err.Error())
+			}
+		})
+	}
+}
+
+func TestOpenBrowser_MalformedURL(t *testing.T) {
+	// Test that malformed URLs are rejected
+	malformedURLs := []string{
+		"://missing-scheme",
+		"https://[invalid-ipv6",
+	}
+
+	for _, url := range malformedURLs {
+		t.Run(url, func(t *testing.T) {
+			err := OpenBrowser(url)
+			if err == nil {
+				t.Errorf("Expected error for malformed URL: %s", url)
+			}
+		})
 	}
 }
