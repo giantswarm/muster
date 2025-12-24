@@ -7,6 +7,12 @@ import (
 	"runtime"
 )
 
+// browserLauncher is the function used to launch the browser command.
+// It can be replaced in tests to prevent actual browser opening.
+var browserLauncher = func(cmd *exec.Cmd) error {
+	return cmd.Start()
+}
+
 // OpenBrowser opens the specified URL in the default web browser.
 // It supports Linux, macOS, and Windows.
 //
@@ -48,7 +54,7 @@ func OpenBrowser(urlStr string) error {
 
 	// Start the command but don't wait for it to complete
 	// The browser will open in the background
-	if err := cmd.Start(); err != nil {
+	if err := browserLauncher(cmd); err != nil {
 		return fmt.Errorf("failed to open browser: %w", err)
 	}
 

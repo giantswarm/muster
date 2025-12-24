@@ -1,12 +1,25 @@
 package oauth
 
 import (
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
 )
 
+// mockBrowserLauncher replaces the real browser launcher for testing.
+// It prevents actual browser opening and records what command would be executed.
+func mockBrowserLauncher(cmd *exec.Cmd) error {
+	// Do nothing - don't actually open a browser
+	return nil
+}
+
 func TestOpenBrowser_SupportedPlatforms(t *testing.T) {
+	// Replace the browser launcher with a mock to prevent actual browser opening
+	originalLauncher := browserLauncher
+	browserLauncher = mockBrowserLauncher
+	defer func() { browserLauncher = originalLauncher }()
+
 	// Verify that the function recognizes supported platforms
 	supportedPlatforms := []string{"linux", "darwin", "windows"}
 
@@ -28,10 +41,13 @@ func TestOpenBrowser_SupportedPlatforms(t *testing.T) {
 		if !strings.Contains(err.Error(), "unsupported platform") {
 			t.Errorf("Expected 'unsupported platform' in error, got: %s", err.Error())
 		}
+	} else {
+		// On supported platforms, verify the function works with the mock
+		err := OpenBrowser("https://example.com")
+		if err != nil {
+			t.Errorf("Expected no error on supported platform %s, got: %s", currentOS, err.Error())
+		}
 	}
-	// On supported platforms, we don't actually call the function
-	// to avoid opening a browser during tests. The function's behavior
-	// is verified by the platform detection logic.
 }
 
 func TestOpenBrowser_FunctionSignature(t *testing.T) {
@@ -82,9 +98,12 @@ func TestOpenBrowser_InvalidURLScheme(t *testing.T) {
 }
 
 func TestOpenBrowser_ValidURLSchemes(t *testing.T) {
+	// Replace the browser launcher with a mock to prevent actual browser opening
+	originalLauncher := browserLauncher
+	browserLauncher = mockBrowserLauncher
+	defer func() { browserLauncher = originalLauncher }()
+
 	// Test that http and https schemes are accepted
-	// Note: We can't actually test the browser opening, but we can verify
-	// the URL validation passes by checking error type on supported platforms
 	validURLs := []string{
 		"https://example.com",
 		"https://example.com/path?query=value",
@@ -96,8 +115,7 @@ func TestOpenBrowser_ValidURLSchemes(t *testing.T) {
 		t.Run(url, func(t *testing.T) {
 			err := OpenBrowser(url)
 			// On unsupported platforms, we'll get an "unsupported platform" error
-			// On supported platforms, we might get "failed to open browser" if the command fails
-			// But we should NOT get "invalid URL scheme" for valid URLs
+			// On supported platforms with the mock, we should get no error
 			if err != nil && strings.Contains(err.Error(), "invalid URL scheme") {
 				t.Errorf("Valid URL %s should not be rejected for invalid scheme: %s", url, err.Error())
 			}
@@ -119,5 +137,22 @@ func TestOpenBrowser_MalformedURL(t *testing.T) {
 				t.Errorf("Expected error for malformed URL: %s", url)
 			}
 		})
+	}
+}
+
+func TestOpenBrowser_LauncherError(t *testing.T) {
+	// Replace the browser launcher with one that returns an error
+	originalLauncher := browserLauncher
+	browserLauncher = func(cmd *exec.Cmd) error {
+		return exec.ErrNotFound
+	}
+	defer func() { browserLauncher = originalLauncher }()
+
+	err := OpenBrowser("https://example.com")
+	if err == nil {
+		t.Error("Expected error when browser launcher fails")
+	}
+	if !strings.Contains(err.Error(), "failed to open browser") {
+		t.Errorf("Expected 'failed to open browser' in error, got: %s", err.Error())
 	}
 }
