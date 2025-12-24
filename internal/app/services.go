@@ -193,6 +193,28 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
+		// Merge OAuth proxy config: CLI flags override config file, but use config file as fallback
+		oauthEnabled := cfg.OAuthEnabled || cfg.MusterConfig.Aggregator.OAuth.Enabled
+		oauthPublicURL := cfg.OAuthPublicURL
+		if oauthPublicURL == "" {
+			oauthPublicURL = cfg.MusterConfig.Aggregator.OAuth.PublicURL
+		}
+
+		// Build a merged OAuthConfig for GetEffectiveClientID()
+		mergedOAuthConfig := config.OAuthConfig{
+			Enabled:      oauthEnabled,
+			PublicURL:    oauthPublicURL,
+			ClientID:     cfg.OAuthClientID, // CLI flag value (empty if not specified)
+			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
+			CIMDPath:     cfg.MusterConfig.Aggregator.OAuth.CIMDPath,
+		}
+		// If CLI flag didn't set ClientID, check config file
+		if mergedOAuthConfig.ClientID == "" {
+			mergedOAuthConfig.ClientID = cfg.MusterConfig.Aggregator.OAuth.ClientID
+		}
+		// Use GetEffectiveClientID() to auto-derive from PublicURL if still empty
+		effectiveClientID := mergedOAuthConfig.GetEffectiveClientID()
+
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
 			Port:         cfg.MusterConfig.Aggregator.Port,
@@ -203,10 +225,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth: aggregator.OAuthProxyConfig{
-				Enabled:      cfg.OAuthEnabled,
-				PublicURL:    cfg.OAuthPublicURL,
-				ClientID:     cfg.OAuthClientID,
-				CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
+				Enabled:      oauthEnabled,
+				PublicURL:    oauthPublicURL,
+				ClientID:     effectiveClientID,
+				CallbackPath: mergedOAuthConfig.CallbackPath,
 			},
 			OAuthServer: aggregator.OAuthServerConfig{
 				// CLI flag overrides config file if enabled
