@@ -242,7 +242,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	var reconcileManager *reconciler.Manager
 	if cfg.ConfigPath != "" {
 		reconcileConfig := reconciler.ManagerConfig{
-			Mode:           reconciler.WatchModeFilesystem,
+			Mode:           reconciler.WatchModeAuto,
 			FilesystemPath: cfg.ConfigPath,
 			Namespace:      namespace,
 			WorkerCount:    2,
