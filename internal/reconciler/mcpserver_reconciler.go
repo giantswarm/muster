@@ -206,7 +206,35 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 		return ReconcileResult{}
 	}
 
-	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, restarting", req.Name)
+	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, updating and restarting", req.Name)
+
+	// Update the service configuration before restarting
+	// This ensures the service uses the new configuration when it restarts
+	if configurableService, ok := existingService.(api.ConfigurableService); ok {
+		// Convert MCPServerInfo to api.MCPServer for the configuration update
+		newConfig := &api.MCPServer{
+			Name:        info.Name,
+			Type:        api.MCPServerType(info.Type),
+			Description: info.Description,
+			ToolPrefix:  info.ToolPrefix,
+			AutoStart:   info.AutoStart,
+			Command:     info.Command,
+			Args:        info.Args,
+			URL:         info.URL,
+			Env:         info.Env,
+			Headers:     info.Headers,
+			Timeout:     info.Timeout,
+		}
+		if err := configurableService.UpdateConfiguration(newConfig); err != nil {
+			return ReconcileResult{
+				Error:   fmt.Errorf("failed to update service configuration: %w", err),
+				Requeue: true,
+			}
+		}
+		logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", req.Name)
+	} else {
+		logging.Warn("MCPServerReconciler", "Service %s does not implement ConfigurableService, restart may use old config", req.Name)
+	}
 
 	// Restart the service to apply changes
 	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
