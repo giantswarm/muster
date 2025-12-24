@@ -514,7 +514,9 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 	r.nameTracker.SetServerPrefix(name, toolPrefix)
 
 	// Create a synthetic authentication tool
-	authToolName := "authenticate_" + name
+	// Note: We use just "authenticate" here because the name tracker will add
+	// the server prefix when exposing the tool (e.g., "x_serverName_authenticate")
+	authToolName := "authenticate"
 	authTool := mcp.Tool{
 		Name:        authToolName,
 		Description: fmt.Sprintf("REQUIRED: Authenticate to connect to %s. Run this tool to start the OAuth login flow.", name),
@@ -586,7 +588,9 @@ func (r *ServerRegistry) IsSyntheticAuthTool(toolName string) (serverName string
 
 	for name, info := range r.servers {
 		if info.Status == StatusAuthRequired {
-			expectedToolName := "authenticate_" + name
+			// The synthetic auth tool is named "authenticate" internally,
+			// and gets prefixed to e.g., "x_serverName_authenticate" when exposed
+			expectedToolName := "authenticate"
 			if toolName == expectedToolName || toolName == r.nameTracker.GetExposedToolName(name, expectedToolName) {
 				return name, true
 			}
@@ -601,7 +605,7 @@ func (r *ServerRegistry) IsSyntheticAuthTool(toolName string) (serverName string
 // The returned tool list is computed based on the session's authentication state:
 //   - GlobalTools: Tools from servers that don't require authentication
 //   - AuthenticatedServerTools: Tools from OAuth servers where the session has a valid connection
-//   - SyntheticAuthTools: authenticate_<server> tools for OAuth servers the session hasn't authenticated with
+//   - SyntheticAuthTools: <prefix>_<server>_authenticate tools for OAuth servers the session hasn't authenticated with
 //
 // This implements per-session tool visibility as described in ADR-006.
 //
