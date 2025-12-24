@@ -29,6 +29,7 @@ var (
 	agentMCPServer  bool
 	agentTransport  string
 	agentConfigPath string
+	agentAutoSSO    bool
 )
 
 // agentCmd represents the agent command
@@ -84,6 +85,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	agentCmd.Flags().BoolVar(&agentAutoSSO, "auto-sso", false, "Automatically authenticate with remote MCP servers after Muster auth (opens browser tabs)")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -362,19 +364,26 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 
 	// Auto-trigger authentication for any remote MCP servers that require auth
 	// This provides a seamless SSO experience when the same IdP is used
-	go triggerPendingRemoteAuth(ctx, client, logger)
+	// Only runs if --auto-sso flag is set to avoid unexpected browser tabs
+	if agentAutoSSO {
+		go triggerPendingRemoteAuth(ctx, client, logger)
+	}
 }
 
 // triggerPendingRemoteAuth detects remote MCP servers that require authentication
 // and automatically triggers the OAuth flow for each one. Since they typically share
 // the same IdP (Dex), the browser session from Muster auth will provide SSO.
 func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
-	// Small delay to ensure the upgrade is complete and tools are registered
+	// Brief delay to ensure the tool registration from upgradeToConnectedServer
+	// has propagated. The MCP server needs time to process RegisterClientToolsOnServer
+	// and send the tools/list_changed notification before we query the tool cache.
+	// 500ms is conservative - the actual registration is typically <100ms.
 	time.Sleep(500 * time.Millisecond)
 
 	// Get all tools from the cache
 	tools := client.GetToolCache()
 	if len(tools) == 0 {
+		logger.Info("SSO chain skipped: no tools available in cache")
 		return
 	}
 
@@ -382,16 +391,25 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	pendingAuthTools := findPendingAuthTools(tools)
 
 	if len(pendingAuthTools) == 0 {
+		logger.Info("SSO chain skipped: no remote servers require authentication")
 		return
 	}
 
 	logger.Info("Found %d remote server(s) requiring authentication, starting SSO chain...", len(pendingAuthTools))
+
+	// Track results for summary
+	var successCount, failureCount int
+	var failedServers []struct {
+		name string
+		url  string
+	}
 
 	// Trigger auth for each pending server sequentially
 	// Sequential is better for SSO as the browser session builds up
 	for i, toolName := range pendingAuthTools {
 		select {
 		case <-ctx.Done():
+			logger.Info("SSO chain cancelled")
 			return
 		default:
 		}
@@ -403,6 +421,11 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		result, err := client.CallTool(ctx, toolName, nil)
 		if err != nil {
 			logger.Error("Failed to call %s: %v", toolName, err)
+			failureCount++
+			failedServers = append(failedServers, struct {
+				name string
+				url  string
+			}{name: serverName, url: ""})
 			continue
 		}
 
@@ -410,26 +433,63 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		authURL := extractAuthURLFromResult(result)
 		if authURL == "" {
 			logger.Error("Could not extract auth URL from %s response", toolName)
+			failureCount++
+			failedServers = append(failedServers, struct {
+				name string
+				url  string
+			}{name: serverName, url: ""})
 			continue
 		}
 
 		// Open the browser for this auth flow
 		if err := oauth.OpenBrowser(authURL); err != nil {
 			logger.Error("Failed to open browser for %s: %v", serverName, err)
-			// Still log the URL so user can manually click
-			logger.Info("Please authenticate manually: %s", authURL)
+			failureCount++
+			failedServers = append(failedServers, struct {
+				name string
+				url  string
+			}{name: serverName, url: authURL})
 		} else {
-			logger.Info("Browser opened for %s authentication", serverName)
+			successCount++
 		}
 
-		// Wait a bit between auth flows to avoid overwhelming the user
-		// With SSO, this should be quick automatic redirects
+		// Delay between auth flows to allow SSO redirects to complete.
+		// With SSO using the same IdP (Dex), authentication typically completes
+		// in <1s via automatic redirects. The 2-second delay provides margin
+		// for slower networks and prevents browser tab overload.
 		if i < len(pendingAuthTools)-1 {
 			time.Sleep(2 * time.Second)
 		}
 	}
 
-	logger.Success("SSO chain complete - all remote servers have been authenticated")
+	// Log summary with accurate counts
+	total := len(pendingAuthTools)
+	if failureCount == 0 {
+		logger.Success("SSO chain complete - %d/%d servers authenticated", successCount, total)
+	} else if successCount > 0 {
+		logger.Info("SSO chain finished - %d/%d servers authenticated (%d failed)", successCount, total, failureCount)
+	} else {
+		logger.Error("SSO chain failed - 0/%d servers authenticated", total)
+	}
+
+	// Display failed URLs together for easy manual authentication
+	if len(failedServers) > 0 {
+		var urlsToShow []struct {
+			name string
+			url  string
+		}
+		for _, fs := range failedServers {
+			if fs.url != "" {
+				urlsToShow = append(urlsToShow, fs)
+			}
+		}
+		if len(urlsToShow) > 0 {
+			logger.Info("Manual authentication required for the following servers:")
+			for _, fs := range urlsToShow {
+				logger.Info("  %s: %s", fs.name, fs.url)
+			}
+		}
+	}
 }
 
 // extractAuthURLFromResult parses the auth URL from a tool call result.

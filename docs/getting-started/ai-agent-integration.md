@@ -312,7 +312,7 @@ When connecting to a remote Muster Server that requires authentication, the agen
 3. **Pending Auth State**: The agent exposes a synthetic `authenticate_muster` tool
 4. **User Authentication**: Call `authenticate_muster` to get an auth URL, then sign in via browser
 5. **Automatic Upgrade**: After sign-in, the agent connects and exposes all real tools
-6. **SSO Chain**: The agent automatically authenticates with any remote MCP servers (see below)
+6. **SSO Chain** (optional): With `--auto-sso`, the agent automatically authenticates with remote MCP servers
 
 ### Connecting to a Protected Remote Server
 
@@ -335,18 +335,31 @@ When you first connect:
 
 ### Automatic SSO for Remote MCP Servers
 
-After authenticating with the Muster Server, the agent automatically detects any remote MCP servers that require authentication (exposed via `authenticate_*` tools) and triggers their OAuth flows in sequence.
+When using the `--auto-sso` flag, the agent can automatically authenticate with remote MCP servers after you sign in to the main Muster Server. This leverages Single Sign-On (SSO) since remote servers typically share the same Identity Provider (Dex).
 
-Since remote servers typically share the same Identity Provider (Dex) as the Muster Server, the browser session from your initial sign-in provides Single Sign-On (SSO). This means subsequent authentication flows complete automatically via browser redirects without requiring additional login prompts.
+**To enable automatic SSO:**
 
-**What happens:**
+```json
+{
+  "mcpServers": {
+    "muster": {
+      "command": "muster",
+      "args": ["agent", "--mcp-server", "--auto-sso", "--endpoint=https://muster.example.com/mcp"]
+    }
+  }
+}
+```
+
+**What happens with `--auto-sso`:**
 1. You sign in once via `authenticate_muster`
 2. The agent detects remote servers needing auth (e.g., `authenticate_github`, `authenticate_gitlab`)
 3. Browser tabs open automatically for each remote server
-4. SSO redirects complete authentication without user interaction
-5. All servers are authenticated after your single sign-in
+4. SSO redirects complete authentication without additional login prompts
+5. A summary shows how many servers were authenticated
 
-**Note:** The agent opens browser tabs with a short delay between each to allow SSO redirects to complete. You may see multiple tabs open briefly and then close as authentication completes.
+**Without `--auto-sso` (default):** Remote servers remain unauthenticated until you explicitly call their `authenticate_*` tools. This gives you full control over when browser tabs open.
+
+**Note:** The agent opens browser tabs with a 2-second delay between each to allow SSO redirects to complete. If browser pop-ups are blocked, the agent will display the URLs for manual authentication.
 
 ### Token Persistence and Security
 
@@ -401,6 +414,13 @@ For self-hosted Muster deployments, ensure your IdP trusts this client ID.
 - **Callback not received**: Ensure port 3000 is available and no firewall blocks localhost
 - **Client not registered**: For self-hosted servers, verify the CIMD client ID is trusted by your IdP
 - **Wrong issuer**: Check that the server's WWW-Authenticate header points to your IdP
+
+### SSO chain issues (with --auto-sso)
+
+- **Browser pop-ups blocked**: Some browsers block automatic tab opening. The agent will display URLs for manual authentication if this happens
+- **SSO not working**: Ensure all remote MCP servers use the same IdP (Dex) as the Muster Server
+- **Too many tabs opening**: This is expected behavior with `--auto-sso`. Remove the flag if you prefer manual control
+- **Partial authentication**: Check the agent logs for which servers failed. You can manually call their `authenticate_*` tools
 
 ## Next steps
 
