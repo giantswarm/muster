@@ -125,14 +125,20 @@ const reauthTimeout = 5 * time.Minute
 func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr error) *mcp.CallToolResult {
 	m.authMu.Lock()
 
-	// If no auth manager is configured, return the original error
+	// If no auth manager is configured, we can't do browser-based re-auth.
+	// This shouldn't happen if the agent was started correctly with OAuth support.
 	if m.authManager == nil {
 		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
-			"Authentication token expired: %v\n\nPlease restart the muster agent to re-authenticate.",
+			"Authentication token expired: %v\n\n"+
+				"Re-authentication is not available (auth manager not configured).\n"+
+				"This may happen if the muster server didn't require authentication at startup.\n"+
+				"To fix: restart the muster agent in Cursor (Cmd/Ctrl+Shift+P -> 'Reload Window').",
 			originalErr,
 		))
 	}
+
+	endpoint := m.endpoint
 
 	// Prevent concurrent re-auth attempts
 	if m.reauthInProg {
@@ -153,14 +159,18 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 	}
 
 	// Re-check connection to get the auth challenge
-	authState, err := m.authManager.CheckConnection(ctx, m.endpoint)
+	authState, err := m.authManager.CheckConnection(ctx, endpoint)
 	if err != nil || authState != oauth.AuthStatePendingAuth {
 		m.reauthInProg = false
 		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
-			"Authentication token expired but could not start re-authentication: %v\n\n"+
-				"Please restart the muster agent to re-authenticate.",
-			err,
+			"Authentication token expired but could not contact the server to start re-authentication.\n\n"+
+				"Error: %v\n\n"+
+				"Please check:\n"+
+				"  - Is the muster server running at %s?\n"+
+				"  - Is your network connection working?\n\n"+
+				"If the problem persists, restart the muster agent in Cursor.",
+			err, endpoint,
 		))
 	}
 
@@ -170,8 +180,12 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 		m.reauthInProg = false
 		m.authMu.Unlock()
 		return mcp.NewToolResultError(fmt.Sprintf(
-			"Authentication token expired but could not start re-authentication: %v\n\n"+
-				"Please restart the muster agent to re-authenticate.",
+			"Authentication token expired but could not start the OAuth flow.\n\n"+
+				"Error: %v\n\n"+
+				"This might happen if:\n"+
+				"  - Port 3000 is already in use (OAuth callback port)\n"+
+				"  - The authorization server is not reachable\n\n"+
+				"Try: restart the muster agent in Cursor (Cmd/Ctrl+Shift+P -> 'Reload Window').",
 			err,
 		))
 	}
