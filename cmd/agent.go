@@ -379,12 +379,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	}
 
 	// Find all authenticate_* tools (excluding authenticate_muster)
-	var pendingAuthTools []string
-	for _, tool := range tools {
-		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
-			pendingAuthTools = append(pendingAuthTools, tool.Name)
-		}
-	}
+	pendingAuthTools := findPendingAuthTools(tools)
 
 	if len(pendingAuthTools) == 0 {
 		return
@@ -468,6 +463,18 @@ func extractAuthURLFromResult(result *mcp.CallToolResult) string {
 	}
 
 	return ""
+}
+
+// findPendingAuthTools finds all authenticate_* tools from the tool list,
+// excluding authenticate_muster which is the main muster auth tool.
+func findPendingAuthTools(tools []mcp.Tool) []string {
+	var pendingAuthTools []string
+	for _, tool := range tools {
+		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
+			pendingAuthTools = append(pendingAuthTools, tool.Name)
+		}
+	}
+	return pendingAuthTools
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic

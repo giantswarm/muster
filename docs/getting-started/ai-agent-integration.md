@@ -312,6 +312,7 @@ When connecting to a remote Muster Server that requires authentication, the agen
 3. **Pending Auth State**: The agent exposes a synthetic `authenticate_muster` tool
 4. **User Authentication**: Call `authenticate_muster` to get an auth URL, then sign in via browser
 5. **Automatic Upgrade**: After sign-in, the agent connects and exposes all real tools
+6. **SSO Chain**: The agent automatically authenticates with any remote MCP servers (see below)
 
 ### Connecting to a Protected Remote Server
 
@@ -331,6 +332,21 @@ When you first connect:
 2. Call it to receive an authentication URL
 3. Open the URL in your browser and sign in
 4. The agent automatically reconnects and exposes all tools
+
+### Automatic SSO for Remote MCP Servers
+
+After authenticating with the Muster Server, the agent automatically detects any remote MCP servers that require authentication (exposed via `authenticate_*` tools) and triggers their OAuth flows in sequence.
+
+Since remote servers typically share the same Identity Provider (Dex) as the Muster Server, the browser session from your initial sign-in provides Single Sign-On (SSO). This means subsequent authentication flows complete automatically via browser redirects without requiring additional login prompts.
+
+**What happens:**
+1. You sign in once via `authenticate_muster`
+2. The agent detects remote servers needing auth (e.g., `authenticate_github`, `authenticate_gitlab`)
+3. Browser tabs open automatically for each remote server
+4. SSO redirects complete authentication without user interaction
+5. All servers are authenticated after your single sign-in
+
+**Note:** The agent opens browser tabs with a short delay between each to allow SSO redirects to complete. You may see multiple tabs open briefly and then close as authentication completes.
 
 ### Token Persistence and Security
 
