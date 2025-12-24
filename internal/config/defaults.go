@@ -30,8 +30,9 @@ func GetDefaultConfigWithRoles() MusterConfig {
 			OAuth: OAuthConfig{
 				CallbackPath: DefaultOAuthCallbackPath,
 				CIMDPath:     DefaultOAuthCIMDPath,
-				ClientID:     DefaultOAuthClientID,
-				Enabled:      false, // Disabled by default, requires explicit enablement
+				// ClientID is intentionally NOT set here - when empty, GetEffectiveClientID()
+				// auto-derives from PublicURL. Setting a default would prevent self-hosted CIMD.
+				Enabled: false, // Disabled by default, requires explicit enablement
 			},
 			OAuthServer: OAuthServerConfig{
 				Enabled:                    false, // Disabled by default, requires explicit enablement

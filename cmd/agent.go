@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,19 +15,21 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
 var (
-	agentEndpoint   string
-	agentTimeout    time.Duration
-	agentVerbose    bool
-	agentNoColor    bool
-	agentJSONRPC    bool
-	agentREPL       bool
-	agentMCPServer  bool
-	agentTransport  string
-	agentConfigPath string
+	agentEndpoint       string
+	agentTimeout        time.Duration
+	agentVerbose        bool
+	agentNoColor        bool
+	agentJSONRPC        bool
+	agentREPL           bool
+	agentMCPServer      bool
+	agentTransport      string
+	agentConfigPath     string
+	agentDisableAutoSSO bool
 )
 
 // agentCmd represents the agent command
@@ -81,6 +85,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -356,6 +361,163 @@ func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger 
 	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
 
 	logger.Info("Upgraded to full tool set - %d tools available", len(client.GetToolCache()))
+
+	// Auto-trigger authentication for any remote MCP servers that require auth
+	// This provides a seamless SSO experience when the same IdP is used
+	// Enabled by default, can be disabled with --disable-auto-sso
+	if !agentDisableAutoSSO {
+		go triggerPendingRemoteAuth(ctx, client, logger)
+	}
+}
+
+// failedServer represents a server that failed SSO authentication.
+type failedServer struct {
+	name string
+	url  string
+}
+
+// triggerPendingRemoteAuth detects remote MCP servers that require authentication
+// and automatically triggers the OAuth flow for each one. Since they typically share
+// the same IdP (Dex), the browser session from Muster auth will provide SSO.
+func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
+	// Get all tools from the cache (already populated by upgradeToConnectedServer)
+	tools := client.GetToolCache()
+	if len(tools) == 0 {
+		logger.Info("SSO chain skipped: no tools available in cache")
+		return
+	}
+
+	// Find all authenticate_* tools (excluding authenticate_muster)
+	pendingAuthTools := findPendingAuthTools(tools)
+
+	if len(pendingAuthTools) == 0 {
+		logger.Info("SSO chain skipped: no remote servers require authentication")
+		return
+	}
+
+	logger.Info("Found %d remote server(s) requiring authentication, starting SSO chain...", len(pendingAuthTools))
+
+	// Track results for summary
+	var successCount, failureCount int
+	var failedServers []failedServer
+
+	// Trigger auth for each pending server sequentially
+	// Sequential is better for SSO as the browser session builds up
+	for i, toolName := range pendingAuthTools {
+		select {
+		case <-ctx.Done():
+			logger.Info("SSO chain cancelled")
+			return
+		default:
+		}
+
+		serverName := strings.TrimPrefix(toolName, "authenticate_")
+		logger.Info("[%d/%d] Authenticating with %s...", i+1, len(pendingAuthTools), serverName)
+
+		// Call the authenticate tool to get the auth URL
+		result, err := client.CallTool(ctx, toolName, nil)
+		if err != nil {
+			logger.Error("Failed to call %s: %v", toolName, err)
+			failureCount++
+			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
+			continue
+		}
+
+		// Extract the auth URL from the result
+		authURL := extractAuthURLFromResult(result)
+		if authURL == "" {
+			logger.Error("Could not extract auth URL from %s response", toolName)
+			failureCount++
+			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
+			continue
+		}
+
+		// Open the browser for this auth flow
+		if err := oauth.OpenBrowser(authURL); err != nil {
+			logger.Error("Failed to open browser for %s: %v", serverName, err)
+			failureCount++
+			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
+		} else {
+			successCount++
+		}
+
+		// Delay between auth flows to allow SSO redirects to complete.
+		// With SSO using the same IdP (Dex), authentication typically completes
+		// in <1s via automatic redirects. The 2-second delay provides margin
+		// for slower networks and prevents browser tab overload.
+		if i < len(pendingAuthTools)-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	// Log summary with accurate counts
+	total := len(pendingAuthTools)
+	if failureCount == 0 {
+		logger.Success("SSO chain complete - %d/%d servers authenticated", successCount, total)
+	} else if successCount > 0 {
+		logger.Info("SSO chain finished - %d/%d servers authenticated (%d failed)", successCount, total, failureCount)
+	} else {
+		logger.Error("SSO chain failed - 0/%d servers authenticated", total)
+	}
+
+	// Display failed URLs together for easy manual authentication
+	if len(failedServers) > 0 {
+		var hasURLs bool
+		for _, fs := range failedServers {
+			if fs.url != "" {
+				if !hasURLs {
+					logger.Info("Manual authentication required for the following servers:")
+					hasURLs = true
+				}
+				logger.Info("  %s: %s", fs.name, fs.url)
+			}
+		}
+	}
+}
+
+// extractAuthURLFromResult parses the auth URL from a tool call result.
+// The result typically contains JSON with an "auth_url" field.
+func extractAuthURLFromResult(result *mcp.CallToolResult) string {
+	if result == nil || len(result.Content) == 0 {
+		return ""
+	}
+
+	// The content is typically a TextContent with JSON
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			// Try to parse as JSON first
+			var authResp struct {
+				AuthURL string `json:"auth_url"`
+			}
+			if err := json.Unmarshal([]byte(textContent.Text), &authResp); err == nil && authResp.AuthURL != "" {
+				return authResp.AuthURL
+			}
+
+			// Fallback: look for URL pattern in the text
+			// The response often contains "Please sign in to connect..." with a URL
+			lines := strings.Split(textContent.Text, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+					return line
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// findPendingAuthTools finds all authenticate_* tools from the tool list,
+// excluding authenticate_muster which is the main muster auth tool.
+func findPendingAuthTools(tools []mcp.Tool) []string {
+	var pendingAuthTools []string
+	for _, tool := range tools {
+		if strings.HasPrefix(tool.Name, "authenticate_") && tool.Name != "authenticate_muster" {
+			pendingAuthTools = append(pendingAuthTools, tool.Name)
+		}
+	}
+	return pendingAuthTools
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic
