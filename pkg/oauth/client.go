@@ -68,6 +68,15 @@ func WithMetadataCacheTTL(ttl time.Duration) ClientOption {
 	}
 }
 
+// WithHTTPTimeout sets the HTTP client timeout.
+// This is useful for environments with slow network connections to identity providers.
+// The default timeout is 30 seconds.
+func WithHTTPTimeout(timeout time.Duration) ClientOption {
+	return func(c *Client) {
+		c.httpClient.Timeout = timeout
+	}
+}
+
 // NewClient creates a new OAuth client.
 func NewClient(opts ...ClientOption) *Client {
 	c := &Client{

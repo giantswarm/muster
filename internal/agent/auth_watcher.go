@@ -17,6 +17,18 @@ import (
 // DefaultAuthWatcherPollInterval is the default interval for polling auth status.
 const DefaultAuthWatcherPollInterval = 10 * time.Second
 
+// Exponential backoff constants for handling poll failures.
+const (
+	// minBackoffInterval is the minimum backoff interval after a failure.
+	minBackoffInterval = 1 * time.Second
+
+	// maxBackoffInterval is the maximum backoff interval after repeated failures.
+	maxBackoffInterval = 5 * time.Minute
+
+	// backoffMultiplier is the factor by which the backoff interval increases.
+	backoffMultiplier = 2
+)
+
 // AuthWatcherCallbacks contains callback functions for auth events.
 type AuthWatcherCallbacks struct {
 	// OnBrowserAuthRequired is called when browser authentication is needed.
@@ -36,6 +48,9 @@ type AuthWatcherCallbacks struct {
 // AuthWatcher watches for authentication state changes and handles SSO.
 // It continuously polls the auth://status resource and forwards tokens
 // when matching issuers are found in the token store.
+//
+// The watcher implements exponential backoff on consecutive failures to prevent
+// overwhelming the server during connectivity issues or server problems.
 type AuthWatcher struct {
 	mu           sync.RWMutex
 	client       *Client
@@ -46,6 +61,10 @@ type AuthWatcher struct {
 	lastStatus   *auth.StatusResponse
 	running      bool
 	stopCh       chan struct{}
+
+	// Backoff state for handling consecutive failures
+	consecutiveFailures int
+	currentBackoff      time.Duration
 }
 
 // AuthWatcherOption configures the AuthWatcher.
@@ -91,6 +110,8 @@ func NewAuthWatcher(client *Client, tokenStore *oauth.TokenStore, opts ...AuthWa
 
 // Start begins watching for authentication state changes.
 // This method blocks until the context is cancelled or Stop is called.
+// The watcher uses exponential backoff when encountering repeated failures
+// to prevent overwhelming the server during connectivity issues.
 func (w *AuthWatcher) Start(ctx context.Context) {
 	w.mu.Lock()
 	if w.running {
@@ -99,29 +120,34 @@ func (w *AuthWatcher) Start(ctx context.Context) {
 	}
 	w.running = true
 	w.stopCh = make(chan struct{})
+	w.consecutiveFailures = 0
+	w.currentBackoff = 0
 	w.mu.Unlock()
-
-	ticker := time.NewTicker(w.pollInterval)
-	defer ticker.Stop()
 
 	// Do an initial check immediately
 	w.checkAuthStatus(ctx)
 
 	for {
+		// Use dynamic interval that accounts for backoff
+		interval := w.getEffectivePollInterval()
+		timer := time.NewTimer(interval)
+
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			w.mu.Lock()
 			w.running = false
 			w.mu.Unlock()
 			return
 
 		case <-w.stopCh:
+			timer.Stop()
 			w.mu.Lock()
 			w.running = false
 			w.mu.Unlock()
 			return
 
-		case <-ticker.C:
+		case <-timer.C:
 			w.checkAuthStatus(ctx)
 		}
 	}
@@ -145,12 +171,16 @@ func (w *AuthWatcher) IsRunning() bool {
 }
 
 // checkAuthStatus fetches the current auth status and handles any changes.
+// Implements exponential backoff on consecutive failures.
 func (w *AuthWatcher) checkAuthStatus(ctx context.Context) {
 	status, err := w.fetchAuthStatus(ctx)
 	if err != nil {
-		w.logger.Debug("Failed to fetch auth status", "error", err)
+		w.handleFetchFailure(err)
 		return
 	}
+
+	// Reset backoff on success
+	w.resetBackoff()
 
 	// Detect new challenges and resolved challenges
 	newChallenges := w.detectNewChallenges(w.lastStatus, status)
@@ -172,6 +202,65 @@ func (w *AuthWatcher) checkAuthStatus(ctx context.Context) {
 	w.mu.Lock()
 	w.lastStatus = status
 	w.mu.Unlock()
+}
+
+// handleFetchFailure handles a failure to fetch auth status with exponential backoff.
+func (w *AuthWatcher) handleFetchFailure(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.consecutiveFailures++
+
+	// Calculate backoff interval with exponential increase
+	if w.currentBackoff == 0 {
+		w.currentBackoff = minBackoffInterval
+	} else {
+		w.currentBackoff *= backoffMultiplier
+		if w.currentBackoff > maxBackoffInterval {
+			w.currentBackoff = maxBackoffInterval
+		}
+	}
+
+	// Log with appropriate level based on failure count
+	if w.consecutiveFailures <= 3 {
+		w.logger.Debug("Failed to fetch auth status",
+			"error", err,
+			"consecutive_failures", w.consecutiveFailures,
+			"backoff", w.currentBackoff,
+		)
+	} else {
+		w.logger.Warn("Repeated auth status fetch failures",
+			"error", err,
+			"consecutive_failures", w.consecutiveFailures,
+			"backoff", w.currentBackoff,
+		)
+	}
+}
+
+// resetBackoff resets the backoff state after a successful fetch.
+func (w *AuthWatcher) resetBackoff() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.consecutiveFailures > 0 {
+		w.logger.Debug("Auth status fetch recovered",
+			"previous_failures", w.consecutiveFailures,
+		)
+	}
+
+	w.consecutiveFailures = 0
+	w.currentBackoff = 0
+}
+
+// getEffectivePollInterval returns the current poll interval, accounting for backoff.
+func (w *AuthWatcher) getEffectivePollInterval() time.Duration {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if w.currentBackoff > 0 {
+		return w.currentBackoff
+	}
+	return w.pollInterval
 }
 
 // fetchAuthStatus retrieves the auth://status resource.
@@ -261,6 +350,7 @@ func (w *AuthWatcher) detectResolvedChallenges(oldStatus, newStatus *auth.Status
 }
 
 // handleNewChallenge handles a new authentication challenge.
+// SECURITY: Logs SSO operations for audit trail without logging token values.
 func (w *AuthWatcher) handleNewChallenge(ctx context.Context, challenge auth.ServerAuthStatus) {
 	if challenge.AuthChallenge == nil {
 		w.logger.Debug("No auth challenge info for server", "server", challenge.ServerName)
@@ -276,20 +366,32 @@ func (w *AuthWatcher) handleNewChallenge(ctx context.Context, challenge auth.Ser
 	// Check if we have a token for this issuer (SSO)
 	token := w.tokenStore.GetByIssuer(issuer)
 	if token != nil {
-		w.logger.Info("SSO: Found existing token for issuer",
+		// SECURITY AUDIT: SSO token found, attempting to forward
+		w.logger.Info("SECURITY_AUDIT: SSO token lookup successful",
+			"event", "sso_token_found",
 			"server", challenge.ServerName,
 			"issuer", issuer,
+			"token_server_url", token.ServerURL,
 		)
 
 		// Submit the token to the server
+		// SECURITY: Token value is passed but never logged
 		if err := w.submitToken(ctx, challenge.ServerName, token.AccessToken); err != nil {
-			w.logger.Warn("Failed to submit token via SSO",
+			// SECURITY AUDIT: SSO token submission failed
+			w.logger.Warn("SECURITY_AUDIT: SSO token submission failed",
+				"event", "sso_submit_failed",
 				"server", challenge.ServerName,
 				"issuer", issuer,
 				"error", err,
 			)
 			// Fall through to browser auth
 		} else {
+			// SECURITY AUDIT: SSO token submission successful
+			w.logger.Info("SECURITY_AUDIT: SSO authentication successful",
+				"event", "sso_auth_success",
+				"server", challenge.ServerName,
+				"issuer", issuer,
+			)
 			if w.callbacks.OnTokenSubmitted != nil {
 				w.callbacks.OnTokenSubmitted(challenge.ServerName, issuer)
 			}
@@ -298,7 +400,9 @@ func (w *AuthWatcher) handleNewChallenge(ctx context.Context, challenge auth.Ser
 	}
 
 	// Need browser authentication
-	w.logger.Info("Browser authentication required",
+	// SECURITY AUDIT: No SSO token available, browser auth required
+	w.logger.Info("SECURITY_AUDIT: Browser authentication required",
+		"event", "browser_auth_required",
 		"server", challenge.ServerName,
 		"issuer", issuer,
 	)

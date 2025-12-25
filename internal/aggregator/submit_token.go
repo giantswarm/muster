@@ -18,6 +18,10 @@ const SubmitAuthTokenToolName = "submit_auth_token"
 // This tool allows the agent to submit access tokens for servers that require authentication.
 // It enables SSO by allowing tokens obtained for one server to be forwarded to another
 // server that uses the same identity provider (issuer).
+//
+// SECURITY: Access tokens are sensitive credentials. This handler intentionally
+// does NOT log token values. Any logging of token contents would be a security
+// violation. Only log server names, issuers, and operation outcomes.
 func (a *AggregatorServer) createSubmitAuthTokenTool() mcpserver.ServerTool {
 	return mcpserver.ServerTool{
 		Tool: mcp.Tool{
@@ -43,6 +47,8 @@ func (a *AggregatorServer) createSubmitAuthTokenTool() mcpserver.ServerTool {
 }
 
 // handleSubmitAuthToken handles the submit_auth_token tool call.
+// SECURITY: This handler processes sensitive access tokens. Token values must
+// NEVER be logged. Only log server names, operation status, and errors.
 func (a *AggregatorServer) handleSubmitAuthToken(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// Extract arguments
 	args, ok := req.Params.Arguments.(map[string]interface{})
@@ -60,7 +66,8 @@ func (a *AggregatorServer) handleSubmitAuthToken(ctx context.Context, req mcp.Ca
 		return mcp.NewToolResultError("access_token is required"), nil
 	}
 
-	logging.Debug("Aggregator", "Received submit_auth_token for server: %s", serverName)
+	// SECURITY: Log the operation but NEVER log the token value
+	logging.Debug("Aggregator", "Received submit_auth_token request: server=%s", serverName)
 
 	// Check if the server exists and requires authentication
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
@@ -82,11 +89,13 @@ func (a *AggregatorServer) handleSubmitAuthToken(ctx context.Context, req mcp.Ca
 	// Try to connect with the token for this session
 	result, err := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, accessToken)
 	if err != nil {
-		logging.Warn("Aggregator", "Failed to connect with submitted token: server=%s error=%v", serverName, err)
+		// SECURITY AUDIT: Token submission failed
+		logging.Warn("Aggregator", "SSO token submission failed: server=%s session=%s error=%v", serverName, sessionID, err)
 		return mcp.NewToolResultError(fmt.Sprintf("Token accepted but connection failed: %v", err)), nil
 	}
 
-	logging.Info("Aggregator", "Successfully authenticated to server %s via SSO", serverName)
+	// SECURITY AUDIT: Successful SSO authentication
+	logging.Info("Aggregator", "SSO authentication successful: server=%s session=%s", serverName, sessionID)
 	return result, nil
 }
 

@@ -20,6 +20,14 @@ const DefaultTokenStorageDir = ".config/muster/tokens"
 
 // TokenStore provides secure storage for OAuth tokens.
 // It supports both file-based (XDG-compliant) and in-memory storage.
+//
+// SECURITY: This store handles sensitive OAuth credentials. The following
+// security measures are implemented:
+//   - Files are created with 0600 permissions (owner read/write only)
+//   - Storage directory is created with 0700 permissions (owner only)
+//   - Token values are NEVER logged (only server URLs and issuers)
+//   - Expired tokens are automatically rejected
+//   - Token expiry includes a 60-second buffer for safety
 type TokenStore struct {
 	mu         sync.RWMutex
 	storageDir string
@@ -92,6 +100,7 @@ func NewTokenStore(cfg TokenStoreConfig) (*TokenStore, error) {
 }
 
 // StoreToken stores an OAuth token for a specific server.
+// SECURITY: Token values are never logged. Only server/issuer URLs are logged for audit purposes.
 func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,15 +129,22 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 	// Persist to file if file mode is enabled
 	if s.fileMode {
 		if err := s.writeTokenFile(key, storedToken); err != nil {
-			slog.Warn("Failed to persist OAuth token to file",
+			// SECURITY AUDIT: Token storage failed
+			slog.Warn("SECURITY_AUDIT: OAuth token storage failed",
+				"event", "token_store_failed",
 				"server_url", serverURL,
+				"issuer_url", issuerURL,
 				"error", err.Error(),
 			)
 			return fmt.Errorf("failed to persist token: %w", err)
 		}
-		slog.Debug("OAuth token persisted to secure storage",
+		// SECURITY AUDIT: Token successfully stored
+		slog.Info("SECURITY_AUDIT: OAuth token stored",
+			"event", "token_stored",
 			"server_url", serverURL,
-			"storage_dir", s.storageDir,
+			"issuer_url", issuerURL,
+			"expiry", storedToken.Expiry.Format(time.RFC3339),
+			"has_refresh_token", storedToken.RefreshToken != "",
 		)
 	}
 
@@ -177,6 +193,7 @@ func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 }
 
 // DeleteToken removes a stored token for a specific server.
+// SECURITY: Logs token deletion for audit trail without logging token values.
 func (s *TokenStore) DeleteToken(serverURL string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,7 +203,8 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 
 	if s.fileMode {
 		if err := s.deleteTokenFile(key); err != nil {
-			slog.Warn("Failed to delete OAuth token file",
+			slog.Warn("SECURITY_AUDIT: OAuth token deletion failed",
+				"event", "token_delete_failed",
 				"server_url", serverURL,
 				"error", err.Error(),
 			)
@@ -194,7 +212,11 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 		}
 	}
 
-	slog.Debug("OAuth token deleted", "server_url", serverURL)
+	// SECURITY AUDIT: Token deleted
+	slog.Info("SECURITY_AUDIT: OAuth token deleted",
+		"event", "token_deleted",
+		"server_url", serverURL,
+	)
 	return nil
 }
 
@@ -368,9 +390,12 @@ func (s *TokenStore) HasValidTokenForIssuer(issuerURL string) bool {
 }
 
 // Clear removes all stored tokens (both in-memory and file-based).
+// SECURITY: Logs bulk token clearing for audit trail.
 func (s *TokenStore) Clear() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	tokenCount := len(s.tokens)
 
 	// Clear memory cache
 	s.tokens = make(map[string]*StoredToken)
@@ -385,14 +410,23 @@ func (s *TokenStore) Clear() error {
 			return fmt.Errorf("failed to read token directory: %w", err)
 		}
 
+		fileCount := 0
 		for _, entry := range entries {
 			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
 				filePath := filepath.Join(s.storageDir, entry.Name())
 				if err := os.Remove(filePath); err != nil {
 					return fmt.Errorf("failed to remove token file %s: %w", entry.Name(), err)
 				}
+				fileCount++
 			}
 		}
+
+		// SECURITY AUDIT: All tokens cleared
+		slog.Info("SECURITY_AUDIT: All OAuth tokens cleared",
+			"event", "tokens_cleared",
+			"memory_tokens_cleared", tokenCount,
+			"file_tokens_cleared", fileCount,
+		)
 	}
 
 	return nil
