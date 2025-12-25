@@ -640,7 +640,7 @@ type AuthHandler interface {
 - **Polling Overhead**: Continuous polling adds network traffic
 
 #### Migration
-- **Token Format Change**: Users may need to re-authenticate
+- **Re-authentication Required**: Users need to re-authenticate once after upgrading
 - **API Changes**: Components must update to use new interfaces
 
 ### Risk Mitigation
@@ -651,10 +651,10 @@ type AuthHandler interface {
 - Tokens are session-scoped on server side
 
 #### For Migration
-- Token file format remains backwards compatible
-- Existing tokens keyed by server URL continue to work for their original servers
-- SSO feature requires new tokens to be obtained (issuer URL is populated on new token storage)
-- No explicit migration needed - users will simply re-authenticate once per issuer to enable SSO
+- No backwards compatibility required for token storage
+- Users re-authenticate once after upgrading
+- New tokens are stored with issuer URL, enabling SSO immediately
+- Clean slate approach simplifies implementation and avoids migration edge cases
 
 #### For Polling Overhead
 - Reasonable poll interval (5-10 seconds)
