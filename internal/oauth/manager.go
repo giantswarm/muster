@@ -167,6 +167,17 @@ func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *Token {
 	return m.client.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
+// ClearTokenByIssuer removes all tokens for a given session and issuer.
+// This is used to clear invalid/expired tokens before requesting fresh authentication.
+func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
+	if m == nil {
+		return
+	}
+
+	m.client.tokenStore.DeleteByIssuer(sessionID, issuer)
+	logging.Debug("OAuth", "Cleared tokens for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
+}
+
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
 func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName string, authParams *WWWAuthenticateParams) (*AuthChallenge, error) {

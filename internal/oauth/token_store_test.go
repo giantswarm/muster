@@ -260,6 +260,128 @@ func TestTokenStore_Count(t *testing.T) {
 	}
 }
 
+func TestTokenStore_DeleteByIssuer(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	sessionID := "session-123"
+	issuerToDelete := "https://issuer-to-delete.com"
+	issuerToKeep := "https://issuer-to-keep.com"
+
+	// Store tokens for the same session with different issuers
+	key1 := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuerToDelete,
+		Scope:     "openid",
+	}
+	ts.Store(key1, &Token{
+		AccessToken: "token-1",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      issuerToDelete,
+	})
+
+	key2 := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuerToDelete,
+		Scope:     "profile", // Same issuer, different scope
+	}
+	ts.Store(key2, &Token{
+		AccessToken: "token-2",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      issuerToDelete,
+	})
+
+	key3 := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuerToKeep,
+		Scope:     "openid",
+	}
+	ts.Store(key3, &Token{
+		AccessToken: "token-3",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      issuerToKeep,
+	})
+
+	// Store token for different session (should not be affected)
+	key4 := TokenKey{
+		SessionID: "other-session",
+		Issuer:    issuerToDelete,
+		Scope:     "openid",
+	}
+	ts.Store(key4, &Token{
+		AccessToken: "token-4",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      issuerToDelete,
+	})
+
+	// Verify we have 4 tokens
+	if ts.Count() != 4 {
+		t.Errorf("Expected 4 tokens, got %d", ts.Count())
+	}
+
+	// Delete tokens for session-123 and issuerToDelete
+	ts.DeleteByIssuer(sessionID, issuerToDelete)
+
+	// Verify we have 2 tokens remaining
+	if ts.Count() != 2 {
+		t.Errorf("Expected 2 tokens after deletion, got %d", ts.Count())
+	}
+
+	// Verify the correct tokens were deleted
+	if ts.Get(key1) != nil {
+		t.Error("Token 1 should have been deleted")
+	}
+	if ts.Get(key2) != nil {
+		t.Error("Token 2 should have been deleted")
+	}
+
+	// Verify the correct tokens remain
+	if ts.Get(key3) == nil {
+		t.Error("Token 3 (different issuer) should still exist")
+	}
+	if ts.Get(key4) == nil {
+		t.Error("Token 4 (different session) should still exist")
+	}
+}
+
+func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	// Store a token
+	key := TokenKey{
+		SessionID: "session-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
+	}
+	ts.Store(key, &Token{
+		AccessToken: "token",
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Issuer:      "https://auth.example.com",
+	})
+
+	// Try to delete with non-matching session
+	ts.DeleteByIssuer("non-existent-session", "https://auth.example.com")
+
+	// Token should still exist
+	if ts.Count() != 1 {
+		t.Errorf("Expected 1 token, got %d", ts.Count())
+	}
+
+	// Try to delete with non-matching issuer
+	ts.DeleteByIssuer("session-123", "https://non-existent-issuer.com")
+
+	// Token should still exist
+	if ts.Count() != 1 {
+		t.Errorf("Expected 1 token, got %d", ts.Count())
+	}
+}
+
 func TestToken_IsExpired(t *testing.T) {
 	tests := []struct {
 		name     string

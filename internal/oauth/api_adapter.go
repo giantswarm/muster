@@ -54,6 +54,11 @@ func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
 }
 
+// ClearTokenByIssuer removes all tokens for a given session and issuer.
+func (a *Adapter) ClearTokenByIssuer(sessionID, issuer string) {
+	a.manager.ClearTokenByIssuer(sessionID, issuer)
+}
+
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
 	// Create WWW-Authenticate params from the issuer and scope

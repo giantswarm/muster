@@ -148,6 +148,22 @@ func (ts *TokenStore) DeleteBySession(sessionID string) {
 	logging.Debug("OAuth", "Deleted %d tokens for session=%s", count, logging.TruncateSessionID(sessionID))
 }
 
+// DeleteByIssuer removes all tokens for a given session and issuer.
+// This is used to clear invalid/expired tokens before requesting fresh authentication.
+func (ts *TokenStore) DeleteByIssuer(sessionID, issuer string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	count := 0
+	for key := range ts.tokens {
+		if key.SessionID == sessionID && key.Issuer == issuer {
+			delete(ts.tokens, key)
+			count++
+		}
+	}
+	logging.Debug("OAuth", "Deleted %d tokens for session=%s issuer=%s", count, logging.TruncateSessionID(sessionID), issuer)
+}
+
 // Count returns the number of tokens in the store.
 func (ts *TokenStore) Count() int {
 	ts.mu.RLock()
