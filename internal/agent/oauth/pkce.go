@@ -1,17 +1,7 @@
 package oauth
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"fmt"
-)
-
-const (
-	// oauthStateBytes is the number of random bytes for the OAuth state parameter.
-	// 32 bytes encodes to 43 base64url characters, satisfying OAuth servers that
-	// require a minimum of 32 characters.
-	oauthStateBytes = 32
+	pkgoauth "muster/pkg/oauth"
 )
 
 // PKCEChallenge represents a PKCE (Proof Key for Code Exchange) challenge.
@@ -35,23 +25,16 @@ type PKCEChallenge struct {
 //
 // Returns a PKCEChallenge ready for use in an authorization request.
 func GeneratePKCE() (*PKCEChallenge, error) {
-	// Generate 32 random bytes for the code verifier
-	verifierBytes := make([]byte, 32)
-	if _, err := rand.Read(verifierBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random bytes for PKCE: %w", err)
+	// Delegate to shared implementation
+	sharedPKCE, err := pkgoauth.GeneratePKCE()
+	if err != nil {
+		return nil, err
 	}
 
-	// Base64url-encode the verifier (no padding, URL-safe)
-	codeVerifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
-
-	// Generate the S256 challenge: SHA256(verifier), base64url-encoded
-	hash := sha256.Sum256([]byte(codeVerifier))
-	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
-
 	return &PKCEChallenge{
-		CodeVerifier:        codeVerifier,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: "S256",
+		CodeVerifier:        sharedPKCE.CodeVerifier,
+		CodeChallenge:       sharedPKCE.CodeChallenge,
+		CodeChallengeMethod: sharedPKCE.CodeChallengeMethod,
 	}, nil
 }
 
@@ -59,10 +42,17 @@ func GeneratePKCE() (*PKCEChallenge, error) {
 // The state is used to prevent CSRF attacks and link the authorization
 // response back to the original request.
 func GenerateState() (string, error) {
-	stateBytes := make([]byte, oauthStateBytes)
-	if _, err := rand.Read(stateBytes); err != nil {
-		return "", fmt.Errorf("failed to generate state: %w", err)
-	}
+	return pkgoauth.GenerateState()
+}
 
-	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
+// ToSharedPKCE converts to the shared PKCEChallenge type.
+func (p *PKCEChallenge) ToSharedPKCE() *pkgoauth.PKCEChallenge {
+	if p == nil {
+		return nil
+	}
+	return &pkgoauth.PKCEChallenge{
+		CodeVerifier:        p.CodeVerifier,
+		CodeChallenge:       p.CodeChallenge,
+		CodeChallengeMethod: p.CodeChallengeMethod,
+	}
 }

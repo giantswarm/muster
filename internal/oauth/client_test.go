@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestClient_GetRedirectURI(t *testing.T) {
@@ -129,7 +131,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata(t *testing.T) {
+func TestClient_DiscoverMetadata(t *testing.T) {
 	// Create a test server that returns OAuth metadata
 	metadata := OAuthMetadata{
 		Issuer:                "https://auth.example.com",
@@ -152,7 +154,7 @@ func TestClient_FetchMetadata(t *testing.T) {
 
 	// Fetch metadata
 	ctx := context.Background()
-	result, err := client.fetchMetadata(ctx, server.URL)
+	result, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata: %v", err)
 	}
@@ -168,7 +170,7 @@ func TestClient_FetchMetadata(t *testing.T) {
 	}
 
 	// Second call should hit cache
-	result2, err := client.fetchMetadata(ctx, server.URL)
+	result2, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata from cache: %v", err)
 	}
@@ -179,7 +181,7 @@ func TestClient_FetchMetadata(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
+func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	// Create a test server that only supports OpenID Connect discovery
 	metadata := OAuthMetadata{
 		Issuer:                "https://auth.example.com",
@@ -202,7 +204,7 @@ func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	result, err := client.fetchMetadata(ctx, server.URL)
+	result, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata via OpenID fallback: %v", err)
 	}
@@ -213,7 +215,7 @@ func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata_Error(t *testing.T) {
+func TestClient_DiscoverMetadata_Error(t *testing.T) {
 	// Create a test server that returns errors
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server Error", http.StatusInternalServerError)
@@ -224,7 +226,7 @@ func TestClient_FetchMetadata_Error(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	_, err := client.fetchMetadata(ctx, server.URL)
+	_, err := client.DiscoverMetadata(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for failed metadata fetch")
 	}
@@ -533,7 +535,8 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 }
 
 func TestGeneratePKCE(t *testing.T) {
-	verifier, challenge, err := generatePKCE()
+	// Use the shared PKCE implementation
+	verifier, challenge, err := pkgoauth.GeneratePKCERaw()
 	if err != nil {
 		t.Fatalf("Failed to generate PKCE: %v", err)
 	}
@@ -552,7 +555,7 @@ func TestGeneratePKCE(t *testing.T) {
 	}
 
 	// Generate another pair to ensure randomness
-	verifier2, challenge2, err := generatePKCE()
+	verifier2, challenge2, err := pkgoauth.GeneratePKCERaw()
 	if err != nil {
 		t.Fatalf("Failed to generate second PKCE: %v", err)
 	}

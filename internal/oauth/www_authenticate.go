@@ -1,8 +1,9 @@
 package oauth
 
 import (
-	"regexp"
 	"strings"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 // ParseWWWAuthenticate parses a WWW-Authenticate header value.
@@ -18,48 +19,21 @@ func ParseWWWAuthenticate(header string) *WWWAuthenticateParams {
 		return nil
 	}
 
-	params := &WWWAuthenticateParams{}
-
-	// Extract the scheme (first word before space)
-	parts := strings.SplitN(header, " ", 2)
-	if len(parts) == 0 {
+	// Delegate to shared implementation
+	challenge, err := pkgoauth.ParseWWWAuthenticate(header)
+	if err != nil {
 		return nil
 	}
 
-	params.Scheme = strings.TrimSpace(parts[0])
-
-	// If there's no parameter section, return just the scheme
-	if len(parts) == 1 {
-		return params
+	// Convert to internal type
+	return &WWWAuthenticateParams{
+		Scheme:              challenge.Scheme,
+		Realm:               challenge.Realm,
+		Scope:               challenge.Scope,
+		Error:               challenge.Error,
+		ErrorDescription:    challenge.ErrorDescription,
+		ResourceMetadataURL: challenge.ResourceMetadataURL,
 	}
-
-	// Parse key="value" pairs
-	paramStr := parts[1]
-	paramRegex := regexp.MustCompile(`(\w+)="([^"]*)"`)
-	matches := paramRegex.FindAllStringSubmatch(paramStr, -1)
-
-	for _, match := range matches {
-		if len(match) != 3 {
-			continue
-		}
-		key := strings.ToLower(match[1])
-		value := match[2]
-
-		switch key {
-		case "realm":
-			params.Realm = value
-		case "scope":
-			params.Scope = value
-		case "error":
-			params.Error = value
-		case "error_description":
-			params.ErrorDescription = value
-		case "resource_metadata":
-			params.ResourceMetadataURL = value
-		}
-	}
-
-	return params
 }
 
 // IsOAuthChallenge checks if the WWW-Authenticate parameters indicate
@@ -86,4 +60,35 @@ func (p *WWWAuthenticateParams) GetIssuer() string {
 	}
 	// The realm is typically the issuer URL
 	return p.Realm
+}
+
+// ToAuthChallenge converts WWWAuthenticateParams to the shared AuthChallenge type.
+func (p *WWWAuthenticateParams) ToAuthChallenge() *pkgoauth.AuthChallenge {
+	if p == nil {
+		return nil
+	}
+	return &pkgoauth.AuthChallenge{
+		Scheme:              p.Scheme,
+		Realm:               p.Realm,
+		Issuer:              p.GetIssuer(),
+		ResourceMetadataURL: p.ResourceMetadataURL,
+		Scope:               p.Scope,
+		Error:               p.Error,
+		ErrorDescription:    p.ErrorDescription,
+	}
+}
+
+// FromAuthChallenge creates WWWAuthenticateParams from the shared AuthChallenge type.
+func FromAuthChallenge(c *pkgoauth.AuthChallenge) *WWWAuthenticateParams {
+	if c == nil {
+		return nil
+	}
+	return &WWWAuthenticateParams{
+		Scheme:              c.Scheme,
+		Realm:               c.Realm,
+		Scope:               c.Scope,
+		Error:               c.Error,
+		ErrorDescription:    c.ErrorDescription,
+		ResourceMetadataURL: c.ResourceMetadataURL,
+	}
 }

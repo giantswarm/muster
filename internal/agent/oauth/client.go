@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 // ErrAuthRequired is returned when OAuth authentication is required.
@@ -78,6 +80,7 @@ type Client struct {
 	callbackPort  int
 	currentFlow   *AuthFlow
 	metadataCache map[string]*cachedMetadata
+	oauthClient   *pkgoauth.Client // Shared OAuth client for protocol operations
 }
 
 // ClientConfig configures the OAuth client.
@@ -112,11 +115,18 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		}
 	}
 
+	// Create shared OAuth client with the same HTTP client
+	oauthClient := pkgoauth.NewClient(
+		pkgoauth.WithHTTPClient(httpClient),
+		pkgoauth.WithMetadataCacheTTL(MetadataCacheTTL),
+	)
+
 	return &Client{
 		tokenStore:    tokenStore,
 		httpClient:    httpClient,
 		callbackPort:  callbackPort,
 		metadataCache: make(map[string]*cachedMetadata),
+		oauthClient:   oauthClient,
 	}, nil
 }
 
@@ -310,72 +320,25 @@ func (c *Client) cancelCurrentFlow() {
 }
 
 // discoverOAuthMetadata fetches OAuth metadata from the issuer.
-// Tries RFC 8414 first, then falls back to OpenID Connect discovery.
-// Results are cached with a TTL to handle server configuration changes.
+// Uses the shared OAuth client which handles caching and fallback discovery.
 func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*OAuthMetadata, error) {
-	// Check cache first (with TTL validation)
-	if cached, ok := c.metadataCache[issuerURL]; ok {
-		if time.Since(cached.cachedAt) < MetadataCacheTTL {
-			return cached.metadata, nil
-		}
-		// Cache expired, will refresh below
-		slog.Debug("OAuth metadata cache expired, refreshing", "issuer", issuerURL)
-	}
-
-	// Remove trailing slash from issuer URL
-	issuerURL = strings.TrimSuffix(issuerURL, "/")
-
-	// Try RFC 8414 first
-	metadata, err := c.fetchMetadata(ctx, issuerURL+"/.well-known/oauth-authorization-server")
-	if err == nil {
-		c.metadataCache[issuerURL] = &cachedMetadata{
-			metadata: metadata,
-			cachedAt: time.Now(),
-		}
-		return metadata, nil
-	}
-
-	// Fall back to OpenID Connect discovery
-	metadata, err = c.fetchMetadata(ctx, issuerURL+"/.well-known/openid-configuration")
-	if err == nil {
-		c.metadataCache[issuerURL] = &cachedMetadata{
-			metadata: metadata,
-			cachedAt: time.Now(),
-		}
-		return metadata, nil
-	}
-
-	return nil, fmt.Errorf("failed to discover OAuth metadata for %s", issuerURL)
-}
-
-// fetchMetadata fetches OAuth metadata from a URL.
-func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*OAuthMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	// Use shared client for metadata discovery (handles caching internally)
+	sharedMeta, err := c.oauthClient.DiscoverMetadata(ctx, issuerURL)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("metadata request failed with status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var metadata OAuthMetadata
-	if err := json.Unmarshal(body, &metadata); err != nil {
-		return nil, err
-	}
-
-	return &metadata, nil
+	// Convert to internal type
+	return &OAuthMetadata{
+		Issuer:                        sharedMeta.Issuer,
+		AuthorizationEndpoint:         sharedMeta.AuthorizationEndpoint,
+		TokenEndpoint:                 sharedMeta.TokenEndpoint,
+		UserinfoEndpoint:              sharedMeta.UserinfoEndpoint,
+		JwksURI:                       sharedMeta.JwksURI,
+		ScopesSupported:               sharedMeta.ScopesSupported,
+		ResponseTypesSupported:        sharedMeta.ResponseTypesSupported,
+		CodeChallengeMethodsSupported: sharedMeta.CodeChallengeMethodsSupported,
+	}, nil
 }
 
 // DefaultAgentClientID is the CIMD URL for the Muster Agent.

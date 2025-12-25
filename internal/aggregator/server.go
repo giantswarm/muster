@@ -168,6 +168,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Release the lock before calling updateCapabilities to avoid deadlock
 	a.mu.Unlock()
 
+	// Register the auth://status resource for explicit auth state communication
+	a.registerAuthStatusResource()
+
 	// Perform initial capability discovery and registration
 	a.updateCapabilities()
 
