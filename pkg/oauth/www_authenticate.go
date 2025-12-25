@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// authParamRegex matches key="value" pairs in WWW-Authenticate headers.
+// Compiled once at package level for performance.
+var authParamRegex = regexp.MustCompile(`(\w+)="([^"]*)"`) //nolint:gochecknoglobals
+
 // ParseWWWAuthenticate parses a WWW-Authenticate header value.
 // It supports the Bearer scheme with OAuth 2.0 and MCP-specific parameters.
 //
@@ -69,9 +73,8 @@ func ParseWWWAuthenticate(header string) (*AuthChallenge, error) {
 func parseAuthParams(paramStr string) map[string]string {
 	params := make(map[string]string)
 
-	// Use regex for simple key="value" extraction
-	paramRegex := regexp.MustCompile(`(\w+)="([^"]*)"`)
-	matches := paramRegex.FindAllStringSubmatch(paramStr, -1)
+	// Use pre-compiled regex for key="value" extraction
+	matches := authParamRegex.FindAllStringSubmatch(paramStr, -1)
 
 	for _, match := range matches {
 		if len(match) == 3 {

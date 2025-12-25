@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"muster/internal/agent/oauth"
+	"muster/pkg/auth"
 )
 
 func TestAuthWatcher_NewAuthWatcher(t *testing.T) {
@@ -68,12 +69,12 @@ func TestAuthWatcher_DetectNewChallenges(t *testing.T) {
 	watcher := NewAuthWatcher(client, tokenStore)
 
 	// Test detecting new challenges from nil old status
-	newStatus := &AuthStatusResponse{
-		ServerAuths: []ServerAuthStatus{
+	newStatus := &auth.StatusResponse{
+		ServerAuths: []auth.ServerAuthStatus{
 			{
 				ServerName: "server1",
 				Status:     "auth_required",
-				AuthChallenge: &AuthChallengeInfo{
+				AuthChallenge: &auth.ChallengeInfo{
 					Issuer:       "https://dex.example.com",
 					AuthToolName: "x_server1_authenticate",
 				},
@@ -112,8 +113,8 @@ func TestAuthWatcher_DetectResolvedChallenges(t *testing.T) {
 	watcher := NewAuthWatcher(client, tokenStore)
 
 	// Old status has auth_required
-	oldStatus := &AuthStatusResponse{
-		ServerAuths: []ServerAuthStatus{
+	oldStatus := &auth.StatusResponse{
+		ServerAuths: []auth.ServerAuthStatus{
 			{
 				ServerName: "server1",
 				Status:     "auth_required",
@@ -122,8 +123,8 @@ func TestAuthWatcher_DetectResolvedChallenges(t *testing.T) {
 	}
 
 	// New status has connected
-	newStatus := &AuthStatusResponse{
-		ServerAuths: []ServerAuthStatus{
+	newStatus := &auth.StatusResponse{
+		ServerAuths: []auth.ServerAuthStatus{
 			{
 				ServerName: "server1",
 				Status:     "connected",
@@ -168,13 +169,13 @@ func TestAuthWatcher_Callbacks(t *testing.T) {
 	watcher := NewAuthWatcher(client, tokenStore, WithCallbacks(callbacks))
 
 	// Simulate a resolved challenge
-	oldStatus := &AuthStatusResponse{
-		ServerAuths: []ServerAuthStatus{
+	oldStatus := &auth.StatusResponse{
+		ServerAuths: []auth.ServerAuthStatus{
 			{ServerName: "server1", Status: "auth_required"},
 		},
 	}
-	newStatus := &AuthStatusResponse{
-		ServerAuths: []ServerAuthStatus{
+	newStatus := &auth.StatusResponse{
+		ServerAuths: []auth.ServerAuthStatus{
 			{ServerName: "server1", Status: "connected"},
 		},
 	}
@@ -195,10 +196,10 @@ func TestAuthWatcher_Callbacks(t *testing.T) {
 
 	// Test browser auth callback
 	ctx := context.Background()
-	challenge := ServerAuthStatus{
+	challenge := auth.ServerAuthStatus{
 		ServerName: "server2",
 		Status:     "auth_required",
-		AuthChallenge: &AuthChallengeInfo{
+		AuthChallenge: &auth.ChallengeInfo{
 			Issuer:       "https://dex.example.com",
 			AuthToolName: "x_server2_authenticate",
 		},
@@ -212,13 +213,13 @@ func TestAuthWatcher_Callbacks(t *testing.T) {
 }
 
 func TestAuthStatusResponse_Marshaling(t *testing.T) {
-	status := AuthStatusResponse{
-		MusterAuth: &MusterAuthStatus{
+	status := auth.StatusResponse{
+		MusterAuth: &auth.MusterAuthStatus{
 			Authenticated: true,
 			User:          "testuser",
 			Issuer:        "https://dex.example.com",
 		},
-		ServerAuths: []ServerAuthStatus{
+		ServerAuths: []auth.ServerAuthStatus{
 			{
 				ServerName: "mcp-kubernetes",
 				Status:     "connected",
@@ -226,7 +227,7 @@ func TestAuthStatusResponse_Marshaling(t *testing.T) {
 			{
 				ServerName: "mcp-github",
 				Status:     "auth_required",
-				AuthChallenge: &AuthChallengeInfo{
+				AuthChallenge: &auth.ChallengeInfo{
 					Issuer:       "https://github.com",
 					Scope:        "repo",
 					AuthToolName: "x_mcp-github_authenticate",
@@ -240,7 +241,7 @@ func TestAuthStatusResponse_Marshaling(t *testing.T) {
 		t.Fatalf("Failed to marshal: %v", err)
 	}
 
-	var parsed AuthStatusResponse
+	var parsed auth.StatusResponse
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("Failed to unmarshal: %v", err)
 	}

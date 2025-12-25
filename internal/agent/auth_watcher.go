@@ -3,44 +3,19 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"muster/internal/agent/oauth"
+	"muster/pkg/auth"
 )
 
 // DefaultAuthWatcherPollInterval is the default interval for polling auth status.
 const DefaultAuthWatcherPollInterval = 10 * time.Second
-
-// AuthStatusResponse represents the structured authentication state
-// returned by the auth://status resource.
-type AuthStatusResponse struct {
-	MusterAuth  *MusterAuthStatus  `json:"muster_auth"`
-	ServerAuths []ServerAuthStatus `json:"server_auths"`
-}
-
-// MusterAuthStatus describes the authentication state for Muster Server.
-type MusterAuthStatus struct {
-	Authenticated bool   `json:"authenticated"`
-	User          string `json:"user,omitempty"`
-	Issuer        string `json:"issuer,omitempty"`
-}
-
-// ServerAuthStatus describes the authentication state for a remote MCP server.
-type ServerAuthStatus struct {
-	ServerName    string             `json:"server_name"`
-	Status        string             `json:"status"`
-	AuthChallenge *AuthChallengeInfo `json:"auth_challenge,omitempty"`
-	Error         string             `json:"error,omitempty"`
-}
-
-// AuthChallengeInfo contains information about an authentication challenge.
-type AuthChallengeInfo struct {
-	Issuer       string `json:"issuer"`
-	Scope        string `json:"scope,omitempty"`
-	AuthToolName string `json:"auth_tool_name"`
-}
 
 // AuthWatcherCallbacks contains callback functions for auth events.
 type AuthWatcherCallbacks struct {
@@ -68,7 +43,7 @@ type AuthWatcher struct {
 	pollInterval time.Duration
 	logger       *slog.Logger
 	callbacks    AuthWatcherCallbacks
-	lastStatus   *AuthStatusResponse
+	lastStatus   *auth.StatusResponse
 	running      bool
 	stopCh       chan struct{}
 }
@@ -200,7 +175,7 @@ func (w *AuthWatcher) checkAuthStatus(ctx context.Context) {
 }
 
 // fetchAuthStatus retrieves the auth://status resource.
-func (w *AuthWatcher) fetchAuthStatus(ctx context.Context) (*AuthStatusResponse, error) {
+func (w *AuthWatcher) fetchAuthStatus(ctx context.Context) (*auth.StatusResponse, error) {
 	resource, err := w.client.GetResource(ctx, "auth://status")
 	if err != nil {
 		return nil, err
@@ -223,7 +198,7 @@ func (w *AuthWatcher) fetchAuthStatus(ctx context.Context) (*AuthStatusResponse,
 		return nil, nil
 	}
 
-	var status AuthStatusResponse
+	var status auth.StatusResponse
 	if err := json.Unmarshal([]byte(jsonData), &status); err != nil {
 		return nil, err
 	}
@@ -232,12 +207,12 @@ func (w *AuthWatcher) fetchAuthStatus(ctx context.Context) (*AuthStatusResponse,
 }
 
 // detectNewChallenges finds servers that newly require authentication.
-func (w *AuthWatcher) detectNewChallenges(oldStatus, newStatus *AuthStatusResponse) []ServerAuthStatus {
+func (w *AuthWatcher) detectNewChallenges(oldStatus, newStatus *auth.StatusResponse) []auth.ServerAuthStatus {
 	if newStatus == nil {
 		return nil
 	}
 
-	var newChallenges []ServerAuthStatus
+	var newChallenges []auth.ServerAuthStatus
 
 	// Build map of old auth_required servers
 	oldAuthRequired := make(map[string]bool)
@@ -260,7 +235,7 @@ func (w *AuthWatcher) detectNewChallenges(oldStatus, newStatus *AuthStatusRespon
 }
 
 // detectResolvedChallenges finds servers that were auth_required but are now connected.
-func (w *AuthWatcher) detectResolvedChallenges(oldStatus, newStatus *AuthStatusResponse) []string {
+func (w *AuthWatcher) detectResolvedChallenges(oldStatus, newStatus *auth.StatusResponse) []string {
 	if oldStatus == nil || newStatus == nil {
 		return nil
 	}
@@ -286,7 +261,7 @@ func (w *AuthWatcher) detectResolvedChallenges(oldStatus, newStatus *AuthStatusR
 }
 
 // handleNewChallenge handles a new authentication challenge.
-func (w *AuthWatcher) handleNewChallenge(ctx context.Context, challenge ServerAuthStatus) {
+func (w *AuthWatcher) handleNewChallenge(ctx context.Context, challenge auth.ServerAuthStatus) {
 	if challenge.AuthChallenge == nil {
 		w.logger.Debug("No auth challenge info for server", "server", challenge.ServerName)
 		return
@@ -354,14 +329,23 @@ func (w *AuthWatcher) submitToken(ctx context.Context, serverName, accessToken s
 }
 
 // extractToolError extracts an error message from a tool result.
-func (w *AuthWatcher) extractToolError(result interface{}) error {
-	// This is a simplified error extraction - the actual implementation
-	// would depend on the tool result structure
-	return nil
+func (w *AuthWatcher) extractToolError(result *mcp.CallToolResult) error {
+	if result == nil || len(result.Content) == 0 {
+		return fmt.Errorf("tool returned an error")
+	}
+
+	// Extract text from the first content item
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			return fmt.Errorf("tool error: %s", textContent.Text)
+		}
+	}
+
+	return fmt.Errorf("tool returned an error")
 }
 
 // GetLastStatus returns the last fetched auth status.
-func (w *AuthWatcher) GetLastStatus() *AuthStatusResponse {
+func (w *AuthWatcher) GetLastStatus() *auth.StatusResponse {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.lastStatus

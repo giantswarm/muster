@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -119,73 +118,6 @@ func (a *AggregatorServer) handleGlobalTokenSubmit(ctx context.Context, serverNa
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.NewTextContent(fmt.Sprintf("Successfully authenticated to %s", serverName)),
-		},
-	}, nil
-}
-
-// tryConnectWithTokenForSSO is a variant of tryConnectWithToken specifically for SSO token submission.
-// It creates a session connection using the provided token.
-func (a *AggregatorServer) tryConnectWithTokenForSSO(ctx context.Context, sessionID, serverName, serverURL, accessToken string) (*mcp.CallToolResult, error) {
-	// Create an authenticated MCP client with the token
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-	}
-
-	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-
-	// Try to initialize the client
-	if err := client.Initialize(ctx); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize connection: %w", err)
-	}
-
-	// Fetch tools from the server
-	tools, err := client.ListTools(ctx)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-
-	// Fetch resources and prompts (optional - some servers may not support them)
-	resources, err := client.ListResources(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		resources = nil
-	}
-	prompts, err := client.ListPrompts(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		prompts = nil
-	}
-
-	// Upgrade the session connection
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
-
-	// Create the session connection
-	conn := &SessionConnection{
-		ServerName:  serverName,
-		Status:      StatusSessionConnected,
-		Client:      client,
-		ConnectedAt: time.Now(),
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	session.SetConnection(serverName, conn)
-
-	// Send targeted notification to the session that their tools have changed
-	a.NotifySessionToolsChanged(sessionID)
-
-	logging.Info("Aggregator", "Session %s connected to %s via SSO with %d tools, %d resources, %d prompts",
-		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(fmt.Sprintf("Successfully authenticated to %s via SSO. You now have access to %d tools.",
-				serverName, len(tools))),
 		},
 	}, nil
 }

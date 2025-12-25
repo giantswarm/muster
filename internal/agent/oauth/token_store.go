@@ -299,19 +299,31 @@ func (s *TokenStore) HasValidToken(serverURL string) bool {
 // This enables SSO by allowing token lookup by issuer URL rather than server URL.
 // Returns nil if no token exists for the issuer or the token has expired.
 func (s *TokenStore) GetByIssuer(issuerURL string) *StoredToken {
+	// Fast path with read lock - check memory cache
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Search through all cached tokens for matching issuer
 	for _, token := range s.tokens {
 		if token.IssuerURL == issuerURL && s.isTokenValid(token) {
+			s.mu.RUnlock()
 			return token
 		}
 	}
+	s.mu.RUnlock()
 
-	// If file mode is enabled, scan files for issuer match
+	// Slow path: if file mode is enabled, scan files for issuer match
+	// This requires a write lock because we cache the found token
 	if s.fileMode {
-		token := s.findTokenByIssuerFromFiles(issuerURL)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Double-check cache in case another goroutine populated it
+		for _, token := range s.tokens {
+			if token.IssuerURL == issuerURL && s.isTokenValid(token) {
+				return token
+			}
+		}
+
+		// Scan files for matching issuer
+		token := s.findTokenByIssuerFromFilesLocked(issuerURL)
 		if token != nil && s.isTokenValid(token) {
 			return token
 		}
@@ -320,9 +332,10 @@ func (s *TokenStore) GetByIssuer(issuerURL string) *StoredToken {
 	return nil
 }
 
-// findTokenByIssuerFromFiles scans token files to find one matching the issuer.
+// findTokenByIssuerFromFilesLocked scans token files to find one matching the issuer.
 // This is a slower path used when the token is not in the memory cache.
-func (s *TokenStore) findTokenByIssuerFromFiles(issuerURL string) *StoredToken {
+// REQUIRES: s.mu must be held (write lock) by the caller.
+func (s *TokenStore) findTokenByIssuerFromFilesLocked(issuerURL string) *StoredToken {
 	entries, err := os.ReadDir(s.storageDir)
 	if err != nil {
 		return nil
@@ -340,7 +353,7 @@ func (s *TokenStore) findTokenByIssuerFromFiles(issuerURL string) *StoredToken {
 		}
 
 		if token.IssuerURL == issuerURL {
-			// Cache the token for future lookups
+			// Cache the token for future lookups (safe: we hold the write lock)
 			s.tokens[key] = token
 			return token
 		}

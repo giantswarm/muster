@@ -8,55 +8,12 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"muster/pkg/auth"
 	"muster/pkg/logging"
 )
 
 // AuthStatusResourceURI is the URI for the auth status resource.
 const AuthStatusResourceURI = "auth://status"
-
-// AuthStatusResponse represents the structured authentication state.
-// This is returned by the auth://status resource.
-type AuthStatusResponse struct {
-	// MusterAuth describes authentication to Muster Server itself
-	MusterAuth *MusterAuthStatus `json:"muster_auth"`
-
-	// ServerAuths describes authentication to each remote MCP server
-	ServerAuths []ServerAuthStatus `json:"server_auths"`
-}
-
-// MusterAuthStatus describes the authentication state for Muster Server.
-type MusterAuthStatus struct {
-	Authenticated bool   `json:"authenticated"`
-	User          string `json:"user,omitempty"`
-	Issuer        string `json:"issuer,omitempty"`
-}
-
-// ServerAuthStatus describes the authentication state for a remote MCP server.
-type ServerAuthStatus struct {
-	// ServerName is the name of the MCP server
-	ServerName string `json:"server_name"`
-
-	// Status is one of: "connected", "auth_required", "error", "initializing"
-	Status string `json:"status"`
-
-	// AuthChallenge is present when Status == "auth_required"
-	AuthChallenge *AuthChallengeInfo `json:"auth_challenge,omitempty"`
-
-	// Error is present when Status == "error"
-	Error string `json:"error,omitempty"`
-}
-
-// AuthChallengeInfo contains information about an authentication challenge.
-type AuthChallengeInfo struct {
-	// Issuer is the IdP URL that will issue tokens
-	Issuer string `json:"issuer"`
-
-	// Scope is the OAuth scope required
-	Scope string `json:"scope,omitempty"`
-
-	// AuthToolName is the tool to call for browser-based auth
-	AuthToolName string `json:"auth_tool_name"`
-}
 
 // createAuthStatusResource creates the auth://status resource and handler.
 func (a *AggregatorServer) createAuthStatusResource() mcpserver.ServerResource {
@@ -99,8 +56,8 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, req mcp
 }
 
 // buildAuthStatus constructs the auth status response from current state.
-func (a *AggregatorServer) buildAuthStatus(ctx context.Context) *AuthStatusResponse {
-	response := &AuthStatusResponse{
+func (a *AggregatorServer) buildAuthStatus(ctx context.Context) *auth.StatusResponse {
+	response := &auth.StatusResponse{
 		MusterAuth:  a.getMusterAuthStatus(ctx),
 		ServerAuths: a.getServerAuthStatuses(ctx),
 	}
@@ -109,31 +66,31 @@ func (a *AggregatorServer) buildAuthStatus(ctx context.Context) *AuthStatusRespo
 }
 
 // getMusterAuthStatus returns the Muster Server authentication status.
-func (a *AggregatorServer) getMusterAuthStatus(ctx context.Context) *MusterAuthStatus {
+func (a *AggregatorServer) getMusterAuthStatus(ctx context.Context) *auth.MusterAuthStatus {
 	// If OAuth is not enabled, Muster is always "authenticated" (no auth required)
 	if !a.config.OAuth.Enabled {
-		return &MusterAuthStatus{
+		return &auth.MusterAuthStatus{
 			Authenticated: true,
 		}
 	}
 
 	// When OAuth is enabled, the request has already been authenticated
 	// by the OAuth middleware, so we're authenticated if we got here
-	return &MusterAuthStatus{
+	return &auth.MusterAuthStatus{
 		Authenticated: true,
 		// TODO: Extract user info from context if available
 	}
 }
 
 // getServerAuthStatuses returns auth status for all registered MCP servers.
-func (a *AggregatorServer) getServerAuthStatuses(ctx context.Context) []ServerAuthStatus {
-	var statuses []ServerAuthStatus
+func (a *AggregatorServer) getServerAuthStatuses(ctx context.Context) []auth.ServerAuthStatus {
+	var statuses []auth.ServerAuthStatus
 
 	// Get all servers from registry
 	servers := a.registry.GetAllServers()
 
 	for serverName, info := range servers {
-		status := ServerAuthStatus{
+		status := auth.ServerAuthStatus{
 			ServerName: serverName,
 		}
 
@@ -145,7 +102,7 @@ func (a *AggregatorServer) getServerAuthStatuses(ctx context.Context) []ServerAu
 			status.Status = "auth_required"
 			// Extract auth challenge info
 			if info.AuthInfo != nil {
-				status.AuthChallenge = &AuthChallengeInfo{
+				status.AuthChallenge = &auth.ChallengeInfo{
 					Issuer:       info.AuthInfo.Issuer,
 					Scope:        info.AuthInfo.Scope,
 					AuthToolName: a.registry.nameTracker.GetExposedToolName(serverName, "authenticate"),
