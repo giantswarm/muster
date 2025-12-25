@@ -141,12 +141,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.ctx, a.cancelFunc = context.WithCancel(ctx)
 
 	// Create MCP server with full capabilities enabled
+	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
+	// (see ADR-006: Session-Scoped Tool Visibility)
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		"1.0.0",
 		mcpserver.WithToolCapabilities(true), // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
+		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
 	)
 
 	a.mcpServer = mcpSrv
@@ -847,6 +850,49 @@ func (a *AggregatorServer) GetResourcesForSession(sessionID string) []mcp.Resour
 // Similar to GetToolsForSession, this returns prompts based on session authentication state.
 func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
 	return a.registry.GetAllPromptsForSession(a.sessionRegistry, sessionID)
+}
+
+// sessionToolFilter is the WithToolFilter callback that provides session-specific tool views.
+//
+// This is a critical part of the session-scoped tool visibility feature (ADR-006).
+// When a client calls tools/list, this filter intercepts the request and returns
+// only the tools that the specific session is authorized to see based on their
+// OAuth authentication state.
+//
+// The filter:
+//   - Extracts the session ID from the MCP context
+//   - Includes core muster tools (workflow, config, service, etc.)
+//   - Returns session-specific MCP server tools via GetToolsForSession
+//   - For non-OAuth servers, returns global tools
+//   - For OAuth servers, returns tools only if the session has authenticated
+//
+// Args:
+//   - ctx: Context containing the MCP session information
+//   - _ : The global tools list (ignored - we compute session-specific tools instead)
+//
+// Returns a slice of MCP tools specific to the requesting session.
+func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
+	sessionID := getSessionIDFromContext(ctx)
+
+	// Get session-specific MCP server tools (handles OAuth auth state)
+	mcpServerTools := a.GetToolsForSession(sessionID)
+
+	// Get core muster tools (these are always available to all sessions)
+	coreServerTools := a.createToolsFromProviders()
+
+	// Combine both sets of tools
+	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreServerTools))
+	allTools = append(allTools, mcpServerTools...)
+
+	// Convert core ServerTools to mcp.Tool
+	for _, serverTool := range coreServerTools {
+		allTools = append(allTools, serverTool.Tool)
+	}
+
+	logging.Debug("Aggregator", "sessionToolFilter: returning %d tools (%d mcp server, %d core) for session %s",
+		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateSessionID(sessionID))
+
+	return allTools
 }
 
 // NotifySessionToolsChanged sends a tools/list_changed notification to a specific session.
