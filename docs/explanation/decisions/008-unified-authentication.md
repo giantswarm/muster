@@ -651,9 +651,10 @@ type AuthHandler interface {
 - Tokens are session-scoped on server side
 
 #### For Migration
-- Token store supports version detection
-- Automatic migration from v1 to v2 format
-- Clear error messages for migration failures
+- Token file format remains backwards compatible
+- Existing tokens keyed by server URL continue to work for their original servers
+- SSO feature requires new tokens to be obtained (issuer URL is populated on new token storage)
+- No explicit migration needed - users will simply re-authenticate once per issuer to enable SSO
 
 #### For Polling Overhead
 - Reasonable poll interval (5-10 seconds)
