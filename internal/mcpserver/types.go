@@ -2,10 +2,8 @@ package mcpserver
 
 import (
 	"fmt"
-	"net/http"
-	"strings"
 
-	"muster/internal/oauth"
+	pkgoauth "muster/pkg/oauth"
 )
 
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.
@@ -42,6 +40,10 @@ type AuthRequiredError struct {
 	// AuthInfo contains the OAuth parameters extracted from the 401 response
 	AuthInfo AuthInfo
 
+	// AuthChallenge contains the parsed WWW-Authenticate header information
+	// from pkg/oauth for structured auth challenge handling
+	AuthChallenge *pkgoauth.AuthChallenge
+
 	// Err is the underlying error
 	Err error
 }
@@ -56,56 +58,103 @@ func (e *AuthRequiredError) Unwrap() error {
 	return e.Err
 }
 
+// HasValidChallenge returns true if the error contains valid auth challenge information.
+func (e *AuthRequiredError) HasValidChallenge() bool {
+	if e == nil {
+		return false
+	}
+	// Check AuthChallenge first (preferred)
+	if e.AuthChallenge != nil && e.AuthChallenge.IsOAuthChallenge() {
+		return true
+	}
+	// Fallback to AuthInfo
+	return e.AuthInfo.Issuer != "" || e.AuthInfo.ResourceMetadataURL != ""
+}
+
+// GetIssuer returns the OAuth issuer URL from the error.
+// It prefers AuthChallenge if available, falls back to AuthInfo.
+func (e *AuthRequiredError) GetIssuer() string {
+	if e == nil {
+		return ""
+	}
+	if e.AuthChallenge != nil {
+		issuer := e.AuthChallenge.GetIssuer()
+		if issuer != "" {
+			return issuer
+		}
+	}
+	return e.AuthInfo.Issuer
+}
+
+// GetScope returns the OAuth scope from the error.
+func (e *AuthRequiredError) GetScope() string {
+	if e == nil {
+		return ""
+	}
+	if e.AuthChallenge != nil && e.AuthChallenge.Scope != "" {
+		return e.AuthChallenge.Scope
+	}
+	return e.AuthInfo.Scope
+}
+
+// GetResourceMetadataURL returns the resource metadata URL from the error.
+func (e *AuthRequiredError) GetResourceMetadataURL() string {
+	if e == nil {
+		return ""
+	}
+	if e.AuthChallenge != nil && e.AuthChallenge.ResourceMetadataURL != "" {
+		return e.AuthChallenge.ResourceMetadataURL
+	}
+	return e.AuthInfo.ResourceMetadataURL
+}
+
 // CheckForAuthRequiredError examines an error to determine if it's a 401 authentication
 // required error. If so, it returns an AuthRequiredError with parsed OAuth parameters.
 // This is a shared helper used by SSEClient and StreamableHTTPClient.
+//
+// The function uses the pkg/oauth utilities for structured 401 detection,
+// leveraging ParseWWWAuthenticateFromError for proper header parsing.
 func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
 	if err == nil {
 		return nil
 	}
 
-	errStr := err.Error()
-
-	// Check for 401 status code in the error message
-	// The mcp-go library returns errors like "request failed with status 401: ..."
-	if !strings.Contains(errStr, "401") &&
-		!strings.Contains(errStr, http.StatusText(http.StatusUnauthorized)) {
+	// Use the shared pkg/oauth utility to check if this is a 401 error
+	if !pkgoauth.Is401Error(err) {
 		return nil
 	}
 
-	// Extract WWW-Authenticate header information if available
-	authInfo := AuthInfo{}
+	// Parse auth challenge from the error using pkg/oauth
+	challenge := pkgoauth.ParseWWWAuthenticateFromError(err)
 
-	// Try to parse any WWW-Authenticate-style information from the error
-	if strings.Contains(errStr, "Bearer") {
-		authInfo = ParseAuthInfoFromError(errStr)
+	// Build the AuthInfo for backwards compatibility
+	authInfo := AuthInfo{}
+	if challenge != nil {
+		authInfo.Issuer = challenge.GetIssuer()
+		authInfo.Scope = challenge.Scope
+		authInfo.ResourceMetadataURL = challenge.ResourceMetadataURL
 	}
 
 	return &AuthRequiredError{
-		URL:      url,
-		AuthInfo: authInfo,
-		Err:      fmt.Errorf("server returned 401 Unauthorized"),
+		URL:           url,
+		AuthInfo:      authInfo,
+		AuthChallenge: challenge,
+		Err:           fmt.Errorf("server returned 401 Unauthorized"),
 	}
 }
 
 // ParseAuthInfoFromError attempts to extract OAuth information from an error message.
 // This is a best-effort parse since we can't directly access HTTP response headers.
+// Deprecated: Use CheckForAuthRequiredError which uses pkg/oauth utilities directly.
 func ParseAuthInfoFromError(errStr string) AuthInfo {
 	info := AuthInfo{}
 
-	// Try to parse as WWW-Authenticate header format if present
-	if idx := strings.Index(errStr, "Bearer"); idx >= 0 {
-		headerPart := errStr[idx:]
-		// Find the end of the Bearer challenge
-		if endIdx := strings.Index(headerPart, "\n"); endIdx > 0 {
-			headerPart = headerPart[:endIdx]
-		}
-		params := oauth.ParseWWWAuthenticate(headerPart)
-		if params != nil {
-			info.Issuer = params.Realm
-			info.Scope = params.Scope
-			info.ResourceMetadataURL = params.ResourceMetadataURL
-		}
+	// Use the shared pkg/oauth utilities
+	challenge, parseErr := pkgoauth.ParseWWWAuthenticate(errStr)
+	if parseErr == nil && challenge != nil {
+		info.Issuer = challenge.GetIssuer()
+		info.Scope = challenge.Scope
+		info.ResourceMetadataURL = challenge.ResourceMetadataURL
 	}
 
 	return info

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -292,6 +293,65 @@ func (s *TokenStore) deleteTokenFile(key string) error {
 // HasValidToken checks if a valid (non-expired) token exists for a server.
 func (s *TokenStore) HasValidToken(serverURL string) bool {
 	return s.GetToken(serverURL) != nil
+}
+
+// GetByIssuer retrieves a stored token for a specific issuer.
+// This enables SSO by allowing token lookup by issuer URL rather than server URL.
+// Returns nil if no token exists for the issuer or the token has expired.
+func (s *TokenStore) GetByIssuer(issuerURL string) *StoredToken {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Search through all cached tokens for matching issuer
+	for _, token := range s.tokens {
+		if token.IssuerURL == issuerURL && s.isTokenValid(token) {
+			return token
+		}
+	}
+
+	// If file mode is enabled, scan files for issuer match
+	if s.fileMode {
+		token := s.findTokenByIssuerFromFiles(issuerURL)
+		if token != nil && s.isTokenValid(token) {
+			return token
+		}
+	}
+
+	return nil
+}
+
+// findTokenByIssuerFromFiles scans token files to find one matching the issuer.
+// This is a slower path used when the token is not in the memory cache.
+func (s *TokenStore) findTokenByIssuerFromFiles(issuerURL string) *StoredToken {
+	entries, err := os.ReadDir(s.storageDir)
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+
+		key := strings.TrimSuffix(entry.Name(), ".json")
+		token, err := s.readTokenFile(key)
+		if err != nil {
+			continue
+		}
+
+		if token.IssuerURL == issuerURL {
+			// Cache the token for future lookups
+			s.tokens[key] = token
+			return token
+		}
+	}
+
+	return nil
+}
+
+// HasValidTokenForIssuer checks if a valid token exists for a specific issuer.
+func (s *TokenStore) HasValidTokenForIssuer(issuerURL string) bool {
+	return s.GetByIssuer(issuerURL) != nil
 }
 
 // Clear removes all stored tokens (both in-memory and file-based).

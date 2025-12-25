@@ -171,6 +171,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Register the auth://status resource for explicit auth state communication
 	a.registerAuthStatusResource()
 
+	// Register the submit_auth_token tool for SSO token forwarding
+	a.registerSubmitAuthTokenTool()
+
 	// Perform initial capability discovery and registration
 	a.updateCapabilities()
 
