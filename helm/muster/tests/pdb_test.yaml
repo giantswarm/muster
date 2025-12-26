@@ -59,3 +59,4 @@ tests:
           path: spec.selector.matchLabels["app.kubernetes.io/name"]
           value: muster
 
+

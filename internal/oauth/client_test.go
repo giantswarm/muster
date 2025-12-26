@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestClient_GetRedirectURI(t *testing.T) {
@@ -79,7 +81,7 @@ func TestClient_GetToken(t *testing.T) {
 	}
 
 	// Store a token
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -109,7 +111,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	scope2 := "openid email" // Different scope
 
 	// Store a token with scope1
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -129,9 +131,9 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata(t *testing.T) {
+func TestClient_DiscoverMetadata(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := OAuthMetadata{
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -152,7 +154,7 @@ func TestClient_FetchMetadata(t *testing.T) {
 
 	// Fetch metadata
 	ctx := context.Background()
-	result, err := client.fetchMetadata(ctx, server.URL)
+	result, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata: %v", err)
 	}
@@ -168,7 +170,7 @@ func TestClient_FetchMetadata(t *testing.T) {
 	}
 
 	// Second call should hit cache
-	result2, err := client.fetchMetadata(ctx, server.URL)
+	result2, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata from cache: %v", err)
 	}
@@ -179,9 +181,9 @@ func TestClient_FetchMetadata(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
+func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	// Create a test server that only supports OpenID Connect discovery
-	metadata := OAuthMetadata{
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -202,7 +204,7 @@ func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	result, err := client.fetchMetadata(ctx, server.URL)
+	result, err := client.DiscoverMetadata(ctx, server.URL)
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata via OpenID fallback: %v", err)
 	}
@@ -213,7 +215,7 @@ func TestClient_FetchMetadata_OpenIDFallback(t *testing.T) {
 	}
 }
 
-func TestClient_FetchMetadata_Error(t *testing.T) {
+func TestClient_DiscoverMetadata_Error(t *testing.T) {
 	// Create a test server that returns errors
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server Error", http.StatusInternalServerError)
@@ -224,7 +226,7 @@ func TestClient_FetchMetadata_Error(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	_, err := client.fetchMetadata(ctx, server.URL)
+	_, err := client.DiscoverMetadata(ctx, server.URL)
 	if err == nil {
 		t.Fatal("Expected error for failed metadata fetch")
 	}
@@ -232,7 +234,7 @@ func TestClient_FetchMetadata_Error(t *testing.T) {
 
 func TestClient_GenerateAuthURL(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := OAuthMetadata{
+	metadata := pkgoauth.Metadata{
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -299,7 +301,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 
 	var serverURL string
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		metadata := OAuthMetadata{
+		metadata := pkgoauth.Metadata{
 			Issuer:                "https://auth.example.com",
 			AuthorizationEndpoint: "https://auth.example.com/authorize",
 			TokenEndpoint:         serverURL + "/token",
@@ -369,7 +371,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 
 	var serverURL string
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		metadata := OAuthMetadata{
+		metadata := pkgoauth.Metadata{
 			Issuer:                "https://auth.example.com",
 			AuthorizationEndpoint: "https://auth.example.com/authorize",
 			TokenEndpoint:         serverURL + "/token",
@@ -406,7 +408,7 @@ func TestClient_RefreshToken(t *testing.T) {
 
 	var serverURL string
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		metadata := OAuthMetadata{
+		metadata := pkgoauth.Metadata{
 			Issuer:                serverURL,
 			AuthorizationEndpoint: serverURL + "/authorize",
 			TokenEndpoint:         serverURL + "/token",
@@ -443,7 +445,7 @@ func TestClient_RefreshToken(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
 	defer client.Stop()
 
-	oldToken := &Token{
+	oldToken := &pkgoauth.Token{
 		AccessToken:  "old-access-token",
 		RefreshToken: "refresh-token",
 		TokenType:    "Bearer",
@@ -469,7 +471,7 @@ func TestClient_RefreshToken_NoRefreshToken(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
 	defer client.Stop()
 
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token",
 		// No RefreshToken
 	}
@@ -493,7 +495,7 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 
 	var serverURL string
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		metadata := OAuthMetadata{
+		metadata := pkgoauth.Metadata{
 			Issuer:                serverURL,
 			AuthorizationEndpoint: serverURL + "/authorize",
 			TokenEndpoint:         serverURL + "/token",
@@ -513,7 +515,7 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
 	defer client.Stop()
 
-	oldToken := &Token{
+	oldToken := &pkgoauth.Token{
 		AccessToken:  "old-access-token",
 		RefreshToken: "old-refresh-token",
 		TokenType:    "Bearer",
@@ -533,10 +535,8 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 }
 
 func TestGeneratePKCE(t *testing.T) {
-	verifier, challenge, err := generatePKCE()
-	if err != nil {
-		t.Fatalf("Failed to generate PKCE: %v", err)
-	}
+	// Use the shared PKCE implementation (delegates to golang.org/x/oauth2)
+	verifier, challenge := pkgoauth.GeneratePKCERaw()
 
 	if verifier == "" {
 		t.Error("Verifier should not be empty")
@@ -552,10 +552,7 @@ func TestGeneratePKCE(t *testing.T) {
 	}
 
 	// Generate another pair to ensure randomness
-	verifier2, challenge2, err := generatePKCE()
-	if err != nil {
-		t.Fatalf("Failed to generate second PKCE: %v", err)
-	}
+	verifier2, challenge2 := pkgoauth.GeneratePKCERaw()
 
 	if verifier == verifier2 {
 		t.Error("Generated verifiers should be unique")
@@ -601,8 +598,8 @@ func TestToken_IsExpired_Client(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			token := &Token{ExpiresAt: tc.expiresAt}
-			result := token.IsExpired(tc.margin)
+			token := &pkgoauth.Token{ExpiresAt: tc.expiresAt}
+			result := token.IsExpiredWithMargin(tc.margin)
 			if result != tc.expected {
 				t.Errorf("Expected %v, got %v", tc.expected, result)
 			}

@@ -3,6 +3,8 @@ package oauth
 import (
 	"testing"
 	"time"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestTokenStore_StoreAndGet(t *testing.T) {
@@ -15,7 +17,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 		Scope:     "openid profile",
 	}
 
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token-abc",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -68,7 +70,7 @@ func TestTokenStore_GetExpiredToken(t *testing.T) {
 	}
 
 	// Create an expired token
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "expired-token",
 		TokenType:   "Bearer",
 		ExpiresAt:   time.Now().Add(-time.Hour), // Expired an hour ago
@@ -95,7 +97,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		Scope:     "openid profile email",
 	}
 
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token-xyz",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -127,7 +129,7 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 		Scope:     "openid",
 	}
 
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token-xyz",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -159,7 +161,7 @@ func TestTokenStore_Delete(t *testing.T) {
 		Scope:     "openid",
 	}
 
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token-xyz",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -195,7 +197,7 @@ func TestTokenStore_DeleteBySession(t *testing.T) {
 			Issuer:    issuer,
 			Scope:     "openid",
 		}
-		token := &Token{
+		token := &pkgoauth.Token{
 			AccessToken: "token-" + string(rune('a'+i)),
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
@@ -210,7 +212,7 @@ func TestTokenStore_DeleteBySession(t *testing.T) {
 		Issuer:    "https://issuer1.com",
 		Scope:     "openid",
 	}
-	ts.Store(otherKey, &Token{
+	ts.Store(otherKey, &pkgoauth.Token{
 		AccessToken: "other-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -252,7 +254,7 @@ func TestTokenStore_Count(t *testing.T) {
 			Issuer:    "issuer",
 			Scope:     string(rune('a' + i)),
 		}
-		ts.Store(key, &Token{AccessToken: "token", ExpiresIn: 3600})
+		ts.Store(key, &pkgoauth.Token{AccessToken: "token", ExpiresIn: 3600})
 	}
 
 	if ts.Count() != 5 {
@@ -274,7 +276,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		Issuer:    issuerToDelete,
 		Scope:     "openid",
 	}
-	ts.Store(key1, &Token{
+	ts.Store(key1, &pkgoauth.Token{
 		AccessToken: "token-1",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -286,7 +288,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		Issuer:    issuerToDelete,
 		Scope:     "profile", // Same issuer, different scope
 	}
-	ts.Store(key2, &Token{
+	ts.Store(key2, &pkgoauth.Token{
 		AccessToken: "token-2",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -298,7 +300,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		Issuer:    issuerToKeep,
 		Scope:     "openid",
 	}
-	ts.Store(key3, &Token{
+	ts.Store(key3, &pkgoauth.Token{
 		AccessToken: "token-3",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -311,7 +313,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		Issuer:    issuerToDelete,
 		Scope:     "openid",
 	}
-	ts.Store(key4, &Token{
+	ts.Store(key4, &pkgoauth.Token{
 		AccessToken: "token-4",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -358,7 +360,7 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
-	ts.Store(key, &Token{
+	ts.Store(key, &pkgoauth.Token{
 		AccessToken: "token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -385,31 +387,31 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 func TestToken_IsExpired(t *testing.T) {
 	tests := []struct {
 		name     string
-		token    Token
+		token    pkgoauth.Token
 		margin   time.Duration
 		expected bool
 	}{
 		{
 			name:     "not expired",
-			token:    Token{ExpiresAt: time.Now().Add(time.Hour)},
+			token:    pkgoauth.Token{ExpiresAt: time.Now().Add(time.Hour)},
 			margin:   0,
 			expected: false,
 		},
 		{
 			name:     "expired",
-			token:    Token{ExpiresAt: time.Now().Add(-time.Hour)},
+			token:    pkgoauth.Token{ExpiresAt: time.Now().Add(-time.Hour)},
 			margin:   0,
 			expected: true,
 		},
 		{
 			name:     "not expired but within margin",
-			token:    Token{ExpiresAt: time.Now().Add(10 * time.Second)},
+			token:    pkgoauth.Token{ExpiresAt: time.Now().Add(10 * time.Second)},
 			margin:   30 * time.Second,
 			expected: true,
 		},
 		{
 			name:     "no expiration set",
-			token:    Token{},
+			token:    pkgoauth.Token{},
 			margin:   0,
 			expected: false,
 		},
@@ -417,9 +419,9 @@ func TestToken_IsExpired(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.token.IsExpired(tc.margin)
+			result := tc.token.IsExpiredWithMargin(tc.margin)
 			if result != tc.expected {
-				t.Errorf("Expected IsExpired to be %v, got %v", tc.expected, result)
+				t.Errorf("Expected IsExpiredWithMargin to be %v, got %v", tc.expected, result)
 			}
 		})
 	}
@@ -444,7 +446,7 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 		Issuer:    commonIssuer,
 		Scope:     commonScope,
 	}
-	user1Token := &Token{
+	user1Token := &pkgoauth.Token{
 		AccessToken: "user1-secret-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -459,7 +461,7 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 		Issuer:    commonIssuer,
 		Scope:     commonScope,
 	}
-	user2Token := &Token{
+	user2Token := &pkgoauth.Token{
 		AccessToken: "user2-secret-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -523,7 +525,7 @@ func TestTokenStore_Cleanup(t *testing.T) {
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -550,7 +552,7 @@ func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
 		Issuer:    "https://auth.example.com",
 		Scope:     "openid",
 	}
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "expired-token",
 		TokenType:   "Bearer",
 		ExpiresAt:   time.Now().Add(-time.Hour), // Expired an hour ago

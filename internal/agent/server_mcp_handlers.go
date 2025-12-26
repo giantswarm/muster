@@ -40,7 +40,8 @@ func (m *MCPServer) handleListTools(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format tools: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleListResources handles the list_resources MCP tool for AI assistants.
@@ -71,7 +72,8 @@ func (m *MCPServer) handleListResources(ctx context.Context, request mcp.CallToo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format resources: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleListPrompts handles the list_prompts MCP tool for AI assistants.
@@ -102,7 +104,8 @@ func (m *MCPServer) handleListPrompts(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format prompts: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleDescribeTool handles the describe_tool MCP tool for AI assistants.
@@ -140,7 +143,8 @@ func (m *MCPServer) handleDescribeTool(ctx context.Context, request mcp.CallTool
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format tool info: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleDescribeResource handles the describe_resource MCP tool for AI assistants.
@@ -178,7 +182,8 @@ func (m *MCPServer) handleDescribeResource(ctx context.Context, request mcp.Call
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format resource info: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleDescribePrompt handles the describe_prompt MCP tool for AI assistants.
@@ -216,7 +221,8 @@ func (m *MCPServer) handleDescribePrompt(ctx context.Context, request mcp.CallTo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format prompt info: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(jsonData), nil
+	result := mcp.NewToolResultText(jsonData)
+	return m.wrapToolResultWithAuth(result), nil
 }
 
 // handleCallTool handles the call_tool MCP tool for AI assistants.
@@ -304,7 +310,8 @@ func (m *MCPServer) handleCallTool(ctx context.Context, request mcp.CallToolRequ
 		}
 	}
 
-	return mcp.NewToolResultText(strings.Join(resultTexts, "\n")), nil
+	toolResult := mcp.NewToolResultText(strings.Join(resultTexts, "\n"))
+	return m.wrapToolResultWithAuth(toolResult), nil
 }
 
 // handleGetResource handles the get_resource MCP tool for AI assistants.
@@ -349,7 +356,8 @@ func (m *MCPServer) handleGetResource(ctx context.Context, request mcp.CallToolR
 		}
 	}
 
-	return mcp.NewToolResultText(strings.Join(contentTexts, "\n")), nil
+	toolResult := mcp.NewToolResultText(strings.Join(contentTexts, "\n"))
+	return m.wrapToolResultWithAuth(toolResult), nil
 }
 
 // handleGetPrompt handles the get_prompt MCP tool for AI assistants.
@@ -451,7 +459,8 @@ func (m *MCPServer) handleGetPrompt(ctx context.Context, request mcp.CallToolReq
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format messages: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(string(jsonData)), nil
+	toolResult := mcp.NewToolResultText(string(jsonData))
+	return m.wrapToolResultWithAuth(toolResult), nil
 }
 
 // handleListCoreTools handles the list_core_tools MCP tool for AI assistants.
@@ -537,7 +546,8 @@ func (m *MCPServer) handleListCoreTools(ctx context.Context, request mcp.CallToo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format core tools: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(string(jsonData)), nil
+	toolResult := mcp.NewToolResultText(string(jsonData))
+	return m.wrapToolResultWithAuth(toolResult), nil
 }
 
 // handleFilterTools handles the filter_tools MCP tool for AI assistants.
@@ -689,5 +699,6 @@ func (m *MCPServer) handleFilterTools(ctx context.Context, request mcp.CallToolR
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to format filtered tools: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(string(jsonData)), nil
+	toolResult := mcp.NewToolResultText(string(jsonData))
+	return m.wrapToolResultWithAuth(toolResult), nil
 }

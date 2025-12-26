@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 // AuthState represents the current authentication state of the agent.
@@ -63,7 +65,7 @@ type AuthManager struct {
 	client        *Client
 	state         AuthState
 	serverURL     string
-	authChallenge *AuthChallenge
+	authChallenge *pkgoauth.AuthChallenge
 	authURL       string
 	lastError     error
 	waitFunc      func() error // Called when waiting for auth to complete
@@ -194,7 +196,7 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 
 // probeServerAuth probes the server to detect authentication requirements.
 // Returns an AuthChallenge if 401 is received, nil otherwise.
-func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*AuthChallenge, error) {
+func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*pkgoauth.AuthChallenge, error) {
 	// Normalize to base URL first, then construct probe URLs
 	baseURL := normalizeServerURL(serverURL)
 
@@ -222,9 +224,9 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 
 		// Extract needed data before closing the body to avoid defer in loop
 		statusCode := resp.StatusCode
-		var challenge *AuthChallenge
+		var challenge *pkgoauth.AuthChallenge
 		if statusCode == http.StatusUnauthorized {
-			challenge = ExtractAuthChallengeFromResponse(resp)
+			challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
 		}
 
 		// Drain and close body immediately (not deferred) to avoid memory leak
@@ -251,7 +253,7 @@ func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*A
 
 // discoverOAuthMetadata attempts to discover OAuth metadata from well-known endpoints.
 // This is used when the server returns 401 without a WWW-Authenticate header.
-func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL string) (*AuthChallenge, error) {
+func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL string) (*pkgoauth.AuthChallenge, error) {
 	// Normalize to base URL for well-known discovery
 	baseURL := normalizeServerURL(serverURL)
 	httpClient := m.client.GetHTTPClient()
@@ -299,7 +301,7 @@ func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL strin
 	// Use the first authorization server as the issuer
 	issuer := metadata.AuthorizationServers[0]
 
-	return &AuthChallenge{
+	return &pkgoauth.AuthChallenge{
 		Issuer: issuer,
 		Realm:  issuer,
 	}, nil
@@ -421,7 +423,7 @@ func (m *AuthManager) GetState() AuthState {
 }
 
 // GetAuthChallenge returns the current auth challenge (if in pending auth state).
-func (m *AuthManager) GetAuthChallenge() *AuthChallenge {
+func (m *AuthManager) GetAuthChallenge() *pkgoauth.AuthChallenge {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.authChallenge

@@ -30,6 +30,7 @@ import (
 //   - Optional client notification support
 //   - Tool availability caching and refresh
 //   - Automatic re-authentication when tokens expire
+//   - Proactive auth status notification in tool responses (ADR-008)
 type MCPServer struct {
 	client        *Client
 	logger        *Logger
@@ -41,6 +42,9 @@ type MCPServer struct {
 	authMu       sync.Mutex
 	endpoint     string
 	reauthInProg bool
+
+	// Auth status polling for proactive auth notifications (ADR-008)
+	authPoller *authPoller
 }
 
 // NewMCPServer creates a new MCP server that exposes agent functionality as MCP tools.
@@ -86,6 +90,7 @@ func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServe
 		logger:        logger,
 		mcpServer:     mcpServer,
 		notifyClients: notifyClients,
+		authPoller:    newAuthPoller(client, logger),
 	}
 
 	// Register all tools
@@ -102,6 +107,9 @@ func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServe
 // The server will continue running until the context is cancelled or
 // the stdio connection is closed by the client.
 func (m *MCPServer) Start(ctx context.Context) error {
+	// Start the auth status poller in background (ADR-008)
+	go m.authPoller.Start(ctx)
+
 	// Start the stdio server
 	return server.ServeStdio(m.mcpServer)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"muster/internal/api"
+	pkgoauth "muster/pkg/oauth"
 )
 
 // Adapter implements api.OAuthHandler by wrapping the OAuth Manager.
@@ -31,9 +32,9 @@ func (a *Adapter) IsEnabled() bool {
 	return a.manager.IsEnabled()
 }
 
-// tokenToAPIToken converts an internal Token to an api.OAuthToken.
+// tokenToAPIToken converts a pkgoauth.Token to an api.OAuthToken.
 // Returns nil if the input token is nil.
-func tokenToAPIToken(token *Token) *api.OAuthToken {
+func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 	if token == nil {
 		return nil
 	}
@@ -61,14 +62,7 @@ func (a *Adapter) ClearTokenByIssuer(sessionID, issuer string) {
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
-	// Create WWW-Authenticate params from the issuer and scope
-	authParams := &WWWAuthenticateParams{
-		Scheme: "Bearer",
-		Realm:  issuer,
-		Scope:  scope,
-	}
-
-	challenge, err := a.manager.CreateAuthChallenge(ctx, sessionID, serverName, authParams)
+	challenge, err := a.manager.CreateAuthChallenge(ctx, sessionID, serverName, issuer, scope)
 	if err != nil {
 		return nil, err
 	}
