@@ -2,16 +2,13 @@ package oauth
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+
+	"golang.org/x/oauth2"
 )
 
 const (
-	// pkceVerifierBytes is the number of random bytes for the PKCE code verifier.
-	// 32 bytes provides 256 bits of entropy, which is recommended for security.
-	pkceVerifierBytes = 32
-
 	// stateBytes is the number of random bytes for the OAuth state parameter.
 	// 32 bytes encodes to 43 base64url characters, satisfying OAuth servers that
 	// require a minimum of 32 characters.
@@ -22,12 +19,12 @@ const (
 // The code verifier is 32 random bytes (256 bits), base64url-encoded.
 // The code challenge is the S256 (SHA256) hash of the verifier.
 //
+// This implementation delegates to the standard golang.org/x/oauth2 library
+// for RFC 7636 compliant PKCE generation.
+//
 // Returns a PKCEChallenge ready for use in an authorization request.
 func GeneratePKCE() (*PKCEChallenge, error) {
-	verifier, challenge, err := GeneratePKCERaw()
-	if err != nil {
-		return nil, err
-	}
+	verifier, challenge := GeneratePKCERaw()
 
 	return &PKCEChallenge{
 		CodeVerifier:        verifier,
@@ -39,22 +36,20 @@ func GeneratePKCE() (*PKCEChallenge, error) {
 // GeneratePKCERaw generates a PKCE code verifier and challenge as raw strings.
 // This is useful when you don't need the full PKCEChallenge struct.
 //
-// Returns the verifier and S256 challenge.
-func GeneratePKCERaw() (verifier, challenge string, err error) {
-	// Generate 32 random bytes for the code verifier
-	verifierBytes := make([]byte, pkceVerifierBytes)
-	if _, err := rand.Read(verifierBytes); err != nil {
-		return "", "", fmt.Errorf("failed to generate random bytes for PKCE: %w", err)
-	}
+// This implementation uses the standard golang.org/x/oauth2 library which
+// provides RFC 7636 compliant PKCE generation.
+//
+// Returns the verifier and S256 challenge. This function cannot fail as it
+// uses the standard library's implementation.
+func GeneratePKCERaw() (verifier, challenge string) {
+	// Use the standard library's GenerateVerifier which creates a
+	// cryptographically secure, RFC 7636 compliant code verifier
+	verifier = oauth2.GenerateVerifier()
 
-	// Base64url-encode the verifier (no padding, URL-safe)
-	verifier = base64.RawURLEncoding.EncodeToString(verifierBytes)
+	// Use the standard library's S256 challenge generation
+	challenge = oauth2.S256ChallengeFromVerifier(verifier)
 
-	// Generate the S256 challenge: SHA256(verifier), base64url-encoded
-	hash := sha256.Sum256([]byte(verifier))
-	challenge = base64.RawURLEncoding.EncodeToString(hash[:])
-
-	return verifier, challenge, nil
+	return verifier, challenge
 }
 
 // GenerateState generates a random state parameter for OAuth.

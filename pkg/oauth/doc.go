@@ -23,7 +23,7 @@
 //	import "muster/pkg/oauth"
 //
 //	challenge, err := oauth.ParseWWWAuthenticate(header)
-//	verifier, challengeStr, err := oauth.GeneratePKCE()
+//	pkce, err := oauth.GeneratePKCE() // Uses golang.org/x/oauth2 under the hood
 //
 // Server usage (in-memory storage, HTTP callbacks):
 //

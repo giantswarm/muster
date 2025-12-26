@@ -2,14 +2,10 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -335,88 +331,48 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 // This is hosted on GitHub Pages and serves as the client_id for OAuth.
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
-// buildAuthorizationURL constructs the OAuth authorization URL.
+// buildAuthorizationURL constructs the OAuth authorization URL using the standard library.
 func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge) (string, error) {
-	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
-	if err != nil {
-		return "", err
+	// Use golang.org/x/oauth2 Config for constructing the authorization URL
+	cfg := &oauth2.Config{
+		ClientID:    DefaultAgentClientID,
+		RedirectURL: redirectURI,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  metadata.AuthorizationEndpoint,
+			TokenURL: metadata.TokenEndpoint,
+		},
+		Scopes: []string{"openid", "profile", "email", "offline_access"},
 	}
 
-	params := url.Values{
-		"response_type":         {"code"},
-		"redirect_uri":          {redirectURI},
-		"state":                 {state},
-		"code_challenge":        {pkce.CodeChallenge},
-		"code_challenge_method": {pkce.CodeChallengeMethod},
-		"scope":                 {"openid profile email offline_access"},
-	}
-
-	// Use the CIMD URL as the client_id per MCP OAuth 2.1 spec
-	params.Set("client_id", DefaultAgentClientID)
-
-	authURL.RawQuery = params.Encode()
-	return authURL.String(), nil
+	// Use the standard library's PKCE support via S256ChallengeOption
+	return cfg.AuthCodeURL(
+		state,
+		oauth2.S256ChallengeOption(pkce.CodeVerifier),
+	), nil
 }
 
-// exchangeCode exchanges an authorization code for tokens.
+// exchangeCode exchanges an authorization code for tokens using the standard library.
+// This uses golang.org/x/oauth2.Config.Exchange() with PKCE VerifierOption.
 func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) (*oauth2.Token, error) {
-	data := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {flow.CallbackServer.GetRedirectURI()},
-		"code_verifier": {flow.PKCE.CodeVerifier},
-		"client_id":     {DefaultAgentClientID},
+	// Create OAuth2 config for token exchange
+	cfg := &oauth2.Config{
+		ClientID:    DefaultAgentClientID,
+		RedirectURL: flow.CallbackServer.GetRedirectURI(),
+		Endpoint: oauth2.Endpoint{
+			AuthURL:   flow.Metadata.AuthorizationEndpoint,
+			TokenURL:  flow.Metadata.TokenEndpoint,
+			AuthStyle: oauth2.AuthStyleInParams, // Use form params, not basic auth
+		},
+		Scopes: []string{"openid", "profile", "email", "offline_access"},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, flow.Metadata.TokenEndpoint, strings.NewReader(data.Encode()))
+	// Use a custom HTTP context to inject our configured client
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
+
+	// Exchange the code using the standard library with PKCE verifier
+	token, err := cfg.Exchange(ctx, code, oauth2.VerifierOption(flow.PKCE.CodeVerifier))
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		TokenType    string `json:"token_type"`
-		ExpiresIn    int    `json:"expires_in"`
-		RefreshToken string `json:"refresh_token"`
-		IDToken      string `json:"id_token"`
-		Scope        string `json:"scope"`
-	}
-
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return nil, err
-	}
-
-	token := &oauth2.Token{
-		AccessToken:  tokenResp.AccessToken,
-		TokenType:    tokenResp.TokenType,
-		RefreshToken: tokenResp.RefreshToken,
-	}
-
-	if tokenResp.ExpiresIn > 0 {
-		token.Expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-	}
-
-	// Store ID token in extra data
-	if tokenResp.IDToken != "" {
-		token = token.WithExtra(map[string]interface{}{
-			"id_token": tokenResp.IDToken,
-		})
+		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
 	return token, nil

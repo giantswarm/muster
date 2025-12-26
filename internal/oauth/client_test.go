@@ -535,11 +535,8 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 }
 
 func TestGeneratePKCE(t *testing.T) {
-	// Use the shared PKCE implementation
-	verifier, challenge, err := pkgoauth.GeneratePKCERaw()
-	if err != nil {
-		t.Fatalf("Failed to generate PKCE: %v", err)
-	}
+	// Use the shared PKCE implementation (delegates to golang.org/x/oauth2)
+	verifier, challenge := pkgoauth.GeneratePKCERaw()
 
 	if verifier == "" {
 		t.Error("Verifier should not be empty")
@@ -555,10 +552,7 @@ func TestGeneratePKCE(t *testing.T) {
 	}
 
 	// Generate another pair to ensure randomness
-	verifier2, challenge2, err := pkgoauth.GeneratePKCERaw()
-	if err != nil {
-		t.Fatalf("Failed to generate second PKCE: %v", err)
-	}
+	verifier2, challenge2 := pkgoauth.GeneratePKCERaw()
 
 	if verifier == verifier2 {
 		t.Error("Generated verifiers should be unique")
