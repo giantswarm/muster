@@ -16,6 +16,7 @@ import (
 	internalmcp "muster/internal/mcpserver"
 	"muster/internal/server"
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -1516,7 +1517,8 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		}
 
 		// Check if the error is a 401 - token is expired/invalid
-		if strings.Contains(connectErr.Error(), "401") || strings.Contains(connectErr.Error(), "Unauthorized") {
+		// Uses structured 401 detection (ADR-008) instead of string matching
+		if pkgoauth.Is401Error(connectErr) {
 			logging.Info("Aggregator", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
 			// Clear the invalid token before requesting fresh authentication
 			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)

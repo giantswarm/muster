@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"muster/internal/api"
@@ -15,9 +14,11 @@ import (
 // formatOAuthAuthenticationError creates a standardized error result for OAuth authentication errors.
 // This is used when a service requires OAuth authentication but the operation cannot proceed
 // because authentication is session-scoped and must be done via the authenticate tool.
+//
+// Uses structured AuthRequiredError detection (ADR-008) instead of string matching.
 func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult {
 	var authErr *mcpserver.AuthRequiredError
-	if errors.As(err, &authErr) || strings.Contains(err.Error(), "authentication required") {
+	if errors.As(err, &authErr) {
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
 				"Service '%s' requires OAuth authentication.\n\n"+
