@@ -28,18 +28,8 @@ const DefaultHTTPTimeout = 30 * time.Second
 // This allows the cache to refresh periodically in case server configuration changes.
 const MetadataCacheTTL = 1 * time.Hour
 
-// OAuthMetadata represents OAuth/OIDC server metadata.
-// This is discovered from .well-known endpoints.
-type OAuthMetadata struct {
-	Issuer                        string   `json:"issuer"`
-	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
-	TokenEndpoint                 string   `json:"token_endpoint"`
-	UserinfoEndpoint              string   `json:"userinfo_endpoint,omitempty"`
-	JwksURI                       string   `json:"jwks_uri,omitempty"`
-	ScopesSupported               []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported        []string `json:"response_types_supported,omitempty"`
-	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
-}
+// OAuthMetadata is an alias for pkgoauth.Metadata for use in the agent.
+type OAuthMetadata = pkgoauth.Metadata
 
 // AuthFlow represents an in-progress OAuth authorization flow.
 type AuthFlow struct {
@@ -50,7 +40,7 @@ type AuthFlow struct {
 	IssuerURL string
 
 	// PKCE holds the PKCE challenge parameters.
-	PKCE *PKCEChallenge
+	PKCE *pkgoauth.PKCEChallenge
 
 	// State is the OAuth state parameter.
 	State string
@@ -165,13 +155,13 @@ func (c *Client) StartAuthFlow(ctx context.Context, serverURL, issuerURL string)
 	}
 
 	// Generate PKCE challenge
-	pkce, err := GeneratePKCE()
+	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
 	// Generate state
-	state, err := GenerateState()
+	state, err := pkgoauth.GenerateState()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
@@ -346,7 +336,7 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
 // buildAuthorizationURL constructs the OAuth authorization URL.
-func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *PKCEChallenge) (string, error) {
+func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge) (string, error) {
 	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
 	if err != nil {
 		return "", err

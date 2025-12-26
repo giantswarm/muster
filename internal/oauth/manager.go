@@ -8,6 +8,7 @@ import (
 
 	"muster/internal/config"
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 )
 
 // Manager coordinates OAuth flows for remote MCP server authentication.
@@ -141,7 +142,7 @@ func (m *Manager) GetServerConfig(serverName string) *AuthServerConfig {
 }
 
 // GetToken retrieves a valid token for the given session and server.
-func (m *Manager) GetToken(sessionID, serverName string) *Token {
+func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
@@ -159,7 +160,7 @@ func (m *Manager) GetToken(sessionID, serverName string) *Token {
 
 // GetTokenByIssuer retrieves a valid token for the given session and issuer.
 // This is used for SSO when we have the issuer from a 401 response.
-func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *Token {
+func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
@@ -180,13 +181,10 @@ func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
-func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName string, authParams *WWWAuthenticateParams) (*AuthChallenge, error) {
+func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
 	if m == nil {
 		return nil, fmt.Errorf("OAuth proxy is disabled")
 	}
-
-	issuer := authParams.GetIssuer()
-	scope := authParams.Scope
 
 	// Register server config if we got it from the 401
 	m.RegisterServer(serverName, issuer, scope)
@@ -197,7 +195,7 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
 
-	challenge := &AuthChallenge{
+	challenge := &AuthRequiredResponse{
 		Status:     "auth_required",
 		AuthURL:    authURL,
 		ServerName: serverName,

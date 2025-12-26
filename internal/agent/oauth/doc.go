@@ -26,11 +26,8 @@
 //
 // The TokenStore supports Single Sign-On through issuer-based lookup.
 // When a remote MCP server requires authentication with an issuer the
-// Agent has already authenticated to, the existing token can be reused.
-//
-// The AuthWatcher (in internal/agent) continuously monitors the auth://status
-// resource and automatically forwards tokens via the submit_auth_token tool
-// when matching issuers are found.
+// Agent has already authenticated to, the existing token can be reused
+// via GetByIssuer().
 //
 // # Usage
 //

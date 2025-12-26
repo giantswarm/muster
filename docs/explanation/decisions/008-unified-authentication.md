@@ -2,7 +2,18 @@
 
 ## Status
 
-Accepted (Implemented)
+Accepted (Partially Implemented)
+
+> **Implementation Note (December 2024):** This ADR was revised after initial implementation.
+> The continuous AuthWatcher and submit_auth_token components were removed because they
+> violated the fundamental constraint that the Muster Agent operates as a passive MCP server
+> and cannot proactively initiate user interactions. The implemented scope focuses on:
+> 1. Shared OAuth Core (`pkg/oauth/`) - **Implemented**
+> 2. Issuer-based token storage for SSO - **Implemented**
+> 3. Deduplicated OAuth types and utilities - **Implemented**
+> 4. AuthWatcher with continuous polling - **Removed** (architectural mismatch)
+> 5. submit_auth_token tool - **Removed** (no way to trigger from agent side)
+> 6. auth://status resource - **Removed** (only useful with AuthWatcher)
 
 ## Context
 

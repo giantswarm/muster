@@ -127,7 +127,7 @@ func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
 	// Parse auth challenge from the error using pkg/oauth
 	challenge := pkgoauth.ParseWWWAuthenticateFromError(err)
 
-	// Build the AuthInfo for backwards compatibility
+	// Build AuthInfo from the parsed challenge
 	authInfo := AuthInfo{}
 	if challenge != nil {
 		authInfo.Issuer = challenge.GetIssuer()
@@ -141,21 +141,4 @@ func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
 		AuthChallenge: challenge,
 		Err:           fmt.Errorf("server returned 401 Unauthorized"),
 	}
-}
-
-// ParseAuthInfoFromError attempts to extract OAuth information from an error message.
-// This is a best-effort parse since we can't directly access HTTP response headers.
-// Deprecated: Use CheckForAuthRequiredError which uses pkg/oauth utilities directly.
-func ParseAuthInfoFromError(errStr string) AuthInfo {
-	info := AuthInfo{}
-
-	// Use the shared pkg/oauth utilities
-	challenge, parseErr := pkgoauth.ParseWWWAuthenticate(errStr)
-	if parseErr == nil && challenge != nil {
-		info.Issuer = challenge.GetIssuer()
-		info.Scope = challenge.Scope
-		info.ResourceMetadataURL = challenge.ResourceMetadataURL
-	}
-
-	return info
 }

@@ -65,7 +65,7 @@ func (c *Client) GetCIMDURL() string {
 
 // GetToken retrieves a valid token for the given session and issuer.
 // Returns nil if no valid token exists.
-func (c *Client) GetToken(sessionID, issuer, scope string) *Token {
+func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 	// First try exact match
 	key := TokenKey{
 		SessionID: sessionID,
@@ -121,7 +121,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, iss
 }
 
 // ExchangeCode exchanges an authorization code for tokens.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer string) (*Token, error) {
+func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer string) (*pkgoauth.Token, error) {
 	// Fetch OAuth metadata using shared client
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
@@ -129,7 +129,7 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 	}
 
 	// Exchange code using shared client
-	sharedToken, err := c.oauthClient.ExchangeCode(
+	token, err := c.oauthClient.ExchangeCode(
 		ctx,
 		metadata.TokenEndpoint,
 		code,
@@ -141,16 +141,8 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 		return nil, err
 	}
 
-	// Convert to internal token type
-	token := &Token{
-		AccessToken:  sharedToken.AccessToken,
-		TokenType:    sharedToken.TokenType,
-		RefreshToken: sharedToken.RefreshToken,
-		ExpiresIn:    sharedToken.ExpiresIn,
-		ExpiresAt:    sharedToken.ExpiresAt,
-		Scope:        sharedToken.Scope,
-		Issuer:       issuer,
-	}
+	// Set issuer on the token
+	token.Issuer = issuer
 
 	logging.Debug("OAuth", "Successfully exchanged code for token (issuer=%s, expires_in=%d)",
 		issuer, token.ExpiresIn)
@@ -160,7 +152,7 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 
 // RefreshToken refreshes an expired token using its refresh token.
 // This operation is logged at INFO level for operational monitoring.
-func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error) {
+func (c *Client) RefreshToken(ctx context.Context, token *pkgoauth.Token) (*pkgoauth.Token, error) {
 	if token.RefreshToken == "" {
 		logging.Warn("OAuth", "Token refresh attempted without refresh token (issuer=%s)", token.Issuer)
 		return nil, fmt.Errorf("no refresh token available")
@@ -175,22 +167,14 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 	}
 
 	// Refresh token using shared client
-	sharedToken, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, token.RefreshToken, c.clientID)
+	newToken, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, token.RefreshToken, c.clientID)
 	if err != nil {
 		logging.Warn("OAuth", "Token refresh failed (issuer=%s, duration=%v)", token.Issuer, time.Since(startTime))
 		return nil, err
 	}
 
-	// Convert to internal token type
-	newToken := &Token{
-		AccessToken:  sharedToken.AccessToken,
-		TokenType:    sharedToken.TokenType,
-		RefreshToken: sharedToken.RefreshToken,
-		ExpiresIn:    sharedToken.ExpiresIn,
-		ExpiresAt:    sharedToken.ExpiresAt,
-		Scope:        sharedToken.Scope,
-		Issuer:       token.Issuer,
-	}
+	// Set issuer on the new token
+	newToken.Issuer = token.Issuer
 
 	// Preserve refresh token if not returned
 	if newToken.RefreshToken == "" {
@@ -205,7 +189,7 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 }
 
 // StoreToken stores a token in the token store.
-func (c *Client) StoreToken(sessionID string, token *Token) {
+func (c *Client) StoreToken(sessionID string, token *pkgoauth.Token) {
 	key := TokenKey{
 		SessionID: sessionID,
 		Issuer:    token.Issuer,
@@ -238,25 +222,8 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 
 // DiscoverMetadata fetches OAuth metadata for an issuer.
 // This is exposed for external access to metadata discovery.
-func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
-	sharedMeta, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to internal type
-	return &OAuthMetadata{
-		Issuer:                            sharedMeta.Issuer,
-		AuthorizationEndpoint:             sharedMeta.AuthorizationEndpoint,
-		TokenEndpoint:                     sharedMeta.TokenEndpoint,
-		JwksURI:                           sharedMeta.JwksURI,
-		RegistrationEndpoint:              sharedMeta.RegistrationEndpoint,
-		ScopesSupported:                   sharedMeta.ScopesSupported,
-		ResponseTypesSupported:            sharedMeta.ResponseTypesSupported,
-		GrantTypesSupported:               sharedMeta.GrantTypesSupported,
-		TokenEndpointAuthMethodsSupported: sharedMeta.TokenEndpointAuthMethodsSupported,
-		CodeChallengeMethodsSupported:     sharedMeta.CodeChallengeMethodsSupported,
-	}, nil
+func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*pkgoauth.Metadata, error) {
+	return c.oauthClient.DiscoverMetadata(ctx, issuer)
 }
 
 // SetHTTPClient sets a custom HTTP client for the OAuth client.

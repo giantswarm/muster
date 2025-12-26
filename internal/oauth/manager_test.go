@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"muster/internal/config"
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestNewManager_Disabled(t *testing.T) {
@@ -243,7 +244,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 	manager.RegisterServer(serverName, issuer, scope)
 
 	// Store a token directly in the client
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -281,7 +282,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	sessionID := "session-123"
 
 	// Store a token directly
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -319,7 +320,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 	sessionID := "session-123"
 
 	// Store a token directly
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -436,7 +437,7 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "session", "server", &WWWAuthenticateParams{})
+	_, err := manager.CreateAuthChallenge(ctx, "session", "server", "", "")
 	if err == nil {
 		t.Error("Expected error for nil manager")
 	}
@@ -488,14 +489,11 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 
 	// CreateAuthChallenge will fail without a valid issuer that returns metadata
 	// but we can test that it registers the server config
-	authParams := &WWWAuthenticateParams{
-		Scheme: "Bearer",
-		Realm:  "https://invalid-issuer.example.com",
-		Scope:  "openid profile",
-	}
+	issuer := "https://invalid-issuer.example.com"
+	scope := "openid profile"
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "session-123", "mcp-server", authParams)
+	_, err := manager.CreateAuthChallenge(ctx, "session-123", "mcp-server", issuer, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine
