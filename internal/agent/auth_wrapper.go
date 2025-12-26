@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	pkgoauth "muster/pkg/oauth"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -50,7 +52,7 @@ func (m *MCPServer) wrapToolResultWithAuth(result *mcp.CallToolResult) *mcp.Call
 
 // buildAuthNotification creates a human-readable notification about auth requirements.
 // It includes SSO hints when multiple servers share the same issuer.
-func buildAuthNotification(authRequired []AuthRequiredInfo) string {
+func buildAuthNotification(authRequired []pkgoauth.AuthRequiredInfo) string {
 	var sb strings.Builder
 	sb.WriteString("\n---\n")
 	sb.WriteString("Authentication Required:\n")

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	pkgoauth "muster/pkg/oauth"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -31,7 +33,7 @@ func TestHandleAuthStatusResource_NoServers(t *testing.T) {
 		t.Fatalf("expected TextResourceContents, got %T", result[0])
 	}
 
-	var response AuthStatusResponse
+	var response pkgoauth.AuthStatusResponse
 	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
@@ -74,7 +76,7 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 		t.Fatalf("expected TextResourceContents, got %T", result[0])
 	}
 
-	var response AuthStatusResponse
+	var response pkgoauth.AuthStatusResponse
 	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
@@ -105,8 +107,8 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 }
 
 func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
-	response := AuthStatusResponse{
-		Servers: []ServerAuthStatus{
+	response := pkgoauth.AuthStatusResponse{
+		Servers: []pkgoauth.ServerAuthStatus{
 			{
 				Name:     "server1",
 				Status:   "connected",
@@ -130,7 +132,7 @@ func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
 	}
 
 	// Unmarshal and verify
-	var parsed AuthStatusResponse
+	var parsed pkgoauth.AuthStatusResponse
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}

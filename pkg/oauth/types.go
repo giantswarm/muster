@@ -200,3 +200,30 @@ type ClientMetadata struct {
 	SoftwareID              string   `json:"software_id,omitempty"`
 	SoftwareVersion         string   `json:"software_version,omitempty"`
 }
+
+// AuthStatusResponse is the structured response from the auth://status MCP resource.
+// It provides the AI with complete information about which servers need authentication.
+// This type is shared between the aggregator (producer) and agent (consumer).
+type AuthStatusResponse struct {
+	Servers []ServerAuthStatus `json:"servers"`
+}
+
+// ServerAuthStatus represents the authentication status of a single MCP server.
+// The Issuer field enables SSO detection - servers with the same issuer can share auth.
+type ServerAuthStatus struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
+	Issuer   string `json:"issuer,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	AuthTool string `json:"auth_tool,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// AuthRequiredInfo contains information about a server requiring authentication.
+// This is a simplified view used by the agent to build human-readable notifications.
+type AuthRequiredInfo struct {
+	Server   string `json:"server"`
+	Issuer   string `json:"issuer"`
+	Scope    string `json:"scope,omitempty"`
+	AuthTool string `json:"auth_tool"`
+}

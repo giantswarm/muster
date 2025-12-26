@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -12,24 +13,6 @@ import (
 // AuthStatusResourceURI is the URI for the auth status MCP resource.
 // This resource provides real-time authentication status for all MCP servers.
 const AuthStatusResourceURI = "auth://status"
-
-// AuthStatusResponse is the structured response from the auth://status resource.
-// It provides the AI with complete information about which servers need authentication
-// and includes SSO hints through the issuer field.
-type AuthStatusResponse struct {
-	Servers []ServerAuthStatus `json:"servers"`
-}
-
-// ServerAuthStatus represents the authentication status of a single MCP server.
-// The issuer field enables SSO detection - servers with the same issuer can share auth.
-type ServerAuthStatus struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"` // "connected", "auth_required", "error"
-	Issuer   string `json:"issuer,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"`
-	Error    string `json:"error,omitempty"`
-}
 
 // registerAuthStatusResource registers the auth://status resource with the MCP server.
 // This resource is polled by the agent to get current auth state for all servers.
@@ -58,10 +41,10 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // It returns the authentication status of all registered MCP servers.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	servers := a.registry.GetAllServers()
-	response := AuthStatusResponse{Servers: make([]ServerAuthStatus, 0, len(servers))}
+	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
-		status := ServerAuthStatus{
+		status := pkgoauth.ServerAuthStatus{
 			Name:   name,
 			Status: string(info.Status),
 		}

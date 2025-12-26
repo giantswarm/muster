@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	pkgoauth "muster/pkg/oauth"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -15,35 +17,11 @@ const AuthPollInterval = 30 * time.Second
 // AuthStatusResourceURI is the URI for the auth status MCP resource.
 const AuthStatusResourceURI = "auth://status"
 
-// AuthRequiredInfo contains information about a server requiring authentication.
-// This is used to build human-readable notifications and structured _meta data.
-type AuthRequiredInfo struct {
-	Server   string `json:"server"`
-	Issuer   string `json:"issuer"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool"`
-}
-
-// AuthStatusResponse mirrors the aggregator's response from auth://status.
-type AuthStatusResponse struct {
-	Servers []ServerAuthStatus `json:"servers"`
-}
-
-// ServerAuthStatus represents the auth status of a single server.
-type ServerAuthStatus struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Issuer   string `json:"issuer,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"`
-	Error    string `json:"error,omitempty"`
-}
-
 // authPoller handles polling for auth status and caching the results.
 type authPoller struct {
 	client       *Client
 	logger       *Logger
-	cache        []AuthRequiredInfo
+	cache        []pkgoauth.AuthRequiredInfo
 	mu           sync.RWMutex
 	stopCh       chan struct{}
 	pollInterval time.Duration
@@ -54,7 +32,7 @@ func newAuthPoller(client *Client, logger *Logger) *authPoller {
 	return &authPoller{
 		client:       client,
 		logger:       logger,
-		cache:        []AuthRequiredInfo{},
+		cache:        []pkgoauth.AuthRequiredInfo{},
 		stopCh:       make(chan struct{}),
 		pollInterval: AuthPollInterval,
 	}
@@ -110,16 +88,16 @@ func (p *authPoller) pollAuthStatus(ctx context.Context) {
 		return
 	}
 
-	var status AuthStatusResponse
+	var status pkgoauth.AuthStatusResponse
 	if err := json.Unmarshal([]byte(responseText), &status); err != nil {
 		return
 	}
 
 	// Build the auth required list
-	var authRequired []AuthRequiredInfo
+	var authRequired []pkgoauth.AuthRequiredInfo
 	for _, srv := range status.Servers {
 		if srv.Status == "auth_required" {
-			authRequired = append(authRequired, AuthRequiredInfo{
+			authRequired = append(authRequired, pkgoauth.AuthRequiredInfo{
 				Server:   srv.Name,
 				Issuer:   srv.Issuer,
 				Scope:    srv.Scope,
@@ -134,12 +112,12 @@ func (p *authPoller) pollAuthStatus(ctx context.Context) {
 }
 
 // GetAuthRequired returns the cached list of servers requiring authentication.
-func (p *authPoller) GetAuthRequired() []AuthRequiredInfo {
+func (p *authPoller) GetAuthRequired() []pkgoauth.AuthRequiredInfo {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	// Return a copy to prevent external modification
-	result := make([]AuthRequiredInfo, len(p.cache))
+	result := make([]pkgoauth.AuthRequiredInfo, len(p.cache))
 	copy(result, p.cache)
 	return result
 }

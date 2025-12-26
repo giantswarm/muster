@@ -3,10 +3,12 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestBuildAuthNotification_SingleServer(t *testing.T) {
-	authRequired := []AuthRequiredInfo{
+	authRequired := []pkgoauth.AuthRequiredInfo{
 		{
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
@@ -39,7 +41,7 @@ func TestBuildAuthNotification_SingleServer(t *testing.T) {
 }
 
 func TestBuildAuthNotification_MultipleServersWithSSO(t *testing.T) {
-	authRequired := []AuthRequiredInfo{
+	authRequired := []pkgoauth.AuthRequiredInfo{
 		{
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
@@ -76,7 +78,7 @@ func TestBuildAuthNotification_MultipleServersWithSSO(t *testing.T) {
 }
 
 func TestBuildAuthNotification_MultipleServersDifferentIssuers(t *testing.T) {
-	authRequired := []AuthRequiredInfo{
+	authRequired := []pkgoauth.AuthRequiredInfo{
 		{
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
@@ -108,7 +110,7 @@ func TestBuildAuthNotification_MultipleServersDifferentIssuers(t *testing.T) {
 }
 
 func TestBuildAuthNotification_EmptyIssuer(t *testing.T) {
-	authRequired := []AuthRequiredInfo{
+	authRequired := []pkgoauth.AuthRequiredInfo{
 		{
 			Server:   "legacy-server",
 			Issuer:   "", // No issuer
@@ -131,7 +133,7 @@ func TestBuildAuthNotification_EmptyIssuer(t *testing.T) {
 }
 
 func TestAuthRequiredInfo_JSON(t *testing.T) {
-	info := AuthRequiredInfo{
+	info := pkgoauth.AuthRequiredInfo{
 		Server:   "test-server",
 		Issuer:   "https://idp.example.com",
 		Scope:    "openid profile",

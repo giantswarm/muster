@@ -58,12 +58,12 @@ func GeneratePKCERaw() (verifier, challenge string) {
 //
 // Returns a base64url-encoded random string.
 func GenerateState() (string, error) {
-	stateBytes := make([]byte, stateBytes)
-	if _, err := rand.Read(stateBytes); err != nil {
+	b := make([]byte, stateBytes)
+	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // GenerateNonce generates a random nonce for OAuth/OIDC.

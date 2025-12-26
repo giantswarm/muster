@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -417,7 +418,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 		}
 
 		for _, param := range expectedParams {
-			if !contains(url, param) {
+			if !strings.Contains(url, param) {
 				t.Errorf("expected URL to contain %s, got %s", param, url)
 			}
 		}
@@ -438,7 +439,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 		}
 
 		// Should not contain PKCE parameters
-		if contains(url, "code_challenge") {
+		if strings.Contains(url, "code_challenge") {
 			t.Errorf("expected URL to not contain code_challenge, got %s", url)
 		}
 	})
@@ -458,7 +459,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 		}
 
 		// Should not contain scope parameter
-		if contains(url, "scope=") {
+		if strings.Contains(url, "scope=") {
 			t.Errorf("expected URL to not contain scope, got %s", url)
 		}
 	})
@@ -573,18 +574,4 @@ func TestMetadataCacheExpiry(t *testing.T) {
 	if atomic.LoadInt32(&callCount) != 2 {
 		t.Errorf("expected 2 calls after cache expiry, got %d", callCount)
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
-}
-
-func containsAt(s, substr string, start int) bool {
-	for i := start; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

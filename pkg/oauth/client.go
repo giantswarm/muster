@@ -73,6 +73,9 @@ func WithMetadataCacheTTL(ttl time.Duration) ClientOption {
 // The default timeout is 30 seconds.
 func WithHTTPTimeout(timeout time.Duration) ClientOption {
 	return func(c *Client) {
+		if c.httpClient == nil {
+			c.httpClient = &http.Client{}
+		}
 		c.httpClient.Timeout = timeout
 	}
 }
