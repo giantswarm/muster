@@ -6,8 +6,8 @@ import (
 	// . "github.com/onsi/ginkgo/v2"
 	// . "github.com/onsi/gomega"
 
-	"github.com/giantswarm/apptest-framework/v2/pkg/config"
-	"github.com/giantswarm/apptest-framework/v2/pkg/suite"
+	"github.com/giantswarm/apptest-framework/v3/pkg/config"
+	"github.com/giantswarm/apptest-framework/v3/pkg/suite"
 )
 
 const (
