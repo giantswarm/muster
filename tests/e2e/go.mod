@@ -8,7 +8,7 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 // Needed because module declares its path as: al.essio.dev/pkg/shellescape
 replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.0
 
-require github.com/giantswarm/apptest-framework/v3 v3.0.0
+require github.com/giantswarm/apptest-framework/v3 v3.0.1
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -110,8 +110,8 @@ require (
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
-	github.com/onsi/ginkgo/v2 v2.27.3 // indirect
-	github.com/onsi/gomega v1.38.3 // indirect
+	github.com/onsi/ginkgo/v2 v2.27.5 // indirect
+	github.com/onsi/gomega v1.39.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
@@ -145,7 +145,7 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/term v0.38.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
