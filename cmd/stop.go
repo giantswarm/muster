@@ -12,6 +12,9 @@ var (
 	stopOutputFormat string
 	stopQuiet        bool
 	stopConfigPath   string
+	stopEndpoint     string
+	stopAutoAuth     bool
+	stopNoAuth       bool
 )
 
 // Available resource types for stop operations
@@ -69,6 +72,9 @@ func init() {
 	stopCmd.PersistentFlags().StringVarP(&stopOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	stopCmd.PersistentFlags().BoolVarP(&stopQuiet, "quiet", "q", false, "Suppress non-essential output")
 	stopCmd.PersistentFlags().StringVar(&stopConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	stopCmd.PersistentFlags().StringVar(&stopEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	stopCmd.PersistentFlags().BoolVar(&stopAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	stopCmd.PersistentFlags().BoolVar(&stopNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
@@ -85,6 +91,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(stopOutputFormat),
 		Quiet:      stopQuiet,
 		ConfigPath: stopConfigPath,
+		Endpoint:   stopEndpoint,
+		AutoAuth:   stopAutoAuth,
+		NoAuth:     stopNoAuth,
 	})
 	if err != nil {
 		return err

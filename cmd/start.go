@@ -15,6 +15,9 @@ var (
 	startOutputFormat string
 	startQuiet        bool
 	startConfigPath   string
+	startEndpoint     string
+	startAutoAuth     bool
+	startNoAuth       bool
 )
 
 // Available resource types for start operations
@@ -125,6 +128,9 @@ func init() {
 	startCmd.PersistentFlags().StringVarP(&startOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	startCmd.PersistentFlags().BoolVarP(&startQuiet, "quiet", "q", false, "Suppress non-essential output")
 	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	startCmd.PersistentFlags().StringVar(&startEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	startCmd.PersistentFlags().BoolVar(&startAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	startCmd.PersistentFlags().BoolVar(&startNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 // parseWorkflowParameters extracts workflow parameters from raw command line arguments
@@ -198,6 +204,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(startOutputFormat),
 		Quiet:      startQuiet,
 		ConfigPath: startConfigPath,
+		Endpoint:   startEndpoint,
+		AutoAuth:   startAutoAuth,
+		NoAuth:     startNoAuth,
 	})
 	if err != nil {
 		return err

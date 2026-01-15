@@ -15,6 +15,9 @@ var (
 	getOutputFormat string
 	getQuiet        bool
 	getConfigPath   string
+	getEndpoint     string
+	getAutoAuth     bool
+	getNoAuth       bool
 )
 
 // Available resource types for autocompletion
@@ -179,6 +182,9 @@ func init() {
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
 	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	getCmd.PersistentFlags().BoolVar(&getAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	getCmd.PersistentFlags().BoolVar(&getNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
@@ -195,6 +201,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(getOutputFormat),
 		Quiet:      getQuiet,
 		ConfigPath: getConfigPath,
+		Endpoint:   getEndpoint,
+		AutoAuth:   getAutoAuth,
+		NoAuth:     getNoAuth,
 	})
 	if err != nil {
 		return err

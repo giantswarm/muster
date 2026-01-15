@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"muster/internal/agent"
+	"muster/internal/api"
 	"muster/internal/config"
 
 	"github.com/briandowns/spinner"
@@ -39,6 +40,12 @@ type ExecutorOptions struct {
 	Quiet bool
 	// ConfigPath specifies a custom configuration directory path
 	ConfigPath string
+	// Endpoint overrides the aggregator endpoint URL for remote connections
+	Endpoint string
+	// AutoAuth automatically triggers OAuth on 401 responses
+	AutoAuth bool
+	// NoAuth fails immediately on 401 without attempting authentication
+	NoAuth bool
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -52,6 +59,10 @@ type ToolExecutor struct {
 	options ExecutorOptions
 	// formatter handles table formatting when output format is table
 	formatter *TableFormatter
+	// endpoint is the resolved endpoint URL
+	endpoint string
+	// isRemote indicates if this is a remote (non-localhost) connection
+	isRemote bool
 }
 
 // NewToolExecutor creates a new tool executor with the specified options.
@@ -65,30 +76,50 @@ type ToolExecutor struct {
 //   - *ToolExecutor: Configured tool executor ready for use
 //   - error: Configuration or connection setup error
 func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
-
 	logger := agent.NewLogger(false, false, false)
 
-	if options.ConfigPath == "" {
-		return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
+	var endpoint string
+	var transport agent.TransportType
+	var isRemote bool
+
+	// Determine endpoint: explicit option takes precedence over config
+	if options.Endpoint != "" {
+		endpoint = options.Endpoint
+		isRemote = isRemoteEndpoint(endpoint)
+		// Infer transport from URL path
+		if strings.HasSuffix(endpoint, "/sse") {
+			transport = agent.TransportSSE
+		} else {
+			transport = agent.TransportStreamableHTTP
+		}
+	} else {
+		if options.ConfigPath == "" {
+			return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
+		}
+
+		cfg, err := config.LoadConfig(options.ConfigPath)
+		if err != nil {
+			return nil, err
+		}
+
+		transport = agent.TransportType(cfg.Aggregator.Transport)
+		switch transport {
+		case agent.TransportStreamableHTTP, agent.TransportSSE:
+			// Supported transports
+		default:
+			return nil, fmt.Errorf("unsupported transport: %s", cfg.Aggregator.Transport)
+		}
+
+		endpoint = GetAggregatorEndpoint(&cfg)
+		isRemote = isRemoteEndpoint(endpoint)
 	}
 
-	cfg, err := config.LoadConfig(options.ConfigPath)
-	if err != nil {
-		return nil, err
-	}
-
-	transport := agent.TransportType(cfg.Aggregator.Transport)
-	switch transport {
-	case agent.TransportStreamableHTTP, agent.TransportSSE:
-		// Supported transports
-	default:
-		return nil, fmt.Errorf("unsupported transport: %s", cfg.Aggregator.Transport)
-	}
-
-	// Check if server is running first
-	endpoint := GetAggregatorEndpoint(&cfg)
-	if err := CheckServerRunning(endpoint); err != nil {
-		return nil, err
+	// Check if server is running first (for local servers only)
+	// Remote servers may require auth which we handle during Connect
+	if !isRemote {
+		if err := CheckServerRunning(endpoint); err != nil {
+			return nil, err
+		}
 	}
 
 	client := agent.NewClient(endpoint, logger, transport)
@@ -98,11 +129,26 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 			fmt.Println(notification)
 		}
 	}()
+
 	return &ToolExecutor{
 		client:    client,
 		options:   options,
 		formatter: NewTableFormatter(options),
+		endpoint:  endpoint,
+		isRemote:  isRemote,
 	}, nil
+}
+
+// isRemoteEndpoint checks if an endpoint URL points to a remote server.
+func isRemoteEndpoint(endpoint string) bool {
+	// Local endpoints are localhost, 127.0.0.1, or [::1]
+	lowerEndpoint := strings.ToLower(endpoint)
+	if strings.Contains(lowerEndpoint, "localhost") ||
+		strings.Contains(lowerEndpoint, "127.0.0.1") ||
+		strings.Contains(lowerEndpoint, "[::1]") {
+		return false
+	}
+	return true
 }
 
 // GetClient returns the underlying agent client for advanced use cases like streaming.
@@ -112,7 +158,8 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 
 // Connect establishes a connection to the muster aggregator server.
 // It shows a progress spinner unless quiet mode is enabled, and handles
-// connection errors with appropriate user feedback.
+// connection errors with appropriate user feedback. For remote servers,
+// it handles OAuth authentication automatically if configured.
 //
 // Args:
 //   - ctx: Context for connection timeout and cancellation
@@ -120,6 +167,13 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 // Returns:
 //   - error: Connection error, if any
 func (e *ToolExecutor) Connect(ctx context.Context) error {
+	// For remote servers, we may need to handle authentication
+	if e.isRemote && !e.options.NoAuth {
+		if err := e.setupAuthentication(ctx); err != nil {
+			return err
+		}
+	}
+
 	if e.options.Quiet {
 		return e.client.Connect(ctx)
 	}
@@ -131,12 +185,106 @@ func (e *ToolExecutor) Connect(ctx context.Context) error {
 
 	err := e.client.Connect(ctx)
 	if err != nil {
-		s.FinalMSG = text.FgRed.Sprint("❌ Failed to connect to muster server") + "\n"
+		// Check if this is an auth error (401)
+		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
+			s.Stop()
+			return e.handleAuthError(ctx, err)
+		}
+		s.FinalMSG = text.FgRed.Sprint("Failed to connect to muster server") + "\n"
 		return err
 	}
 
 	// Remove the success message - connection success is implied by command working
 	return nil
+}
+
+// setupAuthentication sets up authentication for remote connections.
+func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
+	authHandler := api.GetAuthHandler()
+	if authHandler == nil {
+		// No auth handler registered - skip authentication setup
+		return nil
+	}
+
+	// Check if we have a valid token
+	if authHandler.HasValidToken(e.endpoint) {
+		// Get the token and set it on the client
+		token, err := authHandler.GetBearerToken(e.endpoint)
+		if err == nil {
+			e.client.SetAuthorizationHeader(token)
+			return nil
+		}
+		// Token retrieval failed, continue without auth or trigger login
+	}
+
+	// Check if auth is required
+	authRequired, err := authHandler.CheckAuthRequired(ctx, e.endpoint)
+	if err != nil {
+		// Check failed, but we can still try to connect without auth
+		return nil
+	}
+
+	if !authRequired {
+		// No auth required
+		return nil
+	}
+
+	// Auth is required - if auto-auth is enabled, trigger login
+	if e.options.AutoAuth {
+		if !e.options.Quiet {
+			fmt.Println("Authentication required. Starting login flow...")
+		}
+		if err := authHandler.Login(ctx, e.endpoint); err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+
+		// Get the token and set it on the client
+		token, err := authHandler.GetBearerToken(e.endpoint)
+		if err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		e.client.SetAuthorizationHeader(token)
+		return nil
+	}
+
+	// Auth required but auto-auth disabled - return auth required error
+	return &AuthRequiredError{Endpoint: e.endpoint}
+}
+
+// handleAuthError handles authentication errors during connection.
+func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) error {
+	if e.options.NoAuth {
+		return &AuthRequiredError{Endpoint: e.endpoint}
+	}
+
+	authHandler := api.GetAuthHandler()
+	if authHandler == nil {
+		return &AuthRequiredError{Endpoint: e.endpoint}
+	}
+
+	if e.options.AutoAuth {
+		fmt.Println("Authentication required. Starting login flow...")
+		if err := authHandler.Login(ctx, e.endpoint); err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+
+		// Get the token and set it on the client
+		token, err := authHandler.GetBearerToken(e.endpoint)
+		if err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		e.client.SetAuthorizationHeader(token)
+
+		// Retry connection
+		return e.client.Connect(ctx)
+	}
+
+	return &AuthRequiredError{Endpoint: e.endpoint}
+}
+
+// GetEndpoint returns the resolved endpoint URL.
+func (e *ToolExecutor) GetEndpoint() string {
+	return e.endpoint
 }
 
 // Close gracefully closes the connection to the aggregator server.

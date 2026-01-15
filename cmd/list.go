@@ -12,6 +12,9 @@ var (
 	listOutputFormat string
 	listQuiet        bool
 	listConfigPath   string
+	listEndpoint     string
+	listAutoAuth     bool
+	listNoAuth       bool
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -77,6 +80,9 @@ func init() {
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
 	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	listCmd.PersistentFlags().StringVar(&listEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	listCmd.PersistentFlags().BoolVar(&listAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	listCmd.PersistentFlags().BoolVar(&listNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -93,6 +99,9 @@ func runList(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(listOutputFormat),
 		Quiet:      listQuiet,
 		ConfigPath: listConfigPath,
+		Endpoint:   listEndpoint,
+		AutoAuth:   listAutoAuth,
+		NoAuth:     listNoAuth,
 	})
 	if err != nil {
 		return err

@@ -16,6 +16,9 @@ var (
 	createOutputFormat string
 	createQuiet        bool
 	createConfigPath   string
+	createEndpoint     string
+	createAutoAuth     bool
+	createNoAuth       bool
 )
 
 // Available resource types for create operations
@@ -119,6 +122,9 @@ func init() {
 	createCmd.PersistentFlags().StringVarP(&createOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	createCmd.PersistentFlags().BoolVarP(&createQuiet, "quiet", "q", false, "Suppress non-essential output")
 	createCmd.PersistentFlags().StringVar(&createConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	createCmd.PersistentFlags().StringVar(&createEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	createCmd.PersistentFlags().BoolVar(&createAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	createCmd.PersistentFlags().BoolVar(&createNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 // parseServiceParameters extracts service parameters from raw command line arguments
@@ -317,6 +323,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(createOutputFormat),
 		Quiet:      createQuiet,
 		ConfigPath: createConfigPath,
+		Endpoint:   createEndpoint,
+		AutoAuth:   createAutoAuth,
+		NoAuth:     createNoAuth,
 	})
 	if err != nil {
 		return err

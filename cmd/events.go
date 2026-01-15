@@ -24,6 +24,9 @@ var (
 	eventsUntil        string
 	eventsLimit        int
 	eventsFollow       bool
+	eventsEndpoint     string
+	eventsAutoAuth     bool
+	eventsNoAuth       bool
 )
 
 // eventsCmd represents the events command
@@ -105,6 +108,11 @@ func init() {
 
 	// Add shell completion for resource types
 	eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
+
+	// Auth flags
+	eventsCmd.PersistentFlags().StringVar(&eventsEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	eventsCmd.PersistentFlags().BoolVar(&eventsAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	eventsCmd.PersistentFlags().BoolVar(&eventsNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 func runEvents(cmd *cobra.Command, args []string) error {
@@ -168,6 +176,9 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(eventsOutputFormat),
 		Quiet:      eventsQuiet,
 		ConfigPath: eventsConfigPath,
+		Endpoint:   eventsEndpoint,
+		AutoAuth:   eventsAutoAuth,
+		NoAuth:     eventsNoAuth,
 	})
 	if err != nil {
 		return err

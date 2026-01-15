@@ -12,6 +12,9 @@ var (
 	checkOutputFormat string
 	checkQuiet        bool
 	checkConfigPath   string
+	checkEndpoint     string
+	checkAutoAuth     bool
+	checkNoAuth       bool
 )
 
 // Available resource types for check operations
@@ -76,6 +79,9 @@ func init() {
 	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
 	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	checkCmd.PersistentFlags().StringVar(&checkEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
+	checkCmd.PersistentFlags().BoolVar(&checkAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
+	checkCmd.PersistentFlags().BoolVar(&checkNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -92,6 +98,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		Format:     cli.OutputFormat(checkOutputFormat),
 		Quiet:      checkQuiet,
 		ConfigPath: checkConfigPath,
+		Endpoint:   checkEndpoint,
+		AutoAuth:   checkAutoAuth,
+		NoAuth:     checkNoAuth,
 	})
 	if err != nil {
 		return err
