@@ -1047,13 +1047,28 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	}
 
 	// Generate main config.yaml in muster subdirectory
+	aggregatorConfig := map[string]interface{}{
+		"host":      "localhost",
+		"port":      port,
+		"transport": "streamable-http",
+		"enabled":   true,
+	}
+
+	// Enable OAuth proxy if mock OAuth servers are defined
+	// This allows muster to handle OAuth flows for protected MCP servers
+	if config != nil && len(config.MockOAuthServers) > 0 {
+		aggregatorConfig["oauth"] = map[string]interface{}{
+			"enabled":      true,
+			"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
+			"callbackPath": "/oauth/proxy/callback",
+		}
+		if m.debug {
+			m.logger.Debug("🔐 Enabled OAuth proxy for test instance (publicUrl: http://localhost:%d)\n", port)
+		}
+	}
+
 	mainConfig := map[string]interface{}{
-		"aggregator": map[string]interface{}{
-			"host":      "localhost",
-			"port":      port,
-			"transport": "streamable-http",
-			"enabled":   true,
-		},
+		"aggregator": aggregatorConfig,
 		"logging": map[string]interface{}{
 			"level": "debug",
 		},

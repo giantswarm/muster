@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"muster/internal/template"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -173,9 +176,12 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		server.WithPromptCapabilities(false),
 	)
 
+	// Create template engine for response rendering
+	templateEngine := template.New()
+
 	// Register tools if provided
 	for _, toolConfig := range s.config.Tools {
-		handler := NewToolHandler(toolConfig, nil, s.config.Debug)
+		handler := NewToolHandler(toolConfig, templateEngine, s.config.Debug)
 		if handler != nil {
 			mcpServer.AddTool(handler.createMCPTool(), handler.createMCPHandler())
 		}
@@ -195,14 +201,37 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		underlyingHandler = server.NewStreamableHTTPServer(mcpServer)
 	}
 
-	// Wrap with OAuth protection middleware
-	return &oauthProtectionMiddleware{
+	// Create OAuth protection middleware
+	protectedHandler := &oauthProtectionMiddleware{
 		handler:       underlyingHandler,
 		oauthServer:   s.config.OAuthServer,
 		issuer:        s.GetIssuer(),
 		requiredScope: s.config.RequiredScope,
 		debug:         s.config.Debug,
-	}, nil
+	}
+
+	// Create a mux to handle special endpoints
+	mux := http.NewServeMux()
+
+	// Serve OAuth protected resource metadata (RFC 9728)
+	// This tells clients where to find the authorization server
+	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+		metadata := map[string]interface{}{
+			"resource":              fmt.Sprintf("http://localhost:%d", s.port),
+			"authorization_servers": []string{s.GetIssuer()},
+		}
+		if s.config.RequiredScope != "" {
+			metadata["scopes_supported"] = []string{s.config.RequiredScope}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(metadata)
+	})
+
+	// Pass all other requests to the protected handler
+	mux.Handle("/", protectedHandler)
+
+	return mux, nil
 }
 
 // oauthProtectionMiddleware validates OAuth tokens before passing to MCP handler

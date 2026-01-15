@@ -44,6 +44,10 @@ type OAuthServerConfig struct {
 
 	// ClientSecret is the expected OAuth client secret (optional)
 	ClientSecret string
+
+	// Clock is the clock to use for time operations (defaults to RealClock)
+	// Set this to a MockClock for testing token expiry without waiting
+	Clock Clock
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -73,6 +77,9 @@ type OAuthServer struct {
 	// State tracking
 	authCodes    map[string]*authCodeEntry // code -> entry
 	issuedTokens map[string]*issuedToken   // access_token -> token info
+
+	// clock is the clock used for time operations
+	clock Clock
 }
 
 type authCodeEntry struct {
@@ -115,10 +122,17 @@ func NewOAuthServer(config OAuthServerConfig) *OAuthServer {
 		config.ClientID = "test-client"
 	}
 
+	// Use the provided clock or default to RealClock
+	clock := config.Clock
+	if clock == nil {
+		clock = RealClock{}
+	}
+
 	return &OAuthServer{
 		config:       config,
 		authCodes:    make(map[string]*authCodeEntry),
 		issuedTokens: make(map[string]*issuedToken),
+		clock:        clock,
 	}
 }
 
@@ -242,7 +256,7 @@ func (s *OAuthServer) GenerateAuthCode(clientID, redirectURI, scope, state, code
 		State:           state,
 		CodeChallenge:   codeChallenge,
 		ChallengeMethod: codeChallengeMethod,
-		CreatedAt:       time.Now(),
+		CreatedAt:       s.clock.Now(),
 	}
 
 	if s.config.Debug {
@@ -272,7 +286,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 		RefreshToken: refreshToken,
 		Scope:        entry.Scope,
 		ClientID:     entry.ClientID,
-		ExpiresAt:    time.Now().Add(s.config.TokenLifetime),
+		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
 	}
 
 	s.mu.Lock()
@@ -303,7 +317,7 @@ func (s *OAuthServer) ValidateToken(accessToken string) bool {
 		return false
 	}
 
-	return time.Now().Before(token.ExpiresAt)
+	return s.clock.Now().Before(token.ExpiresAt)
 }
 
 // GetTokenInfo returns information about a token
@@ -528,7 +542,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		RefreshToken: refreshToken,
 		Scope:        entry.Scope,
 		ClientID:     entry.ClientID,
-		ExpiresAt:    time.Now().Add(s.config.TokenLifetime),
+		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
 	}
 
 	s.mu.Lock()
@@ -584,7 +598,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		RefreshToken: newRefreshToken,
 		Scope:        originalToken.Scope,
 		ClientID:     originalToken.ClientID,
-		ExpiresAt:    time.Now().Add(s.config.TokenLifetime),
+		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
 	}
 
 	s.mu.Lock()
@@ -726,6 +740,18 @@ func (s *OAuthServer) WaitForReady(ctx context.Context) error {
 // GetClientID returns the configured client ID
 func (s *OAuthServer) GetClientID() string {
 	return s.config.ClientID
+}
+
+// GetClock returns the clock used by this server
+func (s *OAuthServer) GetClock() Clock {
+	return s.clock
+}
+
+// SetClock sets the clock used by this server (primarily for testing)
+func (s *OAuthServer) SetClock(clock Clock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clock = clock
 }
 
 // WWWAuthenticateHeader returns the WWW-Authenticate header value for this server

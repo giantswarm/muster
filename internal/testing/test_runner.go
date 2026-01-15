@@ -392,6 +392,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Create test tools handler for this scenario
 	testToolsHandler := NewTestToolsHandler(r.instanceManager, instance, r.debug, r.logger)
 
+	// Pass the MCP client to the test tools handler so it can call authenticate tools
+	testToolsHandler.SetMCPClient(scenarioClient)
+
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
 		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler)

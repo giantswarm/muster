@@ -359,3 +359,64 @@ func TestExtractBearerToken(t *testing.T) {
 		})
 	}
 }
+
+func TestOAuthServer_TokenExpiryWithMockClock(t *testing.T) {
+	// Use mock clock for instant token expiry testing (no sleeps needed)
+	mockClock := NewMockClock(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+
+	server := NewOAuthServer(OAuthServerConfig{
+		TokenLifetime: 1 * time.Hour,
+		Clock:         mockClock,
+	})
+
+	ctx := context.Background()
+	_, err := server.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start OAuth server: %v", err)
+	}
+	defer server.Stop(ctx)
+
+	// Generate a token
+	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "")
+	tokenResp, err := server.SimulateCallback(code)
+	if err != nil {
+		t.Fatalf("Failed to get token: %v", err)
+	}
+
+	// Token should be valid initially
+	if !server.ValidateToken(tokenResp.AccessToken) {
+		t.Error("Expected token to be valid initially")
+	}
+
+	// Advance clock by 30 minutes - token should still be valid
+	mockClock.Advance(30 * time.Minute)
+	if !server.ValidateToken(tokenResp.AccessToken) {
+		t.Error("Expected token to still be valid after 30 minutes")
+	}
+
+	// Advance clock by 31 more minutes - token should now be expired
+	mockClock.Advance(31 * time.Minute)
+	if server.ValidateToken(tokenResp.AccessToken) {
+		t.Error("Expected token to be expired after 61 minutes")
+	}
+}
+
+func TestOAuthServer_SetClock(t *testing.T) {
+	server := NewOAuthServer(OAuthServerConfig{
+		TokenLifetime: 1 * time.Hour,
+	})
+
+	// Verify default clock is RealClock
+	_, isReal := server.GetClock().(RealClock)
+	if !isReal {
+		t.Error("Expected default clock to be RealClock")
+	}
+
+	// Set a mock clock
+	mockClock := NewMockClock(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	server.SetClock(mockClock)
+
+	if server.GetClock() != mockClock {
+		t.Error("Expected clock to be the mock clock we set")
+	}
+}

@@ -252,3 +252,28 @@ func (m *Manager) Stop() {
 	m.client.Stop()
 	logging.Info("OAuth", "OAuth manager stopped")
 }
+
+// StoreTokenForTesting directly stores a token in the token store.
+// This method is intended for BDD testing only, allowing test scenarios to inject
+// tokens without going through the full OAuth flow.
+//
+// This bypasses the normal OAuth callback flow and directly stores the token,
+// making it available for GetTokenByIssuer() calls.
+func (m *Manager) StoreTokenForTesting(sessionID, issuer, scope, accessToken string, expiresIn int) {
+	if m == nil {
+		return
+	}
+
+	token := &pkgoauth.Token{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		Scope:       scope,
+		Issuer:      issuer,
+		ExpiresIn:   expiresIn,
+	}
+	token.SetExpiresAtFromExpiresIn()
+
+	m.client.StoreToken(sessionID, token)
+	logging.Debug("OAuth", "Stored test token for session=%s issuer=%s scope=%s",
+		logging.TruncateSessionID(sessionID), issuer, scope)
+}

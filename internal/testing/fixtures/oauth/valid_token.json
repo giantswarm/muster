@@ -1,0 +1,9 @@
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL21vY2staWRwLmV4YW1wbGUuY29tIiwic3ViIjoidGVzdC11c2VyLTEyMyIsImF1ZCI6InRlc3QtY2xpZW50IiwiZXhwIjoxNzM2OTQ3NjAwLCJpYXQiOjE3MzY5NDQwMDAsInNjb3BlIjoib3BlbmlkIHByb2ZpbGUgZW1haWwifQ.signature",
+  "refresh_token": "dGVzdC1yZWZyZXNoLXRva2VuLXZhbHVl",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "openid profile email",
+  "issued_at": "2024-01-15T10:00:00Z",
+  "expires_at": "2024-01-15T11:00:00Z"
+}

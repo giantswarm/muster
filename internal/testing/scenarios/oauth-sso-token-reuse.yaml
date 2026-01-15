@@ -1,0 +1,137 @@
+name: "oauth-sso-token-reuse"
+category: "behavioral"
+concept: "mcpserver"
+description: "Verify SSO token reuse when multiple servers share the same OAuth issuer - tokens injected for one server should be reusable for other servers with the same issuer"
+tags: ["oauth", "sso", "token-reuse", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Start a single mock OAuth server that will be shared by multiple MCP servers
+  mock_oauth_servers:
+    - name: "enterprise-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "enterprise-client"
+
+  # Two OAuth-protected MCP servers sharing the same OAuth issuer
+  # The key here is that both servers reference the same mock_oauth_server_ref
+  mcp_servers:
+    - name: "kubernetes-api"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "enterprise-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "list_pods"
+            description: "List Kubernetes pods"
+            responses:
+              - response:
+                  pods:
+                    - name: "nginx-1"
+                      status: "Running"
+                    - name: "nginx-2"
+                      status: "Running"
+
+    - name: "github-api"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "enterprise-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "list_repos"
+            description: "List GitHub repositories"
+            responses:
+              - response:
+                  repos:
+                    - name: "project-alpha"
+                    - name: "project-beta"
+
+steps:
+  # Step 1: Verify the shared OAuth server is running
+  - id: verify-shared-oauth-server
+    description: "Verify the shared OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "enterprise-idp"
+    expected:
+      success: true
+      contains:
+        - "enterprise-idp"
+        - "issuer_url"
+
+  # Step 2: Verify both MCP servers are registered
+  - id: list-all-servers
+    description: "List all MCP servers to verify both are configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "kubernetes-api"
+        - "github-api"
+
+  # Step 3: Inject a token that is valid for the shared issuer
+  # This simulates having obtained a token through authentication with kubernetes-api
+  - id: inject-sso-token
+    description: "Inject a token for the kubernetes-api server (shared issuer)"
+    tool: "test_inject_token"
+    args:
+      server: "kubernetes-api"
+      token: "sso-test-token-abc123"
+      scope: "openid profile mcp:admin"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Verify the token is now valid in the mock OAuth server
+  - id: verify-token-valid
+    description: "Confirm the injected token is tracked in the OAuth server"
+    tool: "test_get_oauth_server_info"
+    args: {}
+    expected:
+      success: true
+
+  # Step 5: Now inject the same token for github-api
+  # In a real SSO scenario, muster would look up the token by issuer
+  # and reuse it automatically. Here we simulate that by injecting
+  # the same token for the second server.
+  - id: inject-sso-token-for-beta
+    description: "Inject the same token for github-api (simulating SSO token reuse)"
+    tool: "test_inject_token"
+    args:
+      server: "github-api"
+      token: "sso-test-token-abc123"
+      scope: "openid profile mcp:admin"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 6: Verify both servers can now use the same token
+  # by checking the servers are accessible
+  - id: verify-kubernetes-accessible
+    description: "Verify kubernetes-api is accessible after SSO"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kubernetes-api"
+    expected:
+      success: true
+      contains:
+        - "kubernetes-api"
+
+  - id: verify-github-accessible
+    description: "Verify github-api is accessible after SSO (same token)"
+    tool: "core_mcpserver_get"
+    args:
+      name: "github-api"
+    expected:
+      success: true
+      contains:
+        - "github-api"

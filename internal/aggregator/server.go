@@ -956,6 +956,50 @@ func (a *AggregatorServer) NotifySessionResourcesChanged(sessionID string) {
 	}
 }
 
+// registerSessionTools registers tools from an OAuth-protected server connection with the mcp-go server.
+// This ensures that tools from session-specific connections have handlers registered and can be called.
+// The handler routes calls through the session's connection client.
+func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.Tool) {
+	a.mu.RLock()
+	mcpServer := a.mcpServer
+	a.mu.RUnlock()
+
+	if mcpServer == nil {
+		logging.Warn("Aggregator", "Cannot register session tools - MCP server not available")
+		return
+	}
+
+	var toolsToAdd []mcpserver.ServerTool
+	for _, tool := range tools {
+		// Apply the standard tool name prefixing
+		exposedName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
+
+		// Check if already registered
+		if a.toolManager.isActive(exposedName) {
+			continue
+		}
+
+		// Mark as active
+		a.toolManager.setActive(exposedName, true)
+
+		// Create the tool with a handler that routes through session connections
+		serverTool := mcpserver.ServerTool{
+			Tool: mcp.Tool{
+				Name:        exposedName,
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+			},
+			Handler: toolHandlerFactory(a, exposedName),
+		}
+		toolsToAdd = append(toolsToAdd, serverTool)
+	}
+
+	if len(toolsToAdd) > 0 {
+		logging.Debug("Aggregator", "Registering %d session-specific tools for server %s", len(toolsToAdd), serverName)
+		mcpServer.AddTools(toolsToAdd...)
+	}
+}
+
 // NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
 func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
 	a.mu.RLock()
@@ -1484,14 +1528,20 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		authInfo = &AuthInfo{}
 	}
 
-	// If issuer is empty, try to discover it from the server's resource metadata
-	if authInfo.Issuer == "" && serverInfo.URL != "" {
-		discoveredIssuer, err := discoverAuthorizationServer(ctx, serverInfo.URL)
+	// If issuer or scope is empty, try to discover it from the server's resource metadata
+	if (authInfo.Issuer == "" || authInfo.Scope == "") && serverInfo.URL != "" {
+		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL)
 		if err != nil {
-			logging.Warn("Aggregator", "Failed to discover authorization server for %s: %v", serverName, err)
+			logging.Warn("Aggregator", "Failed to discover protected resource metadata for %s: %v", serverName, err)
 		} else {
-			authInfo.Issuer = discoveredIssuer
-			logging.Info("Aggregator", "Discovered authorization server for %s: %s", serverName, discoveredIssuer)
+			if authInfo.Issuer == "" {
+				authInfo.Issuer = metadata.Issuer
+				logging.Info("Aggregator", "Discovered authorization server for %s: %s", serverName, metadata.Issuer)
+			}
+			if authInfo.Scope == "" && metadata.Scope != "" {
+				authInfo.Scope = metadata.Scope
+				logging.Info("Aggregator", "Discovered required scope for %s: %s", serverName, metadata.Scope)
+			}
 		}
 	}
 
@@ -1615,6 +1665,10 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, s
 
 	session.SetConnection(serverName, conn)
 
+	// Register the session-specific tools with the mcp-go server so they can be called.
+	// We need to add handlers for each tool from the protected server.
+	a.registerSessionTools(serverName, tools)
+
 	// Send targeted notification to the session that their tools have changed
 	a.NotifySessionToolsChanged(sessionID)
 
@@ -1637,10 +1691,19 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, s
 	}, nil
 }
 
-// discoverAuthorizationServer fetches the OAuth authorization server URL from
+// ProtectedResourceMetadata contains OAuth information discovered from
+// the /.well-known/oauth-protected-resource endpoint.
+type ProtectedResourceMetadata struct {
+	// Issuer is the authorization server URL
+	Issuer string
+	// Scope is the space-separated list of required scopes
+	Scope string
+}
+
+// discoverProtectedResourceMetadata fetches OAuth information from
 // the server's /.well-known/oauth-protected-resource endpoint.
-// This follows the MCP OAuth specification for resource metadata discovery.
-func discoverAuthorizationServer(ctx context.Context, serverURL string) (string, error) {
+// This follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
+func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*ProtectedResourceMetadata, error) {
 	// Build the resource metadata URL
 	baseURL := strings.TrimSuffix(serverURL, "/")
 	// Remove /mcp suffix if present (common for MCP servers)
@@ -1649,33 +1712,53 @@ func discoverAuthorizationServer(ctx context.Context, serverURL string) (string,
 
 	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch resource metadata: %w", err)
+		return nil, fmt.Errorf("failed to fetch resource metadata: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
 	}
 
-	// Parse the response
+	// Parse the response per RFC 9728
 	var metadata struct {
 		AuthorizationServers []string `json:"authorization_servers"`
+		ScopesSupported      []string `json:"scopes_supported"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
-		return "", fmt.Errorf("failed to parse resource metadata: %w", err)
+		return nil, fmt.Errorf("failed to parse resource metadata: %w", err)
 	}
 
 	if len(metadata.AuthorizationServers) == 0 {
-		return "", fmt.Errorf("no authorization servers in resource metadata")
+		return nil, fmt.Errorf("no authorization servers in resource metadata")
 	}
 
-	return metadata.AuthorizationServers[0], nil
+	result := &ProtectedResourceMetadata{
+		Issuer: metadata.AuthorizationServers[0],
+	}
+
+	// Join all supported scopes with space separator
+	if len(metadata.ScopesSupported) > 0 {
+		result.Scope = strings.Join(metadata.ScopesSupported, " ")
+	}
+
+	return result, nil
+}
+
+// discoverAuthorizationServer is a convenience wrapper that returns just the issuer.
+// Deprecated: Use discoverProtectedResourceMetadata for full information including scope.
+func discoverAuthorizationServer(ctx context.Context, serverURL string) (string, error) {
+	metadata, err := discoverProtectedResourceMetadata(ctx, serverURL)
+	if err != nil {
+		return "", err
+	}
+	return metadata.Issuer, nil
 }
 
 // defaultSessionID is used for stdio transport which is inherently single-user.
@@ -1710,4 +1793,29 @@ func getSessionIDFromContext(ctx context.Context) string {
 	logging.Warn("OAuth", "No MCP session in context, using default session (stdio mode). "+
 		"Token isolation is not enforced for stdio transport.")
 	return defaultSessionID
+}
+
+// resolveSessionTool attempts to resolve a tool name through session connections.
+// This is used for OAuth-protected servers where tools are stored per-session.
+//
+// Returns the session-specific client, original tool name, or an error if not found.
+func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (MCPClient, string, error) {
+	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Iterate through all session connections to find the tool
+	for serverName, conn := range session.GetAllConnections() {
+		if conn.Status != StatusSessionConnected || conn.Client == nil {
+			continue
+		}
+
+		// Check if this connection has the requested tool
+		for _, tool := range conn.GetTools() {
+			exposedToolName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
+			if exposedToolName == exposedName {
+				return conn.Client, tool.Name, nil
+			}
+		}
+	}
+
+	return nil, "", fmt.Errorf("tool not found in session connections")
 }

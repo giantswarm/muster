@@ -54,6 +54,20 @@ type OAuthHandler interface {
 
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()
+
+	// StoreTokenForTesting directly stores a token in the OAuth manager's token store.
+	// This method is intended for BDD testing only, allowing test scenarios to inject
+	// tokens without going through the full OAuth flow.
+	//
+	// Args:
+	//   - sessionID: The session ID to store the token for
+	//   - issuer: The OAuth issuer URL
+	//   - scope: The OAuth scope
+	//   - accessToken: The access token to store
+	//   - expiresIn: Token expiration time in seconds
+	//
+	// This method should NOT be used in production code.
+	StoreTokenForTesting(sessionID, issuer, scope, accessToken string, expiresIn int)
 }
 
 // oauthHandler stores the registered OAuth handler implementation.

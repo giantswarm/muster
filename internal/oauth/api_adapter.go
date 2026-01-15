@@ -110,5 +110,11 @@ func (a *Adapter) Stop() {
 	a.manager.Stop()
 }
 
+// StoreTokenForTesting directly stores a token in the OAuth manager's token store.
+// This method is intended for BDD testing only.
+func (a *Adapter) StoreTokenForTesting(sessionID, issuer, scope, accessToken string, expiresIn int) {
+	a.manager.StoreTokenForTesting(sessionID, issuer, scope, accessToken, expiresIn)
+}
+
 // Ensure Adapter implements api.OAuthHandler
 var _ api.OAuthHandler = (*Adapter)(nil)

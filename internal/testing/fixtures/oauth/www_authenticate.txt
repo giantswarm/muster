@@ -1,0 +1,20 @@
+# WWW-Authenticate Header Examples for OAuth 2.1 Testing
+# These examples follow RFC 9728 (OAuth 2.0 Protected Resource Metadata)
+
+# Basic Bearer challenge with realm
+Bearer realm="https://mock-idp.example.com"
+
+# Bearer challenge with realm and scope
+Bearer realm="https://mock-idp.example.com", scope="openid profile email"
+
+# Bearer challenge with authz_server (RFC 9728 style)
+Bearer realm="https://api.example.com", authz_server="https://mock-idp.example.com"
+
+# Bearer challenge with resource metadata URL
+Bearer realm="https://api.example.com", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"
+
+# Bearer challenge with error
+Bearer realm="https://mock-idp.example.com", error="invalid_token", error_description="The access token expired"
+
+# Bearer challenge with multiple parameters
+Bearer realm="https://mock-idp.example.com", scope="openid profile", authz_server="https://mock-idp.example.com", error="insufficient_scope"

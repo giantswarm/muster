@@ -269,7 +269,24 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		// Resolve the exposed name back to server and original tool name
 		sName, originalName, err := a.registry.ResolveToolName(exposedName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve tool name: %w", err)
+			// If not found in registry, check session connections for OAuth-protected servers
+			sessionID := getSessionIDFromContext(ctx)
+			client, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
+			}
+			// Found in session connection - call through the session-specific client
+			args := make(map[string]interface{})
+			if req.Params.Arguments != nil {
+				if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
+					args = argsMap
+				}
+			}
+			result, callErr := client.CallTool(ctx, origName, args)
+			if callErr != nil {
+				return nil, fmt.Errorf("tool execution failed: %w", callErr)
+			}
+			return result, nil
 		}
 
 		// Check if tool is destructive and yolo mode is not enabled
@@ -278,7 +295,33 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", originalName)
 		}
 
-		// Get the backend client
+		// Check if this server is OAuth-protected and needs session-specific client
+		serverInfo, exists := a.registry.GetServerInfo(sName)
+		if exists && serverInfo.Status == StatusAuthRequired {
+			// This is an OAuth-protected server - get the client from session connection
+			sessionID := getSessionIDFromContext(ctx)
+			session := a.sessionRegistry.GetOrCreateSession(sessionID)
+			conn, hasConn := session.GetConnection(sName)
+			if !hasConn || conn.Client == nil {
+				return nil, fmt.Errorf("not authenticated to server %s", sName)
+			}
+
+			// Forward the request using the session-specific client
+			args := make(map[string]interface{})
+			if req.Params.Arguments != nil {
+				if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
+					args = argsMap
+				}
+			}
+
+			result, err := conn.Client.CallTool(ctx, originalName, args)
+			if err != nil {
+				return nil, fmt.Errorf("tool execution failed: %w", err)
+			}
+			return result, nil
+		}
+
+		// Get the backend client from the global registry (for non-OAuth servers)
 		client, err := a.registry.GetClient(sName)
 		if err != nil {
 			return nil, fmt.Errorf("server not available: %w", err)

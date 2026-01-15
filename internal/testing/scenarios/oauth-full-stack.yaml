@@ -157,3 +157,39 @@ steps:
       success: true
       contains:
         - "github-mcp"
+
+  # Step 6: Call protected tool on kubernetes-mcp (should succeed after auth)
+  - id: call-kubernetes-protected-tool
+    description: "Call list_pods on kubernetes-mcp after authentication"
+    tool: "x_kubernetes-mcp_list_pods"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "pods"
+        - "pod-1"
+        - "Running"
+
+  # Step 7: Authenticate to github-mcp (SSO should detect existing token for same issuer)
+  # When calling authenticate for github-mcp, it should find an existing token for
+  # the enterprise-idp issuer and automatically establish the connection.
+  - id: authenticate-github-sso
+    description: "Authenticate to github-mcp - SSO should use existing token"
+    tool: "x_github-mcp_authenticate"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+
+  # Step 8: Call protected tool on github-mcp (should succeed after SSO auth)
+  - id: call-github-protected-tool-sso
+    description: "Call list_repos on github-mcp - SSO token used"
+    tool: "x_github-mcp_list_repos"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "repos"
+        - "repo-1"
+        - "org"
