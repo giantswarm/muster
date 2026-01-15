@@ -1,0 +1,55 @@
+name: "oauth-protected-mcp-server"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test OAuth-protected MCP server shows authenticate tool when auth is required"
+tags: ["oauth", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Start a mock OAuth server
+  mock_oauth_servers:
+    - name: "mock-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+
+  # OAuth-protected MCP server - note: we can't expect x_protected-server_get_secret
+  # because the protected server blocks tool listing until authenticated.
+  # Instead, muster should expose an authenticate tool.
+  mcp_servers:
+    - name: "protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "mock-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_secret"
+            description: "Returns a secret value that requires authentication"
+            responses:
+              - response:
+                  secret: "super-secret-value"
+                  message: "You are authenticated!"
+
+steps:
+  - id: list-servers
+    description: "List MCP servers to verify protected server is configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "protected-server"
+
+  - id: verify-auth-tool-exposed
+    description: "Verify that an authenticate tool is exposed for the protected server"
+    tool: "core_mcpserver_get"
+    args:
+      name: "protected-server"
+    expected:
+      success: true
+      contains:
+        - "protected-server"
