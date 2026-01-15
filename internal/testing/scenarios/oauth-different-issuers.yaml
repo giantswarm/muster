@@ -1,0 +1,144 @@
+name: "oauth-different-issuers"
+category: "behavioral"
+concept: "mcpserver"
+description: "Verify servers with different OAuth issuers do NOT share tokens (security test)"
+tags: ["oauth", "multi-issuer", "no-sso", "security"]
+timeout: "2m"
+
+pre_configuration:
+  # Two completely separate identity providers
+  mock_oauth_servers:
+    - name: "idp-alpha"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "alpha-client"
+
+    - name: "idp-beta"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "beta-client"
+
+  mcp_servers:
+    - name: "server-alpha"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "idp-alpha"
+        tools:
+          - name: "alpha_op"
+            description: "Operation on alpha server"
+            responses:
+              - response:
+                  source: "alpha"
+                  data: "alpha response"
+
+    - name: "server-beta"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "idp-beta"
+        tools:
+          - name: "beta_op"
+            description: "Operation on beta server"
+            responses:
+              - response:
+                  source: "beta"
+                  data: "beta response"
+
+steps:
+  # Step 1: Verify both OAuth servers are running
+  - id: verify-oauth-servers
+    description: "Verify both OAuth servers are running"
+    tool: "test_get_oauth_server_info"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "idp-alpha"
+        - "idp-beta"
+
+  # Step 2: Authenticate to alpha
+  - id: authenticate-alpha
+    description: "Complete OAuth flow for server-alpha"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 3: Establish connection for alpha
+  - id: establish-connection-alpha
+    description: "Establish session connection for server-alpha"
+    tool: "x_server-alpha_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 4: Alpha should work
+  - id: call-alpha-tool
+    description: "Protected tool on server-alpha should work"
+    tool: "x_server-alpha_alpha_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alpha"
+
+  # Step 5: Try to authenticate to beta - it uses different IdP
+  # so it should require its own authentication flow
+  - id: authenticate-beta-check
+    description: "Beta uses different IdP - authenticate should return auth URL (not auto-connect)"
+    tool: "x_server-beta_authenticate"
+    args: {}
+    expected:
+      success: true
+      # Should return an auth URL since no token exists for idp-beta
+      contains:
+        - "http"
+
+  # Step 6: Now authenticate to beta separately
+  - id: authenticate-beta
+    description: "Complete OAuth flow for server-beta"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-beta"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 7: Establish connection for beta
+  - id: establish-connection-beta
+    description: "Establish session connection for server-beta"
+    tool: "x_server-beta_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 8: Beta should work now
+  - id: call-beta-tool
+    description: "Protected tool on server-beta should work after its own auth"
+    tool: "x_server-beta_beta_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "beta"
+
+  # Step 9: Verify alpha still works (tokens are independent)
+  - id: verify-alpha-still-works
+    description: "Alpha should still work with its own token"
+    tool: "x_server-alpha_alpha_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alpha"

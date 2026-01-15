@@ -242,6 +242,11 @@ type MockOAuthServerConfig struct {
 
 	// SimulateError can simulate error conditions
 	SimulateError string `yaml:"simulate_error,omitempty"`
+
+	// UseMockClock enables a mock clock for testing token expiry
+	// When true, the test_advance_oauth_clock tool can be used to
+	// advance time without waiting
+	UseMockClock bool `yaml:"use_mock_clock,omitempty"`
 }
 
 // MCPServerOAuthConfig defines OAuth protection for an MCP server in tests

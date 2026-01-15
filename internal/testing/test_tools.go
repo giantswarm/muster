@@ -53,6 +53,7 @@ func IsTestTool(toolName string) bool {
 		"test_simulate_oauth_callback",
 		"test_inject_token",
 		"test_get_oauth_server_info",
+		"test_advance_oauth_clock",
 	}
 
 	for _, t := range testTools {
@@ -76,6 +77,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleInjectToken(ctx, args)
 	case "test_get_oauth_server_info":
 		return h.handleGetOAuthServerInfo(ctx, args)
+	case "test_advance_oauth_clock":
+		return h.handleAdvanceOAuthClock(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -98,36 +101,24 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		return nil, fmt.Errorf("instance manager or current instance not available")
 	}
 
-	// Get the mock OAuth server for this instance
-	oauthServerInfo, exists := h.currentInstance.MockOAuthServers[h.findOAuthServerRefForMCPServer(serverName)]
-	if !exists {
-		// Try to find any OAuth server that might be associated with this MCP server
-		for _, info := range h.currentInstance.MockOAuthServers {
-			oauthServerInfo = info
-			break
-		}
-		if oauthServerInfo == nil {
-			return nil, fmt.Errorf("no mock OAuth server found for server %s", serverName)
-		}
-	}
-
-	// Get the actual OAuth server instance
-	oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, oauthServerInfo.Name)
-	if oauthServer == nil {
-		return nil, fmt.Errorf("mock OAuth server %s not running", oauthServerInfo.Name)
-	}
-
-	if h.debug {
-		h.logger.Debug("🔐 Simulating OAuth callback for server %s using OAuth server %s\n",
-			serverName, oauthServerInfo.Name)
-	}
-
 	// Step 1: Call the authenticate tool via MCP to get the auth URL with real state
+	// We do this FIRST because the auth URL tells us which OAuth server to use
 	authURL, err := h.callAuthenticateTool(ctx, serverName)
 	if err != nil {
 		// If we can't call the authenticate tool, fall back to direct token injection
 		if h.debug {
 			h.logger.Debug("🔐 Could not call authenticate tool, falling back to direct token injection: %v\n", err)
+		}
+		// Use any available OAuth server for fallback
+		var oauthServer *mock.OAuthServer
+		for name := range h.currentInstance.MockOAuthServers {
+			oauthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+			if oauthServer != nil {
+				break
+			}
+		}
+		if oauthServer == nil {
+			return nil, fmt.Errorf("no mock OAuth server available for fallback")
 		}
 		return h.fallbackDirectTokenInjection(ctx, serverName, oauthServer)
 	}
@@ -153,12 +144,49 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		return nil, fmt.Errorf("no state parameter found in auth URL")
 	}
 
+	// Step 3: Find the OAuth server that matches the auth URL's host
+	// The auth URL points to the OAuth server's authorize endpoint
+	authHost := parsedURL.Scheme + "://" + parsedURL.Host
+
+	var oauthServer *mock.OAuthServer
+	var oauthServerName string
+	for name, info := range h.currentInstance.MockOAuthServers {
+		if strings.HasPrefix(info.IssuerURL, authHost) {
+			oauthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+			oauthServerName = name
+			break
+		}
+	}
+
+	if oauthServer == nil {
+		// Fall back to looking up by server ref if issuer match didn't work
+		oauthServerInfo, exists := h.currentInstance.MockOAuthServers[h.findOAuthServerRefForMCPServer(serverName)]
+		if !exists {
+			for name, info := range h.currentInstance.MockOAuthServers {
+				oauthServerInfo = info
+				oauthServerName = name
+				break
+			}
+		} else {
+			oauthServerName = oauthServerInfo.Name
+		}
+		if oauthServerInfo != nil {
+			oauthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, oauthServerInfo.Name)
+		}
+	}
+
+	if oauthServer == nil {
+		return nil, fmt.Errorf("no mock OAuth server found for server %s (auth host: %s)", serverName, authHost)
+	}
+
 	if h.debug {
+		h.logger.Debug("🔐 Simulating OAuth callback for server %s using OAuth server %s (matched via issuer %s)\n",
+			serverName, oauthServerName, authHost)
 		h.logger.Debug("🔐 Extracted from auth URL: state=%s..., redirect_uri=%s\n",
 			state[:minInt(16, len(state))], redirectURI)
 	}
 
-	// Step 3: Generate an authorization code in the mock OAuth server
+	// Step 4: Generate an authorization code in the mock OAuth server
 	// Use the parameters from muster's auth URL so PKCE verification will pass
 	authCode := oauthServer.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
 
@@ -199,24 +227,20 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	// Check for success (200 OK or redirect to success page)
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		if h.debug {
-			h.logger.Debug("🔐 Callback succeeded, now calling authenticate tool again to establish connection\n")
+			h.logger.Debug("🔐 Callback succeeded - token stored in muster's OAuth manager\n")
 		}
 
-		// Step 5: Call the authenticate tool again to trigger session connection establishment
-		// After the callback, the token is stored. When we call authenticate again,
-		// the aggregator will find the token and call tryConnectWithToken to establish
-		// the session connection and make tools available.
-		_, err := h.callAuthenticateTool(ctx, serverName)
-		if err != nil {
-			// Even if this fails, the token is stored - log but don't fail
-			if h.debug {
-				h.logger.Debug("🔐 Second authenticate call returned: %v (this may be expected)\n", err)
-			}
-		}
+		// Note: The token is now stored in muster's OAuth manager.
+		// The NEXT call to any protected tool (or the authenticate tool) will:
+		// 1. Find the token via GetTokenByIssuer(sessionID, issuer)
+		// 2. Use it to connect to the protected MCP server
+		// 3. Make the protected tools available
+		// We do NOT call authenticate a second time here - that was a workaround
+		// that masked aggregator bugs and didn't match real user behavior.
 
 		return map[string]interface{}{
 			"success":     true,
-			"message":     "OAuth callback completed successfully - token stored and connection established",
+			"message":     "OAuth callback completed successfully - token stored",
 			"server":      serverName,
 			"status_code": resp.StatusCode,
 		}, nil
@@ -442,6 +466,71 @@ func (h *TestToolsHandler) handleGetOAuthServerInfo(ctx context.Context, args ma
 	}, nil
 }
 
+// handleAdvanceOAuthClock advances the mock OAuth server's clock for testing token expiry.
+// This allows tests to simulate token expiry without waiting for real time to pass.
+func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	duration, ok := args["duration"].(string)
+	if !ok || duration == "" {
+		return nil, fmt.Errorf("duration argument required (e.g., '5m', '1h')")
+	}
+
+	d, err := time.ParseDuration(duration)
+	if err != nil {
+		return nil, fmt.Errorf("invalid duration: %w", err)
+	}
+
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	// Get optional server name - if provided, only advance that server's clock
+	serverName, _ := args["server"].(string)
+
+	advancedServers := []string{}
+
+	if serverName != "" {
+		// Advance specific OAuth server's clock
+		oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName)
+		if oauthServer == nil {
+			return nil, fmt.Errorf("OAuth server %s not found", serverName)
+		}
+		if mockClock, ok := oauthServer.GetClock().(*mock.MockClock); ok {
+			mockClock.Advance(d)
+			advancedServers = append(advancedServers, serverName)
+			if h.debug {
+				h.logger.Debug("🕐 Advanced OAuth clock for %s by %s\n", serverName, duration)
+			}
+		} else {
+			return nil, fmt.Errorf("OAuth server %s does not use a mock clock", serverName)
+		}
+	} else {
+		// Advance all OAuth servers' clocks
+		for name := range h.currentInstance.MockOAuthServers {
+			oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+			if oauthServer != nil {
+				if mockClock, ok := oauthServer.GetClock().(*mock.MockClock); ok {
+					mockClock.Advance(d)
+					advancedServers = append(advancedServers, name)
+					if h.debug {
+						h.logger.Debug("🕐 Advanced OAuth clock for %s by %s\n", name, duration)
+					}
+				}
+			}
+		}
+	}
+
+	if len(advancedServers) == 0 {
+		return nil, fmt.Errorf("no OAuth servers with mock clocks found")
+	}
+
+	return map[string]interface{}{
+		"success":          true,
+		"message":          fmt.Sprintf("Advanced OAuth clock by %s", duration),
+		"advanced_by":      d.String(),
+		"servers_advanced": advancedServers,
+	}, nil
+}
+
 // findOAuthServerRefForMCPServer finds the OAuth server reference for an MCP server.
 // This looks up the MCP server configuration to find which OAuth server it uses.
 func (h *TestToolsHandler) findOAuthServerRefForMCPServer(mcpServerName string) string {
@@ -506,6 +595,7 @@ func GetTestToolNames() []string {
 		"test_simulate_oauth_callback",
 		"test_inject_token",
 		"test_get_oauth_server_info",
+		"test_advance_oauth_clock",
 	}
 }
 
@@ -515,5 +605,6 @@ func GetTestToolDescriptions() map[string]string {
 		"test_simulate_oauth_callback": "Simulates completing an OAuth flow for testing. Required arg: 'server' (name of the MCP server to authenticate to).",
 		"test_inject_token":            "Directly injects an access token for testing. Required args: 'server' (name of the MCP server), 'token' (access token value).",
 		"test_get_oauth_server_info":   "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
+		"test_advance_oauth_clock":     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
 	}
 }

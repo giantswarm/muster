@@ -137,7 +137,17 @@ steps:
       contains:
         - "success"
 
-  # Step 5: Verify protected servers are accessible
+  # Step 5: Establish connection using stored token
+  - id: establish-kubernetes-connection
+    description: "Call authenticate to establish session connection with stored token"
+    tool: "x_kubernetes-mcp_authenticate"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+
+  # Step 6: Verify protected servers are accessible
   - id: verify-kubernetes-server
     description: "Verify kubernetes-mcp is registered"
     tool: "core_mcpserver_get"
@@ -158,7 +168,7 @@ steps:
       contains:
         - "github-mcp"
 
-  # Step 6: Call protected tool on kubernetes-mcp (should succeed after auth)
+  # Step 8: Call protected tool on kubernetes-mcp (should succeed after auth)
   - id: call-kubernetes-protected-tool
     description: "Call list_pods on kubernetes-mcp after authentication"
     tool: "x_kubernetes-mcp_list_pods"
@@ -170,7 +180,7 @@ steps:
         - "pod-1"
         - "Running"
 
-  # Step 7: Authenticate to github-mcp (SSO should detect existing token for same issuer)
+  # Step 9: Authenticate to github-mcp (SSO should detect existing token for same issuer)
   # When calling authenticate for github-mcp, it should find an existing token for
   # the enterprise-idp issuer and automatically establish the connection.
   - id: authenticate-github-sso
@@ -182,7 +192,7 @@ steps:
       contains:
         - "Successfully connected"
 
-  # Step 8: Call protected tool on github-mcp (should succeed after SSO auth)
+  # Step 10: Call protected tool on github-mcp (should succeed after SSO auth)
   - id: call-github-protected-tool-sso
     description: "Call list_repos on github-mcp - SSO token used"
     tool: "x_github-mcp_list_repos"

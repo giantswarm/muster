@@ -1949,6 +1949,14 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			Debug:          m.debug,
 		}
 
+		// Use mock clock if configured (enables test_advance_oauth_clock tool)
+		if oauthCfg.UseMockClock {
+			serverConfig.Clock = mock.NewMockClock(time.Time{})
+			if m.debug {
+				m.logger.Debug("🕐 Using mock clock for OAuth server %s\n", oauthCfg.Name)
+			}
+		}
+
 		// Handle simulated errors
 		if oauthCfg.SimulateError != "" {
 			serverConfig.SimulateErrors = &mock.OAuthErrorSimulation{
