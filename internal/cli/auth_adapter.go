@@ -202,18 +202,28 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 
 // Logout clears stored tokens for the endpoint.
 func (a *AuthAdapter) Logout(endpoint string) error {
-	mgr, err := a.getOrCreateManager(endpoint)
-	if err != nil {
-		return err
+	normalizedEndpoint := normalizeEndpoint(endpoint)
+
+	// Remove manager from cache if it exists
+	if mgr, ok := a.managers[normalizedEndpoint]; ok {
+		_ = mgr.Close()
+		delete(a.managers, normalizedEndpoint)
 	}
 
-	if err := mgr.ClearToken(); err != nil {
+	// Clear the token directly from the token store.
+	// We don't use the manager's ClearToken() because newly created managers
+	// have an empty serverURL and would return early without clearing anything.
+	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
+		StorageDir: a.tokenStorageDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	if err := store.DeleteToken(normalizedEndpoint); err != nil {
 		return fmt.Errorf("failed to clear token: %w", err)
 	}
-
-	// Remove manager from cache
-	normalizedEndpoint := normalizeEndpoint(endpoint)
-	delete(a.managers, normalizedEndpoint)
 
 	return nil
 }
