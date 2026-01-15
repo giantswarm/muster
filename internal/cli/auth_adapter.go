@@ -287,7 +287,11 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 	case oauth.AuthStateAuthenticated:
 		status.Authenticated = true
 		// Get token info if available
-		if challenge := mgr.GetAuthChallenge(); challenge != nil {
+		if storedToken := mgr.GetStoredToken(); storedToken != nil {
+			status.ExpiresAt = storedToken.Expiry
+			status.IssuerURL = storedToken.IssuerURL
+		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {
+			// Fallback to auth challenge for issuer
 			status.IssuerURL = challenge.Issuer
 		}
 	case oauth.AuthStatePendingAuth:

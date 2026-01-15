@@ -450,6 +450,19 @@ func (m *AuthManager) GetServerURL() string {
 	return m.serverURL
 }
 
+// GetStoredToken returns the stored token for the current server.
+// Returns nil if not authenticated or no token exists.
+func (m *AuthManager) GetStoredToken() *StoredToken {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.serverURL == "" {
+		return nil
+	}
+
+	return m.client.tokenStore.GetToken(m.serverURL)
+}
+
 // ClearToken clears the stored token for the current server.
 func (m *AuthManager) ClearToken() error {
 	m.mu.Lock()
