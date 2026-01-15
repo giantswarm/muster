@@ -22,6 +22,29 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// toStringMap converts an interface{} to map[string]interface{}.
+// This handles both map[string]interface{} and map[interface{}]interface{}
+// (which is common when parsing YAML).
+// Returns nil, false if the conversion is not possible.
+func toStringMap(v interface{}) (map[string]interface{}, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if m, ok := v.(map[string]interface{}); ok {
+		return m, true
+	}
+	if m, ok := v.(map[interface{}]interface{}); ok {
+		result := make(map[string]interface{})
+		for key, val := range m {
+			if keyStr, ok := key.(string); ok {
+				result[keyStr] = val
+			}
+		}
+		return result, true
+	}
+	return nil, false
+}
+
 // logCapture captures stdout and stderr from a process
 type logCapture struct {
 	stdoutBuf    *bytes.Buffer
@@ -122,6 +145,12 @@ type musterInstanceManager struct {
 
 	// Mock HTTP server tracking for URL-based mock MCP servers
 	mockHTTPServers map[string]map[string]*mock.HTTPServer // instanceID -> serverName -> server
+
+	// Mock OAuth server tracking
+	mockOAuthServers map[string]map[string]*mock.OAuthServer // instanceID -> serverName -> server
+
+	// Protected MCP server tracking (OAuth-protected mock MCP servers)
+	protectedMCPServers map[string]map[string]*mock.ProtectedMCPServer // instanceID -> serverName -> server
 }
 
 // NewMusterInstanceManager creates a new muster instance manager
@@ -143,14 +172,16 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 	}
 
 	return &musterInstanceManager{
-		debug:           debug,
-		basePort:        basePort,
-		tempDir:         tempDir,
-		processes:       make(map[string]*managedProcess),
-		logger:          logger,
-		keepTempConfig:  keepTempConfig,
-		reservedPorts:   make(map[int]string),
-		mockHTTPServers: make(map[string]map[string]*mock.HTTPServer),
+		debug:               debug,
+		basePort:            basePort,
+		tempDir:             tempDir,
+		processes:           make(map[string]*managedProcess),
+		logger:              logger,
+		keepTempConfig:      keepTempConfig,
+		reservedPorts:       make(map[int]string),
+		mockHTTPServers:     make(map[string]map[string]*mock.HTTPServer),
+		mockOAuthServers:    make(map[string]map[string]*mock.OAuthServer),
+		protectedMCPServers: make(map[string]map[string]*mock.ProtectedMCPServer),
 	}, nil
 }
 
@@ -175,9 +206,19 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		m.logger.Debug("🏗️  Creating muster instance %s with config at %s\n", instanceID, configPath)
 	}
 
-	// Start mock HTTP servers for URL-based mock MCP servers BEFORE generating config files
-	mockHTTPServerInfo, err := m.startMockHTTPServers(ctx, instanceID, configPath, config)
+	// Start mock OAuth servers FIRST (before HTTP servers, as they may depend on OAuth)
+	mockOAuthServerInfo, err := m.startMockOAuthServers(ctx, instanceID, config)
 	if err != nil {
+		m.releasePort(port, instanceID)
+		os.RemoveAll(configPath)
+		return nil, fmt.Errorf("failed to start mock OAuth servers: %w", err)
+	}
+
+	// Start mock HTTP servers for URL-based mock MCP servers BEFORE generating config files
+	// Pass OAuth server info so protected MCP servers can reference them
+	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, config, mockOAuthServerInfo)
+	if err != nil {
+		m.stopMockOAuthServers(ctx, instanceID)
 		m.releasePort(port, instanceID)
 		os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
@@ -222,6 +263,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		ExpectedTools:          expectedTools,
 		ExpectedServiceClasses: expectedServiceClasses,
 		MockHTTPServers:        mockHTTPServerInfo,
+		MockOAuthServers:       mockOAuthServerInfo,
 	}
 
 	if m.debug {
@@ -262,8 +304,14 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 		m.mu.Unlock()
 	}
 
+	// Stop protected MCP servers for this instance
+	m.stopProtectedMCPServers(ctx, instance.ID)
+
 	// Stop mock HTTP servers for this instance
 	m.stopMockHTTPServers(ctx, instance.ID)
+
+	// Stop mock OAuth servers for this instance
+	m.stopMockOAuthServers(ctx, instance.ID)
 
 	// Release the reserved port
 	m.releasePort(instance.Port, instance.ID)
@@ -1022,13 +1070,28 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	}
 
 	// Generate main config.yaml in muster subdirectory
+	aggregatorConfig := map[string]interface{}{
+		"host":      "localhost",
+		"port":      port,
+		"transport": "streamable-http",
+		"enabled":   true,
+	}
+
+	// Enable OAuth proxy if mock OAuth servers are defined
+	// This allows muster to handle OAuth flows for protected MCP servers
+	if config != nil && len(config.MockOAuthServers) > 0 {
+		aggregatorConfig["oauth"] = map[string]interface{}{
+			"enabled":      true,
+			"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
+			"callbackPath": "/oauth/proxy/callback",
+		}
+		if m.debug {
+			m.logger.Debug("🔐 Enabled OAuth proxy for test instance (publicUrl: http://localhost:%d)\n", port)
+		}
+	}
+
 	mainConfig := map[string]interface{}{
-		"aggregator": map[string]interface{}{
-			"host":      "localhost",
-			"port":      port,
-			"transport": "streamable-http",
-			"enabled":   true,
-		},
+		"aggregator": aggregatorConfig,
 		"logging": map[string]interface{}{
 			"level": "debug",
 		},
@@ -1251,7 +1314,8 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 }
 
 // extractExpectedToolsWithHTTPMocks extracts expected tool names from the configuration,
-// including tools from HTTP mock servers
+// including tools from HTTP mock servers.
+// Note: OAuth-protected servers are excluded since their tools won't be available until authenticated.
 func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *MusterPreConfiguration, mockHTTPServers map[string]*MockHTTPServerInfo) []string {
 	if config == nil {
 		return []string{}
@@ -1261,6 +1325,15 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
+		// Skip OAuth-protected servers - their tools won't be available until authenticated
+		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
+		if oauthConfig != nil && oauthConfig.Required {
+			if m.debug {
+				m.logger.Debug("⏩ Skipping tools for OAuth-protected server %s (tools unavailable until authenticated)\n", mcpServer.Name)
+			}
+			continue
+		}
+
 		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
 			if toolsList, ok := tools.([]interface{}); ok {
 				for _, tool := range toolsList {
@@ -1320,18 +1393,18 @@ func (m *musterInstanceManager) extractExpectedServiceClassesFromInstance(instan
 	return instance.ExpectedServiceClasses
 }
 
-// extractExpectedServicesFromInstance extracts expected Service names from instance configuration
-func (m *musterInstanceManager) extractExpectedServicesFromInstance(instance *MusterInstance) []string {
-	// For now, we'll extract this from the instance configuration stored during CreateInstance
-	// In a future enhancement, we could store this information in the MusterInstance struct
-	return []string{} // TODO: Extract from stored configuration
+// extractExpectedServicesFromInstance extracts expected Service names from instance configuration.
+// Currently returns empty as pre-configuration isn't stored with running instances.
+// Tests that need to verify specific services should use explicit assertions in steps.
+func (m *musterInstanceManager) extractExpectedServicesFromInstance(_ *MusterInstance) []string {
+	return []string{}
 }
 
-// extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration
-func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(instance *MusterInstance) []string {
-	// For now, we'll extract this from the instance configuration stored during CreateInstance
-	// In a future enhancement, we could store this information in the MusterInstance struct
-	return []string{} // TODO: Extract from stored configuration
+// extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration.
+// Currently returns empty as pre-configuration isn't stored with running instances.
+// Tests that need to verify specific workflows should use explicit assertions in steps.
+func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterInstance) []string {
+	return []string{}
 }
 
 // checkServiceClassAvailability checks if a ServiceClass is available and ready

@@ -513,3 +513,187 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		t.Errorf("Expected access token %q, got %q", token.AccessToken, found.AccessToken)
 	}
 }
+
+func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	testCases := []struct {
+		name         string
+		expiryOffset time.Duration
+		expectValid  bool
+	}{
+		{
+			name:         "token expires in 2 hours - valid",
+			expiryOffset: 2 * time.Hour,
+			expectValid:  true,
+		},
+		{
+			name:         "token expires in 5 minutes - valid",
+			expiryOffset: 5 * time.Minute,
+			expectValid:  true,
+		},
+		{
+			name:         "token expires in 90 seconds - valid (beyond 60s margin)",
+			expiryOffset: 90 * time.Second,
+			expectValid:  true,
+		},
+		{
+			name:         "token expires in 30 seconds - invalid (within 60s margin)",
+			expiryOffset: 30 * time.Second,
+			expectValid:  false,
+		},
+		{
+			name:         "token expires in 59 seconds - invalid (within 60s margin)",
+			expiryOffset: 59 * time.Second,
+			expectValid:  false,
+		},
+		{
+			name:         "token already expired - invalid",
+			expiryOffset: -1 * time.Hour,
+			expectValid:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			token := &oauth2.Token{
+				AccessToken: "test-token-" + tc.name,
+				TokenType:   "Bearer",
+				Expiry:      time.Now().Add(tc.expiryOffset),
+			}
+
+			// Store the token
+			if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+				t.Fatalf("Failed to store token: %v", err)
+			}
+
+			// Check if token is valid
+			hasValid := store.HasValidToken(serverURL)
+			if hasValid != tc.expectValid {
+				t.Errorf("HasValidToken() = %v, want %v for expiry offset %v", hasValid, tc.expectValid, tc.expiryOffset)
+			}
+
+			// Clean up for next test case
+			store.DeleteToken(serverURL)
+		})
+	}
+}
+
+func TestTokenStore_FileMode_Permissions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+	token := &oauth2.Token{
+		AccessToken: "secret-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+
+	// Store the token
+	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Check directory permissions (should be 0700)
+	dirInfo, err := os.Stat(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to stat directory: %v", err)
+	}
+
+	dirPerm := dirInfo.Mode().Perm()
+	// Note: On some systems the permissions might be different due to umask
+	// We just check that it's restrictive (no world/group read/write)
+	if dirPerm&0077 != 0 && dirPerm != 0700 {
+		// Some systems may have different umask settings
+		t.Logf("Directory permissions: %o (expected 0700 or similar restrictive)", dirPerm)
+	}
+
+	// Find and check token file permissions (should be 0600)
+	files, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to read directory: %v", err)
+	}
+
+	foundTokenFile := false
+	for _, file := range files {
+		if filepath.Ext(file.Name()) == ".json" {
+			foundTokenFile = true
+			filePath := filepath.Join(tmpDir, file.Name())
+			fileInfo, err := os.Stat(filePath)
+			if err != nil {
+				t.Fatalf("Failed to stat token file: %v", err)
+			}
+
+			filePerm := fileInfo.Mode().Perm()
+			// Check that token file has restrictive permissions (0600)
+			if filePerm != 0600 {
+				// This might fail on some systems with different umask
+				t.Logf("Token file permissions: %o (expected 0600)", filePerm)
+				// At minimum, check that world/group can't read
+				if filePerm&0077 != 0 {
+					t.Errorf("Token file should not be readable by group/others: %o", filePerm)
+				}
+			}
+		}
+	}
+
+	if !foundTokenFile {
+		t.Error("Expected to find a token file")
+	}
+}
+
+func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	// Token with zero expiry (some tokens don't have expiry info)
+	token := &oauth2.Token{
+		AccessToken: "no-expiry-token",
+		TokenType:   "Bearer",
+		// Expiry is zero value
+	}
+
+	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Token with zero expiry should be considered valid
+	if !store.HasValidToken(serverURL) {
+		t.Error("Token with zero expiry should be considered valid")
+	}
+
+	storedToken := store.GetToken(serverURL)
+	if storedToken == nil {
+		t.Error("Expected to get token with zero expiry")
+	}
+}

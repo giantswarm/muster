@@ -138,6 +138,9 @@ type MusterPreConfiguration struct {
 	Services []ServiceConfig `yaml:"services,omitempty"`
 	// MainConfig defines the main muster configuration
 	MainConfig *MainConfig `yaml:"main_config,omitempty"`
+
+	// MockOAuthServers defines mock OAuth servers to start for testing
+	MockOAuthServers []MockOAuthServerConfig `yaml:"mock_oauth_servers,omitempty"`
 }
 
 // MCPServerConfig represents an MCP server configuration
@@ -195,6 +198,8 @@ type MusterInstance struct {
 	ExpectedServiceClasses []string
 	// MockHTTPServers contains references to mock HTTP servers started for this instance
 	MockHTTPServers map[string]*MockHTTPServerInfo
+	// MockOAuthServers contains references to mock OAuth servers started for this instance
+	MockOAuthServers map[string]*MockOAuthServerInfo
 }
 
 // MockHTTPServerInfo contains information about a running mock HTTP server
@@ -207,6 +212,63 @@ type MockHTTPServerInfo struct {
 	Transport string
 	// Endpoint is the full URL endpoint for the server
 	Endpoint string
+}
+
+// MockOAuthServerConfig defines a mock OAuth server for testing
+type MockOAuthServerConfig struct {
+	// Name is the unique identifier for this OAuth server
+	Name string `yaml:"name"`
+
+	// Issuer is the OAuth issuer URL (auto-generated if not specified)
+	Issuer string `yaml:"issuer,omitempty"`
+
+	// Scopes are the scopes this OAuth server accepts
+	Scopes []string `yaml:"scopes,omitempty"`
+
+	// AutoApprove automatically approves authentication requests
+	AutoApprove bool `yaml:"auto_approve,omitempty"`
+
+	// PKCERequired enforces PKCE flow
+	PKCERequired bool `yaml:"pkce_required,omitempty"`
+
+	// TokenLifetime is how long tokens are valid (e.g., "1h", "30m")
+	TokenLifetime string `yaml:"token_lifetime,omitempty"`
+
+	// ClientID is the expected OAuth client ID
+	ClientID string `yaml:"client_id,omitempty"`
+
+	// ClientSecret is the expected OAuth client secret
+	ClientSecret string `yaml:"client_secret,omitempty"`
+
+	// SimulateError can simulate error conditions
+	SimulateError string `yaml:"simulate_error,omitempty"`
+
+	// UseMockClock enables a mock clock for testing token expiry
+	// When true, the test_advance_oauth_clock tool can be used to
+	// advance time without waiting
+	UseMockClock bool `yaml:"use_mock_clock,omitempty"`
+}
+
+// MCPServerOAuthConfig defines OAuth protection for an MCP server in tests
+type MCPServerOAuthConfig struct {
+	// Required indicates this server requires OAuth authentication
+	Required bool `yaml:"required"`
+
+	// MockOAuthServerRef references a mock OAuth server by name
+	MockOAuthServerRef string `yaml:"mock_oauth_server_ref"`
+
+	// Scope is the required OAuth scope
+	Scope string `yaml:"scope,omitempty"`
+}
+
+// MockOAuthServerInfo contains info about a running mock OAuth server
+type MockOAuthServerInfo struct {
+	// Name is the unique identifier for this OAuth server
+	Name string
+	// Port is the port the OAuth server is listening on
+	Port int
+	// IssuerURL is the OAuth issuer URL
+	IssuerURL string
 }
 
 // InstanceLogs contains the captured logs from an muster instance

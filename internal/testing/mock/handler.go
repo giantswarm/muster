@@ -1,12 +1,16 @@
 package mock
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
 	"time"
 
 	"muster/internal/template"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ToolHandler handles mock tool calls with configurable responses
@@ -157,4 +161,54 @@ func (h *ToolHandler) valuesEqual(expected, actual interface{}) bool {
 	}
 
 	return false
+}
+
+// createMCPTool creates an MCP tool definition from the tool configuration
+func (h *ToolHandler) createMCPTool() mcp.Tool {
+	return mcp.NewTool(h.config.Name, mcp.WithDescription(h.config.Description))
+}
+
+// createMCPHandler creates an MCP tool handler function
+func (h *ToolHandler) createMCPHandler() func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Convert MCP arguments to the format expected by our mock tool handler
+		args := request.GetArguments()
+
+		// Handle the tool call
+		result, err := h.HandleCall(args)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		// Convert result to MCP format
+		if result != nil {
+			// Check if result is a map or slice - if so, JSON marshal it
+			switch result.(type) {
+			case map[string]interface{}, []interface{}, map[interface{}]interface{}:
+				// JSON marshal structured data
+				if jsonBytes, err := json.Marshal(result); err == nil {
+					return mcp.NewToolResultText(string(jsonBytes)), nil
+				}
+				// Fallback to string representation if JSON marshaling fails
+				resultStr := fmt.Sprintf("%v", result)
+				return mcp.NewToolResultText(resultStr), nil
+			default:
+				// For primitive types, convert to string
+				resultStr := fmt.Sprintf("%v", result)
+				return mcp.NewToolResultText(resultStr), nil
+			}
+		}
+
+		return mcp.NewToolResultText(""), nil
+	}
+}
+
+// GetName returns the tool name
+func (h *ToolHandler) GetName() string {
+	return h.config.Name
+}
+
+// GetDescription returns the tool description
+func (h *ToolHandler) GetDescription() string {
+	return h.config.Description
 }

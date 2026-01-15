@@ -525,6 +525,19 @@ func (s *SessionState) GetConnectedServers() []string {
 	return servers
 }
 
+// GetAllConnections returns a copy of all connections for this session.
+// This is safe for iteration since it returns a copy of the map.
+func (s *SessionState) GetAllConnections() map[string]*SessionConnection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]*SessionConnection, len(s.Connections))
+	for name, conn := range s.Connections {
+		result[name] = conn
+	}
+	return result
+}
+
 // GetPendingAuthServers returns the names of all servers awaiting authentication.
 func (s *SessionState) GetPendingAuthServers() []string {
 	s.mu.RLock()

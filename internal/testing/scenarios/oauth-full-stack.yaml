@@ -1,0 +1,205 @@
+name: "oauth-full-stack"
+category: "integration"
+concept: "mcpserver"
+description: "End-to-end test of OAuth authentication with protected MCP servers"
+tags: ["oauth", "integration", "authentication", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  # Mock OAuth Provider (simulates enterprise IdP)
+  mock_oauth_servers:
+    - name: "enterprise-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "enterprise-client"
+
+  # Protected remote MCP servers
+  mcp_servers:
+    # A protected Kubernetes-like MCP server
+    - name: "kubernetes-mcp"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "enterprise-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "list_pods"
+            description: "List Kubernetes pods"
+            responses:
+              - response:
+                  pods:
+                    - name: "pod-1"
+                      namespace: "default"
+                      status: "Running"
+                    - name: "pod-2"
+                      namespace: "default"
+                      status: "Running"
+
+          - name: "get_pod"
+            description: "Get details of a specific pod"
+            input_schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: "Pod name"
+              required:
+                - name
+            responses:
+              - condition:
+                  name: "pod-1"
+                response:
+                  name: "pod-1"
+                  namespace: "default"
+                  status: "Running"
+                  ip: "10.0.0.1"
+              - response:
+                  error: "pod not found"
+
+    # A protected GitHub-like MCP server (shares same IdP for SSO)
+    - name: "github-mcp"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "enterprise-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "list_repos"
+            description: "List GitHub repositories"
+            responses:
+              - response:
+                  repos:
+                    - name: "repo-1"
+                      owner: "org"
+                      stars: 100
+                    - name: "repo-2"
+                      owner: "org"
+                      stars: 50
+
+    # An unprotected public MCP server
+    - name: "public-mcp"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "get_time"
+            description: "Get current time"
+            responses:
+              - response:
+                  time: "2024-01-15T10:30:00Z"
+
+steps:
+  # Step 1: Verify OAuth infrastructure is ready
+  - id: verify-oauth-server
+    description: "Verify the enterprise OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "enterprise-idp"
+    expected:
+      success: true
+      contains:
+        - "enterprise-idp"
+        - "issuer_url"
+
+  # Step 2: Verify all MCP servers are registered
+  - id: list-all-servers
+    description: "List all MCP servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "kubernetes-mcp"
+        - "github-mcp"
+        - "public-mcp"
+
+  # Step 3: Call public tool (should work without auth)
+  - id: call-public-tool
+    description: "Call public tool without authentication"
+    tool: "x_public-mcp_get_time"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "time"
+
+  # Step 4: Simulate authentication for the enterprise IdP
+  - id: authenticate-enterprise
+    description: "Simulate OAuth authentication for kubernetes-mcp"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "kubernetes-mcp"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: Establish connection using stored token
+  - id: establish-kubernetes-connection
+    description: "Call authenticate to establish session connection with stored token"
+    tool: "x_kubernetes-mcp_authenticate"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+
+  # Step 6: Verify protected servers are accessible
+  - id: verify-kubernetes-server
+    description: "Verify kubernetes-mcp is registered"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kubernetes-mcp"
+    expected:
+      success: true
+      contains:
+        - "kubernetes-mcp"
+
+  - id: verify-github-server
+    description: "Verify github-mcp is registered (same IdP = SSO)"
+    tool: "core_mcpserver_get"
+    args:
+      name: "github-mcp"
+    expected:
+      success: true
+      contains:
+        - "github-mcp"
+
+  # Step 8: Call protected tool on kubernetes-mcp (should succeed after auth)
+  - id: call-kubernetes-protected-tool
+    description: "Call list_pods on kubernetes-mcp after authentication"
+    tool: "x_kubernetes-mcp_list_pods"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "pods"
+        - "pod-1"
+        - "Running"
+
+  # Step 9: Authenticate to github-mcp (SSO should detect existing token for same issuer)
+  # When calling authenticate for github-mcp, it should find an existing token for
+  # the enterprise-idp issuer and automatically establish the connection.
+  - id: authenticate-github-sso
+    description: "Authenticate to github-mcp - SSO should use existing token"
+    tool: "x_github-mcp_authenticate"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "Successfully connected"
+
+  # Step 10: Call protected tool on github-mcp (should succeed after SSO auth)
+  - id: call-github-protected-tool-sso
+    description: "Call list_repos on github-mcp - SSO token used"
+    tool: "x_github-mcp_list_repos"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "repos"
+        - "repo-1"
+        - "org"

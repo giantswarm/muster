@@ -1,0 +1,93 @@
+name: "oauth-pre-auth-behavior"
+category: "behavioral"
+concept: "mcpserver"
+description: "Verify protected tools return auth challenge before authentication and work after authentication"
+tags: ["oauth", "pre-auth", "error-handling", "adr-008"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "pre-auth-idp"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+
+  mcp_servers:
+    - name: "pre-auth-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "pre-auth-idp"
+        tools:
+          - name: "protected_operation"
+            description: "A protected operation that requires authentication"
+            responses:
+              - response:
+                  status: "ok"
+                  data: "protected data"
+
+steps:
+  # Step 1: Verify server is registered even if not authenticated
+  - id: list-servers
+    description: "Server should be listed even if not authenticated"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "pre-auth-server"
+
+  # Step 2: Get server details to verify it's in auth-required state
+  - id: get-server-details
+    description: "Get server details to see auth status"
+    tool: "core_mcpserver_get"
+    args:
+      name: "pre-auth-server"
+    expected:
+      success: true
+      contains:
+        - "pre-auth-server"
+
+  # Step 3: Verify authenticate tool is available and returns auth URL
+  - id: call-authenticate-tool
+    description: "Authenticate tool should be available and return auth URL"
+    tool: "x_pre-auth-server_authenticate"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "http"
+
+  # Step 4: Complete authentication
+  - id: authenticate
+    description: "Complete the OAuth flow"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "pre-auth-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: Call authenticate again to establish the session connection
+  # After callback, the token is stored. Calling authenticate again
+  # triggers the aggregator to use the stored token.
+  - id: establish-connection
+    description: "Call authenticate to establish session connection with stored token"
+    tool: "x_pre-auth-server_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 6: Now the protected tool should work
+  - id: call-after-auth
+    description: "After authentication, protected tool should succeed"
+    tool: "x_pre-auth-server_protected_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "status"
+        - "ok"

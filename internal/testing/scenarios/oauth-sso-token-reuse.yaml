@@ -1,0 +1,126 @@
+name: "oauth-sso-token-reuse"
+category: "behavioral"
+concept: "mcpserver"
+description: "Verify SSO token reuse - authenticating to one server works for other servers with same issuer"
+tags: ["oauth", "sso", "token-reuse", "adr-008"]
+timeout: "2m"
+
+pre_configuration:
+  # Single mock OAuth server shared by multiple MCP servers
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "shared-client"
+
+  # Two OAuth-protected MCP servers sharing the same OAuth issuer
+  # The key here is that both servers reference the same mock_oauth_server_ref
+  mcp_servers:
+    - name: "sso-server-a"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "op_a"
+            description: "Operation on server A"
+            responses:
+              - response:
+                  source: "server-a"
+                  data: "response from A"
+
+    - name: "sso-server-b"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "op_b"
+            description: "Operation on server B"
+            responses:
+              - response:
+                  source: "server-b"
+                  data: "response from B"
+
+steps:
+  # Step 1: Verify the shared OAuth server is running
+  - id: verify-shared-oauth-server
+    description: "Verify the shared OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains:
+        - "shared-idp"
+        - "issuer_url"
+
+  # Step 2: Verify both MCP servers are registered
+  - id: list-all-servers
+    description: "List all MCP servers to verify both are configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-server-a"
+        - "sso-server-b"
+
+  # Step 3: Complete FULL OAuth flow for first server
+  # This stores token in BOTH mock OAuth server AND muster's OAuth manager
+  - id: authenticate-server-a
+    description: "Complete OAuth flow for server-a"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sso-server-a"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Call authenticate again to establish connection with stored token
+  - id: establish-connection-a
+    description: "Establish session connection for server-a"
+    tool: "x_sso-server-a_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 5: Verify first server works
+  - id: call-server-a-tool
+    description: "Protected tool on server-a should work after auth"
+    tool: "x_sso-server-a_op_a"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "server-a"
+
+  # Step 6: Call authenticate on server-b
+  # Because both servers use "shared-idp", the aggregator should:
+  # 1. Call GetTokenByIssuer(sessionID, "shared-idp") 
+  # 2. Find the token we stored when authenticating to server-a
+  # 3. Use that token to connect to server-b
+  # 4. Return "Successfully connected" without requiring new auth
+  - id: sso-authenticate-server-b
+    description: "SSO should detect existing token for same issuer"
+    tool: "x_sso-server-b_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 7: Verify second server works via SSO
+  - id: call-server-b-tool
+    description: "Protected tool on server-b should work via SSO"
+    tool: "x_sso-server-b_op_b"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "server-b"

@@ -1,0 +1,48 @@
+name: "oauth-mock-server-basic"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test basic mock OAuth server setup and MCP server with OAuth configuration"
+tags: ["oauth", "mock", "mcpserver"]
+timeout: "1m"
+
+pre_configuration:
+  # Start a mock OAuth server
+  mock_oauth_servers:
+    - name: "test-oauth"
+      scopes: ["openid", "profile"]
+      auto_approve: true
+      token_lifetime: "30m"
+      client_id: "muster-test-client"
+
+  # Regular MCP server (not OAuth protected) to verify basic functionality
+  mcp_servers:
+    - name: "public-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "public_tool"
+            description: "A public tool that does not require authentication"
+            responses:
+              - response:
+                  status: "success"
+                  message: "This tool is publicly accessible"
+
+steps:
+  - id: list-servers
+    description: "List MCP servers to verify setup"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "public-server"
+
+  - id: call-public-tool
+    description: "Call the public tool to verify it works without auth"
+    tool: "x_public-server_public_tool"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "publicly accessible"
