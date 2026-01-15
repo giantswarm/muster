@@ -2,17 +2,21 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"muster/internal/agent"
 	"muster/internal/api"
 	"muster/internal/cli"
 	"muster/internal/config"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -158,9 +162,6 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	var endpoint string
 	if authEndpoint != "" {
 		endpoint = authEndpoint
-	} else if authServer != "" {
-		// TODO: Look up server endpoint from running aggregator
-		return fmt.Errorf("--server flag is not yet implemented. Use --endpoint instead")
 	} else {
 		// Use configured aggregator endpoint
 		endpoint, err = getEndpointFromConfig()
@@ -169,21 +170,269 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if authAll {
-		// Login to aggregator first
-		fmt.Printf("Authenticating to %s...\n", endpoint)
-		if err := handler.Login(ctx, endpoint); err != nil {
-			return err
-		}
-		fmt.Println("done")
+	// Handle --server flag: authenticate to a specific MCP server
+	if authServer != "" {
+		return loginToMCPServer(ctx, handler, endpoint, authServer)
+	}
 
-		// TODO: Get list of MCP servers requiring auth and authenticate to each
-		fmt.Println("\nAll authentication complete.")
+	// Handle --all flag: authenticate to aggregator + all pending MCP servers
+	if authAll {
+		return loginToAll(ctx, handler, endpoint)
+	}
+
+	// Single aggregator login
+	return handler.Login(ctx, endpoint)
+}
+
+// loginToMCPServer authenticates to a specific MCP server through the aggregator.
+// It queries the auth://status resource to find the server's auth tool and invokes it.
+func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
+	// First ensure we're authenticated to the aggregator
+	if !handler.HasValidToken(aggregatorEndpoint) {
+		fmt.Println("Authenticating to aggregator first...")
+		if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
+			return fmt.Errorf("failed to authenticate to aggregator: %w", err)
+		}
+	}
+
+	// Get auth status from aggregator
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get auth status: %w", err)
+	}
+
+	// Find the requested server
+	var serverInfo *pkgoauth.ServerAuthStatus
+	for i := range authStatus.Servers {
+		if authStatus.Servers[i].Name == serverName {
+			serverInfo = &authStatus.Servers[i]
+			break
+		}
+	}
+
+	if serverInfo == nil {
+		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
+	}
+
+	if serverInfo.Status != "auth_required" {
+		if serverInfo.Status == "connected" {
+			fmt.Printf("Server '%s' is already connected and does not require authentication.\n", serverName)
+			return nil
+		}
+		fmt.Printf("Server '%s' is in state '%s' and cannot be authenticated.\n", serverName, serverInfo.Status)
 		return nil
 	}
 
-	// Single endpoint login
-	return handler.Login(ctx, endpoint)
+	if serverInfo.AuthTool == "" {
+		return fmt.Errorf("server '%s' requires authentication but no auth tool is available", serverName)
+	}
+
+	// Call the auth tool to get the auth URL
+	fmt.Printf("Authenticating to %s...\n", serverName)
+	return triggerMCPServerAuth(ctx, handler, aggregatorEndpoint, serverName, serverInfo.AuthTool)
+}
+
+// loginToAll authenticates to the aggregator and all pending MCP servers.
+func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) error {
+	// Login to aggregator first
+	fmt.Printf("Authenticating to aggregator (%s)...\n", aggregatorEndpoint)
+	if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
+		return fmt.Errorf("failed to authenticate to aggregator: %w", err)
+	}
+	fmt.Println("done")
+
+	// Get auth status from aggregator
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		fmt.Printf("\nWarning: Could not get MCP server status: %v\n", err)
+		fmt.Println("Aggregator authentication complete.")
+		return nil
+	}
+
+	// Find all servers requiring authentication
+	var pendingServers []pkgoauth.ServerAuthStatus
+	for _, srv := range authStatus.Servers {
+		if srv.Status == "auth_required" && srv.AuthTool != "" {
+			pendingServers = append(pendingServers, srv)
+		}
+	}
+
+	if len(pendingServers) == 0 {
+		fmt.Println("\nNo MCP servers require authentication.")
+		fmt.Println("All authentication complete.")
+		return nil
+	}
+
+	fmt.Printf("\nFound %d MCP server(s) requiring authentication:\n", len(pendingServers))
+	for _, srv := range pendingServers {
+		fmt.Printf("  - %s\n", srv.Name)
+	}
+	fmt.Println()
+
+	// Authenticate to each server
+	successCount := 0
+	for i, srv := range pendingServers {
+		fmt.Printf("[%d/%d] Authenticating to %s...\n", i+1, len(pendingServers), srv.Name)
+		if err := triggerMCPServerAuth(ctx, handler, aggregatorEndpoint, srv.Name, srv.AuthTool); err != nil {
+			fmt.Printf("  Failed: %v\n", err)
+		} else {
+			successCount++
+		}
+		// Small delay between auth flows to allow SSO redirects to complete
+		if i < len(pendingServers)-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	fmt.Printf("\nAuthentication complete. %d/%d servers authenticated.\n", successCount, len(pendingServers))
+	return nil
+}
+
+// getAuthStatusFromAggregator queries the auth://status resource from the aggregator.
+func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) (*pkgoauth.AuthStatusResponse, error) {
+	// Create a client to connect to the aggregator
+	logger := agent.NewDevNullLogger()
+	transport := agent.TransportStreamableHTTP
+	if strings.HasSuffix(aggregatorEndpoint, "/sse") {
+		transport = agent.TransportSSE
+	}
+
+	client := agent.NewClient(aggregatorEndpoint, logger, transport)
+
+	// Set auth token if available
+	token, err := handler.GetBearerToken(aggregatorEndpoint)
+	if err == nil && token != "" {
+		client.SetAuthorizationHeader(token)
+	}
+
+	// Connect to aggregator
+	if err := client.Connect(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+	defer client.Close()
+
+	// Initialize client (required for resource operations)
+	if err := client.InitializeAndLoadData(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
+	}
+
+	// Get the auth://status resource
+	result, err := client.GetResource(ctx, "auth://status")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth://status resource: %w", err)
+	}
+
+	if len(result.Contents) == 0 {
+		return nil, fmt.Errorf("auth://status resource returned no content")
+	}
+
+	// Parse the response
+	var responseText string
+	for _, content := range result.Contents {
+		if textContent, ok := mcp.AsTextResourceContents(content); ok {
+			responseText = textContent.Text
+			break
+		}
+	}
+
+	if responseText == "" {
+		return nil, fmt.Errorf("auth://status resource returned no text content")
+	}
+
+	var authStatus pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(responseText), &authStatus); err != nil {
+		return nil, fmt.Errorf("failed to parse auth status: %w", err)
+	}
+
+	return &authStatus, nil
+}
+
+// triggerMCPServerAuth triggers the OAuth flow for an MCP server by calling its auth tool.
+func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string) error {
+	// Create a client to connect to the aggregator
+	logger := agent.NewDevNullLogger()
+	transport := agent.TransportStreamableHTTP
+	if strings.HasSuffix(aggregatorEndpoint, "/sse") {
+		transport = agent.TransportSSE
+	}
+
+	client := agent.NewClient(aggregatorEndpoint, logger, transport)
+
+	// Set auth token if available
+	token, err := handler.GetBearerToken(aggregatorEndpoint)
+	if err == nil && token != "" {
+		client.SetAuthorizationHeader(token)
+	}
+
+	// Connect to aggregator
+	if err := client.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+	defer client.Close()
+
+	// Initialize client
+	if err := client.InitializeAndLoadData(ctx); err != nil {
+		return fmt.Errorf("failed to initialize client: %w", err)
+	}
+
+	// Call the auth tool
+	result, err := client.CallTool(ctx, authTool, nil)
+	if err != nil {
+		return fmt.Errorf("failed to call auth tool: %w", err)
+	}
+
+	// Extract the auth URL from the result
+	authURL := extractAuthURL(result)
+	if authURL == "" {
+		return fmt.Errorf("auth tool did not return an auth URL")
+	}
+
+	// Open browser for authentication
+	fmt.Printf("Opening browser for authentication...\n")
+	fmt.Printf("If the browser doesn't open, visit:\n  %s\n\n", authURL)
+
+	if err := openBrowserForAuth(authURL); err != nil {
+		fmt.Printf("Failed to open browser: %v\n", err)
+		fmt.Printf("Please open the URL manually: %s\n", authURL)
+	}
+
+	return nil
+}
+
+// extractAuthURL extracts the authentication URL from a tool call result.
+func extractAuthURL(result *mcp.CallToolResult) string {
+	if result == nil || len(result.Content) == 0 {
+		return ""
+	}
+
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			// Try to parse as JSON first
+			var authResp struct {
+				AuthURL string `json:"auth_url"`
+			}
+			if err := json.Unmarshal([]byte(textContent.Text), &authResp); err == nil && authResp.AuthURL != "" {
+				return authResp.AuthURL
+			}
+
+			// Fallback: look for URL pattern in the text
+			lines := strings.Split(textContent.Text, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+					return line
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// openBrowserForAuth opens the browser for OAuth authentication.
+func openBrowserForAuth(url string) error {
+	// Import the oauth package's OpenBrowser function
+	return agent.OpenBrowserForAuth(url)
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
@@ -205,7 +454,12 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	if authEndpoint != "" {
 		endpoint = authEndpoint
 	} else if authServer != "" {
-		return fmt.Errorf("--server flag is not yet implemented. Use --endpoint instead")
+		// MCP server logout - note that MCP server auth is managed by the aggregator,
+		// not stored locally. We can inform the user about this.
+		fmt.Printf("Note: MCP server authentication is managed by the aggregator.\n")
+		fmt.Printf("To disconnect a server, use the aggregator's management interface.\n")
+		fmt.Printf("To clear all local tokens including aggregator auth, run: muster auth logout --all\n")
+		return nil
 	} else {
 		// Use configured aggregator endpoint
 		endpoint, err = getEndpointFromConfig()
@@ -228,57 +482,136 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Get the aggregator endpoint
+	aggregatorEndpoint, err := getEndpointFromConfig()
+	if err != nil {
+		return err
+	}
+
 	// If specific endpoint is requested
 	if authEndpoint != "" {
 		status := handler.GetStatusForEndpoint(authEndpoint)
 		return printAuthStatus(status)
 	}
 
+	// If specific server is requested, show that server's status
 	if authServer != "" {
-		return fmt.Errorf("--server flag is not yet implemented. Use --endpoint instead")
+		return showMCPServerStatus(cmd.Context(), handler, aggregatorEndpoint, authServer)
 	}
 
-	// Show all statuses
-	statuses := handler.GetStatus()
+	// Show aggregator status
+	fmt.Println("Muster Aggregator")
+	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
+	if status != nil {
+		fmt.Printf("  Endpoint:  %s\n", aggregatorEndpoint)
+		if status.Authenticated {
+			fmt.Printf("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+			if !status.ExpiresAt.IsZero() {
+				remaining := time.Until(status.ExpiresAt)
+				if remaining > 0 {
+					fmt.Printf("  Expires:   in %s\n", formatDuration(remaining))
+				} else {
+					fmt.Printf("  Expires:   %s\n", text.FgYellow.Sprint("Expired"))
+				}
+			}
+		} else {
+			// Check if auth is required
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			authRequired, _ := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
+			cancel()
 
-	// Also check the configured aggregator
-	configuredEndpoint, err := getEndpointFromConfig()
-	if err == nil {
-		// Check if we already have this endpoint in the list
-		found := false
-		for _, s := range statuses {
-			if s.Endpoint == configuredEndpoint {
-				found = true
-				break
+			if authRequired {
+				fmt.Printf("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+				fmt.Printf("             Run: muster auth login\n")
+			} else {
+				fmt.Printf("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
 			}
 		}
-		if !found {
-			// Check auth required for configured endpoint
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+	}
 
-			authRequired, _ := handler.CheckAuthRequired(ctx, configuredEndpoint)
-			statuses = append([]api.AuthStatus{{
-				Endpoint:      configuredEndpoint,
-				Authenticated: handler.HasValidToken(configuredEndpoint),
-				Error: func() string {
-					if authRequired && !handler.HasValidToken(configuredEndpoint) {
-						return "Not authenticated"
-					}
-					return ""
-				}(),
-			}}, statuses...)
+	// Try to get MCP server status from the aggregator
+	if handler.HasValidToken(aggregatorEndpoint) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+		if err == nil && len(authStatus.Servers) > 0 {
+			fmt.Println("\nMCP Servers")
+			printMCPServerStatuses(authStatus.Servers)
 		}
 	}
 
-	if len(statuses) == 0 {
-		fmt.Println("No authentication information available.")
-		fmt.Println("\nTo authenticate to a remote muster aggregator, run:")
-		fmt.Println("  muster auth login --endpoint <url>")
-		return nil
+	return nil
+}
+
+// showMCPServerStatus shows the authentication status of a specific MCP server.
+func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
+	// Need to be authenticated to the aggregator first
+	if !handler.HasValidToken(aggregatorEndpoint) {
+		return fmt.Errorf("not authenticated to aggregator. Run 'muster auth login' first")
 	}
 
-	return printAuthStatuses(statuses)
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get server status: %w", err)
+	}
+
+	// Find the requested server
+	for _, srv := range authStatus.Servers {
+		if srv.Name == serverName {
+			fmt.Printf("\nMCP Server: %s\n", srv.Name)
+			fmt.Printf("  Status:   %s\n", formatMCPServerStatus(srv.Status))
+			if srv.Issuer != "" {
+				fmt.Printf("  Issuer:   %s\n", srv.Issuer)
+			}
+			if srv.AuthTool != "" && srv.Status == "auth_required" {
+				fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
+}
+
+// printMCPServerStatuses prints the status of all MCP servers.
+func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
+	// Count servers requiring auth
+	var pendingCount int
+	for _, srv := range servers {
+		if srv.Status == "auth_required" {
+			pendingCount++
+		}
+	}
+
+	if pendingCount > 0 {
+		fmt.Printf("  (%d pending authentication)\n", pendingCount)
+	}
+
+	for _, srv := range servers {
+		statusStr := formatMCPServerStatus(srv.Status)
+		if srv.Status == "auth_required" && srv.AuthTool != "" {
+			fmt.Printf("  %-20s %s   Run: muster auth login --server %s\n", srv.Name, statusStr, srv.Name)
+		} else {
+			fmt.Printf("  %-20s %s\n", srv.Name, statusStr)
+		}
+	}
+}
+
+// formatMCPServerStatus formats the MCP server status with colors.
+func formatMCPServerStatus(status string) string {
+	switch status {
+	case "connected":
+		return text.FgGreen.Sprint("Connected")
+	case "auth_required":
+		return text.FgYellow.Sprint("Not authenticated")
+	case "disconnected":
+		return text.FgRed.Sprint("Disconnected")
+	case "error":
+		return text.FgRed.Sprint("Error")
+	default:
+		return text.FgHiBlack.Sprint(status)
+	}
 }
 
 func runAuthRefresh(cmd *cobra.Command, args []string) error {

@@ -12,6 +12,7 @@ import (
 
 	"muster/internal/agent"
 	"muster/internal/agent/oauth"
+	"muster/internal/api"
 	"muster/internal/cli"
 	"muster/internal/config"
 
@@ -148,6 +149,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return runMCPServerWithOAuth(ctx, client, logger, endpoint, transport)
 	}
 
+	// For REPL and normal modes, use the AuthHandler for authentication
+	if err := setupAgentAuthentication(ctx, client, logger, endpoint); err != nil {
+		return err
+	}
+
 	// Connect to aggregator and load tools/resources/prompts with retry logic
 	err := connectWithRetry(ctx, client, logger, endpoint, transport)
 	if err != nil {
@@ -168,6 +174,85 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Normal agent mode - wait for context cancellation
 	<-ctx.Done()
 	return nil
+}
+
+// setupAgentAuthentication sets up authentication for the agent client using the AuthHandler.
+// This provides a unified authentication experience for all agent modes (REPL, normal).
+func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string) error {
+	// Check if this is a remote endpoint
+	if !isRemoteAgentEndpoint(endpoint) {
+		// Local endpoint - no auth needed
+		return nil
+	}
+
+	// Try to get a token from the AuthHandler
+	handler := api.GetAuthHandler()
+	if handler == nil {
+		// No auth handler - create and register one
+		adapter, err := cli.NewAuthAdapter()
+		if err != nil {
+			logger.Info("Warning: Could not initialize auth adapter: %v", err)
+			return nil
+		}
+		adapter.Register()
+		handler = api.GetAuthHandler()
+	}
+
+	if handler == nil {
+		return nil
+	}
+
+	// Check if we have a valid token
+	if handler.HasValidToken(endpoint) {
+		token, err := handler.GetBearerToken(endpoint)
+		if err == nil {
+			client.SetAuthorizationHeader(token)
+			logger.Info("Using existing authentication token")
+			return nil
+		}
+	}
+
+	// Check if auth is required
+	authRequired, err := handler.CheckAuthRequired(ctx, endpoint)
+	if err != nil {
+		// Can't check auth - continue without token
+		logger.Info("Could not check auth requirements: %v", err)
+		return nil
+	}
+
+	if !authRequired {
+		// No auth required
+		return nil
+	}
+
+	// Auth is required - prompt user to login
+	logger.Info("Authentication required for %s", endpoint)
+	logger.Info("Starting OAuth login flow...")
+
+	if err := handler.Login(ctx, endpoint); err != nil {
+		return fmt.Errorf("authentication failed: %w. Run 'muster auth login --endpoint %s' to authenticate", err, endpoint)
+	}
+
+	// Get the token and set it on the client
+	token, err := handler.GetBearerToken(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get authentication token: %w", err)
+	}
+	client.SetAuthorizationHeader(token)
+	logger.Success("Authentication successful")
+
+	return nil
+}
+
+// isRemoteAgentEndpoint checks if an endpoint URL points to a remote server.
+func isRemoteAgentEndpoint(endpoint string) bool {
+	lowerEndpoint := strings.ToLower(endpoint)
+	if strings.Contains(lowerEndpoint, "localhost") ||
+		strings.Contains(lowerEndpoint, "127.0.0.1") ||
+		strings.Contains(lowerEndpoint, "[::1]") {
+		return false
+	}
+	return true
 }
 
 // runMCPServerWithOAuth runs the MCP server with OAuth authentication support.
