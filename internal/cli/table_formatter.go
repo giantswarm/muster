@@ -153,7 +153,12 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 		if itemMap, ok := item.(map[string]interface{}); ok {
 			row := make([]interface{}, len(columns))
 			for i, col := range columns {
-				row[i] = f.builder.FormatCellValue(col, itemMap[col])
+				// Use context-aware formatting for MCP servers
+				if resourceType == "mcpServers" || resourceType == "mcpServer" {
+					row[i] = f.builder.FormatCellValueWithContext(col, itemMap[col], itemMap)
+				} else {
+					row[i] = f.builder.FormatCellValue(col, itemMap[col])
+				}
 			}
 			t.AppendRow(row)
 		}
@@ -337,6 +342,13 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 		return f.formatWorkflowDetails(data)
 	}
 
+	// Check if this is MCP server data to apply contextual labels
+	isMCPServer := f.isMCPServerData(data)
+	serverType := ""
+	if isMCPServer {
+		serverType = f.getServerType(data)
+	}
+
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
@@ -353,15 +365,83 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		value := f.builder.FormatCellValue(key, data[key])
+		// Apply contextual formatting for MCP servers
+		var value interface{}
+		displayKey := key
+
+		if isMCPServer {
+			value = f.builder.FormatCellValueWithContext(key, data[key], data)
+
+			// Use contextual property names for remote servers
+			if serverType == "streamable-http" || serverType == "sse" {
+				switch strings.ToLower(key) {
+				case "autostart":
+					displayKey = "autoConnect"
+				}
+			}
+		} else {
+			value = f.builder.FormatCellValue(key, data[key])
+		}
+
 		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint(key),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint(displayKey),
 			value,
 		})
 	}
 
 	t.Render()
 	return nil
+}
+
+// isMCPServerData checks if the data represents an MCP server.
+func (f *TableFormatter) isMCPServerData(data map[string]interface{}) bool {
+	// Check for MCP server indicators
+	if typ, exists := data["type"]; exists {
+		if typeStr, ok := typ.(string); ok {
+			if typeStr == "stdio" || typeStr == "streamable-http" || typeStr == "sse" {
+				return true
+			}
+		}
+	}
+
+	// Check for metadata field containing server type (used in check/status commands)
+	if metadata, exists := data["metadata"]; exists {
+		if metaStr, ok := metadata.(string); ok {
+			if metaStr == "stdio" || metaStr == "streamable-http" || metaStr == "sse" {
+				return true
+			}
+		}
+	}
+
+	// Check for service_type = MCPServer
+	if serviceType, exists := data["service_type"]; exists {
+		if typeStr, ok := serviceType.(string); ok {
+			if typeStr == "MCPServer" || typeStr == "mcpserver" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// getServerType extracts the server type from MCP server data.
+func (f *TableFormatter) getServerType(data map[string]interface{}) string {
+	// Check for "type" field
+	if typ, exists := data["type"]; exists {
+		if typeStr, ok := typ.(string); ok {
+			return typeStr
+		}
+	}
+
+	// Check for "metadata" field (used in check/status commands)
+	if metadata, exists := data["metadata"]; exists {
+		if metaStr, ok := metadata.(string); ok {
+			return metaStr
+		}
+	}
+
+	return ""
 }
 
 // isWorkflowData checks if the data represents a workflow.

@@ -44,19 +44,19 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get the aggregator endpoint
-	aggregatorEndpoint, err := getEndpointFromConfig()
-	if err != nil {
-		return err
-	}
-
-	// If specific endpoint is requested
+	// Get the aggregator endpoint (use --endpoint if provided, otherwise from config)
+	var aggregatorEndpoint string
 	if authEndpoint != "" {
-		status := handler.GetStatusForEndpoint(authEndpoint)
-		return printAuthStatus(status, !authQuiet)
+		aggregatorEndpoint = authEndpoint
+	} else {
+		aggregatorEndpoint, err = getEndpointFromConfig()
+		if err != nil {
+			return err
+		}
 	}
 
 	// If specific server is requested, show that server's status
+	// Note: --server takes precedence over just showing the aggregator endpoint status
 	if statusServer != "" {
 		return showMCPServerStatus(cmd.Context(), handler, aggregatorEndpoint, statusServer)
 	}
