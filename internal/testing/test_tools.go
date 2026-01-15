@@ -167,15 +167,20 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 
 	if oauthServer == nil {
 		// Fall back to looking up by server ref if issuer match didn't work
-		oauthServerInfo, exists := h.currentInstance.MockOAuthServers[h.findOAuthServerRefForMCPServer(serverName)]
-		if !exists {
-			for name, info := range h.currentInstance.MockOAuthServers {
-				oauthServerInfo = info
-				oauthServerName = name
-				break
-			}
+		var oauthServerInfo *MockOAuthServerInfo
+		oauthServerRef := h.findOAuthServerRefForMCPServer(serverName)
+		if ref, exists := h.currentInstance.MockOAuthServers[oauthServerRef]; exists && ref != nil {
+			oauthServerInfo = ref
+			oauthServerName = ref.Name
 		} else {
-			oauthServerName = oauthServerInfo.Name
+			// Use first available OAuth server as fallback
+			for name, info := range h.currentInstance.MockOAuthServers {
+				if info != nil {
+					oauthServerInfo = info
+					oauthServerName = name
+					break
+				}
+			}
 		}
 		if oauthServerInfo != nil {
 			oauthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, oauthServerInfo.Name)
@@ -540,9 +545,15 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 
 // findOAuthServerRefForMCPServer finds the OAuth server reference for an MCP server.
 // This looks up the MCP server configuration to find which OAuth server it uses.
-func (h *TestToolsHandler) findOAuthServerRefForMCPServer(mcpServerName string) string {
-	// For now, return empty and let the caller use default logic
-	// In a more complete implementation, this would parse the instance configuration
+//
+// Currently returns empty string as the MCP server -> OAuth server mapping isn't
+// stored with the running instance. The caller falls back to using the first
+// available OAuth server when empty is returned. This works for most test scenarios
+// which use a single OAuth server.
+//
+// Future enhancement: Store the oauth.mock_oauth_server_ref configuration with
+// the MockHTTPServerInfo to enable proper mapping when multiple OAuth servers exist.
+func (h *TestToolsHandler) findOAuthServerRefForMCPServer(_ string) string {
 	return ""
 }
 

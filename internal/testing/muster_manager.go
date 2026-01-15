@@ -1393,18 +1393,18 @@ func (m *musterInstanceManager) extractExpectedServiceClassesFromInstance(instan
 	return instance.ExpectedServiceClasses
 }
 
-// extractExpectedServicesFromInstance extracts expected Service names from instance configuration
-func (m *musterInstanceManager) extractExpectedServicesFromInstance(instance *MusterInstance) []string {
-	// For now, we'll extract this from the instance configuration stored during CreateInstance
-	// In a future enhancement, we could store this information in the MusterInstance struct
-	return []string{} // TODO: Extract from stored configuration
+// extractExpectedServicesFromInstance extracts expected Service names from instance configuration.
+// Currently returns empty as pre-configuration isn't stored with running instances.
+// Tests that need to verify specific services should use explicit assertions in steps.
+func (m *musterInstanceManager) extractExpectedServicesFromInstance(_ *MusterInstance) []string {
+	return []string{}
 }
 
-// extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration
-func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(instance *MusterInstance) []string {
-	// For now, we'll extract this from the instance configuration stored during CreateInstance
-	// In a future enhancement, we could store this information in the MusterInstance struct
-	return []string{} // TODO: Extract from stored configuration
+// extractExpectedWorkflowsFromInstance extracts expected Workflow names from instance configuration.
+// Currently returns empty as pre-configuration isn't stored with running instances.
+// Tests that need to verify specific workflows should use explicit assertions in steps.
+func (m *musterInstanceManager) extractExpectedWorkflowsFromInstance(_ *MusterInstance) []string {
+	return []string{}
 }
 
 // checkServiceClassAvailability checks if a ServiceClass is available and ready

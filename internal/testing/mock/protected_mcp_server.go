@@ -247,7 +247,7 @@ type oauthProtectionMiddleware struct {
 }
 
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Check for Authorization header
+	// Check for Authorization header and extract Bearer token
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
 		if m.debug {
@@ -257,15 +257,14 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if !strings.HasPrefix(auth, "Bearer ") {
+	token := ExtractBearerToken(auth)
+	if token == "" {
 		if m.debug {
 			fmt.Fprintf(os.Stderr, "🔒 Invalid Authorization header format, returning 401\n")
 		}
 		m.sendAuthChallenge(w, "invalid_token", "Authorization header must use Bearer scheme")
 		return
 	}
-
-	token := strings.TrimPrefix(auth, "Bearer ")
 
 	// Validate token with the OAuth server
 	if m.oauthServer != nil {

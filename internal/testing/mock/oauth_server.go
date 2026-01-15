@@ -619,14 +619,8 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" || len(auth) < 7 {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	token := auth[7:] // Remove "Bearer "
-	if !s.ValidateToken(token) {
+	token := ExtractBearerToken(r.Header.Get("Authorization"))
+	if token == "" || !s.ValidateToken(token) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -702,9 +696,10 @@ func (s *OAuthServer) verifyPKCE(challenge, method, verifier string) bool {
 	}
 }
 
-// generateAccessToken generates an opaque access token
-func (s *OAuthServer) generateAccessToken(clientID, scope string) string {
-	// Use opaque tokens for testing simplicity
+// generateAccessToken generates an opaque access token.
+// Note: clientID and scope are accepted for API consistency but not used
+// in token generation since we use opaque tokens for testing simplicity.
+func (s *OAuthServer) generateAccessToken(_, _ string) string {
 	return generateOpaqueToken()
 }
 
