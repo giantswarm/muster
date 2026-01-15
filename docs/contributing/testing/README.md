@@ -546,6 +546,7 @@ The test framework supports configurable parallel execution:
 For comprehensive information about specific testing topics, see:
 
 - **[API Schema Validation](api-schema-validation.md)** - Complete guide to schema generation and validation
+- **[OAuth Testing](oauth-testing.md)** - OAuth BDD testing infrastructure and scenarios
 - **[Testing via MCP](testing-via-mcp.md)** - MCP server integration for AI-powered testing  
 - **[Test Scenarios](scenarios.md)** - Writing and structuring test scenarios
 - **[Scenario Examples](examples/)** - Ready-to-use scenario templates
