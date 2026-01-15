@@ -1,0 +1,67 @@
+name: "oauth-token-injection"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test direct token injection for OAuth-protected servers"
+tags: ["oauth", "authentication", "mcpserver", "testing"]
+timeout: "2m"
+
+pre_configuration:
+  # Start a mock OAuth server
+  mock_oauth_servers:
+    - name: "token-test-idp"
+      scopes: ["openid", "profile", "api:read"]
+      auto_approve: true
+      token_lifetime: "30m"
+      client_id: "token-test-client"
+
+  # OAuth-protected MCP server
+  mcp_servers:
+    - name: "token-test-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "token-test-idp"
+          scope: "api:read"
+        tools:
+          - name: "check_auth"
+            description: "Returns authentication status"
+            responses:
+              - response:
+                  authenticated: true
+                  message: "Token is valid"
+
+steps:
+  - id: verify-oauth-server-running
+    description: "Verify the mock OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "token-test-idp"
+    expected:
+      success: true
+      contains:
+        - "token-test-idp"
+        - "issuer_url"
+
+  - id: inject-test-token
+    description: "Inject a test token directly for the protected server"
+    tool: "test_inject_token"
+    args:
+      server: "token-test-server"
+      token: "test-access-token-12345"
+      scope: "api:read"
+      expires_in: 3600
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "token-test-server"
+
+  - id: list-servers
+    description: "Verify the protected server is configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "token-test-server"

@@ -1,0 +1,100 @@
+name: "oauth-sso-detection"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test SSO detection when multiple servers share the same OAuth issuer"
+tags: ["oauth", "sso", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Start a mock OAuth server that will be shared by multiple MCP servers
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "shared-client"
+
+  # Two OAuth-protected MCP servers sharing the same OAuth provider
+  mcp_servers:
+    - name: "server-alpha"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "alpha_operation"
+            description: "An operation from server alpha"
+            responses:
+              - response:
+                  source: "alpha"
+                  status: "ok"
+
+    - name: "server-beta"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:admin"
+        tools:
+          - name: "beta_operation"
+            description: "An operation from server beta"
+            responses:
+              - response:
+                  source: "beta"
+                  status: "ok"
+
+steps:
+  - id: verify-shared-oauth-server
+    description: "Verify the shared OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains:
+        - "shared-idp"
+        - "issuer_url"
+
+  - id: list-all-servers
+    description: "List all MCP servers to verify both are configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "server-alpha"
+        - "server-beta"
+
+  - id: simulate-auth-for-alpha
+    description: "Simulate OAuth authentication for server-alpha"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: verify-alpha-server
+    description: "Verify server-alpha is accessible"
+    tool: "core_mcpserver_get"
+    args:
+      name: "server-alpha"
+    expected:
+      success: true
+      contains:
+        - "server-alpha"
+
+  - id: verify-beta-server
+    description: "Verify server-beta is accessible (shares same issuer)"
+    tool: "core_mcpserver_get"
+    args:
+      name: "server-beta"
+    expected:
+      success: true
+      contains:
+        - "server-beta"

@@ -389,9 +389,12 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 		r.logger.Debug("✅ Connected isolated MCP client to muster instance %s at %s\n", instance.ID, instance.Endpoint)
 	}
 
+	// Create test tools handler for this scenario
+	testToolsHandler := NewTestToolsHandler(r.instanceManager, instance, r.debug, r.logger)
+
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
-		stepResult := r.runStep(scenarioCtx, step, config, scenarioClient, scenarioContext)
+		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler)
 		result.StepResults = append(result.StepResults, stepResult)
 
 		// Report step result
@@ -408,7 +411,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Execute cleanup steps regardless of main scenario outcome using the isolated client
 	if len(scenario.Cleanup) > 0 {
 		for _, cleanupStep := range scenario.Cleanup {
-			stepResult := r.runStep(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext)
+			stepResult := r.runStepWithTestTools(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext, testToolsHandler)
 			result.StepResults = append(result.StepResults, stepResult)
 			r.reporter.ReportStepResult(stepResult)
 
@@ -503,6 +506,138 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 	}
 
 	return result
+}
+
+// runStepWithTestTools executes a single test step, handling test tools specially.
+// Test tools (prefixed with "test_") are handled directly by the test runner
+// instead of being sent to the muster MCP server.
+func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler) TestStepResult {
+	// Check if this is a test tool that should be handled locally
+	if IsTestTool(step.Tool) {
+		return r.runTestToolStep(ctx, step, config, scenarioContext, testToolsHandler)
+	}
+
+	// Delegate to the standard runStep for regular tools
+	return r.runStep(ctx, step, config, client, scenarioContext)
+}
+
+// runTestToolStep executes a test helper tool locally in the test runner.
+func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config TestConfiguration, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler) TestStepResult {
+	result := TestStepResult{
+		Step:      step,
+		StartTime: time.Now(),
+		Result:    ResultPassed,
+	}
+
+	if r.debug {
+		r.logger.Debug("🧪 Executing test tool: %s\n", step.Tool)
+	}
+
+	// Apply step timeout if specified
+	stepCtx := ctx
+	if step.Timeout > 0 {
+		var cancel context.CancelFunc
+		stepCtx, cancel = context.WithTimeout(ctx, step.Timeout)
+		defer cancel()
+	}
+
+	// Resolve template variables in step arguments if scenario context is available
+	resolvedArgs := step.Args
+	if scenarioContext != nil {
+		processor := NewTemplateProcessor(scenarioContext)
+
+		var err error
+		resolvedArgs, err = processor.ResolveArgs(step.Args)
+		if err != nil {
+			result.Result = ResultError
+			result.Error = fmt.Sprintf("template resolution failed: %v", err)
+			result.EndTime = time.Now()
+			result.Duration = result.EndTime.Sub(result.StartTime)
+			return result
+		}
+	}
+
+	// Execute the test tool
+	response, err := testToolsHandler.HandleTestTool(stepCtx, step.Tool, resolvedArgs)
+
+	// Wrap the response in MCP-compatible format
+	wrappedResult := WrapTestToolResult(response, err)
+	result.Response = wrappedResult
+	result.EndTime = time.Now()
+	result.Duration = result.EndTime.Sub(result.StartTime)
+
+	// Validate expectations
+	if !r.validateTestToolExpectations(step.Expected, response, err) {
+		if err != nil {
+			result.Result = ResultError
+			result.Error = fmt.Sprintf("test tool failed: %v", err)
+		} else {
+			result.Result = ResultFailed
+			result.Error = "test tool expectations not met"
+		}
+		return result
+	}
+
+	// Success
+	result.Result = ResultPassed
+
+	// Store result in scenario context for template variables
+	if scenarioContext != nil {
+		scenarioContext.StoreResult(step.ID, response)
+		if r.debug {
+			r.logger.Debug("🔗 Stored test tool result from step %s\n", step.ID)
+		}
+	}
+
+	return result
+}
+
+// validateTestToolExpectations validates expectations for test tool results.
+func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error) bool {
+	// Check success expectation
+	if expected.Success && err != nil {
+		if r.debug {
+			r.logger.Debug("❌ Expected test tool success but got error: %v\n", err)
+		}
+		return false
+	}
+
+	if !expected.Success && err == nil {
+		if r.debug {
+			r.logger.Debug("❌ Expected test tool failure but got success\n")
+		}
+		return false
+	}
+
+	// For successful calls, check the response
+	if err == nil && response != nil {
+		// Convert response to map for checking
+		responseMap, ok := response.(map[string]interface{})
+		if ok {
+			// Check "success" field if present
+			if success, exists := responseMap["success"]; exists {
+				if successBool, ok := success.(bool); ok && expected.Success && !successBool {
+					if r.debug {
+						r.logger.Debug("❌ Test tool response indicates failure\n")
+					}
+					return false
+				}
+			}
+		}
+
+		// Check contains expectations
+		responseStr := fmt.Sprintf("%v", response)
+		for _, expectedText := range expected.Contains {
+			if !containsText(responseStr, expectedText) {
+				if r.debug {
+					r.logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
+				}
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // validateExpectationsWithClient checks if the step response meets the expected criteria with state waiting support
