@@ -112,10 +112,25 @@ func TestProtectedMCPServer_RequiresAuth(t *testing.T) {
 		t.Errorf("Expected 401 without auth, got %d", resp.StatusCode)
 	}
 
-	// Check for WWW-Authenticate header
+	// Check for WWW-Authenticate header with RFC 9728 format
+	// Should match real mcp-kubernetes: Bearer resource_metadata="...", error="...", error_description="..."
 	wwwAuth := resp.Header.Get("WWW-Authenticate")
 	if wwwAuth == "" {
 		t.Error("Expected WWW-Authenticate header in 401 response")
+	}
+
+	// Verify RFC 9728 format (matching real mcp-kubernetes behavior)
+	if !containsAt(wwwAuth, "Bearer", 0) {
+		t.Errorf("Expected WWW-Authenticate to start with 'Bearer', got: %s", wwwAuth)
+	}
+	if !contains(wwwAuth, "resource_metadata=") {
+		t.Errorf("Expected WWW-Authenticate to contain 'resource_metadata=', got: %s", wwwAuth)
+	}
+	if !contains(wwwAuth, ".well-known/oauth-protected-resource") {
+		t.Errorf("Expected WWW-Authenticate to reference protected resource metadata, got: %s", wwwAuth)
+	}
+	if !contains(wwwAuth, "error=") {
+		t.Errorf("Expected WWW-Authenticate to contain 'error=', got: %s", wwwAuth)
 	}
 }
 

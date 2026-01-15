@@ -215,10 +215,13 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 
 	// Serve OAuth protected resource metadata (RFC 9728)
 	// This tells clients where to find the authorization server
+	// Format matches real mcp-kubernetes (mcp-oauth library)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+		resourceURL := fmt.Sprintf("http://localhost:%d", s.port)
 		metadata := map[string]interface{}{
-			"resource":              fmt.Sprintf("http://localhost:%d", s.port),
-			"authorization_servers": []string{s.GetIssuer()},
+			"resource":                 resourceURL,
+			"authorization_servers":    []string{s.GetIssuer()},
+			"bearer_methods_supported": []string{"header"},
 		}
 		if s.config.RequiredScope != "" {
 			metadata["scopes_supported"] = []string{s.config.RequiredScope}
@@ -246,11 +249,19 @@ type oauthProtectionMiddleware struct {
 func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check for Authorization header
 	auth := r.Header.Get("Authorization")
-	if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+	if auth == "" {
 		if m.debug {
-			fmt.Fprintf(os.Stderr, "🔒 No/invalid Authorization header, returning 401\n")
+			fmt.Fprintf(os.Stderr, "🔒 Missing Authorization header, returning 401\n")
 		}
-		m.sendAuthChallenge(w)
+		m.sendAuthChallenge(w, "invalid_token", "Missing Authorization header")
+		return
+	}
+
+	if !strings.HasPrefix(auth, "Bearer ") {
+		if m.debug {
+			fmt.Fprintf(os.Stderr, "🔒 Invalid Authorization header format, returning 401\n")
+		}
+		m.sendAuthChallenge(w, "invalid_token", "Authorization header must use Bearer scheme")
 		return
 	}
 
@@ -262,7 +273,7 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 			if m.debug {
 				fmt.Fprintf(os.Stderr, "🔒 Token validation failed, returning 401\n")
 			}
-			m.sendAuthChallenge(w)
+			m.sendAuthChallenge(w, "invalid_token", "The access token is invalid or expired")
 			return
 		}
 
@@ -288,11 +299,18 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 	m.handler.ServeHTTP(w, r)
 }
 
-func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter) {
+func (m *oauthProtectionMiddleware) sendAuthChallenge(w http.ResponseWriter, errorCode, errorDesc string) {
 	// Send WWW-Authenticate header per RFC 9728
-	authHeader := fmt.Sprintf(`Bearer realm="%s"`, m.issuer)
-	if m.requiredScope != "" {
-		authHeader += fmt.Sprintf(`, scope="%s"`, m.requiredScope)
+	// Format matches real mcp-kubernetes (mcp-oauth library):
+	// Bearer resource_metadata=".../.well-known/oauth-protected-resource", error="...", error_description="..."
+	resourceMetadataURL := fmt.Sprintf("%s/.well-known/oauth-protected-resource", m.issuer)
+	authHeader := fmt.Sprintf(`Bearer resource_metadata="%s"`, resourceMetadataURL)
+
+	if errorCode != "" {
+		authHeader += fmt.Sprintf(`, error="%s"`, errorCode)
+	}
+	if errorDesc != "" {
+		authHeader += fmt.Sprintf(`, error_description="%s"`, errorDesc)
 	}
 
 	w.Header().Set("WWW-Authenticate", authHeader)
