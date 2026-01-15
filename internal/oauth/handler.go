@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 )
 
 //go:embed templates/*.html
@@ -180,7 +181,7 @@ func (h *Handler) ServeCIMD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cimd := ClientMetadata{
+	cimd := pkgoauth.ClientMetadata{
 		ClientID:                h.client.GetCIMDURL(),
 		ClientName:              "Muster MCP Aggregator",
 		ClientURI:               "https://github.com/giantswarm/muster",

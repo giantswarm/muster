@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"muster/internal/config"
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestNewAdapter(t *testing.T) {
@@ -112,7 +113,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 	sessionID := "session-123"
 
 	// Store a token directly
-	testToken := &Token{
+	testToken := &pkgoauth.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
@@ -295,7 +296,7 @@ func TestTokenToAPIToken(t *testing.T) {
 	}
 
 	// Test with valid token
-	token := &Token{
+	token := &pkgoauth.Token{
 		AccessToken: "access-token",
 		TokenType:   "Bearer",
 		Scope:       "openid profile",

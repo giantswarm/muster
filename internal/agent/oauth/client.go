@@ -2,18 +2,16 @@ package oauth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 // ErrAuthRequired is returned when OAuth authentication is required.
@@ -26,18 +24,8 @@ const DefaultHTTPTimeout = 30 * time.Second
 // This allows the cache to refresh periodically in case server configuration changes.
 const MetadataCacheTTL = 1 * time.Hour
 
-// OAuthMetadata represents OAuth/OIDC server metadata.
-// This is discovered from .well-known endpoints.
-type OAuthMetadata struct {
-	Issuer                        string   `json:"issuer"`
-	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
-	TokenEndpoint                 string   `json:"token_endpoint"`
-	UserinfoEndpoint              string   `json:"userinfo_endpoint,omitempty"`
-	JwksURI                       string   `json:"jwks_uri,omitempty"`
-	ScopesSupported               []string `json:"scopes_supported,omitempty"`
-	ResponseTypesSupported        []string `json:"response_types_supported,omitempty"`
-	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported,omitempty"`
-}
+// OAuthMetadata is an alias for pkgoauth.Metadata for use in the agent.
+type OAuthMetadata = pkgoauth.Metadata
 
 // AuthFlow represents an in-progress OAuth authorization flow.
 type AuthFlow struct {
@@ -48,7 +36,7 @@ type AuthFlow struct {
 	IssuerURL string
 
 	// PKCE holds the PKCE challenge parameters.
-	PKCE *PKCEChallenge
+	PKCE *pkgoauth.PKCEChallenge
 
 	// State is the OAuth state parameter.
 	State string
@@ -78,6 +66,7 @@ type Client struct {
 	callbackPort  int
 	currentFlow   *AuthFlow
 	metadataCache map[string]*cachedMetadata
+	oauthClient   *pkgoauth.Client // Shared OAuth client for protocol operations
 }
 
 // ClientConfig configures the OAuth client.
@@ -112,11 +101,18 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		}
 	}
 
+	// Create shared OAuth client with the same HTTP client
+	oauthClient := pkgoauth.NewClient(
+		pkgoauth.WithHTTPClient(httpClient),
+		pkgoauth.WithMetadataCacheTTL(MetadataCacheTTL),
+	)
+
 	return &Client{
 		tokenStore:    tokenStore,
 		httpClient:    httpClient,
 		callbackPort:  callbackPort,
 		metadataCache: make(map[string]*cachedMetadata),
+		oauthClient:   oauthClient,
 	}, nil
 }
 
@@ -155,13 +151,13 @@ func (c *Client) StartAuthFlow(ctx context.Context, serverURL, issuerURL string)
 	}
 
 	// Generate PKCE challenge
-	pkce, err := GeneratePKCE()
+	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
 	// Generate state
-	state, err := GenerateState()
+	state, err := pkgoauth.GenerateState()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
@@ -310,160 +306,73 @@ func (c *Client) cancelCurrentFlow() {
 }
 
 // discoverOAuthMetadata fetches OAuth metadata from the issuer.
-// Tries RFC 8414 first, then falls back to OpenID Connect discovery.
-// Results are cached with a TTL to handle server configuration changes.
+// Uses the shared OAuth client which handles caching and fallback discovery.
 func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*OAuthMetadata, error) {
-	// Check cache first (with TTL validation)
-	if cached, ok := c.metadataCache[issuerURL]; ok {
-		if time.Since(cached.cachedAt) < MetadataCacheTTL {
-			return cached.metadata, nil
-		}
-		// Cache expired, will refresh below
-		slog.Debug("OAuth metadata cache expired, refreshing", "issuer", issuerURL)
-	}
-
-	// Remove trailing slash from issuer URL
-	issuerURL = strings.TrimSuffix(issuerURL, "/")
-
-	// Try RFC 8414 first
-	metadata, err := c.fetchMetadata(ctx, issuerURL+"/.well-known/oauth-authorization-server")
-	if err == nil {
-		c.metadataCache[issuerURL] = &cachedMetadata{
-			metadata: metadata,
-			cachedAt: time.Now(),
-		}
-		return metadata, nil
-	}
-
-	// Fall back to OpenID Connect discovery
-	metadata, err = c.fetchMetadata(ctx, issuerURL+"/.well-known/openid-configuration")
-	if err == nil {
-		c.metadataCache[issuerURL] = &cachedMetadata{
-			metadata: metadata,
-			cachedAt: time.Now(),
-		}
-		return metadata, nil
-	}
-
-	return nil, fmt.Errorf("failed to discover OAuth metadata for %s", issuerURL)
-}
-
-// fetchMetadata fetches OAuth metadata from a URL.
-func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*OAuthMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	// Use shared client for metadata discovery (handles caching internally)
+	sharedMeta, err := c.oauthClient.DiscoverMetadata(ctx, issuerURL)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("metadata request failed with status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var metadata OAuthMetadata
-	if err := json.Unmarshal(body, &metadata); err != nil {
-		return nil, err
-	}
-
-	return &metadata, nil
+	// Convert to internal type
+	return &OAuthMetadata{
+		Issuer:                        sharedMeta.Issuer,
+		AuthorizationEndpoint:         sharedMeta.AuthorizationEndpoint,
+		TokenEndpoint:                 sharedMeta.TokenEndpoint,
+		UserinfoEndpoint:              sharedMeta.UserinfoEndpoint,
+		JwksURI:                       sharedMeta.JwksURI,
+		ScopesSupported:               sharedMeta.ScopesSupported,
+		ResponseTypesSupported:        sharedMeta.ResponseTypesSupported,
+		CodeChallengeMethodsSupported: sharedMeta.CodeChallengeMethodsSupported,
+	}, nil
 }
 
 // DefaultAgentClientID is the CIMD URL for the Muster Agent.
 // This is hosted on GitHub Pages and serves as the client_id for OAuth.
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
-// buildAuthorizationURL constructs the OAuth authorization URL.
-func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *PKCEChallenge) (string, error) {
-	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
-	if err != nil {
-		return "", err
+// buildAuthorizationURL constructs the OAuth authorization URL using the standard library.
+func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge) (string, error) {
+	// Use golang.org/x/oauth2 Config for constructing the authorization URL
+	cfg := &oauth2.Config{
+		ClientID:    DefaultAgentClientID,
+		RedirectURL: redirectURI,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  metadata.AuthorizationEndpoint,
+			TokenURL: metadata.TokenEndpoint,
+		},
+		Scopes: []string{"openid", "profile", "email", "offline_access"},
 	}
 
-	params := url.Values{
-		"response_type":         {"code"},
-		"redirect_uri":          {redirectURI},
-		"state":                 {state},
-		"code_challenge":        {pkce.CodeChallenge},
-		"code_challenge_method": {pkce.CodeChallengeMethod},
-		"scope":                 {"openid profile email offline_access"},
-	}
-
-	// Use the CIMD URL as the client_id per MCP OAuth 2.1 spec
-	params.Set("client_id", DefaultAgentClientID)
-
-	authURL.RawQuery = params.Encode()
-	return authURL.String(), nil
+	// Use the standard library's PKCE support via S256ChallengeOption
+	return cfg.AuthCodeURL(
+		state,
+		oauth2.S256ChallengeOption(pkce.CodeVerifier),
+	), nil
 }
 
-// exchangeCode exchanges an authorization code for tokens.
+// exchangeCode exchanges an authorization code for tokens using the standard library.
+// This uses golang.org/x/oauth2.Config.Exchange() with PKCE VerifierOption.
 func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) (*oauth2.Token, error) {
-	data := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {flow.CallbackServer.GetRedirectURI()},
-		"code_verifier": {flow.PKCE.CodeVerifier},
-		"client_id":     {DefaultAgentClientID},
+	// Create OAuth2 config for token exchange
+	cfg := &oauth2.Config{
+		ClientID:    DefaultAgentClientID,
+		RedirectURL: flow.CallbackServer.GetRedirectURI(),
+		Endpoint: oauth2.Endpoint{
+			AuthURL:   flow.Metadata.AuthorizationEndpoint,
+			TokenURL:  flow.Metadata.TokenEndpoint,
+			AuthStyle: oauth2.AuthStyleInParams, // Use form params, not basic auth
+		},
+		Scopes: []string{"openid", "profile", "email", "offline_access"},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, flow.Metadata.TokenEndpoint, strings.NewReader(data.Encode()))
+	// Use a custom HTTP context to inject our configured client
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
+
+	// Exchange the code using the standard library with PKCE verifier
+	token, err := cfg.Exchange(ctx, code, oauth2.VerifierOption(flow.PKCE.CodeVerifier))
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		TokenType    string `json:"token_type"`
-		ExpiresIn    int    `json:"expires_in"`
-		RefreshToken string `json:"refresh_token"`
-		IDToken      string `json:"id_token"`
-		Scope        string `json:"scope"`
-	}
-
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return nil, err
-	}
-
-	token := &oauth2.Token{
-		AccessToken:  tokenResp.AccessToken,
-		TokenType:    tokenResp.TokenType,
-		RefreshToken: tokenResp.RefreshToken,
-	}
-
-	if tokenResp.ExpiresIn > 0 {
-		token.Expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-	}
-
-	// Store ID token in extra data
-	if tokenResp.IDToken != "" {
-		token = token.WithExtra(map[string]interface{}{
-			"id_token": tokenResp.IDToken,
-		})
+		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
 	return token, nil

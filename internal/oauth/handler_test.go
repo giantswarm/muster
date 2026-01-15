@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	pkgoauth "muster/pkg/oauth"
 )
 
 func TestHandler_HandleCallback_MissingParams(t *testing.T) {
@@ -282,7 +284,7 @@ func TestHandler_ServeCIMD(t *testing.T) {
 		}
 
 		// Parse and verify CIMD content
-		var cimd ClientMetadata
+		var cimd pkgoauth.ClientMetadata
 		if err := json.NewDecoder(rr.Body).Decode(&cimd); err != nil {
 			t.Fatalf("Failed to decode CIMD: %v", err)
 		}

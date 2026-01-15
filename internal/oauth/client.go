@@ -2,46 +2,18 @@ package oauth
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strings"
-	"sync"
 	"time"
 
-	"golang.org/x/sync/singleflight"
-
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 )
-
-// metadataCacheTTL is the time-to-live for cached OAuth metadata.
-// After this duration, metadata will be re-fetched from the issuer.
-// A 30-minute TTL balances caching efficiency with timely key rotation updates.
-//
-// SECURITY: OAuth metadata is fetched over HTTPS and cached without signature validation.
-// This is acceptable because TLS provides integrity and authenticity guarantees.
-// Production deployments MUST use HTTPS for issuer URLs to prevent MITM attacks
-// that could redirect token exchanges to malicious endpoints.
-const metadataCacheTTL = 30 * time.Minute
-
-// httpClientTimeout is the timeout for HTTP requests made by the OAuth client.
-// This applies to token exchange, token refresh, and metadata fetch operations.
-const httpClientTimeout = 30 * time.Second
 
 // softwareVersion is the version string reported in the Client ID Metadata Document.
 // This is informational only and helps identify the muster version during OAuth debugging.
 const softwareVersion = "1.0.0"
-
-// metadataCacheEntry holds cached OAuth metadata with its timestamp.
-type metadataCacheEntry struct {
-	metadata  *OAuthMetadata
-	fetchedAt time.Time
-}
 
 // Client handles OAuth 2.1 flows for remote MCP server authentication.
 type Client struct {
@@ -54,27 +26,19 @@ type Client struct {
 	tokenStore *TokenStore
 	stateStore *StateStore
 
-	// HTTP client for token exchange
-	httpClient *http.Client
-
-	// Metadata cache (issuer URL -> metadata entry) with mutex for thread safety
-	metadataMu    sync.RWMutex
-	metadataCache map[string]*metadataCacheEntry
-
-	// singleflight group to deduplicate concurrent metadata fetches
-	metadataGroup singleflight.Group
+	// Shared OAuth client for protocol operations
+	oauthClient *pkgoauth.Client
 }
 
 // NewClient creates a new OAuth client with the given configuration.
 func NewClient(clientID, publicURL, callbackPath string) *Client {
 	return &Client{
-		clientID:      clientID,
-		publicURL:     publicURL,
-		callbackPath:  callbackPath,
-		tokenStore:    NewTokenStore(),
-		stateStore:    NewStateStore(),
-		httpClient:    &http.Client{Timeout: httpClientTimeout},
-		metadataCache: make(map[string]*metadataCacheEntry),
+		clientID:     clientID,
+		publicURL:    publicURL,
+		callbackPath: callbackPath,
+		tokenStore:   NewTokenStore(),
+		stateStore:   NewStateStore(),
+		oauthClient:  pkgoauth.NewClient(),
 	}
 }
 
@@ -101,7 +65,7 @@ func (c *Client) GetCIMDURL() string {
 
 // GetToken retrieves a valid token for the given session and issuer.
 // Returns nil if no valid token exists.
-func (c *Client) GetToken(sessionID, issuer, scope string) *Token {
+func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 	// First try exact match
 	key := TokenKey{
 		SessionID: sessionID,
@@ -119,112 +83,76 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *Token {
 // GenerateAuthURL creates an OAuth authorization URL for user authentication.
 // Returns the URL. The code verifier is stored with the state for later retrieval.
 func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, serverName, issuer, scope string) (string, error) {
-	// Fetch OAuth metadata for the issuer
-	metadata, err := c.fetchMetadata(ctx, issuer)
+	// Fetch OAuth metadata for the issuer using shared client
+	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
-	// Generate PKCE code verifier and challenge
-	codeVerifier, codeChallenge, err := generatePKCE()
+	// Generate PKCE code verifier and challenge using shared implementation
+	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
 	// Generate state parameter (includes issuer and code verifier)
-	state, err := c.stateStore.GenerateState(sessionID, serverName, issuer, codeVerifier)
+	state, err := c.stateStore.GenerateState(sessionID, serverName, issuer, pkce.CodeVerifier)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// Build authorization URL
-	authURL, err := url.Parse(metadata.AuthorizationEndpoint)
+	// Build authorization URL using shared client
+	authURL, err := c.oauthClient.BuildAuthorizationURL(
+		metadata.AuthorizationEndpoint,
+		c.clientID,
+		c.GetRedirectURI(),
+		state,
+		scope,
+		pkce,
+	)
 	if err != nil {
-		return "", fmt.Errorf("invalid authorization endpoint: %w", err)
+		return "", fmt.Errorf("failed to build authorization URL: %w", err)
 	}
-
-	query := authURL.Query()
-	query.Set("response_type", "code")
-	query.Set("client_id", c.clientID)
-	query.Set("redirect_uri", c.GetRedirectURI())
-	query.Set("state", state)
-	query.Set("code_challenge", codeChallenge)
-	query.Set("code_challenge_method", "S256")
-
-	if scope != "" {
-		query.Set("scope", scope)
-	}
-
-	authURL.RawQuery = query.Encode()
 
 	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
 		logging.TruncateSessionID(sessionID), serverName, issuer)
 
-	return authURL.String(), nil
+	return authURL, nil
 }
 
 // ExchangeCode exchanges an authorization code for tokens.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer string) (*Token, error) {
-	// Fetch OAuth metadata
-	metadata, err := c.fetchMetadata(ctx, issuer)
+func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer string) (*pkgoauth.Token, error) {
+	// Fetch OAuth metadata using shared client
+	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
-	// Prepare token request
-	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
-	data.Set("code", code)
-	data.Set("redirect_uri", c.GetRedirectURI())
-	data.Set("client_id", c.clientID)
-	data.Set("code_verifier", codeVerifier)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", metadata.TokenEndpoint, strings.NewReader(data.Encode()))
+	// Exchange code using shared client
+	token, err := c.oauthClient.ExchangeCode(
+		ctx,
+		metadata.TokenEndpoint,
+		code,
+		c.GetRedirectURI(),
+		c.clientID,
+		codeVerifier,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create token request: %w", err)
+		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read token response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// Log full response for debugging but don't expose in error message
-		// Response body may contain sensitive information (error descriptions, hints)
-		logging.Debug("OAuth", "Token exchange failed: status=%d body=%s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("token exchange failed with status %d", resp.StatusCode)
-	}
-
-	var token Token
-	if err := json.Unmarshal(body, &token); err != nil {
-		return nil, fmt.Errorf("failed to parse token response: %w", err)
-	}
-
-	// Set issuer and calculate expiration
+	// Set issuer on the token
 	token.Issuer = issuer
-	if token.ExpiresIn > 0 && token.ExpiresAt.IsZero() {
-		token.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
-	}
 
 	logging.Debug("OAuth", "Successfully exchanged code for token (issuer=%s, expires_in=%d)",
 		issuer, token.ExpiresIn)
 
-	return &token, nil
+	return token, nil
 }
 
 // RefreshToken refreshes an expired token using its refresh token.
 // This operation is logged at INFO level for operational monitoring.
-func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error) {
+func (c *Client) RefreshToken(ctx context.Context, token *pkgoauth.Token) (*pkgoauth.Token, error) {
 	if token.RefreshToken == "" {
 		logging.Warn("OAuth", "Token refresh attempted without refresh token (issuer=%s)", token.Issuer)
 		return nil, fmt.Errorf("no refresh token available")
@@ -233,56 +161,20 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 	logging.Info("OAuth", "Starting token refresh (issuer=%s)", token.Issuer)
 	startTime := time.Now()
 
-	metadata, err := c.fetchMetadata(ctx, token.Issuer)
+	metadata, err := c.oauthClient.DiscoverMetadata(ctx, token.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
-	data := url.Values{}
-	data.Set("grant_type", "refresh_token")
-	data.Set("refresh_token", token.RefreshToken)
-	data.Set("client_id", c.clientID)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", metadata.TokenEndpoint, strings.NewReader(data.Encode()))
+	// Refresh token using shared client
+	newToken, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, token.RefreshToken, c.clientID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create refresh request: %w", err)
+		logging.Warn("OAuth", "Token refresh failed (issuer=%s, duration=%v)", token.Issuer, time.Since(startTime))
+		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("refresh request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read refresh response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// Log full response for debugging but don't expose in error message
-		// Response body may contain sensitive information (error descriptions, hints)
-		logging.Debug("OAuth", "Token refresh failed: status=%d body=%s", resp.StatusCode, string(body))
-		logging.Warn("OAuth", "Token refresh failed (issuer=%s, status=%d, duration=%v)",
-			token.Issuer, resp.StatusCode, time.Since(startTime))
-		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)
-	}
-
-	var newToken Token
-	if err := json.Unmarshal(body, &newToken); err != nil {
-		logging.Warn("OAuth", "Token refresh response parse failed (issuer=%s, duration=%v)",
-			token.Issuer, time.Since(startTime))
-		return nil, fmt.Errorf("failed to parse refresh response: %w", err)
-	}
-
-	// Preserve issuer and calculate expiration
+	// Set issuer on the new token
 	newToken.Issuer = token.Issuer
-	if newToken.ExpiresIn > 0 && newToken.ExpiresAt.IsZero() {
-		newToken.ExpiresAt = time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-	}
 
 	// Preserve refresh token if not returned
 	if newToken.RefreshToken == "" {
@@ -293,11 +185,11 @@ func (c *Client) RefreshToken(ctx context.Context, token *Token) (*Token, error)
 	logging.Info("OAuth", "Token refresh successful (issuer=%s, expires_in=%ds, duration=%v)",
 		token.Issuer, newToken.ExpiresIn, time.Since(startTime))
 
-	return &newToken, nil
+	return newToken, nil
 }
 
 // StoreToken stores a token in the token store.
-func (c *Client) StoreToken(sessionID string, token *Token) {
+func (c *Client) StoreToken(sessionID string, token *pkgoauth.Token) {
 	key := TokenKey{
 		SessionID: sessionID,
 		Issuer:    token.Issuer,
@@ -312,111 +204,30 @@ func (c *Client) Stop() {
 	c.stateStore.Stop()
 }
 
-// fetchMetadata fetches OAuth metadata from the issuer's well-known endpoint.
-// Uses singleflight to deduplicate concurrent requests for the same issuer.
-func (c *Client) fetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
-	// Check cache first with read lock
-	c.metadataMu.RLock()
-	if entry, ok := c.metadataCache[issuer]; ok {
-		// Check if cache entry is still valid (not expired)
-		if time.Since(entry.fetchedAt) < metadataCacheTTL {
-			c.metadataMu.RUnlock()
-			return entry.metadata, nil
-		}
-		// Cache expired, need to refresh
-		logging.Debug("OAuth", "Metadata cache expired for issuer=%s, refreshing", issuer)
+// GetClientMetadata returns the Client ID Metadata Document for this client.
+func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
+	return &pkgoauth.ClientMetadata{
+		ClientID:                c.clientID,
+		ClientName:              "Muster MCP Aggregator",
+		ClientURI:               "https://github.com/giantswarm/muster",
+		RedirectURIs:            []string{c.GetRedirectURI()},
+		GrantTypes:              []string{"authorization_code", "refresh_token"},
+		ResponseTypes:           []string{"code"},
+		TokenEndpointAuthMethod: "none",
+		Scope:                   "openid profile email",
+		SoftwareID:              "giantswarm-muster",
+		SoftwareVersion:         softwareVersion,
 	}
-	c.metadataMu.RUnlock()
-
-	// Use singleflight to deduplicate concurrent fetches for the same issuer
-	result, err, _ := c.metadataGroup.Do(issuer, func() (interface{}, error) {
-		// Double-check cache after acquiring the singleflight lock
-		c.metadataMu.RLock()
-		if entry, ok := c.metadataCache[issuer]; ok {
-			if time.Since(entry.fetchedAt) < metadataCacheTTL {
-				c.metadataMu.RUnlock()
-				return entry.metadata, nil
-			}
-		}
-		c.metadataMu.RUnlock()
-
-		return c.doFetchMetadata(ctx, issuer)
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return result.(*OAuthMetadata), nil
 }
 
-// doFetchMetadata performs the actual HTTP fetch for OAuth metadata.
-func (c *Client) doFetchMetadata(ctx context.Context, issuer string) (*OAuthMetadata, error) {
-	// Build well-known URL
-	wellKnownURL := strings.TrimSuffix(issuer, "/") + "/.well-known/oauth-authorization-server"
-
-	req, err := http.NewRequestWithContext(ctx, "GET", wellKnownURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		// Try OpenID Connect discovery endpoint as fallback
-		wellKnownURL = strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
-		req, err = http.NewRequestWithContext(ctx, "GET", wellKnownURL, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err = c.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to fetch OAuth metadata: status=%d", resp.StatusCode)
-		}
-	}
-
-	var metadata OAuthMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
-		return nil, fmt.Errorf("failed to parse OAuth metadata: %w", err)
-	}
-
-	// Cache the metadata with write lock (includes timestamp for TTL)
-	c.metadataMu.Lock()
-	c.metadataCache[issuer] = &metadataCacheEntry{
-		metadata:  &metadata,
-		fetchedAt: time.Now(),
-	}
-	c.metadataMu.Unlock()
-
-	logging.Debug("OAuth", "Fetched OAuth metadata for issuer=%s (auth=%s, token=%s)",
-		issuer, metadata.AuthorizationEndpoint, metadata.TokenEndpoint)
-
-	return &metadata, nil
+// DiscoverMetadata fetches OAuth metadata for an issuer.
+// This is exposed for external access to metadata discovery.
+func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*pkgoauth.Metadata, error) {
+	return c.oauthClient.DiscoverMetadata(ctx, issuer)
 }
 
-// generatePKCE generates a PKCE code verifier and challenge.
-func generatePKCE() (verifier, challenge string, err error) {
-	// Generate 32 random bytes for the verifier
-	verifierBytes := make([]byte, 32)
-	if _, err := rand.Read(verifierBytes); err != nil {
-		return "", "", err
-	}
-
-	verifier = base64.RawURLEncoding.EncodeToString(verifierBytes)
-
-	// Generate S256 challenge
-	hash := sha256.Sum256([]byte(verifier))
-	challenge = base64.RawURLEncoding.EncodeToString(hash[:])
-
-	return verifier, challenge, nil
+// SetHTTPClient sets a custom HTTP client for the OAuth client.
+// This is useful for testing.
+func (c *Client) SetHTTPClient(httpClient *http.Client) {
+	c.oauthClient = pkgoauth.NewClient(pkgoauth.WithHTTPClient(httpClient))
 }

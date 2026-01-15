@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 )
 
 // tokenExpiryMargin is the margin added when checking token expiration.
@@ -19,7 +20,7 @@ const tokenExpiryMargin = 30 * time.Second
 // defer after creating the store, or in a shutdown hook for long-lived stores.
 type TokenStore struct {
 	mu     sync.RWMutex
-	tokens map[TokenKey]*Token
+	tokens map[TokenKey]*pkgoauth.Token
 
 	// Cleanup configuration
 	cleanupInterval time.Duration
@@ -30,7 +31,7 @@ type TokenStore struct {
 // It starts a background goroutine for periodic cleanup of expired tokens.
 func NewTokenStore() *TokenStore {
 	ts := &TokenStore{
-		tokens:          make(map[TokenKey]*Token),
+		tokens:          make(map[TokenKey]*pkgoauth.Token),
 		cleanupInterval: 5 * time.Minute,
 		stopCleanup:     make(chan struct{}),
 	}
@@ -42,14 +43,12 @@ func NewTokenStore() *TokenStore {
 }
 
 // Store saves a token in the store, indexed by the given key.
-func (ts *TokenStore) Store(key TokenKey, token *Token) {
+func (ts *TokenStore) Store(key TokenKey, token *pkgoauth.Token) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	// Calculate expiration time if not set
-	if token.ExpiresAt.IsZero() && token.ExpiresIn > 0 {
-		token.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
-	}
+	token.SetExpiresAtFromExpiresIn()
 
 	ts.tokens[key] = token
 	logging.Debug("OAuth", "Stored token for session=%s issuer=%s scope=%s (expires: %v)",
@@ -58,7 +57,7 @@ func (ts *TokenStore) Store(key TokenKey, token *Token) {
 
 // Get retrieves a token from the store by key.
 // Returns nil if the token doesn't exist or has expired.
-func (ts *TokenStore) Get(key TokenKey) *Token {
+func (ts *TokenStore) Get(key TokenKey) *pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
@@ -68,7 +67,7 @@ func (ts *TokenStore) Get(key TokenKey) *Token {
 	}
 
 	// Check if token is expired (with margin for clock skew)
-	if token.IsExpired(tokenExpiryMargin) {
+	if token.IsExpiredWithMargin(tokenExpiryMargin) {
 		logging.Debug("OAuth", "Token expired for session=%s issuer=%s", logging.TruncateSessionID(key.SessionID), key.Issuer)
 		return nil
 	}
@@ -78,13 +77,13 @@ func (ts *TokenStore) Get(key TokenKey) *Token {
 
 // GetByIssuer finds a token for the given session and issuer, regardless of scope.
 // This enables SSO when the exact scope doesn't match but the issuer does.
-func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *Token {
+func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	for key, token := range ts.tokens {
 		if key.SessionID == sessionID && key.Issuer == issuer {
-			if !token.IsExpired(tokenExpiryMargin) {
+			if !token.IsExpiredWithMargin(tokenExpiryMargin) {
 				return token
 			}
 		}
@@ -100,7 +99,7 @@ func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
 
 	for key, token := range ts.tokens {
 		if key.SessionID == sessionID && key.Issuer == issuer {
-			if !token.IsExpired(tokenExpiryMargin) {
+			if !token.IsExpiredWithMargin(tokenExpiryMargin) {
 				keyCopy := key
 				return &keyCopy
 			}
@@ -111,13 +110,13 @@ func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
 
 // GetAllForSession returns all valid tokens for a session.
 // This is useful for listing all servers a session is authenticated with.
-func (ts *TokenStore) GetAllForSession(sessionID string) map[TokenKey]*Token {
+func (ts *TokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
-	result := make(map[TokenKey]*Token)
+	result := make(map[TokenKey]*pkgoauth.Token)
 	for key, token := range ts.tokens {
-		if key.SessionID == sessionID && !token.IsExpired(tokenExpiryMargin) {
+		if key.SessionID == sessionID && !token.IsExpiredWithMargin(tokenExpiryMargin) {
 			result[key] = token
 		}
 	}
@@ -198,7 +197,7 @@ func (ts *TokenStore) cleanup() {
 
 	count := 0
 	for key, token := range ts.tokens {
-		if token.IsExpired(0) {
+		if token.IsExpiredWithMargin(0) {
 			delete(ts.tokens, key)
 			count++
 		}

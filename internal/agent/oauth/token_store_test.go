@@ -305,3 +305,211 @@ func TestStoredToken_ToOAuth2Token(t *testing.T) {
 		t.Errorf("Expected id_token %q, got %v", storedToken.IDToken, idToken)
 	}
 }
+
+func TestTokenStore_GetByIssuer(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	issuerURL := "https://dex.example.com"
+	serverURL1 := "https://muster1.example.com"
+	serverURL2 := "https://muster2.example.com"
+
+	// Initially should not have any tokens
+	if store.GetByIssuer(issuerURL) != nil {
+		t.Error("Expected no token for issuer initially")
+	}
+
+	// Store a token for server1 with the issuer
+	token1 := &oauth2.Token{
+		AccessToken: "token-for-server1",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL1, issuerURL, token1); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should find the token by issuer
+	found := store.GetByIssuer(issuerURL)
+	if found == nil {
+		t.Fatal("Expected to find token by issuer, got nil")
+	}
+	if found.AccessToken != token1.AccessToken {
+		t.Errorf("Expected access token %q, got %q", token1.AccessToken, found.AccessToken)
+	}
+	if found.IssuerURL != issuerURL {
+		t.Errorf("Expected issuer URL %q, got %q", issuerURL, found.IssuerURL)
+	}
+
+	// Store another token for server2 with the same issuer (SSO scenario)
+	token2 := &oauth2.Token{
+		AccessToken: "token-for-server2",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL2, issuerURL, token2); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// GetByIssuer should find one of the tokens (either is valid for SSO)
+	found = store.GetByIssuer(issuerURL)
+	if found == nil {
+		t.Fatal("Expected to find token by issuer after storing second token")
+	}
+
+	// The token should have the issuer we searched for
+	if found.IssuerURL != issuerURL {
+		t.Errorf("Expected issuer URL %q, got %q", issuerURL, found.IssuerURL)
+	}
+}
+
+func TestTokenStore_GetByIssuer_DifferentIssuers(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	issuer1 := "https://dex1.example.com"
+	issuer2 := "https://dex2.example.com"
+	serverURL := "https://muster.example.com"
+
+	// Store token with issuer1
+	token := &oauth2.Token{
+		AccessToken: "token-issuer1",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuer1, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should find for issuer1
+	if store.GetByIssuer(issuer1) == nil {
+		t.Error("Expected to find token for issuer1")
+	}
+
+	// Should NOT find for issuer2
+	if store.GetByIssuer(issuer2) != nil {
+		t.Error("Expected no token for issuer2")
+	}
+}
+
+func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	issuerURL := "https://dex.example.com"
+	serverURL := "https://muster.example.com"
+
+	// Store an expired token
+	expiredToken := &oauth2.Token{
+		AccessToken: "expired-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(-1 * time.Hour), // Expired
+	}
+	if err := store.StoreToken(serverURL, issuerURL, expiredToken); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should NOT return expired token
+	if store.GetByIssuer(issuerURL) != nil {
+		t.Error("Expected nil for expired token by issuer")
+	}
+}
+
+func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	issuerURL := "https://dex.example.com"
+	serverURL := "https://muster.example.com"
+
+	// Initially should not have valid token for issuer
+	if store.HasValidTokenForIssuer(issuerURL) {
+		t.Error("Expected no valid token for issuer initially")
+	}
+
+	// Store a valid token
+	token := &oauth2.Token{
+		AccessToken: "valid-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Now should have valid token for issuer
+	if !store.HasValidTokenForIssuer(issuerURL) {
+		t.Error("Expected valid token for issuer after storing")
+	}
+}
+
+func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   true, // Enable file persistence
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	issuerURL := "https://dex.example.com"
+	serverURL := "https://muster.example.com"
+
+	// Store a token with file mode enabled
+	token := &oauth2.Token{
+		AccessToken: "persistent-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Create a new store instance (simulates restart)
+	store2, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create second token store: %v", err)
+	}
+
+	// Should find the token by issuer from file
+	found := store2.GetByIssuer(issuerURL)
+	if found == nil {
+		t.Fatal("Expected to find token by issuer from file, got nil")
+	}
+	if found.AccessToken != token.AccessToken {
+		t.Errorf("Expected access token %q, got %q", token.AccessToken, found.AccessToken)
+	}
+}
