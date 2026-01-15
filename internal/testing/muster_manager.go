@@ -496,7 +496,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 
 	// Wait for all expected resources to be available
-	resourceTimeout := 5 * time.Second
+	// Use a longer timeout to handle high parallelism and complex OAuth setups
+	resourceTimeout := 15 * time.Second
 	resourceCtx, resourceCancel := context.WithTimeout(readyCtx, resourceTimeout)
 	defer resourceCancel()
 

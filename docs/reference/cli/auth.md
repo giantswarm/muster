@@ -30,7 +30,6 @@ muster auth login [OPTIONS]
   - If not provided, uses the configured aggregator endpoint
 - `--server` (string): Specific MCP server name to authenticate to
   - Authenticates to a remote MCP server managed by the aggregator
-  - Note: Not yet implemented
 - `--all`: Authenticate to aggregator and all pending MCP servers
   - Provides SSO-style authentication chain
 
@@ -42,6 +41,9 @@ muster auth login
 
 # Login to specific remote endpoint
 muster auth login --endpoint https://muster.example.com/mcp
+
+# Login to a specific MCP server through the aggregator
+muster auth login --server mcp-kubernetes
 
 # Login to aggregator and all MCP servers requiring auth
 muster auth login --all
@@ -66,8 +68,8 @@ muster auth logout [OPTIONS]
 **Options:**
 
 - `--endpoint` (string): Logout from specific endpoint
-- `--server` (string): Logout from specific MCP server (not yet implemented)
-- `--all`: Clear all stored tokens
+- `--all`: Clear all stored tokens (requires confirmation)
+- `--yes, -y`: Skip confirmation prompt when using `--all`
 
 **Examples:**
 
@@ -78,8 +80,11 @@ muster auth logout
 # Logout from specific endpoint
 muster auth logout --endpoint https://muster.example.com/mcp
 
-# Clear all stored tokens
+# Clear all stored tokens (with confirmation)
 muster auth logout --all
+
+# Clear all stored tokens (skip confirmation)
+muster auth logout --all --yes
 ```
 
 ### muster auth status
@@ -93,17 +98,21 @@ muster auth status [OPTIONS]
 **Options:**
 
 - `--endpoint` (string): Show status for specific endpoint
-- `--server` (string): Show status for specific MCP server (not yet implemented)
+- `--server` (string): Show status for specific MCP server
 
 **Output:**
 
 ```
-┌────────────────────────────────────┬───────────────┬──────────┬────────────────────┐
-│ Endpoint                           │ Status        │ Expires  │ Issuer             │
-├────────────────────────────────────┼───────────────┼──────────┼────────────────────┤
-│ https://muster.example.com/mcp     │ Authenticated │ 23 hours │ https://dex.exam.. │
-│ https://other.example.com/mcp      │ Not authenticated │      │                    │
-└────────────────────────────────────┴───────────────┴──────────┴────────────────────┘
+Muster Aggregator
+  Endpoint:  https://muster.example.com/mcp
+  Status:    Authenticated
+  Expires:   in 23 hours
+  Issuer:    https://dex.example.com
+
+MCP Servers
+  (1 pending authentication)
+  mcp-kubernetes      Connected
+  mcp-github          Not authenticated   Run: muster auth login --server mcp-github
 ```
 
 **Examples:**
@@ -114,6 +123,9 @@ muster auth status
 
 # Show status for specific endpoint
 muster auth status --endpoint https://muster.example.com/mcp
+
+# Show status for specific MCP server
+muster auth status --server mcp-kubernetes
 ```
 
 ### muster auth refresh
@@ -138,12 +150,43 @@ muster auth refresh
 muster auth refresh --endpoint https://muster.example.com/mcp
 ```
 
+### muster auth whoami
+
+Show the currently authenticated identity and token information.
+
+```bash
+muster auth whoami [OPTIONS]
+```
+
+**Options:**
+
+- `--endpoint` (string): Show identity for specific endpoint
+
+**Output:**
+
+```
+Endpoint:  https://muster.example.com/mcp
+Issuer:    https://dex.example.com
+Expires:   in 23 hours
+```
+
+**Examples:**
+
+```bash
+# Show identity for configured aggregator
+muster auth whoami
+
+# Show identity for specific endpoint
+muster auth whoami --endpoint https://muster.example.com/mcp
+```
+
 ## Common Options
 
 These options are available on all auth subcommands:
 
 - `--config-path` (string): Configuration directory
   - Default: `~/.config/muster`
+- `--quiet, -q`: Suppress non-essential output
 
 ## Token Storage
 
@@ -229,7 +272,7 @@ muster auth login --endpoint https://staging.example.com/mcp
 # Check status of all
 muster auth status
 
-# Logout from all
+# Logout from all (with confirmation)
 muster auth logout --all
 ```
 
@@ -244,15 +287,25 @@ muster auth logout --endpoint https://muster.example.com/mcp
 muster auth login --endpoint https://muster.example.com/mcp
 ```
 
+### Scripting with Quiet Mode
+
+```bash
+# Use quiet mode for scripts
+muster auth login --endpoint https://muster.example.com/mcp --quiet
+if [ $? -eq 0 ]; then
+  muster list service --endpoint https://muster.example.com/mcp --quiet
+fi
+```
+
 ## Troubleshooting
 
 ### Browser Doesn't Open
 
-If the browser doesn't open automatically:
+If the browser doesn't open automatically, you'll see:
 
 ```
-Opening browser for authentication...
-If the browser doesn't open, visit:
+Opening browser for authentication... failed
+Please open this URL in your browser:
   https://dex.example.com/auth?...
 ```
 
@@ -260,17 +313,33 @@ Copy and paste the URL manually into your browser.
 
 ### Callback Port in Use
 
-If port 3000 is already in use, the callback server cannot start. Free the port or configure a different callback port.
+If port 3000 is already in use:
+
+```
+Authentication failed: callback port 3000 is already in use. Please free port 3000 and try again
+```
+
+Free the port by stopping any service using it:
+
+```bash
+# Find what's using port 3000
+lsof -i :3000
+
+# Kill the process if needed
+kill <PID>
+```
 
 ### Token Expired
 
-Tokens typically expire after 24 hours. If you see authentication errors:
+Tokens typically expire after 24 hours. The status command shows expiry:
+
+```
+Expires:   expired 2 hours ago
+```
+
+Re-authenticate:
 
 ```bash
-# Refresh the token
-muster auth refresh --endpoint https://muster.example.com/mcp
-
-# Or re-authenticate
 muster auth login --endpoint https://muster.example.com/mcp
 ```
 

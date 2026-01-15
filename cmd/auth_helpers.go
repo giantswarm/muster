@@ -13,6 +13,7 @@ import (
 	"muster/internal/config"
 	pkgoauth "muster/pkg/oauth"
 
+	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -132,13 +133,21 @@ func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregat
 		return fmt.Errorf("auth tool did not return an auth URL")
 	}
 
-	// Open browser for authentication
-	fmt.Printf("Opening browser for authentication...\n")
-	fmt.Printf("If the browser doesn't open, visit:\n  %s\n\n", authURL)
+	// Try to open browser first, only show URL if it fails
+	if !authQuiet {
+		fmt.Print("Opening browser for authentication...")
+	}
 
-	if err := openBrowserForAuth(authURL); err != nil {
-		fmt.Printf("Failed to open browser: %v\n", err)
-		fmt.Printf("Please open the URL manually: %s\n", authURL)
+	err = openBrowserForAuth(authURL)
+	if err != nil {
+		if !authQuiet {
+			fmt.Println(" failed")
+			fmt.Printf("Please open this URL in your browser:\n  %s\n\n", authURL)
+		}
+	} else {
+		if !authQuiet {
+			fmt.Println(" done")
+		}
 	}
 
 	return nil
@@ -182,6 +191,9 @@ func openBrowserForAuth(url string) error {
 
 // formatDuration formats a duration in a human-readable way.
 func formatDuration(d time.Duration) string {
+	if d < 0 {
+		return "expired"
+	}
 	if d < time.Minute {
 		return "< 1 minute"
 	}
@@ -204,6 +216,17 @@ func formatDuration(d time.Duration) string {
 		return "1 day"
 	}
 	return fmt.Sprintf("%d days", days)
+}
+
+// formatExpiryWithDirection formats a time as "in X" or "expired X ago".
+func formatExpiryWithDirection(expiresAt time.Time) string {
+	remaining := time.Until(expiresAt)
+	if remaining > 0 {
+		return "in " + formatDuration(remaining)
+	}
+	// Token is expired
+	expiredAgo := -remaining
+	return text.FgYellow.Sprintf("expired %s ago", formatDuration(expiredAgo))
 }
 
 // truncateURL truncates a URL to a maximum length while keeping the hostname visible.

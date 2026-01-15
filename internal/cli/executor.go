@@ -190,8 +190,17 @@ func (e *ToolExecutor) Connect(ctx context.Context) error {
 func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 	authHandler := api.GetAuthHandler()
 	if authHandler == nil {
-		// No auth handler registered - skip authentication setup
-		return nil
+		// No auth handler registered - create and register one
+		adapter, err := NewAuthAdapter()
+		if err != nil {
+			// Failed to create adapter - skip auth setup
+			return nil
+		}
+		adapter.Register()
+		authHandler = api.GetAuthHandler()
+		if authHandler == nil {
+			return nil
+		}
 	}
 
 	// Check if we have a valid token

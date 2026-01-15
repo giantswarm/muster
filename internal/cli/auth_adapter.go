@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"muster/internal/agent/oauth"
@@ -161,15 +162,24 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	// Start auth flow
 	authURL, err := mgr.StartAuthFlow(ctx)
 	if err != nil {
+		// Check for port-in-use errors and provide helpful guidance
+		if isPortInUseError(err) {
+			return &AuthFailedError{
+				Endpoint: endpoint,
+				Reason:   fmt.Errorf("callback port 3000 is already in use. Please free port 3000 and try again"),
+			}
+		}
 		return &AuthFailedError{Endpoint: endpoint, Reason: err}
 	}
 
-	// Open browser
-	fmt.Printf("Opening browser for authentication...\n")
-	fmt.Printf("If the browser doesn't open, visit:\n  %s\n\n", authURL)
+	// Try to open browser, only show URL if it fails
+	fmt.Print("Opening browser for authentication...")
 
 	if err := oauth.OpenBrowser(authURL); err != nil {
-		fmt.Printf("Failed to open browser: %v\n", err)
+		fmt.Println(" failed")
+		fmt.Printf("Please open this URL in your browser:\n  %s\n\n", authURL)
+	} else {
+		fmt.Println(" done")
 	}
 
 	fmt.Println("Waiting for authentication to complete...")
@@ -271,6 +281,11 @@ func (a *AuthAdapter) GetStatusForEndpoint(endpoint string) *api.AuthStatus {
 			Error:    err.Error(),
 		}
 	}
+
+	// Check connection to properly initialize the state and load stored tokens
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = mgr.CheckConnection(ctx, endpoint)
 
 	status := a.getStatusFromManager(endpoint, mgr)
 	return &status
@@ -403,6 +418,17 @@ func stripSuffix(s, suffix string) string {
 		return s[:len(s)-len(suffix)]
 	}
 	return s
+}
+
+// isPortInUseError checks if an error is related to a port being in use.
+func isPortInUseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "address already in use") ||
+		strings.Contains(errStr, "bind: address already in use") ||
+		strings.Contains(errStr, "port 3000")
 }
 
 // CheckServerWithAuth verifies server connectivity and authentication status.

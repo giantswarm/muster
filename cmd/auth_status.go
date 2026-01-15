@@ -12,6 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Status-specific flags
+var (
+	statusServer string
+)
+
 // authStatusCmd represents the auth status command
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
@@ -22,10 +27,15 @@ This command displays which endpoints you are authenticated to, when
 tokens expire, and which endpoints require authentication.
 
 Examples:
-  muster auth status                     # Show all auth status
-  muster auth status --endpoint <url>    # Show status for specific endpoint
-  muster auth status --server <name>     # Show status for specific MCP server`,
+  muster auth status                   # Show all auth status
+  muster auth status --endpoint <url>  # Show status for specific endpoint
+  muster auth status --server <name>   # Show status for specific MCP server`,
 	RunE: runAuthStatus,
+}
+
+func init() {
+	// Status-specific flags
+	authStatusCmd.Flags().StringVar(&statusServer, "server", "", "Show status for specific MCP server")
 }
 
 func runAuthStatus(cmd *cobra.Command, args []string) error {
@@ -43,27 +53,31 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	// If specific endpoint is requested
 	if authEndpoint != "" {
 		status := handler.GetStatusForEndpoint(authEndpoint)
-		return printAuthStatus(status)
+		return printAuthStatus(status, !authQuiet)
 	}
 
 	// If specific server is requested, show that server's status
-	if authServer != "" {
-		return showMCPServerStatus(cmd.Context(), handler, aggregatorEndpoint, authServer)
+	if statusServer != "" {
+		return showMCPServerStatus(cmd.Context(), handler, aggregatorEndpoint, statusServer)
 	}
 
 	// Show aggregator status
-	fmt.Println("Muster Aggregator")
+	if !authQuiet {
+		fmt.Println("Muster Aggregator")
+	}
 	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
 	if status != nil {
-		fmt.Printf("  Endpoint:  %s\n", aggregatorEndpoint)
+		if !authQuiet {
+			fmt.Printf("  Endpoint:  %s\n", aggregatorEndpoint)
+		}
 		if status.Authenticated {
-			fmt.Printf("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-			if !status.ExpiresAt.IsZero() {
-				remaining := time.Until(status.ExpiresAt)
-				if remaining > 0 {
-					fmt.Printf("  Expires:   in %s\n", formatDuration(remaining))
-				} else {
-					fmt.Printf("  Expires:   %s\n", text.FgYellow.Sprint("Expired"))
+			if !authQuiet {
+				fmt.Printf("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+				if !status.ExpiresAt.IsZero() {
+					fmt.Printf("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
+				}
+				if status.IssuerURL != "" {
+					fmt.Printf("  Issuer:    %s\n", status.IssuerURL)
 				}
 			}
 		} else {
@@ -72,11 +86,13 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 			authRequired, _ := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
 			cancel()
 
-			if authRequired {
-				fmt.Printf("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-				fmt.Printf("             Run: muster auth login\n")
-			} else {
-				fmt.Printf("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
+			if !authQuiet {
+				if authRequired {
+					fmt.Printf("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+					fmt.Printf("             Run: muster auth login\n")
+				} else {
+					fmt.Printf("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
+				}
 			}
 		}
 	}
@@ -88,8 +104,10 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 
 		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 		if err == nil && len(authStatus.Servers) > 0 {
-			fmt.Println("\nMCP Servers")
-			printMCPServerStatuses(authStatus.Servers)
+			if !authQuiet {
+				fmt.Println("\nMCP Servers")
+				printMCPServerStatuses(authStatus.Servers)
+			}
 		}
 	}
 
@@ -111,13 +129,15 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 	// Find the requested server
 	for _, srv := range authStatus.Servers {
 		if srv.Name == serverName {
-			fmt.Printf("\nMCP Server: %s\n", srv.Name)
-			fmt.Printf("  Status:   %s\n", formatMCPServerStatus(srv.Status))
-			if srv.Issuer != "" {
-				fmt.Printf("  Issuer:   %s\n", srv.Issuer)
-			}
-			if srv.AuthTool != "" && srv.Status == "auth_required" {
-				fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
+			if !authQuiet {
+				fmt.Printf("\nMCP Server: %s\n", srv.Name)
+				fmt.Printf("  Status:   %s\n", formatMCPServerStatus(srv.Status))
+				if srv.Issuer != "" {
+					fmt.Printf("  Issuer:   %s\n", srv.Issuer)
+				}
+				if srv.AuthTool != "" && srv.Status == "auth_required" {
+					fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
+				}
 			}
 			return nil
 		}
@@ -166,30 +186,29 @@ func formatMCPServerStatus(status string) string {
 	}
 }
 
-func printAuthStatus(status *api.AuthStatus) error {
+func printAuthStatus(status *api.AuthStatus, verbose bool) error {
 	if status == nil {
-		fmt.Println("No authentication information available.")
+		if verbose {
+			fmt.Println("No authentication information available.")
+		}
 		return nil
 	}
 
-	fmt.Printf("\nEndpoint:  %s\n", status.Endpoint)
-	if status.Authenticated {
-		fmt.Printf("Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-		if !status.ExpiresAt.IsZero() {
-			remaining := time.Until(status.ExpiresAt)
-			if remaining > 0 {
-				fmt.Printf("Expires:   in %s\n", formatDuration(remaining))
-			} else {
-				fmt.Printf("Expires:   %s\n", text.FgYellow.Sprint("Expired"))
+	if verbose {
+		fmt.Printf("\nEndpoint:  %s\n", status.Endpoint)
+		if status.Authenticated {
+			fmt.Printf("Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+			if !status.ExpiresAt.IsZero() {
+				fmt.Printf("Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
 			}
-		}
-		if status.IssuerURL != "" {
-			fmt.Printf("Issuer:    %s\n", status.IssuerURL)
-		}
-	} else {
-		fmt.Printf("Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-		if status.Error != "" {
-			fmt.Printf("Error:     %s\n", status.Error)
+			if status.IssuerURL != "" {
+				fmt.Printf("Issuer:    %s\n", status.IssuerURL)
+			}
+		} else {
+			fmt.Printf("Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+			if status.Error != "" {
+				fmt.Printf("Error:     %s\n", status.Error)
+			}
 		}
 	}
 

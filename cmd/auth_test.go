@@ -34,7 +34,7 @@ func TestAuthCommandStructure(t *testing.T) {
 			t.Error("expected auth to have subcommands")
 		}
 
-		expectedSubcommands := []string{"login", "logout", "status", "refresh"}
+		expectedSubcommands := []string{"login", "logout", "status", "refresh", "whoami"}
 		foundCommands := make(map[string]bool)
 		for _, cmd := range subcommands {
 			foundCommands[cmd.Name()] = true
@@ -69,6 +69,20 @@ func TestAuthLoginCommand(t *testing.T) {
 			t.Error("expected RunE to be set")
 		}
 	})
+
+	t.Run("login has --all flag", func(t *testing.T) {
+		flag := authLoginCmd.Flags().Lookup("all")
+		if flag == nil {
+			t.Error("expected --all flag on login command")
+		}
+	})
+
+	t.Run("login has --server flag", func(t *testing.T) {
+		flag := authLoginCmd.Flags().Lookup("server")
+		if flag == nil {
+			t.Error("expected --server flag on login command")
+		}
+	})
 }
 
 func TestAuthLogoutCommand(t *testing.T) {
@@ -86,6 +100,20 @@ func TestAuthLogoutCommand(t *testing.T) {
 			t.Error("expected Short description to be set")
 		}
 	})
+
+	t.Run("logout has --all flag", func(t *testing.T) {
+		flag := authLogoutCmd.Flags().Lookup("all")
+		if flag == nil {
+			t.Error("expected --all flag on logout command")
+		}
+	})
+
+	t.Run("logout has --yes flag", func(t *testing.T) {
+		flag := authLogoutCmd.Flags().Lookup("yes")
+		if flag == nil {
+			t.Error("expected --yes flag on logout command")
+		}
+	})
 }
 
 func TestAuthStatusCommand(t *testing.T) {
@@ -101,6 +129,13 @@ func TestAuthStatusCommand(t *testing.T) {
 		}
 		if authStatusCmd.Short == "" {
 			t.Error("expected Short description to be set")
+		}
+	})
+
+	t.Run("status has --server flag", func(t *testing.T) {
+		flag := authStatusCmd.Flags().Lookup("server")
+		if flag == nil {
+			t.Error("expected --server flag on status command")
 		}
 	})
 }
@@ -122,6 +157,29 @@ func TestAuthRefreshCommand(t *testing.T) {
 	})
 }
 
+func TestAuthWhoamiCommand(t *testing.T) {
+	t.Run("whoami command exists", func(t *testing.T) {
+		if authWhoamiCmd == nil {
+			t.Fatal("authWhoamiCmd should not be nil")
+		}
+	})
+
+	t.Run("whoami command properties", func(t *testing.T) {
+		if authWhoamiCmd.Use != "whoami" {
+			t.Errorf("expected Use 'whoami', got %q", authWhoamiCmd.Use)
+		}
+		if authWhoamiCmd.Short == "" {
+			t.Error("expected Short description to be set")
+		}
+	})
+
+	t.Run("whoami command has RunE", func(t *testing.T) {
+		if authWhoamiCmd.RunE == nil {
+			t.Error("expected RunE to be set")
+		}
+	})
+}
+
 func TestAuthPersistentFlags(t *testing.T) {
 	t.Run("endpoint flag exists", func(t *testing.T) {
 		flag := authCmd.PersistentFlags().Lookup("endpoint")
@@ -137,17 +195,10 @@ func TestAuthPersistentFlags(t *testing.T) {
 		}
 	})
 
-	t.Run("server flag exists", func(t *testing.T) {
-		flag := authCmd.PersistentFlags().Lookup("server")
+	t.Run("quiet flag exists", func(t *testing.T) {
+		flag := authCmd.PersistentFlags().Lookup("quiet")
 		if flag == nil {
-			t.Error("expected --server flag to exist")
-		}
-	})
-
-	t.Run("all flag exists", func(t *testing.T) {
-		flag := authCmd.PersistentFlags().Lookup("all")
-		if flag == nil {
-			t.Error("expected --all flag to exist")
+			t.Error("expected --quiet flag to exist")
 		}
 	})
 }
@@ -158,6 +209,11 @@ func TestFormatDuration(t *testing.T) {
 		duration time.Duration
 		expected string
 	}{
+		{
+			name:     "negative duration",
+			duration: -30 * time.Second,
+			expected: "expired",
+		},
 		{
 			name:     "less than a minute",
 			duration: 30 * time.Second,
@@ -200,6 +256,39 @@ func TestFormatDuration(t *testing.T) {
 			result := formatDuration(tt.duration)
 			if result != tt.expected {
 				t.Errorf("formatDuration(%v) = %q, want %q", tt.duration, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatExpiryWithDirection(t *testing.T) {
+	tests := []struct {
+		name        string
+		expiresAt   time.Time
+		shouldMatch string // substring that should be in the result
+	}{
+		{
+			name:        "future expiry shows in",
+			expiresAt:   time.Now().Add(2 * time.Hour),
+			shouldMatch: "in ",
+		},
+		{
+			name:        "past expiry shows expired",
+			expiresAt:   time.Now().Add(-2 * time.Hour),
+			shouldMatch: "expired",
+		},
+		{
+			name:        "past expiry shows ago",
+			expiresAt:   time.Now().Add(-2 * time.Hour),
+			shouldMatch: "ago",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatExpiryWithDirection(tt.expiresAt)
+			if !strings.Contains(result, tt.shouldMatch) {
+				t.Errorf("formatExpiryWithDirection() = %q, want to contain %q", result, tt.shouldMatch)
 			}
 		})
 	}
