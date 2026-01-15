@@ -56,6 +56,67 @@ func GetAggregatorEndpointWithoutConfig(t *testing.T) {
 	assert.Contains(t, endpoint, "/mcp")
 }
 
+func TestIsRemoteEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		expected bool
+	}{
+		{
+			name:     "localhost is not remote",
+			endpoint: "http://localhost:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "LOCALHOST uppercase is not remote",
+			endpoint: "http://LOCALHOST:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "127.0.0.1 is not remote",
+			endpoint: "http://127.0.0.1:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "IPv6 loopback is not remote",
+			endpoint: "http://[::1]:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "external hostname is remote",
+			endpoint: "https://muster.example.com/mcp",
+			expected: true,
+		},
+		{
+			name:     "external IP is remote",
+			endpoint: "https://192.168.1.100/mcp",
+			expected: true,
+		},
+		{
+			name:     "domain with localhost in path is remote",
+			endpoint: "https://example.com/localhost/api",
+			expected: true, // proper URL parsing - localhost in path doesn't make it local
+		},
+		{
+			name:     "empty endpoint is remote",
+			endpoint: "",
+			expected: true, // safety: assume remote when we can't determine
+		},
+		{
+			name:     "invalid URL is remote",
+			endpoint: "not-a-valid-url",
+			expected: true, // safety: assume remote on parse failure
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsRemoteEndpoint(tt.endpoint)
+			assert.Equal(t, tt.expected, result, "IsRemoteEndpoint(%q)", tt.endpoint)
+		})
+	}
+}
+
 func TestCheckServerRunning_WithMockServer(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"muster/internal/config"
@@ -100,4 +102,24 @@ func CheckServerRunning(endpoint string) error {
 	}
 
 	return nil
+}
+
+// IsRemoteEndpoint checks if an endpoint URL points to a remote server.
+// It properly parses the URL and checks only the hostname, avoiding false positives
+// when "localhost" appears in the path or query string.
+//
+// Args:
+//   - endpoint: The endpoint URL to check
+//
+// Returns:
+//   - bool: true if the endpoint is remote (not localhost), false otherwise
+func IsRemoteEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		// If we can't parse the URL, assume it's remote for safety
+		return true
+	}
+
+	host := strings.ToLower(u.Hostname())
+	return host != "localhost" && host != "127.0.0.1" && host != "::1"
 }

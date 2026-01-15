@@ -3,13 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"muster/internal/api"
 	pkgoauth "muster/pkg/oauth"
 
-	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
 )
@@ -195,45 +193,5 @@ func printAuthStatus(status *api.AuthStatus) error {
 		}
 	}
 
-	return nil
-}
-
-func printAuthStatuses(statuses []api.AuthStatus) error {
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleLight)
-	t.AppendHeader(table.Row{"Endpoint", "Status", "Expires", "Issuer"})
-
-	for _, status := range statuses {
-		var statusStr, expiresStr, issuerStr string
-
-		if status.Authenticated {
-			statusStr = text.FgGreen.Sprint("Authenticated")
-			if !status.ExpiresAt.IsZero() {
-				remaining := time.Until(status.ExpiresAt)
-				if remaining > 0 {
-					expiresStr = formatDuration(remaining)
-				} else {
-					expiresStr = text.FgYellow.Sprint("Expired")
-				}
-			}
-			issuerStr = truncateURL(status.IssuerURL, 40)
-		} else {
-			if status.Error != "" {
-				statusStr = text.FgYellow.Sprint("Not authenticated")
-			} else {
-				statusStr = text.FgHiBlack.Sprint("N/A")
-			}
-		}
-
-		t.AppendRow(table.Row{
-			truncateURL(status.Endpoint, 50),
-			statusStr,
-			expiresStr,
-			issuerStr,
-		})
-	}
-
-	t.Render()
 	return nil
 }

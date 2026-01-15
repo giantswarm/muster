@@ -180,7 +180,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 // This provides a unified authentication experience for all agent modes (REPL, normal).
 func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string) error {
 	// Check if this is a remote endpoint
-	if !isRemoteAgentEndpoint(endpoint) {
+	if !cli.IsRemoteEndpoint(endpoint) {
 		// Local endpoint - no auth needed
 		return nil
 	}
@@ -242,17 +242,6 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 	logger.Success("Authentication successful")
 
 	return nil
-}
-
-// isRemoteAgentEndpoint checks if an endpoint URL points to a remote server.
-func isRemoteAgentEndpoint(endpoint string) bool {
-	lowerEndpoint := strings.ToLower(endpoint)
-	if strings.Contains(lowerEndpoint, "localhost") ||
-		strings.Contains(lowerEndpoint, "127.0.0.1") ||
-		strings.Contains(lowerEndpoint, "[::1]") {
-		return false
-	}
-	return true
 }
 
 // runMCPServerWithOAuth runs the MCP server with OAuth authentication support.

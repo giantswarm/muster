@@ -42,19 +42,19 @@ func getEndpointFromConfig() (string, error) {
 	return cli.GetAggregatorEndpoint(&cfg), nil
 }
 
-// getAuthStatusFromAggregator queries the auth://status resource from the aggregator.
-func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) (*pkgoauth.AuthStatusResponse, error) {
-	// Create a client to connect to the aggregator
+// createConnectedClient creates and connects an authenticated client to the aggregator.
+// The caller is responsible for calling client.Close() when done.
+func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
 	logger := agent.NewDevNullLogger()
 	transport := agent.TransportStreamableHTTP
-	if strings.HasSuffix(aggregatorEndpoint, "/sse") {
+	if strings.HasSuffix(endpoint, "/sse") {
 		transport = agent.TransportSSE
 	}
 
-	client := agent.NewClient(aggregatorEndpoint, logger, transport)
+	client := agent.NewClient(endpoint, logger, transport)
 
 	// Set auth token if available
-	token, err := handler.GetBearerToken(aggregatorEndpoint)
+	token, err := handler.GetBearerToken(endpoint)
 	if err == nil && token != "" {
 		client.SetAuthorizationHeader(token)
 	}
@@ -63,12 +63,23 @@ func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, a
 	if err := client.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
 	}
-	defer client.Close()
 
 	// Initialize client (required for resource operations)
 	if err := client.InitializeAndLoadData(ctx); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
+
+	return client, nil
+}
+
+// getAuthStatusFromAggregator queries the auth://status resource from the aggregator.
+func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) (*pkgoauth.AuthStatusResponse, error) {
+	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
 
 	// Get the auth://status resource
 	result, err := client.GetResource(ctx, "auth://status")
@@ -103,31 +114,11 @@ func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, a
 
 // triggerMCPServerAuth triggers the OAuth flow for an MCP server by calling its auth tool.
 func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string) error {
-	// Create a client to connect to the aggregator
-	logger := agent.NewDevNullLogger()
-	transport := agent.TransportStreamableHTTP
-	if strings.HasSuffix(aggregatorEndpoint, "/sse") {
-		transport = agent.TransportSSE
-	}
-
-	client := agent.NewClient(aggregatorEndpoint, logger, transport)
-
-	// Set auth token if available
-	token, err := handler.GetBearerToken(aggregatorEndpoint)
-	if err == nil && token != "" {
-		client.SetAuthorizationHeader(token)
-	}
-
-	// Connect to aggregator
-	if err := client.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to aggregator: %w", err)
+	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		return err
 	}
 	defer client.Close()
-
-	// Initialize client
-	if err := client.InitializeAndLoadData(ctx); err != nil {
-		return fmt.Errorf("failed to initialize client: %w", err)
-	}
 
 	// Call the auth tool
 	result, err := client.CallTool(ctx, authTool, nil)
@@ -195,7 +186,11 @@ func formatDuration(d time.Duration) string {
 		return "< 1 minute"
 	}
 	if d < time.Hour {
-		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+		minutes := int(d.Minutes())
+		if minutes == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", minutes)
 	}
 	if d < 24*time.Hour {
 		hours := int(d.Hours())

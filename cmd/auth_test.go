@@ -166,7 +166,7 @@ func TestFormatDuration(t *testing.T) {
 		{
 			name:     "exactly one minute",
 			duration: 1 * time.Minute,
-			expected: "1 minutes",
+			expected: "1 minute",
 		},
 		{
 			name:     "multiple minutes",

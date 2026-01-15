@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -11,13 +12,13 @@ func TestAuthRequiredError(t *testing.T) {
 		err := &AuthRequiredError{Endpoint: "https://muster.example.com/mcp"}
 		msg := err.Error()
 
-		if !contains(msg, "https://muster.example.com/mcp") {
+		if !strings.Contains(msg, "https://muster.example.com/mcp") {
 			t.Error("expected error message to contain endpoint")
 		}
-		if !contains(msg, "muster auth login") {
+		if !strings.Contains(msg, "muster auth login") {
 			t.Error("expected error message to contain login command")
 		}
-		if !contains(msg, "muster auth status") {
+		if !strings.Contains(msg, "muster auth status") {
 			t.Error("expected error message to contain status command")
 		}
 	})
@@ -55,16 +56,16 @@ func TestAuthExpiredError(t *testing.T) {
 		err := &AuthExpiredError{Endpoint: "https://muster.example.com/mcp"}
 		msg := err.Error()
 
-		if !contains(msg, "https://muster.example.com/mcp") {
+		if !strings.Contains(msg, "https://muster.example.com/mcp") {
 			t.Error("expected error message to contain endpoint")
 		}
-		if !contains(msg, "muster auth login") {
+		if !strings.Contains(msg, "muster auth login") {
 			t.Error("expected error message to contain login command")
 		}
-		if !contains(msg, "muster auth refresh") {
+		if !strings.Contains(msg, "muster auth refresh") {
 			t.Error("expected error message to contain refresh command")
 		}
-		if !contains(msg, "expired") {
+		if !strings.Contains(msg, "expired") {
 			t.Error("expected error message to mention 'expired'")
 		}
 	})
@@ -106,13 +107,13 @@ func TestAuthFailedError(t *testing.T) {
 		}
 		msg := err.Error()
 
-		if !contains(msg, "https://muster.example.com/mcp") {
+		if !strings.Contains(msg, "https://muster.example.com/mcp") {
 			t.Error("expected error message to contain endpoint")
 		}
-		if !contains(msg, "connection timeout") {
+		if !strings.Contains(msg, "connection timeout") {
 			t.Error("expected error message to contain reason")
 		}
-		if !contains(msg, "muster auth login") {
+		if !strings.Contains(msg, "muster auth login") {
 			t.Error("expected error message to contain login command")
 		}
 	})
@@ -226,18 +227,4 @@ func TestServerStatus(t *testing.T) {
 			t.Errorf("expected error %v, got %v", expectedErr, status.Error)
 		}
 	})
-}
-
-// contains checks if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

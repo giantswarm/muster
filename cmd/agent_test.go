@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 
+	"muster/internal/cli"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -258,7 +260,7 @@ func TestExtractServerNameFromAuthTool(t *testing.T) {
 	}
 }
 
-func TestIsRemoteAgentEndpoint(t *testing.T) {
+func TestIsRemoteEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
 		endpoint string
@@ -295,9 +297,9 @@ func TestIsRemoteAgentEndpoint(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "domain with localhost in path is remote",
+			name:     "domain with localhost in path is remote (proper URL parsing)",
 			endpoint: "https://example.com/localhost/api",
-			expected: false, // Contains localhost
+			expected: true, // This IS remote - localhost in path should not affect result
 		},
 		{
 			name:     "empty endpoint is remote",
@@ -308,9 +310,9 @@ func TestIsRemoteAgentEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isRemoteAgentEndpoint(tt.endpoint)
+			result := cli.IsRemoteEndpoint(tt.endpoint)
 			if result != tt.expected {
-				t.Errorf("isRemoteAgentEndpoint(%q) = %v, want %v", tt.endpoint, result, tt.expected)
+				t.Errorf("cli.IsRemoteEndpoint(%q) = %v, want %v", tt.endpoint, result, tt.expected)
 			}
 		})
 	}

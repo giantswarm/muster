@@ -85,7 +85,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	// Determine endpoint: explicit option takes precedence over config
 	if options.Endpoint != "" {
 		endpoint = options.Endpoint
-		isRemote = isRemoteEndpoint(endpoint)
+		isRemote = IsRemoteEndpoint(endpoint)
 		// Infer transport from URL path
 		if strings.HasSuffix(endpoint, "/sse") {
 			transport = agent.TransportSSE
@@ -111,7 +111,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		}
 
 		endpoint = GetAggregatorEndpoint(&cfg)
-		isRemote = isRemoteEndpoint(endpoint)
+		isRemote = IsRemoteEndpoint(endpoint)
 	}
 
 	// Check if server is running first (for local servers only)
@@ -137,18 +137,6 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		endpoint:  endpoint,
 		isRemote:  isRemote,
 	}, nil
-}
-
-// isRemoteEndpoint checks if an endpoint URL points to a remote server.
-func isRemoteEndpoint(endpoint string) bool {
-	// Local endpoints are localhost, 127.0.0.1, or [::1]
-	lowerEndpoint := strings.ToLower(endpoint)
-	if strings.Contains(lowerEndpoint, "localhost") ||
-		strings.Contains(lowerEndpoint, "127.0.0.1") ||
-		strings.Contains(lowerEndpoint, "[::1]") {
-		return false
-	}
-	return true
 }
 
 // GetClient returns the underlying agent client for advanced use cases like streaming.
