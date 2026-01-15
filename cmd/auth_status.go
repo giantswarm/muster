@@ -1,0 +1,239 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"muster/internal/api"
+	pkgoauth "muster/pkg/oauth"
+
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/spf13/cobra"
+)
+
+// authStatusCmd represents the auth status command
+var authStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show authentication status",
+	Long: `Show the current authentication status for all known endpoints.
+
+This command displays which endpoints you are authenticated to, when
+tokens expire, and which endpoints require authentication.
+
+Examples:
+  muster auth status                     # Show all auth status
+  muster auth status --endpoint <url>    # Show status for specific endpoint
+  muster auth status --server <name>     # Show status for specific MCP server`,
+	RunE: runAuthStatus,
+}
+
+func runAuthStatus(cmd *cobra.Command, args []string) error {
+	handler, err := ensureAuthHandler()
+	if err != nil {
+		return err
+	}
+
+	// Get the aggregator endpoint
+	aggregatorEndpoint, err := getEndpointFromConfig()
+	if err != nil {
+		return err
+	}
+
+	// If specific endpoint is requested
+	if authEndpoint != "" {
+		status := handler.GetStatusForEndpoint(authEndpoint)
+		return printAuthStatus(status)
+	}
+
+	// If specific server is requested, show that server's status
+	if authServer != "" {
+		return showMCPServerStatus(cmd.Context(), handler, aggregatorEndpoint, authServer)
+	}
+
+	// Show aggregator status
+	fmt.Println("Muster Aggregator")
+	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
+	if status != nil {
+		fmt.Printf("  Endpoint:  %s\n", aggregatorEndpoint)
+		if status.Authenticated {
+			fmt.Printf("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+			if !status.ExpiresAt.IsZero() {
+				remaining := time.Until(status.ExpiresAt)
+				if remaining > 0 {
+					fmt.Printf("  Expires:   in %s\n", formatDuration(remaining))
+				} else {
+					fmt.Printf("  Expires:   %s\n", text.FgYellow.Sprint("Expired"))
+				}
+			}
+		} else {
+			// Check if auth is required
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			authRequired, _ := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
+			cancel()
+
+			if authRequired {
+				fmt.Printf("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+				fmt.Printf("             Run: muster auth login\n")
+			} else {
+				fmt.Printf("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
+			}
+		}
+	}
+
+	// Try to get MCP server status from the aggregator
+	if handler.HasValidToken(aggregatorEndpoint) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+		if err == nil && len(authStatus.Servers) > 0 {
+			fmt.Println("\nMCP Servers")
+			printMCPServerStatuses(authStatus.Servers)
+		}
+	}
+
+	return nil
+}
+
+// showMCPServerStatus shows the authentication status of a specific MCP server.
+func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
+	// Need to be authenticated to the aggregator first
+	if !handler.HasValidToken(aggregatorEndpoint) {
+		return fmt.Errorf("not authenticated to aggregator. Run 'muster auth login' first")
+	}
+
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get server status: %w", err)
+	}
+
+	// Find the requested server
+	for _, srv := range authStatus.Servers {
+		if srv.Name == serverName {
+			fmt.Printf("\nMCP Server: %s\n", srv.Name)
+			fmt.Printf("  Status:   %s\n", formatMCPServerStatus(srv.Status))
+			if srv.Issuer != "" {
+				fmt.Printf("  Issuer:   %s\n", srv.Issuer)
+			}
+			if srv.AuthTool != "" && srv.Status == "auth_required" {
+				fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
+}
+
+// printMCPServerStatuses prints the status of all MCP servers.
+func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
+	// Count servers requiring auth
+	var pendingCount int
+	for _, srv := range servers {
+		if srv.Status == "auth_required" {
+			pendingCount++
+		}
+	}
+
+	if pendingCount > 0 {
+		fmt.Printf("  (%d pending authentication)\n", pendingCount)
+	}
+
+	for _, srv := range servers {
+		statusStr := formatMCPServerStatus(srv.Status)
+		if srv.Status == "auth_required" && srv.AuthTool != "" {
+			fmt.Printf("  %-20s %s   Run: muster auth login --server %s\n", srv.Name, statusStr, srv.Name)
+		} else {
+			fmt.Printf("  %-20s %s\n", srv.Name, statusStr)
+		}
+	}
+}
+
+// formatMCPServerStatus formats the MCP server status with colors.
+func formatMCPServerStatus(status string) string {
+	switch status {
+	case "connected":
+		return text.FgGreen.Sprint("Connected")
+	case "auth_required":
+		return text.FgYellow.Sprint("Not authenticated")
+	case "disconnected":
+		return text.FgRed.Sprint("Disconnected")
+	case "error":
+		return text.FgRed.Sprint("Error")
+	default:
+		return text.FgHiBlack.Sprint(status)
+	}
+}
+
+func printAuthStatus(status *api.AuthStatus) error {
+	if status == nil {
+		fmt.Println("No authentication information available.")
+		return nil
+	}
+
+	fmt.Printf("\nEndpoint:  %s\n", status.Endpoint)
+	if status.Authenticated {
+		fmt.Printf("Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+		if !status.ExpiresAt.IsZero() {
+			remaining := time.Until(status.ExpiresAt)
+			if remaining > 0 {
+				fmt.Printf("Expires:   in %s\n", formatDuration(remaining))
+			} else {
+				fmt.Printf("Expires:   %s\n", text.FgYellow.Sprint("Expired"))
+			}
+		}
+		if status.IssuerURL != "" {
+			fmt.Printf("Issuer:    %s\n", status.IssuerURL)
+		}
+	} else {
+		fmt.Printf("Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+		if status.Error != "" {
+			fmt.Printf("Error:     %s\n", status.Error)
+		}
+	}
+
+	return nil
+}
+
+func printAuthStatuses(statuses []api.AuthStatus) error {
+	t := table.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.SetStyle(table.StyleLight)
+	t.AppendHeader(table.Row{"Endpoint", "Status", "Expires", "Issuer"})
+
+	for _, status := range statuses {
+		var statusStr, expiresStr, issuerStr string
+
+		if status.Authenticated {
+			statusStr = text.FgGreen.Sprint("Authenticated")
+			if !status.ExpiresAt.IsZero() {
+				remaining := time.Until(status.ExpiresAt)
+				if remaining > 0 {
+					expiresStr = formatDuration(remaining)
+				} else {
+					expiresStr = text.FgYellow.Sprint("Expired")
+				}
+			}
+			issuerStr = truncateURL(status.IssuerURL, 40)
+		} else {
+			if status.Error != "" {
+				statusStr = text.FgYellow.Sprint("Not authenticated")
+			} else {
+				statusStr = text.FgHiBlack.Sprint("N/A")
+			}
+		}
+
+		t.AppendRow(table.Row{
+			truncateURL(status.Endpoint, 50),
+			statusStr,
+			expiresStr,
+			issuerStr,
+		})
+	}
+
+	t.Render()
+	return nil
+}
