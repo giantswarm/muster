@@ -708,10 +708,13 @@ func (s *OAuthServer) generateAccessToken(clientID, scope string) string {
 	return generateOpaqueToken()
 }
 
-// generateOpaqueToken generates a random opaque token
+// generateOpaqueToken generates a random opaque token.
+// Panics if crypto/rand fails, which should never happen in practice.
 func generateOpaqueToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Errorf("crypto/rand failed: %w", err))
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
@@ -771,14 +774,6 @@ func (s *OAuthServer) AddToken(accessToken, refreshToken, scope, clientID string
 		ClientID:     clientID,
 		ExpiresAt:    expiresAt,
 	}
-}
-
-// Helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // GetPendingAuthCode returns a pending auth code if one exists for the given state

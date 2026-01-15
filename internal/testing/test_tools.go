@@ -15,6 +15,18 @@ import (
 	"muster/internal/testing/mock"
 )
 
+// Test tool name constants for BDD test scenarios.
+const (
+	// TestToolSimulateOAuthCallback simulates completing an OAuth flow for testing.
+	TestToolSimulateOAuthCallback = "test_simulate_oauth_callback"
+	// TestToolInjectToken directly injects an access token for testing.
+	TestToolInjectToken = "test_inject_token"
+	// TestToolGetOAuthServerInfo returns information about mock OAuth servers.
+	TestToolGetOAuthServerInfo = "test_get_oauth_server_info"
+	// TestToolAdvanceOAuthClock advances the mock OAuth server's clock for testing.
+	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
+)
+
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
 // These tools are NOT exposed through the muster serve MCP server - they are
 // handled directly by the test runner before delegating to the real MCP client.
@@ -49,17 +61,12 @@ func (h *TestToolsHandler) SetMCPClient(client MCPTestClient) {
 
 // IsTestTool returns true if the tool name is a test helper tool.
 func IsTestTool(toolName string) bool {
-	testTools := []string{
-		"test_simulate_oauth_callback",
-		"test_inject_token",
-		"test_get_oauth_server_info",
-		"test_advance_oauth_clock",
-	}
-
-	for _, t := range testTools {
-		if toolName == t {
-			return true
-		}
+	switch toolName {
+	case TestToolSimulateOAuthCallback,
+		TestToolInjectToken,
+		TestToolGetOAuthServerInfo,
+		TestToolAdvanceOAuthClock:
+		return true
 	}
 	return false
 }
@@ -71,13 +78,13 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 	}
 
 	switch toolName {
-	case "test_simulate_oauth_callback":
+	case TestToolSimulateOAuthCallback:
 		return h.handleSimulateOAuthCallback(ctx, args)
-	case "test_inject_token":
+	case TestToolInjectToken:
 		return h.handleInjectToken(ctx, args)
-	case "test_get_oauth_server_info":
+	case TestToolGetOAuthServerInfo:
 		return h.handleGetOAuthServerInfo(ctx, args)
-	case "test_advance_oauth_clock":
+	case TestToolAdvanceOAuthClock:
 		return h.handleAdvanceOAuthClock(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
@@ -183,7 +190,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		h.logger.Debug("🔐 Simulating OAuth callback for server %s using OAuth server %s (matched via issuer %s)\n",
 			serverName, oauthServerName, authHost)
 		h.logger.Debug("🔐 Extracted from auth URL: state=%s..., redirect_uri=%s\n",
-			state[:minInt(16, len(state))], redirectURI)
+			state[:min(16, len(state))], redirectURI)
 	}
 
 	// Step 4: Generate an authorization code in the mock OAuth server
@@ -191,7 +198,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	authCode := oauthServer.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
 
 	if h.debug {
-		h.logger.Debug("🔐 Generated auth code: %s...\n", authCode[:minInt(16, len(authCode))])
+		h.logger.Debug("🔐 Generated auth code: %s...\n", authCode[:min(16, len(authCode))])
 	}
 
 	// Step 4: Call muster's callback endpoint with the real state and auth code
@@ -581,30 +588,22 @@ func WrapTestToolResult(result interface{}, err error) *TestToolResult {
 	}
 }
 
-// min returns the minimum of two integers.
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // GetTestToolNames returns the names of all available test tools.
 func GetTestToolNames() []string {
 	return []string{
-		"test_simulate_oauth_callback",
-		"test_inject_token",
-		"test_get_oauth_server_info",
-		"test_advance_oauth_clock",
+		TestToolSimulateOAuthCallback,
+		TestToolInjectToken,
+		TestToolGetOAuthServerInfo,
+		TestToolAdvanceOAuthClock,
 	}
 }
 
 // GetTestToolDescriptions returns descriptions of test tools for documentation.
 func GetTestToolDescriptions() map[string]string {
 	return map[string]string{
-		"test_simulate_oauth_callback": "Simulates completing an OAuth flow for testing. Required arg: 'server' (name of the MCP server to authenticate to).",
-		"test_inject_token":            "Directly injects an access token for testing. Required args: 'server' (name of the MCP server), 'token' (access token value).",
-		"test_get_oauth_server_info":   "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
-		"test_advance_oauth_clock":     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
+		TestToolSimulateOAuthCallback: "Simulates completing an OAuth flow for testing. Required arg: 'server' (name of the MCP server to authenticate to).",
+		TestToolInjectToken:           "Directly injects an access token for testing. Required args: 'server' (name of the MCP server), 'token' (access token value).",
+		TestToolGetOAuthServerInfo:    "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
+		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
 	}
 }

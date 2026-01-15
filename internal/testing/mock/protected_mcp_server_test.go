@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -120,16 +121,16 @@ func TestProtectedMCPServer_RequiresAuth(t *testing.T) {
 	}
 
 	// Verify RFC 9728 format (matching real mcp-kubernetes behavior)
-	if !containsAt(wwwAuth, "Bearer", 0) {
+	if !strings.HasPrefix(wwwAuth, "Bearer") {
 		t.Errorf("Expected WWW-Authenticate to start with 'Bearer', got: %s", wwwAuth)
 	}
-	if !contains(wwwAuth, "resource_metadata=") {
+	if !strings.Contains(wwwAuth, "resource_metadata=") {
 		t.Errorf("Expected WWW-Authenticate to contain 'resource_metadata=', got: %s", wwwAuth)
 	}
-	if !contains(wwwAuth, ".well-known/oauth-protected-resource") {
+	if !strings.Contains(wwwAuth, ".well-known/oauth-protected-resource") {
 		t.Errorf("Expected WWW-Authenticate to reference protected resource metadata, got: %s", wwwAuth)
 	}
-	if !contains(wwwAuth, "error=") {
+	if !strings.Contains(wwwAuth, "error=") {
 		t.Errorf("Expected WWW-Authenticate to contain 'error=', got: %s", wwwAuth)
 	}
 }
@@ -235,7 +236,7 @@ func TestProtectedMCPServer_SSETransport(t *testing.T) {
 	}
 
 	// SSE endpoint should end with /sse
-	if !contains(endpoint, "/sse") {
+	if !strings.Contains(endpoint, "/sse") {
 		t.Errorf("Expected SSE endpoint to contain /sse, got %s", endpoint)
 	}
 }
@@ -276,18 +277,4 @@ func TestProtectedMCPServer_GetIssuer(t *testing.T) {
 	if server2.GetIssuer() == "" {
 		t.Error("Expected non-empty issuer from OAuth server")
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
-}
-
-func containsAt(s, substr string, start int) bool {
-	for i := start; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -944,14 +944,6 @@ func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string
 	return nil
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // compareValues compares two values for equality, handling type conversions
 func compareValues(actual, expected interface{}) bool {
 	// Handle nil cases first
