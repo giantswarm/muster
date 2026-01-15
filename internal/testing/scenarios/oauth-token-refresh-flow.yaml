@@ -1,0 +1,97 @@
+name: "oauth-token-refresh-flow"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test OAuth token refresh flow with short-lived tokens"
+tags: ["oauth", "token-refresh", "authentication"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server with short token lifetime to test refresh
+  mock_oauth_servers:
+    - name: "short-lived-tokens-idp"
+      scopes: ["openid", "profile", "api:read"]
+      auto_approve: true
+      pkce_required: false
+      # Short token lifetime for testing refresh
+      token_lifetime: "30s"
+      client_id: "refresh-test-client"
+
+  # OAuth-protected MCP server
+  mcp_servers:
+    - name: "refresh-test-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "short-lived-tokens-idp"
+          scope: "api:read"
+        tools:
+          - name: "check_auth"
+            description: "Returns authentication status"
+            responses:
+              - response:
+                  authenticated: true
+                  timestamp: "2024-01-15T10:30:00Z"
+
+          - name: "get_data"
+            description: "Returns some protected data"
+            responses:
+              - response:
+                  data:
+                    - item: "value1"
+                    - item: "value2"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the mock OAuth server with short-lived tokens is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "short-lived-tokens-idp"
+    expected:
+      success: true
+      contains:
+        - "short-lived-tokens-idp"
+        - "issuer_url"
+
+  # Step 2: Verify protected server is configured
+  - id: list-servers
+    description: "List MCP servers to verify configuration"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "refresh-test-server"
+
+  # Step 3: Authenticate to get initial tokens
+  - id: authenticate
+    description: "Simulate OAuth callback to get initial tokens"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "refresh-test-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Call tool immediately after authentication (should work)
+  - id: call-tool-immediately
+    description: "Call protected tool immediately after authentication"
+    tool: "core_mcpserver_get"
+    args:
+      name: "refresh-test-server"
+    expected:
+      success: true
+      contains:
+        - "refresh-test-server"
+
+  # Step 5: Verify the server is still accessible
+  - id: verify-server-still-accessible
+    description: "Verify server remains accessible"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "refresh-test-server"

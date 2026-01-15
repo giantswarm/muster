@@ -1,0 +1,102 @@
+name: "oauth-auth-meta-propagation"
+category: "behavioral"
+concept: "mcpserver"
+description: "Verify auth status is included in tool response _meta field (ADR-008)"
+tags: ["oauth", "adr-008", "meta", "authentication"]
+timeout: "2m"
+
+pre_configuration:
+  # Start a mock OAuth server that will require authentication
+  mock_oauth_servers:
+    - name: "meta-test-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "meta-test-client"
+
+  # OAuth-protected MCP server
+  mcp_servers:
+    - name: "protected-meta-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "meta-test-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "protected_operation"
+            description: "A protected operation requiring authentication"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Operation completed"
+
+    # Also have an unprotected server to ensure we can still call tools
+    - name: "public-meta-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "public_operation"
+            description: "A public operation that works without auth"
+            responses:
+              - response:
+                  status: "ok"
+                  message: "Public operation completed"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the mock OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "meta-test-idp"
+    expected:
+      success: true
+      contains:
+        - "meta-test-idp"
+        - "issuer_url"
+
+  # Step 2: List servers to verify both are configured
+  - id: list-servers
+    description: "List all MCP servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "protected-meta-server"
+        - "public-meta-server"
+
+  # Step 3: Call public tool - verify it works and check for auth info in meta
+  - id: call-public-tool
+    description: "Call public tool and check response"
+    tool: "x_public-meta-server_public_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "status"
+        - "ok"
+
+  # Step 4: Simulate authentication to clear the auth_required state
+  - id: authenticate
+    description: "Simulate OAuth callback to authenticate"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "protected-meta-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: After authentication, call a tool and verify auth status is resolved
+  - id: call-after-auth
+    description: "Call tool after authentication"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "protected-meta-server"
+        - "public-meta-server"
