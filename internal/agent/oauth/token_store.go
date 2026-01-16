@@ -58,6 +58,10 @@ type StoredToken struct {
 	// IssuerURL is the OAuth issuer that issued this token.
 	IssuerURL string `json:"issuer_url"`
 
+	// ClientID is the OAuth client_id that was used to obtain this token.
+	// This must be used when refreshing the token.
+	ClientID string `json:"client_id,omitempty"`
+
 	// CreatedAt is when the token was stored.
 	CreatedAt time.Time `json:"created_at"`
 }

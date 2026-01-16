@@ -70,6 +70,11 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 			if !status.ExpiresAt.IsZero() {
 				authPrint("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
 			}
+			if status.HasRefreshToken {
+				authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
+			} else {
+				authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
+			}
 			if status.IssuerURL != "" {
 				authPrint("  Issuer:    %s\n", status.IssuerURL)
 			}

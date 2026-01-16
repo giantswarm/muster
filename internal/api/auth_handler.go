@@ -75,6 +75,10 @@ type AuthStatus struct {
 	// Email is the authenticated user's email address (if available in the token).
 	Email string
 
+	// HasRefreshToken indicates whether a refresh token is available for this endpoint.
+	// If false, the token cannot be refreshed and will require re-authentication when it expires.
+	HasRefreshToken bool
+
 	// Error is non-empty if the auth check failed.
 	Error string
 }
