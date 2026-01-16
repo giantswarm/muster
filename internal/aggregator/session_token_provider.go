@@ -63,6 +63,11 @@ func NewSessionTokenProvider(sessionID, issuer, scope string, oauthHandler api.O
 // 3. Performing the refresh if needed
 // 4. Returning the (potentially refreshed) access token
 //
+// Note: The scope field is not used here because token lookup is done by
+// sessionID + issuer. The scope is only needed for GetTokenKey() which is
+// used when storing tokens. The OAuth token store uses issuer as the primary
+// lookup key, allowing tokens with the same issuer to be shared across scopes.
+//
 // Thread safety: The OAuthHandler implementation handles concurrency internally.
 func (p *SessionTokenProvider) GetAccessToken(ctx context.Context) string {
 	if p.oauthHandler == nil || !p.oauthHandler.IsEnabled() {
@@ -71,6 +76,7 @@ func (p *SessionTokenProvider) GetAccessToken(ctx context.Context) string {
 
 	// Use the OAuthHandler's RefreshTokenIfNeeded method which handles
 	// token lookup, refresh if needed, and returns the current access token.
+	// Scope is not passed here - see method documentation for rationale.
 	return p.oauthHandler.RefreshTokenIfNeeded(ctx, p.sessionID, p.issuer)
 }
 

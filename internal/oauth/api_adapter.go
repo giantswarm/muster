@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"muster/internal/api"
+	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
 
@@ -116,7 +117,11 @@ func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback)
 // RefreshTokenIfNeeded checks if the token needs refresh and refreshes it if necessary.
 // Returns the current (potentially refreshed) access token, or empty string if unavailable.
 func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string {
-	token, _, _ := a.manager.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+	token, _, err := a.manager.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+	if err != nil {
+		logging.Debug("OAuth", "RefreshTokenIfNeeded error (session=%s, issuer=%s): %v",
+			logging.TruncateSessionID(sessionID), issuer, err)
+	}
 	if token != nil {
 		return token.AccessToken
 	}
