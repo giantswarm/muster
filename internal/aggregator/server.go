@@ -14,6 +14,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/config"
 	internalmcp "muster/internal/mcpserver"
+	"muster/internal/oauth"
 	"muster/internal/server"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
@@ -754,7 +755,8 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	}
 
 	// Mount the MCP handler as the default for all other paths
-	mux.Handle("/", mcpHandler)
+	// Wrap with clientSessionIDMiddleware to enable CLI session persistence
+	mux.Handle("/", clientSessionIDMiddleware(mcpHandler))
 
 	return mux
 }
@@ -772,7 +774,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
+	// Wrap the MCP handler with clientSessionIDMiddleware to enable CLI session persistence
+	// This must be done before OAuth middleware so the session ID is available in context
+	wrappedHandler := clientSessionIDMiddleware(mcpHandler)
+
+	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, wrappedHandler, a.config.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1637,7 +1643,8 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
 
 		// Try to establish connection using the existing token
-		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, token.AccessToken)
+		// Pass issuer and scope to enable dynamic token refresh
+		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
 			// Connection successful
 			return connectResult, nil
@@ -1691,13 +1698,33 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
 // On success, it upgrades the session connection and returns a success result.
 // On failure, it returns an error that the caller can use to determine next steps.
-func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, accessToken string) (*mcp.CallToolResult, error) {
-	// Create an authenticated MCP client with the token
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-	}
+//
+// This method creates a DynamicAuthClient that supports automatic token refresh (Issue #214).
+// The issuer and scope parameters are used to create a TokenProvider that can refresh
+// the token when it expires.
+func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
+	// Get OAuth handler for dynamic token refresh
+	oauthHandler := api.GetOAuthHandler()
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+	// Create a token provider for dynamic token injection
+	// If OAuth handler is available, use dynamic auth client for automatic refresh
+	// Otherwise, fall back to static headers (backwards compatibility)
+	var client internalmcp.MCPClient
+	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
+		// Create a dynamic auth client that refreshes tokens automatically
+		tokenProvider := NewSessionTokenProvider(sessionID, issuer, scope, oauthHandler)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenProvider)
+		logging.Debug("Aggregator", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
+			logging.TruncateSessionID(sessionID), serverName, issuer)
+	} else {
+		// Fallback to static headers
+		headers := map[string]string{
+			"Authorization": "Bearer " + accessToken,
+		}
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+		logging.Debug("Aggregator", "Using static auth headers for session %s, server %s",
+			logging.TruncateSessionID(sessionID), serverName)
+	}
 
 	// Try to initialize the client
 	if err := client.Initialize(ctx); err != nil {
@@ -1729,11 +1756,22 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, s
 	// Upgrade the session connection
 	session := a.sessionRegistry.GetOrCreateSession(sessionID)
 
+	// Create the token key for future reference
+	var tokenKey *oauth.TokenKey
+	if issuer != "" {
+		tokenKey = &oauth.TokenKey{
+			SessionID: sessionID,
+			Issuer:    issuer,
+			Scope:     scope,
+		}
+	}
+
 	// Create the session connection
 	conn := &SessionConnection{
 		ServerName:  serverName,
 		Status:      StatusSessionConnected,
 		Client:      client,
+		TokenKey:    tokenKey,
 		ConnectedAt: time.Now(),
 	}
 	conn.UpdateTools(tools)
@@ -1842,20 +1880,32 @@ func discoverAuthorizationServer(ctx context.Context, serverURL string) (string,
 // This constant is used to identify tokens stored for the default session.
 const defaultSessionID = "default-session"
 
+// clientSessionIDContextKey is the context key for storing client-provided session IDs.
+type clientSessionIDContextKey struct{}
+
 // getSessionIDFromContext extracts the session ID from context.
-// It retrieves the session ID from the MCP client session which is set by the mcp-go library.
 //
-// SECURITY: Each MCP connection (SSE or Streamable HTTP) gets a unique UUID-based session ID
-// generated by the mcp-go library. This ensures OAuth tokens are isolated per-connection,
-// preventing cross-user token access. The session ID is used to:
-//   - Store and retrieve OAuth tokens per-user
-//   - Link OAuth callback flows to the originating connection
-//   - Enable SSO within a single user's session (same session, different servers)
+// Session ID precedence (first match wins):
+//  1. Client-provided session ID via X-Muster-Session-ID header (enables CLI persistence)
+//  2. MCP session ID from mcp-go library (per-connection, random UUID)
+//  3. Default session ID for stdio transport (single-user mode)
 //
-// For stdio transport (single-user CLI), falls back to "default-session" which is acceptable
-// since stdio is inherently single-user (one process = one user).
+// The client-provided session ID (via header) is critical for CLI tools where each
+// invocation creates a new connection. Without it, MCP server tokens would be lost
+// between CLI invocations because the mcp-go session ID changes on each connection.
+// See ADR-004 for the design rationale.
+//
+// SECURITY: The client-provided session ID is trusted because:
+//   - It's sent by the authenticated CLI client (aggregator auth validates the user)
+//   - Token lookup still requires matching (sessionID, issuer, scope)
+//   - A malicious client can only access tokens it previously stored with that session ID
 func getSessionIDFromContext(ctx context.Context) string {
-	// Try to get session ID from MCP client session (set by mcp-go library)
+	// 1. Check for client-provided session ID (CLI persistence)
+	if clientSessionID, ok := ctx.Value(clientSessionIDContextKey{}).(string); ok && clientSessionID != "" {
+		return clientSessionID
+	}
+
+	// 2. Try to get session ID from MCP client session (set by mcp-go library)
 	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 		sessionID := session.SessionID()
 		if sessionID != "" {
@@ -1863,7 +1913,7 @@ func getSessionIDFromContext(ctx context.Context) string {
 		}
 	}
 
-	// Fall back to default session ID for stdio transport only.
+	// 3. Fall back to default session ID for stdio transport only.
 	// This is a security limitation for stdio which is inherently single-user.
 	// For HTTP transports (SSE/Streamable HTTP), the mcp-go library always provides
 	// a unique session ID, so this fallback should only trigger for stdio.
@@ -1872,11 +1922,25 @@ func getSessionIDFromContext(ctx context.Context) string {
 	return defaultSessionID
 }
 
+// clientSessionIDMiddleware extracts the X-Muster-Session-ID header and adds it to context.
+// This middleware enables CLI tools to maintain persistent session identity across invocations.
+func clientSessionIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientSessionID := r.Header.Get(api.ClientSessionIDHeader)
+		if clientSessionID != "" {
+			logging.Debug("Aggregator", "Client provided session ID: %s", logging.TruncateSessionID(clientSessionID))
+			ctx := context.WithValue(r.Context(), clientSessionIDContextKey{}, clientSessionID)
+			r = r.WithContext(ctx)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // resolveSessionTool attempts to resolve a tool name through session connections.
 // This is used for OAuth-protected servers where tools are stored per-session.
 //
-// Returns the session-specific client, original tool name, or an error if not found.
-func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (MCPClient, string, error) {
+// Returns the server name, session-specific client, original tool name, or an error if not found.
+func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (string, MCPClient, string, error) {
 	session := a.sessionRegistry.GetOrCreateSession(sessionID)
 
 	// Iterate through all session connections to find the tool
@@ -1889,10 +1953,10 @@ func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (MC
 		for _, tool := range conn.GetTools() {
 			exposedToolName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
 			if exposedToolName == exposedName {
-				return conn.Client, tool.Name, nil
+				return serverName, conn.Client, tool.Name, nil
 			}
 		}
 	}
 
-	return nil, "", fmt.Errorf("tool not found in session connections")
+	return "", nil, "", fmt.Errorf("tool not found in session connections")
 }

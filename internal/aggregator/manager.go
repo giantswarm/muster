@@ -567,11 +567,19 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 		return fmt.Errorf("server %s not found", serverName)
 	}
 
+	// Get issuer and scope from AuthInfo for dynamic token refresh
+	var issuer, scope string
+	if serverInfo.AuthInfo != nil {
+		issuer = serverInfo.AuthInfo.Issuer
+		scope = serverInfo.AuthInfo.Scope
+	}
+
 	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing session connection for session=%s server=%s",
 		logging.TruncateSessionID(sessionID), serverName)
 
 	// Use the aggregator server's tryConnectWithToken to establish the connection
-	result, err := aggregatorServer.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, accessToken)
+	// Pass issuer and scope to enable dynamic token refresh
+	result, err := aggregatorServer.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, issuer, scope, accessToken)
 	if err != nil {
 		return fmt.Errorf("failed to establish session connection: %w", err)
 	}

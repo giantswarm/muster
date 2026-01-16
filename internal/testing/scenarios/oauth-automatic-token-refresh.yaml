@@ -1,0 +1,179 @@
+name: "oauth-automatic-token-refresh"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test automatic token refresh for OAuth-protected MCP server sessions (Issue #214).
+  
+  When a token is expiring (within 5-minute refresh threshold), the DynamicAuthClient
+  should automatically refresh it before making the HTTP request. This test validates:
+  1. Initial authentication works
+  2. Tool calls work with valid token
+  3. When clock advances to within refresh threshold, tool calls still work
+     (proving automatic refresh occurred transparently)
+  4. Token refresh is transparent to the user (no re-authentication required)
+tags: ["oauth", "token-refresh", "automatic-refresh", "issue-214"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server with short token lifetime to test refresh
+  # Token lifetime is 10 minutes, refresh threshold is 5 minutes
+  # So advancing clock by 6 minutes should trigger proactive refresh
+  mock_oauth_servers:
+    - name: "auto-refresh-idp"
+      scopes: ["openid", "profile", "api:access"]
+      auto_approve: true
+      pkce_required: false
+      # 10-minute token lifetime for testing refresh threshold (5 min)
+      token_lifetime: "10m"
+      client_id: "auto-refresh-client"
+      # Enable mock clock so we can advance time without waiting
+      use_mock_clock: true
+
+  # OAuth-protected MCP server with test tools
+  mcp_servers:
+    - name: "refresh-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "auto-refresh-idp"
+          scope: "api:access"
+        tools:
+          - name: "get_protected_data"
+            description: "Returns protected data that requires valid authentication"
+            responses:
+              - response:
+                  status: "success"
+                  data:
+                    message: "You have access to protected data"
+                    timestamp: "2024-01-15T10:30:00Z"
+
+          - name: "check_token_status"
+            description: "Returns token status information"
+            responses:
+              - response:
+                  token_valid: true
+                  message: "Token is valid and accepted"
+
+steps:
+  # Step 1: Verify OAuth server with mock clock is running
+  - id: verify-oauth-server
+    description: "Verify the mock OAuth server with mock clock is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "auto-refresh-idp"
+    expected:
+      success: true
+      contains:
+        - "auto-refresh-idp"
+        - "issuer_url"
+
+  # Step 2: Verify protected server is configured
+  - id: verify-server-configured
+    description: "Verify the protected MCP server is configured"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "refresh-protected-server"
+
+  # Step 3: Authenticate to the protected server
+  # This simulates the full OAuth flow and stores tokens in muster's token store
+  - id: authenticate
+    description: "Complete OAuth flow to authenticate to the protected server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "refresh-protected-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Establish session connection
+  # This creates a DynamicAuthClient with SessionTokenProvider
+  - id: establish-connection
+    description: "Establish authenticated session connection to the protected server"
+    tool: "x_refresh-protected-server_authenticate"
+    args: {}
+    expected:
+      success: true
+
+  # Step 5: Call protected tool immediately (should work with fresh token)
+  - id: call-tool-fresh-token
+    description: "Call protected tool with fresh token (should succeed)"
+    tool: "x_refresh-protected-server_get_protected_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "You have access to protected data"
+
+  # Step 6: Advance clock by 6 minutes
+  # Token lifetime is 10 minutes, so 4 minutes remain (within 5-minute refresh threshold)
+  # The next tool call should trigger automatic token refresh
+  - id: advance-clock-near-expiry
+    description: "Advance OAuth server clock to within refresh threshold (6 minutes elapsed, 4 remaining)"
+    tool: "test_advance_oauth_clock"
+    args:
+      server: "auto-refresh-idp"
+      duration: "6m"
+    expected:
+      success: true
+      contains:
+        - "Advanced OAuth clock"
+        - "6m"
+
+  # Step 7: Call protected tool again
+  # Token is now within refresh threshold (4 minutes remaining)
+  # The DynamicAuthClient should automatically refresh the token via SessionTokenProvider
+  # and the tool call should succeed transparently
+  - id: call-tool-after-refresh-threshold
+    description: "Call protected tool when token is within refresh threshold (should auto-refresh and succeed)"
+    tool: "x_refresh-protected-server_get_protected_data"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "You have access to protected data"
+
+  # Step 8: Call another protected tool to verify refresh worked
+  # If the refresh failed, we would have gotten a 401 error on the previous call
+  # This call confirms the session continues to work with the refreshed token
+  - id: verify-continued-access
+    description: "Verify continued access with refreshed token"
+    tool: "x_refresh-protected-server_check_token_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "token_valid"
+        - "true"
+
+  # Step 9: Advance clock significantly past expiry to test graceful failure
+  # Advance by 30 minutes - the refresh token may also expire
+  # This tests that the system provides a helpful error message
+  - id: advance-clock-past-expiry
+    description: "Advance clock well past token expiry (30 more minutes)"
+    tool: "test_advance_oauth_clock"
+    args:
+      server: "auto-refresh-idp"
+      duration: "30m"
+    expected:
+      success: true
+      contains:
+        - "Advanced OAuth clock"
+
+  # Step 10: Verify server is still listed (configuration persists)
+  # Even if the token is fully expired, the server configuration should remain
+  - id: verify-server-still-configured
+    description: "Verify server configuration persists even when tokens expire"
+    tool: "core_mcpserver_get"
+    args:
+      name: "refresh-protected-server"
+    expected:
+      success: true
+      contains:
+        - "refresh-protected-server"

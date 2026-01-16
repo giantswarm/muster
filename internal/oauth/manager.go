@@ -235,6 +235,22 @@ func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	logging.Debug("OAuth", "Cleared tokens for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
 }
 
+// RefreshTokenIfNeeded checks if the token for the given session and issuer needs refresh
+// and refreshes it if necessary. This is the primary method for automatic token refresh
+// in long-running sessions (Issue #214).
+//
+// Returns:
+//   - The token (refreshed or original)
+//   - Boolean indicating if a refresh occurred
+//   - Any error during refresh (token is still returned if available)
+func (m *Manager) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) (*pkgoauth.Token, bool, error) {
+	if m == nil {
+		return nil, false, fmt.Errorf("OAuth proxy is disabled")
+	}
+
+	return m.client.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+}
+
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
 func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {

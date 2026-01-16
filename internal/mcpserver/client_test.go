@@ -18,6 +18,7 @@ func TestMCPClientInterfaceCompliance(t *testing.T) {
 	var _ MCPClient = (*StdioClient)(nil)
 	var _ MCPClient = (*SSEClient)(nil)
 	var _ MCPClient = (*StreamableHTTPClient)(nil)
+	var _ MCPClient = (*DynamicAuthClient)(nil)
 }
 
 // TestNewMCPClientFromType tests the factory function for creating MCP clients
@@ -216,6 +217,31 @@ func TestNewSSEClientWithNilHeaders(t *testing.T) {
 	assert.Empty(t, client.headers)
 }
 
+// TestNewDynamicAuthClient tests the DynamicAuthClient constructor
+func TestNewDynamicAuthClient(t *testing.T) {
+	provider := StaticTokenProvider("test-token")
+	client := NewDynamicAuthClient("http://example.com/mcp", provider)
+
+	assert.NotNil(t, client)
+	assert.Equal(t, "http://example.com/mcp", client.url)
+	assert.NotNil(t, client.tokenProvider)
+	assert.False(t, client.connected)
+}
+
+// TestNewDynamicAuthClientWithNilProvider tests that nil provider is handled gracefully
+func TestNewDynamicAuthClientWithNilProvider(t *testing.T) {
+	client := NewDynamicAuthClient("http://example.com/mcp", nil)
+
+	assert.NotNil(t, client)
+	assert.Equal(t, "http://example.com/mcp", client.url)
+	assert.NotNil(t, client.tokenProvider) // Should be initialized to no-op provider
+	assert.False(t, client.connected)
+
+	// Verify the no-op provider returns empty string
+	token := client.tokenProvider.GetAccessToken(t.Context())
+	assert.Empty(t, token)
+}
+
 // TestBaseMCPClientCheckConnected tests the connection check helper
 func TestBaseMCPClientCheckConnected(t *testing.T) {
 	base := &baseMCPClient{}
@@ -255,6 +281,11 @@ func TestClientOperationsWithoutConnection(t *testing.T) {
 
 	t.Run("SSEClient", func(t *testing.T) {
 		client := NewSSEClient("http://example.com/sse")
+		testClientNotConnected(t, client)
+	})
+
+	t.Run("DynamicAuthClient", func(t *testing.T) {
+		client := NewDynamicAuthClient("http://example.com/mcp", StaticTokenProvider("test-token"))
 		testClientNotConnected(t, client)
 	})
 }
