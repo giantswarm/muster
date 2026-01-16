@@ -35,4 +35,13 @@
 //  3. MUSTER_CONTEXT environment variable
 //  4. current-context from contexts.yaml
 //  5. Local fallback (http://localhost:8090/mcp)
+//
+// # Concurrency
+//
+// Storage operations are thread-safe within a single process using a read-write
+// mutex. However, concurrent access from multiple processes (e.g., running
+// multiple muster commands simultaneously) is not protected. In practice, this
+// is rarely an issue as context modifications are infrequent user-initiated
+// actions, but users should avoid running concurrent context add/delete/rename
+// operations.
 package context

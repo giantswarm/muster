@@ -1,6 +1,7 @@
 package context
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,7 +67,7 @@ func (s *Storage) loadLocked() (*ContextConfig, error) {
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			// Return empty config if file doesn't exist
 			return &ContextConfig{}, nil
 		}

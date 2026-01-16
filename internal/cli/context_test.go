@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -192,17 +193,11 @@ func TestContextNotFoundError(t *testing.T) {
 		t.Error("expected error for non-existent context")
 	}
 
-	// Check it's a ContextNotFoundError
+	// Check it's a ContextNotFoundError using the idiomatic errors.As
 	var ctxErr *musterctx.ContextNotFoundError
-	if !isContextNotFoundError(err) {
+	if !errors.As(err, &ctxErr) {
 		t.Errorf("expected ContextNotFoundError, got %T: %v", err, err)
 	}
-	_ = ctxErr // silence unused variable warning
-}
-
-func isContextNotFoundError(err error) bool {
-	_, ok := err.(*musterctx.ContextNotFoundError)
-	return ok
 }
 
 func TestGetContextSettings(t *testing.T) {

@@ -10,20 +10,6 @@ import (
 	musterctx "muster/internal/context"
 )
 
-func setupContextTestStorage(t *testing.T) (*musterctx.Storage, func()) {
-	t.Helper()
-
-	// Create temp directory for testing
-	tmpDir := t.TempDir()
-
-	// Create a storage with the temp directory
-	storage := musterctx.NewStorageWithPath(tmpDir)
-
-	return storage, func() {
-		// Cleanup is automatic with t.TempDir()
-	}
-}
-
 func TestContextListEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage := musterctx.NewStorageWithPath(tmpDir)
@@ -249,22 +235,4 @@ func TestContextFileFormat(t *testing.T) {
 	if !strings.Contains(content, "endpoint: https://prod.example.com/mcp") {
 		t.Error("expected endpoint in file")
 	}
-}
-
-func TestContextEnvVarOverride(t *testing.T) {
-	tmpDir := t.TempDir()
-	storage := musterctx.NewStorageWithPath(tmpDir)
-
-	// Add contexts
-	_ = storage.AddContext("prod", "https://prod.example.com/mcp", nil)
-	_ = storage.AddContext("dev", "https://dev.example.com/mcp", nil)
-	_ = storage.SetCurrentContext("prod")
-
-	// Test that env var is read by the ResolveEndpoint function
-	// This tests the integration point
-	os.Setenv("MUSTER_CONTEXT", "dev")
-	defer os.Unsetenv("MUSTER_CONTEXT")
-
-	// The actual test would need to use the cli package's ResolveEndpoint function
-	// which is tested in internal/cli/context_test.go
 }
