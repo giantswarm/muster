@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +22,12 @@ import (
 
 // DefaultTokenStorageDir is the default directory for storing OAuth tokens.
 const DefaultTokenStorageDir = ".config/muster/tokens"
+
+// CallbackPortEnvVar is the environment variable for configuring the OAuth callback port.
+const CallbackPortEnvVar = "MUSTER_OAUTH_CALLBACK_PORT"
+
+// DefaultCallbackPort is the default port for OAuth callbacks if not configured.
+const DefaultCallbackPort = 3000
 
 // AuthAdapter implements api.AuthHandler using internal/agent/oauth.
 // It wraps the AuthManager and TokenStore to provide OAuth authentication
@@ -80,6 +88,7 @@ func (a *AuthAdapter) getOrCreateManager(endpoint string) (*oauth.AuthManager, e
 	}
 
 	mgr, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
+		CallbackPort:    getCallbackPort(),
 		TokenStorageDir: a.tokenStorageDir,
 		FileMode:        true,
 	})
@@ -89,6 +98,16 @@ func (a *AuthAdapter) getOrCreateManager(endpoint string) (*oauth.AuthManager, e
 
 	a.managers[normalizedEndpoint] = mgr
 	return mgr, nil
+}
+
+// getCallbackPort returns the OAuth callback port from environment or default.
+func getCallbackPort() int {
+	if portStr := os.Getenv(CallbackPortEnvVar); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port < 65536 {
+			return port
+		}
+	}
+	return DefaultCallbackPort
 }
 
 // CheckAuthRequired probes the endpoint to determine if OAuth is required.
@@ -334,6 +353,12 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 		if storedToken := mgr.GetStoredToken(); storedToken != nil {
 			status.ExpiresAt = storedToken.Expiry
 			status.IssuerURL = storedToken.IssuerURL
+			// Extract identity from ID token if available
+			if storedToken.IDToken != "" {
+				claims := parseIDTokenClaims(storedToken.IDToken)
+				status.Subject = claims.Subject
+				status.Email = claims.Email
+			}
 		} else if challenge := mgr.GetAuthChallenge(); challenge != nil {
 			// Fallback to auth challenge for issuer
 			status.IssuerURL = challenge.Issuer
@@ -347,6 +372,34 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 	}
 
 	return status
+}
+
+// idTokenClaims holds the identity claims we extract from ID tokens.
+type idTokenClaims struct {
+	Subject string `json:"sub"`
+	Email   string `json:"email"`
+}
+
+// parseIDTokenClaims extracts identity claims from a JWT ID token.
+// This performs basic JWT parsing without validation (validation is done at login time).
+func parseIDTokenClaims(idToken string) idTokenClaims {
+	var claims idTokenClaims
+
+	// JWT has 3 parts: header.payload.signature
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return claims
+	}
+
+	// Decode the payload (second part)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return claims
+	}
+
+	// Parse claims
+	_ = json.Unmarshal(payload, &claims)
+	return claims
 }
 
 // RefreshToken forces a token refresh for the endpoint.

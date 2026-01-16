@@ -66,6 +66,70 @@ func TestOutputFormat_Constants(t *testing.T) {
 	assert.Equal(t, OutputFormat("yaml"), OutputFormatYAML)
 }
 
+func TestAuthMode_Constants(t *testing.T) {
+	assert.Equal(t, AuthMode("auto"), AuthModeAuto)
+	assert.Equal(t, AuthMode("prompt"), AuthModePrompt)
+	assert.Equal(t, AuthMode("none"), AuthModeNone)
+}
+
+func TestParseAuthMode(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected AuthMode
+		wantErr  bool
+	}{
+		{"auto", AuthModeAuto, false},
+		{"AUTO", AuthModeAuto, false},
+		{"Auto", AuthModeAuto, false},
+		{"prompt", AuthModePrompt, false},
+		{"PROMPT", AuthModePrompt, false},
+		{"none", AuthModeNone, false},
+		{"NONE", AuthModeNone, false},
+		{"", AuthModeAuto, false}, // Empty defaults to auto
+		{"invalid", AuthModeAuto, true},
+		{"disable", AuthModeAuto, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			mode, err := ParseAuthMode(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, mode)
+			}
+		})
+	}
+}
+
+func TestGetDefaultAuthMode(t *testing.T) {
+	// Test default (no env var set)
+	t.Setenv(AuthModeEnvVar, "")
+	assert.Equal(t, AuthModeAuto, GetDefaultAuthMode())
+
+	// Test with env var set
+	t.Setenv(AuthModeEnvVar, "prompt")
+	assert.Equal(t, AuthModePrompt, GetDefaultAuthMode())
+
+	t.Setenv(AuthModeEnvVar, "none")
+	assert.Equal(t, AuthModeNone, GetDefaultAuthMode())
+
+	// Test with invalid env var (should fall back to auto)
+	t.Setenv(AuthModeEnvVar, "invalid")
+	assert.Equal(t, AuthModeAuto, GetDefaultAuthMode())
+}
+
+func TestGetDefaultEndpoint(t *testing.T) {
+	// Test default (no env var set)
+	t.Setenv(EndpointEnvVar, "")
+	assert.Equal(t, "", GetDefaultEndpoint())
+
+	// Test with env var set
+	t.Setenv(EndpointEnvVar, "https://muster.example.com/mcp")
+	assert.Equal(t, "https://muster.example.com/mcp", GetDefaultEndpoint())
+}
+
 func TestExecutorOptions_Structure(t *testing.T) {
 	options := ExecutorOptions{
 		Format: OutputFormatJSON,

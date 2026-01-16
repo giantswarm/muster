@@ -157,38 +157,30 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 		return fmt.Errorf("auth tool did not return an auth URL")
 	}
 
-	// Try to open browser first, only show URL if it fails
+	// Try to open browser
 	if !authQuiet {
-		fmt.Print("Opening browser for authentication...")
+		fmt.Println("Opening browser for authentication...")
 	}
 
 	err = openBrowserForAuth(authURL)
 	if err != nil {
 		if !authQuiet {
-			fmt.Println(" failed")
-			fmt.Printf("Please open this URL in your browser:\n  %s\n\n", authURL)
+			fmt.Println("Could not open browser automatically.")
+			fmt.Printf("\nPlease open this URL in your browser:\n  %s\n\n", authURL)
 		}
-		// If we can't open browser, return the URL in the error so caller can handle
-		return fmt.Errorf("failed to open browser: %w (URL: %s)", err, authURL)
-	}
-
-	if !authQuiet {
-		fmt.Println(" done")
+		// Continue - user can still manually open the URL
 	}
 
 	// If waiting is enabled, poll until completion
 	if waitCfg.WaitForCompletion {
 		if !authQuiet {
-			fmt.Printf("Waiting for %s to authenticate...", serverName)
+			fmt.Printf("Waiting for %s authentication to complete...\n", serverName)
 		}
 		if err := waitForServerAuth(ctx, handler, aggregatorEndpoint, serverName, waitCfg); err != nil {
-			if !authQuiet {
-				fmt.Println(" timeout")
-			}
 			return err
 		}
 		if !authQuiet {
-			fmt.Println(" authenticated")
+			fmt.Printf("%s %s authenticated successfully.\n", text.FgGreen.Sprint("✓"), serverName)
 		}
 	}
 

@@ -68,6 +68,13 @@ type AuthStatus struct {
 	// IssuerURL is the OAuth issuer that issued this token.
 	IssuerURL string
 
+	// Subject is the authenticated user's subject (sub) claim from the token.
+	// This is typically a unique user identifier.
+	Subject string
+
+	// Email is the authenticated user's email address (if available in the token).
+	Email string
+
 	// Error is non-empty if the auth check failed.
 	Error string
 }

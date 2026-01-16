@@ -13,8 +13,7 @@ var (
 	listQuiet        bool
 	listConfigPath   string
 	listEndpoint     string
-	listAutoAuth     bool
-	listNoAuth       bool
+	listAuthMode     string
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -80,9 +79,8 @@ func init() {
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
 	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	listCmd.PersistentFlags().StringVar(&listEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
-	listCmd.PersistentFlags().BoolVar(&listAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
-	listCmd.PersistentFlags().BoolVar(&listNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
+	listCmd.PersistentFlags().StringVar(&listEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	listCmd.PersistentFlags().StringVar(&listAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -95,13 +93,22 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode := cli.GetDefaultAuthMode()
+	if listAuthMode != "" {
+		var err error
+		authMode, err = cli.ParseAuthMode(listAuthMode)
+		if err != nil {
+			return err
+		}
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(listOutputFormat),
 		Quiet:      listQuiet,
 		ConfigPath: listConfigPath,
 		Endpoint:   listEndpoint,
-		AutoAuth:   listAutoAuth,
-		NoAuth:     listNoAuth,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

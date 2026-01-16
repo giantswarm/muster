@@ -25,8 +25,7 @@ var (
 	eventsLimit        int
 	eventsFollow       bool
 	eventsEndpoint     string
-	eventsAutoAuth     bool
-	eventsNoAuth       bool
+	eventsAuthMode     string
 )
 
 // eventsCmd represents the events command
@@ -110,9 +109,8 @@ func init() {
 	eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
 
 	// Auth flags
-	eventsCmd.PersistentFlags().StringVar(&eventsEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
-	eventsCmd.PersistentFlags().BoolVar(&eventsAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
-	eventsCmd.PersistentFlags().BoolVar(&eventsNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
+	eventsCmd.PersistentFlags().StringVar(&eventsEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	eventsCmd.PersistentFlags().StringVar(&eventsAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runEvents(cmd *cobra.Command, args []string) error {
@@ -172,13 +170,22 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("limit must be a positive number, got %d", eventsLimit)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode := cli.GetDefaultAuthMode()
+	if eventsAuthMode != "" {
+		var err error
+		authMode, err = cli.ParseAuthMode(eventsAuthMode)
+		if err != nil {
+			return err
+		}
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(eventsOutputFormat),
 		Quiet:      eventsQuiet,
 		ConfigPath: eventsConfigPath,
 		Endpoint:   eventsEndpoint,
-		AutoAuth:   eventsAutoAuth,
-		NoAuth:     eventsNoAuth,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

@@ -31,6 +31,56 @@ const (
 	OutputFormatYAML OutputFormat = "yaml"
 )
 
+// AuthMode represents authentication behavior for CLI commands.
+type AuthMode string
+
+const (
+	// AuthModeAuto automatically triggers OAuth browser login when authentication is required.
+	// This is the default behavior.
+	AuthModeAuto AuthMode = "auto"
+	// AuthModePrompt prompts the user before triggering authentication.
+	AuthModePrompt AuthMode = "prompt"
+	// AuthModeNone fails immediately on 401 without attempting authentication.
+	AuthModeNone AuthMode = "none"
+)
+
+// AuthModeEnvVar is the environment variable name for setting the default auth mode.
+const AuthModeEnvVar = "MUSTER_AUTH_MODE"
+
+// EndpointEnvVar is the environment variable name for setting the default endpoint.
+const EndpointEnvVar = "MUSTER_ENDPOINT"
+
+// ParseAuthMode parses a string into an AuthMode, with validation.
+func ParseAuthMode(s string) (AuthMode, error) {
+	switch strings.ToLower(s) {
+	case "auto", "":
+		return AuthModeAuto, nil
+	case "prompt":
+		return AuthModePrompt, nil
+	case "none":
+		return AuthModeNone, nil
+	default:
+		return AuthModeAuto, fmt.Errorf("invalid auth mode %q: must be one of 'auto', 'prompt', or 'none'", s)
+	}
+}
+
+// GetDefaultAuthMode returns the default auth mode from environment or "auto".
+func GetDefaultAuthMode() AuthMode {
+	if envMode := os.Getenv(AuthModeEnvVar); envMode != "" {
+		mode, err := ParseAuthMode(envMode)
+		if err == nil {
+			return mode
+		}
+		// Invalid env value, fall through to default
+	}
+	return AuthModeAuto
+}
+
+// GetDefaultEndpoint returns the endpoint from environment variable if set.
+func GetDefaultEndpoint() string {
+	return os.Getenv(EndpointEnvVar)
+}
+
 // ExecutorOptions contains configuration options for tool execution.
 // These options control how commands are executed and how output is formatted.
 type ExecutorOptions struct {
@@ -42,10 +92,8 @@ type ExecutorOptions struct {
 	ConfigPath string
 	// Endpoint overrides the aggregator endpoint URL for remote connections
 	Endpoint string
-	// AutoAuth automatically triggers OAuth on 401 responses
-	AutoAuth bool
-	// NoAuth fails immediately on 401 without attempting authentication
-	NoAuth bool
+	// AuthMode controls authentication behavior (auto, prompt, none)
+	AuthMode AuthMode
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -147,7 +195,7 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 // Connect establishes a connection to the muster aggregator server.
 // It shows a progress spinner unless quiet mode is enabled, and handles
 // connection errors with appropriate user feedback. For remote servers,
-// it handles OAuth authentication automatically if configured.
+// it handles OAuth authentication according to the configured AuthMode.
 //
 // Args:
 //   - ctx: Context for connection timeout and cancellation
@@ -156,7 +204,7 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 //   - error: Connection error, if any
 func (e *ToolExecutor) Connect(ctx context.Context) error {
 	// For remote servers, we may need to handle authentication
-	if e.isRemote && !e.options.NoAuth {
+	if e.isRemote && e.options.AuthMode != AuthModeNone {
 		if err := e.setupAuthentication(ctx); err != nil {
 			return err
 		}
@@ -226,15 +274,21 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 		return nil
 	}
 
-	// Auth is required - if auto-auth is enabled, trigger login
-	if e.options.AutoAuth {
+	// Auth is required - handle according to AuthMode
+	return e.triggerAuthentication(ctx, authHandler)
+}
+
+// triggerAuthentication handles authentication based on the configured AuthMode.
+func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler api.AuthHandler) error {
+	switch e.options.AuthMode {
+	case AuthModeAuto:
+		// Auto mode: trigger login automatically
 		if !e.options.Quiet {
-			fmt.Println("Authentication required. Starting login flow...")
+			fmt.Println("Authentication required. Opening browser...")
 		}
 		if err := authHandler.Login(ctx, e.endpoint); err != nil {
 			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
 		}
-
 		// Get the token and set it on the client
 		token, err := authHandler.GetBearerToken(e.endpoint)
 		if err != nil {
@@ -242,15 +296,43 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 		}
 		e.client.SetAuthorizationHeader(token)
 		return nil
-	}
 
-	// Auth required but auto-auth disabled - return auth required error
-	return &AuthRequiredError{Endpoint: e.endpoint}
+	case AuthModePrompt:
+		// Prompt mode: ask user before triggering
+		if !e.options.Quiet {
+			fmt.Printf("Authentication required for %s\n", e.endpoint)
+			fmt.Print("Open browser to authenticate? [Y/n]: ")
+
+			var response string
+			fmt.Scanln(&response)
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "" && response != "y" && response != "yes" {
+				return &AuthRequiredError{Endpoint: e.endpoint}
+			}
+		}
+		if err := authHandler.Login(ctx, e.endpoint); err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		token, err := authHandler.GetBearerToken(e.endpoint)
+		if err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		e.client.SetAuthorizationHeader(token)
+		return nil
+
+	case AuthModeNone:
+		// None mode: fail immediately
+		return &AuthRequiredError{Endpoint: e.endpoint}
+
+	default:
+		// Unknown mode, treat as auto
+		return e.triggerAuthentication(ctx, authHandler)
+	}
 }
 
 // handleAuthError handles authentication errors during connection.
 func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) error {
-	if e.options.NoAuth {
+	if e.options.AuthMode == AuthModeNone {
 		return &AuthRequiredError{Endpoint: e.endpoint}
 	}
 
@@ -259,24 +341,12 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 		return &AuthRequiredError{Endpoint: e.endpoint}
 	}
 
-	if e.options.AutoAuth {
-		fmt.Println("Authentication required. Starting login flow...")
-		if err := authHandler.Login(ctx, e.endpoint); err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-
-		// Get the token and set it on the client
-		token, err := authHandler.GetBearerToken(e.endpoint)
-		if err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		e.client.SetAuthorizationHeader(token)
-
-		// Retry connection
-		return e.client.Connect(ctx)
+	if err := e.triggerAuthentication(ctx, authHandler); err != nil {
+		return err
 	}
 
-	return &AuthRequiredError{Endpoint: e.endpoint}
+	// Retry connection
+	return e.client.Connect(ctx)
 }
 
 // GetEndpoint returns the resolved endpoint URL.

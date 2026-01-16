@@ -165,6 +165,7 @@ muster auth whoami [OPTIONS]
 **Output:**
 
 ```
+Identity:  user@example.com
 Endpoint:  https://muster.example.com/mcp
 Issuer:    https://dex.example.com
 Expires:   in 23 hours
@@ -187,6 +188,53 @@ These options are available on all auth subcommands:
 - `--config-path` (string): Configuration directory
   - Default: `~/.config/muster`
 - `--quiet, -q`: Suppress non-essential output
+
+## Environment Variables
+
+Muster supports several environment variables for authentication configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MUSTER_ENDPOINT` | Default aggregator endpoint URL | (none) |
+| `MUSTER_AUTH_MODE` | Authentication mode: `auto`, `prompt`, or `none` | `auto` |
+| `MUSTER_OAUTH_CALLBACK_PORT` | Port for OAuth callback server | `3000` |
+
+**Auth Modes:**
+
+- **auto** (default): Automatically opens browser when authentication is required
+- **prompt**: Asks for confirmation before opening browser
+- **none**: Fails immediately if authentication is required
+
+Example usage:
+
+```bash
+# Set default endpoint
+export MUSTER_ENDPOINT=https://muster.example.com/mcp
+
+# Now commands use this endpoint automatically
+muster list mcpserver
+muster auth status
+
+# Use prompt mode for interactive scripts
+export MUSTER_AUTH_MODE=prompt
+muster list service
+
+# Use a different callback port (if 3000 is in use)
+export MUSTER_OAUTH_CALLBACK_PORT=8080
+muster auth login
+```
+
+## Authentication on CLI Commands
+
+All CLI commands that connect to the aggregator support the `--auth` flag:
+
+```bash
+muster list mcpserver --auth=auto    # Default: auto-open browser
+muster list mcpserver --auth=prompt  # Ask before opening browser
+muster list mcpserver --auth=none    # Fail if auth required
+```
+
+By default, authentication is automatic (`auto`): if authentication is required, muster will open your browser to complete the OAuth flow.
 
 ## Token Storage
 
@@ -319,7 +367,14 @@ If port 3000 is already in use:
 Authentication failed: callback port 3000 is already in use. Please free port 3000 and try again
 ```
 
-Free the port by stopping any service using it:
+**Option 1:** Use a different port via environment variable:
+
+```bash
+export MUSTER_OAUTH_CALLBACK_PORT=8080
+muster auth login
+```
+
+**Option 2:** Free port 3000:
 
 ```bash
 # Find what's using port 3000
@@ -353,6 +408,28 @@ Ensure you can reach both:
 # Test connectivity
 curl -I https://muster.example.com/mcp
 curl -I https://dex.example.com/.well-known/openid-configuration
+```
+
+## Exit Codes
+
+Muster uses standard exit codes for scripting:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error (command failed, invalid arguments) |
+| `2` | Authentication required (use `muster auth login`) |
+| `3` | Authentication failed (OAuth flow failed) |
+
+Example scripting usage:
+
+```bash
+muster list service --endpoint https://muster.example.com/mcp --auth=none
+case $? in
+  0) echo "Success" ;;
+  2) echo "Auth required - running login..."; muster auth login ;;
+  *) echo "Error" ;;
+esac
 ```
 
 ## Security Considerations

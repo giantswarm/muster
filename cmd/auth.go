@@ -250,7 +250,12 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Display identity information
+	// Display identity information - identity first, then context
+	if status.Email != "" {
+		fmt.Printf("Identity:  %s\n", status.Email)
+	} else if status.Subject != "" {
+		fmt.Printf("Identity:  %s\n", status.Subject)
+	}
 	fmt.Printf("Endpoint:  %s\n", status.Endpoint)
 	if status.IssuerURL != "" {
 		fmt.Printf("Issuer:    %s\n", status.IssuerURL)

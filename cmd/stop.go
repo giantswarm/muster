@@ -13,8 +13,7 @@ var (
 	stopQuiet        bool
 	stopConfigPath   string
 	stopEndpoint     string
-	stopAutoAuth     bool
-	stopNoAuth       bool
+	stopAuthMode     string
 )
 
 // Available resource types for stop operations
@@ -72,9 +71,8 @@ func init() {
 	stopCmd.PersistentFlags().StringVarP(&stopOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	stopCmd.PersistentFlags().BoolVarP(&stopQuiet, "quiet", "q", false, "Suppress non-essential output")
 	stopCmd.PersistentFlags().StringVar(&stopConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	stopCmd.PersistentFlags().StringVar(&stopEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
-	stopCmd.PersistentFlags().BoolVar(&stopAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
-	stopCmd.PersistentFlags().BoolVar(&stopNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
+	stopCmd.PersistentFlags().StringVar(&stopEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	stopCmd.PersistentFlags().StringVar(&stopAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
@@ -87,13 +85,22 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service", resourceType)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode := cli.GetDefaultAuthMode()
+	if stopAuthMode != "" {
+		var err error
+		authMode, err = cli.ParseAuthMode(stopAuthMode)
+		if err != nil {
+			return err
+		}
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(stopOutputFormat),
 		Quiet:      stopQuiet,
 		ConfigPath: stopConfigPath,
 		Endpoint:   stopEndpoint,
-		AutoAuth:   stopAutoAuth,
-		NoAuth:     stopNoAuth,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

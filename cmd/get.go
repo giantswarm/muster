@@ -16,8 +16,7 @@ var (
 	getQuiet        bool
 	getConfigPath   string
 	getEndpoint     string
-	getAutoAuth     bool
-	getNoAuth       bool
+	getAuthMode     string
 )
 
 // Available resource types for autocompletion
@@ -182,9 +181,8 @@ func init() {
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
 	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", "", "Remote muster aggregator endpoint URL")
-	getCmd.PersistentFlags().BoolVar(&getAutoAuth, "auto-auth", false, "Automatically trigger OAuth on 401 responses")
-	getCmd.PersistentFlags().BoolVar(&getNoAuth, "no-auth", false, "Fail immediately on 401 without attempting authentication")
+	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	getCmd.PersistentFlags().StringVar(&getAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
@@ -197,13 +195,22 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode := cli.GetDefaultAuthMode()
+	if getAuthMode != "" {
+		var err error
+		authMode, err = cli.ParseAuthMode(getAuthMode)
+		if err != nil {
+			return err
+		}
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(getOutputFormat),
 		Quiet:      getQuiet,
 		ConfigPath: getConfigPath,
 		Endpoint:   getEndpoint,
-		AutoAuth:   getAutoAuth,
-		NoAuth:     getNoAuth,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err
