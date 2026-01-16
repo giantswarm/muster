@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"muster/internal/agent"
+	"muster/internal/agent/oauth"
 	"muster/internal/api"
 	"muster/internal/cli"
 	"muster/internal/config"
@@ -23,8 +24,10 @@ const (
 	DefaultAuthWaitTimeout = 2 * time.Minute
 	// DefaultAuthPollInterval is the default interval for polling authentication status.
 	DefaultAuthPollInterval = 500 * time.Millisecond
-	// DefaultStatusCheckTimeout is the timeout for checking connection status.
+	// DefaultStatusCheckTimeout is the timeout for checking connection status and fetching resources.
 	DefaultStatusCheckTimeout = 10 * time.Second
+	// ShortAuthCheckTimeout is a shorter timeout for quick auth requirement checks.
+	ShortAuthCheckTimeout = 5 * time.Second
 )
 
 // ensureAuthHandler ensures an auth handler is registered and returns it.
@@ -163,30 +166,22 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 	}
 
 	// Try to open browser
-	if !authQuiet {
-		fmt.Println("Opening browser for authentication...")
-	}
+	authPrintln("Opening browser for authentication...")
 
 	err = openBrowserForAuth(authURL)
 	if err != nil {
-		if !authQuiet {
-			fmt.Println("Could not open browser automatically.")
-			fmt.Printf("\nPlease open this URL in your browser:\n  %s\n\n", authURL)
-		}
+		authPrintln("Could not open browser automatically.")
+		authPrint("\nPlease open this URL in your browser:\n  %s\n\n", authURL)
 		// Continue - user can still manually open the URL
 	}
 
 	// If waiting is enabled, poll until completion
 	if waitCfg.WaitForCompletion {
-		if !authQuiet {
-			fmt.Printf("Waiting for %s authentication to complete...\n", serverName)
-		}
+		authPrint("Waiting for %s authentication to complete...\n", serverName)
 		if err := waitForServerAuth(ctx, handler, aggregatorEndpoint, serverName, waitCfg); err != nil {
 			return err
 		}
-		if !authQuiet {
-			fmt.Printf("%s %s authenticated successfully.\n", text.FgGreen.Sprint("✓"), serverName)
-		}
+		authPrint("%s %s authenticated successfully.\n", text.FgGreen.Sprint("✓"), serverName)
 	}
 
 	return nil
@@ -268,8 +263,7 @@ func extractAuthURL(result *mcp.CallToolResult) string {
 
 // openBrowserForAuth opens the browser for OAuth authentication.
 func openBrowserForAuth(url string) error {
-	// Import the oauth package's OpenBrowser function
-	return agent.OpenBrowserForAuth(url)
+	return oauth.OpenBrowser(url)
 }
 
 // formatDuration formats a duration in a human-readable way.

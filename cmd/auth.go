@@ -91,6 +91,22 @@ var (
 	logoutYes bool
 )
 
+// authPrint prints output only if the --quiet flag is not set.
+// Use this for progress messages and non-essential output.
+func authPrint(format string, args ...interface{}) {
+	if !authQuiet {
+		fmt.Printf(format, args...)
+	}
+}
+
+// authPrintln prints a line only if the --quiet flag is not set.
+// Use this for progress messages and non-essential output.
+func authPrintln(a ...interface{}) {
+	if !authQuiet {
+		fmt.Println(a...)
+	}
+}
+
 func init() {
 	rootCmd.AddCommand(authCmd)
 	authCmd.AddCommand(authLoginCmd)
@@ -120,9 +136,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		statuses := handler.GetStatus()
 
 		if len(statuses) == 0 {
-			if !authQuiet {
-				fmt.Println("No stored tokens to clear.")
-			}
+			authPrintln("No stored tokens to clear.")
 			return nil
 		}
 
@@ -160,9 +174,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to clear all tokens: %w", err)
 		}
 
-		if !authQuiet {
-			fmt.Printf("Cleared %d stored token(s).\n", len(statuses))
-		}
+		authPrint("Cleared %d stored token(s).\n", len(statuses))
 		return nil
 	}
 
@@ -189,9 +201,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to logout: %w", err)
 	}
 
-	if !authQuiet {
-		fmt.Printf("Logged out from %s\n", endpoint)
-	}
+	authPrint("Logged out from %s\n", endpoint)
 	return nil
 }
 
@@ -215,16 +225,12 @@ func runAuthRefresh(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if !authQuiet {
-		fmt.Printf("Refreshing token for %s...\n", endpoint)
-	}
+	authPrint("Refreshing token for %s...\n", endpoint)
 	if err := handler.RefreshToken(ctx, endpoint); err != nil {
 		return fmt.Errorf("failed to refresh token: %w", err)
 	}
 
-	if !authQuiet {
-		fmt.Println("Token refreshed successfully.")
-	}
+	authPrintln("Token refreshed successfully.")
 	return nil
 }
 

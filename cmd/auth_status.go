@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"muster/internal/api"
 	pkgoauth "muster/pkg/oauth"
@@ -62,52 +61,42 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show aggregator status
-	if !authQuiet {
-		fmt.Println("Muster Aggregator")
-	}
+	authPrintln("Muster Aggregator")
 	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
 	if status != nil {
-		if !authQuiet {
-			fmt.Printf("  Endpoint:  %s\n", aggregatorEndpoint)
-		}
+		authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
 		if status.Authenticated {
-			if !authQuiet {
-				fmt.Printf("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-				if !status.ExpiresAt.IsZero() {
-					fmt.Printf("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
-				}
-				if status.IssuerURL != "" {
-					fmt.Printf("  Issuer:    %s\n", status.IssuerURL)
-				}
+			authPrint("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+			if !status.ExpiresAt.IsZero() {
+				authPrint("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
+			}
+			if status.IssuerURL != "" {
+				authPrint("  Issuer:    %s\n", status.IssuerURL)
 			}
 		} else {
 			// Check if auth is required
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
 			authRequired, _ := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
 			cancel()
 
-			if !authQuiet {
-				if authRequired {
-					fmt.Printf("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-					fmt.Printf("             Run: muster auth login\n")
-				} else {
-					fmt.Printf("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
-				}
+			if authRequired {
+				authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+				authPrint("             Run: muster auth login\n")
+			} else {
+				authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
 			}
 		}
 	}
 
 	// Try to get MCP server status from the aggregator
 	if handler.HasValidToken(aggregatorEndpoint) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
 		defer cancel()
 
 		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 		if err == nil && len(authStatus.Servers) > 0 {
-			if !authQuiet {
-				fmt.Println("\nMCP Servers")
-				printMCPServerStatuses(authStatus.Servers)
-			}
+			authPrintln("\nMCP Servers")
+			printMCPServerStatuses(authStatus.Servers)
 		}
 	}
 
@@ -129,15 +118,13 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 	// Find the requested server
 	for _, srv := range authStatus.Servers {
 		if srv.Name == serverName {
-			if !authQuiet {
-				fmt.Printf("\nMCP Server: %s\n", srv.Name)
-				fmt.Printf("  Status:   %s\n", formatMCPServerStatus(srv.Status))
-				if srv.Issuer != "" {
-					fmt.Printf("  Issuer:   %s\n", srv.Issuer)
-				}
-				if srv.AuthTool != "" && srv.Status == pkgoauth.ServerStatusAuthRequired {
-					fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
-				}
+			authPrint("\nMCP Server: %s\n", srv.Name)
+			authPrint("  Status:   %s\n", formatMCPServerStatus(srv.Status))
+			if srv.Issuer != "" {
+				authPrint("  Issuer:   %s\n", srv.Issuer)
+			}
+			if srv.AuthTool != "" && srv.Status == pkgoauth.ServerStatusAuthRequired {
+				authPrint("  Action:   Run: muster auth login --server %s\n", srv.Name)
 			}
 			return nil
 		}

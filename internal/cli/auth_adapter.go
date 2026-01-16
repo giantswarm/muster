@@ -515,15 +515,13 @@ func (a *AuthAdapter) tryRefreshToken(ctx context.Context, endpoint string) (boo
 	return true, nil
 }
 
-// tokenRefreshThreshold is the duration before expiry when tokens should be refreshed.
-const tokenRefreshThreshold = 5 * time.Minute
-
 // tokenNeedsRefresh checks if a token is approaching expiry and needs refresh.
+// Uses the shared TokenRefreshThreshold from pkg/oauth for consistent behavior.
 func tokenNeedsRefresh(token *oauth.StoredToken) bool {
 	if token == nil || token.Expiry.IsZero() {
 		return false
 	}
-	return time.Until(token.Expiry) < tokenRefreshThreshold
+	return time.Until(token.Expiry) < pkgoauth.TokenRefreshThreshold
 }
 
 // Close cleans up any resources held by the auth adapter.

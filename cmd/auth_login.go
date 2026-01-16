@@ -78,9 +78,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
 	// First ensure we're authenticated to the aggregator
 	if !handler.HasValidToken(aggregatorEndpoint) {
-		if !authQuiet {
-			fmt.Println("Authenticating to aggregator first...")
-		}
+		authPrintln("Authenticating to aggregator first...")
 		if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
 			return fmt.Errorf("failed to authenticate to aggregator: %w", err)
 		}
@@ -107,14 +105,10 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 
 	if serverInfo.Status != pkgoauth.ServerStatusAuthRequired {
 		if serverInfo.Status == pkgoauth.ServerStatusConnected {
-			if !authQuiet {
-				fmt.Printf("Server '%s' is already connected and does not require authentication.\n", serverName)
-			}
+			authPrint("Server '%s' is already connected and does not require authentication.\n", serverName)
 			return nil
 		}
-		if !authQuiet {
-			fmt.Printf("Server '%s' is in state '%s' and cannot be authenticated.\n", serverName, serverInfo.Status)
-		}
+		authPrint("Server '%s' is in state '%s' and cannot be authenticated.\n", serverName, serverInfo.Status)
 		return nil
 	}
 
@@ -123,32 +117,24 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 	}
 
 	// Call the auth tool and wait for completion
-	if !authQuiet {
-		fmt.Printf("Authenticating to %s...\n", serverName)
-	}
+	authPrint("Authenticating to %s...\n", serverName)
 	return triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, serverName, serverInfo.AuthTool, DefaultAuthWaitConfig())
 }
 
 // loginToAll authenticates to the aggregator and all pending MCP servers.
 func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) error {
 	// Login to aggregator first
-	if !authQuiet {
-		fmt.Printf("Authenticating to aggregator (%s)...\n", aggregatorEndpoint)
-	}
+	authPrint("Authenticating to aggregator (%s)...\n", aggregatorEndpoint)
 	if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
 		return fmt.Errorf("failed to authenticate to aggregator: %w", err)
 	}
-	if !authQuiet {
-		fmt.Println("done")
-	}
+	authPrintln("done")
 
 	// Get auth status from aggregator
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		if !authQuiet {
-			fmt.Printf("\nWarning: Could not get MCP server status: %v\n", err)
-			fmt.Println("Aggregator authentication complete.")
-		}
+		authPrint("\nWarning: Could not get MCP server status: %v\n", err)
+		authPrintln("Aggregator authentication complete.")
 		return nil
 	}
 
@@ -161,40 +147,30 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	}
 
 	if len(pendingServers) == 0 {
-		if !authQuiet {
-			fmt.Println("\nNo MCP servers require authentication.")
-			fmt.Println("All authentication complete.")
-		}
+		authPrintln("\nNo MCP servers require authentication.")
+		authPrintln("All authentication complete.")
 		return nil
 	}
 
-	if !authQuiet {
-		fmt.Printf("\nFound %d MCP server(s) requiring authentication:\n", len(pendingServers))
-		for _, srv := range pendingServers {
-			fmt.Printf("  - %s\n", srv.Name)
-		}
-		fmt.Println()
+	authPrint("\nFound %d MCP server(s) requiring authentication:\n", len(pendingServers))
+	for _, srv := range pendingServers {
+		authPrint("  - %s\n", srv.Name)
 	}
+	authPrintln()
 
 	// Authenticate to each server sequentially, waiting for each to complete
 	// This ensures SSO cookies are available for subsequent flows
 	waitCfg := DefaultAuthWaitConfig()
 	successCount := 0
 	for i, srv := range pendingServers {
-		if !authQuiet {
-			fmt.Printf("[%d/%d] Authenticating to %s\n", i+1, len(pendingServers), srv.Name)
-		}
+		authPrint("[%d/%d] Authenticating to %s\n", i+1, len(pendingServers), srv.Name)
 		if err := triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, srv.Name, srv.AuthTool, waitCfg); err != nil {
-			if !authQuiet {
-				fmt.Printf("  Failed: %v\n", err)
-			}
+			authPrint("  Failed: %v\n", err)
 		} else {
 			successCount++
 		}
 	}
 
-	if !authQuiet {
-		fmt.Printf("\nAuthentication complete. %d/%d servers authenticated.\n", successCount, len(pendingServers))
-	}
+	authPrint("\nAuthentication complete. %d/%d servers authenticated.\n", successCount, len(pendingServers))
 	return nil
 }

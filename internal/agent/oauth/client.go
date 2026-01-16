@@ -383,10 +383,6 @@ func (c *Client) ClearToken(serverURL string) error {
 	return c.tokenStore.DeleteToken(serverURL)
 }
 
-// TokenRefreshThreshold is the duration before expiry when tokens should be refreshed.
-// Tokens expiring within this threshold will be proactively refreshed.
-const TokenRefreshThreshold = 5 * time.Minute
-
 // RefreshTokenIfNeeded checks if the token for the server needs refreshing and refreshes it.
 // Returns true if the token was refreshed, false if no refresh was needed.
 // Returns an error if the refresh failed.
@@ -433,11 +429,12 @@ func (c *Client) RefreshTokenIfNeeded(ctx context.Context, serverURL string) (bo
 }
 
 // tokenNeedsRefresh checks if a token is approaching expiry and needs refresh.
+// Uses the shared TokenRefreshThreshold from pkg/oauth for consistent behavior.
 func (c *Client) tokenNeedsRefresh(token *StoredToken) bool {
 	if token == nil || token.Expiry.IsZero() {
 		return false
 	}
-	return time.Until(token.Expiry) < TokenRefreshThreshold
+	return time.Until(token.Expiry) < pkgoauth.TokenRefreshThreshold
 }
 
 // doRefreshToken performs the actual token refresh using the refresh token.
