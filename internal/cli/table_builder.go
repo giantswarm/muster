@@ -522,12 +522,17 @@ func (b *TableBuilder) GetResourceIcon(resourceType string) string {
 	case "serviceClasses":
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🟡")
 	case "mcpServers":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("��")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🔴")
 	case "workflows":
 		return text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔵")
 	case "executions":
 		return text.Colors{text.FgHiCyan, text.Bold}.Sprint("🔄")
-
+	case "mcpTool", "mcpTools":
+		return text.Colors{text.FgHiMagenta, text.Bold}.Sprint("🔧")
+	case "mcpResource", "mcpResources":
+		return text.Colors{text.FgHiCyan, text.Bold}.Sprint("📦")
+	case "mcpPrompt", "mcpPrompts":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("📝")
 	default:
 		return text.Faint.Sprint("⚫")
 	}

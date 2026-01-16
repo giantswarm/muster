@@ -18,6 +18,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Re-export mcp types for convenience so cmd package doesn't need to import mcp directly
+type (
+	// MCPTool is an alias for mcp.Tool for use in cmd package
+	MCPTool = mcp.Tool
+	// MCPResource is an alias for mcp.Resource for use in cmd package
+	MCPResource = mcp.Resource
+	// MCPPrompt is an alias for mcp.Prompt for use in cmd package
+	MCPPrompt = mcp.Prompt
+)
+
 // OutputFormat represents the supported output formats for CLI commands.
 // This allows users to choose how they want to receive command results.
 type OutputFormat string
@@ -587,4 +597,121 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 	}
 
 	return e.formatter.FormatData(data)
+}
+
+// ListMCPTools returns all MCP tools using native protocol.
+// This method retrieves tools directly from the MCP server without going through
+// the tool execution interface.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//
+// Returns:
+//   - []mcp.Tool: Slice of all available tools from the server
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
+	return e.client.ListToolsFromServer(ctx)
+}
+
+// ListMCPResources returns all MCP resources using native protocol.
+// This method retrieves resources directly from the MCP server without going through
+// the tool execution interface.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//
+// Returns:
+//   - []mcp.Resource: Slice of all available resources from the server
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) ListMCPResources(ctx context.Context) ([]mcp.Resource, error) {
+	return e.client.ListResourcesFromServer(ctx)
+}
+
+// ListMCPPrompts returns all MCP prompts using native protocol.
+// This method retrieves prompts directly from the MCP server without going through
+// the tool execution interface.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//
+// Returns:
+//   - []mcp.Prompt: Slice of all available prompts from the server
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) ListMCPPrompts(ctx context.Context) ([]mcp.Prompt, error) {
+	return e.client.ListPromptsFromServer(ctx)
+}
+
+// GetMCPTool returns detailed info for a specific tool.
+// This method retrieves the tool list and finds the specified tool by name.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//   - name: The exact name of the tool to find
+//
+// Returns:
+//   - *mcp.Tool: Pointer to the found tool, or nil if not found
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) GetMCPTool(ctx context.Context, name string) (*mcp.Tool, error) {
+	// First refresh the cache
+	_, err := e.client.ListToolsFromServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tool := e.client.GetToolByName(name)
+	return tool, nil
+}
+
+// GetMCPResource returns detailed info for a specific resource.
+// This method retrieves the resource list and finds the specified resource by URI.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//   - uri: The exact URI of the resource to find
+//
+// Returns:
+//   - *mcp.Resource: Pointer to the found resource, or nil if not found
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) GetMCPResource(ctx context.Context, uri string) (*mcp.Resource, error) {
+	// First refresh the cache
+	_, err := e.client.ListResourcesFromServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resource := e.client.GetResourceByURI(uri)
+	return resource, nil
+}
+
+// GetMCPPrompt returns detailed info for a specific prompt.
+// This method retrieves the prompt list and finds the specified prompt by name.
+//
+// Args:
+//   - ctx: Context for execution timeout and cancellation
+//   - name: The exact name of the prompt to find
+//
+// Returns:
+//   - *mcp.Prompt: Pointer to the found prompt, or nil if not found
+//   - error: Connection or retrieval error, if any
+func (e *ToolExecutor) GetMCPPrompt(ctx context.Context, name string) (*mcp.Prompt, error) {
+	// First refresh the cache
+	_, err := e.client.ListPromptsFromServer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	prompt := e.client.GetPromptByName(name)
+	return prompt, nil
+}
+
+// GetOptions returns the executor options.
+// This allows callers to check the configured output format and other settings.
+func (e *ToolExecutor) GetOptions() ExecutorOptions {
+	return e.options
+}
+
+// GetFormatter returns the table formatter.
+// This allows callers to use the same formatter for consistent output.
+func (e *ToolExecutor) GetFormatter() *TableFormatter {
+	return e.formatter
 }
