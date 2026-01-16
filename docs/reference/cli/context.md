@@ -41,15 +41,22 @@ When determining which endpoint to use, muster checks in this order (highest to 
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `list` | List all contexts (default when no subcommand given) |
-| `current` | Show current context name |
-| `use <name>` | Switch to a different context |
-| `add <name> --endpoint <url>` | Add a new context |
-| `delete <name>` | Delete a context |
-| `rename <old> <new>` | Rename a context |
-| `show <name>` | Show context details |
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `list` | `ls` | List all contexts (default when no subcommand given) |
+| `current` | | Show current context name |
+| `use <name>` | `switch` | Switch to a different context |
+| `add <name> --endpoint <url>` | | Add a new context |
+| `update <name> --endpoint <url>` | `set` | Update an existing context's endpoint |
+| `delete <name>` | `rm`, `remove` | Delete a context (requires confirmation) |
+| `rename <old> <new>` | | Rename a context |
+| `show <name>` | `describe`, `get` | Show context details |
+
+## Global Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--quiet` | `-q` | Suppress non-essential output |
 
 ## Examples
 
@@ -63,6 +70,9 @@ muster context add production --endpoint https://muster.example.com/mcp
 
 # Set default context
 muster context use staging
+
+# Or add and switch in one command
+muster context add production --endpoint https://muster.example.com/mcp --use
 ```
 
 ### Daily Usage
@@ -89,6 +99,9 @@ CURRENT  NAME        ENDPOINT
 *        production  https://muster.example.com/mcp
          staging     https://muster-staging.example.com/mcp
          local       http://localhost:8090/mcp
+
+# Short form
+$ muster context ls
 ```
 
 ### Show Current Context
@@ -102,11 +115,25 @@ production
 
 ```bash
 $ muster context show production
-Name:      production
-Endpoint:  https://muster.example.com/mcp
-Current:   yes
+Name:     production
+Endpoint: https://muster.example.com/mcp
+Current:  yes
 Settings:
-  output:  table
+  output: table
+
+# JSON output for scripting
+$ muster context show production -o json
+{
+  "name": "production",
+  "endpoint": "https://muster.example.com/mcp",
+  "current": true,
+  "settings": {
+    "output": "table"
+  }
+}
+
+# YAML output
+$ muster context show production -o yaml
 ```
 
 ### Add a New Context
@@ -117,6 +144,21 @@ Context "development" added.
 
 To use this context, run:
   muster context use development
+
+# Add and switch immediately
+$ muster context add development --endpoint https://muster-dev.example.com/mcp --use
+Context "development" added.
+Switched to context "development"
+```
+
+### Update an Existing Context
+
+```bash
+$ muster context update staging --endpoint https://new-staging.example.com/mcp
+Context "staging" updated.
+
+# Using the 'set' alias
+$ muster context set staging --endpoint https://new-staging.example.com/mcp
 ```
 
 ### Switch Context
@@ -124,6 +166,10 @@ To use this context, run:
 ```bash
 $ muster context use development
 Switched to context "development"
+
+# Using the 'switch' alias
+$ muster context switch production
+Switched to context "production"
 ```
 
 ### Rename a Context
@@ -136,8 +182,17 @@ Context "development" renamed to "dev".
 ### Delete a Context
 
 ```bash
+# With confirmation prompt
 $ muster context delete dev
+Delete context "dev"? [y/N] y
 Context "dev" deleted.
+
+# Skip confirmation with --force
+$ muster context delete dev --force
+Context "dev" deleted.
+
+# Short form
+$ muster context rm dev -f
 ```
 
 ## Context Name Rules
@@ -190,6 +245,21 @@ muster auth login
 
 # Now both endpoints have tokens stored
 # Switching context uses the correct token automatically
+```
+
+## Quiet Mode for Scripting
+
+Use `-q` or `--quiet` for cleaner scripting:
+
+```bash
+# Silent context switching
+muster context use production -q
+
+# Silent add and switch
+muster context add staging --endpoint https://staging.example.com/mcp --use -q
+
+# Combine with other scripted operations
+muster context use production -q && muster list service
 ```
 
 ## Shell Completion

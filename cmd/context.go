@@ -1,18 +1,27 @@
 package cmd
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	musterctx "muster/internal/context"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var (
-	contextAddEndpoint string
+	contextAddEndpoint      string
+	contextAddSetCurrent    bool
+	contextDeleteForce      bool
+	contextQuiet            bool
+	contextShowOutputFormat string
+	contextUpdateEndpoint   string
 )
 
 // contextCmd represents the context command group
@@ -27,13 +36,17 @@ kubectl's context management.
 
 Examples:
   muster context                              # List all contexts
-  muster context list                         # List all contexts
+  muster context list                         # List all contexts (alias: ls)
   muster context current                      # Show current context
-  muster context use production               # Switch to production context
+  muster context use production               # Switch to context (alias: switch)
   muster context add staging --endpoint <url> # Add new context
-  muster context delete staging               # Remove a context
+  muster context add staging --endpoint <url> --use  # Add and switch
+  muster context update staging --endpoint <url>     # Update context (alias: set)
+  muster context delete staging               # Remove a context (alias: rm)
+  muster context delete staging --force       # Remove without confirmation
   muster context rename staging stage         # Rename a context
-  muster context show production              # Show context details
+  muster context show production              # Show details (alias: describe)
+  muster context show production -o json      # Show as JSON
 
 Context Configuration:
   Contexts are stored in ~/.config/muster/contexts.yaml
@@ -50,14 +63,16 @@ Precedence (highest to lowest):
 
 // contextListCmd lists all contexts
 var contextListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all contexts",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List all contexts",
 	Long: `List all configured contexts.
 
 The current context is marked with an asterisk (*).
 
 Examples:
-  muster context list`,
+  muster context list
+  muster context ls`,
 	Args: cobra.NoArgs,
 	RunE: runContextList,
 }
@@ -78,15 +93,16 @@ Examples:
 
 // contextUseCmd switches the current context
 var contextUseCmd = &cobra.Command{
-	Use:   "use <name>",
-	Short: "Switch to a different context",
+	Use:     "use <name>",
+	Aliases: []string{"switch"},
+	Short:   "Switch to a different context",
 	Long: `Set the current context to the specified name.
 
 The context must already exist. Use 'muster context add' to create new contexts.
 
 Examples:
   muster context use production
-  muster context use staging`,
+  muster context switch staging`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeContextNames,
 	RunE:              runContextUse,
@@ -106,7 +122,7 @@ Context names must:
 Examples:
   muster context add local --endpoint http://localhost:8090/mcp
   muster context add staging --endpoint https://muster-staging.example.com/mcp
-  muster context add production --endpoint https://muster.example.com/mcp`,
+  muster context add production --endpoint https://muster.example.com/mcp --use`,
 	Args: cobra.ExactArgs(1),
 	RunE: runContextAdd,
 }
@@ -120,9 +136,12 @@ var contextDeleteCmd = &cobra.Command{
 
 If the deleted context was the current context, the current context will be cleared.
 
+By default, this command asks for confirmation. Use --force to skip the prompt.
+
 Examples:
   muster context delete staging
-  muster context rm staging`,
+  muster context delete staging --force
+  muster context rm staging -f`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeContextNames,
 	RunE:              runContextDelete,
@@ -153,16 +172,36 @@ Examples:
 
 // contextShowCmd shows details of a context
 var contextShowCmd = &cobra.Command{
-	Use:   "show <name>",
-	Short: "Show context details",
+	Use:     "show <name>",
+	Aliases: []string{"describe", "get"},
+	Short:   "Show context details",
 	Long: `Display detailed information about a specific context.
+
+Supports multiple output formats via --output flag.
 
 Examples:
   muster context show production
-  muster context show staging`,
+  muster context describe staging
+  muster context show production --output json
+  muster context show production -o yaml`,
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeContextNames,
 	RunE:              runContextShow,
+}
+
+// contextUpdateCmd updates an existing context
+var contextUpdateCmd = &cobra.Command{
+	Use:     "update <name> --endpoint <url>",
+	Aliases: []string{"set"},
+	Short:   "Update an existing context",
+	Long: `Update the endpoint or settings of an existing context.
+
+Examples:
+  muster context update staging --endpoint https://new-staging.example.com/mcp
+  muster context set production --endpoint https://muster.example.com/mcp`,
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeContextNames,
+	RunE:              runContextUpdate,
 }
 
 func init() {
@@ -174,10 +213,25 @@ func init() {
 	contextCmd.AddCommand(contextDeleteCmd)
 	contextCmd.AddCommand(contextRenameCmd)
 	contextCmd.AddCommand(contextShowCmd)
+	contextCmd.AddCommand(contextUpdateCmd)
+
+	// Global context flags
+	contextCmd.PersistentFlags().BoolVarP(&contextQuiet, "quiet", "q", false, "Suppress non-essential output")
 
 	// Add-specific flags
 	contextAddCmd.Flags().StringVar(&contextAddEndpoint, "endpoint", "", "Endpoint URL for the context (required)")
+	contextAddCmd.Flags().BoolVar(&contextAddSetCurrent, "use", false, "Set as current context after adding")
 	_ = contextAddCmd.MarkFlagRequired("endpoint")
+
+	// Delete-specific flags
+	contextDeleteCmd.Flags().BoolVarP(&contextDeleteForce, "force", "f", false, "Skip confirmation prompt")
+
+	// Show-specific flags
+	contextShowCmd.Flags().StringVarP(&contextShowOutputFormat, "output", "o", "text", "Output format (text, json, yaml)")
+
+	// Update-specific flags
+	contextUpdateCmd.Flags().StringVar(&contextUpdateEndpoint, "endpoint", "", "New endpoint URL for the context (required)")
+	_ = contextUpdateCmd.MarkFlagRequired("endpoint")
 }
 
 // completeContextNames provides shell completion for context names
@@ -210,10 +264,16 @@ func runContextList(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(config.Contexts) == 0 {
-		fmt.Println("No contexts configured.")
-		fmt.Println("")
-		fmt.Println("To add a context, run:")
-		fmt.Println("  muster context add <name> --endpoint <url>")
+		if !contextQuiet {
+			fmt.Println("No contexts configured yet.")
+			fmt.Println("")
+			fmt.Println("Get started by adding your first context:")
+			fmt.Println("  muster context add local --endpoint http://localhost:8090/mcp")
+			fmt.Println("  muster context add prod --endpoint https://muster.example.com/mcp")
+			fmt.Println("")
+			fmt.Println("Then activate it:")
+			fmt.Println("  muster context use local")
+		}
 		return nil
 	}
 
@@ -269,7 +329,9 @@ func runContextUse(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set current context: %w", err)
 	}
 
-	fmt.Printf("Switched to context %q\n", name)
+	if !contextQuiet {
+		fmt.Printf("Switched to context %q\n", name)
+	}
 	return nil
 }
 
@@ -285,13 +347,25 @@ func runContextAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to add context: %w", err)
 	}
 
-	fmt.Printf("Context %q added.\n", name)
+	if !contextQuiet {
+		fmt.Printf("Context %q added.\n", name)
+	}
 
-	// Suggest setting as current if no current context
-	currentName, _ := storage.GetCurrentContextName()
-	if currentName == "" {
-		fmt.Printf("\nTo use this context, run:\n")
-		fmt.Printf("  muster context use %s\n", name)
+	// Set as current context if --use flag is provided
+	if contextAddSetCurrent {
+		if err := storage.SetCurrentContext(name); err != nil {
+			return fmt.Errorf("failed to set current context: %w", err)
+		}
+		if !contextQuiet {
+			fmt.Printf("Switched to context %q\n", name)
+		}
+	} else if !contextQuiet {
+		// Suggest setting as current if no current context
+		currentName, _ := storage.GetCurrentContextName()
+		if currentName == "" {
+			fmt.Printf("\nTo use this context, run:\n")
+			fmt.Printf("  muster context use %s\n", name)
+		}
 	}
 
 	return nil
@@ -305,9 +379,32 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize context storage: %w", err)
 	}
 
-	// Check if this was the current context before deleting
+	// Check if context exists before prompting
+	ctx, err := storage.GetContext(name)
+	if err != nil {
+		return fmt.Errorf("failed to check context: %w", err)
+	}
+	if ctx == nil {
+		return fmt.Errorf("context %q not found", name)
+	}
+
+	// Check if this is the current context
 	currentName, _ := storage.GetCurrentContextName()
 	wasCurrent := currentName == name
+
+	// Prompt for confirmation unless --force is used
+	if !contextDeleteForce {
+		prompt := fmt.Sprintf("Delete context %q?", name)
+		if wasCurrent {
+			prompt = fmt.Sprintf("Delete context %q (current context)?", name)
+		}
+		if !confirmAction(prompt) {
+			if !contextQuiet {
+				fmt.Println("Aborted.")
+			}
+			return nil
+		}
+	}
 
 	if err := storage.DeleteContext(name); err != nil {
 		var notFoundErr *musterctx.ContextNotFoundError
@@ -317,10 +414,12 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to delete context: %w", err)
 	}
 
-	fmt.Printf("Context %q deleted.\n", name)
+	if !contextQuiet {
+		fmt.Printf("Context %q deleted.\n", name)
 
-	if wasCurrent {
-		fmt.Println("Note: This was the current context. Current context is now unset.")
+		if wasCurrent {
+			fmt.Println("Note: This was the current context. Current context is now unset.")
+		}
 	}
 
 	return nil
@@ -339,8 +438,18 @@ func runContextRename(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to rename context: %w", err)
 	}
 
-	fmt.Printf("Context %q renamed to %q.\n", oldName, newName)
+	if !contextQuiet {
+		fmt.Printf("Context %q renamed to %q.\n", oldName, newName)
+	}
 	return nil
+}
+
+// contextDetails represents the output structure for show command
+type contextDetails struct {
+	Name     string                     `json:"name" yaml:"name"`
+	Endpoint string                     `json:"endpoint" yaml:"endpoint"`
+	Current  bool                       `json:"current" yaml:"current"`
+	Settings *musterctx.ContextSettings `json:"settings,omitempty" yaml:"settings,omitempty"`
 }
 
 func runContextShow(cmd *cobra.Command, args []string) error {
@@ -361,19 +470,86 @@ func runContextShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("context %q not found", name)
 	}
 
-	fmt.Printf("Name:      %s\n", ctx.Name)
-	fmt.Printf("Endpoint:  %s\n", ctx.Endpoint)
+	isCurrent := config.CurrentContext == name
 
-	if config.CurrentContext == name {
-		fmt.Printf("Current:   yes\n")
-	}
+	switch contextShowOutputFormat {
+	case "json":
+		output := contextDetails{
+			Name:     ctx.Name,
+			Endpoint: ctx.Endpoint,
+			Current:  isCurrent,
+			Settings: ctx.Settings,
+		}
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON: %w", err)
+		}
+		fmt.Println(string(data))
 
-	if ctx.Settings != nil {
-		fmt.Println("Settings:")
-		if ctx.Settings.Output != "" {
-			fmt.Printf("  output:  %s\n", ctx.Settings.Output)
+	case "yaml":
+		output := contextDetails{
+			Name:     ctx.Name,
+			Endpoint: ctx.Endpoint,
+			Current:  isCurrent,
+			Settings: ctx.Settings,
+		}
+		data, err := yaml.Marshal(output)
+		if err != nil {
+			return fmt.Errorf("failed to marshal YAML: %w", err)
+		}
+		fmt.Print(string(data))
+
+	default: // "text" or any other value
+		fmt.Printf("Name:     %s\n", ctx.Name)
+		fmt.Printf("Endpoint: %s\n", ctx.Endpoint)
+
+		if isCurrent {
+			fmt.Printf("Current:  yes\n")
+		}
+
+		if ctx.Settings != nil {
+			fmt.Println("Settings:")
+			if ctx.Settings.Output != "" {
+				fmt.Printf("  output: %s\n", ctx.Settings.Output)
+			}
 		}
 	}
 
 	return nil
+}
+
+func runContextUpdate(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	storage, err := musterctx.NewStorage()
+	if err != nil {
+		return fmt.Errorf("failed to initialize context storage: %w", err)
+	}
+
+	if err := storage.UpdateContext(name, contextUpdateEndpoint, nil); err != nil {
+		var notFoundErr *musterctx.ContextNotFoundError
+		if errors.As(err, &notFoundErr) {
+			return fmt.Errorf("context %q not found. Use 'muster context add' to create a new context", name)
+		}
+		return fmt.Errorf("failed to update context: %w", err)
+	}
+
+	if !contextQuiet {
+		fmt.Printf("Context %q updated.\n", name)
+	}
+	return nil
+}
+
+// confirmAction prompts the user for confirmation and returns true if they confirm.
+func confirmAction(prompt string) bool {
+	fmt.Printf("%s [y/N] ", prompt)
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "y" || response == "yes"
 }

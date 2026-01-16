@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,6 +148,48 @@ func TestContextRename(t *testing.T) {
 	name, _ := storage.GetCurrentContextName()
 	if name != "production" {
 		t.Errorf("expected current context 'production', got %q", name)
+	}
+}
+
+func TestContextUpdate(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := musterctx.NewStorageWithPath(tmpDir)
+
+	// Add a context
+	if err := storage.AddContext("prod", "https://prod.example.com/mcp", nil); err != nil {
+		t.Fatalf("AddContext failed: %v", err)
+	}
+
+	// Update endpoint
+	newEndpoint := "https://new-prod.example.com/mcp"
+	if err := storage.UpdateContext("prod", newEndpoint, nil); err != nil {
+		t.Fatalf("UpdateContext failed: %v", err)
+	}
+
+	// Verify update
+	ctx, err := storage.GetContext("prod")
+	if err != nil {
+		t.Fatalf("GetContext failed: %v", err)
+	}
+	if ctx.Endpoint != newEndpoint {
+		t.Errorf("expected endpoint %q, got %q", newEndpoint, ctx.Endpoint)
+	}
+}
+
+func TestContextUpdateNonexistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := musterctx.NewStorageWithPath(tmpDir)
+
+	// Try to update a nonexistent context
+	err := storage.UpdateContext("nonexistent", "https://example.com/mcp", nil)
+	if err == nil {
+		t.Error("expected error when updating nonexistent context")
+	}
+
+	// Verify it's a ContextNotFoundError
+	var notFoundErr *musterctx.ContextNotFoundError
+	if !errors.As(err, &notFoundErr) {
+		t.Errorf("expected ContextNotFoundError, got %T", err)
 	}
 }
 
