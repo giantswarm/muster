@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,11 @@ const DefaultConnectionCheckTimeout = 5 * time.Second
 // DefaultHTTPClientTimeout is the timeout for HTTP client operations.
 const DefaultHTTPClientTimeout = 5 * time.Second
 
+// SessionIDFilename is the name of the file storing the persistent CLI session ID.
+// This session ID is used for X-Muster-Session-ID header to enable MCP server
+// token persistence across CLI invocations.
+const SessionIDFilename = "session-id"
+
 // AuthAdapter implements api.AuthHandler using internal/agent/oauth.
 // It wraps the AuthManager and TokenStore to provide OAuth authentication
 // for CLI commands following the project's service locator pattern.
@@ -48,6 +54,10 @@ type AuthAdapter struct {
 
 	// tokenStorageDir is the directory for storing tokens.
 	tokenStorageDir string
+
+	// sessionID is the persistent session ID for this CLI user.
+	// This is sent via X-Muster-Session-ID header to enable MCP server token persistence.
+	sessionID string
 }
 
 // NewAuthAdapter creates a new auth adapter with default configuration.
@@ -75,10 +85,77 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 		tokenDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
+	// Ensure the token directory exists
+	if err := os.MkdirAll(tokenDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create token storage directory: %w", err)
+	}
+
+	// Load or generate the persistent session ID
+	sessionID, err := loadOrCreateSessionID(tokenDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize session ID: %w", err)
+	}
+
 	return &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tokenDir,
+		sessionID:       sessionID,
 	}, nil
+}
+
+// loadOrCreateSessionID loads the session ID from the storage directory,
+// or generates and persists a new one if it doesn't exist.
+// This enables persistent session identity across CLI invocations.
+func loadOrCreateSessionID(storageDir string) (string, error) {
+	sessionFilePath := filepath.Join(storageDir, SessionIDFilename)
+
+	// Try to read existing session ID
+	data, err := os.ReadFile(sessionFilePath)
+	if err == nil {
+		sessionID := strings.TrimSpace(string(data))
+		if sessionID != "" {
+			logging.Debug("AuthAdapter", "Loaded existing session ID: %s", logging.TruncateSessionID(sessionID))
+			return sessionID, nil
+		}
+	}
+
+	// Generate a new session ID (UUID-like format)
+	sessionID := generateSessionID()
+
+	// Persist the session ID
+	if err := os.WriteFile(sessionFilePath, []byte(sessionID), 0600); err != nil {
+		return "", fmt.Errorf("failed to write session ID file: %w", err)
+	}
+
+	logging.Debug("AuthAdapter", "Generated new session ID: %s", logging.TruncateSessionID(sessionID))
+	return sessionID, nil
+}
+
+// generateSessionID creates a new unique session ID.
+// Uses a combination of random data and timestamp for uniqueness.
+func generateSessionID() string {
+	// Use crypto/rand for secure random data
+	randomBytes := make([]byte, 16)
+	if _, err := cryptoRand.Read(randomBytes); err != nil {
+		// Fallback to time-based if random fails - this may indicate a system issue
+		logging.Warn("AuthAdapter", "crypto/rand failed, using time-based session ID: %v", err)
+		return fmt.Sprintf("cli-%d", time.Now().UnixNano())
+	}
+
+	// Format as UUID-like string
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		randomBytes[0:4],
+		randomBytes[4:6],
+		randomBytes[6:8],
+		randomBytes[8:10],
+		randomBytes[10:16],
+	)
+}
+
+// GetSessionID returns the persistent session ID for this CLI user.
+// This is used for the X-Muster-Session-ID header.
+func (a *AuthAdapter) GetSessionID() string {
+	return a.sessionID
 }
 
 // Register registers the adapter with the API layer.

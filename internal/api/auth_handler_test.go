@@ -19,6 +19,7 @@ type mockAuthHandler struct {
 	getStatusFn            func() []AuthStatus
 	getStatusForEndpointFn func(endpoint string) *AuthStatus
 	refreshTokenFn         func(ctx context.Context, endpoint string) error
+	getSessionIDFn         func() string
 	closeFn                func() error
 }
 
@@ -90,6 +91,13 @@ func (m *mockAuthHandler) RefreshToken(ctx context.Context, endpoint string) err
 		return m.refreshTokenFn(ctx, endpoint)
 	}
 	return nil
+}
+
+func (m *mockAuthHandler) GetSessionID() string {
+	if m.getSessionIDFn != nil {
+		return m.getSessionIDFn()
+	}
+	return "test-session-id"
 }
 
 func (m *mockAuthHandler) Close() error {

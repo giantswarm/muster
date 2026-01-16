@@ -275,7 +275,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		if err != nil {
 			// If not found in registry, check session connections for OAuth-protected servers
 			sessionID := getSessionIDFromContext(ctx)
-			client, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
+			serverName, client, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
 			}
@@ -290,9 +290,9 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			if callErr != nil {
 				// Check if this is a 401 error - token may have expired and refresh failed
 				if pkgoauth.Is401Error(callErr) {
-					logging.Warn("Aggregator", "Tool call got 401 for session %s - token expired/refresh failed",
-						logging.TruncateSessionID(sessionID))
-					return nil, fmt.Errorf("authentication expired - please re-authenticate to the server and try again")
+					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
+						serverName, logging.TruncateSessionID(sessionID))
+					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", callErr)
 			}

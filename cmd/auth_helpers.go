@@ -84,6 +84,12 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 		client.SetAuthorizationHeader(token)
 	}
 
+	// Set persistent session ID for MCP server token persistence
+	// This enables tokens to persist across CLI invocations
+	if sessionID := handler.GetSessionID(); sessionID != "" {
+		client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
 	// Connect to aggregator
 	if err := client.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
