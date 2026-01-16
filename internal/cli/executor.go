@@ -84,6 +84,9 @@ func GetDefaultEndpoint() string {
 // GetAuthModeWithOverride returns the auth mode from the provided override string,
 // falling back to the environment variable default if the override is empty.
 // This consolidates the common pattern used across CLI commands.
+//
+// Note: ParseAuthMode already handles empty string as "auto", so this function
+// adds environment variable lookup as an intermediate step.
 func GetAuthModeWithOverride(override string) (AuthMode, error) {
 	if override != "" {
 		return ParseAuthMode(override)
@@ -335,8 +338,19 @@ func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler ap
 		return &AuthRequiredError{Endpoint: e.endpoint}
 
 	default:
-		// Unknown mode, treat as auto
-		return e.triggerAuthentication(ctx, authHandler)
+		// Unknown mode, treat as auto - use explicit auto logic to avoid recursion
+		if !e.options.Quiet {
+			fmt.Println("Authentication required. Opening browser...")
+		}
+		if err := authHandler.Login(ctx, e.endpoint); err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		token, err := authHandler.GetBearerToken(e.endpoint)
+		if err != nil {
+			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
+		}
+		e.client.SetAuthorizationHeader(token)
+		return nil
 	}
 }
 

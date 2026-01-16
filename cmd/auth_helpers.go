@@ -17,6 +17,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// Auth wait timeout constants.
+const (
+	// DefaultAuthWaitTimeout is the default timeout for waiting for authentication to complete.
+	DefaultAuthWaitTimeout = 2 * time.Minute
+	// DefaultAuthPollInterval is the default interval for polling authentication status.
+	DefaultAuthPollInterval = 500 * time.Millisecond
+	// DefaultStatusCheckTimeout is the timeout for checking connection status.
+	DefaultStatusCheckTimeout = 10 * time.Second
+)
+
 // ensureAuthHandler ensures an auth handler is registered and returns it.
 func ensureAuthHandler() (api.AuthHandler, error) {
 	handler := api.GetAuthHandler()
@@ -127,14 +137,9 @@ type AuthWaitConfig struct {
 func DefaultAuthWaitConfig() AuthWaitConfig {
 	return AuthWaitConfig{
 		WaitForCompletion: true,
-		Timeout:           2 * time.Minute,
-		PollInterval:      500 * time.Millisecond,
+		Timeout:           DefaultAuthWaitTimeout,
+		PollInterval:      DefaultAuthPollInterval,
 	}
-}
-
-// triggerMCPServerAuth triggers the OAuth flow for an MCP server by calling its auth tool.
-func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string) error {
-	return triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, serverName, authTool, AuthWaitConfig{})
 }
 
 // triggerMCPServerAuthWithWait triggers the OAuth flow and optionally waits for completion.

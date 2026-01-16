@@ -373,7 +373,7 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 			value = f.builder.FormatCellValueWithContext(key, data[key], data)
 
 			// Use contextual property names for remote servers
-			if serverType == "streamable-http" || serverType == "sse" {
+			if IsRemoteServerType(serverType) {
 				switch strings.ToLower(key) {
 				case "autostart":
 					displayKey = "autoConnect"
@@ -394,54 +394,15 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 }
 
 // isMCPServerData checks if the data represents an MCP server.
+// Delegates to the shared IsMCPServerData helper for consistent behavior.
 func (f *TableFormatter) isMCPServerData(data map[string]interface{}) bool {
-	// Check for MCP server indicators
-	if typ, exists := data["type"]; exists {
-		if typeStr, ok := typ.(string); ok {
-			if typeStr == "stdio" || typeStr == "streamable-http" || typeStr == "sse" {
-				return true
-			}
-		}
-	}
-
-	// Check for metadata field containing server type (used in check/status commands)
-	if metadata, exists := data["metadata"]; exists {
-		if metaStr, ok := metadata.(string); ok {
-			if metaStr == "stdio" || metaStr == "streamable-http" || metaStr == "sse" {
-				return true
-			}
-		}
-	}
-
-	// Check for service_type = MCPServer
-	if serviceType, exists := data["service_type"]; exists {
-		if typeStr, ok := serviceType.(string); ok {
-			if typeStr == "MCPServer" || typeStr == "mcpserver" {
-				return true
-			}
-		}
-	}
-
-	return false
+	return IsMCPServerData(data)
 }
 
 // getServerType extracts the server type from MCP server data.
+// Delegates to the shared ExtractServerType helper for consistent behavior.
 func (f *TableFormatter) getServerType(data map[string]interface{}) string {
-	// Check for "type" field
-	if typ, exists := data["type"]; exists {
-		if typeStr, ok := typ.(string); ok {
-			return typeStr
-		}
-	}
-
-	// Check for "metadata" field (used in check/status commands)
-	if metadata, exists := data["metadata"]; exists {
-		if metaStr, ok := metadata.(string); ok {
-			return metaStr
-		}
-	}
-
-	return ""
+	return ExtractServerType(data)
 }
 
 // isWorkflowData checks if the data represents a workflow.

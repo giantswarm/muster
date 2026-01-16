@@ -17,6 +17,7 @@ import (
 
 	"muster/internal/agent/oauth"
 	"muster/internal/api"
+	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
 
@@ -28,6 +29,12 @@ const CallbackPortEnvVar = "MUSTER_OAUTH_CALLBACK_PORT"
 
 // DefaultCallbackPort is the default port for OAuth callbacks if not configured.
 const DefaultCallbackPort = 3000
+
+// DefaultConnectionCheckTimeout is the timeout for checking connection state and tokens.
+const DefaultConnectionCheckTimeout = 5 * time.Second
+
+// DefaultHTTPClientTimeout is the timeout for HTTP client operations.
+const DefaultHTTPClientTimeout = 5 * time.Second
 
 // AuthAdapter implements api.AuthHandler using internal/agent/oauth.
 // It wraps the AuthManager and TokenStore to provide OAuth authentication
@@ -137,7 +144,7 @@ func (a *AuthAdapter) HasValidToken(endpoint string) bool {
 	}
 
 	// Check connection will check for valid tokens
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
 	defer cancel()
 
 	state, _ := mgr.CheckConnection(ctx, endpoint)
@@ -152,7 +159,7 @@ func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 	}
 
 	// First check if we need to check connection state
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
 	defer cancel()
 
 	state, _ := mgr.CheckConnection(ctx, endpoint)
@@ -240,7 +247,9 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 	// Remove manager from cache if it exists
 	a.mu.Lock()
 	if mgr, ok := a.managers[normalizedEndpoint]; ok {
-		_ = mgr.Close()
+		if err := mgr.Close(); err != nil {
+			logging.Debug("AuthAdapter", "Error closing manager for %s: %v", normalizedEndpoint, err)
+		}
 		delete(a.managers, normalizedEndpoint)
 	}
 	a.mu.Unlock()
@@ -267,8 +276,10 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 func (a *AuthAdapter) LogoutAll() error {
 	// Close all managers
 	a.mu.Lock()
-	for _, mgr := range a.managers {
-		_ = mgr.Close()
+	for endpoint, mgr := range a.managers {
+		if err := mgr.Close(); err != nil {
+			logging.Debug("AuthAdapter", "Error closing manager for %s: %v", endpoint, err)
+		}
 	}
 	a.managers = make(map[string]*oauth.AuthManager)
 	a.mu.Unlock()
@@ -332,7 +343,7 @@ func (a *AuthAdapter) GetStatusForEndpoint(endpoint string) *api.AuthStatus {
 	}
 
 	// Check connection to properly initialize the state and load stored tokens
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
 	defer cancel()
 	_, _ = mgr.CheckConnection(ctx, endpoint)
 
@@ -474,7 +485,7 @@ func readTokenFile(filePath string) (*tokenFileInfo, error) {
 	}
 
 	var token oauth.StoredToken
-	if err := parseJSON(data, &token); err != nil {
+	if err := json.Unmarshal(data, &token); err != nil {
 		return nil, err
 	}
 
@@ -483,11 +494,6 @@ func readTokenFile(filePath string) (*tokenFileInfo, error) {
 		IssuerURL: token.IssuerURL,
 		Expiry:    token.Expiry,
 	}, nil
-}
-
-// parseJSON parses JSON data into the given value.
-func parseJSON(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
 }
 
 // normalizeEndpoint normalizes an endpoint URL for consistent key usage.
@@ -517,7 +523,7 @@ func CheckServerWithAuth(ctx context.Context, endpoint string) (*ServerStatus, e
 
 	// First check basic connectivity
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: DefaultHTTPClientTimeout,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

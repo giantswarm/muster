@@ -132,7 +132,7 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 }
 
 // getServerTypeFromContext extracts the server type from row context.
-// It looks for common field names that indicate the server type.
+// It delegates to the shared ExtractServerType helper for consistent behavior.
 //
 // Args:
 //   - rowContext: The full row data
@@ -140,28 +140,7 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 // Returns:
 //   - string: The server type (stdio, streamable-http, sse) or empty string
 func (b *TableBuilder) getServerTypeFromContext(rowContext map[string]interface{}) string {
-	if rowContext == nil {
-		return ""
-	}
-
-	// Check for "type" field (most common)
-	if typeVal, exists := rowContext["type"]; exists {
-		if typeStr, ok := typeVal.(string); ok {
-			return typeStr
-		}
-	}
-
-	// Check for "metadata" field (used in check/status commands)
-	if metadata, exists := rowContext["metadata"]; exists {
-		if metaStr, ok := metadata.(string); ok {
-			// Metadata often contains the server type directly
-			if metaStr == "streamable-http" || metaStr == "sse" || metaStr == "stdio" {
-				return metaStr
-			}
-		}
-	}
-
-	return ""
+	return ExtractServerType(rowContext)
 }
 
 // formatHealthStatus adds color coding and icons to health status values.
@@ -255,7 +234,7 @@ func (b *TableBuilder) formatState(state string) interface{} {
 // Returns:
 //   - interface{}: Formatted state with appropriate icon, color, and terminology
 func (b *TableBuilder) formatStateForServerType(state string, serverType string) interface{} {
-	isRemote := serverType == "streamable-http" || serverType == "sse"
+	isRemote := IsRemoteServerType(serverType)
 
 	switch strings.ToLower(state) {
 	case "running":
@@ -683,7 +662,7 @@ func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
 // Returns:
 //   - string: Contextually appropriate column name
 func (b *TableBuilder) GetAutoStartColumnName(serverType string) string {
-	if serverType == "streamable-http" || serverType == "sse" {
+	if IsRemoteServerType(serverType) {
 		return "AutoConnect"
 	}
 	return "AutoStart"
