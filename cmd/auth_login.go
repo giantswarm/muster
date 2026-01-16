@@ -122,11 +122,11 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return fmt.Errorf("server '%s' requires authentication but no auth tool is available", serverName)
 	}
 
-	// Call the auth tool to get the auth URL
+	// Call the auth tool and wait for completion
 	if !authQuiet {
 		fmt.Printf("Authenticating to %s...\n", serverName)
 	}
-	return triggerMCPServerAuth(ctx, handler, aggregatorEndpoint, serverName, serverInfo.AuthTool)
+	return triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, serverName, serverInfo.AuthTool, DefaultAuthWaitConfig())
 }
 
 // loginToAll authenticates to the aggregator and all pending MCP servers.
@@ -176,15 +176,15 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 		fmt.Println()
 	}
 
-	// Authenticate to each server
-	// Note: We don't wait between flows - the browser will handle SSO via shared cookies.
-	// Multiple tabs may open; the IdP session cookie will be shared across tabs.
+	// Authenticate to each server sequentially, waiting for each to complete
+	// This ensures SSO cookies are available for subsequent flows
+	waitCfg := DefaultAuthWaitConfig()
 	successCount := 0
 	for i, srv := range pendingServers {
 		if !authQuiet {
-			fmt.Printf("[%d/%d] Authenticating to %s...\n", i+1, len(pendingServers), srv.Name)
+			fmt.Printf("[%d/%d] Authenticating to %s\n", i+1, len(pendingServers), srv.Name)
 		}
-		if err := triggerMCPServerAuth(ctx, handler, aggregatorEndpoint, srv.Name, srv.AuthTool); err != nil {
+		if err := triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, srv.Name, srv.AuthTool, waitCfg); err != nil {
 			if !authQuiet {
 				fmt.Printf("  Failed: %v\n", err)
 			}

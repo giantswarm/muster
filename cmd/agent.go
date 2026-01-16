@@ -474,8 +474,8 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	var successCount, failureCount int
 	var failedServers []failedServer
 
-	// Trigger auth for each pending server sequentially
-	// Sequential is better for SSO as the browser session builds up
+	// Trigger auth for each pending server sequentially, waiting for completion
+	// This ensures SSO cookies are available for subsequent flows
 	for i, toolName := range pendingAuthTools {
 		select {
 		case <-ctx.Done():
@@ -506,13 +506,20 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		}
 
 		// Open the browser for this auth flow
-		// Note: We don't wait for completion - the browser will handle SSO via shared cookies.
-		// Multiple tabs may open simultaneously; the IdP session cookie will be shared.
 		if err := oauth.OpenBrowser(authURL); err != nil {
 			logger.Error("Failed to open browser for %s: %v", serverName, err)
 			failureCount++
 			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
+			continue
+		}
+
+		// Wait for the server to become connected by polling the auth://status resource
+		if err := waitForServerConnection(ctx, client, serverName, logger); err != nil {
+			logger.Error("Timeout waiting for %s: %v", serverName, err)
+			failureCount++
+			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
 		} else {
+			logger.Success("%s authenticated", serverName)
 			successCount++
 		}
 	}
@@ -538,6 +545,43 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 				}
 				logger.Info("  %s: %s", fs.name, fs.url)
 			}
+		}
+	}
+}
+
+// waitForServerConnection polls until the server transitions to "connected" status.
+// It uses the agent client to read the auth://status resource and check server state.
+func waitForServerConnection(ctx context.Context, client *agent.Client, serverName string, logger *agent.Logger) error {
+	const timeout = 2 * time.Minute
+	const pollInterval = 500 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for %s to authenticate", serverName)
+		case <-ticker.C:
+			// Check if the server is now connected by looking at the tool cache
+			// If the authenticate tool is gone, the server has connected
+			tools := client.GetToolCache()
+			authToolName := "x_" + serverName + "_authenticate"
+			authToolExists := false
+			for _, tool := range tools {
+				if tool.Name == authToolName {
+					authToolExists = true
+					break
+				}
+			}
+			if !authToolExists {
+				// Auth tool is gone - server has connected
+				return nil
+			}
+			// Still waiting - auth tool still present
 		}
 	}
 }

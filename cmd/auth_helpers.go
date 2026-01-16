@@ -113,8 +113,32 @@ func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, a
 	return &authStatus, nil
 }
 
+// AuthWaitConfig configures how long to wait for authentication completion.
+type AuthWaitConfig struct {
+	// WaitForCompletion enables polling for auth completion.
+	WaitForCompletion bool
+	// Timeout is the maximum time to wait for completion.
+	Timeout time.Duration
+	// PollInterval is how often to check auth status.
+	PollInterval time.Duration
+}
+
+// DefaultAuthWaitConfig returns a default configuration for auth waiting.
+func DefaultAuthWaitConfig() AuthWaitConfig {
+	return AuthWaitConfig{
+		WaitForCompletion: true,
+		Timeout:           2 * time.Minute,
+		PollInterval:      500 * time.Millisecond,
+	}
+}
+
 // triggerMCPServerAuth triggers the OAuth flow for an MCP server by calling its auth tool.
 func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string) error {
+	return triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, serverName, authTool, AuthWaitConfig{})
+}
+
+// triggerMCPServerAuthWithWait triggers the OAuth flow and optionally waits for completion.
+func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string, waitCfg AuthWaitConfig) error {
 	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
 	if err != nil {
 		return err
@@ -144,13 +168,72 @@ func triggerMCPServerAuth(ctx context.Context, handler api.AuthHandler, aggregat
 			fmt.Println(" failed")
 			fmt.Printf("Please open this URL in your browser:\n  %s\n\n", authURL)
 		}
-	} else {
+		// If we can't open browser, return the URL in the error so caller can handle
+		return fmt.Errorf("failed to open browser: %w (URL: %s)", err, authURL)
+	}
+
+	if !authQuiet {
+		fmt.Println(" done")
+	}
+
+	// If waiting is enabled, poll until completion
+	if waitCfg.WaitForCompletion {
 		if !authQuiet {
-			fmt.Println(" done")
+			fmt.Printf("Waiting for %s to authenticate...", serverName)
+		}
+		if err := waitForServerAuth(ctx, handler, aggregatorEndpoint, serverName, waitCfg); err != nil {
+			if !authQuiet {
+				fmt.Println(" timeout")
+			}
+			return err
+		}
+		if !authQuiet {
+			fmt.Println(" authenticated")
 		}
 	}
 
 	return nil
+}
+
+// waitForServerAuth polls the auth://status resource until the server is connected.
+func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string, cfg AuthWaitConfig) error {
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 2 * time.Minute
+	}
+	pollInterval := cfg.PollInterval
+	if pollInterval == 0 {
+		pollInterval = 500 * time.Millisecond
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for %s to authenticate", serverName)
+		case <-ticker.C:
+			status, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+			if err != nil {
+				// Transient error, keep polling
+				continue
+			}
+
+			for _, srv := range status.Servers {
+				if srv.Name == serverName {
+					if srv.Status == "connected" {
+						return nil
+					}
+					// Still waiting - auth_required or other state
+					break
+				}
+			}
+		}
+	}
 }
 
 // extractAuthURL extracts the authentication URL from a tool call result.
