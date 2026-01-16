@@ -131,7 +131,7 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			// Server requires auth - we got a 401 response
 			if challenge != nil && challenge.Issuer != "" {
 				// Got a proper WWW-Authenticate header with OAuth info including issuer
-				slog.Info("OAuth authentication required for Muster Server",
+				slog.Debug("OAuth authentication required for server",
 					"server_url", serverURL,
 					"issuer", challenge.Issuer,
 					"realm", challenge.Realm,
@@ -144,19 +144,19 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			// Got 401 but either no WWW-Authenticate header or no issuer in it
 			// Try to discover OAuth metadata from well-known endpoints
 			if challenge != nil {
-				slog.Info("Server returned 401 with WWW-Authenticate but no issuer, attempting to discover OAuth metadata",
+				slog.Debug("Server returned 401 with WWW-Authenticate but no issuer, attempting to discover OAuth metadata",
 					"server_url", serverURL,
 					"resource_metadata_url", challenge.ResourceMetadataURL,
 				)
 			} else {
-				slog.Info("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
+				slog.Debug("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
 					"server_url", serverURL,
 				)
 			}
 
 			discoveredChallenge, discoverErr := m.discoverOAuthMetadata(ctx, serverURL)
 			if discoverErr == nil && discoveredChallenge != nil {
-				slog.Info("Discovered OAuth metadata for Muster Server",
+				slog.Debug("Discovered OAuth metadata for server",
 					"server_url", serverURL,
 					"issuer", discoveredChallenge.Issuer,
 				)
@@ -165,8 +165,9 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 				return m.state, nil
 			}
 
-			// Could not discover OAuth metadata
-			slog.Warn("Server requires authentication but OAuth metadata could not be discovered",
+			// Could not discover OAuth metadata - return error but don't log as warning
+			// since the error is returned to the caller for proper handling
+			slog.Debug("Server requires authentication but OAuth metadata could not be discovered",
 				"server_url", serverURL,
 				"discover_error", discoverErr,
 			)
@@ -175,7 +176,10 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			return m.state, m.lastError
 		}
 
-		slog.Warn("Failed to probe server authentication status",
+		// Probe failed (server unreachable, timeout, etc.)
+		// This is expected for CLI commands when server is not running
+		// Don't log as warning - the error is returned to caller for handling
+		slog.Debug("Failed to probe server authentication status",
 			"server_url", serverURL,
 			"error", err.Error(),
 		)
@@ -379,7 +383,7 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 
 	authURL, waitFn, err := m.client.CompleteAuthFlow(ctx, m.serverURL, issuerURL)
 	if err != nil {
-		slog.Warn("Failed to start OAuth authentication flow",
+		slog.Debug("Failed to start OAuth authentication flow",
 			"server_url", m.serverURL,
 			"issuer_url", issuerURL,
 			"error", err.Error(),
@@ -388,7 +392,7 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	slog.Info("OAuth authentication flow started",
+	slog.Debug("OAuth authentication flow started",
 		"server_url", m.serverURL,
 		"issuer_url", issuerURL,
 	)
@@ -414,7 +418,7 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 	}
 
 	if err := waitFn(); err != nil {
-		slog.Warn("OAuth authentication flow failed",
+		slog.Debug("OAuth authentication flow failed",
 			"server_url", m.serverURL,
 			"error", err.Error(),
 		)
@@ -425,7 +429,7 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 		return err
 	}
 
-	slog.Info("OAuth authentication completed successfully",
+	slog.Debug("OAuth authentication completed successfully",
 		"server_url", m.serverURL,
 	)
 

@@ -216,7 +216,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 
 	// Verify state - critical security check to prevent CSRF attacks
 	if result.State != flow.State {
-		slog.Warn("OAuth state mismatch detected - possible CSRF attack",
+		slog.Debug("OAuth state mismatch detected - possible CSRF attack",
 			"server_url", flow.ServerURL,
 			"expected_state_len", len(flow.State),
 			"received_state_len", len(result.State),
@@ -229,7 +229,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 
 	// Check for error from authorization server
 	if result.IsError() {
-		slog.Warn("OAuth authorization failed",
+		slog.Debug("OAuth authorization failed",
 			"server_url", flow.ServerURL,
 			"error", result.Error,
 			"error_description", result.ErrorDescription,
@@ -246,7 +246,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 	// Exchange code for tokens
 	token, err := c.exchangeCode(ctx, flow, result.Code)
 	if err != nil {
-		slog.Warn("OAuth token exchange failed",
+		slog.Debug("OAuth token exchange failed",
 			"server_url", flow.ServerURL,
 			"issuer_url", flow.IssuerURL,
 			"error", err.Error(),
@@ -257,15 +257,15 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
-	slog.Info("OAuth authentication successful",
+	slog.Debug("OAuth authentication successful",
 		"server_url", flow.ServerURL,
 		"issuer_url", flow.IssuerURL,
 	)
 
 	// Store token
 	if err := c.tokenStore.StoreToken(flow.ServerURL, flow.IssuerURL, token); err != nil {
-		// Log warning but continue - token is still valid for this session
-		slog.Warn("failed to persist OAuth token to storage",
+		// Log but continue - token is still valid for this session
+		slog.Debug("failed to persist OAuth token to storage",
 			"server_url", flow.ServerURL,
 			"error", err.Error(),
 		)

@@ -129,8 +129,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 	// Persist to file if file mode is enabled
 	if s.fileMode {
 		if err := s.writeTokenFile(key, storedToken); err != nil {
-			// SECURITY AUDIT: Token storage failed
-			slog.Warn("SECURITY_AUDIT: OAuth token storage failed",
+			slog.Debug("OAuth token storage failed",
 				"event", "token_store_failed",
 				"server_url", serverURL,
 				"issuer_url", issuerURL,
@@ -138,8 +137,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 			)
 			return fmt.Errorf("failed to persist token: %w", err)
 		}
-		// SECURITY AUDIT: Token successfully stored
-		slog.Info("SECURITY_AUDIT: OAuth token stored",
+		slog.Debug("OAuth token stored",
 			"event", "token_stored",
 			"server_url", serverURL,
 			"issuer_url", issuerURL,
@@ -203,7 +201,7 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 
 	if s.fileMode {
 		if err := s.deleteTokenFile(key); err != nil {
-			slog.Warn("SECURITY_AUDIT: OAuth token deletion failed",
+			slog.Debug("OAuth token deletion failed",
 				"event", "token_delete_failed",
 				"server_url", serverURL,
 				"error", err.Error(),
@@ -212,8 +210,7 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 		}
 	}
 
-	// SECURITY AUDIT: Token deleted
-	slog.Info("SECURITY_AUDIT: OAuth token deleted",
+	slog.Debug("OAuth token deleted",
 		"event", "token_deleted",
 		"server_url", serverURL,
 	)
@@ -421,8 +418,7 @@ func (s *TokenStore) Clear() error {
 			}
 		}
 
-		// SECURITY AUDIT: All tokens cleared
-		slog.Info("SECURITY_AUDIT: All OAuth tokens cleared",
+		slog.Debug("All OAuth tokens cleared",
 			"event", "tokens_cleared",
 			"memory_tokens_cleared", tokenCount,
 			"file_tokens_cleared", fileCount,
