@@ -152,6 +152,7 @@ func (a *AuthAdapter) HasValidToken(endpoint string) bool {
 }
 
 // GetBearerToken returns a valid Bearer token for the endpoint.
+// It will automatically refresh the token if it's about to expire and a refresh token is available.
 func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
@@ -165,6 +166,15 @@ func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 	state, _ := mgr.CheckConnection(ctx, endpoint)
 	if state != oauth.AuthStateAuthenticated {
 		return "", &AuthRequiredError{Endpoint: endpoint}
+	}
+
+	// Try to proactively refresh the token if it's about to expire
+	// This is silent - if refresh fails, we'll try with the existing token
+	refreshed, err := a.tryRefreshToken(ctx, endpoint)
+	if err != nil {
+		logging.Debug("AuthAdapter", "Proactive token refresh failed: %v", err)
+	} else if refreshed {
+		logging.Debug("AuthAdapter", "Token proactively refreshed for %s", endpoint)
 	}
 
 	token, err := mgr.GetBearerToken()
@@ -414,13 +424,106 @@ func parseIDTokenClaims(idToken string) idTokenClaims {
 	return claims
 }
 
-// RefreshToken forces a token refresh for the endpoint.
+// RefreshToken attempts to refresh the token using the stored refresh token.
+// If no refresh token is available or the refresh fails, it falls back to full re-authentication.
 func (a *AuthAdapter) RefreshToken(ctx context.Context, endpoint string) error {
-	// Clear the current token and re-authenticate
-	if err := a.Logout(endpoint); err != nil {
+	mgr, err := a.getOrCreateManager(endpoint)
+	if err != nil {
 		return err
 	}
-	return a.Login(ctx, endpoint)
+
+	// First check connection to initialize the manager with the stored token
+	state, _ := mgr.CheckConnection(ctx, endpoint)
+	if state != oauth.AuthStateAuthenticated {
+		// Not authenticated - need full login
+		return a.Login(ctx, endpoint)
+	}
+
+	// Try to refresh the token using the refresh token
+	refreshed, err := a.tryRefreshToken(ctx, endpoint)
+	if err != nil {
+		logging.Debug("AuthAdapter", "Token refresh failed, falling back to re-authentication: %v", err)
+		// Refresh failed - fall back to full re-authentication
+		if logoutErr := a.Logout(endpoint); logoutErr != nil {
+			logging.Debug("AuthAdapter", "Failed to logout before re-auth: %v", logoutErr)
+		}
+		return a.Login(ctx, endpoint)
+	}
+
+	if refreshed {
+		logging.Debug("AuthAdapter", "Token refreshed successfully for %s", endpoint)
+	}
+
+	return nil
+}
+
+// tryRefreshToken attempts to refresh the token using the stored refresh token.
+// Returns true if the token was refreshed, false if no refresh was needed.
+func (a *AuthAdapter) tryRefreshToken(ctx context.Context, endpoint string) (bool, error) {
+	normalizedEndpoint := normalizeEndpoint(endpoint)
+
+	// Create a temporary token store to access and update the stored token
+	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
+		StorageDir: a.tokenStorageDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Get the stored token (including expiring ones)
+	storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint)
+	if storedToken == nil {
+		return false, fmt.Errorf("no stored token found")
+	}
+
+	// Check if token has a refresh token
+	if storedToken.RefreshToken == "" {
+		return false, fmt.Errorf("no refresh token available")
+	}
+
+	// Check if token actually needs refresh
+	if !tokenNeedsRefresh(storedToken) {
+		return false, nil
+	}
+
+	// Perform the refresh
+	oauthClient := pkgoauth.NewClient()
+	metadata, err := oauthClient.DiscoverMetadata(ctx, storedToken.IssuerURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to discover OAuth metadata: %w", err)
+	}
+
+	newToken, err := oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, storedToken.RefreshToken, oauth.DefaultAgentClientID)
+	if err != nil {
+		return false, fmt.Errorf("token refresh failed: %w", err)
+	}
+
+	// Convert to oauth2.Token for storage
+	oauth2Token := newToken.ToOAuth2Token()
+
+	// Preserve refresh token if not returned
+	if oauth2Token.RefreshToken == "" {
+		oauth2Token.RefreshToken = storedToken.RefreshToken
+	}
+
+	// Store the refreshed token
+	if err := store.StoreToken(normalizedEndpoint, storedToken.IssuerURL, oauth2Token); err != nil {
+		return false, fmt.Errorf("failed to store refreshed token: %w", err)
+	}
+
+	return true, nil
+}
+
+// tokenRefreshThreshold is the duration before expiry when tokens should be refreshed.
+const tokenRefreshThreshold = 5 * time.Minute
+
+// tokenNeedsRefresh checks if a token is approaching expiry and needs refresh.
+func tokenNeedsRefresh(token *oauth.StoredToken) bool {
+	if token == nil || token.Expiry.IsZero() {
+		return false
+	}
+	return time.Until(token.Expiry) < tokenRefreshThreshold
 }
 
 // Close cleans up any resources held by the auth adapter.

@@ -3,6 +3,8 @@ package oauth
 import (
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // DefaultExpiryMargin is the default margin when checking token expiry.
@@ -63,6 +65,25 @@ func (t *Token) Scopes() []string {
 		return nil
 	}
 	return strings.Fields(t.Scope)
+}
+
+// ToOAuth2Token converts the Token to an oauth2.Token for compatibility with golang.org/x/oauth2.
+func (t *Token) ToOAuth2Token() *oauth2.Token {
+	token := &oauth2.Token{
+		AccessToken:  t.AccessToken,
+		TokenType:    t.TokenType,
+		RefreshToken: t.RefreshToken,
+		Expiry:       t.ExpiresAt,
+	}
+
+	// Add ID token to extra data if available
+	if t.IDToken != "" {
+		token = token.WithExtra(map[string]interface{}{
+			"id_token": t.IDToken,
+		})
+	}
+
+	return token
 }
 
 // Metadata represents OAuth 2.0 Authorization Server Metadata as defined in RFC 8414.

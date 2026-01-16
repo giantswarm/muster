@@ -150,7 +150,9 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 }
 
 // GetToken retrieves a stored token for a specific server.
-// Returns nil if no token exists or the token has expired.
+// Returns nil if no token exists or the token has expired/expiring.
+// Note: This does NOT delete expired tokens from cache to allow GetTokenIncludingExpiring
+// to retrieve them for refresh purposes.
 func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 	key := s.tokenKey(serverURL)
 
@@ -161,10 +163,14 @@ func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 			s.mu.RUnlock()
 			return token
 		}
+		// Token is expiring/expired - return nil but don't delete from cache
+		// so GetTokenIncludingExpiring can still access it for refresh
+		s.mu.RUnlock()
+		return nil
 	}
 	s.mu.RUnlock()
 
-	// Slow path with write lock for cache population/cleanup
+	// Slow path with write lock for cache population
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -173,17 +179,21 @@ func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 		if s.isTokenValid(token) {
 			return token
 		}
-		// Token expired, remove from cache
-		delete(s.tokens, key)
+		// Token is expiring/expired - return nil but keep in cache for refresh
 		return nil
 	}
 
 	// Try loading from file if file mode is enabled
 	if s.fileMode {
 		token, err := s.readTokenFile(key)
-		if err == nil && s.isTokenValid(token) {
+		if err == nil {
+			// Cache the token even if expiring (for refresh purposes)
 			s.tokens[key] = token
-			return token
+			if s.isTokenValid(token) {
+				return token
+			}
+			// Token loaded from file but is expiring - return nil
+			return nil
 		}
 	}
 
@@ -312,6 +322,42 @@ func (s *TokenStore) deleteTokenFile(key string) error {
 // HasValidToken checks if a valid (non-expired) token exists for a server.
 func (s *TokenStore) HasValidToken(serverURL string) bool {
 	return s.GetToken(serverURL) != nil
+}
+
+// GetTokenIncludingExpiring retrieves a stored token even if it's about to expire.
+// This is used for token refresh - we need the refresh token even if the access token
+// is expiring soon. Returns nil if no token exists at all.
+func (s *TokenStore) GetTokenIncludingExpiring(serverURL string) *StoredToken {
+	key := s.tokenKey(serverURL)
+
+	// Fast path with read lock - check memory cache
+	s.mu.RLock()
+	if token, ok := s.tokens[key]; ok {
+		// Don't check expiry - return the token even if expiring soon
+		s.mu.RUnlock()
+		return token
+	}
+	s.mu.RUnlock()
+
+	// Slow path with write lock for cache population
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check in case another goroutine populated it
+	if token, ok := s.tokens[key]; ok {
+		return token
+	}
+
+	// Try loading from file if file mode is enabled
+	if s.fileMode {
+		token, err := s.readTokenFile(key)
+		if err == nil {
+			s.tokens[key] = token
+			return token
+		}
+	}
+
+	return nil
 }
 
 // GetByIssuer retrieves a stored token for a specific issuer.

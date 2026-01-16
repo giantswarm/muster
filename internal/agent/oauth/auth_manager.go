@@ -443,16 +443,36 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 }
 
 // GetAccessToken returns the access token for the server.
+// It will automatically refresh the token if it's about to expire and a refresh token is available.
 // Returns an error if not authenticated.
 func (m *AuthManager) GetAccessToken() (string, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	serverURL := m.serverURL
+	state := m.state
+	m.mu.RUnlock()
 
-	if m.state != AuthStateAuthenticated {
-		return "", fmt.Errorf("not authenticated (state: %s)", m.state)
+	if state != AuthStateAuthenticated {
+		return "", fmt.Errorf("not authenticated (state: %s)", state)
 	}
 
-	token, err := m.client.GetToken(m.serverURL)
+	// Try to refresh the token if needed (this is a no-op if token is still valid)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	refreshed, err := m.client.RefreshTokenIfNeeded(ctx, serverURL)
+	if err != nil {
+		// Log the refresh error but continue - we might still have a valid token
+		slog.Debug("Token refresh failed, will try to use existing token",
+			"server_url", serverURL,
+			"error", err.Error(),
+		)
+	} else if refreshed {
+		slog.Debug("Token was proactively refreshed",
+			"server_url", serverURL,
+		)
+	}
+
+	token, err := m.client.GetToken(serverURL)
 	if err != nil {
 		return "", err
 	}

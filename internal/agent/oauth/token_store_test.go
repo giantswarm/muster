@@ -697,3 +697,168 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		t.Error("Expected to get token with zero expiry")
 	}
 }
+
+func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	t.Run("returns nil for non-existent token", func(t *testing.T) {
+		token := store.GetTokenIncludingExpiring("https://nonexistent.example.com")
+		if token != nil {
+			t.Error("Expected nil for non-existent token")
+		}
+	})
+
+	t.Run("returns token expiring within margin", func(t *testing.T) {
+		// Store a token that's expiring within the 60s margin
+		expiringToken := &oauth2.Token{
+			AccessToken:  "expiring-soon-token",
+			RefreshToken: "refresh-token",
+			TokenType:    "Bearer",
+			Expiry:       time.Now().Add(30 * time.Second), // Expires in 30s (within 60s margin)
+		}
+
+		if err := store.StoreToken(serverURL, issuerURL, expiringToken); err != nil {
+			t.Fatalf("Failed to store token: %v", err)
+		}
+
+		// GetToken should return nil (token is within expiry margin)
+		if store.GetToken(serverURL) != nil {
+			t.Error("GetToken should return nil for token within expiry margin")
+		}
+
+		// GetTokenIncludingExpiring should still return the token
+		token := store.GetTokenIncludingExpiring(serverURL)
+		if token == nil {
+			t.Fatal("GetTokenIncludingExpiring should return token even if expiring soon")
+		}
+
+		if token.AccessToken != expiringToken.AccessToken {
+			t.Errorf("Expected access token %q, got %q", expiringToken.AccessToken, token.AccessToken)
+		}
+
+		if token.RefreshToken != expiringToken.RefreshToken {
+			t.Errorf("Expected refresh token %q, got %q", expiringToken.RefreshToken, token.RefreshToken)
+		}
+
+		// Clean up
+		store.DeleteToken(serverURL)
+	})
+
+	t.Run("returns already expired token with refresh token", func(t *testing.T) {
+		// Store a token that's already expired but has a refresh token
+		expiredToken := &oauth2.Token{
+			AccessToken:  "expired-token",
+			RefreshToken: "still-valid-refresh-token",
+			TokenType:    "Bearer",
+			Expiry:       time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
+		}
+
+		if err := store.StoreToken(serverURL, issuerURL, expiredToken); err != nil {
+			t.Fatalf("Failed to store token: %v", err)
+		}
+
+		// GetToken should return nil (token is expired)
+		if store.GetToken(serverURL) != nil {
+			t.Error("GetToken should return nil for expired token")
+		}
+
+		// GetTokenIncludingExpiring should still return the token
+		token := store.GetTokenIncludingExpiring(serverURL)
+		if token == nil {
+			t.Fatal("GetTokenIncludingExpiring should return expired token")
+		}
+
+		if token.RefreshToken != expiredToken.RefreshToken {
+			t.Errorf("Expected refresh token %q, got %q", expiredToken.RefreshToken, token.RefreshToken)
+		}
+
+		// Clean up
+		store.DeleteToken(serverURL)
+	})
+
+	t.Run("returns valid token", func(t *testing.T) {
+		// Store a valid token
+		validToken := &oauth2.Token{
+			AccessToken:  "valid-token",
+			RefreshToken: "refresh-token",
+			TokenType:    "Bearer",
+			Expiry:       time.Now().Add(1 * time.Hour), // Valid for 1 hour
+		}
+
+		if err := store.StoreToken(serverURL, issuerURL, validToken); err != nil {
+			t.Fatalf("Failed to store token: %v", err)
+		}
+
+		// Both methods should return the token
+		token1 := store.GetToken(serverURL)
+		token2 := store.GetTokenIncludingExpiring(serverURL)
+
+		if token1 == nil || token2 == nil {
+			t.Error("Both GetToken and GetTokenIncludingExpiring should return valid token")
+		}
+
+		if token1 != nil && token2 != nil {
+			if token1.AccessToken != token2.AccessToken {
+				t.Error("Both methods should return the same token")
+			}
+		}
+	})
+}
+
+func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create store and add a token
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	// Store a token that's expiring soon
+	expiringToken := &oauth2.Token{
+		AccessToken:  "expiring-token",
+		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(30 * time.Second),
+	}
+
+	if err := store.StoreToken(serverURL, issuerURL, expiringToken); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Create a new store (simulates restart, no in-memory cache)
+	store2, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create second token store: %v", err)
+	}
+
+	// GetTokenIncludingExpiring should load from file and return the token
+	token := store2.GetTokenIncludingExpiring(serverURL)
+	if token == nil {
+		t.Fatal("Expected to load expiring token from file")
+	}
+
+	if token.RefreshToken != expiringToken.RefreshToken {
+		t.Errorf("Expected refresh token %q, got %q", expiringToken.RefreshToken, token.RefreshToken)
+	}
+}
