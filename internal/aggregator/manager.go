@@ -374,7 +374,16 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	return am.aggregatorServer.GetRegistry().RegisterPendingAuth(serverName, url, toolPrefix, authInfo)
+	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(serverName, url, toolPrefix, authInfo); err != nil {
+		return err
+	}
+
+	// Immediately register the synthetic auth tool with the MCP server
+	// This prevents race conditions where clients call the tool before
+	// the async update has processed
+	am.aggregatorServer.RegisterSyntheticAuthToolSync(serverName)
+
+	return nil
 }
 
 // UpgradeServerAfterAuth upgrades a pending auth server to connected status
