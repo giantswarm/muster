@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	pkgoauth "muster/pkg/oauth"
 )
@@ -194,55 +195,104 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	return m.state, nil
 }
 
+// probeTimeout is the timeout for auth probe requests.
+// This must be short because MCP endpoints may use streaming (SSE, Streamable HTTP)
+// which would otherwise block indefinitely on GET requests.
+const probeTimeout = 3 * time.Second
+
 // probeServerAuth probes the server to detect authentication requirements.
 // Returns an AuthChallenge if 401 is received, nil otherwise.
 func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*pkgoauth.AuthChallenge, error) {
 	// Normalize to base URL first, then construct probe URLs
 	baseURL := normalizeServerURL(serverURL)
 
-	// Try a request to the MCP endpoint
-	// The actual endpoint depends on the transport type
-	probeURLs := []string{
-		baseURL + "/mcp",
-		baseURL + "/sse",
-		baseURL,
+	// Create a client with a short timeout for probing.
+	probeClient := &http.Client{
+		Timeout: probeTimeout,
 	}
 
-	// Reuse the HTTP client from the OAuth client to avoid resource leaks
-	httpClient := m.client.GetHTTPClient()
+	// MCP endpoints use different transports:
+	// - Streamable HTTP (/mcp): POST requests, GET opens streaming connection
+	// - SSE (/sse): GET opens SSE stream
+	// We need to probe without blocking on streaming responses.
 
-	for _, probeURL := range probeURLs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
-		if err != nil {
-			continue
-		}
+	// Strategy 1: Try POST to /mcp with minimal JSONRPC request
+	// If server requires auth, it will return 401 before processing the request
+	probeBody := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/mcp", probeBody)
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
 
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			continue
-		}
-
-		// Extract needed data before closing the body to avoid defer in loop
-		statusCode := resp.StatusCode
-		var challenge *pkgoauth.AuthChallenge
-		if statusCode == http.StatusUnauthorized {
-			challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
-		}
-
-		// Drain and close body immediately (not deferred) to avoid memory leak
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-
-		if statusCode == http.StatusUnauthorized {
-			if challenge != nil {
-				return challenge, ErrAuthRequired
+		resp, err := probeClient.Do(req)
+		if err == nil {
+			statusCode := resp.StatusCode
+			var challenge *pkgoauth.AuthChallenge
+			if statusCode == http.StatusUnauthorized {
+				challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
 			}
-			return nil, ErrAuthRequired
-		}
+			resp.Body.Close()
 
-		// Server responded without 401 - might not require auth
-		// or might require auth at a later stage
-		if statusCode == http.StatusOK || statusCode == http.StatusMethodNotAllowed {
+			if statusCode == http.StatusUnauthorized {
+				if challenge != nil {
+					return challenge, ErrAuthRequired
+				}
+				return nil, ErrAuthRequired
+			}
+
+			// Any other response (200, 400, 405, etc.) means server is reachable
+			// and doesn't require auth at the transport level
+			return nil, nil
+		}
+	}
+
+	// Strategy 2: Try SSE endpoint with a quick probe
+	// SSE returns 401 immediately if auth required, otherwise starts streaming
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/sse", nil)
+	if err == nil {
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := probeClient.Do(req)
+		if err == nil {
+			statusCode := resp.StatusCode
+			var challenge *pkgoauth.AuthChallenge
+			if statusCode == http.StatusUnauthorized {
+				challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
+			}
+			resp.Body.Close()
+
+			if statusCode == http.StatusUnauthorized {
+				if challenge != nil {
+					return challenge, ErrAuthRequired
+				}
+				return nil, ErrAuthRequired
+			}
+
+			// Got a response (200 starts streaming, 404 means not SSE, etc.)
+			return nil, nil
+		}
+	}
+
+	// Strategy 3: Try base URL with HEAD
+	req, err = http.NewRequestWithContext(ctx, http.MethodHead, baseURL, nil)
+	if err == nil {
+		resp, err := probeClient.Do(req)
+		if err == nil {
+			statusCode := resp.StatusCode
+			var challenge *pkgoauth.AuthChallenge
+			if statusCode == http.StatusUnauthorized {
+				challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
+			}
+			resp.Body.Close()
+
+			if statusCode == http.StatusUnauthorized {
+				if challenge != nil {
+					return challenge, ErrAuthRequired
+				}
+				return nil, ErrAuthRequired
+			}
+
+			// Server responded
 			return nil, nil
 		}
 	}
