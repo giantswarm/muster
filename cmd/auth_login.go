@@ -190,9 +190,9 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 		} else {
 			successCount++
 		}
-		// Small delay between auth flows to allow SSO redirects to complete
+		// Delay between auth flows to allow SSO redirects to complete
 		if i < len(pendingServers)-1 {
-			time.Sleep(2 * time.Second)
+			time.Sleep(SSOFlowDelay)
 		}
 	}
 

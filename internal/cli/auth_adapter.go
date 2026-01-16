@@ -436,9 +436,7 @@ func isPortInUseError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	return strings.Contains(errStr, "address already in use") ||
-		strings.Contains(errStr, "bind: address already in use") ||
-		strings.Contains(errStr, "port 3000")
+	return strings.Contains(errStr, "address already in use")
 }
 
 // CheckServerWithAuth verifies server connectivity and authentication status.

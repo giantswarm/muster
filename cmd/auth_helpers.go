@@ -228,20 +228,3 @@ func formatExpiryWithDirection(expiresAt time.Time) string {
 	expiredAgo := -remaining
 	return text.FgYellow.Sprintf("expired %s ago", formatDuration(expiredAgo))
 }
-
-// truncateURL truncates a URL to a maximum length while keeping the hostname visible.
-func truncateURL(url string, maxLen int) string {
-	if len(url) <= maxLen {
-		return url
-	}
-	// Try to keep the hostname visible
-	if idx := strings.Index(url, "://"); idx != -1 {
-		start := url[:idx+3]
-		rest := url[idx+3:]
-		if len(rest) > maxLen-len(start)-3 {
-			rest = rest[:maxLen-len(start)-3] + "..."
-		}
-		return start + rest
-	}
-	return url[:maxLen-3] + "..."
-}

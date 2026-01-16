@@ -158,9 +158,9 @@ func TestExtractAuthURLFromResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractAuthURLFromResult(tt.result)
+			result := extractAuthURL(tt.result)
 			if result != tt.expected {
-				t.Errorf("extractAuthURLFromResult() = %q, want %q", result, tt.expected)
+				t.Errorf("extractAuthURL() = %q, want %q", result, tt.expected)
 			}
 		})
 	}

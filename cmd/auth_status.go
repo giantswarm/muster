@@ -185,32 +185,3 @@ func formatMCPServerStatus(status string) string {
 		return text.FgHiBlack.Sprint(status)
 	}
 }
-
-func printAuthStatus(status *api.AuthStatus, verbose bool) error {
-	if status == nil {
-		if verbose {
-			fmt.Println("No authentication information available.")
-		}
-		return nil
-	}
-
-	if verbose {
-		fmt.Printf("\nEndpoint:  %s\n", status.Endpoint)
-		if status.Authenticated {
-			fmt.Printf("Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-			if !status.ExpiresAt.IsZero() {
-				fmt.Printf("Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
-			}
-			if status.IssuerURL != "" {
-				fmt.Printf("Issuer:    %s\n", status.IssuerURL)
-			}
-		} else {
-			fmt.Printf("Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-			if status.Error != "" {
-				fmt.Printf("Error:     %s\n", status.Error)
-			}
-		}
-	}
-
-	return nil
-}

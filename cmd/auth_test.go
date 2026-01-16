@@ -294,49 +294,6 @@ func TestFormatExpiryWithDirection(t *testing.T) {
 	}
 }
 
-func TestTruncateURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		url      string
-		maxLen   int
-		expected string
-	}{
-		{
-			name:     "short URL not truncated",
-			url:      "https://example.com",
-			maxLen:   50,
-			expected: "https://example.com",
-		},
-		{
-			name:     "long URL truncated",
-			url:      "https://example.com/very/long/path/that/exceeds/limit",
-			maxLen:   30,
-			expected: "https://example.com/very/lo...",
-		},
-		{
-			name:     "URL exactly at limit",
-			url:      "https://example.com",
-			maxLen:   19,
-			expected: "https://example.com",
-		},
-		{
-			name:     "URL without protocol truncated",
-			url:      "this-is-a-very-long-string-without-protocol",
-			maxLen:   20,
-			expected: "this-is-a-very-lo...",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := truncateURL(tt.url, tt.maxLen)
-			if result != tt.expected {
-				t.Errorf("truncateURL(%q, %d) = %q, want %q", tt.url, tt.maxLen, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestAuthCommandHelp(t *testing.T) {
 	var buf bytes.Buffer
 

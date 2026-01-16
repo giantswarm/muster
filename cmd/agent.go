@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -18,6 +17,16 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
+)
+
+const (
+	// DefaultOAuthCallbackPort is the port used for OAuth callback during authentication.
+	DefaultOAuthCallbackPort = 3000
+	// SSOFlowDelay is the delay between sequential SSO authentication flows.
+	// With SSO using the same IdP (Dex), authentication typically completes
+	// in <1s via automatic redirects. The 2-second delay provides margin
+	// for slower networks and prevents browser tab overload.
+	SSOFlowDelay = 2 * time.Second
 )
 
 var (
@@ -99,7 +108,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	var logger *agent.Logger
 	if agentMCPServer {
-		// no logging for mpc servers in stdio
+		// No logging for MCP servers in stdio mode
 		logger = agent.NewDevNullLogger()
 	} else {
 		logger = agent.NewLogger(agentVerbose, !agentNoColor, agentJSONRPC)
@@ -251,7 +260,7 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
-		CallbackPort: 3000,
+		CallbackPort: DefaultOAuthCallbackPort,
 		FileMode:     true, // Persist tokens to filesystem
 	})
 	if err != nil {
@@ -299,11 +308,6 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 		// Still pass auth manager for potential re-auth if server starts requiring auth later
 		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 	}
-}
-
-// runMCPServerDirect runs the MCP server with a direct connection (no auth required).
-func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
-	return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, nil)
 }
 
 // runMCPServerDirectWithAuth runs the MCP server with optional auth manager for re-auth support.
@@ -498,7 +502,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		}
 
 		// Extract the auth URL from the result
-		authURL := extractAuthURLFromResult(result)
+		authURL := extractAuthURL(result)
 		if authURL == "" {
 			logger.Error("Could not extract auth URL from %s response", toolName)
 			failureCount++
@@ -515,12 +519,9 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 			successCount++
 		}
 
-		// Delay between auth flows to allow SSO redirects to complete.
-		// With SSO using the same IdP (Dex), authentication typically completes
-		// in <1s via automatic redirects. The 2-second delay provides margin
-		// for slower networks and prevents browser tab overload.
+		// Delay between auth flows to allow SSO redirects to complete
 		if i < len(pendingAuthTools)-1 {
-			time.Sleep(2 * time.Second)
+			time.Sleep(SSOFlowDelay)
 		}
 	}
 
@@ -547,39 +548,6 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 			}
 		}
 	}
-}
-
-// extractAuthURLFromResult parses the auth URL from a tool call result.
-// The result typically contains JSON with an "auth_url" field.
-func extractAuthURLFromResult(result *mcp.CallToolResult) string {
-	if result == nil || len(result.Content) == 0 {
-		return ""
-	}
-
-	// The content is typically a TextContent with JSON
-	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
-			// Try to parse as JSON first
-			var authResp struct {
-				AuthURL string `json:"auth_url"`
-			}
-			if err := json.Unmarshal([]byte(textContent.Text), &authResp); err == nil && authResp.AuthURL != "" {
-				return authResp.AuthURL
-			}
-
-			// Fallback: look for URL pattern in the text
-			// The response often contains "Please sign in to connect..." with a URL
-			lines := strings.Split(textContent.Text, "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-					return line
-				}
-			}
-		}
-	}
-
-	return ""
 }
 
 // findPendingAuthTools finds all authentication tools for remote MCP servers.
