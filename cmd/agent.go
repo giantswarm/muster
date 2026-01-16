@@ -22,11 +22,6 @@ import (
 const (
 	// DefaultOAuthCallbackPort is the port used for OAuth callback during authentication.
 	DefaultOAuthCallbackPort = 3000
-	// SSOFlowDelay is the delay between sequential SSO authentication flows.
-	// With SSO using the same IdP (Dex), authentication typically completes
-	// in <1s via automatic redirects. The 2-second delay provides margin
-	// for slower networks and prevents browser tab overload.
-	SSOFlowDelay = 2 * time.Second
 )
 
 var (
@@ -511,17 +506,14 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		}
 
 		// Open the browser for this auth flow
+		// Note: We don't wait for completion - the browser will handle SSO via shared cookies.
+		// Multiple tabs may open simultaneously; the IdP session cookie will be shared.
 		if err := oauth.OpenBrowser(authURL); err != nil {
 			logger.Error("Failed to open browser for %s: %v", serverName, err)
 			failureCount++
 			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
 		} else {
 			successCount++
-		}
-
-		// Delay between auth flows to allow SSO redirects to complete
-		if i < len(pendingAuthTools)-1 {
-			time.Sleep(SSOFlowDelay)
 		}
 	}
 

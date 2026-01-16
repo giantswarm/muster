@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"muster/internal/api"
 	pkgoauth "muster/pkg/oauth"
@@ -178,6 +177,8 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	}
 
 	// Authenticate to each server
+	// Note: We don't wait between flows - the browser will handle SSO via shared cookies.
+	// Multiple tabs may open; the IdP session cookie will be shared across tabs.
 	successCount := 0
 	for i, srv := range pendingServers {
 		if !authQuiet {
@@ -189,10 +190,6 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 			}
 		} else {
 			successCount++
-		}
-		// Delay between auth flows to allow SSO redirects to complete
-		if i < len(pendingServers)-1 {
-			time.Sleep(SSOFlowDelay)
 		}
 	}
 
