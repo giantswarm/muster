@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"muster/internal/agent/oauth"
 	"muster/internal/api"
@@ -27,8 +27,8 @@ func TestNewAuthAdapter(t *testing.T) {
 		if adapter.managers == nil {
 			t.Error("expected managers map to be initialized")
 		}
-		if adapter.httpClient == nil {
-			t.Error("expected httpClient to be initialized")
+		if adapter.tokenStorageDir == "" {
+			t.Error("expected tokenStorageDir to be set")
 		}
 	})
 }
@@ -104,9 +104,6 @@ func TestAuthAdapter_LogoutAll(t *testing.T) {
 	adapter := &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tmpDir,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}
 	defer adapter.Close()
 
@@ -124,9 +121,6 @@ func TestAuthAdapter_GetStatus_Empty(t *testing.T) {
 	adapter := &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tmpDir,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}
 	defer adapter.Close()
 
@@ -189,29 +183,6 @@ func TestNormalizeEndpoint(t *testing.T) {
 			result := normalizeEndpoint(tt.input)
 			if result != tt.expected {
 				t.Errorf("normalizeEndpoint(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestStripSuffix(t *testing.T) {
-	tests := []struct {
-		s        string
-		suffix   string
-		expected string
-	}{
-		{"hello/mcp", "/mcp", "hello"},
-		{"hello", "/mcp", "hello"},
-		{"/mcp", "/mcp", ""},
-		{"", "/mcp", ""},
-		{"hello/sse", "/sse", "hello"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.s+"_"+tt.suffix, func(t *testing.T) {
-			result := stripSuffix(tt.s, tt.suffix)
-			if result != tt.expected {
-				t.Errorf("stripSuffix(%q, %q) = %q, want %q", tt.s, tt.suffix, result, tt.expected)
 			}
 		})
 	}
@@ -389,8 +360,8 @@ func TestReadTokenFile(t *testing.T) {
 	})
 }
 
-// isAuthRequiredError checks if an error is an AuthRequiredError
+// isAuthRequiredError checks if an error is an AuthRequiredError using errors.As.
 func isAuthRequiredError(err error) bool {
-	_, ok := err.(*AuthRequiredError)
-	return ok
+	var authErr *AuthRequiredError
+	return errors.As(err, &authErr)
 }

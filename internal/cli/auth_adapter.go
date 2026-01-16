@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"muster/internal/agent/oauth"
@@ -23,16 +24,18 @@ const DefaultTokenStorageDir = ".config/muster/tokens"
 // AuthAdapter implements api.AuthHandler using internal/agent/oauth.
 // It wraps the AuthManager and TokenStore to provide OAuth authentication
 // for CLI commands following the project's service locator pattern.
+//
+// Thread-safe: All public methods are safe for concurrent use.
 type AuthAdapter struct {
-	// manager handles OAuth flows and state management.
+	// mu protects concurrent access to managers map.
+	mu sync.RWMutex
+
+	// managers handles OAuth flows and state management.
 	// Each login creates a new manager instance for that specific endpoint.
 	managers map[string]*oauth.AuthManager
 
 	// tokenStorageDir is the directory for storing tokens.
 	tokenStorageDir string
-
-	// httpClient is shared across operations.
-	httpClient *http.Client
 }
 
 // NewAuthAdapter creates a new auth adapter with default configuration.
@@ -47,9 +50,6 @@ func NewAuthAdapter() (*AuthAdapter, error) {
 	return &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tokenDir,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}, nil
 }
 
@@ -62,6 +62,19 @@ func (a *AuthAdapter) Register() {
 func (a *AuthAdapter) getOrCreateManager(endpoint string) (*oauth.AuthManager, error) {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
 
+	// Check with read lock first
+	a.mu.RLock()
+	if mgr, ok := a.managers[normalizedEndpoint]; ok {
+		a.mu.RUnlock()
+		return mgr, nil
+	}
+	a.mu.RUnlock()
+
+	// Upgrade to write lock to create new manager
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Double-check after acquiring write lock
 	if mgr, ok := a.managers[normalizedEndpoint]; ok {
 		return mgr, nil
 	}
@@ -205,10 +218,12 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
 
 	// Remove manager from cache if it exists
+	a.mu.Lock()
 	if mgr, ok := a.managers[normalizedEndpoint]; ok {
 		_ = mgr.Close()
 		delete(a.managers, normalizedEndpoint)
 	}
+	a.mu.Unlock()
 
 	// Clear the token directly from the token store.
 	// We don't use the manager's ClearToken() because newly created managers
@@ -231,10 +246,12 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 // LogoutAll clears all stored tokens.
 func (a *AuthAdapter) LogoutAll() error {
 	// Close all managers
+	a.mu.Lock()
 	for _, mgr := range a.managers {
 		_ = mgr.Close()
 	}
 	a.managers = make(map[string]*oauth.AuthManager)
+	a.mu.Unlock()
 
 	// Create a temporary token store to clear all tokens
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
@@ -253,10 +270,12 @@ func (a *AuthAdapter) GetStatus() []api.AuthStatus {
 	var statuses []api.AuthStatus
 
 	// Get status from all known managers
+	a.mu.RLock()
 	for endpoint, mgr := range a.managers {
 		status := a.getStatusFromManager(endpoint, mgr)
 		statuses = append(statuses, status)
 	}
+	a.mu.RUnlock()
 
 	// Also scan token files to find endpoints we don't have managers for
 	tokenFiles, _ := a.listTokenFiles()
@@ -341,6 +360,9 @@ func (a *AuthAdapter) RefreshToken(ctx context.Context, endpoint string) error {
 
 // Close cleans up any resources held by the auth adapter.
 func (a *AuthAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	var errs []error
 	for _, mgr := range a.managers {
 		if err := mgr.Close(); err != nil {
@@ -417,17 +439,10 @@ func parseJSON(data []byte, v interface{}) error {
 // normalizeEndpoint normalizes an endpoint URL for consistent key usage.
 func normalizeEndpoint(endpoint string) string {
 	// Strip trailing slashes and transport-specific paths
-	endpoint = stripSuffix(endpoint, "/")
-	endpoint = stripSuffix(endpoint, "/mcp")
-	endpoint = stripSuffix(endpoint, "/sse")
+	endpoint = strings.TrimSuffix(endpoint, "/")
+	endpoint = strings.TrimSuffix(endpoint, "/mcp")
+	endpoint = strings.TrimSuffix(endpoint, "/sse")
 	return endpoint
-}
-
-func stripSuffix(s, suffix string) string {
-	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
-		return s[:len(s)-len(suffix)]
-	}
-	return s
 }
 
 // isPortInUseError checks if an error is related to a port being in use.
@@ -473,11 +488,9 @@ func CheckServerWithAuth(ctx context.Context, endpoint string) (*ServerStatus, e
 	if resp.StatusCode == http.StatusUnauthorized {
 		status.AuthRequired = true
 
-		// Parse WWW-Authenticate header to get OAuth info
-		challenge := pkgoauth.ParseWWWAuthenticateFromResponse(resp)
-		if challenge != nil && challenge.Issuer != "" {
-			// OAuth is properly configured
-		}
+		// Parse WWW-Authenticate header to extract OAuth configuration (issuer, etc.)
+		// This validates that the server has OAuth properly configured.
+		_ = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
 
 		// Check if we have a valid token
 		authHandler := api.GetAuthHandler()

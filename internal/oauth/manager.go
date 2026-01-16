@@ -232,6 +232,9 @@ func (m *Manager) SetAuthCompletionCallback(callback AuthCompletionCallback) {
 }
 
 // HandleCallback processes an OAuth callback and stores the token.
+// Note: This is a programmatic API for testing. The production flow uses
+// Handler.HandleCallback which is the actual HTTP endpoint and handles
+// the auth completion callback invocation.
 func (m *Manager) HandleCallback(ctx context.Context, code, state string) error {
 	if m == nil {
 		return fmt.Errorf("OAuth proxy is disabled")
@@ -262,20 +265,6 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 
 	logging.Info("OAuth", "Successfully completed OAuth flow for session=%s server=%s",
 		stateData.SessionID, stateData.ServerName)
-
-	// Call the completion callback to establish session connection
-	m.mu.RLock()
-	callback := m.authCompletionCallback
-	m.mu.RUnlock()
-
-	if callback != nil {
-		if err := callback(ctx, stateData.SessionID, stateData.ServerName, token.AccessToken); err != nil {
-			// Log the error but don't fail the OAuth flow - the token is already stored
-			// and can be used on the next request
-			logging.Warn("OAuth", "Auth completion callback failed for session=%s server=%s: %v",
-				stateData.SessionID, stateData.ServerName, err)
-		}
-	}
 
 	return nil
 }

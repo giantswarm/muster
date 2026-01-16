@@ -1015,9 +1015,10 @@ func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
 	// Use write lock to prevent concurrent AddTools calls from interfering with each other
 	// This is critical when multiple OAuth servers are being registered simultaneously
 	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	mcpServer := a.mcpServer
 	if mcpServer == nil {
-		a.mu.Unlock()
 		logging.Warn("Aggregator", "RegisterSyntheticAuthToolSync: mcpServer is nil for %s", serverName)
 		return
 	}
@@ -1025,13 +1026,11 @@ func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
 	// Get server info to access the synthetic auth tool
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
-		a.mu.Unlock()
 		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s not found", serverName)
 		return
 	}
 
 	if serverInfo.Status != StatusAuthRequired {
-		a.mu.Unlock()
 		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s is not in auth_required state", serverName)
 		return
 	}
@@ -1076,8 +1075,6 @@ func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
 	} else {
 		logging.Info("Aggregator", "RegisterSyntheticAuthToolSync: no tools to add for %s (already registered or no tools)", serverName)
 	}
-
-	a.mu.Unlock()
 }
 
 // NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
