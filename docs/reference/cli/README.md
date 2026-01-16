@@ -9,6 +9,7 @@ Complete reference for all Muster command-line interface commands.
 | [`muster serve`](serve.md) | Start Muster control plane | `muster serve --port 8080` |
 | [`muster agent`](agent.md) | Interactive tool interface | `muster agent --repl` |
 | [`muster standalone`](standalone.md) | MCP server mode | `muster standalone` |
+| [`muster auth`](auth.md) | Manage authentication | `muster auth login --endpoint <url>` |
 | [`muster create`](create.md) | Create resources | `muster create service my-app web-service` |
 | [`muster get`](get.md) | Retrieve resources | `muster get service my-app` |
 | [`muster list`](list.md) | List resources | `muster list services` |
@@ -45,6 +46,16 @@ Commands for interactive tool usage and MCP server modes.
 - **[standalone](standalone.md)** - Standalone MCP server mode
   ```bash
   muster standalone               # Basic MCP server
+  ```
+
+### Authentication
+Commands for managing OAuth authentication to remote aggregators.
+
+- **[auth](auth.md)** - Manage authentication for remote aggregators
+  ```bash
+  muster auth login --endpoint https://muster.example.com/mcp
+  muster auth status              # Show auth status
+  muster auth logout --all        # Clear all tokens
   ```
 
 ### Utility Commands

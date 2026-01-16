@@ -496,7 +496,8 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 
 	// Wait for all expected resources to be available
-	resourceTimeout := 5 * time.Second
+	// Use a longer timeout to handle high parallelism and complex OAuth setups
+	resourceTimeout := 15 * time.Second
 	resourceCtx, resourceCancel := context.WithTimeout(readyCtx, resourceTimeout)
 	defer resourceCancel()
 
@@ -624,6 +625,19 @@ func (m *musterInstanceManager) extractExpectedTools(config *MusterPreConfigurat
 
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
+		// For OAuth-protected servers, expect the synthetic authenticate tool
+		// instead of the actual server tools (which won't be available until authenticated)
+		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
+		if oauthConfig != nil && oauthConfig.Required {
+			// Add the synthetic authenticate tool to expected tools
+			authenticateTool := fmt.Sprintf("x_%s_authenticate", mcpServer.Name)
+			expectedTools = append(expectedTools, authenticateTool)
+			if m.debug {
+				m.logger.Debug("🔐 Added synthetic authenticate tool for OAuth-protected server %s: %s\n", mcpServer.Name, authenticateTool)
+			}
+			continue
+		}
+
 		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
 			if toolsList, ok := tools.([]interface{}); ok {
 				for _, tool := range toolsList {
@@ -1325,11 +1339,16 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
-		// Skip OAuth-protected servers - their tools won't be available until authenticated
+		// For OAuth-protected servers, expect the synthetic authenticate tool
+		// instead of the actual server tools (which won't be available until authenticated)
 		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
 		if oauthConfig != nil && oauthConfig.Required {
+			// Add the synthetic authenticate tool to expected tools
+			// This ensures we wait for it to be registered before running tests
+			authenticateTool := fmt.Sprintf("x_%s_authenticate", mcpServer.Name)
+			expectedTools = append(expectedTools, authenticateTool)
 			if m.debug {
-				m.logger.Debug("⏩ Skipping tools for OAuth-protected server %s (tools unavailable until authenticated)\n", mcpServer.Name)
+				m.logger.Debug("🔐 Added synthetic authenticate tool for OAuth-protected server %s: %s\n", mcpServer.Name, authenticateTool)
 			}
 			continue
 		}

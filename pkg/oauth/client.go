@@ -256,6 +256,19 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 		c.logger.Debug("Token request failed",
 			"status", resp.StatusCode,
 			"body", string(body))
+
+		// Try to parse OAuth error response for better error messages
+		var oauthErr struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.Unmarshal(body, &oauthErr); err == nil && oauthErr.Error != "" {
+			if oauthErr.ErrorDescription != "" {
+				return nil, fmt.Errorf("token request failed: %s - %s", oauthErr.Error, oauthErr.ErrorDescription)
+			}
+			return nil, fmt.Errorf("token request failed: %s", oauthErr.Error)
+		}
+
 		return nil, fmt.Errorf("token request failed with status %d", resp.StatusCode)
 	}
 

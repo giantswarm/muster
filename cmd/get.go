@@ -15,6 +15,8 @@ var (
 	getOutputFormat string
 	getQuiet        bool
 	getConfigPath   string
+	getEndpoint     string
+	getAuthMode     string
 )
 
 // Available resource types for autocompletion
@@ -179,6 +181,8 @@ func init() {
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
 	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	getCmd.PersistentFlags().StringVar(&getAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
@@ -191,10 +195,18 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(getAuthMode)
+	if err != nil {
+		return err
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(getOutputFormat),
 		Quiet:      getQuiet,
 		ConfigPath: getConfigPath,
+		Endpoint:   getEndpoint,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

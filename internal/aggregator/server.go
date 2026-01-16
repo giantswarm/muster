@@ -1000,6 +1000,83 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 	}
 }
 
+// RegisterSyntheticAuthToolSync synchronously registers the synthetic auth tool for a pending auth server.
+// This is called immediately after RegisterPendingAuth to prevent race conditions where clients
+// try to call the authenticate tool before the async update has processed.
+//
+// This method uses a write lock to ensure that concurrent registrations from multiple
+// OAuth servers don't interfere with each other when calling AddTools on the MCP server.
+//
+// Args:
+//   - serverName: Name of the server that requires authentication
+func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
+	logging.Info("Aggregator", "RegisterSyntheticAuthToolSync called for server %s", serverName)
+
+	// Use write lock to prevent concurrent AddTools calls from interfering with each other
+	// This is critical when multiple OAuth servers are being registered simultaneously
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	mcpServer := a.mcpServer
+	if mcpServer == nil {
+		logging.Warn("Aggregator", "RegisterSyntheticAuthToolSync: mcpServer is nil for %s", serverName)
+		return
+	}
+
+	// Get server info to access the synthetic auth tool
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists || serverInfo == nil {
+		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s not found", serverName)
+		return
+	}
+
+	if serverInfo.Status != StatusAuthRequired {
+		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s is not in auth_required state", serverName)
+		return
+	}
+
+	// Get the tools from server info (should contain the synthetic auth tool)
+	serverInfo.mu.RLock()
+	tools := make([]mcp.Tool, len(serverInfo.Tools))
+	copy(tools, serverInfo.Tools)
+	serverInfo.mu.RUnlock()
+
+	var toolsToAdd []mcpserver.ServerTool
+	for _, tool := range tools {
+		// Apply the standard tool name prefixing
+		exposedName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
+
+		// Check if already registered
+		if a.toolManager.isActive(exposedName) {
+			continue
+		}
+
+		// Mark as active
+		a.toolManager.setActive(exposedName, true)
+
+		// Create the tool with a handler
+		serverTool := mcpserver.ServerTool{
+			Tool: mcp.Tool{
+				Name:        exposedName,
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+			},
+			Handler: toolHandlerFactory(a, exposedName),
+		}
+		toolsToAdd = append(toolsToAdd, serverTool)
+	}
+
+	if len(toolsToAdd) > 0 {
+		logging.Info("Aggregator", "Synchronously registering %d synthetic auth tools for server %s", len(toolsToAdd), serverName)
+		for _, t := range toolsToAdd {
+			logging.Info("Aggregator", "  - Registering tool: %s", t.Tool.Name)
+		}
+		mcpServer.AddTools(toolsToAdd...)
+	} else {
+		logging.Info("Aggregator", "RegisterSyntheticAuthToolSync: no tools to add for %s (already registered or no tools)", serverName)
+	}
+}
+
 // NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
 func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
 	a.mu.RLock()

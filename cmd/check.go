@@ -12,6 +12,8 @@ var (
 	checkOutputFormat string
 	checkQuiet        bool
 	checkConfigPath   string
+	checkEndpoint     string
+	checkAuthMode     string
 )
 
 // Available resource types for check operations
@@ -76,6 +78,8 @@ func init() {
 	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
 	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	checkCmd.PersistentFlags().StringVar(&checkEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	checkCmd.PersistentFlags().StringVar(&checkAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -88,10 +92,18 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, mcpserver, workflow", resourceType)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(checkAuthMode)
+	if err != nil {
+		return err
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(checkOutputFormat),
 		Quiet:      checkQuiet,
 		ConfigPath: checkConfigPath,
+		Endpoint:   checkEndpoint,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

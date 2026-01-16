@@ -91,6 +91,31 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	return nil
 }
 
+// GetByIssuerIncludingExpiring finds a token for the given session and issuer,
+// including tokens that are expiring soon or already expired.
+// This is used for token refresh - we need the refresh token even if the access token is expiring.
+func (ts *TokenStore) GetByIssuerIncludingExpiring(sessionID, issuer string) (*pkgoauth.Token, *TokenKey) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	for key, token := range ts.tokens {
+		if key.SessionID == sessionID && key.Issuer == issuer {
+			keyCopy := key
+			return token, &keyCopy
+		}
+	}
+	return nil, nil
+}
+
+// NeedsRefresh checks if a token needs to be refreshed (expiring within threshold).
+// Uses the shared TokenRefreshThreshold from pkg/oauth for consistent behavior.
+func (ts *TokenStore) NeedsRefresh(token *pkgoauth.Token) bool {
+	if token == nil || token.ExpiresAt.IsZero() {
+		return false
+	}
+	return time.Until(token.ExpiresAt) < pkgoauth.TokenRefreshThreshold
+}
+
 // GetTokenKeyByIssuer finds the token key for a given session and issuer.
 // This is useful for linking session connections to their tokens.
 func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {

@@ -8,6 +8,19 @@ import (
 	"muster/pkg/logging"
 )
 
+// AuthCompletionCallback is called after successful OAuth authentication.
+// The aggregator registers this callback to establish session connections
+// when users authenticate to MCP servers via the browser OAuth flow.
+//
+// Args:
+//   - ctx: Context for the operation
+//   - sessionID: The MCP session ID that authenticated
+//   - serverName: The name of the MCP server that was authenticated to
+//   - accessToken: The access token to use for the connection
+//
+// Returns an error if the connection could not be established.
+type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
+
 // OAuthHandler defines the interface for OAuth proxy functionality.
 // This handler manages OAuth authentication flows for remote MCP servers,
 // including token storage, authentication challenges, and callback handling.
@@ -51,6 +64,10 @@ type OAuthHandler interface {
 
 	// RegisterServer registers OAuth configuration for a remote MCP server.
 	RegisterServer(serverName, issuer, scope string)
+
+	// SetAuthCompletionCallback sets the callback to be called after successful authentication.
+	// The aggregator uses this to establish session connections after browser OAuth completes.
+	SetAuthCompletionCallback(callback AuthCompletionCallback)
 
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()

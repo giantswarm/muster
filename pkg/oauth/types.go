@@ -3,11 +3,46 @@ package oauth
 import (
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // DefaultExpiryMargin is the default margin when checking token expiry.
 // This accounts for clock skew and network latency.
 const DefaultExpiryMargin = 30 * time.Second
+
+// TokenRefreshThreshold is the duration before token expiry when tokens should be proactively refreshed.
+// Tokens expiring within this threshold will be refreshed automatically if a refresh token is available.
+// This is shared across all OAuth implementations (CLI, agent, aggregator) to ensure consistent behavior.
+const TokenRefreshThreshold = 5 * time.Minute
+
+// DefaultTokenStorageDir is the default directory for storing OAuth tokens,
+// relative to the user's home directory. This follows XDG conventions.
+// This constant is shared across all OAuth implementations for consistency.
+const DefaultTokenStorageDir = ".config/muster/tokens"
+
+// NormalizeServerURL normalizes a server URL by stripping transport-specific
+// path suffixes (/mcp, /sse) and trailing slashes to get the base server URL.
+// This ensures consistent token storage and OAuth metadata discovery regardless
+// of which endpoint path is used when connecting.
+//
+// This function is shared across all OAuth implementations for consistency.
+func NormalizeServerURL(serverURL string) string {
+	serverURL = strings.TrimSuffix(serverURL, "/")
+	serverURL = strings.TrimSuffix(serverURL, "/mcp")
+	serverURL = strings.TrimSuffix(serverURL, "/sse")
+	return serverURL
+}
+
+// IDTokenClaims holds the identity claims extracted from JWT ID tokens.
+// This is used to display user identity information (subject, email) from
+// OAuth authentication without requiring full JWT validation.
+type IDTokenClaims struct {
+	// Subject is the unique user identifier (sub claim).
+	Subject string `json:"sub"`
+	// Email is the user's email address (email claim).
+	Email string `json:"email"`
+}
 
 // Token represents an OAuth access token with associated metadata.
 type Token struct {
@@ -63,6 +98,25 @@ func (t *Token) Scopes() []string {
 		return nil
 	}
 	return strings.Fields(t.Scope)
+}
+
+// ToOAuth2Token converts the Token to an oauth2.Token for compatibility with golang.org/x/oauth2.
+func (t *Token) ToOAuth2Token() *oauth2.Token {
+	token := &oauth2.Token{
+		AccessToken:  t.AccessToken,
+		TokenType:    t.TokenType,
+		RefreshToken: t.RefreshToken,
+		Expiry:       t.ExpiresAt,
+	}
+
+	// Add ID token to extra data if available
+	if t.IDToken != "" {
+		token = token.WithExtra(map[string]interface{}{
+			"id_token": t.IDToken,
+		})
+	}
+
+	return token
 }
 
 // Metadata represents OAuth 2.0 Authorization Server Metadata as defined in RFC 8414.
@@ -200,6 +254,21 @@ type ClientMetadata struct {
 	SoftwareID              string   `json:"software_id,omitempty"`
 	SoftwareVersion         string   `json:"software_version,omitempty"`
 }
+
+// Server status constants for use in ServerAuthStatus.Status field.
+const (
+	// ServerStatusConnected indicates the server is connected and operational.
+	ServerStatusConnected = "connected"
+
+	// ServerStatusAuthRequired indicates the server requires OAuth authentication.
+	ServerStatusAuthRequired = "auth_required"
+
+	// ServerStatusDisconnected indicates the server is disconnected.
+	ServerStatusDisconnected = "disconnected"
+
+	// ServerStatusError indicates the server encountered an error.
+	ServerStatusError = "error"
+)
 
 // AuthStatusResponse is the structured response from the auth://status MCP resource.
 // It provides the AI with complete information about which servers need authentication.

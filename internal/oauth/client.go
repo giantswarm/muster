@@ -188,6 +188,50 @@ func (c *Client) RefreshToken(ctx context.Context, token *pkgoauth.Token) (*pkgo
 	return newToken, nil
 }
 
+// RefreshTokenIfNeeded checks if a token needs refreshing and refreshes it if necessary.
+// Returns the token (refreshed or original), a boolean indicating if refresh occurred, and any error.
+func (c *Client) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) (*pkgoauth.Token, bool, error) {
+	// Get the token including expiring ones
+	token, tokenKey := c.tokenStore.GetByIssuerIncludingExpiring(sessionID, issuer)
+	if token == nil {
+		return nil, false, fmt.Errorf("no token found for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
+	}
+
+	// Check if token needs refresh
+	if !c.tokenStore.NeedsRefresh(token) {
+		return token, false, nil
+	}
+
+	// Check if we have a refresh token
+	if token.RefreshToken == "" {
+		logging.Debug("OAuth", "Token needs refresh but no refresh token available (session=%s, issuer=%s)",
+			logging.TruncateSessionID(sessionID), issuer)
+		return token, false, nil
+	}
+
+	logging.Debug("OAuth", "Token expiring soon, attempting refresh (session=%s, issuer=%s, expires_in=%v)",
+		logging.TruncateSessionID(sessionID), issuer, time.Until(token.ExpiresAt))
+
+	// Perform the refresh
+	newToken, err := c.RefreshToken(ctx, token)
+	if err != nil {
+		return token, false, fmt.Errorf("token refresh failed: %w", err)
+	}
+
+	// Store the refreshed token with the same key
+	if tokenKey != nil {
+		c.tokenStore.Store(*tokenKey, newToken)
+	} else {
+		// Fallback: store with new key
+		c.StoreToken(sessionID, newToken)
+	}
+
+	logging.Info("OAuth", "Token proactively refreshed (session=%s, issuer=%s, new_expiry=%v)",
+		logging.TruncateSessionID(sessionID), issuer, newToken.ExpiresAt)
+
+	return newToken, true, nil
+}
+
 // StoreToken stores a token in the token store.
 func (c *Client) StoreToken(sessionID string, token *pkgoauth.Token) {
 	key := TokenKey{

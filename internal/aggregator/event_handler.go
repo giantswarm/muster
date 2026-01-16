@@ -222,6 +222,15 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 			eh.generateEvent(event.Name, events.ReasonMCPServerToolsDiscovered, events.EventData{})
 		}
 	} else {
+		// Skip deregistration for servers in "waiting" state
+		// This state is used when a server requires OAuth authentication.
+		// The server is waiting for the user to authenticate, and the orchestrator
+		// will register a synthetic auth tool. We must not deregister during this transition.
+		if event.NewState == "waiting" {
+			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is waiting for authentication", event.Name)
+			return
+		}
+
 		// Check if the server is in auth_required state - don't deregister those
 		// They need to stay registered with their synthetic auth tool
 		if eh.isServerAuthRequired != nil && eh.isServerAuthRequired(event.Name) {

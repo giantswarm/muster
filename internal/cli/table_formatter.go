@@ -153,7 +153,12 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 		if itemMap, ok := item.(map[string]interface{}); ok {
 			row := make([]interface{}, len(columns))
 			for i, col := range columns {
-				row[i] = f.builder.FormatCellValue(col, itemMap[col])
+				// Use context-aware formatting for MCP servers
+				if resourceType == "mcpServers" || resourceType == "mcpServer" {
+					row[i] = f.builder.FormatCellValueWithContext(col, itemMap[col], itemMap)
+				} else {
+					row[i] = f.builder.FormatCellValue(col, itemMap[col])
+				}
 			}
 			t.AppendRow(row)
 		}
@@ -337,6 +342,13 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 		return f.formatWorkflowDetails(data)
 	}
 
+	// Check if this is MCP server data to apply contextual labels
+	isMCPServer := f.isMCPServerData(data)
+	serverType := ""
+	if isMCPServer {
+		serverType = f.getServerType(data)
+	}
+
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetStyle(table.StyleRounded)
@@ -353,15 +365,44 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		value := f.builder.FormatCellValue(key, data[key])
+		// Apply contextual formatting for MCP servers
+		var value interface{}
+		displayKey := key
+
+		if isMCPServer {
+			value = f.builder.FormatCellValueWithContext(key, data[key], data)
+
+			// Use contextual property names for remote servers
+			if IsRemoteServerType(serverType) {
+				switch strings.ToLower(key) {
+				case "autostart":
+					displayKey = "autoConnect"
+				}
+			}
+		} else {
+			value = f.builder.FormatCellValue(key, data[key])
+		}
+
 		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint(key),
+			text.Colors{text.FgHiYellow, text.Bold}.Sprint(displayKey),
 			value,
 		})
 	}
 
 	t.Render()
 	return nil
+}
+
+// isMCPServerData checks if the data represents an MCP server.
+// Delegates to the shared IsMCPServerData helper for consistent behavior.
+func (f *TableFormatter) isMCPServerData(data map[string]interface{}) bool {
+	return IsMCPServerData(data)
+}
+
+// getServerType extracts the server type from MCP server data.
+// Delegates to the shared ExtractServerType helper for consistent behavior.
+func (f *TableFormatter) getServerType(data map[string]interface{}) string {
+	return ExtractServerType(data)
 }
 
 // isWorkflowData checks if the data represents a workflow.

@@ -24,6 +24,8 @@ var (
 	eventsUntil        string
 	eventsLimit        int
 	eventsFollow       bool
+	eventsEndpoint     string
+	eventsAuthMode     string
 )
 
 // eventsCmd represents the events command
@@ -105,6 +107,10 @@ func init() {
 
 	// Add shell completion for resource types
 	eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
+
+	// Auth flags
+	eventsCmd.PersistentFlags().StringVar(&eventsEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	eventsCmd.PersistentFlags().StringVar(&eventsAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 func runEvents(cmd *cobra.Command, args []string) error {
@@ -164,10 +170,18 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("limit must be a positive number, got %d", eventsLimit)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(eventsAuthMode)
+	if err != nil {
+		return err
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(eventsOutputFormat),
 		Quiet:      eventsQuiet,
 		ConfigPath: eventsConfigPath,
+		Endpoint:   eventsEndpoint,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

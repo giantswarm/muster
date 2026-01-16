@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	pkgoauth "muster/pkg/oauth"
 )
@@ -47,15 +48,10 @@ func (s AuthState) String() string {
 	}
 }
 
-// normalizeServerURL normalizes a server URL by stripping transport-specific
-// path suffixes (/mcp, /sse) to get the base server URL. This ensures consistent
-// token storage and OAuth metadata discovery regardless of which endpoint path
-// is used when connecting.
+// normalizeServerURL normalizes a server URL for consistent token storage.
+// This is a thin wrapper around pkgoauth.NormalizeServerURL for local use.
 func normalizeServerURL(serverURL string) string {
-	serverURL = strings.TrimSuffix(serverURL, "/")
-	serverURL = strings.TrimSuffix(serverURL, "/mcp")
-	serverURL = strings.TrimSuffix(serverURL, "/sse")
-	return serverURL
+	return pkgoauth.NormalizeServerURL(serverURL)
 }
 
 // AuthManager manages OAuth authentication for the Muster Agent.
@@ -130,7 +126,7 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			// Server requires auth - we got a 401 response
 			if challenge != nil && challenge.Issuer != "" {
 				// Got a proper WWW-Authenticate header with OAuth info including issuer
-				slog.Info("OAuth authentication required for Muster Server",
+				slog.Debug("OAuth authentication required for server",
 					"server_url", serverURL,
 					"issuer", challenge.Issuer,
 					"realm", challenge.Realm,
@@ -143,19 +139,19 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			// Got 401 but either no WWW-Authenticate header or no issuer in it
 			// Try to discover OAuth metadata from well-known endpoints
 			if challenge != nil {
-				slog.Info("Server returned 401 with WWW-Authenticate but no issuer, attempting to discover OAuth metadata",
+				slog.Debug("Server returned 401 with WWW-Authenticate but no issuer, attempting to discover OAuth metadata",
 					"server_url", serverURL,
 					"resource_metadata_url", challenge.ResourceMetadataURL,
 				)
 			} else {
-				slog.Info("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
+				slog.Debug("Server returned 401 without WWW-Authenticate header, attempting to discover OAuth metadata",
 					"server_url", serverURL,
 				)
 			}
 
 			discoveredChallenge, discoverErr := m.discoverOAuthMetadata(ctx, serverURL)
 			if discoverErr == nil && discoveredChallenge != nil {
-				slog.Info("Discovered OAuth metadata for Muster Server",
+				slog.Debug("Discovered OAuth metadata for server",
 					"server_url", serverURL,
 					"issuer", discoveredChallenge.Issuer,
 				)
@@ -164,8 +160,9 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 				return m.state, nil
 			}
 
-			// Could not discover OAuth metadata
-			slog.Warn("Server requires authentication but OAuth metadata could not be discovered",
+			// Could not discover OAuth metadata - return error but don't log as warning
+			// since the error is returned to the caller for proper handling
+			slog.Debug("Server requires authentication but OAuth metadata could not be discovered",
 				"server_url", serverURL,
 				"discover_error", discoverErr,
 			)
@@ -174,7 +171,10 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 			return m.state, m.lastError
 		}
 
-		slog.Warn("Failed to probe server authentication status",
+		// Probe failed (server unreachable, timeout, etc.)
+		// This is expected for CLI commands when server is not running
+		// Don't log as warning - the error is returned to caller for handling
+		slog.Debug("Failed to probe server authentication status",
 			"server_url", serverURL,
 			"error", err.Error(),
 		)
@@ -194,61 +194,97 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 	return m.state, nil
 }
 
+// probeTimeout is the timeout for auth probe requests.
+// This must be short because MCP endpoints may use streaming (SSE, Streamable HTTP)
+// which would otherwise block indefinitely on GET requests.
+const probeTimeout = 3 * time.Second
+
+// probeConfig defines a single probe strategy for detecting auth requirements.
+type probeConfig struct {
+	method      string
+	path        string
+	body        string
+	contentType string
+	accept      string
+}
+
+// probeStrategies defines the order and configuration of auth probe attempts.
+// MCP endpoints use different transports:
+// - Streamable HTTP (/mcp): POST requests, GET opens streaming connection
+// - SSE (/sse): GET opens SSE stream
+// We probe without blocking on streaming responses.
+var probeStrategies = []probeConfig{
+	// Strategy 1: POST to /mcp with minimal JSONRPC request
+	{method: http.MethodPost, path: "/mcp", body: `{"jsonrpc":"2.0","id":1,"method":"ping"}`, contentType: "application/json", accept: "application/json"},
+	// Strategy 2: GET to /sse (returns 401 immediately if auth required)
+	{method: http.MethodGet, path: "/sse", accept: "text/event-stream"},
+	// Strategy 3: HEAD to base URL
+	{method: http.MethodHead, path: ""},
+}
+
 // probeServerAuth probes the server to detect authentication requirements.
 // Returns an AuthChallenge if 401 is received, nil otherwise.
 func (m *AuthManager) probeServerAuth(ctx context.Context, serverURL string) (*pkgoauth.AuthChallenge, error) {
-	// Normalize to base URL first, then construct probe URLs
 	baseURL := normalizeServerURL(serverURL)
 
-	// Try a request to the MCP endpoint
-	// The actual endpoint depends on the transport type
-	probeURLs := []string{
-		baseURL + "/mcp",
-		baseURL + "/sse",
-		baseURL,
+	probeClient := &http.Client{
+		Timeout: probeTimeout,
 	}
 
-	// Reuse the HTTP client from the OAuth client to avoid resource leaks
-	httpClient := m.client.GetHTTPClient()
-
-	for _, probeURL := range probeURLs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
-		if err != nil {
-			continue
+	// Try each probe strategy in order until one succeeds
+	for _, probe := range probeStrategies {
+		challenge, err := m.tryProbe(ctx, probeClient, baseURL, probe)
+		if err == ErrAuthRequired {
+			return challenge, ErrAuthRequired
 		}
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			continue
-		}
-
-		// Extract needed data before closing the body to avoid defer in loop
-		statusCode := resp.StatusCode
-		var challenge *pkgoauth.AuthChallenge
-		if statusCode == http.StatusUnauthorized {
-			challenge = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
-		}
-
-		// Drain and close body immediately (not deferred) to avoid memory leak
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-
-		if statusCode == http.StatusUnauthorized {
-			if challenge != nil {
-				return challenge, ErrAuthRequired
-			}
-			return nil, ErrAuthRequired
-		}
-
-		// Server responded without 401 - might not require auth
-		// or might require auth at a later stage
-		if statusCode == http.StatusOK || statusCode == http.StatusMethodNotAllowed {
+		if err == nil {
+			// Server responded without 401 - no auth required at transport level
 			return nil, nil
 		}
+		// Probe failed (network error, etc.) - try next strategy
 	}
 
-	// Couldn't determine auth status
 	return nil, fmt.Errorf("failed to probe server authentication status")
+}
+
+// tryProbe attempts a single probe strategy and returns the result.
+// Returns (challenge, ErrAuthRequired) if 401 received.
+// Returns (nil, nil) if server responded without requiring auth.
+// Returns (nil, error) if the probe failed and should try next strategy.
+func (m *AuthManager) tryProbe(ctx context.Context, client *http.Client, baseURL string, probe probeConfig) (*pkgoauth.AuthChallenge, error) {
+	var req *http.Request
+	var err error
+
+	if probe.body != "" {
+		bodyReader := strings.NewReader(probe.body)
+		req, err = http.NewRequestWithContext(ctx, probe.method, baseURL+probe.path, bodyReader)
+	} else {
+		req, err = http.NewRequestWithContext(ctx, probe.method, baseURL+probe.path, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if probe.contentType != "" {
+		req.Header.Set("Content-Type", probe.contentType)
+	}
+	if probe.accept != "" {
+		req.Header.Set("Accept", probe.accept)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := pkgoauth.ParseWWWAuthenticateFromResponse(resp)
+		return challenge, ErrAuthRequired
+	}
+
+	// Any other response means server is reachable and doesn't require auth
+	return nil, nil
 }
 
 // discoverOAuthMetadata attempts to discover OAuth metadata from well-known endpoints.
@@ -329,7 +365,7 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 
 	authURL, waitFn, err := m.client.CompleteAuthFlow(ctx, m.serverURL, issuerURL)
 	if err != nil {
-		slog.Warn("Failed to start OAuth authentication flow",
+		slog.Debug("Failed to start OAuth authentication flow",
 			"server_url", m.serverURL,
 			"issuer_url", issuerURL,
 			"error", err.Error(),
@@ -338,7 +374,7 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	slog.Info("OAuth authentication flow started",
+	slog.Debug("OAuth authentication flow started",
 		"server_url", m.serverURL,
 		"issuer_url", issuerURL,
 	)
@@ -364,7 +400,7 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 	}
 
 	if err := waitFn(); err != nil {
-		slog.Warn("OAuth authentication flow failed",
+		slog.Debug("OAuth authentication flow failed",
 			"server_url", m.serverURL,
 			"error", err.Error(),
 		)
@@ -375,7 +411,7 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 		return err
 	}
 
-	slog.Info("OAuth authentication completed successfully",
+	slog.Debug("OAuth authentication completed successfully",
 		"server_url", m.serverURL,
 	)
 
@@ -389,16 +425,36 @@ func (m *AuthManager) WaitForAuth(ctx context.Context) error {
 }
 
 // GetAccessToken returns the access token for the server.
+// It will automatically refresh the token if it's about to expire and a refresh token is available.
 // Returns an error if not authenticated.
 func (m *AuthManager) GetAccessToken() (string, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	serverURL := m.serverURL
+	state := m.state
+	m.mu.RUnlock()
 
-	if m.state != AuthStateAuthenticated {
-		return "", fmt.Errorf("not authenticated (state: %s)", m.state)
+	if state != AuthStateAuthenticated {
+		return "", fmt.Errorf("not authenticated (state: %s)", state)
 	}
 
-	token, err := m.client.GetToken(m.serverURL)
+	// Try to refresh the token if needed (this is a no-op if token is still valid)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	refreshed, err := m.client.RefreshTokenIfNeeded(ctx, serverURL)
+	if err != nil {
+		// Log the refresh error but continue - we might still have a valid token
+		slog.Debug("Token refresh failed, will try to use existing token",
+			"server_url", serverURL,
+			"error", err.Error(),
+		)
+	} else if refreshed {
+		slog.Debug("Token was proactively refreshed",
+			"server_url", serverURL,
+		)
+	}
+
+	token, err := m.client.GetToken(serverURL)
 	if err != nil {
 		return "", err
 	}
@@ -448,6 +504,19 @@ func (m *AuthManager) GetServerURL() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.serverURL
+}
+
+// GetStoredToken returns the stored token for the current server.
+// Returns nil if not authenticated or no token exists.
+func (m *AuthManager) GetStoredToken() *StoredToken {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.serverURL == "" {
+		return nil
+	}
+
+	return m.client.tokenStore.GetToken(m.serverURL)
 }
 
 // ClearToken clears the stored token for the current server.

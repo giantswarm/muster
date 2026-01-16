@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,11 +11,17 @@ import (
 
 	"muster/internal/agent"
 	"muster/internal/agent/oauth"
+	"muster/internal/api"
 	"muster/internal/cli"
 	"muster/internal/config"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
+)
+
+const (
+	// DefaultOAuthCallbackPort is the port used for OAuth callback during authentication.
+	DefaultOAuthCallbackPort = 3000
 )
 
 var (
@@ -30,6 +35,7 @@ var (
 	agentTransport      string
 	agentConfigPath     string
 	agentDisableAutoSSO bool
+	agentAuthMode       string
 )
 
 // agentCmd represents the agent command
@@ -86,6 +92,7 @@ func init() {
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
+	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -98,7 +105,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	var logger *agent.Logger
 	if agentMCPServer {
-		// no logging for mpc servers in stdio
+		// No logging for MCP servers in stdio mode
 		logger = agent.NewDevNullLogger()
 	} else {
 		logger = agent.NewLogger(agentVerbose, !agentNoColor, agentJSONRPC)
@@ -148,8 +155,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return runMCPServerWithOAuth(ctx, client, logger, endpoint, transport)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(agentAuthMode)
+	if err != nil {
+		return err
+	}
+
+	// For REPL and normal modes, use the AuthHandler for authentication
+	if err := setupAgentAuthentication(ctx, client, logger, endpoint, authMode); err != nil {
+		return err
+	}
+
 	// Connect to aggregator and load tools/resources/prompts with retry logic
-	err := connectWithRetry(ctx, client, logger, endpoint, transport)
+	err = connectWithRetry(ctx, client, logger, endpoint, transport)
 	if err != nil {
 		return err
 	}
@@ -170,6 +188,89 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// setupAgentAuthentication sets up authentication for the agent client using the AuthHandler.
+// This provides a unified authentication experience for all agent modes (REPL, normal).
+func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, authMode cli.AuthMode) error {
+	// Check if this is a remote endpoint
+	if !cli.IsRemoteEndpoint(endpoint) {
+		// Local endpoint - no auth needed
+		return nil
+	}
+
+	// Try to get a token from the AuthHandler
+	handler := api.GetAuthHandler()
+	if handler == nil {
+		// No auth handler - create and register one
+		adapter, err := cli.NewAuthAdapter()
+		if err != nil {
+			logger.Info("Warning: Could not initialize auth adapter: %v", err)
+			return nil
+		}
+		adapter.Register()
+		handler = api.GetAuthHandler()
+	}
+
+	if handler == nil {
+		return nil
+	}
+
+	// Check if we have a valid token
+	if handler.HasValidToken(endpoint) {
+		token, err := handler.GetBearerToken(endpoint)
+		if err == nil {
+			client.SetAuthorizationHeader(token)
+			logger.Info("Using existing authentication token")
+			return nil
+		}
+	}
+
+	// Check if auth is required
+	authRequired, err := handler.CheckAuthRequired(ctx, endpoint)
+	if err != nil {
+		// Can't check auth - continue without token
+		logger.Info("Could not check auth requirements: %v", err)
+		return nil
+	}
+
+	if !authRequired {
+		// No auth required
+		return nil
+	}
+
+	// Handle auth based on mode
+	switch authMode {
+	case cli.AuthModeNone:
+		return &cli.AuthRequiredError{Endpoint: endpoint}
+	case cli.AuthModePrompt:
+		logger.Info("Authentication required for %s", endpoint)
+		logger.Info("Press Enter to open browser for authentication, or Ctrl+C to cancel...")
+		// Wait for user input
+		var input string
+		if _, err := fmt.Scanln(&input); err != nil {
+			// User pressed Enter (with or without newline)
+		}
+	default:
+		// AuthModeAuto - proceed directly
+		logger.Info("Authentication required for %s", endpoint)
+	}
+
+	logger.Info("Starting OAuth login flow...")
+
+	if err := handler.Login(ctx, endpoint); err != nil {
+		return fmt.Errorf("authentication failed: %w. Run 'muster auth login --endpoint %s' to authenticate", err, endpoint)
+	}
+
+	// Get the token and set it on the client
+	token, err := handler.GetBearerToken(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get authentication token: %w", err)
+	}
+	client.SetAuthorizationHeader(token)
+	logger.Success("Authentication successful")
+
+	return nil
+}
+
 // runMCPServerWithOAuth runs the MCP server with OAuth authentication support.
 // If the server requires authentication, it starts with a pending auth server
 // exposing only the authenticate_muster tool, then upgrades to the full server
@@ -177,7 +278,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
-		CallbackPort: 3000,
+		CallbackPort: DefaultOAuthCallbackPort,
 		FileMode:     true, // Persist tokens to filesystem
 	})
 	if err != nil {
@@ -225,11 +326,6 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 		// Still pass auth manager for potential re-auth if server starts requiring auth later
 		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 	}
-}
-
-// runMCPServerDirect runs the MCP server with a direct connection (no auth required).
-func runMCPServerDirect(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
-	return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, nil)
 }
 
 // runMCPServerDirectWithAuth runs the MCP server with optional auth manager for re-auth support.
@@ -401,8 +497,8 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	var successCount, failureCount int
 	var failedServers []failedServer
 
-	// Trigger auth for each pending server sequentially
-	// Sequential is better for SSO as the browser session builds up
+	// Trigger auth for each pending server sequentially, waiting for completion
+	// This ensures SSO cookies are available for subsequent flows
 	for i, toolName := range pendingAuthTools {
 		select {
 		case <-ctx.Done():
@@ -424,7 +520,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		}
 
 		// Extract the auth URL from the result
-		authURL := extractAuthURLFromResult(result)
+		authURL := extractAuthURL(result)
 		if authURL == "" {
 			logger.Error("Could not extract auth URL from %s response", toolName)
 			failureCount++
@@ -437,16 +533,17 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 			logger.Error("Failed to open browser for %s: %v", serverName, err)
 			failureCount++
 			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
-		} else {
-			successCount++
+			continue
 		}
 
-		// Delay between auth flows to allow SSO redirects to complete.
-		// With SSO using the same IdP (Dex), authentication typically completes
-		// in <1s via automatic redirects. The 2-second delay provides margin
-		// for slower networks and prevents browser tab overload.
-		if i < len(pendingAuthTools)-1 {
-			time.Sleep(2 * time.Second)
+		// Wait for the server to become connected by polling the auth://status resource
+		if err := waitForServerConnection(ctx, client, serverName, logger); err != nil {
+			logger.Error("Timeout waiting for %s: %v", serverName, err)
+			failureCount++
+			failedServers = append(failedServers, failedServer{name: serverName, url: authURL})
+		} else {
+			logger.Success("%s authenticated", serverName)
+			successCount++
 		}
 	}
 
@@ -475,37 +572,44 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	}
 }
 
-// extractAuthURLFromResult parses the auth URL from a tool call result.
-// The result typically contains JSON with an "auth_url" field.
-func extractAuthURLFromResult(result *mcp.CallToolResult) string {
-	if result == nil || len(result.Content) == 0 {
-		return ""
-	}
+// waitForServerConnection polls until the server transitions to "connected" status.
+// It uses the agent client to read the auth://status resource and check server state.
+func waitForServerConnection(ctx context.Context, client *agent.Client, serverName string, logger *agent.Logger) error {
+	const timeout = 2 * time.Minute
+	const pollInterval = 500 * time.Millisecond
 
-	// The content is typically a TextContent with JSON
-	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
-			// Try to parse as JSON first
-			var authResp struct {
-				AuthURL string `json:"auth_url"`
-			}
-			if err := json.Unmarshal([]byte(textContent.Text), &authResp); err == nil && authResp.AuthURL != "" {
-				return authResp.AuthURL
-			}
+	logger.Debug("Waiting for %s to connect (timeout: %s)", serverName, timeout)
 
-			// Fallback: look for URL pattern in the text
-			// The response often contains "Please sign in to connect..." with a URL
-			lines := strings.Split(textContent.Text, "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-					return line
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for %s to authenticate\n\nPlease complete authentication in your browser, then run:\n  muster auth login --server %s", serverName, serverName)
+		case <-ticker.C:
+			// Check if the server is now connected by looking at the tool cache
+			// If the authenticate tool is gone, the server has connected
+			tools := client.GetToolCache()
+			authToolName := "x_" + serverName + "_authenticate"
+			authToolExists := false
+			for _, tool := range tools {
+				if tool.Name == authToolName {
+					authToolExists = true
+					break
 				}
 			}
+			if !authToolExists {
+				// Auth tool is gone - server has connected
+				logger.Debug("%s connection confirmed", serverName)
+				return nil
+			}
+			// Still waiting - auth tool still present
 		}
 	}
-
-	return ""
 }
 
 // findPendingAuthTools finds all authentication tools for remote MCP servers.

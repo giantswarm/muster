@@ -15,6 +15,8 @@ var (
 	startOutputFormat string
 	startQuiet        bool
 	startConfigPath   string
+	startEndpoint     string
+	startAuthMode     string
 )
 
 // Available resource types for start operations
@@ -125,6 +127,8 @@ func init() {
 	startCmd.PersistentFlags().StringVarP(&startOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	startCmd.PersistentFlags().BoolVarP(&startQuiet, "quiet", "q", false, "Suppress non-essential output")
 	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	startCmd.PersistentFlags().StringVar(&startEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	startCmd.PersistentFlags().StringVar(&startAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
 // parseWorkflowParameters extracts workflow parameters from raw command line arguments
@@ -194,10 +198,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 	resourceName := args[1]
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(startAuthMode)
+	if err != nil {
+		return err
+	}
+
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(startOutputFormat),
 		Quiet:      startQuiet,
 		ConfigPath: startConfigPath,
+		Endpoint:   startEndpoint,
+		AuthMode:   authMode,
 	})
 	if err != nil {
 		return err

@@ -41,6 +41,21 @@ func NewTableBuilder() *TableBuilder {
 // Returns:
 //   - interface{}: Formatted value with styling applied
 func (b *TableBuilder) FormatCellValue(column string, value interface{}) interface{} {
+	return b.FormatCellValueWithContext(column, value, nil)
+}
+
+// FormatCellValueWithContext formats individual cell values with row context.
+// This allows for context-aware formatting where the display depends on other
+// fields in the same row (e.g., state terminology depends on server type).
+//
+// Args:
+//   - column: The column name/type to determine formatting rules
+//   - value: The raw value to format
+//   - rowContext: The full row data for context-aware formatting (may be nil)
+//
+// Returns:
+//   - interface{}: Formatted value with styling applied
+func (b *TableBuilder) FormatCellValueWithContext(column string, value interface{}, rowContext map[string]interface{}) interface{} {
 	if value == nil {
 		return text.Faint.Sprint("-")
 	}
@@ -66,6 +81,11 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 	case "autostart":
 		return b.formatAutoStartStatus(value)
 	case "state":
+		// Use context-aware state formatting if we have server type info
+		serverType := b.getServerTypeFromContext(rowContext)
+		if serverType != "" {
+			return b.formatStateForServerType(strValue, serverType)
+		}
 		return b.formatState(strValue)
 	case "started_at", "completed_at", "timestamp":
 		return b.formatTimestamp(strValue)
@@ -109,6 +129,18 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 		}
 		return strValue
 	}
+}
+
+// getServerTypeFromContext extracts the server type from row context.
+// It delegates to the shared ExtractServerType helper for consistent behavior.
+//
+// Args:
+//   - rowContext: The full row data
+//
+// Returns:
+//   - string: The server type (stdio, streamable-http, sse) or empty string
+func (b *TableBuilder) getServerTypeFromContext(rowContext map[string]interface{}) string {
+	return ExtractServerType(rowContext)
 }
 
 // formatHealthStatus adds color coding and icons to health status values.
@@ -181,6 +213,49 @@ func (b *TableBuilder) formatState(state string) interface{} {
 	case "starting":
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
 	case "stopping":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
+	case "failed":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
+	case "error":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  Error")
+	default:
+		return state
+	}
+}
+
+// formatStateForServerType formats service state with context-appropriate terminology.
+// For local stdio servers, it uses "Running/Stopped" terminology.
+// For remote servers (streamable-http/sse), it uses "Connected/Disconnected" terminology.
+//
+// Args:
+//   - state: The service state string to format
+//   - serverType: The type of server (stdio, streamable-http, sse)
+//
+// Returns:
+//   - interface{}: Formatted state with appropriate icon, color, and terminology
+func (b *TableBuilder) formatStateForServerType(state string, serverType string) interface{} {
+	isRemote := IsRemoteServerType(serverType)
+
+	switch strings.ToLower(state) {
+	case "running":
+		if isRemote {
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🔗 Connected")
+		}
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  Running")
+	case "stopped":
+		if isRemote {
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ Disconnected")
+		}
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  Stopped")
+	case "starting":
+		if isRemote {
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Connecting")
+		}
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
+	case "stopping":
+		if isRemote {
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Disconnecting")
+		}
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
 	case "failed":
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
@@ -553,7 +628,7 @@ func (b *TableBuilder) formatDuration(value interface{}) interface{} {
 }
 
 // formatAutoStartStatus formats boolean autoStart status with clear visual indicators.
-// This shows whether an MCP server is configured to start automatically.
+// This shows whether an MCP server is configured to start/connect automatically.
 //
 // Args:
 //   - value: The autoStart value (boolean)
@@ -575,6 +650,22 @@ func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
 	default:
 		return fmt.Sprintf("%v", value)
 	}
+}
+
+// GetAutoStartColumnName returns the appropriate column name based on server type.
+// For local stdio servers, it returns "AutoStart".
+// For remote servers (streamable-http/sse), it returns "AutoConnect".
+//
+// Args:
+//   - serverType: The type of server (stdio, streamable-http, sse)
+//
+// Returns:
+//   - string: Contextually appropriate column name
+func (b *TableBuilder) GetAutoStartColumnName(serverType string) string {
+	if IsRemoteServerType(serverType) {
+		return "AutoConnect"
+	}
+	return "AutoStart"
 }
 
 // formatCommand formats command strings with appropriate highlighting.

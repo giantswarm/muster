@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
+
+// AuthCompletionCallback is called after successful OAuth authentication.
+type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
 
 // Manager coordinates OAuth flows for remote MCP server authentication.
 // It manages the OAuth client, HTTP handlers, and integrates with the aggregator.
@@ -25,6 +29,9 @@ type Manager struct {
 
 	// Server authentication metadata: serverName -> AuthServerConfig
 	serverConfigs map[string]*AuthServerConfig
+
+	// Callback to establish session connection after authentication
+	authCompletionCallback AuthCompletionCallback
 }
 
 // AuthServerConfig holds OAuth configuration for a specific remote MCP server.
@@ -52,6 +59,9 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 		handler:       handler,
 		serverConfigs: make(map[string]*AuthServerConfig),
 	}
+
+	// Set manager reference on handler for callback handling
+	handler.SetManager(m)
 
 	// Log whether we're serving our own CIMD
 	if cfg.ShouldServeCIMD() {
@@ -142,6 +152,7 @@ func (m *Manager) GetServerConfig(serverName string) *AuthServerConfig {
 }
 
 // GetToken retrieves a valid token for the given session and server.
+// It will proactively refresh the token if it's about to expire.
 func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 	if m == nil {
 		return nil
@@ -155,17 +166,62 @@ func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 		return nil
 	}
 
-	return m.client.GetToken(sessionID, serverCfg.Issuer, serverCfg.Scope)
+	// Try to refresh the token if needed
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	token, refreshed, err := m.client.RefreshTokenIfNeeded(ctx, sessionID, serverCfg.Issuer)
+	if err != nil {
+		logging.Debug("OAuth", "Token refresh failed for session=%s server=%s: %v",
+			logging.TruncateSessionID(sessionID), serverName, err)
+		// Fall back to getting the token directly (might still be valid)
+		return m.client.GetToken(sessionID, serverCfg.Issuer, serverCfg.Scope)
+	}
+
+	if refreshed {
+		logging.Debug("OAuth", "Token proactively refreshed for session=%s server=%s",
+			logging.TruncateSessionID(sessionID), serverName)
+	}
+
+	// Verify the token is still valid
+	if token != nil && !token.IsExpiredWithMargin(tokenExpiryMargin) {
+		return token
+	}
+
+	return nil
 }
 
 // GetTokenByIssuer retrieves a valid token for the given session and issuer.
 // This is used for SSO when we have the issuer from a 401 response.
+// It will proactively refresh the token if it's about to expire.
 func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
 
-	return m.client.tokenStore.GetByIssuer(sessionID, issuer)
+	// Try to refresh the token if needed
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	token, refreshed, err := m.client.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+	if err != nil {
+		logging.Debug("OAuth", "Token refresh failed for session=%s issuer=%s: %v",
+			logging.TruncateSessionID(sessionID), issuer, err)
+		// Fall back to getting the token directly (might still be valid)
+		return m.client.tokenStore.GetByIssuer(sessionID, issuer)
+	}
+
+	if refreshed {
+		logging.Debug("OAuth", "Token proactively refreshed for session=%s issuer=%s",
+			logging.TruncateSessionID(sessionID), issuer)
+	}
+
+	// Verify the token is still valid
+	if token != nil && !token.IsExpiredWithMargin(tokenExpiryMargin) {
+		return token
+	}
+
+	return nil
 }
 
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
@@ -208,7 +264,24 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName
 	return challenge, nil
 }
 
+// SetAuthCompletionCallback sets the callback to be called after successful authentication.
+// The aggregator uses this to establish session connections after browser OAuth completes.
+func (m *Manager) SetAuthCompletionCallback(callback AuthCompletionCallback) {
+	if m == nil {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.authCompletionCallback = callback
+	logging.Debug("OAuth", "Auth completion callback registered")
+}
+
 // HandleCallback processes an OAuth callback and stores the token.
+// Note: This is a programmatic API for testing. The production flow uses
+// Handler.HandleCallback which is the actual HTTP endpoint and handles
+// the auth completion callback invocation.
 func (m *Manager) HandleCallback(ctx context.Context, code, state string) error {
 	if m == nil {
 		return fmt.Errorf("OAuth proxy is disabled")

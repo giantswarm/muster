@@ -11,7 +11,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/giantswarm/mcp-oauth v0.2.34
+	github.com/giantswarm/mcp-oauth v0.2.36
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mark3labs/mcp-go v0.43.2

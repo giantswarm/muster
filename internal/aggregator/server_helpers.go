@@ -256,14 +256,17 @@ func processItemsGeneric[T any](
 // toolHandlerFactory creates a handler for a tool
 func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Check if this tool is still active
-		if !a.toolManager.isActive(exposedName) {
-			return nil, fmt.Errorf("tool %s is no longer available", exposedName)
-		}
-
-		// Check if this is a synthetic authentication tool
+		// Check if this is a synthetic authentication tool FIRST
+		// This must happen before the isActive check because synthetic auth tools
+		// are registered asynchronously and may not be marked as active yet
+		// when a client immediately calls them after server registration.
 		if serverName, isSynthetic := a.registry.IsSyntheticAuthTool(exposedName); isSynthetic {
 			return a.handleSyntheticAuthTool(ctx, serverName)
+		}
+
+		// Check if this tool is still active
+		if !a.toolManager.isActive(exposedName) {
+			return nil, fmt.Errorf("tool '%s' is no longer available", exposedName)
 		}
 
 		// Resolve the exposed name back to server and original tool name

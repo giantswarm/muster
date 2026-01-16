@@ -12,11 +12,10 @@ import (
 	"sync"
 	"time"
 
+	pkgoauth "muster/pkg/oauth"
+
 	"golang.org/x/oauth2"
 )
-
-// DefaultTokenStorageDir is the default directory for storing OAuth tokens.
-const DefaultTokenStorageDir = ".config/muster/tokens"
 
 // TokenStore provides secure storage for OAuth tokens.
 // It supports both file-based (XDG-compliant) and in-memory storage.
@@ -58,6 +57,10 @@ type StoredToken struct {
 	// IssuerURL is the OAuth issuer that issued this token.
 	IssuerURL string `json:"issuer_url"`
 
+	// ClientID is the OAuth client_id that was used to obtain this token.
+	// This must be used when refreshing the token.
+	ClientID string `json:"client_id,omitempty"`
+
 	// CreatedAt is when the token was stored.
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -80,7 +83,7 @@ func NewTokenStore(cfg TokenStoreConfig) (*TokenStore, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
-		storageDir = filepath.Join(homeDir, DefaultTokenStorageDir)
+		storageDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	store := &TokenStore{
@@ -129,8 +132,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 	// Persist to file if file mode is enabled
 	if s.fileMode {
 		if err := s.writeTokenFile(key, storedToken); err != nil {
-			// SECURITY AUDIT: Token storage failed
-			slog.Warn("SECURITY_AUDIT: OAuth token storage failed",
+			slog.Debug("OAuth token storage failed",
 				"event", "token_store_failed",
 				"server_url", serverURL,
 				"issuer_url", issuerURL,
@@ -138,8 +140,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 			)
 			return fmt.Errorf("failed to persist token: %w", err)
 		}
-		// SECURITY AUDIT: Token successfully stored
-		slog.Info("SECURITY_AUDIT: OAuth token stored",
+		slog.Debug("OAuth token stored",
 			"event", "token_stored",
 			"server_url", serverURL,
 			"issuer_url", issuerURL,
@@ -152,7 +153,9 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 }
 
 // GetToken retrieves a stored token for a specific server.
-// Returns nil if no token exists or the token has expired.
+// Returns nil if no token exists or the token has expired/expiring.
+// Note: This does NOT delete expired tokens from cache to allow GetTokenIncludingExpiring
+// to retrieve them for refresh purposes.
 func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 	key := s.tokenKey(serverURL)
 
@@ -163,10 +166,14 @@ func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 			s.mu.RUnlock()
 			return token
 		}
+		// Token is expiring/expired - return nil but don't delete from cache
+		// so GetTokenIncludingExpiring can still access it for refresh
+		s.mu.RUnlock()
+		return nil
 	}
 	s.mu.RUnlock()
 
-	// Slow path with write lock for cache population/cleanup
+	// Slow path with write lock for cache population
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -175,17 +182,21 @@ func (s *TokenStore) GetToken(serverURL string) *StoredToken {
 		if s.isTokenValid(token) {
 			return token
 		}
-		// Token expired, remove from cache
-		delete(s.tokens, key)
+		// Token is expiring/expired - return nil but keep in cache for refresh
 		return nil
 	}
 
 	// Try loading from file if file mode is enabled
 	if s.fileMode {
 		token, err := s.readTokenFile(key)
-		if err == nil && s.isTokenValid(token) {
+		if err == nil {
+			// Cache the token even if expiring (for refresh purposes)
 			s.tokens[key] = token
-			return token
+			if s.isTokenValid(token) {
+				return token
+			}
+			// Token loaded from file but is expiring - return nil
+			return nil
 		}
 	}
 
@@ -203,7 +214,7 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 
 	if s.fileMode {
 		if err := s.deleteTokenFile(key); err != nil {
-			slog.Warn("SECURITY_AUDIT: OAuth token deletion failed",
+			slog.Debug("OAuth token deletion failed",
 				"event", "token_delete_failed",
 				"server_url", serverURL,
 				"error", err.Error(),
@@ -212,8 +223,7 @@ func (s *TokenStore) DeleteToken(serverURL string) error {
 		}
 	}
 
-	// SECURITY AUDIT: Token deleted
-	slog.Info("SECURITY_AUDIT: OAuth token deleted",
+	slog.Debug("OAuth token deleted",
 		"event", "token_deleted",
 		"server_url", serverURL,
 	)
@@ -315,6 +325,42 @@ func (s *TokenStore) deleteTokenFile(key string) error {
 // HasValidToken checks if a valid (non-expired) token exists for a server.
 func (s *TokenStore) HasValidToken(serverURL string) bool {
 	return s.GetToken(serverURL) != nil
+}
+
+// GetTokenIncludingExpiring retrieves a stored token even if it's about to expire.
+// This is used for token refresh - we need the refresh token even if the access token
+// is expiring soon. Returns nil if no token exists at all.
+func (s *TokenStore) GetTokenIncludingExpiring(serverURL string) *StoredToken {
+	key := s.tokenKey(serverURL)
+
+	// Fast path with read lock - check memory cache
+	s.mu.RLock()
+	if token, ok := s.tokens[key]; ok {
+		// Don't check expiry - return the token even if expiring soon
+		s.mu.RUnlock()
+		return token
+	}
+	s.mu.RUnlock()
+
+	// Slow path with write lock for cache population
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check in case another goroutine populated it
+	if token, ok := s.tokens[key]; ok {
+		return token
+	}
+
+	// Try loading from file if file mode is enabled
+	if s.fileMode {
+		token, err := s.readTokenFile(key)
+		if err == nil {
+			s.tokens[key] = token
+			return token
+		}
+	}
+
+	return nil
 }
 
 // GetByIssuer retrieves a stored token for a specific issuer.
@@ -421,8 +467,7 @@ func (s *TokenStore) Clear() error {
 			}
 		}
 
-		// SECURITY AUDIT: All tokens cleared
-		slog.Info("SECURITY_AUDIT: All OAuth tokens cleared",
+		slog.Debug("All OAuth tokens cleared",
 			"event", "tokens_cleared",
 			"memory_tokens_cleared", tokenCount,
 			"file_tokens_cleared", fileCount,

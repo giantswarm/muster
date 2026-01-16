@@ -39,7 +39,18 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 
 // handleAuthStatusResource handles requests for the auth://status resource.
 // It returns the authentication status of all registered MCP servers.
+//
+// This handler provides session-specific authentication status. For OAuth-protected
+// servers that require per-session authentication:
+//   - If the current session has an authenticated connection, status is "connected"
+//   - If the current session has not authenticated, status is "auth_required"
+//
+// This enables the CLI to correctly show whether the user is authenticated to each
+// MCP server, not just whether the server requires authentication globally.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	// Get session ID from context for session-specific auth status
+	sessionID := getSessionIDFromContext(ctx)
+
 	servers := a.registry.GetAllServers()
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
@@ -49,12 +60,28 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Status: string(info.Status),
 		}
 
-		// For servers requiring auth, include issuer and auth tool info
+		// For servers requiring auth globally, check if the current session has authenticated
 		if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-			status.Issuer = info.AuthInfo.Issuer
-			status.Scope = info.AuthInfo.Scope
-			// The auth tool name follows the pattern: x_<server>_authenticate
-			status.AuthTool = a.registry.nameTracker.GetExposedToolName(name, "authenticate")
+			sessionAuthenticated := false
+
+			// Check if this session has an authenticated connection to this server
+			// (only if session registry is available - may be nil in tests)
+			if a.sessionRegistry != nil {
+				if conn, exists := a.sessionRegistry.GetConnection(sessionID, name); exists && conn != nil && conn.Status == StatusSessionConnected {
+					sessionAuthenticated = true
+					status.Status = "connected"
+					logging.Debug("Aggregator", "Session %s has authenticated connection to %s",
+						logging.TruncateSessionID(sessionID), name)
+				}
+			}
+
+			if !sessionAuthenticated {
+				// Session has not authenticated - include auth tool info
+				status.Issuer = info.AuthInfo.Issuer
+				status.Scope = info.AuthInfo.Scope
+				// The auth tool name follows the pattern: x_<server>_authenticate
+				status.AuthTool = a.registry.nameTracker.GetExposedToolName(name, "authenticate")
+			}
 		} else if info.IsConnected() {
 			status.Status = "connected"
 		} else {
@@ -69,7 +96,8 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		return nil, err
 	}
 
-	logging.Debug("Aggregator", "Returning auth status for %d servers", len(response.Servers))
+	logging.Debug("Aggregator", "Returning auth status for %d servers (session=%s)",
+		len(response.Servers), logging.TruncateSessionID(sessionID))
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{

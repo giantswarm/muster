@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 
+	"muster/internal/cli"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -156,9 +158,9 @@ func TestExtractAuthURLFromResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractAuthURLFromResult(tt.result)
+			result := extractAuthURL(tt.result)
 			if result != tt.expected {
-				t.Errorf("extractAuthURLFromResult() = %q, want %q", result, tt.expected)
+				t.Errorf("extractAuthURL() = %q, want %q", result, tt.expected)
 			}
 		})
 	}
@@ -256,4 +258,125 @@ func TestExtractServerNameFromAuthTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsRemoteEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		expected bool
+	}{
+		{
+			name:     "localhost is not remote",
+			endpoint: "http://localhost:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "LOCALHOST uppercase is not remote",
+			endpoint: "http://LOCALHOST:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "127.0.0.1 is not remote",
+			endpoint: "http://127.0.0.1:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "IPv6 loopback is not remote",
+			endpoint: "http://[::1]:8080/mcp",
+			expected: false,
+		},
+		{
+			name:     "external hostname is remote",
+			endpoint: "https://muster.example.com/mcp",
+			expected: true,
+		},
+		{
+			name:     "external IP is remote",
+			endpoint: "https://192.168.1.100/mcp",
+			expected: true,
+		},
+		{
+			name:     "domain with localhost in path is remote (proper URL parsing)",
+			endpoint: "https://example.com/localhost/api",
+			expected: true, // This IS remote - localhost in path should not affect result
+		},
+		{
+			name:     "empty endpoint is remote",
+			endpoint: "",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cli.IsRemoteEndpoint(tt.endpoint)
+			if result != tt.expected {
+				t.Errorf("cli.IsRemoteEndpoint(%q) = %v, want %v", tt.endpoint, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestAgentCmdProperties(t *testing.T) {
+	t.Run("agent command exists", func(t *testing.T) {
+		if agentCmd == nil {
+			t.Fatal("agentCmd should not be nil")
+		}
+	})
+
+	t.Run("agent command Use field", func(t *testing.T) {
+		if agentCmd.Use != "agent" {
+			t.Errorf("expected Use 'agent', got %q", agentCmd.Use)
+		}
+	})
+
+	t.Run("agent command has short description", func(t *testing.T) {
+		if agentCmd.Short == "" {
+			t.Error("expected Short description to be set")
+		}
+	})
+
+	t.Run("agent command has RunE", func(t *testing.T) {
+		if agentCmd.RunE == nil {
+			t.Error("expected RunE to be set")
+		}
+	})
+}
+
+func TestAgentFlags(t *testing.T) {
+	t.Run("endpoint flag exists", func(t *testing.T) {
+		flag := agentCmd.Flags().Lookup("endpoint")
+		if flag == nil {
+			t.Error("expected --endpoint flag to exist")
+		}
+	})
+
+	t.Run("transport flag exists", func(t *testing.T) {
+		flag := agentCmd.Flags().Lookup("transport")
+		if flag == nil {
+			t.Error("expected --transport flag to exist")
+		}
+	})
+
+	t.Run("repl flag exists", func(t *testing.T) {
+		flag := agentCmd.Flags().Lookup("repl")
+		if flag == nil {
+			t.Error("expected --repl flag to exist")
+		}
+	})
+
+	t.Run("mcp-server flag exists", func(t *testing.T) {
+		flag := agentCmd.Flags().Lookup("mcp-server")
+		if flag == nil {
+			t.Error("expected --mcp-server flag to exist")
+		}
+	})
+
+	t.Run("disable-auto-sso flag exists", func(t *testing.T) {
+		flag := agentCmd.Flags().Lookup("disable-auto-sso")
+		if flag == nil {
+			t.Error("expected --disable-auto-sso flag to exist")
+		}
+	})
 }
