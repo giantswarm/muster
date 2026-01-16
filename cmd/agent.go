@@ -26,6 +26,7 @@ const (
 
 var (
 	agentEndpoint       string
+	agentContext        string
 	agentTimeout        time.Duration
 	agentVerbose        bool
 	agentNoColor        bool
@@ -83,6 +84,7 @@ func init() {
 
 	// Add flags
 	agentCmd.Flags().StringVar(&agentEndpoint, "endpoint", "", "Aggregator MCP endpoint URL (default: from config)")
+	agentCmd.Flags().StringVar(&agentContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	agentCmd.Flags().DurationVar(&agentTimeout, "timeout", 5*time.Minute, "Timeout for waiting for notifications")
 	agentCmd.Flags().BoolVar(&agentVerbose, "verbose", false, "Enable verbose logging (show keepalive messages)")
 	agentCmd.Flags().BoolVar(&agentNoColor, "no-color", false, "Disable colored output")
@@ -122,12 +124,20 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Determine endpoint using the same logic as CLI commands
-	endpoint := agentEndpoint
+	// Determine endpoint using context resolution with precedence:
+	// 1. --endpoint flag
+	// 2. --context flag
+	// 3. MUSTER_CONTEXT env var
+	// 4. current-context from contexts.yaml
+	// 5. config-based fallback
+	endpoint, err := cli.ResolveEndpoint(agentEndpoint, agentContext)
+	if err != nil {
+		return err
+	}
 	if endpoint == "" {
-		// Use the same endpoint detection logic as CLI commands
-		config, err := config.LoadConfig(agentConfigPath)
-		endpoint = cli.GetAggregatorEndpoint(&config)
+		// Fall back to config-based resolution
+		cfg, err := config.LoadConfig(agentConfigPath)
+		endpoint = cli.GetAggregatorEndpoint(&cfg)
 		if err != nil {
 			// Use fallback default that matches system defaults
 			if !agentMCPServer && agentVerbose {

@@ -16,6 +16,7 @@ var (
 	getQuiet        bool
 	getConfigPath   string
 	getEndpoint     string
+	getContext      string
 	getAuthMode     string
 )
 
@@ -182,6 +183,7 @@ func init() {
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
 	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	getCmd.PersistentFlags().StringVar(&getContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	getCmd.PersistentFlags().StringVar(&getAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
@@ -206,6 +208,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		Quiet:      getQuiet,
 		ConfigPath: getConfigPath,
 		Endpoint:   getEndpoint,
+		Context:    getContext,
 		AuthMode:   authMode,
 	})
 	if err != nil {

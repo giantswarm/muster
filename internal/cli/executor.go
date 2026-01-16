@@ -105,6 +105,8 @@ type ExecutorOptions struct {
 	ConfigPath string
 	// Endpoint overrides the aggregator endpoint URL for remote connections
 	Endpoint string
+	// Context specifies a named context to use for endpoint resolution
+	Context string
 	// AuthMode controls authentication behavior (auto, prompt, none)
 	AuthMode AuthMode
 }
@@ -143,9 +145,19 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	var transport agent.TransportType
 	var isRemote bool
 
-	// Determine endpoint: explicit option takes precedence over config
-	if options.Endpoint != "" {
-		endpoint = options.Endpoint
+	// Resolve endpoint using the precedence order:
+	// 1. --endpoint flag
+	// 2. --context flag
+	// 3. MUSTER_CONTEXT environment variable
+	// 4. current-context from contexts.yaml
+	// 5. config-based fallback
+	resolvedEndpoint, err := ResolveEndpoint(options.Endpoint, options.Context)
+	if err != nil {
+		return nil, err
+	}
+
+	if resolvedEndpoint != "" {
+		endpoint = resolvedEndpoint
 		isRemote = IsRemoteEndpoint(endpoint)
 		// Infer transport from URL path
 		if strings.HasSuffix(endpoint, "/sse") {
@@ -154,6 +166,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 			transport = agent.TransportStreamableHTTP
 		}
 	} else {
+		// Fall back to config-based endpoint resolution
 		if options.ConfigPath == "" {
 			return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
 		}

@@ -13,6 +13,7 @@ var (
 	checkQuiet        bool
 	checkConfigPath   string
 	checkEndpoint     string
+	checkContext      string
 	checkAuthMode     string
 )
 
@@ -79,6 +80,7 @@ func init() {
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
 	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	checkCmd.PersistentFlags().StringVar(&checkEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	checkCmd.PersistentFlags().StringVar(&checkContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	checkCmd.PersistentFlags().StringVar(&checkAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
@@ -103,6 +105,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		Quiet:      checkQuiet,
 		ConfigPath: checkConfigPath,
 		Endpoint:   checkEndpoint,
+		Context:    checkContext,
 		AuthMode:   authMode,
 	})
 	if err != nil {
