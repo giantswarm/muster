@@ -25,6 +25,7 @@ var (
 	eventsLimit        int
 	eventsFollow       bool
 	eventsEndpoint     string
+	eventsContext      string
 	eventsAuthMode     string
 )
 
@@ -110,6 +111,7 @@ func init() {
 
 	// Auth flags
 	eventsCmd.PersistentFlags().StringVar(&eventsEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	eventsCmd.PersistentFlags().StringVar(&eventsContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	eventsCmd.PersistentFlags().StringVar(&eventsAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
@@ -181,6 +183,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		Quiet:      eventsQuiet,
 		ConfigPath: eventsConfigPath,
 		Endpoint:   eventsEndpoint,
+		Context:    eventsContext,
 		AuthMode:   authMode,
 	})
 	if err != nil {

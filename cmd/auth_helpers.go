@@ -47,8 +47,19 @@ func ensureAuthHandler() (api.AuthHandler, error) {
 	return api.GetAuthHandler(), nil
 }
 
-// getEndpointFromConfig returns the aggregator endpoint from config.
+// getEndpointFromConfig returns the aggregator endpoint using context or config.
+// It respects the precedence: --endpoint > --context > MUSTER_CONTEXT > current-context > config.
 func getEndpointFromConfig() (string, error) {
+	// Try to resolve endpoint from context first
+	endpoint, err := cli.ResolveEndpoint(authEndpoint, authContext)
+	if err != nil {
+		return "", err
+	}
+	if endpoint != "" {
+		return endpoint, nil
+	}
+
+	// Fall back to config-based resolution
 	cfg, err := config.LoadConfig(authConfigPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to load config: %w", err)

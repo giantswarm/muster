@@ -16,6 +16,7 @@ var (
 	startQuiet        bool
 	startConfigPath   string
 	startEndpoint     string
+	startContext      string
 	startAuthMode     string
 )
 
@@ -128,6 +129,7 @@ func init() {
 	startCmd.PersistentFlags().BoolVarP(&startQuiet, "quiet", "q", false, "Suppress non-essential output")
 	startCmd.PersistentFlags().StringVar(&startConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	startCmd.PersistentFlags().StringVar(&startEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
+	startCmd.PersistentFlags().StringVar(&startContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	startCmd.PersistentFlags().StringVar(&startAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
@@ -209,6 +211,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		Quiet:      startQuiet,
 		ConfigPath: startConfigPath,
 		Endpoint:   startEndpoint,
+		Context:    startContext,
 		AuthMode:   authMode,
 	})
 	if err != nil {
