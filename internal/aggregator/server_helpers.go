@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"muster/pkg/logging"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -287,6 +288,12 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			}
 			result, callErr := client.CallTool(ctx, origName, args)
 			if callErr != nil {
+				// Check if this is a 401 error - token may have expired and refresh failed
+				if pkgoauth.Is401Error(callErr) {
+					logging.Warn("Aggregator", "Tool call got 401 for session %s - token expired/refresh failed",
+						logging.TruncateSessionID(sessionID))
+					return nil, fmt.Errorf("authentication expired - please re-authenticate to the server and try again")
+				}
 				return nil, fmt.Errorf("tool execution failed: %w", callErr)
 			}
 			return result, nil
@@ -310,6 +317,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			}
 
 			// Forward the request using the session-specific client
+			// The client uses DynamicAuthClient which automatically refreshes tokens
 			args := make(map[string]interface{})
 			if req.Params.Arguments != nil {
 				if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
@@ -319,6 +327,12 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 
 			result, err := conn.Client.CallTool(ctx, originalName, args)
 			if err != nil {
+				// Check if this is a 401 error - token may have expired and refresh failed
+				if pkgoauth.Is401Error(err) {
+					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
+						sName, logging.TruncateSessionID(sessionID))
+					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", sName)
+				}
 				return nil, fmt.Errorf("tool execution failed: %w", err)
 			}
 			return result, nil

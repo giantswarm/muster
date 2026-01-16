@@ -14,6 +14,7 @@ import (
 	"muster/internal/api"
 	"muster/internal/config"
 	internalmcp "muster/internal/mcpserver"
+	"muster/internal/oauth"
 	"muster/internal/server"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
@@ -1637,7 +1638,8 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
 
 		// Try to establish connection using the existing token
-		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, token.AccessToken)
+		// Pass issuer and scope to enable dynamic token refresh
+		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
 			// Connection successful
 			return connectResult, nil
@@ -1691,13 +1693,33 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
 // On success, it upgrades the session connection and returns a success result.
 // On failure, it returns an error that the caller can use to determine next steps.
-func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, accessToken string) (*mcp.CallToolResult, error) {
-	// Create an authenticated MCP client with the token
-	headers := map[string]string{
-		"Authorization": "Bearer " + accessToken,
-	}
+//
+// This method creates a DynamicAuthClient that supports automatic token refresh (Issue #214).
+// The issuer and scope parameters are used to create a TokenProvider that can refresh
+// the token when it expires.
+func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
+	// Get OAuth handler for dynamic token refresh
+	oauthHandler := api.GetOAuthHandler()
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+	// Create a token provider for dynamic token injection
+	// If OAuth handler is available, use dynamic auth client for automatic refresh
+	// Otherwise, fall back to static headers (backwards compatibility)
+	var client internalmcp.MCPClient
+	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
+		// Create a dynamic auth client that refreshes tokens automatically
+		tokenProvider := NewSessionTokenProvider(sessionID, issuer, scope, oauthHandler)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenProvider)
+		logging.Debug("Aggregator", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
+			logging.TruncateSessionID(sessionID), serverName, issuer)
+	} else {
+		// Fallback to static headers
+		headers := map[string]string{
+			"Authorization": "Bearer " + accessToken,
+		}
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
+		logging.Debug("Aggregator", "Using static auth headers for session %s, server %s",
+			logging.TruncateSessionID(sessionID), serverName)
+	}
 
 	// Try to initialize the client
 	if err := client.Initialize(ctx); err != nil {
@@ -1729,11 +1751,22 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, s
 	// Upgrade the session connection
 	session := a.sessionRegistry.GetOrCreateSession(sessionID)
 
+	// Create the token key for future reference
+	var tokenKey *oauth.TokenKey
+	if issuer != "" {
+		tokenKey = &oauth.TokenKey{
+			SessionID: sessionID,
+			Issuer:    issuer,
+			Scope:     scope,
+		}
+	}
+
 	// Create the session connection
 	conn := &SessionConnection{
 		ServerName:  serverName,
 		Status:      StatusSessionConnected,
 		Client:      client,
+		TokenKey:    tokenKey,
 		ConnectedAt: time.Now(),
 	}
 	conn.UpdateTools(tools)

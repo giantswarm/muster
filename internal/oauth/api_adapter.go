@@ -113,6 +113,16 @@ func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback)
 	})
 }
 
+// RefreshTokenIfNeeded checks if the token needs refresh and refreshes it if necessary.
+// Returns the current (potentially refreshed) access token, or empty string if unavailable.
+func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string {
+	token, _, _ := a.manager.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+	if token != nil {
+		return token.AccessToken
+	}
+	return ""
+}
+
 // Stop stops the OAuth handler and cleans up resources.
 func (a *Adapter) Stop() {
 	a.manager.Stop()
