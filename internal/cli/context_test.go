@@ -193,7 +193,7 @@ func TestContextNotFoundError(t *testing.T) {
 	}
 
 	// Check it's a ContextNotFoundError
-	var ctxErr *ContextNotFoundError
+	var ctxErr *musterctx.ContextNotFoundError
 	if !isContextNotFoundError(err) {
 		t.Errorf("expected ContextNotFoundError, got %T: %v", err, err)
 	}
@@ -201,7 +201,7 @@ func TestContextNotFoundError(t *testing.T) {
 }
 
 func isContextNotFoundError(err error) bool {
-	_, ok := err.(*ContextNotFoundError)
+	_, ok := err.(*musterctx.ContextNotFoundError)
 	return ok
 }
 

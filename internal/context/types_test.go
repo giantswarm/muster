@@ -1,10 +1,15 @@
 package context
 
 import (
+	"strings"
 	"testing"
 )
 
 func TestValidateContextName(t *testing.T) {
+	// Create test strings for length validation
+	tooLong := strings.Repeat("a", 64)   // 64 chars - exceeds max
+	maxLength := strings.Repeat("a", 63) // 63 chars - exactly at max
+
 	tests := []struct {
 		name      string
 		input     string
@@ -22,18 +27,9 @@ func TestValidateContextName(t *testing.T) {
 		{"contains underscore", "my_context", true},
 		{"contains space", "my context", true},
 		{"contains dot", "my.context", true},
-		{"too long", "a" + string(make([]byte, 63)), true},
-		{"max length valid", "a" + string(make([]byte, 61)) + "b", false},
+		{"too long", tooLong, true},
+		{"max length valid", maxLength, false},
 	}
-
-	// Fix the too long test case - create proper strings
-	tests[12].input = string(make([]byte, 64)) // all zeros won't match pattern
-	for i := range tests[12].input {
-		if i < 64 {
-			tests[12].input = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl" // 64 chars
-		}
-	}
-	tests[13].input = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijk" // 63 chars
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

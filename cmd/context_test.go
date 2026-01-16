@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,19 +224,4 @@ func TestContextEnvVarOverride(t *testing.T) {
 
 	// The actual test would need to use the cli package's ResolveEndpoint function
 	// which is tested in internal/cli/context_test.go
-}
-
-// Test helper to capture command output
-func captureOutput(f func()) string {
-	var buf bytes.Buffer
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	f()
-
-	w.Close()
-	os.Stdout = old
-	buf.ReadFrom(r)
-	return buf.String()
 }

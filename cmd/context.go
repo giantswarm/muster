@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"text/tabwriter"
 
 	musterctx "muster/internal/context"
@@ -262,7 +262,8 @@ func runContextUse(cmd *cobra.Command, args []string) error {
 
 	if err := storage.SetCurrentContext(name); err != nil {
 		// Provide helpful message if context doesn't exist
-		if strings.Contains(err.Error(), "not found") {
+		var notFoundErr *musterctx.ContextNotFoundError
+		if errors.As(err, &notFoundErr) {
 			return fmt.Errorf("context %q not found. Use 'muster context list' to see available contexts", name)
 		}
 		return fmt.Errorf("failed to set current context: %w", err)
@@ -309,7 +310,8 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 	wasCurrent := currentName == name
 
 	if err := storage.DeleteContext(name); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		var notFoundErr *musterctx.ContextNotFoundError
+		if errors.As(err, &notFoundErr) {
 			return fmt.Errorf("context %q not found", name)
 		}
 		return fmt.Errorf("failed to delete context: %w", err)

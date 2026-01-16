@@ -43,6 +43,15 @@ type ContextConfig struct {
 	Contexts []Context `yaml:"contexts,omitempty"`
 }
 
+// ContextNotFoundError indicates a requested context does not exist.
+type ContextNotFoundError struct {
+	Name string
+}
+
+func (e *ContextNotFoundError) Error() string {
+	return fmt.Sprintf("context %q not found", e.Name)
+}
+
 // ValidateContextName validates a context name according to the naming rules.
 // Context names must:
 //   - Be between 1 and 63 characters

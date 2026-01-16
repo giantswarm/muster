@@ -68,7 +68,7 @@ func getEndpointFromContext(contextName string) (string, error) {
 	}
 
 	if ctx == nil {
-		return "", &ContextNotFoundError{Name: contextName}
+		return "", &musterctx.ContextNotFoundError{Name: contextName}
 	}
 
 	return ctx.Endpoint, nil
@@ -97,13 +97,4 @@ func GetContextSettings(contextName string) *musterctx.ContextSettings {
 	}
 
 	return nil
-}
-
-// ContextNotFoundError indicates a requested context does not exist.
-type ContextNotFoundError struct {
-	Name string
-}
-
-func (e *ContextNotFoundError) Error() string {
-	return "context \"" + e.Name + "\" not found"
 }

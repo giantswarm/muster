@@ -149,7 +149,7 @@ func (s *Storage) SetCurrentContext(name string) error {
 	}
 
 	if !config.HasContext(name) {
-		return fmt.Errorf("context %q not found", name)
+		return &ContextNotFoundError{Name: name}
 	}
 
 	config.CurrentContext = name
@@ -204,7 +204,7 @@ func (s *Storage) UpdateContext(name, endpoint string, settings *ContextSettings
 	}
 
 	if !config.HasContext(name) {
-		return fmt.Errorf("context %q not found", name)
+		return &ContextNotFoundError{Name: name}
 	}
 
 	config.AddOrUpdateContext(Context{
@@ -228,7 +228,7 @@ func (s *Storage) DeleteContext(name string) error {
 	}
 
 	if !config.RemoveContext(name) {
-		return fmt.Errorf("context %q not found", name)
+		return &ContextNotFoundError{Name: name}
 	}
 
 	return s.saveLocked(config)
@@ -251,7 +251,7 @@ func (s *Storage) RenameContext(oldName, newName string) error {
 
 	oldCtx := config.GetContext(oldName)
 	if oldCtx == nil {
-		return fmt.Errorf("context %q not found", oldName)
+		return &ContextNotFoundError{Name: oldName}
 	}
 
 	if oldName != newName && config.HasContext(newName) {

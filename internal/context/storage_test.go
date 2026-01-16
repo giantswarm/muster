@@ -3,6 +3,7 @@ package context
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -214,29 +215,16 @@ func TestStorage_FileFormat(t *testing.T) {
 
 	content := string(data)
 	// Check key fields are present
-	if !contains(content, "current-context: prod") {
+	if !strings.Contains(content, "current-context: prod") {
 		t.Error("expected current-context field in output")
 	}
-	if !contains(content, "name: prod") {
+	if !strings.Contains(content, "name: prod") {
 		t.Error("expected context name in output")
 	}
-	if !contains(content, "endpoint: https://prod.example.com/mcp") {
+	if !strings.Contains(content, "endpoint: https://prod.example.com/mcp") {
 		t.Error("expected endpoint in output")
 	}
-	if !contains(content, "output: json") {
+	if !strings.Contains(content, "output: json") {
 		t.Error("expected settings output in output")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
