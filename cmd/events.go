@@ -171,13 +171,9 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode := cli.GetDefaultAuthMode()
-	if eventsAuthMode != "" {
-		var err error
-		authMode, err = cli.ParseAuthMode(eventsAuthMode)
-		if err != nil {
-			return err
-		}
+	authMode, err := cli.GetAuthModeWithOverride(eventsAuthMode)
+	if err != nil {
+		return err
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

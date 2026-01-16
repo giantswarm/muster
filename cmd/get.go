@@ -196,13 +196,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode := cli.GetDefaultAuthMode()
-	if getAuthMode != "" {
-		var err error
-		authMode, err = cli.ParseAuthMode(getAuthMode)
-		if err != nil {
-			return err
-		}
+	authMode, err := cli.GetAuthModeWithOverride(getAuthMode)
+	if err != nil {
+		return err
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

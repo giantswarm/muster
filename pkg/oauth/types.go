@@ -201,6 +201,21 @@ type ClientMetadata struct {
 	SoftwareVersion         string   `json:"software_version,omitempty"`
 }
 
+// Server status constants for use in ServerAuthStatus.Status field.
+const (
+	// ServerStatusConnected indicates the server is connected and operational.
+	ServerStatusConnected = "connected"
+
+	// ServerStatusAuthRequired indicates the server requires OAuth authentication.
+	ServerStatusAuthRequired = "auth_required"
+
+	// ServerStatusDisconnected indicates the server is disconnected.
+	ServerStatusDisconnected = "disconnected"
+
+	// ServerStatusError indicates the server encountered an error.
+	ServerStatusError = "error"
+)
+
 // AuthStatusResponse is the structured response from the auth://status MCP resource.
 // It provides the AI with complete information about which servers need authentication.
 // This type is shared between the aggregator (producer) and agent (consumer).

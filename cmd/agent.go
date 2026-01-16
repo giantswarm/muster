@@ -555,6 +555,8 @@ func waitForServerConnection(ctx context.Context, client *agent.Client, serverNa
 	const timeout = 2 * time.Minute
 	const pollInterval = 500 * time.Millisecond
 
+	logger.Debug("Waiting for %s to connect (timeout: %s)", serverName, timeout)
+
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -579,6 +581,7 @@ func waitForServerConnection(ctx context.Context, client *agent.Client, serverNa
 			}
 			if !authToolExists {
 				// Auth tool is gone - server has connected
+				logger.Debug("%s connection confirmed", serverName)
 				return nil
 			}
 			// Still waiting - auth tool still present

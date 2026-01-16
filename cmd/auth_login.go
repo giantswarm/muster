@@ -105,8 +105,8 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
 	}
 
-	if serverInfo.Status != "auth_required" {
-		if serverInfo.Status == "connected" {
+	if serverInfo.Status != pkgoauth.ServerStatusAuthRequired {
+		if serverInfo.Status == pkgoauth.ServerStatusConnected {
 			if !authQuiet {
 				fmt.Printf("Server '%s' is already connected and does not require authentication.\n", serverName)
 			}
@@ -155,7 +155,7 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	// Find all servers requiring authentication
 	var pendingServers []pkgoauth.ServerAuthStatus
 	for _, srv := range authStatus.Servers {
-		if srv.Status == "auth_required" && srv.AuthTool != "" {
+		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
 			pendingServers = append(pendingServers, srv)
 		}
 	}

@@ -318,13 +318,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode := cli.GetDefaultAuthMode()
-	if createAuthMode != "" {
-		var err error
-		authMode, err = cli.ParseAuthMode(createAuthMode)
-		if err != nil {
-			return err
-		}
+	authMode, err := cli.GetAuthModeWithOverride(createAuthMode)
+	if err != nil {
+		return err
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

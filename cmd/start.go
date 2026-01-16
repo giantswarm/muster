@@ -199,13 +199,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 	resourceName := args[1]
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode := cli.GetDefaultAuthMode()
-	if startAuthMode != "" {
-		var err error
-		authMode, err = cli.ParseAuthMode(startAuthMode)
-		if err != nil {
-			return err
-		}
+	authMode, err := cli.GetAuthModeWithOverride(startAuthMode)
+	if err != nil {
+		return err
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

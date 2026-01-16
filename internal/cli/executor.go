@@ -81,6 +81,16 @@ func GetDefaultEndpoint() string {
 	return os.Getenv(EndpointEnvVar)
 }
 
+// GetAuthModeWithOverride returns the auth mode from the provided override string,
+// falling back to the environment variable default if the override is empty.
+// This consolidates the common pattern used across CLI commands.
+func GetAuthModeWithOverride(override string) (AuthMode, error) {
+	if override != "" {
+		return ParseAuthMode(override)
+	}
+	return GetDefaultAuthMode(), nil
+}
+
 // ExecutorOptions contains configuration options for tool execution.
 // These options control how commands are executed and how output is formatted.
 type ExecutorOptions struct {

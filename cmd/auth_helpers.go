@@ -217,7 +217,7 @@ func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorE
 
 			for _, srv := range status.Servers {
 				if srv.Name == serverName {
-					if srv.Status == "connected" {
+					if srv.Status == pkgoauth.ServerStatusConnected {
 						return nil
 					}
 					// Still waiting - auth_required or other state

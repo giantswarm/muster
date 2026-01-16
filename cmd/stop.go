@@ -86,13 +86,9 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
-	authMode := cli.GetDefaultAuthMode()
-	if stopAuthMode != "" {
-		var err error
-		authMode, err = cli.ParseAuthMode(stopAuthMode)
-		if err != nil {
-			return err
-		}
+	authMode, err := cli.GetAuthModeWithOverride(stopAuthMode)
+	if err != nil {
+		return err
 	}
 
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{

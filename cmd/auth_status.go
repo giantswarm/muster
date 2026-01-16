@@ -135,7 +135,7 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 				if srv.Issuer != "" {
 					fmt.Printf("  Issuer:   %s\n", srv.Issuer)
 				}
-				if srv.AuthTool != "" && srv.Status == "auth_required" {
+				if srv.AuthTool != "" && srv.Status == pkgoauth.ServerStatusAuthRequired {
 					fmt.Printf("  Action:   Run: muster auth login --server %s\n", srv.Name)
 				}
 			}
@@ -151,7 +151,7 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	// Count servers requiring auth
 	var pendingCount int
 	for _, srv := range servers {
-		if srv.Status == "auth_required" {
+		if srv.Status == pkgoauth.ServerStatusAuthRequired {
 			pendingCount++
 		}
 	}
@@ -162,7 +162,7 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 
 	for _, srv := range servers {
 		statusStr := formatMCPServerStatus(srv.Status)
-		if srv.Status == "auth_required" && srv.AuthTool != "" {
+		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
 			fmt.Printf("  %-20s %s   Run: muster auth login --server %s\n", srv.Name, statusStr, srv.Name)
 		} else {
 			fmt.Printf("  %-20s %s\n", srv.Name, statusStr)
@@ -173,13 +173,13 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 // formatMCPServerStatus formats the MCP server status with colors.
 func formatMCPServerStatus(status string) string {
 	switch status {
-	case "connected":
+	case pkgoauth.ServerStatusConnected:
 		return text.FgGreen.Sprint("Connected")
-	case "auth_required":
+	case pkgoauth.ServerStatusAuthRequired:
 		return text.FgYellow.Sprint("Not authenticated")
-	case "disconnected":
+	case pkgoauth.ServerStatusDisconnected:
 		return text.FgRed.Sprint("Disconnected")
-	case "error":
+	case pkgoauth.ServerStatusError:
 		return text.FgRed.Sprint("Error")
 	default:
 		return text.FgHiBlack.Sprint(status)

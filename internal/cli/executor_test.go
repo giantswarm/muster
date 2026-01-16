@@ -130,6 +130,58 @@ func TestGetDefaultEndpoint(t *testing.T) {
 	assert.Equal(t, "https://muster.example.com/mcp", GetDefaultEndpoint())
 }
 
+func TestGetAuthModeWithOverride(t *testing.T) {
+	tests := []struct {
+		name        string
+		override    string
+		envValue    string
+		expected    AuthMode
+		expectError bool
+	}{
+		{
+			name:        "explicit override takes precedence",
+			override:    "prompt",
+			envValue:    "none",
+			expected:    AuthModePrompt,
+			expectError: false,
+		},
+		{
+			name:        "empty override uses env default",
+			override:    "",
+			envValue:    "none",
+			expected:    AuthModeNone,
+			expectError: false,
+		},
+		{
+			name:        "empty override with empty env defaults to auto",
+			override:    "",
+			envValue:    "",
+			expected:    AuthModeAuto,
+			expectError: false,
+		},
+		{
+			name:        "invalid override returns error",
+			override:    "invalid",
+			envValue:    "",
+			expected:    AuthModeAuto,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(AuthModeEnvVar, tt.envValue)
+			mode, err := GetAuthModeWithOverride(tt.override)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, mode)
+			}
+		})
+	}
+}
+
 func TestExecutorOptions_Structure(t *testing.T) {
 	options := ExecutorOptions{
 		Format: OutputFormatJSON,

@@ -196,9 +196,10 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	if err != nil {
 		// Check for port-in-use errors and provide helpful guidance
 		if isPortInUseError(err) {
+			port := getCallbackPort()
 			return &AuthFailedError{
 				Endpoint: endpoint,
-				Reason:   fmt.Errorf("callback port 3000 is already in use. Please free port 3000 and try again"),
+				Reason:   fmt.Errorf("callback port %d is already in use. Please free the port and try again", port),
 			}
 		}
 		return &AuthFailedError{Endpoint: endpoint, Reason: err}
