@@ -186,10 +186,13 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 		// Continue - user can still manually open the URL
 	}
 
-	// If waiting is enabled, poll until completion
+	// If waiting is enabled, poll until completion using the SAME client.
+	// This is critical because the OAuth callback updates the session associated with
+	// this client's connection. Using a different client would create a new session
+	// that doesn't have the authenticated connection.
 	if waitCfg.WaitForCompletion {
 		authPrint("Waiting for %s authentication to complete...\n", serverName)
-		if err := waitForServerAuth(ctx, handler, aggregatorEndpoint, serverName, waitCfg); err != nil {
+		if err := waitForServerAuthWithClient(ctx, client, serverName, waitCfg); err != nil {
 			return err
 		}
 		authPrint("%s %s authenticated successfully.\n", text.FgGreen.Sprint("✓"), serverName)
@@ -198,11 +201,11 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 	return nil
 }
 
-// waitForServerAuth polls the auth://status resource until the server is connected.
-// Note: We create a timeout context here for the overall wait operation. When the context
-// is cancelled (timeout or parent cancellation), the select will receive on ctx.Done()
-// and return immediately, so subsequent iterations won't use a cancelled context.
-func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string, cfg AuthWaitConfig) error {
+// waitForServerAuthWithClient polls the auth://status resource until the server is connected.
+// It uses the provided client to maintain the same session that initiated the OAuth flow.
+// This is critical because the OAuth callback updates the session associated with this
+// client's connection - using a different client would check a different session.
+func waitForServerAuthWithClient(ctx context.Context, client *agent.Client, serverName string, cfg AuthWaitConfig) error {
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 2 * time.Minute
@@ -226,7 +229,7 @@ func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorE
 Please complete authentication in your browser, then run:
   muster auth login --server %s`, serverName, serverName)
 		case <-ticker.C:
-			status, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+			status, err := getAuthStatusFromClient(ctx, client)
 			if err != nil {
 				// Transient error, keep polling
 				continue
@@ -243,6 +246,40 @@ Please complete authentication in your browser, then run:
 			}
 		}
 	}
+}
+
+// getAuthStatusFromClient queries the auth://status resource using an existing client.
+// This preserves the session ID, which is critical for checking per-session auth status.
+func getAuthStatusFromClient(ctx context.Context, client *agent.Client) (*pkgoauth.AuthStatusResponse, error) {
+	// Get the auth://status resource
+	result, err := client.GetResource(ctx, "auth://status")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth://status resource: %w", err)
+	}
+
+	if len(result.Contents) == 0 {
+		return nil, fmt.Errorf("auth://status resource returned no content")
+	}
+
+	// Parse the response
+	var responseText string
+	for _, content := range result.Contents {
+		if textContent, ok := mcp.AsTextResourceContents(content); ok {
+			responseText = textContent.Text
+			break
+		}
+	}
+
+	if responseText == "" {
+		return nil, fmt.Errorf("auth://status resource returned no text content")
+	}
+
+	var authStatus pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(responseText), &authStatus); err != nil {
+		return nil, fmt.Errorf("failed to parse auth status: %w", err)
+	}
+
+	return &authStatus, nil
 }
 
 // extractAuthURL extracts the authentication URL from a tool call result.
