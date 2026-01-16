@@ -21,9 +21,6 @@ import (
 	pkgoauth "muster/pkg/oauth"
 )
 
-// DefaultTokenStorageDir is the default directory for storing OAuth tokens.
-const DefaultTokenStorageDir = ".config/muster/tokens"
-
 // CallbackPortEnvVar is the environment variable for configuring the OAuth callback port.
 const CallbackPortEnvVar = "MUSTER_OAUTH_CALLBACK_PORT"
 
@@ -54,13 +51,29 @@ type AuthAdapter struct {
 }
 
 // NewAuthAdapter creates a new auth adapter with default configuration.
-func NewAuthAdapter() (*AuthAdapter, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
+// AuthAdapterConfig provides configuration options for the AuthAdapter.
+type AuthAdapterConfig struct {
+	// TokenStorageDir is the directory for storing OAuth tokens.
+	// If empty, defaults to ~/.config/muster/tokens
+	TokenStorageDir string
+}
 
-	tokenDir := filepath.Join(homeDir, DefaultTokenStorageDir)
+// NewAuthAdapter creates a new auth adapter with default configuration.
+func NewAuthAdapter() (*AuthAdapter, error) {
+	return NewAuthAdapterWithConfig(AuthAdapterConfig{})
+}
+
+// NewAuthAdapterWithConfig creates a new auth adapter with the specified configuration.
+// This is useful for testing or advanced use cases where custom token storage is needed.
+func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
+	tokenDir := cfg.TokenStorageDir
+	if tokenDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		tokenDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
+	}
 
 	return &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
@@ -397,16 +410,10 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 	return status
 }
 
-// idTokenClaims holds the identity claims we extract from ID tokens.
-type idTokenClaims struct {
-	Subject string `json:"sub"`
-	Email   string `json:"email"`
-}
-
 // parseIDTokenClaims extracts identity claims from a JWT ID token.
 // This performs basic JWT parsing without validation (validation is done at login time).
-func parseIDTokenClaims(idToken string) idTokenClaims {
-	var claims idTokenClaims
+func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
+	var claims pkgoauth.IDTokenClaims
 
 	// JWT has 3 parts: header.payload.signature
 	parts := strings.Split(idToken, ".")
@@ -633,12 +640,9 @@ func readTokenFile(filePath string) (*tokenFileInfo, error) {
 }
 
 // normalizeEndpoint normalizes an endpoint URL for consistent key usage.
+// This is a thin wrapper around pkgoauth.NormalizeServerURL for local use.
 func normalizeEndpoint(endpoint string) string {
-	// Strip trailing slashes and transport-specific paths
-	endpoint = strings.TrimSuffix(endpoint, "/")
-	endpoint = strings.TrimSuffix(endpoint, "/mcp")
-	endpoint = strings.TrimSuffix(endpoint, "/sse")
-	return endpoint
+	return pkgoauth.NormalizeServerURL(endpoint)
 }
 
 // isPortInUseError checks if an error is related to a port being in use.
@@ -684,8 +688,10 @@ func CheckServerWithAuth(ctx context.Context, endpoint string) (*ServerStatus, e
 	if resp.StatusCode == http.StatusUnauthorized {
 		status.AuthRequired = true
 
-		// Parse WWW-Authenticate header to extract OAuth configuration (issuer, etc.)
-		// This validates that the server has OAuth properly configured.
+		// Parse WWW-Authenticate header to validate OAuth configuration.
+		// We don't use the parsed challenge here (it's used by the auth flow),
+		// but parsing validates that the server has OAuth properly configured.
+		// The auth flow itself will re-parse this when Login() is called.
 		_ = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
 
 		// Check if we have a valid token

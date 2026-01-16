@@ -123,12 +123,10 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 
 // loginToAll authenticates to the aggregator and all pending MCP servers.
 func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) error {
-	// Login to aggregator first
-	authPrint("Authenticating to aggregator (%s)...\n", aggregatorEndpoint)
+	// Login to aggregator first - handler.Login() prints its own success message
 	if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
 		return fmt.Errorf("failed to authenticate to aggregator: %w", err)
 	}
-	authPrintln("done")
 
 	// Get auth status from aggregator
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)

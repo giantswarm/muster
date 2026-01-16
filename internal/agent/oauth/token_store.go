@@ -12,11 +12,10 @@ import (
 	"sync"
 	"time"
 
+	pkgoauth "muster/pkg/oauth"
+
 	"golang.org/x/oauth2"
 )
-
-// DefaultTokenStorageDir is the default directory for storing OAuth tokens.
-const DefaultTokenStorageDir = ".config/muster/tokens"
 
 // TokenStore provides secure storage for OAuth tokens.
 // It supports both file-based (XDG-compliant) and in-memory storage.
@@ -84,7 +83,7 @@ func NewTokenStore(cfg TokenStoreConfig) (*TokenStore, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
-		storageDir = filepath.Join(homeDir, DefaultTokenStorageDir)
+		storageDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	store := &TokenStore{

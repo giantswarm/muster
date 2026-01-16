@@ -11,6 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// minNameColumnWidth is the minimum width for the server name column in status output.
+// This ensures consistent alignment in the CLI output.
+const minNameColumnWidth = 20
+
 // Status-specific flags
 var (
 	statusServer string
@@ -153,8 +157,8 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	}
 
 	// Set minimum width for alignment, but allow expansion for long names
-	if maxNameLen < 20 {
-		maxNameLen = 20
+	if maxNameLen < minNameColumnWidth {
+		maxNameLen = minNameColumnWidth
 	}
 
 	if pendingCount > 0 {

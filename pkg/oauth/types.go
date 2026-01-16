@@ -16,6 +16,34 @@ const DefaultExpiryMargin = 30 * time.Second
 // This is shared across all OAuth implementations (CLI, agent, aggregator) to ensure consistent behavior.
 const TokenRefreshThreshold = 5 * time.Minute
 
+// DefaultTokenStorageDir is the default directory for storing OAuth tokens,
+// relative to the user's home directory. This follows XDG conventions.
+// This constant is shared across all OAuth implementations for consistency.
+const DefaultTokenStorageDir = ".config/muster/tokens"
+
+// NormalizeServerURL normalizes a server URL by stripping transport-specific
+// path suffixes (/mcp, /sse) and trailing slashes to get the base server URL.
+// This ensures consistent token storage and OAuth metadata discovery regardless
+// of which endpoint path is used when connecting.
+//
+// This function is shared across all OAuth implementations for consistency.
+func NormalizeServerURL(serverURL string) string {
+	serverURL = strings.TrimSuffix(serverURL, "/")
+	serverURL = strings.TrimSuffix(serverURL, "/mcp")
+	serverURL = strings.TrimSuffix(serverURL, "/sse")
+	return serverURL
+}
+
+// IDTokenClaims holds the identity claims extracted from JWT ID tokens.
+// This is used to display user identity information (subject, email) from
+// OAuth authentication without requiring full JWT validation.
+type IDTokenClaims struct {
+	// Subject is the unique user identifier (sub claim).
+	Subject string `json:"sub"`
+	// Email is the user's email address (email claim).
+	Email string `json:"email"`
+}
+
 // Token represents an OAuth access token with associated metadata.
 type Token struct {
 	// AccessToken is the bearer token used for authorization.

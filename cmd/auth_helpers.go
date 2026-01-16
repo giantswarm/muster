@@ -188,6 +188,9 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 }
 
 // waitForServerAuth polls the auth://status resource until the server is connected.
+// Note: We create a timeout context here for the overall wait operation. When the context
+// is cancelled (timeout or parent cancellation), the select will receive on ctx.Done()
+// and return immediately, so subsequent iterations won't use a cancelled context.
 func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string, cfg AuthWaitConfig) error {
 	timeout := cfg.Timeout
 	if timeout == 0 {
