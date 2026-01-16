@@ -35,6 +35,7 @@ var (
 	agentTransport      string
 	agentConfigPath     string
 	agentDisableAutoSSO bool
+	agentAuthMode       string
 )
 
 // agentCmd represents the agent command
@@ -91,6 +92,7 @@ func init() {
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
+	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -153,13 +155,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return runMCPServerWithOAuth(ctx, client, logger, endpoint, transport)
 	}
 
+	// Parse auth mode (uses environment variable as default if not specified)
+	authMode, err := cli.GetAuthModeWithOverride(agentAuthMode)
+	if err != nil {
+		return err
+	}
+
 	// For REPL and normal modes, use the AuthHandler for authentication
-	if err := setupAgentAuthentication(ctx, client, logger, endpoint); err != nil {
+	if err := setupAgentAuthentication(ctx, client, logger, endpoint, authMode); err != nil {
 		return err
 	}
 
 	// Connect to aggregator and load tools/resources/prompts with retry logic
-	err := connectWithRetry(ctx, client, logger, endpoint, transport)
+	err = connectWithRetry(ctx, client, logger, endpoint, transport)
 	if err != nil {
 		return err
 	}
@@ -182,7 +190,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 // setupAgentAuthentication sets up authentication for the agent client using the AuthHandler.
 // This provides a unified authentication experience for all agent modes (REPL, normal).
-func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string) error {
+func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, authMode cli.AuthMode) error {
 	// Check if this is a remote endpoint
 	if !cli.IsRemoteEndpoint(endpoint) {
 		// Local endpoint - no auth needed
@@ -229,8 +237,23 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	// Auth is required - prompt user to login
-	logger.Info("Authentication required for %s", endpoint)
+	// Handle auth based on mode
+	switch authMode {
+	case cli.AuthModeNone:
+		return &cli.AuthRequiredError{Endpoint: endpoint}
+	case cli.AuthModePrompt:
+		logger.Info("Authentication required for %s", endpoint)
+		logger.Info("Press Enter to open browser for authentication, or Ctrl+C to cancel...")
+		// Wait for user input
+		var input string
+		if _, err := fmt.Scanln(&input); err != nil {
+			// User pressed Enter (with or without newline)
+		}
+	default:
+		// AuthModeAuto - proceed directly
+		logger.Info("Authentication required for %s", endpoint)
+	}
+
 	logger.Info("Starting OAuth login flow...")
 
 	if err := handler.Login(ctx, endpoint); err != nil {
@@ -566,7 +589,7 @@ func waitForServerConnection(ctx context.Context, client *agent.Client, serverNa
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for %s to authenticate", serverName)
+			return fmt.Errorf("timeout waiting for %s to authenticate\n\nPlease complete authentication in your browser, then run:\n  muster auth login --server %s", serverName, serverName)
 		case <-ticker.C:
 			// Check if the server is now connected by looking at the tool cache
 			// If the authenticate tool is gone, the server has connected

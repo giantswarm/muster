@@ -35,7 +35,7 @@ Examples:
 
 func init() {
 	// Status-specific flags
-	authStatusCmd.Flags().StringVar(&statusServer, "server", "", "Show status for specific MCP server")
+	authStatusCmd.Flags().StringVar(&statusServer, "server", "", "MCP server name (managed by aggregator) to show status for")
 }
 
 func runAuthStatus(cmd *cobra.Command, args []string) error {
@@ -148,12 +148,21 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 
 // printMCPServerStatuses prints the status of all MCP servers.
 func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
-	// Count servers requiring auth
+	// Count servers requiring auth and find longest name for alignment
 	var pendingCount int
+	var maxNameLen int
 	for _, srv := range servers {
 		if srv.Status == pkgoauth.ServerStatusAuthRequired {
 			pendingCount++
 		}
+		if len(srv.Name) > maxNameLen {
+			maxNameLen = len(srv.Name)
+		}
+	}
+
+	// Set minimum width for alignment, but allow expansion for long names
+	if maxNameLen < 20 {
+		maxNameLen = 20
 	}
 
 	if pendingCount > 0 {
@@ -163,9 +172,9 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	for _, srv := range servers {
 		statusStr := formatMCPServerStatus(srv.Status)
 		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
-			fmt.Printf("  %-20s %s   Run: muster auth login --server %s\n", srv.Name, statusStr, srv.Name)
+			fmt.Printf("  %-*s %s   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, srv.Name)
 		} else {
-			fmt.Printf("  %-20s %s\n", srv.Name, statusStr)
+			fmt.Printf("  %-*s %s\n", maxNameLen, srv.Name, statusStr)
 		}
 	}
 }

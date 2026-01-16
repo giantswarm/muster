@@ -128,7 +128,14 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 
 		// Show what will be cleared and ask for confirmation
 		if !logoutYes {
-			fmt.Println("The following tokens will be cleared:")
+			// Count authenticated tokens
+			authCount := 0
+			for _, status := range statuses {
+				if status.Authenticated {
+					authCount++
+				}
+			}
+			fmt.Printf("The following %d token(s) will be cleared:\n", authCount)
 			for _, status := range statuses {
 				if status.Authenticated {
 					fmt.Printf("  - %s\n", status.Endpoint)

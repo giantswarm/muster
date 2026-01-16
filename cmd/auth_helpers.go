@@ -212,7 +212,10 @@ func waitForServerAuth(ctx context.Context, handler api.AuthHandler, aggregatorE
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for %s to authenticate", serverName)
+			return fmt.Errorf(`timeout waiting for %s to authenticate
+
+Please complete authentication in your browser, then run:
+  muster auth login --server %s`, serverName, serverName)
 		case <-ticker.C:
 			status, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 			if err != nil {

@@ -1,9 +1,25 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 
+	"muster/internal/cli"
+
 	"github.com/spf13/cobra"
+)
+
+// Exit codes for CLI commands.
+// These follow common conventions and are documented in docs/reference/cli/auth.md
+const (
+	// ExitCodeSuccess indicates successful execution.
+	ExitCodeSuccess = 0
+	// ExitCodeError indicates a general error (command failed, invalid arguments).
+	ExitCodeError = 1
+	// ExitCodeAuthRequired indicates authentication is required but not available.
+	ExitCodeAuthRequired = 2
+	// ExitCodeAuthFailed indicates the OAuth flow failed.
+	ExitCodeAuthFailed = 3
 )
 
 // rootCmd represents the base command for the muster application.
@@ -35,10 +51,33 @@ func Execute() {
 
 	err := rootCmd.Execute()
 	if err != nil {
-		// Cobra itself usually prints the error. Exiting with a non-zero status code
-		// indicates that an error occurred during execution.
-		os.Exit(1)
+		// Check for specific error types and return appropriate exit codes
+		exitCode := getExitCode(err)
+		os.Exit(exitCode)
 	}
+}
+
+// getExitCode determines the appropriate exit code based on the error type.
+// This provides semantic exit codes for scripting and automation.
+func getExitCode(err error) int {
+	// Check for authentication-related errors
+	var authRequired *cli.AuthRequiredError
+	if errors.As(err, &authRequired) {
+		return ExitCodeAuthRequired
+	}
+
+	var authExpired *cli.AuthExpiredError
+	if errors.As(err, &authExpired) {
+		return ExitCodeAuthRequired
+	}
+
+	var authFailed *cli.AuthFailedError
+	if errors.As(err, &authFailed) {
+		return ExitCodeAuthFailed
+	}
+
+	// Default to general error
+	return ExitCodeError
 }
 
 // init is a special Go function that is executed when the package is initialized.

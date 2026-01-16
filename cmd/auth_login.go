@@ -36,7 +36,7 @@ Examples:
 func init() {
 	// Login-specific flags (only on login subcommand)
 	authLoginCmd.Flags().BoolVar(&loginAll, "all", false, "Login to aggregator and all pending MCP servers")
-	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "Specific MCP server name to authenticate to")
+	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "MCP server name (managed by aggregator) to authenticate to")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
