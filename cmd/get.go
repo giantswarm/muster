@@ -2,19 +2,14 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"muster/internal/cli"
 	"muster/internal/config"
 
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -43,6 +38,28 @@ var getMCPResourceTypes = map[string]string{
 	"tool":     "tool",
 	"resource": "resource",
 	"prompt":   "prompt",
+}
+
+// Resource type mappings for get operations
+var getResourceMappings = map[string]string{
+	"service":            "core_service_status",
+	"serviceclass":       "core_serviceclass_get",
+	"mcpserver":          "core_mcpserver_get",
+	"workflow":           "core_workflow_get",
+	"workflow-execution": "core_workflow_execution_get",
+}
+
+// availableGetResourceTypes returns a comma-separated list of available resource types
+func availableGetResourceTypes() string {
+	types := make([]string, 0, len(getResourceMappings)+len(getMCPResourceTypes))
+	for t := range getResourceMappings {
+		types = append(types, t)
+	}
+	for t := range getMCPResourceTypes {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return strings.Join(types, ", ")
 }
 
 // Dynamic completion function for resource names
@@ -188,15 +205,6 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	RunE:                  runGet,
 }
 
-// Resource type mappings for get operations
-var getResourceMappings = map[string]string{
-	"service":            "core_service_status",
-	"serviceclass":       "core_serviceclass_get",
-	"mcpserver":          "core_mcpserver_get",
-	"workflow":           "core_workflow_get",
-	"workflow-execution": "core_workflow_execution_get",
-}
-
 func init() {
 	rootCmd.AddCommand(getCmd)
 
@@ -221,7 +229,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	// Validate resource type
 	toolName, exists := getResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, tool, resource, prompt", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: %s", resourceType, availableGetResourceTypes())
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
@@ -313,7 +321,7 @@ func runGetMCPTool(cmd *cobra.Command, executor *cli.ToolExecutor, name string) 
 		return fmt.Errorf("tool not found: %s", name)
 	}
 
-	return formatMCPToolDetail(*tool, executor.GetOptions().Format)
+	return cli.FormatMCPToolDetail(*tool, executor.GetOptions().Format)
 }
 
 // runGetMCPResource gets details of a specific MCP resource
@@ -327,7 +335,7 @@ func runGetMCPResource(cmd *cobra.Command, executor *cli.ToolExecutor, uri strin
 		return fmt.Errorf("resource not found: %s", uri)
 	}
 
-	return formatMCPResourceDetail(*resource, executor.GetOptions().Format)
+	return cli.FormatMCPResourceDetail(*resource, executor.GetOptions().Format)
 }
 
 // runGetMCPPrompt gets details of a specific MCP prompt
@@ -341,230 +349,5 @@ func runGetMCPPrompt(cmd *cobra.Command, executor *cli.ToolExecutor, name string
 		return fmt.Errorf("prompt not found: %s", name)
 	}
 
-	return formatMCPPromptDetail(*prompt, executor.GetOptions().Format)
-}
-
-// formatMCPToolDetail formats and displays MCP tool details
-func formatMCPToolDetail(tool cli.MCPTool, format cli.OutputFormat) error {
-	switch format {
-	case cli.OutputFormatJSON:
-		toolInfo := map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.InputSchema,
-		}
-		jsonData, err := json.MarshalIndent(toolInfo, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		toolInfo := map[string]interface{}{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"inputSchema": tool.InputSchema,
-		}
-		yamlData, err := yaml.Marshal(toolInfo)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-		})
-
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint(tool.Name),
-		})
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-			tool.Description,
-		})
-
-		t.Render()
-
-		// Print input schema separately for better readability
-		if tool.InputSchema.Properties != nil {
-			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Schema:"))
-			schemaJSON, _ := json.MarshalIndent(tool.InputSchema, "", "  ")
-			fmt.Println(string(schemaJSON))
-		}
-
-		return nil
-	}
-}
-
-// formatMCPResourceDetail formats and displays MCP resource details
-func formatMCPResourceDetail(resource cli.MCPResource, format cli.OutputFormat) error {
-	switch format {
-	case cli.OutputFormatJSON:
-		resourceInfo := map[string]interface{}{
-			"uri":         resource.URI,
-			"name":        resource.Name,
-			"description": resource.Description,
-			"mimeType":    resource.MIMEType,
-		}
-		jsonData, err := json.MarshalIndent(resourceInfo, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		resourceInfo := map[string]interface{}{
-			"uri":         resource.URI,
-			"name":        resource.Name,
-			"description": resource.Description,
-			"mimeType":    resource.MIMEType,
-		}
-		yamlData, err := yaml.Marshal(resourceInfo)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-		})
-
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("uri"),
-			text.Colors{text.FgHiCyan, text.Bold}.Sprint(resource.URI),
-		})
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-			resource.Name,
-		})
-		if resource.Description != "" {
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-				resource.Description,
-			})
-		}
-		if resource.MIMEType != "" {
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiYellow, text.Bold}.Sprint("mimeType"),
-				resource.MIMEType,
-			})
-		}
-
-		t.Render()
-		return nil
-	}
-}
-
-// formatMCPPromptDetail formats and displays MCP prompt details
-func formatMCPPromptDetail(prompt cli.MCPPrompt, format cli.OutputFormat) error {
-	switch format {
-	case cli.OutputFormatJSON:
-		promptInfo := map[string]interface{}{
-			"name":        prompt.Name,
-			"description": prompt.Description,
-		}
-		if len(prompt.Arguments) > 0 {
-			args := make([]map[string]interface{}, len(prompt.Arguments))
-			for i, arg := range prompt.Arguments {
-				args[i] = map[string]interface{}{
-					"name":        arg.Name,
-					"description": arg.Description,
-					"required":    arg.Required,
-				}
-			}
-			promptInfo["arguments"] = args
-		}
-		jsonData, err := json.MarshalIndent(promptInfo, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		promptInfo := map[string]interface{}{
-			"name":        prompt.Name,
-			"description": prompt.Description,
-		}
-		if len(prompt.Arguments) > 0 {
-			args := make([]map[string]interface{}, len(prompt.Arguments))
-			for i, arg := range prompt.Arguments {
-				args[i] = map[string]interface{}{
-					"name":        arg.Name,
-					"description": arg.Description,
-					"required":    arg.Required,
-				}
-			}
-			promptInfo["arguments"] = args
-		}
-		yamlData, err := yaml.Marshal(promptInfo)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-		})
-
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint(prompt.Name),
-		})
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-			prompt.Description,
-		})
-
-		t.Render()
-
-		// Print arguments separately for better readability
-		if len(prompt.Arguments) > 0 {
-			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Arguments:"))
-			argsTable := table.NewWriter()
-			argsTable.SetOutputMirror(os.Stdout)
-			argsTable.SetStyle(table.StyleRounded)
-			argsTable.AppendHeader(table.Row{
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("REQUIRED"),
-			})
-
-			for _, arg := range prompt.Arguments {
-				required := "No"
-				if arg.Required {
-					required = text.Colors{text.FgHiYellow, text.Bold}.Sprint("Yes")
-				}
-				argsTable.AppendRow(table.Row{
-					text.Bold.Sprint(arg.Name),
-					arg.Description,
-					required,
-				})
-			}
-			argsTable.Render()
-		}
-
-		return nil
-	}
+	return cli.FormatMCPPromptDetail(*prompt, executor.GetOptions().Format)
 }

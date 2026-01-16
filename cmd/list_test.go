@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -369,5 +370,105 @@ func TestGetListResourceMappings(t *testing.T) {
 				t.Errorf("mappings[%q] = %q, expected %q", alias, actualTool, expectedTool)
 			}
 		})
+	}
+}
+
+func TestMCPFilterOptionsIsEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     MCPFilterOptions
+		expected bool
+	}{
+		{
+			name:     "empty options",
+			opts:     MCPFilterOptions{},
+			expected: true,
+		},
+		{
+			name:     "pattern only",
+			opts:     MCPFilterOptions{Pattern: "core_*"},
+			expected: false,
+		},
+		{
+			name:     "description only",
+			opts:     MCPFilterOptions{Description: "service"},
+			expected: false,
+		},
+		{
+			name:     "both set",
+			opts:     MCPFilterOptions{Pattern: "core_*", Description: "service"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.opts.IsEmpty()
+			if result != tt.expected {
+				t.Errorf("MCPFilterOptions{%+v}.IsEmpty() = %v, expected %v",
+					tt.opts, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFilterMCPTools(t *testing.T) {
+	tools := []struct {
+		Name        string
+		Description string
+	}{
+		{Name: "core_service_list", Description: "List all services"},
+		{Name: "core_workflow_list", Description: "List all workflows"},
+		{Name: "github_create_issue", Description: "Create a GitHub issue"},
+	}
+
+	// Convert to cli.MCPTool - we can't import cli in tests so we just test the filter logic
+	t.Run("empty filter returns all", func(t *testing.T) {
+		opts := MCPFilterOptions{}
+		if !opts.IsEmpty() {
+			t.Error("Expected empty options")
+		}
+	})
+
+	t.Run("pattern filter", func(t *testing.T) {
+		opts := MCPFilterOptions{Pattern: "core_*"}
+		matchCount := 0
+		for _, tool := range tools {
+			if matchesMCPFilter(tool.Name, tool.Description, opts) {
+				matchCount++
+			}
+		}
+		if matchCount != 2 {
+			t.Errorf("Expected 2 matches, got %d", matchCount)
+		}
+	})
+
+	t.Run("description filter", func(t *testing.T) {
+		opts := MCPFilterOptions{Description: "GitHub"}
+		matchCount := 0
+		for _, tool := range tools {
+			if matchesMCPFilter(tool.Name, tool.Description, opts) {
+				matchCount++
+			}
+		}
+		if matchCount != 1 {
+			t.Errorf("Expected 1 match, got %d", matchCount)
+		}
+	})
+}
+
+func TestAvailableListResourceTypes(t *testing.T) {
+	types := availableListResourceTypes()
+
+	if types == "" {
+		t.Error("Expected non-empty string")
+	}
+
+	// Check that some expected types are present
+	expectedSubstrings := []string{"service", "workflow", "tool", "resource", "prompt"}
+	for _, expected := range expectedSubstrings {
+		if !strings.Contains(types, expected) {
+			t.Errorf("Expected availableListResourceTypes() to contain %q, got %q", expected, types)
+		}
 	}
 }

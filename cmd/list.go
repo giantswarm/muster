@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -11,10 +9,7 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -43,6 +38,11 @@ func getListResourceTypes() []string {
 	for _, aliases := range listResourceConfigs {
 		types = append(types, aliases...)
 	}
+	// Add MCP resource types
+	for alias := range mcpResourceTypes {
+		types = append(types, alias)
+	}
+	sort.Strings(types)
 	return types
 }
 
@@ -75,6 +75,11 @@ type MCPFilterOptions struct {
 	Description string
 }
 
+// IsEmpty returns true if no filters are set
+func (o MCPFilterOptions) IsEmpty() bool {
+	return o.Pattern == "" && o.Description == ""
+}
+
 // matchesWildcard checks if a name matches a wildcard pattern.
 // Supports * (matches any sequence of characters) and ? (matches any single character).
 func matchesWildcard(name, pattern string) bool {
@@ -101,6 +106,64 @@ func matchesDescription(description, filter string) bool {
 // matchesMCPFilter checks if an item matches both name pattern and description filter
 func matchesMCPFilter(name, description string, opts MCPFilterOptions) bool {
 	return matchesWildcard(name, opts.Pattern) && matchesDescription(description, opts.Description)
+}
+
+// filterMCPTools filters tools by name pattern and description
+func filterMCPTools(tools []cli.MCPTool, opts MCPFilterOptions) []cli.MCPTool {
+	if opts.IsEmpty() {
+		return tools
+	}
+	var filtered []cli.MCPTool
+	for _, tool := range tools {
+		if matchesMCPFilter(tool.Name, tool.Description, opts) {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
+
+// filterMCPResources filters resources by name pattern and description
+func filterMCPResources(resources []cli.MCPResource, opts MCPFilterOptions) []cli.MCPResource {
+	if opts.IsEmpty() {
+		return resources
+	}
+	var filtered []cli.MCPResource
+	for _, resource := range resources {
+		if matchesMCPFilter(resource.Name, resource.Description, opts) {
+			filtered = append(filtered, resource)
+		}
+	}
+	return filtered
+}
+
+// filterMCPPrompts filters prompts by name pattern and description
+func filterMCPPrompts(prompts []cli.MCPPrompt, opts MCPFilterOptions) []cli.MCPPrompt {
+	if opts.IsEmpty() {
+		return prompts
+	}
+	var filtered []cli.MCPPrompt
+	for _, prompt := range prompts {
+		if matchesMCPFilter(prompt.Name, prompt.Description, opts) {
+			filtered = append(filtered, prompt)
+		}
+	}
+	return filtered
+}
+
+// availableListResourceTypes returns a comma-separated list of available resource types
+func availableListResourceTypes() string {
+	types := getListResourceTypes()
+	// Deduplicate and sort
+	seen := make(map[string]bool)
+	var unique []string
+	for _, t := range types {
+		if !seen[t] {
+			seen[t] = true
+			unique = append(unique, t)
+		}
+	}
+	sort.Strings(unique)
+	return strings.Join(unique, ", ")
 }
 
 // listCmd represents the list command
@@ -167,7 +230,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	resourceMappings := getListResourceMappings()
 	toolName, exists := resourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution, tool, resource, prompt", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: %s", resourceType, availableListResourceTypes())
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
@@ -247,18 +310,8 @@ func runListMCPTools(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts 
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
 
-	// Apply filters
-	if filterOpts.Pattern != "" || filterOpts.Description != "" {
-		var filtered []cli.MCPTool
-		for _, tool := range tools {
-			if matchesMCPFilter(tool.Name, tool.Description, filterOpts) {
-				filtered = append(filtered, tool)
-			}
-		}
-		tools = filtered
-	}
-
-	return formatMCPTools(tools, executor.GetOptions().Format)
+	tools = filterMCPTools(tools, filterOpts)
+	return cli.FormatMCPTools(tools, executor.GetOptions().Format)
 }
 
 // runListMCPResources lists all MCP resources with optional filtering
@@ -268,18 +321,8 @@ func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterO
 		return fmt.Errorf("failed to list resources: %w", err)
 	}
 
-	// Apply filters - for resources, we filter on Name (not URI) and Description
-	if filterOpts.Pattern != "" || filterOpts.Description != "" {
-		var filtered []cli.MCPResource
-		for _, resource := range resources {
-			if matchesMCPFilter(resource.Name, resource.Description, filterOpts) {
-				filtered = append(filtered, resource)
-			}
-		}
-		resources = filtered
-	}
-
-	return formatMCPResources(resources, executor.GetOptions().Format)
+	resources = filterMCPResources(resources, filterOpts)
+	return cli.FormatMCPResources(resources, executor.GetOptions().Format)
 }
 
 // runListMCPPrompts lists all MCP prompts with optional filtering
@@ -289,284 +332,6 @@ func runListMCPPrompts(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpt
 		return fmt.Errorf("failed to list prompts: %w", err)
 	}
 
-	// Apply filters
-	if filterOpts.Pattern != "" || filterOpts.Description != "" {
-		var filtered []cli.MCPPrompt
-		for _, prompt := range prompts {
-			if matchesMCPFilter(prompt.Name, prompt.Description, filterOpts) {
-				filtered = append(filtered, prompt)
-			}
-		}
-		prompts = filtered
-	}
-
-	return formatMCPPrompts(prompts, executor.GetOptions().Format)
-}
-
-// formatMCPTools formats and displays MCP tools
-func formatMCPTools(tools []cli.MCPTool, format cli.OutputFormat) error {
-	if len(tools) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No tools found"))
-		return nil
-	}
-
-	// Sort tools by name
-	sort.Slice(tools, func(i, j int) bool {
-		return tools[i].Name < tools[j].Name
-	})
-
-	switch format {
-	case cli.OutputFormatJSON:
-		type ToolInfo struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
-		toolList := make([]ToolInfo, len(tools))
-		for i, tool := range tools {
-			toolList[i] = ToolInfo{
-				Name:        tool.Name,
-				Description: tool.Description,
-			}
-		}
-		jsonData, err := json.MarshalIndent(toolList, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		type ToolInfo struct {
-			Name        string `yaml:"name"`
-			Description string `yaml:"description"`
-		}
-		toolList := make([]ToolInfo, len(tools))
-		for i, tool := range tools {
-			toolList[i] = ToolInfo{
-				Name:        tool.Name,
-				Description: tool.Description,
-			}
-		}
-		yamlData, err := yaml.Marshal(toolList)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-		})
-
-		for _, tool := range tools {
-			desc := tool.Description
-			if len(desc) > 60 {
-				desc = desc[:57] + "..."
-			}
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint(tool.Name),
-				desc,
-			})
-		}
-
-		t.Render()
-		fmt.Printf("\n%s %s %s %s\n",
-			text.Colors{text.FgHiMagenta, text.Bold}.Sprint("🔧"),
-			text.FgHiBlue.Sprint("Total:"),
-			text.Bold.Sprint(len(tools)),
-			text.FgHiBlue.Sprint("tools"))
-		return nil
-	}
-}
-
-// formatMCPResources formats and displays MCP resources
-func formatMCPResources(resources []cli.MCPResource, format cli.OutputFormat) error {
-	if len(resources) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No resources found"))
-		return nil
-	}
-
-	// Sort resources by URI
-	sort.Slice(resources, func(i, j int) bool {
-		return resources[i].URI < resources[j].URI
-	})
-
-	switch format {
-	case cli.OutputFormatJSON:
-		type ResourceInfo struct {
-			URI         string `json:"uri"`
-			Name        string `json:"name"`
-			Description string `json:"description,omitempty"`
-			MIMEType    string `json:"mimeType,omitempty"`
-		}
-		resourceList := make([]ResourceInfo, len(resources))
-		for i, resource := range resources {
-			resourceList[i] = ResourceInfo{
-				URI:         resource.URI,
-				Name:        resource.Name,
-				Description: resource.Description,
-				MIMEType:    resource.MIMEType,
-			}
-		}
-		jsonData, err := json.MarshalIndent(resourceList, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		type ResourceInfo struct {
-			URI         string `yaml:"uri"`
-			Name        string `yaml:"name"`
-			Description string `yaml:"description,omitempty"`
-			MIMEType    string `yaml:"mimeType,omitempty"`
-		}
-		resourceList := make([]ResourceInfo, len(resources))
-		for i, resource := range resources {
-			resourceList[i] = ResourceInfo{
-				URI:         resource.URI,
-				Name:        resource.Name,
-				Description: resource.Description,
-				MIMEType:    resource.MIMEType,
-			}
-		}
-		yamlData, err := yaml.Marshal(resourceList)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("URI"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("MIME TYPE"),
-		})
-
-		for _, resource := range resources {
-			desc := resource.Description
-			if desc == "" {
-				desc = resource.Name
-			}
-			if len(desc) > 40 {
-				desc = desc[:37] + "..."
-			}
-			uri := resource.URI
-			if len(uri) > 40 {
-				uri = uri[:37] + "..."
-			}
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiCyan, text.Bold}.Sprint(uri),
-				resource.Name,
-				desc,
-				resource.MIMEType,
-			})
-		}
-
-		t.Render()
-		fmt.Printf("\n%s %s %s %s\n",
-			text.Colors{text.FgHiCyan, text.Bold}.Sprint("📦"),
-			text.FgHiBlue.Sprint("Total:"),
-			text.Bold.Sprint(len(resources)),
-			text.FgHiBlue.Sprint("resources"))
-		return nil
-	}
-}
-
-// formatMCPPrompts formats and displays MCP prompts
-func formatMCPPrompts(prompts []cli.MCPPrompt, format cli.OutputFormat) error {
-	if len(prompts) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No prompts found"))
-		return nil
-	}
-
-	// Sort prompts by name
-	sort.Slice(prompts, func(i, j int) bool {
-		return prompts[i].Name < prompts[j].Name
-	})
-
-	switch format {
-	case cli.OutputFormatJSON:
-		type PromptInfo struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		}
-		promptList := make([]PromptInfo, len(prompts))
-		for i, prompt := range prompts {
-			promptList[i] = PromptInfo{
-				Name:        prompt.Name,
-				Description: prompt.Description,
-			}
-		}
-		jsonData, err := json.MarshalIndent(promptList, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format as JSON: %w", err)
-		}
-		fmt.Println(string(jsonData))
-		return nil
-
-	case cli.OutputFormatYAML:
-		type PromptInfo struct {
-			Name        string `yaml:"name"`
-			Description string `yaml:"description"`
-		}
-		promptList := make([]PromptInfo, len(prompts))
-		for i, prompt := range prompts {
-			promptList[i] = PromptInfo{
-				Name:        prompt.Name,
-				Description: prompt.Description,
-			}
-		}
-		yamlData, err := yaml.Marshal(promptList)
-		if err != nil {
-			return fmt.Errorf("failed to format as YAML: %w", err)
-		}
-		fmt.Print(string(yamlData))
-		return nil
-
-	default: // table format
-		t := table.NewWriter()
-		t.SetOutputMirror(os.Stdout)
-		t.SetStyle(table.StyleRounded)
-		t.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-		})
-
-		for _, prompt := range prompts {
-			desc := prompt.Description
-			if len(desc) > 60 {
-				desc = desc[:57] + "..."
-			}
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint(prompt.Name),
-				desc,
-			})
-		}
-
-		t.Render()
-		fmt.Printf("\n%s %s %s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📝"),
-			text.FgHiBlue.Sprint("Total:"),
-			text.Bold.Sprint(len(prompts)),
-			text.FgHiBlue.Sprint("prompts"))
-		return nil
-	}
+	prompts = filterMCPPrompts(prompts, filterOpts)
+	return cli.FormatMCPPrompts(prompts, executor.GetOptions().Format)
 }
