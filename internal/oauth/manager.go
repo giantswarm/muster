@@ -11,6 +11,9 @@ import (
 	pkgoauth "muster/pkg/oauth"
 )
 
+// AuthCompletionCallback is called after successful OAuth authentication.
+type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
+
 // Manager coordinates OAuth flows for remote MCP server authentication.
 // It manages the OAuth client, HTTP handlers, and integrates with the aggregator.
 type Manager struct {
@@ -25,6 +28,9 @@ type Manager struct {
 
 	// Server authentication metadata: serverName -> AuthServerConfig
 	serverConfigs map[string]*AuthServerConfig
+
+	// Callback to establish session connection after authentication
+	authCompletionCallback AuthCompletionCallback
 }
 
 // AuthServerConfig holds OAuth configuration for a specific remote MCP server.
@@ -52,6 +58,9 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 		handler:       handler,
 		serverConfigs: make(map[string]*AuthServerConfig),
 	}
+
+	// Set manager reference on handler for callback handling
+	handler.SetManager(m)
 
 	// Log whether we're serving our own CIMD
 	if cfg.ShouldServeCIMD() {
@@ -208,6 +217,20 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, serverName
 	return challenge, nil
 }
 
+// SetAuthCompletionCallback sets the callback to be called after successful authentication.
+// The aggregator uses this to establish session connections after browser OAuth completes.
+func (m *Manager) SetAuthCompletionCallback(callback AuthCompletionCallback) {
+	if m == nil {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.authCompletionCallback = callback
+	logging.Debug("OAuth", "Auth completion callback registered")
+}
+
 // HandleCallback processes an OAuth callback and stores the token.
 func (m *Manager) HandleCallback(ctx context.Context, code, state string) error {
 	if m == nil {
@@ -239,6 +262,20 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 
 	logging.Info("OAuth", "Successfully completed OAuth flow for session=%s server=%s",
 		stateData.SessionID, stateData.ServerName)
+
+	// Call the completion callback to establish session connection
+	m.mu.RLock()
+	callback := m.authCompletionCallback
+	m.mu.RUnlock()
+
+	if callback != nil {
+		if err := callback(ctx, stateData.SessionID, stateData.ServerName, token.AccessToken); err != nil {
+			// Log the error but don't fail the OAuth flow - the token is already stored
+			// and can be used on the next request
+			logging.Warn("OAuth", "Auth completion callback failed for session=%s server=%s: %v",
+				stateData.SessionID, stateData.ServerName, err)
+		}
+	}
 
 	return nil
 }

@@ -105,6 +105,14 @@ func (a *Adapter) RegisterServer(serverName, issuer, scope string) {
 	a.manager.RegisterServer(serverName, issuer, scope)
 }
 
+// SetAuthCompletionCallback sets the callback to be called after successful authentication.
+func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback) {
+	// Wrap the api callback with the oauth callback type
+	a.manager.SetAuthCompletionCallback(func(ctx context.Context, sessionID, serverName, accessToken string) error {
+		return callback(ctx, sessionID, serverName, accessToken)
+	})
+}
+
 // Stop stops the OAuth handler and cleans up resources.
 func (a *Adapter) Stop() {
 	a.manager.Stop()

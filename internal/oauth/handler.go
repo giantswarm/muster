@@ -35,7 +35,8 @@ func init() {
 
 // Handler provides HTTP handlers for OAuth callback endpoints.
 type Handler struct {
-	client *Client
+	client  *Client
+	manager *Manager
 }
 
 // NewHandler creates a new OAuth HTTP handler.
@@ -43,6 +44,12 @@ func NewHandler(client *Client) *Handler {
 	return &Handler{
 		client: client,
 	}
+}
+
+// SetManager sets the manager reference for callback handling.
+// This is called by the Manager after creating the Handler.
+func (h *Handler) SetManager(manager *Manager) {
+	h.manager = manager
 }
 
 // HandleCallback handles the OAuth callback endpoint.
@@ -104,6 +111,22 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	logging.Info("OAuth", "Successfully authenticated session=%s server=%s",
 		state.SessionID, state.ServerName)
+
+	// Call the auth completion callback to establish session connection
+	if h.manager != nil {
+		h.manager.mu.RLock()
+		callback := h.manager.authCompletionCallback
+		h.manager.mu.RUnlock()
+
+		if callback != nil {
+			if err := callback(r.Context(), state.SessionID, state.ServerName, token.AccessToken); err != nil {
+				// Log the error but don't fail the OAuth flow - the token is already stored
+				// and can be used on the next request
+				logging.Warn("OAuth", "Auth completion callback failed for session=%s server=%s: %v",
+					state.SessionID, state.ServerName, err)
+			}
+		}
+	}
 
 	// Render success page
 	h.renderSuccessPage(w, state.ServerName)

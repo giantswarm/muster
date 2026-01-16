@@ -84,6 +84,10 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 			oauthAdapter := oauth.NewAdapter(manager.oauthManager)
 			oauthAdapter.Register()
 			logging.Info("Aggregator-Manager", "OAuth proxy enabled with public URL: %s", config.OAuth.PublicURL)
+
+			// Register the auth completion callback to establish session connections
+			// after browser OAuth completes
+			manager.oauthManager.SetAuthCompletionCallback(manager.handleAuthCompletion)
 		}
 	}
 
@@ -541,6 +545,43 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 	}
 
 	return info.Status == StatusAuthRequired
+}
+
+// handleAuthCompletion is called after successful OAuth browser authentication.
+// It establishes the session connection to the MCP server using the new token.
+//
+// This callback is registered with the OAuth manager and called from the OAuth
+// callback handler after a user successfully authenticates in the browser.
+func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID, serverName, accessToken string) error {
+	am.mu.RLock()
+	aggregatorServer := am.aggregatorServer
+	am.mu.RUnlock()
+
+	if aggregatorServer == nil {
+		return fmt.Errorf("aggregator server not available")
+	}
+
+	// Get the server URL from the registry
+	serverInfo, exists := aggregatorServer.GetRegistry().GetServerInfo(serverName)
+	if !exists {
+		return fmt.Errorf("server %s not found", serverName)
+	}
+
+	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing session connection for session=%s server=%s",
+		logging.TruncateSessionID(sessionID), serverName)
+
+	// Use the aggregator server's tryConnectWithToken to establish the connection
+	result, err := aggregatorServer.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, accessToken)
+	if err != nil {
+		return fmt.Errorf("failed to establish session connection: %w", err)
+	}
+
+	// Log success (result contains success message)
+	if result != nil && len(result.Content) > 0 {
+		logging.Debug("Aggregator-Manager", "Session connection established successfully")
+	}
+
+	return nil
 }
 
 // deregisterSingleServer removes a single MCP server from the aggregator.
