@@ -2,8 +2,11 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -51,6 +54,18 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 	// Use the effective client ID (auto-derived from PublicURL if not explicitly set)
 	effectiveClientID := cfg.GetEffectiveClientID()
 	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath)
+
+	// Configure custom HTTP client with CA if provided
+	if cfg.CAFile != "" {
+		httpClient, err := createHTTPClientWithCA(cfg.CAFile)
+		if err != nil {
+			logging.Warn("OAuth", "Failed to configure custom CA, using default: %v", err)
+		} else {
+			client.SetHTTPClient(httpClient)
+			logging.Info("OAuth", "Configured OAuth proxy with custom CA from %s", cfg.CAFile)
+		}
+	}
+
 	handler := NewHandler(client)
 
 	m := &Manager{
@@ -73,6 +88,30 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 	}
 
 	return m
+}
+
+// createHTTPClientWithCA creates an HTTP client that trusts the specified CA certificate.
+func createHTTPClientWithCA(caFile string) (*http.Client, error) {
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA file: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: caCertPool,
+		},
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+	}, nil
 }
 
 // IsEnabled returns whether OAuth proxy is enabled.

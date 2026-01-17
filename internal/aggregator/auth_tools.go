@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"muster/internal/api"
+	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
@@ -458,19 +459,15 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 	}
 
 	// The muster server's issuer is configured in the OAuth server configuration.
-	// We need to find a token in the session that has an ID token.
-	// For now, we'll iterate through known issuers to find one with an ID token.
-	// In a production setup, this should be the configured muster OAuth issuer.
+	// The issuer is the BaseURL of muster's OAuth server.
 
 	// Try to get the issuer from the OAuth server configuration
-	// The aggregator's OAuthServer.Config contains the issuer information
+	// The aggregator's OAuthServer.Config contains the issuer information (BaseURL)
 	if p.aggregator.config.OAuthServer.Enabled && p.aggregator.config.OAuthServer.Config != nil {
-		// The config is stored as interface{}, we need to extract the issuer
-		// from the actual config type
-		if cfg, ok := p.aggregator.config.OAuthServer.Config.(interface{ GetIssuer() string }); ok {
-			issuer := cfg.GetIssuer()
-			if issuer != "" {
-				return issuer
+		// The config is stored as interface{}, cast to the actual config type
+		if cfg, ok := p.aggregator.config.OAuthServer.Config.(config.OAuthServerConfig); ok {
+			if cfg.BaseURL != "" {
+				return cfg.BaseURL
 			}
 		}
 	}

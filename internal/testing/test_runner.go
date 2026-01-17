@@ -343,9 +343,19 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	scenarioClient := NewMCPTestClientWithLogger(r.debug, r.logger)
 
 	// Connect the isolated MCP client to this specific instance
-	if err := scenarioClient.Connect(scenarioCtx, instance.Endpoint); err != nil {
+	// Use authenticated connection if muster's OAuth server is enabled
+	var connectErr error
+	if instance.MusterOAuthAccessToken != "" {
+		if r.debug {
+			r.logger.Debug("🔐 Connecting with OAuth token (muster OAuth server enabled)\n")
+		}
+		connectErr = scenarioClient.ConnectWithAuth(scenarioCtx, instance.Endpoint, instance.MusterOAuthAccessToken)
+	} else {
+		connectErr = scenarioClient.Connect(scenarioCtx, instance.Endpoint)
+	}
+	if connectErr != nil {
 		result.Result = ResultError
-		result.Error = fmt.Sprintf("failed to connect to muster instance: %v", err)
+		result.Error = fmt.Sprintf("failed to connect to muster instance: %v", connectErr)
 		result.EndTime = time.Now()
 		result.Duration = result.EndTime.Sub(result.StartTime)
 

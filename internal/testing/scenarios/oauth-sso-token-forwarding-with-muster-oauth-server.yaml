@@ -1,0 +1,108 @@
+name: "oauth-sso-token-forwarding-with-muster-oauth-server"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test SSO ID token forwarding when muster's OAuth server is enabled.
+  
+  This scenario tests the getMusterIssuer function's primary code path where
+  the issuer is retrieved from aggregator.oauthServer.baseUrl configuration,
+  rather than falling back to FindTokenWithIDToken.
+  
+  This specifically tests the fix for: getMusterIssuer incorrectly trying to
+  cast OAuthServer.Config to interface{ GetIssuer() } instead of accessing
+  config.OAuthServerConfig.BaseURL directly.
+tags: ["oauth", "sso", "token-forwarding", "authentication", "mcpserver", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  # AND as the IdP for the downstream server (simulating shared IdP scenario)
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      # This flag enables muster's OAuth server to use this mock as upstream
+      use_as_muster_oauth_server: true
+
+  # MCP server configured for SSO token forwarding
+  # This server trusts tokens from the shared IdP
+  mcp_servers:
+    - name: "sso-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:admin"
+          # Enable token forwarding - muster should forward its ID token
+          forward_token: true
+        tools:
+          - name: "protected_operation"
+            description: "Operation requiring SSO authentication"
+            responses:
+              - response:
+                  source: "sso-protected-server"
+                  status: "authenticated-via-forwarded-token"
+                  message: "Token was successfully forwarded from muster"
+
+steps:
+  # Step 1: Verify the mock OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the shared IdP OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains:
+        - "shared-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the MCP server is registered with forwardToken enabled
+  - id: verify-server-registered
+    description: "Verify the SSO protected server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-protected-server"
+
+  # Step 3: Simulate OAuth callback to muster (user authenticates to muster via shared-idp)
+  # This stores the ID token that will be forwarded
+  - id: authenticate-to-muster
+    description: "Authenticate to muster via shared-idp OAuth (stores ID token for forwarding)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sso-protected-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Call core_auth_login - this should forward muster's ID token
+  # The key test: getMusterIssuer should return the issuer from oauthServer.baseUrl
+  # and token forwarding should succeed
+  - id: login-with-token-forwarding
+    description: "Login to server - muster should forward its ID token"
+    tool: "core_auth_login"
+    args:
+      server: "sso-protected-server"
+    expected:
+      success: true
+
+  # Step 5: Verify the downstream server tools are available
+  # This confirms token forwarding worked
+  - id: call-protected-tool
+    description: "Call protected tool authenticated via SSO token forwarding"
+    tool: "x_sso-protected-server_protected_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-protected-server"
+        - "authenticated"

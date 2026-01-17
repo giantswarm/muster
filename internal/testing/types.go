@@ -200,6 +200,10 @@ type MusterInstance struct {
 	MockHTTPServers map[string]*MockHTTPServerInfo
 	// MockOAuthServers contains references to mock OAuth servers started for this instance
 	MockOAuthServers map[string]*MockOAuthServerInfo
+	// MusterOAuthAccessToken is the access token for authenticating with muster's OAuth server.
+	// This is set when a mock OAuth server is configured with UseAsMusterOAuthServer=true.
+	// The test framework uses this token to authenticate with muster without a browser flow.
+	MusterOAuthAccessToken string
 }
 
 // MockHTTPServerInfo contains information about a running mock HTTP server
@@ -247,6 +251,13 @@ type MockOAuthServerConfig struct {
 	// When true, the test_advance_oauth_clock tool can be used to
 	// advance time without waiting
 	UseMockClock bool `yaml:"use_mock_clock,omitempty"`
+
+	// UseAsMusterOAuthServer configures this mock OAuth server as muster's
+	// OAuth server (aggregator.oauthServer), enabling SSO token forwarding
+	// tests where muster itself requires OAuth authentication.
+	// When true, the aggregator will be configured with oauthServer.enabled=true
+	// and the issuer will be set to this mock server's URL.
+	UseAsMusterOAuthServer bool `yaml:"use_as_muster_oauth_server,omitempty"`
 }
 
 // MCPServerOAuthConfig defines OAuth protection for an MCP server in tests
@@ -269,6 +280,11 @@ type MockOAuthServerInfo struct {
 	Port int
 	// IssuerURL is the OAuth issuer URL
 	IssuerURL string
+	// AccessToken is a pre-generated access token for test framework authentication.
+	// This is only set when the OAuth server is used as muster's OAuth server
+	// (UseAsMusterOAuthServer=true), allowing the test framework to authenticate
+	// with muster without implementing the full OAuth browser flow.
+	AccessToken string
 }
 
 // InstanceLogs contains the captured logs from an muster instance
@@ -413,6 +429,9 @@ type TestRunner interface {
 type MCPTestClient interface {
 	// Connect establishes connection to the MCP aggregator
 	Connect(ctx context.Context, endpoint string) error
+	// ConnectWithAuth establishes connection to the MCP aggregator with an access token.
+	// This is used when muster's OAuth server is enabled and requires authentication.
+	ConnectWithAuth(ctx context.Context, endpoint, accessToken string) error
 	// CallTool invokes an MCP tool with the given args
 	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
 	// ListTools returns available MCP tools
