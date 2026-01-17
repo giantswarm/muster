@@ -181,24 +181,15 @@ func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPr
 		return fmt.Errorf("aggregator manager not available")
 	}
 
-	// Convert api.AuthInfo to aggregator.AuthInfo
+	// Convert api.AuthInfo to aggregator.AuthInfo (type alias)
 	aggAuthInfo := &aggregator.AuthInfo{
 		Issuer:              authInfo.Issuer,
 		Scope:               authInfo.Scope,
 		ResourceMetadataURL: authInfo.ResourceMetadataURL,
 	}
 
-	// Convert api.MCPServerAuth to aggregator.ServerAuthConfig
-	var aggAuthConfig *aggregator.ServerAuthConfig
-	if authConfig != nil {
-		aggAuthConfig = &aggregator.ServerAuthConfig{
-			Type:              authConfig.Type,
-			ForwardToken:      authConfig.ForwardToken,
-			FallbackToOwnAuth: authConfig.FallbackToOwnAuth,
-		}
-	}
-
-	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, aggAuthConfig)
+	// Pass auth config directly - aggregator now uses api.MCPServerAuth
+	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, authConfig)
 }
 
 // Register registers this adapter with the API package

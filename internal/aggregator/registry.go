@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -499,7 +500,7 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 //   - authConfig: Auth configuration for token forwarding (may be nil)
 //
 // Returns an error if the server name is already registered.
-func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *ServerAuthConfig) error {
+func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

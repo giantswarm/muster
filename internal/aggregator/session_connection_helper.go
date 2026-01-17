@@ -265,9 +265,19 @@ func EstablishSessionConnectionWithTokenForwarding(
 		return nil, true, fmt.Errorf("failed to list tools after token forwarding: %w", err)
 	}
 
-	// Fetch resources and prompts (optional)
-	resources, _ := client.ListResources(ctx)
-	prompts, _ := client.ListPrompts(ctx)
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		prompts = nil
+	}
 
 	// Upgrade the session connection
 	session := a.sessionRegistry.GetOrCreateSession(sessionID)
@@ -317,38 +327,30 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 		return
 	}
 
-	var reason string
-	var message string
-	var eventType string
-
-	if success {
-		reason = string(events.ReasonMCPServerTokenForwarded)
-		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
-		eventType = "Normal"
-	} else {
-		reason = string(events.ReasonMCPServerTokenForwardingFailed)
-		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s", serverName)
-		if errorMsg != "" {
-			message = fmt.Sprintf("%s: %s", message, errorMsg)
-		}
-		eventType = "Warning"
-	}
-
-	// Ensure namespace has a default value
 	if namespace == "" {
 		namespace = "default"
 	}
 
-	// Create object reference for the MCPServer
 	objRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      serverName,
 		Namespace: namespace,
 	}
 
-	if err := eventManager.CreateEvent(context.Background(), objRef, reason, message, eventType); err != nil {
-		logging.Debug("SessionConnection", "Failed to emit token forwarding event: %v", err)
+	var reason events.EventReason
+	var eventType, message string
+
+	if success {
+		reason = events.ReasonMCPServerTokenForwarded
+		eventType = "Normal"
+		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
+	} else {
+		reason = events.ReasonMCPServerTokenForwardingFailed
+		eventType = "Warning"
+		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
 	}
+
+	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
 }
 
 // ShouldUseTokenForwarding checks if token forwarding should be used for a server.

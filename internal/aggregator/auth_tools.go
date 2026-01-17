@@ -436,21 +436,12 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 
 	// Fallback: Look for any token in the session that has an ID token
 	// This is a best-effort approach when we can't determine the configured issuer
-	fullToken := findTokenWithIDToken(sessionID, oauthHandler)
+	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
 	if fullToken != nil && fullToken.Issuer != "" {
 		return fullToken.Issuer
 	}
 
 	return ""
-}
-
-// findTokenWithIDToken searches for a token in the session that has an ID token.
-// This is used as a fallback when the muster issuer is not explicitly configured.
-func findTokenWithIDToken(sessionID string, oauthHandler api.OAuthHandler) *api.OAuthToken {
-	if oauthHandler == nil {
-		return nil
-	}
-	return oauthHandler.FindTokenWithIDToken(sessionID)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

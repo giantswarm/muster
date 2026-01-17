@@ -385,7 +385,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 //   - authConfig: Auth configuration for token forwarding (may be nil)
 //
 // Returns an error if registration fails.
-func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *ServerAuthConfig) error {
+func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 

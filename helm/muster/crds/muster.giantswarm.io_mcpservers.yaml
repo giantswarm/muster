@@ -106,9 +106,10 @@ spec:
                   type:
                     description: |-
                       Type specifies the authentication type.
-                      Supported values: "oauth"
+                      Supported values: "oauth", "none"
                     enum:
                     - oauth
+                    - none
                     type: string
                   forwardToken:
                     default: false
@@ -119,7 +120,7 @@ spec:
                       This enables Single Sign-On (SSO) to downstream services that trust muster's ID tokens.
                     type: boolean
                   fallbackToOwnAuth:
-                    default: false
+                    default: true
                     description: |-
                       FallbackToOwnAuth determines whether to trigger a separate OAuth flow for this
                       downstream server if token forwarding fails (e.g., 401 Unauthorized).

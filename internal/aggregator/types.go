@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -92,8 +93,8 @@ type ServerInfo struct {
 	AuthInfo *AuthInfo
 
 	// AuthConfig contains the authentication configuration for this server.
-	// This is used to determine token forwarding behavior.
-	AuthConfig *ServerAuthConfig
+	// This is used to determine token forwarding behavior for SSO.
+	AuthConfig *api.MCPServerAuth
 
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
@@ -279,19 +280,3 @@ const (
 // It contains OAuth authentication information extracted from a 401 response.
 // See mcpserver.AuthInfo for detailed field documentation.
 type AuthInfo = mcpserver.AuthInfo
-
-// ServerAuthConfig contains authentication configuration for an MCP server.
-// This is used to determine token forwarding behavior for SSO.
-type ServerAuthConfig struct {
-	// Type specifies the authentication type (oauth, none).
-	Type string
-
-	// ForwardToken enables ID token forwarding for SSO.
-	// When true, muster forwards the user's ID token to this server instead of
-	// triggering a separate OAuth flow.
-	ForwardToken bool
-
-	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
-	// When true and token forwarding fails, muster triggers a separate OAuth flow.
-	FallbackToOwnAuth bool
-}

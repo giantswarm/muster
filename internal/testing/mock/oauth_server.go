@@ -16,9 +16,10 @@ import (
 	"time"
 )
 
-// jwtHeader is the standard JWT header for unsigned tokens.
+// jwtHeader is the pre-computed base64-encoded JWT header for unsigned tokens.
 // We use "none" algorithm since this is for testing only.
-var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+// Value: base64url({"alg":"none","typ":"JWT"})
+const jwtHeader = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
 
 // idTokenClaims represents the claims in an ID token.
 type idTokenClaims struct {
