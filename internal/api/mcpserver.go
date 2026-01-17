@@ -82,6 +82,14 @@ type MCPServerAuth struct {
 	// muster will trigger a separate OAuth flow for this server.
 	// When false, token forwarding failures result in an error.
 	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
+
+	// SSO controls Single Sign-On token reuse for this server.
+	// When true (default), tokens from other servers using the same OAuth issuer
+	// can be reused to authenticate to this server without re-authenticating.
+	// When false, this server always requires its own authentication flow,
+	// even if a token exists for the same issuer. Use this when you want to
+	// use different accounts for servers that share the same OAuth provider.
+	SSO *bool `yaml:"sso,omitempty" json:"sso,omitempty"`
 }
 
 // MCPServerType defines the execution model for an MCP server.

@@ -181,6 +181,14 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 		return fmt.Errorf("failed to call auth tool: %w", err)
 	}
 
+	// Check if the response indicates already connected
+	// This happens when the user has an existing session connection to this server
+	if isAlreadyConnectedResponse(result) {
+		authPrint("%s %s is already connected.\n", text.FgGreen.Sprint("✓"), serverName)
+		authPrintln("Use 'muster auth logout --server " + serverName + "' to disconnect first if you want to re-authenticate with a different account.")
+		return nil
+	}
+
 	// Extract the auth URL from the result
 	authURL := extractAuthURL(result)
 	if authURL == "" {
@@ -291,6 +299,34 @@ func getAuthStatusFromClient(ctx context.Context, client *agent.Client) (*pkgoau
 	}
 
 	return &authStatus, nil
+}
+
+// isAlreadyConnectedResponse checks if the auth tool result indicates the server is already connected.
+// This happens in two cases:
+// 1. The user has an existing session connection to THIS specific server
+// 2. SSO token reuse succeeded - a token from another server with the same issuer was used
+//
+// In both cases, the server returns a success message without an auth URL,
+// which we should handle gracefully instead of treating as an error.
+func isAlreadyConnectedResponse(result *mcp.CallToolResult) bool {
+	if result == nil || len(result.Content) == 0 {
+		return false
+	}
+
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			// Check for various "already connected" or "successfully connected" markers
+			// using constants defined in api.AuthMsg* for consistency
+			msg := textContent.Text
+			if strings.Contains(msg, api.AuthMsgAlreadyConnected) ||
+				strings.Contains(msg, api.AuthMsgSuccessfullyConnected) ||
+				strings.Contains(msg, api.AuthMsgAlreadyAuthenticated) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // extractAuthURL extracts the authentication URL from a tool call result.

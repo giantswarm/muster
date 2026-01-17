@@ -158,7 +158,7 @@ func establishSessionConnection(
 func (r *SessionConnectionResult) FormatAsAPIResult() *api.CallToolResult {
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf(
-			"Successfully connected to '%s'!\n\n"+
+			api.AuthMsgSuccessfullyConnected+" to '%s'!\n\n"+
 				"Available capabilities:\n"+
 				"- Tools: %d\n"+
 				"- Resources: %d\n"+
@@ -176,7 +176,7 @@ func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.NewTextContent(fmt.Sprintf(
-				"Successfully connected to %s!\n\n"+
+				api.AuthMsgSuccessfullyConnected+" to %s!\n\n"+
 					"Available capabilities:\n"+
 					"- Tools: %d\n"+
 					"- Resources: %d\n"+
@@ -338,7 +338,9 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Upgrade the session connection
 	session := a.sessionRegistry.GetOrCreateSession(sessionID)
 
-	// Create a token key using the muster issuer (since the token is from muster's auth)
+	// Create a token key using the muster issuer (since the token is from muster's auth).
+	// Scope is intentionally omitted: this is a forwarded ID token from muster's OAuth,
+	// not a token obtained via server-specific OAuth flow with its own scopes.
 	tokenKey := &oauth.TokenKey{
 		SessionID: sessionID,
 		Issuer:    musterIssuer,
