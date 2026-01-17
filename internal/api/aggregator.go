@@ -111,6 +111,19 @@ type AggregatorHandler interface {
 	//
 	// Returns an error if registration fails.
 	RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error
+
+	// RegisterServerPendingAuthWithConfig registers a server that requires OAuth authentication
+	// with additional auth configuration for SSO token forwarding.
+	//
+	// Args:
+	//   - serverName: Unique name of the server
+	//   - url: The server endpoint URL
+	//   - toolPrefix: Server-specific prefix for tools
+	//   - authInfo: OAuth information from the 401 response
+	//   - authConfig: Auth configuration for token forwarding (may be nil)
+	//
+	// Returns an error if registration fails.
+	RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *MCPServerAuth) error
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

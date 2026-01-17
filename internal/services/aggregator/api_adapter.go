@@ -166,6 +166,12 @@ func (a *APIAdapter) UpdateCapabilities() {
 
 // RegisterServerPendingAuth registers a server that requires OAuth authentication
 func (a *APIAdapter) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *api.AuthInfo) error {
+	return a.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, nil)
+}
+
+// RegisterServerPendingAuthWithConfig registers a server that requires OAuth authentication
+// with additional auth configuration for SSO token forwarding.
+func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *api.AuthInfo, authConfig *api.MCPServerAuth) error {
 	if a.service == nil {
 		return fmt.Errorf("aggregator service not available")
 	}
@@ -175,14 +181,15 @@ func (a *APIAdapter) RegisterServerPendingAuth(serverName, url, toolPrefix strin
 		return fmt.Errorf("aggregator manager not available")
 	}
 
-	// Convert api.AuthInfo to aggregator.AuthInfo
+	// Convert api.AuthInfo to aggregator.AuthInfo (type alias)
 	aggAuthInfo := &aggregator.AuthInfo{
 		Issuer:              authInfo.Issuer,
 		Scope:               authInfo.Scope,
 		ResourceMetadataURL: authInfo.ResourceMetadataURL,
 	}
 
-	return manager.RegisterServerPendingAuth(serverName, url, toolPrefix, aggAuthInfo)
+	// Pass auth config directly - aggregator now uses api.MCPServerAuth
+	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, authConfig)
 }
 
 // Register registers this adapter with the API package

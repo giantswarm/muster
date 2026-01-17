@@ -50,11 +50,40 @@ type MCPServerSpec struct {
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
+	// Auth configures authentication behavior for this MCP server.
+	// This is only relevant for remote servers (streamable-http or sse).
+	Auth *MCPServerAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	// +kubebuilder:default=30
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+}
+
+// MCPServerAuth configures authentication behavior for an MCP server.
+// This enables Single Sign-On (SSO) via token forwarding between muster and
+// downstream MCP servers that share the same Identity Provider.
+type MCPServerAuth struct {
+	// Type specifies the authentication type.
+	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
+	// +kubebuilder:validation:Enum=oauth;none
+	// +kubebuilder:default=none
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+
+	// ForwardToken enables ID token forwarding for SSO.
+	// When true, muster forwards the user's ID token to this server instead of
+	// triggering a separate OAuth flow. The downstream server must be configured
+	// to trust muster's client ID in its TrustedAudiences.
+	// +kubebuilder:default=false
+	ForwardToken bool `json:"forwardToken,omitempty" yaml:"forwardToken,omitempty"`
+
+	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
+	// When true and token forwarding fails (e.g., 401 response despite forwarded token),
+	// muster will trigger a separate OAuth flow for this server.
+	// When false, token forwarding failures result in an error.
+	// +kubebuilder:default=true
+	FallbackToOwnAuth bool `json:"fallbackToOwnAuth,omitempty" yaml:"fallbackToOwnAuth,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer

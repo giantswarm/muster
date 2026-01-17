@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -485,6 +486,21 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 //
 // Returns an error if the server name is already registered.
 func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authInfo *AuthInfo) error {
+	return r.RegisterPendingAuthWithConfig(name, url, toolPrefix, authInfo, nil)
+}
+
+// RegisterPendingAuthWithConfig registers a server that requires authentication with auth configuration.
+// This is an extended version of RegisterPendingAuth that also accepts auth config for SSO token forwarding.
+//
+// Args:
+//   - name: Unique identifier for the server
+//   - url: The server endpoint URL
+//   - toolPrefix: Server-specific prefix for tools
+//   - authInfo: OAuth authentication information from the 401 response
+//   - authConfig: Auth configuration for token forwarding (may be nil)
+//
+// Returns an error if the server name is already registered.
+func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -500,6 +516,7 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 		ToolPrefix: toolPrefix,
 		Status:     StatusAuthRequired,
 		AuthInfo:   authInfo,
+		AuthConfig: authConfig,
 		Connected:  false, // Not connected until authenticated
 		Client:     nil,   // No client until authentication succeeds
 		Tools:      nil,   // No tools exposed until authenticated
@@ -511,7 +528,11 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 	r.servers[name] = info
 	r.notifyUpdate()
 
-	logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication, use core_auth_login)", name)
+	if authConfig != nil && authConfig.ForwardToken {
+		logging.Info("Aggregator", "Registered pending auth server: %s (requires auth, SSO token forwarding enabled)", name)
+	} else {
+		logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication, use core_auth_login)", name)
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -65,6 +66,11 @@ type ServerInfo struct {
 	// Name is the unique identifier for this server within the aggregator
 	Name string
 
+	// Namespace is the Kubernetes namespace for this server.
+	// This is used for event emission and resource references.
+	// Defaults to "default" if not specified.
+	Namespace string
+
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient
 
@@ -85,6 +91,10 @@ type ServerInfo struct {
 	// AuthInfo contains OAuth information if authentication is required.
 	// This is populated when a 401 is received during initialization.
 	AuthInfo *AuthInfo
+
+	// AuthConfig contains the authentication configuration for this server.
+	// This is used to determine token forwarding behavior for SSO.
+	AuthConfig *api.MCPServerAuth
 
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
@@ -137,6 +147,15 @@ func (s *ServerInfo) IsConnected() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Connected
+}
+
+// GetNamespace returns the namespace for this server.
+// Returns "default" if the namespace is not set.
+func (s *ServerInfo) GetNamespace() string {
+	if s.Namespace == "" {
+		return "default"
+	}
+	return s.Namespace
 }
 
 // AggregatorConfig holds configuration args for the aggregator.

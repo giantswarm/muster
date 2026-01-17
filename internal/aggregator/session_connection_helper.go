@@ -2,10 +2,14 @@ package aggregator
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/events"
 	internalmcp "muster/internal/mcpserver"
 	"muster/internal/oauth"
 	"muster/pkg/logging"
@@ -182,4 +186,266 @@ func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 		},
 		IsError: false,
 	}
+}
+
+// EstablishSessionConnectionWithTokenForwarding attempts to establish a session connection
+// using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
+//
+// The function:
+//  1. Gets the user's ID token from muster's OAuth session
+//  2. Forwards it to the downstream MCP server
+//  3. If successful, establishes the session connection
+//  4. If forwarding fails and fallbackToOwnAuth is true, returns an error indicating fallback is needed
+//
+// Args:
+//   - ctx: Context for the operation
+//   - a: The aggregator server instance
+//   - sessionID: The session to register the connection with
+//   - serverInfo: The server info containing URL and auth config
+//   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
+//
+// Returns:
+//   - *SessionConnectionResult: The connection result if successful
+//   - needsFallback: true if token forwarding failed and fallback is configured
+//   - error: The error if connection failed
+func EstablishSessionConnectionWithTokenForwarding(
+	ctx context.Context,
+	a *AggregatorServer,
+	sessionID string,
+	serverInfo *ServerInfo,
+	musterIssuer string,
+) (*SessionConnectionResult, bool, error) {
+	// Get OAuth handler
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return nil, true, fmt.Errorf("OAuth handler not available for token forwarding")
+	}
+
+	// Get the full token (including ID token) for the muster session
+	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+	if fullToken == nil || fullToken.IDToken == "" {
+		logging.Debug("SessionConnection", "No ID token available for session %s from issuer %s, fallback to regular auth",
+			logging.TruncateSessionID(sessionID), musterIssuer)
+		return nil, true, fmt.Errorf("no ID token available for forwarding")
+	}
+
+	// H1 fix: Validate ID token is not expired before forwarding
+	// This avoids unnecessary network round-trips with expired tokens
+	if isIDTokenExpired(fullToken.IDToken) {
+		logging.Warn("SessionConnection", "ID token expired for session %s, cannot forward to %s",
+			logging.TruncateSessionID(sessionID), serverInfo.Name)
+		return nil, true, fmt.Errorf("ID token has expired, needs refresh before forwarding")
+	}
+
+	logging.Info("SessionConnection", "Attempting ID token forwarding for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+
+	// Create a client with the forwarded ID token
+	headers := map[string]string{
+		"Authorization": "Bearer " + fullToken.IDToken,
+	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
+
+	// Try to initialize the client with the forwarded token
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+
+		// Log the token forwarding failure
+		logging.Warn("SessionConnection", "ID token forwarding failed for session %s to server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+
+		// Emit event for token forwarding failure
+		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
+
+		// Check if fallback is configured
+		if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.FallbackToOwnAuth {
+			return nil, true, fmt.Errorf("ID token forwarding failed: %w", err)
+		}
+		return nil, false, fmt.Errorf("ID token forwarding failed and fallback disabled: %w", err)
+	}
+
+	// Token forwarding succeeded - emit success event
+	logging.Info("SessionConnection", "ID token forwarding succeeded for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
+
+	// Fetch tools from the server
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		client.Close()
+		return nil, true, fmt.Errorf("failed to list tools after token forwarding: %w", err)
+	}
+
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		prompts = nil
+	}
+
+	// Upgrade the session connection
+	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Create a token key using the muster issuer (since the token is from muster's auth)
+	tokenKey := &oauth.TokenKey{
+		SessionID: sessionID,
+		Issuer:    musterIssuer,
+		Scope:     fullToken.Scope,
+	}
+
+	// Create the session connection
+	conn := &SessionConnection{
+		ServerName:  serverInfo.Name,
+		Status:      StatusSessionConnected,
+		Client:      client,
+		TokenKey:    tokenKey,
+		ConnectedAt: time.Now(),
+	}
+	conn.UpdateTools(tools)
+	conn.UpdateResources(resources)
+	conn.UpdatePrompts(prompts)
+
+	session.SetConnection(serverInfo.Name, conn)
+
+	// Register the session-specific tools
+	a.registerSessionTools(serverInfo.Name, tools)
+
+	// Notify the session
+	a.NotifySessionToolsChanged(sessionID)
+
+	logging.Info("SessionConnection", "Session %s connected to %s via SSO token forwarding with %d tools",
+		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
+
+	return &SessionConnectionResult{
+		ServerName:    serverInfo.Name,
+		ToolCount:     len(tools),
+		ResourceCount: len(resources),
+		PromptCount:   len(prompts),
+	}, false, nil
+}
+
+// emitTokenForwardingEvent emits an event for token forwarding success or failure.
+func emitTokenForwardingEvent(serverName, namespace string, success bool, errorMsg string) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		return
+	}
+
+	// L3 fix: Log when namespace defaults to "default" for transparency
+	if namespace == "" {
+		logging.Debug("SessionConnection", "No namespace set for server %s event, defaulting to 'default'", serverName)
+		namespace = "default"
+	}
+
+	objRef := api.ObjectReference{
+		Kind:      "MCPServer",
+		Name:      serverName,
+		Namespace: namespace,
+	}
+
+	var reason events.EventReason
+	var eventType, message string
+
+	if success {
+		reason = events.ReasonMCPServerTokenForwarded
+		eventType = "Normal"
+		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
+	} else {
+		reason = events.ReasonMCPServerTokenForwardingFailed
+		eventType = "Warning"
+		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
+	}
+
+	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
+}
+
+// ShouldUseTokenForwarding checks if token forwarding should be used for a server.
+func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
+	if serverInfo == nil || serverInfo.AuthConfig == nil {
+		return false
+	}
+	// Use case-insensitive comparison for auth type (L2 fix)
+	return strings.EqualFold(serverInfo.AuthConfig.Type, "oauth") && serverInfo.AuthConfig.ForwardToken
+}
+
+// idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
+// This accounts for clock skew and network latency during forwarding.
+const idTokenExpiryMargin = 30 * time.Second
+
+// isIDTokenExpired checks if a JWT ID token is expired or about to expire.
+// This provides basic validation before forwarding tokens to downstream servers,
+// avoiding unnecessary network round-trips with expired tokens.
+//
+// The function parses the JWT payload (without verifying the signature) to extract
+// the 'exp' claim. Signature verification is the responsibility of the downstream server.
+//
+// Returns true if:
+//   - The token is malformed and cannot be parsed
+//   - The 'exp' claim is missing
+//   - The token has expired or will expire within the margin
+func isIDTokenExpired(idToken string) bool {
+	if idToken == "" {
+		return true
+	}
+
+	// JWT format: header.payload.signature
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		logging.Debug("TokenValidation", "ID token has invalid format (expected JWT)")
+		return true
+	}
+
+	// Decode the payload (second part)
+	// JWT uses base64url encoding without padding
+	payload := parts[1]
+	// Add padding if necessary
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		// Try standard base64 as fallback (some implementations use it)
+		decoded, err = base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			logging.Debug("TokenValidation", "Failed to decode ID token payload: %v", err)
+			return true
+		}
+	}
+
+	// Parse the claims
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		logging.Debug("TokenValidation", "Failed to parse ID token claims: %v", err)
+		return true
+	}
+
+	// Check if exp claim exists
+	if claims.Exp == 0 {
+		logging.Debug("TokenValidation", "ID token missing 'exp' claim")
+		return true
+	}
+
+	// Check if token is expired or about to expire
+	expiresAt := time.Unix(claims.Exp, 0)
+	now := time.Now()
+	if now.Add(idTokenExpiryMargin).After(expiresAt) {
+		logging.Debug("TokenValidation", "ID token expired or expiring soon (expires at %v, now %v)",
+			expiresAt, now)
+		return true
+	}
+
+	return false
 }

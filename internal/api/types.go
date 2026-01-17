@@ -590,6 +590,14 @@ type OAuthToken struct {
 
 	// Scope is the granted scope(s).
 	Scope string `json:"scope,omitempty"`
+
+	// IDToken is the OIDC ID token (if available).
+	// Used for SSO token forwarding to downstream MCP servers.
+	IDToken string `json:"id_token,omitempty"`
+
+	// Issuer is the token issuer (Identity Provider URL).
+	// Used for SSO detection and token forwarding.
+	Issuer string `json:"issuer,omitempty"`
 }
 
 // AuthInfo contains OAuth authentication information extracted from

@@ -93,7 +93,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
-	return api.MCPServerInfo{
+	info := api.MCPServerInfo{
 		Name:        server.ObjectMeta.Name,
 		Type:        server.Spec.Type,
 		Description: server.Spec.Description,
@@ -107,6 +107,17 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
 	}
+
+	// Convert auth configuration if present
+	if server.Spec.Auth != nil {
+		info.Auth = &api.MCPServerAuth{
+			Type:              server.Spec.Auth.Type,
+			ForwardToken:      server.Spec.Auth.ForwardToken,
+			FallbackToOwnAuth: server.Spec.Auth.FallbackToOwnAuth,
+		}
+	}
+
+	return info
 }
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure

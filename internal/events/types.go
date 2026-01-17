@@ -71,6 +71,15 @@ const (
 
 	// ReasonMCPServerAuthRequired indicates an MCPServer requires OAuth authentication.
 	ReasonMCPServerAuthRequired EventReason = "MCPServerAuthRequired"
+
+	// ReasonMCPServerTokenForwarded indicates an ID token was forwarded to a downstream server.
+	// This event is generated when muster forwards a user's ID token instead of triggering
+	// a separate OAuth flow, enabling SSO across the MCP ecosystem.
+	ReasonMCPServerTokenForwarded EventReason = "MCPServerTokenForwarded"
+
+	// ReasonMCPServerTokenForwardingFailed indicates ID token forwarding failed.
+	// This may trigger fallback to server-specific OAuth if configured.
+	ReasonMCPServerTokenForwardingFailed EventReason = "MCPServerTokenForwardingFailed"
 )
 
 // ServiceClass event reasons

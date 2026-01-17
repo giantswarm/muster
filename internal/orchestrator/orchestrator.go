@@ -278,13 +278,17 @@ func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo,
 		ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
 	}
 
-	// Register with the aggregator
-	if err := aggregator.RegisterServerPendingAuth(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo); err != nil {
+	// Register with the aggregator, including auth config for SSO token forwarding
+	if err := aggregator.RegisterServerPendingAuthWithConfig(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo, mcpServerInfo.Auth); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
 		return
 	}
 
-	logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", mcpServerInfo.Name)
+	if mcpServerInfo.Auth != nil && mcpServerInfo.Auth.ForwardToken {
+		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state (SSO token forwarding enabled)", mcpServerInfo.Name)
+	} else {
+		logging.Info("Orchestrator", "Registered MCPServer %s in pending auth state with synthetic auth tool", mcpServerInfo.Name)
+	}
 }
 
 // CreateServiceClassInstance creates a new ServiceClass-based service instance

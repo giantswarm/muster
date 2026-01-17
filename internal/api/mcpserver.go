@@ -47,6 +47,10 @@ type MCPServer struct {
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
 
+	// Auth configures authentication behavior for this MCP server.
+	// This is only relevant for remote servers (streamable-http or sse).
+	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
@@ -57,6 +61,27 @@ type MCPServer struct {
 	// Description provides a human-readable description of this MCP server's purpose.
 	// This is runtime information populated from server metadata and not persisted to YAML.
 	Description string `json:"description,omitempty" yaml:"-"`
+}
+
+// MCPServerAuth configures authentication behavior for an MCP server.
+// This enables Single Sign-On (SSO) via token forwarding between muster and
+// downstream MCP servers that share the same Identity Provider.
+type MCPServerAuth struct {
+	// Type specifies the authentication type.
+	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
+	Type string `yaml:"type,omitempty" json:"type,omitempty"`
+
+	// ForwardToken enables ID token forwarding for SSO.
+	// When true, muster forwards the user's ID token to this server instead of
+	// triggering a separate OAuth flow. The downstream server must be configured
+	// to trust muster's client ID in its TrustedAudiences.
+	ForwardToken bool `yaml:"forwardToken,omitempty" json:"forwardToken,omitempty"`
+
+	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
+	// When true and token forwarding fails (e.g., 401 response despite forwarded token),
+	// muster will trigger a separate OAuth flow for this server.
+	// When false, token forwarding failures result in an error.
+	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
 }
 
 // MCPServerType defines the execution model for an MCP server.
@@ -110,6 +135,9 @@ type MCPServerInfo struct {
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Auth configures authentication behavior for this MCP server.
+	Auth *MCPServerAuth `json:"auth,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
