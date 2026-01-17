@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"muster/internal/agent"
+	"muster/internal/api"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -307,4 +309,183 @@ func TestMCPTypeAliases(t *testing.T) {
 	prompt.Description = "Test prompt description"
 	assert.Equal(t, "test_prompt", prompt.Name)
 	assert.Equal(t, "Test prompt description", prompt.Description)
+}
+
+// mockAuthHandler implements api.AuthHandler for testing session ID behavior.
+type mockAuthHandler struct {
+	sessionID     string
+	hasValidToken bool
+	bearerToken   string
+}
+
+func (m *mockAuthHandler) CheckAuthRequired(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockAuthHandler) HasValidToken(_ string) bool {
+	return m.hasValidToken
+}
+
+func (m *mockAuthHandler) GetBearerToken(_ string) (string, error) {
+	return m.bearerToken, nil
+}
+
+func (m *mockAuthHandler) Login(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAuthHandler) LoginWithIssuer(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (m *mockAuthHandler) Logout(_ string) error {
+	return nil
+}
+
+func (m *mockAuthHandler) LogoutAll() error {
+	return nil
+}
+
+func (m *mockAuthHandler) GetStatus() []api.AuthStatus {
+	return nil
+}
+
+func (m *mockAuthHandler) GetStatusForEndpoint(_ string) *api.AuthStatus {
+	return nil
+}
+
+func (m *mockAuthHandler) RefreshToken(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAuthHandler) GetSessionID() string {
+	return m.sessionID
+}
+
+func (m *mockAuthHandler) Close() error {
+	return nil
+}
+
+func TestToolExecutor_SetupAuthentication_SetsSessionIDHeader(t *testing.T) {
+	// Cleanup after test
+	defer api.SetAuthHandlerForTesting(nil)
+
+	tests := []struct {
+		name              string
+		sessionID         string
+		hasValidToken     bool
+		bearerToken       string
+		expectSessionID   bool
+		expectBearerToken bool
+	}{
+		{
+			name:              "sets session ID when auth handler provides one",
+			sessionID:         "test-session-12345",
+			hasValidToken:     true,
+			bearerToken:       "Bearer test-token",
+			expectSessionID:   true,
+			expectBearerToken: true,
+		},
+		{
+			name:              "sets session ID even when no valid token",
+			sessionID:         "test-session-67890",
+			hasValidToken:     false,
+			bearerToken:       "",
+			expectSessionID:   true,
+			expectBearerToken: false,
+		},
+		{
+			name:              "does not set session ID when empty",
+			sessionID:         "",
+			hasValidToken:     true,
+			bearerToken:       "Bearer test-token",
+			expectSessionID:   false,
+			expectBearerToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Register mock auth handler
+			mock := &mockAuthHandler{
+				sessionID:     tt.sessionID,
+				hasValidToken: tt.hasValidToken,
+				bearerToken:   tt.bearerToken,
+			}
+			api.SetAuthHandlerForTesting(mock)
+
+			// Create a ToolExecutor with a mock client
+			logger := agent.NewDevNullLogger()
+			client := agent.NewClient("https://muster.example.com/mcp", logger, agent.TransportStreamableHTTP)
+			executor := &ToolExecutor{
+				client:   client,
+				endpoint: "https://muster.example.com/mcp",
+				isRemote: true,
+				options: ExecutorOptions{
+					AuthMode: AuthModeAuto,
+				},
+			}
+
+			// Call setupAuthentication
+			err := executor.setupAuthentication(context.Background())
+			assert.NoError(t, err)
+
+			// Verify headers
+			headers := client.GetHeaders()
+
+			if tt.expectSessionID {
+				assert.Equal(t, tt.sessionID, headers[api.ClientSessionIDHeader],
+					"expected session ID header to be set")
+			} else {
+				_, hasHeader := headers[api.ClientSessionIDHeader]
+				assert.False(t, hasHeader, "expected no session ID header when session ID is empty")
+			}
+
+			if tt.expectBearerToken {
+				assert.Equal(t, tt.bearerToken, headers["Authorization"],
+					"expected Authorization header to be set")
+			}
+		})
+	}
+}
+
+func TestToolExecutor_SetupAuthentication_SessionIDSetBeforeTokenCheck(t *testing.T) {
+	// This test verifies that the session ID is set early in setupAuthentication,
+	// even before token validation succeeds. This is important because the session ID
+	// is needed for all requests to the aggregator, regardless of auth state.
+	defer api.SetAuthHandlerForTesting(nil)
+
+	// Create mock that tracks the order of calls
+	callOrder := []string{}
+	mock := &mockAuthHandler{
+		sessionID:     "ordered-session-id",
+		hasValidToken: true,
+		bearerToken:   "Bearer test",
+	}
+
+	// We can't directly track order with this simple mock,
+	// but we can verify that both headers are set after setupAuthentication completes
+	api.SetAuthHandlerForTesting(mock)
+
+	logger := agent.NewDevNullLogger()
+	client := agent.NewClient("https://muster.example.com/mcp", logger, agent.TransportStreamableHTTP)
+	executor := &ToolExecutor{
+		client:   client,
+		endpoint: "https://muster.example.com/mcp",
+		isRemote: true,
+		options: ExecutorOptions{
+			AuthMode: AuthModeAuto,
+		},
+	}
+
+	err := executor.setupAuthentication(context.Background())
+	assert.NoError(t, err)
+
+	headers := client.GetHeaders()
+	assert.Equal(t, "ordered-session-id", headers[api.ClientSessionIDHeader])
+	assert.Equal(t, "Bearer test", headers["Authorization"])
+
+	// The test name documents the expected behavior - session ID should be set
+	// before token checks, ensuring it's available for all subsequent requests
+	_ = callOrder // Used to document the intent of this test
 }

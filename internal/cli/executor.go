@@ -298,6 +298,14 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 		}
 	}
 
+	// Set persistent session ID for MCP server token persistence.
+	// This must be set early so the aggregator can associate all requests
+	// with the same session, enabling MCP server tools to be visible after
+	// authentication via `muster auth login --server <server>`.
+	if sessionID := authHandler.GetSessionID(); sessionID != "" {
+		e.client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
 	// Check if we have a valid token
 	if authHandler.HasValidToken(e.endpoint) {
 		// Get the token and set it on the client
