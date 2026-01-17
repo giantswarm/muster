@@ -11,8 +11,8 @@ import (
 )
 
 func TestGetIDTokenForForwarding(t *testing.T) {
-	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing)
-	// This is a mock token with an expiry 1 hour from now
+	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
+	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
 
 	t.Run("returns token from context when available", func(t *testing.T) {

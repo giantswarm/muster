@@ -260,13 +260,13 @@ func EstablishSessionConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, bool, error) {
-	// Try to get ID token from multiple sources:
-	// 1. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
-	// 2. Request context (for tokens from muster's OAuth server protection)
+	// Try to get ID token from multiple sources (in priority order):
+	// 1. Request context (for tokens from muster's OAuth server protection)
+	// 2. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
 	//
-	// When a user authenticates TO muster (via Google/Dex OAuth), the token is stored
-	// in the OAuth server's token store and injected into the request context by
-	// createAccessTokenInjectorMiddleware. This is the primary SSO use case.
+	// When a user authenticates TO muster (via Google/Dex OAuth), the token is
+	// injected into the request context by createAccessTokenInjectorMiddleware.
+	// This is the primary SSO use case.
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("SessionConnection", "No ID token available for session %s, fallback to regular auth",
