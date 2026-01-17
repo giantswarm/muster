@@ -3,11 +3,8 @@ package aggregator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"muster/internal/api"
-	internalmcp "muster/internal/mcpserver"
-	"muster/internal/oauth"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
@@ -275,99 +272,13 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 }
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
-// This is adapted from the aggregator's tryConnectWithToken method.
+// This delegates to the shared establishSessionConnection helper to avoid code duplication.
 func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
-	oauthHandler := api.GetOAuthHandler()
-
-	// Create a token provider for dynamic token injection
-	var client internalmcp.MCPClient
-	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		tokenProvider := NewSessionTokenProvider(sessionID, issuer, scope, oauthHandler)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenProvider)
-		logging.Debug("AuthTools", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
-			logging.TruncateSessionID(sessionID), serverName, issuer)
-	} else {
-		headers := map[string]string{
-			"Authorization": "Bearer " + accessToken,
-		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("AuthTools", "Using static auth headers for session %s, server %s",
-			logging.TruncateSessionID(sessionID), serverName)
-	}
-
-	// Try to initialize the client
-	if err := client.Initialize(ctx); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize connection: %w", err)
-	}
-
-	// Fetch tools from the server
-	tools, err := client.ListTools(ctx)
+	result, err := establishSessionConnection(ctx, p.aggregator, sessionID, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to list tools: %w", err)
+		return nil, err
 	}
-
-	// Fetch resources and prompts (optional)
-	resources, err := client.ListResources(ctx)
-	if err != nil {
-		logging.Debug("AuthTools", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		resources = nil
-	}
-	prompts, err := client.ListPrompts(ctx)
-	if err != nil {
-		logging.Debug("AuthTools", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		prompts = nil
-	}
-
-	// Upgrade the session connection
-	session := p.aggregator.sessionRegistry.GetOrCreateSession(sessionID)
-
-	var tokenKey *oauth.TokenKey
-	if issuer != "" {
-		tokenKey = &oauth.TokenKey{
-			SessionID: sessionID,
-			Issuer:    issuer,
-			Scope:     scope,
-		}
-	}
-
-	conn := &SessionConnection{
-		ServerName:  serverName,
-		Status:      StatusSessionConnected,
-		Client:      client,
-		TokenKey:    tokenKey,
-		ConnectedAt: time.Now(),
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	session.SetConnection(serverName, conn)
-
-	// Register the session-specific tools
-	p.aggregator.registerSessionTools(serverName, tools)
-
-	// Send targeted notification
-	p.aggregator.NotifySessionToolsChanged(sessionID)
-
-	logging.Info("AuthTools", "Session %s connected to %s with %d tools, %d resources, %d prompts",
-		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
-
-	return &api.CallToolResult{
-		Content: []interface{}{fmt.Sprintf(
-			"Successfully connected to '%s'!\n\n"+
-				"Available capabilities:\n"+
-				"- Tools: %d\n"+
-				"- Resources: %d\n"+
-				"- Prompts: %d\n\n"+
-				"You can now use the tools from this server.",
-			serverName, len(tools), len(resources), len(prompts),
-		)},
-		IsError: false,
-	}, nil
+	return result.FormatAsAPIResult(), nil
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

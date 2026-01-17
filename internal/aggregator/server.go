@@ -13,8 +13,6 @@ import (
 
 	"muster/internal/api"
 	"muster/internal/config"
-	internalmcp "muster/internal/mcpserver"
-	"muster/internal/oauth"
 	"muster/internal/server"
 	"muster/pkg/logging"
 
@@ -1008,6 +1006,9 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 // RegisterSyntheticAuthToolSync is deprecated and does nothing.
 // Per ADR-008, synthetic auth tools are no longer created. Use core_auth_login instead.
 //
+// TODO(cleanup): Remove this function and its call site in manager.go after confirming
+// no external callers depend on it. Tracked as part of ADR-008 cleanup.
+//
 // Deprecated: Synthetic auth tools are no longer used. This function is kept for
 // backward compatibility and will be removed in a future version.
 func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
@@ -1510,6 +1511,9 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 // Per ADR-008, synthetic authentication tools are no longer created.
 // Users should use core_auth_login with a server parameter instead.
 //
+// TODO(cleanup): Remove this function after confirming no external callers depend on it.
+// Tracked as part of ADR-008 cleanup.
+//
 // Deprecated: Use core_auth_login tool instead. This function is kept for
 // backward compatibility but will be removed in a future version.
 //
@@ -1538,111 +1542,15 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 // On success, it upgrades the session connection and returns a success result.
 // On failure, it returns an error that the caller can use to determine next steps.
 //
-// This method creates a DynamicAuthClient that supports automatic token refresh (Issue #214).
+// This method delegates to the shared establishSessionConnection helper to avoid code duplication.
 // The issuer and scope parameters are used to create a TokenProvider that can refresh
-// the token when it expires.
+// the token when it expires (Issue #214).
 func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
-	// Get OAuth handler for dynamic token refresh
-	oauthHandler := api.GetOAuthHandler()
-
-	// Create a token provider for dynamic token injection
-	// If OAuth handler is available, use dynamic auth client for automatic refresh
-	// Otherwise, fall back to static headers (backwards compatibility)
-	var client internalmcp.MCPClient
-	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		// Create a dynamic auth client that refreshes tokens automatically
-		tokenProvider := NewSessionTokenProvider(sessionID, issuer, scope, oauthHandler)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenProvider)
-		logging.Debug("Aggregator", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
-			logging.TruncateSessionID(sessionID), serverName, issuer)
-	} else {
-		// Fallback to static headers
-		headers := map[string]string{
-			"Authorization": "Bearer " + accessToken,
-		}
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("Aggregator", "Using static auth headers for session %s, server %s",
-			logging.TruncateSessionID(sessionID), serverName)
-	}
-
-	// Try to initialize the client
-	if err := client.Initialize(ctx); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize connection: %w", err)
-	}
-
-	// Fetch tools from the server
-	tools, err := client.ListTools(ctx)
+	result, err := establishSessionConnection(ctx, a, sessionID, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to list tools: %w", err)
+		return nil, err
 	}
-
-	// Fetch resources and prompts (optional - some servers may not support them)
-	resources, err := client.ListResources(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		resources = nil
-	}
-	prompts, err := client.ListPrompts(ctx)
-	if err != nil {
-		logging.Debug("Aggregator", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		prompts = nil
-	}
-
-	// Upgrade the session connection
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
-
-	// Create the token key for future reference
-	var tokenKey *oauth.TokenKey
-	if issuer != "" {
-		tokenKey = &oauth.TokenKey{
-			SessionID: sessionID,
-			Issuer:    issuer,
-			Scope:     scope,
-		}
-	}
-
-	// Create the session connection
-	conn := &SessionConnection{
-		ServerName:  serverName,
-		Status:      StatusSessionConnected,
-		Client:      client,
-		TokenKey:    tokenKey,
-		ConnectedAt: time.Now(),
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	session.SetConnection(serverName, conn)
-
-	// Register the session-specific tools with the mcp-go server so they can be called.
-	// We need to add handlers for each tool from the protected server.
-	a.registerSessionTools(serverName, tools)
-
-	// Send targeted notification to the session that their tools have changed
-	a.NotifySessionToolsChanged(sessionID)
-
-	logging.Info("Aggregator", "Session %s connected to %s with %d tools, %d resources, %d prompts",
-		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(fmt.Sprintf(
-				"Successfully connected to %s!\n\n"+
-					"Available capabilities:\n"+
-					"- Tools: %d\n"+
-					"- Resources: %d\n"+
-					"- Prompts: %d\n\n"+
-					"You can now use the tools from this server.",
-				serverName, len(tools), len(resources), len(prompts),
-			)),
-		},
-		IsError: false,
-	}, nil
+	return result.FormatAsMCPResult(), nil
 }
 
 // ProtectedResourceMetadata contains OAuth information discovered from

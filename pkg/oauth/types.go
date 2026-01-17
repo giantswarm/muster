@@ -284,15 +284,18 @@ type ServerAuthStatus struct {
 	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
 	Issuer   string `json:"issuer,omitempty"`
 	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"`
+	AuthTool string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
 	Error    string `json:"error,omitempty"`
 }
 
 // AuthRequiredInfo contains information about a server requiring authentication.
 // This is a simplified view used by the agent to build human-readable notifications.
+//
+// Per ADR-008, AuthTool is always "core_auth_login" - callers can use this tool
+// with the Server field as the argument to authenticate.
 type AuthRequiredInfo struct {
 	Server   string `json:"server"`
 	Issuer   string `json:"issuer"`
 	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool"`
+	AuthTool string `json:"auth_tool"` // Always "core_auth_login" per ADR-008
 }

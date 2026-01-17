@@ -563,6 +563,9 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 // Per ADR-008, synthetic auth tools are no longer created. Use core_auth_login instead.
 // This function is kept for backward compatibility but will be removed in a future version.
 //
+// TODO(cleanup): Remove this function after confirming no external callers depend on it.
+// Tracked as part of ADR-008 cleanup.
+//
 // Deprecated: Synthetic auth tools are no longer used. Use core_auth_login.
 func (r *ServerRegistry) IsSyntheticAuthTool(toolName string) (serverName string, isSynthetic bool) {
 	// ADR-008: No more synthetic auth tools
