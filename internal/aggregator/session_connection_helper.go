@@ -12,6 +12,7 @@ import (
 	"muster/internal/events"
 	internalmcp "muster/internal/mcpserver"
 	"muster/internal/oauth"
+	"muster/internal/server"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -188,6 +189,50 @@ func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 	}
 }
 
+// getIDTokenForForwarding retrieves an ID token for SSO token forwarding from available sources.
+//
+// Token sources are checked in priority order:
+//  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
+//     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
+//  2. OAuth proxy token store - contains tokens when user authenticated WITH remote servers
+//     via core_auth_login. These are keyed by (sessionID, issuer).
+//
+// The context token takes priority because it represents the user's current authentication
+// to muster, which is what we want to forward for SSO.
+//
+// Args:
+//   - ctx: Request context that may contain an injected ID token
+//   - sessionID: The session identifier
+//   - musterIssuer: The issuer URL to look up in the OAuth proxy store
+//
+// Returns the ID token string, or empty string if no token is available.
+func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
+	// First, check the request context for an ID token from muster's OAuth server protection.
+	// This is the primary SSO use case: user authenticates TO muster, and we forward that
+	// token to downstream servers that trust muster's OAuth client ID.
+	if idToken, ok := server.GetAccessTokenFromContext(ctx); ok && idToken != "" {
+		logging.Debug("SessionConnection", "Found ID token in request context for session %s",
+			logging.TruncateSessionID(sessionID))
+		return idToken
+	}
+
+	// Fallback: check the OAuth proxy token store.
+	// This handles the case where tokens were obtained via a previous core_auth_login call.
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
+		fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+		if fullToken != nil && fullToken.IDToken != "" {
+			logging.Debug("SessionConnection", "Found ID token in OAuth proxy store for session %s, issuer %s",
+				logging.TruncateSessionID(sessionID), musterIssuer)
+			return fullToken.IDToken
+		}
+	}
+
+	logging.Debug("SessionConnection", "No ID token found for session %s",
+		logging.TruncateSessionID(sessionID))
+	return ""
+}
+
 // EstablishSessionConnectionWithTokenForwarding attempts to establish a session connection
 // using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
 //
@@ -215,23 +260,23 @@ func EstablishSessionConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, bool, error) {
-	// Get OAuth handler
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, true, fmt.Errorf("OAuth handler not available for token forwarding")
-	}
-
-	// Get the full token (including ID token) for the muster session
-	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
-	if fullToken == nil || fullToken.IDToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for session %s from issuer %s, fallback to regular auth",
-			logging.TruncateSessionID(sessionID), musterIssuer)
+	// Try to get ID token from multiple sources:
+	// 1. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
+	// 2. Request context (for tokens from muster's OAuth server protection)
+	//
+	// When a user authenticates TO muster (via Google/Dex OAuth), the token is stored
+	// in the OAuth server's token store and injected into the request context by
+	// createAccessTokenInjectorMiddleware. This is the primary SSO use case.
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	if idToken == "" {
+		logging.Debug("SessionConnection", "No ID token available for session %s, fallback to regular auth",
+			logging.TruncateSessionID(sessionID))
 		return nil, true, fmt.Errorf("no ID token available for forwarding")
 	}
 
-	// H1 fix: Validate ID token is not expired before forwarding
+	// Validate ID token is not expired before forwarding
 	// This avoids unnecessary network round-trips with expired tokens
-	if isIDTokenExpired(fullToken.IDToken) {
+	if isIDTokenExpired(idToken) {
 		logging.Warn("SessionConnection", "ID token expired for session %s, cannot forward to %s",
 			logging.TruncateSessionID(sessionID), serverInfo.Name)
 		return nil, true, fmt.Errorf("ID token has expired, needs refresh before forwarding")
@@ -242,7 +287,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 
 	// Create a client with the forwarded ID token
 	headers := map[string]string{
-		"Authorization": "Bearer " + fullToken.IDToken,
+		"Authorization": "Bearer " + idToken,
 	}
 	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
 
@@ -297,7 +342,6 @@ func EstablishSessionConnectionWithTokenForwarding(
 	tokenKey := &oauth.TokenKey{
 		SessionID: sessionID,
 		Issuer:    musterIssuer,
-		Scope:     fullToken.Scope,
 	}
 
 	// Create the session connection
