@@ -498,7 +498,8 @@ func (e *ToolExecutor) ExecuteJSON(ctx context.Context, toolName string, args ma
 
 // formatError formats and displays error output from tool execution.
 // It extracts error messages from the MCP result and presents them
-// in a user-friendly format.
+// in a user-friendly format. The error is returned so cobra can handle
+// the exit code, but not printed directly to avoid duplicate error messages.
 //
 // Args:
 //   - result: MCP call result containing error information
@@ -514,7 +515,7 @@ func (e *ToolExecutor) formatError(result *mcp.CallToolResult) error {
 	}
 
 	errorMsg := strings.Join(errorMsgs, "\n")
-	fmt.Fprintf(os.Stderr, "Error: %s\n", errorMsg)
+	// Don't print here - cobra will print the returned error
 	return fmt.Errorf("%s", errorMsg)
 }
 

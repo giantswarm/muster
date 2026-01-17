@@ -93,6 +93,12 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 		return b.formatDescriptionPlain(strValue)
 	case "steps":
 		return b.formatStepsPlain(value)
+	case "url", "command", "uri", "endpoint":
+		// Don't truncate URLs, commands, URIs, or endpoints - show full value
+		return strValue
+	case "type", "service_type", "servicetype", "servertype":
+		// Type fields are typically short, don't truncate
+		return strValue
 	default:
 		if arr, ok := value.([]interface{}); ok {
 			return b.formatArrayPlain(arr)

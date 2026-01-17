@@ -71,7 +71,12 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 	// Check for common wrapper patterns like {"services": [...], "total": N}
 	arrayKey := f.findArrayKey(data)
 	if arrayKey != "" {
-		if arr, ok := data[arrayKey].([]interface{}); ok {
+		value := data[arrayKey]
+		// Handle nil as empty array
+		if value == nil {
+			return f.formatEmptyList(arrayKey)
+		}
+		if arr, ok := value.([]interface{}); ok {
 			// Just format the array - the summary will be handled by formatTableFromArray
 			return f.formatTableFromArray(arr)
 		}
@@ -84,6 +89,7 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 // findArrayKey looks for common array keys in wrapped objects.
 // Many muster API responses wrap arrays in objects with predictable key names.
 // This function identifies those patterns to extract the relevant data.
+// It also handles nil/null values which represent empty arrays.
 //
 // Args:
 //   - data: Object data to search for array keys
@@ -95,7 +101,12 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 
 	for _, key := range arrayKeys {
 		if value, exists := data[key]; exists {
+			// Handle both actual arrays and nil values (which represent empty arrays)
 			if _, isArray := value.([]interface{}); isArray {
+				return key
+			}
+			// Treat nil as an empty array
+			if value == nil {
 				return key
 			}
 		}
@@ -167,16 +178,20 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 // Returns:
 //   - []string: Optimized list of column names for table display
 func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
-	// Extract all available keys
-	var allKeys []string
+	// Extract all available keys (deduplicated)
+	keySet := make(map[string]bool)
 	for _, obj := range objects {
 		castObj, ok := obj.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		for key := range castObj {
-			allKeys = append(allKeys, key)
+			keySet[key] = true
 		}
+	}
+	var allKeys []string
+	for key := range keySet {
+		allKeys = append(allKeys, key)
 	}
 	sort.Strings(allKeys)
 
@@ -196,11 +211,16 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 
 	// Define priority columns for different resource types (excluding name fields already added)
 	priorityColumns := map[string][]string{
-		"services":       {"health", "state", "service_type", "metadata"},
+		"service":        {"health", "state", "service_type"},
+		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"type", "description", "autoStart"},
+		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
+		"mcpServers":     {"type", "autoStart"},
+		"mcpServer":      {"type", "autoStart"},
 		"workflows":      {"status", "description", "steps"},
+		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
+		"execution":      {"workflow_name", "status", "started_at", "duration_ms"},
 		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
 		"mcpTool":        {"description"},
 		"mcpResource":    {"uri", "description", "mimeType"},
@@ -222,10 +242,12 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	// For complex resource types, limit columns to prevent wrapping
 	var maxColumns int
 	switch resourceType {
-	case "serviceClasses":
+	case "service", "services":
+		maxColumns = 4 // name, health, state, service_type
+	case "serviceClasses", "serviceClass":
 		maxColumns = 5 // More conservative for wider data
-	case "mcpServers":
-		maxColumns = 4 // Exactly the columns we want: name, type, description, autoStart
+	case "mcpServers", "mcpServer":
+		maxColumns = 4 // name, type, autoStart
 	case "event":
 		maxColumns = 6 // Allow more columns for events
 	default:
@@ -236,10 +258,19 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	if len(columns) < maxColumns {
 		remaining := f.getRemainingKeys(allKeys, columns)
 
-		// Filter out unwanted columns for MCP servers
-		if resourceType == "mcpServers" {
-			filteredRemaining := []string{}
-			unwantedColumns := []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error"}
+		// Filter out unwanted columns based on resource type
+		filteredRemaining := []string{}
+		var unwantedColumns []string
+
+		switch resourceType {
+		case "mcpServers", "mcpServer":
+			unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
+		case "service", "services":
+			// metadata contains nested data that doesn't display well in a list view
+			unwantedColumns = []string{"metadata"}
+		}
+
+		if len(unwantedColumns) > 0 {
 			for _, key := range remaining {
 				isUnwanted := false
 				for _, unwanted := range unwantedColumns {
@@ -767,6 +798,45 @@ func (f *TableFormatter) formatSimpleList(data []interface{}) error {
 		fmt.Println(item)
 	}
 	return nil
+}
+
+// formatEmptyList displays a message for empty resource lists.
+// This provides a kubectl-style "No X found" message instead of
+// showing a property/value table with metadata.
+//
+// Args:
+//   - resourceKey: The array key name (e.g., "workflows", "services")
+//
+// Returns:
+//   - error: Always nil, just prints the message
+func (f *TableFormatter) formatEmptyList(resourceKey string) error {
+	// Convert key to readable name (e.g., "serviceClasses" -> "service classes")
+	readable := f.keyToReadableName(resourceKey)
+	fmt.Printf("No %s found\n", readable)
+	return nil
+}
+
+// keyToReadableName converts a camelCase or singular key to a readable plural name.
+func (f *TableFormatter) keyToReadableName(key string) string {
+	// Common mappings for resource keys
+	mappings := map[string]string{
+		"services":       "services",
+		"serviceClasses": "service classes",
+		"mcpServers":     "MCP servers",
+		"workflows":      "workflows",
+		"executions":     "executions",
+		"capabilities":   "capabilities",
+		"items":          "items",
+		"results":        "results",
+		"tools":          "tools",
+		"resources":      "resources",
+		"prompts":        "prompts",
+	}
+
+	if readable, exists := mappings[key]; exists {
+		return readable
+	}
+	return key
 }
 
 // Helper methods

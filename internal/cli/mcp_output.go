@@ -59,6 +59,15 @@ func truncateString(s string, maxLen int) string {
 	return s
 }
 
+// pluralize returns a formatted string with count and properly pluralized word.
+// Example: pluralize(1, "tool") -> "1 tool", pluralize(5, "tool") -> "5 tools"
+func pluralize(count int, singular string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
+}
+
 // FormatMCPTools formats and displays MCP tools in the specified format.
 func FormatMCPTools(tools []MCPTool, format OutputFormat) error {
 	return FormatMCPToolsWithOptions(tools, format, false)
@@ -104,7 +113,7 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 
 	// Print summary unless headers are suppressed (implies scripting mode)
 	if !noHeaders {
-		fmt.Printf("\n%d tools\n", len(tools))
+		fmt.Printf("\n%s\n", pluralize(len(tools), "tool"))
 	}
 	return nil
 }
@@ -145,18 +154,19 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"URI", "NAME", "DESCRIPTION", "MIME TYPE"})
+	tw.SetHeaders([]string{"URI", "DESCRIPTION", "MIME TYPE"})
 	tw.SetNoHeaders(noHeaders)
 
 	for _, resource := range resources {
+		// Use description if available, otherwise use name (some MCP resources
+		// store description in the name field)
 		desc := resource.Description
 		if desc == "" {
 			desc = resource.Name
 		}
 		tw.AppendRow([]string{
-			truncateString(resource.URI, 40),
-			resource.Name,
-			truncateString(desc, 40),
+			resource.URI,
+			truncateString(desc, 60),
 			resource.MIMEType,
 		})
 	}
@@ -165,7 +175,7 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 
 	// Print summary unless headers are suppressed (implies scripting mode)
 	if !noHeaders {
-		fmt.Printf("\n%d resources\n", len(resources))
+		fmt.Printf("\n%s\n", pluralize(len(resources), "resource"))
 	}
 	return nil
 }
@@ -215,7 +225,7 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 
 	// Print summary unless headers are suppressed (implies scripting mode)
 	if !noHeaders {
-		fmt.Printf("\n%d prompts\n", len(prompts))
+		fmt.Printf("\n%s\n", pluralize(len(prompts), "prompt"))
 	}
 	return nil
 }
