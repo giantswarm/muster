@@ -198,6 +198,10 @@ Filtering (for MCP primitives only: tool, resource, prompt):
   --description <text>     - Filter by description content (case-insensitive substring)
   --server <name>          - Filter by server name prefix (e.g., "github", "core")
 
+Output options:
+  --output/-o <format>     - Output format: table (default), json, yaml
+  --no-headers             - Suppress header row in table output (useful for scripting)
+
 Examples:
   muster list service
   muster list workflow
@@ -208,6 +212,7 @@ Examples:
   muster list tools --server github
   muster list tools --filter "*service*" --description "status"
   muster list resources --output yaml
+  muster list mcpservers --no-headers | awk '{print $1}'
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args:                  cobra.ExactArgs(1),
@@ -326,7 +331,8 @@ func runListMCPTools(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts 
 	}
 
 	tools = filterMCPTools(tools, filterOpts)
-	return cli.FormatMCPTools(tools, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPToolsWithOptions(tools, opts.Format, opts.NoHeaders)
 }
 
 // runListMCPResources lists all MCP resources with optional filtering
@@ -337,7 +343,8 @@ func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterO
 	}
 
 	resources = filterMCPResources(resources, filterOpts)
-	return cli.FormatMCPResources(resources, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPResourcesWithOptions(resources, opts.Format, opts.NoHeaders)
 }
 
 // runListMCPPrompts lists all MCP prompts with optional filtering
@@ -348,5 +355,6 @@ func runListMCPPrompts(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpt
 	}
 
 	prompts = filterMCPPrompts(prompts, filterOpts)
-	return cli.FormatMCPPrompts(prompts, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPPromptsWithOptions(prompts, opts.Format, opts.NoHeaders)
 }

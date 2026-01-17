@@ -24,9 +24,13 @@ func NewTableBuilder() *TableBuilder {
 	return &TableBuilder{}
 }
 
-// FormatCellValue formats individual cell values with appropriate styling and icons.
+// FormatCellValue formats individual cell values with ANSI color styling and icons.
 // It applies different formatting rules based on the column name and data type,
 // providing consistent and readable output across all muster tables.
+//
+// NOTE: This method is currently unused as table output uses FormatCellValuePlain
+// for kubectl-style plain text formatting. It is preserved for potential future
+// color output support (e.g., --color=auto|always|never flag).
 //
 // The formatter recognizes common column types and applies appropriate styling:
 //   - Status fields get color-coded icons
@@ -39,14 +43,13 @@ func NewTableBuilder() *TableBuilder {
 //   - value: The raw value to format
 //
 // Returns:
-//   - interface{}: Formatted value with styling applied
+//   - interface{}: Formatted value with ANSI styling applied
 func (b *TableBuilder) FormatCellValue(column string, value interface{}) interface{} {
 	return b.FormatCellValueWithContext(column, value, nil)
 }
 
-// FormatCellValueWithContext formats individual cell values with row context.
-// This allows for context-aware formatting where the display depends on other
-// fields in the same row (e.g., state terminology depends on server type).
+// FormatCellValuePlain formats individual cell values as plain text without ANSI styling.
+// This is used for kubectl-style table output where we don't want color codes.
 //
 // Args:
 //   - column: The column name/type to determine formatting rules
@@ -54,7 +57,77 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 //   - rowContext: The full row data for context-aware formatting (may be nil)
 //
 // Returns:
-//   - interface{}: Formatted value with styling applied
+//   - string: Formatted value as plain text
+func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, rowContext map[string]interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	strValue := fmt.Sprintf("%v", value)
+	colLower := strings.ToLower(column)
+
+	switch colLower {
+	case "name", "label", "id", "workflow", "execution_id", "workflow_name", "resource_name":
+		return strValue
+	case "health", "status":
+		return strValue // health/status values are returned as-is
+	case "available":
+		return b.formatAvailableStatusPlain(value)
+	case "autostart":
+		return b.formatAutoStartStatusPlain(value)
+	case "state":
+		serverType := b.getServerTypeFromContext(rowContext)
+		if serverType != "" {
+			return b.formatStateForServerTypePlain(strValue, serverType)
+		}
+		return b.formatStatePlain(strValue)
+	case "started_at", "completed_at", "timestamp":
+		return b.formatTimestampPlain(strValue)
+	case "duration_ms":
+		return b.formatDurationPlain(value)
+	case "metadata":
+		return b.formatMetadataPlain(value)
+	case "requiredtools", "tools":
+		return b.formatToolsListPlain(value)
+	case "description":
+		return b.formatDescriptionPlain(strValue)
+	case "steps":
+		return b.formatStepsPlain(value)
+	case "url", "command", "uri", "endpoint":
+		// Don't truncate URLs, commands, URIs, or endpoints - show full value
+		return strValue
+	case "type", "service_type", "servicetype", "servertype":
+		// Type fields are typically short, don't truncate
+		return strValue
+	default:
+		if arr, ok := value.([]interface{}); ok {
+			return b.formatArrayPlain(arr)
+		}
+		if obj, ok := value.(map[string]interface{}); ok {
+			return b.formatObjectPlain(obj)
+		}
+		if len(strValue) > 50 {
+			return strValue[:47] + "..."
+		}
+		return strValue
+	}
+}
+
+// FormatCellValueWithContext formats individual cell values with ANSI color styling and row context.
+// This allows for context-aware formatting where the display depends on other
+// fields in the same row (e.g., state terminology depends on server type).
+//
+// NOTE: This method is currently unused as table output uses FormatCellValuePlain
+// for kubectl-style plain text formatting. It is preserved for potential future
+// color output support (e.g., --color=auto|always|never flag).
+//
+// Args:
+//   - column: The column name/type to determine formatting rules
+//   - value: The raw value to format
+//   - rowContext: The full row data for context-aware formatting (may be nil)
+//
+// Returns:
+//   - interface{}: Formatted value with ANSI styling applied
 func (b *TableBuilder) FormatCellValueWithContext(column string, value interface{}, rowContext map[string]interface{}) interface{} {
 	if value == nil {
 		return text.Faint.Sprint("-")
@@ -124,8 +197,8 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 			return b.formatObject(obj)
 		}
 		// Default string truncation
-		if len(strValue) > 30 {
-			return strValue[:27] + text.Faint.Sprint("...")
+		if len(strValue) > 50 {
+			return strValue[:47] + text.Faint.Sprint("...")
 		}
 		return strValue
 	}
@@ -196,6 +269,27 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	}
 }
 
+// normalizeState returns the canonical display name for a state.
+// This helper is used by both styled and plain formatters to ensure consistency.
+func (b *TableBuilder) normalizeState(state string) string {
+	switch strings.ToLower(state) {
+	case "running":
+		return "Running"
+	case "stopped":
+		return "Stopped"
+	case "starting":
+		return "Starting"
+	case "stopping":
+		return "Stopping"
+	case "failed":
+		return "Failed"
+	case "error":
+		return "Error"
+	default:
+		return state
+	}
+}
+
 // formatState formats service state with descriptive icons.
 // This provides clear visual indication of service lifecycle states.
 //
@@ -205,19 +299,55 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 // Returns:
 //   - interface{}: Formatted state with appropriate icon and color
 func (b *TableBuilder) formatState(state string) interface{} {
+	normalized := b.normalizeState(state)
 	switch strings.ToLower(state) {
 	case "running":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  Running")
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
 	case "stopped":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  Stopped")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  " + normalized)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
 	case "stopping":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  " + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  Error")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
+	default:
+		return normalized
+	}
+}
+
+// normalizeStateForServerType returns the canonical display name for a state,
+// using context-appropriate terminology based on server type.
+// For local stdio servers, it uses "Running/Stopped" terminology.
+// For remote servers (streamable-http/sse), it uses "Connected/Disconnected" terminology.
+func (b *TableBuilder) normalizeStateForServerType(state string, isRemote bool) string {
+	switch strings.ToLower(state) {
+	case "running":
+		if isRemote {
+			return "Connected"
+		}
+		return "Running"
+	case "stopped":
+		if isRemote {
+			return "Disconnected"
+		}
+		return "Stopped"
+	case "starting":
+		if isRemote {
+			return "Connecting"
+		}
+		return "Starting"
+	case "stopping":
+		if isRemote {
+			return "Disconnecting"
+		}
+		return "Stopping"
+	case "failed":
+		return "Failed"
+	case "error":
+		return "Error"
 	default:
 		return state
 	}
@@ -235,34 +365,29 @@ func (b *TableBuilder) formatState(state string) interface{} {
 //   - interface{}: Formatted state with appropriate icon, color, and terminology
 func (b *TableBuilder) formatStateForServerType(state string, serverType string) interface{} {
 	isRemote := IsRemoteServerType(serverType)
+	normalized := b.normalizeStateForServerType(state, isRemote)
 
 	switch strings.ToLower(state) {
 	case "running":
 		if isRemote {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🔗 Connected")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🔗 " + normalized)
 		}
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  Running")
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
 	case "stopped":
 		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ Disconnected")
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ " + normalized)
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  Stopped")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  " + normalized)
 	case "starting":
-		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Connecting")
-		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ Starting")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
 	case "stopping":
-		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Disconnecting")
-		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  Stopping")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  " + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Failed")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  Error")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
 	default:
-		return state
+		return normalized
 	}
 }
 
@@ -386,7 +511,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 	if len(desc) <= 50 {
 		return desc
 	}
-	return desc[:45] + text.Faint.Sprint("...")
+	return desc[:47] + text.Faint.Sprint("...")
 }
 
 // formatType adds subtle styling to type information.
@@ -554,27 +679,17 @@ func (b *TableBuilder) Pluralize(word string) string {
 	return word + "s"
 }
 
-// formatTimestamp formats timestamp strings for better readability.
-// It simplifies ISO 8601 timestamps by removing microseconds and timezone
-// information for cleaner table display.
-//
-// Args:
-//   - timestamp: The timestamp string to format
-//
-// Returns:
-//   - interface{}: Formatted timestamp string
-func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
+// normalizeTimestamp simplifies ISO 8601 timestamps by removing microseconds
+// and timezone information. Converts "2024-01-01T12:34:56.789Z" to "2024-01-01 12:34:56".
+func (b *TableBuilder) normalizeTimestamp(timestamp string) string {
 	if timestamp == "" || timestamp == "-" {
-		return text.Faint.Sprint("-")
+		return "-"
 	}
 
-	// Remove microseconds and timezone for cleaner display
-	// Convert "2024-01-01T12:34:56.789Z" to "2024-01-01 12:34:56"
 	if strings.Contains(timestamp, "T") {
 		parts := strings.Split(timestamp, "T")
 		if len(parts) == 2 {
 			timePart := parts[1]
-			// Remove microseconds and timezone
 			if dotIndex := strings.Index(timePart, "."); dotIndex != -1 {
 				timePart = timePart[:dotIndex]
 			}
@@ -588,6 +703,60 @@ func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 	return timestamp
 }
 
+// formatTimestamp formats timestamp strings for better readability.
+// It simplifies ISO 8601 timestamps by removing microseconds and timezone
+// information for cleaner table display.
+//
+// Args:
+//   - timestamp: The timestamp string to format
+//
+// Returns:
+//   - interface{}: Formatted timestamp string
+func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
+	normalized := b.normalizeTimestamp(timestamp)
+	if normalized == "-" {
+		return text.Faint.Sprint("-")
+	}
+	return normalized
+}
+
+// parseDurationMs attempts to parse a duration value to milliseconds.
+// Returns the duration in ms, whether parsing succeeded, and the original string if it was a string.
+func (b *TableBuilder) parseDurationMs(value interface{}) (float64, bool, string) {
+	if value == nil {
+		return 0, false, ""
+	}
+
+	switch v := value.(type) {
+	case int:
+		return float64(v), true, ""
+	case int64:
+		return float64(v), true, ""
+	case float64:
+		return v, true, ""
+	case string:
+		var durationMs float64
+		if parsed, err := fmt.Sscanf(v, "%f", &durationMs); parsed == 1 && err == nil {
+			return durationMs, true, ""
+		}
+		return 0, false, v
+	default:
+		return 0, false, fmt.Sprintf("%v", value)
+	}
+}
+
+// normalizeDuration formats duration in milliseconds to a human-readable string.
+func (b *TableBuilder) normalizeDuration(durationMs float64) string {
+	if durationMs < 1000 {
+		return fmt.Sprintf("%.0fms", durationMs)
+	} else if durationMs < 60000 {
+		return fmt.Sprintf("%.1fs", durationMs/1000)
+	} else if durationMs < 3600000 {
+		return fmt.Sprintf("%.1fm", durationMs/60000)
+	}
+	return fmt.Sprintf("%.1fh", durationMs/3600000)
+}
+
 // formatDuration formats duration in milliseconds to a human-readable format.
 // It converts milliseconds to appropriate units (ms, s, m, h) for better
 // understanding of execution times.
@@ -598,38 +767,25 @@ func (b *TableBuilder) formatTimestamp(timestamp string) interface{} {
 // Returns:
 //   - interface{}: Formatted duration string with appropriate units
 func (b *TableBuilder) formatDuration(value interface{}) interface{} {
-	if value == nil {
-		return text.Faint.Sprint("-")
-	}
-
-	// Convert to float64 for calculation
-	var durationMs float64
-	switch v := value.(type) {
-	case int:
-		durationMs = float64(v)
-	case int64:
-		durationMs = float64(v)
-	case float64:
-		durationMs = v
-	case string:
-		// Try to parse string as number
-		if parsed, err := fmt.Sscanf(v, "%f", &durationMs); parsed != 1 || err != nil {
-			return v // Return as-is if can't parse
+	durationMs, ok, fallback := b.parseDurationMs(value)
+	if !ok {
+		if fallback == "" {
+			return text.Faint.Sprint("-")
 		}
-	default:
-		return fmt.Sprintf("%v", value)
+		return fallback
 	}
 
-	// Format based on duration
+	normalized := b.normalizeDuration(durationMs)
+
+	// Apply color based on duration
 	if durationMs < 1000 {
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprintf("%.0fms", durationMs)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(normalized)
 	} else if durationMs < 60000 {
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprintf("%.1fs", durationMs/1000)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(normalized)
 	} else if durationMs < 3600000 {
-		return text.Colors{text.FgHiMagenta, text.Bold}.Sprintf("%.1fm", durationMs/60000)
-	} else {
-		return text.Colors{text.FgHiRed, text.Bold}.Sprintf("%.1fh", durationMs/3600000)
+		return text.Colors{text.FgHiMagenta, text.Bold}.Sprint(normalized)
 	}
+	return text.Colors{text.FgHiRed, text.Bold}.Sprint(normalized)
 }
 
 // formatAutoStartStatus formats boolean autoStart status with clear visual indicators.
@@ -786,4 +942,186 @@ func (b *TableBuilder) formatEventMessage(message string) interface{} {
 		return message[:57] + text.Faint.Sprint("...")
 	}
 	return message
+}
+
+// Plain text formatting methods for kubectl-style output
+
+// formatAvailableStatusPlain returns availability status as plain text.
+func (b *TableBuilder) formatAvailableStatusPlain(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "Available"
+		}
+		return "Unavailable"
+	case string:
+		if v == "true" {
+			return "Available"
+		}
+		return "Unavailable"
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatAutoStartStatusPlain returns autoStart status as plain text.
+func (b *TableBuilder) formatAutoStartStatusPlain(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "Yes"
+		}
+		return "No"
+	case string:
+		if v == "true" {
+			return "Yes"
+		}
+		return "No"
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatStatePlain returns state as plain text.
+func (b *TableBuilder) formatStatePlain(state string) string {
+	return b.normalizeState(state)
+}
+
+// formatStateForServerTypePlain returns state with context-appropriate terminology as plain text.
+func (b *TableBuilder) formatStateForServerTypePlain(state string, serverType string) string {
+	return b.normalizeStateForServerType(state, IsRemoteServerType(serverType))
+}
+
+// formatTimestampPlain formats timestamp as plain text.
+func (b *TableBuilder) formatTimestampPlain(timestamp string) string {
+	return b.normalizeTimestamp(timestamp)
+}
+
+// formatDurationPlain formats duration as plain text.
+func (b *TableBuilder) formatDurationPlain(value interface{}) string {
+	durationMs, ok, fallback := b.parseDurationMs(value)
+	if !ok {
+		if fallback == "" {
+			return "-"
+		}
+		return fallback
+	}
+	return b.normalizeDuration(durationMs)
+}
+
+// formatMetadataPlain formats metadata as plain text.
+func (b *TableBuilder) formatMetadataPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if metaMap, ok := value.(map[string]interface{}); ok {
+		var parts []string
+		if icon, exists := metaMap["icon"]; exists && icon != nil {
+			parts = append(parts, fmt.Sprintf("%v", icon))
+		}
+		if typ, exists := metaMap["type"]; exists && typ != nil {
+			parts = append(parts, fmt.Sprintf("%v", typ))
+		}
+		if enabled, exists := metaMap["enabled"]; exists {
+			if enabledBool, ok := enabled.(bool); ok {
+				if enabledBool {
+					parts = append(parts, "enabled")
+				} else {
+					parts = append(parts, "disabled")
+				}
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
+		}
+	}
+
+	return "[metadata]"
+}
+
+// formatToolsListPlain formats tools list as plain text.
+func (b *TableBuilder) formatToolsListPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if toolsArray, ok := value.([]interface{}); ok {
+		if len(toolsArray) == 0 {
+			return "none"
+		}
+
+		var toolNames []string
+		for _, tool := range toolsArray {
+			if toolStr, ok := tool.(string); ok {
+				simplified := b.SimplifyToolName(toolStr)
+				toolNames = append(toolNames, simplified)
+			}
+		}
+
+		if len(toolNames) <= 2 {
+			return strings.Join(toolNames, ", ")
+		}
+		return fmt.Sprintf("%s, %s (+%d more)", toolNames[0], toolNames[1], len(toolNames)-2)
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+// formatDescriptionPlain formats description as plain text with truncation.
+func (b *TableBuilder) formatDescriptionPlain(desc string) string {
+	if len(desc) <= 50 {
+		return desc
+	}
+	return desc[:47] + "..."
+}
+
+// formatStepsPlain formats steps as plain text.
+func (b *TableBuilder) formatStepsPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if stepsArray, ok := value.([]interface{}); ok {
+		count := len(stepsArray)
+		if count == 0 {
+			return "No steps"
+		}
+		return fmt.Sprintf("%d steps", count)
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+// formatArrayPlain formats array as plain text.
+func (b *TableBuilder) formatArrayPlain(arr []interface{}) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+
+	if len(arr) <= 2 {
+		var items []string
+		for _, item := range arr {
+			items = append(items, fmt.Sprintf("%v", item))
+		}
+		return strings.Join(items, ", ")
+	}
+
+	return fmt.Sprintf("[%d items]", len(arr))
+}
+
+// formatObjectPlain formats object as plain text.
+func (b *TableBuilder) formatObjectPlain(obj map[string]interface{}) string {
+	if len(obj) == 0 {
+		return "{}"
+	}
+
+	displayFields := []string{"name", "type", "status", "id"}
+	for _, field := range displayFields {
+		if value, exists := obj[field]; exists && value != nil {
+			return fmt.Sprintf("%v", value)
+		}
+	}
+
+	return fmt.Sprintf("{%d fields}", len(obj))
 }

@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,12 +59,24 @@ func truncateString(s string, maxLen int) string {
 	return s
 }
 
+// pluralize returns a formatted string with count and properly pluralized word.
+// Example: pluralize(1, "tool") -> "1 tool", pluralize(5, "tool") -> "5 tools"
+func pluralize(count int, singular string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
+}
+
 // FormatMCPTools formats and displays MCP tools in the specified format.
 func FormatMCPTools(tools []MCPTool, format OutputFormat) error {
+	return FormatMCPToolsWithOptions(tools, format, false)
+}
+
+// FormatMCPToolsWithOptions formats and displays MCP tools with additional options.
+func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders bool) error {
 	if len(tools) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No tools found"))
+		fmt.Println("No tools found")
 		return nil
 	}
 
@@ -90,37 +100,33 @@ func FormatMCPTools(tools []MCPTool, format OutputFormat) error {
 		return outputYAML(items)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-	})
+	// kubectl-style plain table format
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+	tw.SetNoHeaders(noHeaders)
 
 	for _, tool := range tools {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint(tool.Name),
-			truncateString(tool.Description, 60),
-		})
+		tw.AppendRow([]string{tool.Name, truncateString(tool.Description, 60)})
 	}
 
-	t.Render()
-	fmt.Printf("\n%s %s %s %s\n",
-		text.Colors{text.FgHiMagenta, text.Bold}.Sprint("🔧"),
-		text.FgHiBlue.Sprint("Total:"),
-		text.Bold.Sprint(len(tools)),
-		text.FgHiBlue.Sprint("tools"))
+	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%s\n", pluralize(len(tools), "tool"))
+	}
 	return nil
 }
 
 // FormatMCPResources formats and displays MCP resources in the specified format.
 func FormatMCPResources(resources []MCPResource, format OutputFormat) error {
+	return FormatMCPResourcesWithOptions(resources, format, false)
+}
+
+// FormatMCPResourcesWithOptions formats and displays MCP resources with additional options.
+func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat, noHeaders bool) error {
 	if len(resources) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No resources found"))
+		fmt.Println("No resources found")
 		return nil
 	}
 
@@ -146,45 +152,43 @@ func FormatMCPResources(resources []MCPResource, format OutputFormat) error {
 		return outputYAML(items)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("URI"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("MIME TYPE"),
-	})
+	// kubectl-style plain table format
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"URI", "DESCRIPTION", "MIME TYPE"})
+	tw.SetNoHeaders(noHeaders)
 
 	for _, resource := range resources {
+		// Use description if available, otherwise use name (some MCP resources
+		// store description in the name field)
 		desc := resource.Description
 		if desc == "" {
 			desc = resource.Name
 		}
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiCyan, text.Bold}.Sprint(truncateString(resource.URI, 40)),
-			resource.Name,
-			truncateString(desc, 40),
+		tw.AppendRow([]string{
+			resource.URI,
+			truncateString(desc, 60),
 			resource.MIMEType,
 		})
 	}
 
-	t.Render()
-	fmt.Printf("\n%s %s %s %s\n",
-		text.Colors{text.FgHiCyan, text.Bold}.Sprint("📦"),
-		text.FgHiBlue.Sprint("Total:"),
-		text.Bold.Sprint(len(resources)),
-		text.FgHiBlue.Sprint("resources"))
+	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%s\n", pluralize(len(resources), "resource"))
+	}
 	return nil
 }
 
 // FormatMCPPrompts formats and displays MCP prompts in the specified format.
 func FormatMCPPrompts(prompts []MCPPrompt, format OutputFormat) error {
+	return FormatMCPPromptsWithOptions(prompts, format, false)
+}
+
+// FormatMCPPromptsWithOptions formats and displays MCP prompts with additional options.
+func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHeaders bool) error {
 	if len(prompts) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No prompts found"))
+		fmt.Println("No prompts found")
 		return nil
 	}
 
@@ -208,28 +212,21 @@ func FormatMCPPrompts(prompts []MCPPrompt, format OutputFormat) error {
 		return outputYAML(items)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-	})
+	// kubectl-style plain table format
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+	tw.SetNoHeaders(noHeaders)
 
 	for _, prompt := range prompts {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint(prompt.Name),
-			truncateString(prompt.Description, 60),
-		})
+		tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, 60)})
 	}
 
-	t.Render()
-	fmt.Printf("\n%s %s %s %s\n",
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("📝"),
-		text.FgHiBlue.Sprint("Total:"),
-		text.Bold.Sprint(len(prompts)),
-		text.FgHiBlue.Sprint("prompts"))
+	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%s\n", pluralize(len(prompts), "prompt"))
+	}
 	return nil
 }
 

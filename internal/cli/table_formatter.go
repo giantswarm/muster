@@ -5,9 +5,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
 )
 
 // TableFormatter handles table creation and optimization for muster CLI output.
@@ -74,7 +71,12 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 	// Check for common wrapper patterns like {"services": [...], "total": N}
 	arrayKey := f.findArrayKey(data)
 	if arrayKey != "" {
-		if arr, ok := data[arrayKey].([]interface{}); ok {
+		value := data[arrayKey]
+		// Handle nil as empty array
+		if value == nil {
+			return f.formatEmptyList(arrayKey)
+		}
+		if arr, ok := value.([]interface{}); ok {
 			// Just format the array - the summary will be handled by formatTableFromArray
 			return f.formatTableFromArray(arr)
 		}
@@ -87,6 +89,7 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 // findArrayKey looks for common array keys in wrapped objects.
 // Many muster API responses wrap arrays in objects with predictable key names.
 // This function identifies those patterns to extract the relevant data.
+// It also handles nil/null values which represent empty arrays.
 //
 // Args:
 //   - data: Object data to search for array keys
@@ -98,7 +101,12 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 
 	for _, key := range arrayKeys {
 		if value, exists := data[key]; exists {
+			// Handle both actual arrays and nil values (which represent empty arrays)
 			if _, isArray := value.([]interface{}); isArray {
+				return key
+			}
+			// Treat nil as an empty array
+			if value == nil {
 				return key
 			}
 		}
@@ -106,10 +114,9 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 	return ""
 }
 
-// formatTableFromArray creates a professional table from an array of objects.
-// It automatically optimizes column selection, applies consistent formatting,
-// sorts data for better readability, and adds summary information with
-// appropriate icons and styling.
+// formatTableFromArray creates a kubectl-style plain table from an array of objects.
+// It automatically optimizes column selection, sorts data for better readability,
+// and uses clean columnar output without box-drawing characters.
 //
 // Args:
 //   - data: Array of objects to display as a table
@@ -118,9 +125,7 @@ func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
 //   - error: Formatting error, if any
 func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	if len(data) == 0 {
-		fmt.Printf("%s %s\n",
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("📋"),
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("No items found"))
+		fmt.Println("No items found")
 		return nil
 	}
 
@@ -135,46 +140,29 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	columns := f.optimizeColumns(data)
 	resourceType := f.detectResourceType(firstObj)
 
-	// Create professional table
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
+	// Create kubectl-style plain table
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders(columns)
+	tw.SetNoHeaders(f.options.NoHeaders)
 
-	// Set headers with colors and icons
-	headers := make([]interface{}, len(columns))
-	for i, col := range columns {
-		headers[i] = text.Colors{text.FgHiBlue, text.Bold}.Sprint(strings.ToUpper(col))
-	}
-	t.AppendHeader(headers)
-
-	// Add rows with enhanced formatting - sort by name field if present
+	// Add rows with formatting - sort by name field if present
 	sortedData := f.builder.SortDataByName(data, columns)
 	for _, item := range sortedData {
 		if itemMap, ok := item.(map[string]interface{}); ok {
-			row := make([]interface{}, len(columns))
+			row := make([]string, len(columns))
 			for i, col := range columns {
-				// Use context-aware formatting for MCP servers
+				// Use context-aware formatting for MCP servers (plain text version)
 				if resourceType == "mcpServers" || resourceType == "mcpServer" {
-					row[i] = f.builder.FormatCellValueWithContext(col, itemMap[col], itemMap)
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], itemMap)
 				} else {
-					row[i] = f.builder.FormatCellValue(col, itemMap[col])
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], nil)
 				}
 			}
-			t.AppendRow(row)
+			tw.AppendRow(row)
 		}
 	}
 
-	t.Render()
-
-	// Add summary line with icon based on resource type
-	icon := f.builder.GetResourceIcon(resourceType)
-	resourceName := f.builder.Pluralize(resourceType)
-	fmt.Printf("\n%s %s %s %s\n",
-		icon,
-		text.FgHiBlue.Sprint("Total:"),
-		text.Bold.Sprint(len(data)),
-		text.FgHiBlue.Sprint(resourceName))
-
+	tw.Render()
 	return nil
 }
 
@@ -190,16 +178,20 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 // Returns:
 //   - []string: Optimized list of column names for table display
 func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
-	// Extract all available keys
-	var allKeys []string
+	// Extract all available keys (deduplicated)
+	keySet := make(map[string]bool)
 	for _, obj := range objects {
 		castObj, ok := obj.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		for key := range castObj {
-			allKeys = append(allKeys, key)
+			keySet[key] = true
 		}
+	}
+	var allKeys []string
+	for key := range keySet {
+		allKeys = append(allKeys, key)
 	}
 	sort.Strings(allKeys)
 
@@ -219,11 +211,16 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 
 	// Define priority columns for different resource types (excluding name fields already added)
 	priorityColumns := map[string][]string{
-		"services":       {"health", "state", "service_type", "metadata"},
+		"service":        {"health", "state", "service_type"},
+		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"type", "description", "autoStart"},
+		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
+		"mcpServers":     {"type", "autoStart"},
+		"mcpServer":      {"type", "autoStart"},
 		"workflows":      {"status", "description", "steps"},
+		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
+		"execution":      {"workflow_name", "status", "started_at", "duration_ms"},
 		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
 		"mcpTool":        {"description"},
 		"mcpResource":    {"uri", "description", "mimeType"},
@@ -245,10 +242,12 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	// For complex resource types, limit columns to prevent wrapping
 	var maxColumns int
 	switch resourceType {
-	case "serviceClasses":
+	case "service", "services":
+		maxColumns = 4 // name, health, state, service_type
+	case "serviceClasses", "serviceClass":
 		maxColumns = 5 // More conservative for wider data
-	case "mcpServers":
-		maxColumns = 4 // Exactly the columns we want: name, type, description, autoStart
+	case "mcpServers", "mcpServer":
+		maxColumns = 4 // name, type, autoStart
 	case "event":
 		maxColumns = 6 // Allow more columns for events
 	default:
@@ -259,10 +258,19 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	if len(columns) < maxColumns {
 		remaining := f.getRemainingKeys(allKeys, columns)
 
-		// Filter out unwanted columns for MCP servers
-		if resourceType == "mcpServers" {
-			filteredRemaining := []string{}
-			unwantedColumns := []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error"}
+		// Filter out unwanted columns based on resource type
+		filteredRemaining := []string{}
+		var unwantedColumns []string
+
+		switch resourceType {
+		case "mcpServers", "mcpServer":
+			unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
+		case "service", "services":
+			// metadata contains nested data that doesn't display well in a list view
+			unwantedColumns = []string{"metadata"}
+		}
+
+		if len(unwantedColumns) > 0 {
 			for _, key := range remaining {
 				isUnwanted := false
 				for _, unwanted := range unwantedColumns {
@@ -364,13 +372,10 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 		serverType = f.getServerType(data)
 	}
 
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
+	// Create kubectl-style plain table
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"PROPERTY", "VALUE"})
+	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Sort keys for consistent output
 	var keys []string
@@ -381,11 +386,11 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 
 	for _, key := range keys {
 		// Apply contextual formatting for MCP servers
-		var value interface{}
+		var value string
 		displayKey := key
 
 		if isMCPServer {
-			value = f.builder.FormatCellValueWithContext(key, data[key], data)
+			value = f.builder.FormatCellValuePlain(key, data[key], data)
 
 			// Use contextual property names for remote servers
 			if IsRemoteServerType(serverType) {
@@ -395,16 +400,13 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 				}
 			}
 		} else {
-			value = f.builder.FormatCellValue(key, data[key])
+			value = f.builder.FormatCellValuePlain(key, data[key], nil)
 		}
 
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint(displayKey),
-			value,
-		})
+		tw.AppendRow([]string{displayKey, value})
 	}
 
-	t.Render()
+	tw.Render()
 	return nil
 }
 
@@ -484,27 +486,20 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 		workflowData = data
 	}
 
-	// Create main info table
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
+	// Create kubectl-style plain table for main info
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"PROPERTY", "VALUE"})
+	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Display basic workflow information
 	basicFields := []string{"Name", "name", "Description", "description", "Version", "version"}
 	for _, field := range basicFields {
 		if value, exists := workflowData[field]; exists && value != nil {
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiYellow, text.Bold}.Sprint(strings.ToLower(field)),
-				text.Bold.Sprint(fmt.Sprintf("%v", value)),
-			})
+			tw.AppendRow([]string{strings.ToLower(field), fmt.Sprintf("%v", value)})
 		}
 	}
 
-	t.Render()
+	tw.Render()
 
 	// Display Input Args if they exist
 	f.displayWorkflowInputs(workflowData)
@@ -518,68 +513,37 @@ func (f *TableFormatter) formatWorkflowDetails(data map[string]interface{}) erro
 // formatWorkflowExecutionResult formats workflow execution results in a user-friendly way
 func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface{}) error {
 	// Main execution info
-	fmt.Printf("%s %s\n",
-		text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅"),
-		text.FgHiGreen.Sprint("Workflow Execution Completed"))
+	fmt.Println("Workflow Execution Completed")
 	fmt.Println()
 
-	// Create execution summary table
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
+	// Create kubectl-style plain table for execution summary
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"PROPERTY", "VALUE"})
+	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Add execution details
 	if executionID, exists := data["execution_id"]; exists {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("execution_id"),
-			text.Bold.Sprint(fmt.Sprintf("%v", executionID)),
-		})
+		tw.AppendRow([]string{"execution_id", fmt.Sprintf("%v", executionID)})
 	}
 
 	if workflow, exists := data["workflow"]; exists {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("workflow"),
-			text.Bold.Sprint(fmt.Sprintf("%v", workflow)),
-		})
+		tw.AppendRow([]string{"workflow", fmt.Sprintf("%v", workflow)})
 	}
 
 	if status, exists := data["status"]; exists {
-		statusStr := fmt.Sprintf("%v", status)
-		var statusDisplay string
-		switch strings.ToLower(statusStr) {
-		case "completed":
-			statusDisplay = text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + statusStr)
-		case "failed":
-			statusDisplay = text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + statusStr)
-		case "running":
-			statusDisplay = text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + statusStr)
-		default:
-			statusDisplay = text.Bold.Sprint(statusStr)
-		}
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("status"),
-			statusDisplay,
-		})
+		tw.AppendRow([]string{"status", fmt.Sprintf("%v", status)})
 	}
 
-	t.Render()
+	tw.Render()
 
 	// Show input parameters if they exist
 	if input, exists := data["input"]; exists {
 		if inputMap, ok := input.(map[string]interface{}); ok && len(inputMap) > 0 {
-			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Parameters:"))
+			fmt.Println("\nInput Parameters:")
 
-			inputTable := table.NewWriter()
-			inputTable.SetOutputMirror(os.Stdout)
-			inputTable.SetStyle(table.StyleRounded)
-			inputTable.AppendHeader(table.Row{
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("PARAMETER"),
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-			})
+			inputTw := NewPlainTableWriter(os.Stdout)
+			inputTw.SetHeaders([]string{"PARAMETER", "VALUE"})
+			inputTw.SetNoHeaders(f.options.NoHeaders)
 
 			// Sort parameters for consistent display
 			var paramNames []string
@@ -590,29 +554,21 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 
 			for _, paramName := range paramNames {
 				value := inputMap[paramName]
-				inputTable.AppendRow(table.Row{
-					text.Colors{text.FgHiYellow, text.Bold}.Sprint(paramName),
-					text.Bold.Sprint(fmt.Sprintf("%v", value)),
-				})
+				inputTw.AppendRow([]string{paramName, fmt.Sprintf("%v", value)})
 			}
 
-			inputTable.Render()
+			inputTw.Render()
 		}
 	}
 
 	// Show step results if they exist
 	if results, exists := data["results"]; exists {
 		if resultsMap, ok := results.(map[string]interface{}); ok && len(resultsMap) > 0 {
-			fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔄 Step Results:"))
+			fmt.Println("\nStep Results:")
 
-			stepTable := table.NewWriter()
-			stepTable.SetOutputMirror(os.Stdout)
-			stepTable.SetStyle(table.StyleRounded)
-			stepTable.AppendHeader(table.Row{
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("STEP"),
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("STATUS"),
-				text.Colors{text.FgHiBlue, text.Bold}.Sprint("DETAILS"),
-			})
+			stepTw := NewPlainTableWriter(os.Stdout)
+			stepTw.SetHeaders([]string{"STEP", "STATUS", "DETAILS"})
+			stepTw.SetNoHeaders(f.options.NoHeaders)
 
 			// Sort step names for consistent display
 			var stepNames []string
@@ -647,28 +603,11 @@ func (f *TableFormatter) formatWorkflowExecutionResult(data map[string]interface
 						}
 					}
 
-					// Format status with color
-					var statusDisplay string
-					switch strings.ToLower(status) {
-					case "completed":
-						statusDisplay = text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + status)
-					case "failed":
-						statusDisplay = text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + status)
-					case "skipped":
-						statusDisplay = text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏭️ " + status)
-					default:
-						statusDisplay = text.Bold.Sprint(status)
-					}
-
-					stepTable.AppendRow(table.Row{
-						text.Bold.Sprint(stepName),
-						statusDisplay,
-						text.Colors{text.FgHiCyan, text.Bold}.Sprint(details),
-					})
+					stepTw.AppendRow([]string{stepName, status, details})
 				}
 			}
 
-			stepTable.Render()
+			stepTw.Render()
 		}
 	}
 
@@ -719,17 +658,11 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		return
 	}
 
-	fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Args:"))
+	fmt.Println("\nInput Args:")
 
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("ARGUMENT"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("TYPE"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("REQUIRED"),
-	})
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"ARGUMENT", "TYPE", "DESCRIPTION", "REQUIRED"})
+	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Sort arg names
 	var paramNames []string
@@ -761,25 +694,19 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		isRequired := "No"
 		if req, exists := paramDef["required"]; exists {
 			if reqBool, ok := req.(bool); ok && reqBool {
-				isRequired = text.Colors{text.FgHiYellow, text.Bold}.Sprint("Yes")
+				isRequired = "Yes"
 			}
 		}
 
 		// Show default value if available
-		defaultValue := ""
 		if def, exists := paramDef["default"]; exists && def != nil {
-			defaultValue = fmt.Sprintf(" (default: %v)", def)
+			description = description + fmt.Sprintf(" (default: %v)", def)
 		}
 
-		t.AppendRow(table.Row{
-			text.Bold.Sprint(paramName),
-			text.Colors{text.FgHiCyan, text.Bold}.Sprint(paramType),
-			description + defaultValue,
-			isRequired,
-		})
+		tw.AppendRow([]string{paramName, paramType, description, isRequired})
 	}
 
-	t.Render()
+	tw.Render()
 }
 
 // displayWorkflowSteps shows the workflow steps in a readable format.
@@ -805,16 +732,11 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 		return
 	}
 
-	fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("🔄 Workflow Steps:"))
+	fmt.Println("\nWorkflow Steps:")
 
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("STEP"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("TOOL"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-	})
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders([]string{"STEP", "TOOL", "DESCRIPTION"})
+	tw.SetNoHeaders(f.options.NoHeaders)
 
 	for i, step := range steps {
 		if stepMap, ok := step.(map[string]interface{}); ok {
@@ -855,15 +777,11 @@ func (f *TableFormatter) displayWorkflowSteps(workflowData map[string]interface{
 				description = description[:47] + "..."
 			}
 
-			t.AppendRow(table.Row{
-				text.Colors{text.FgHiYellow, text.Bold}.Sprint(stepNum),
-				text.Colors{text.FgHiCyan, text.Bold}.Sprint(tool),
-				description,
-			})
+			tw.AppendRow([]string{stepNum, tool, description})
 		}
 	}
 
-	t.Render()
+	tw.Render()
 }
 
 // formatSimpleList formats an array of simple values.
@@ -880,6 +798,45 @@ func (f *TableFormatter) formatSimpleList(data []interface{}) error {
 		fmt.Println(item)
 	}
 	return nil
+}
+
+// formatEmptyList displays a message for empty resource lists.
+// This provides a kubectl-style "No X found" message instead of
+// showing a property/value table with metadata.
+//
+// Args:
+//   - resourceKey: The array key name (e.g., "workflows", "services")
+//
+// Returns:
+//   - error: Always nil, just prints the message
+func (f *TableFormatter) formatEmptyList(resourceKey string) error {
+	// Convert key to readable name (e.g., "serviceClasses" -> "service classes")
+	readable := f.keyToReadableName(resourceKey)
+	fmt.Printf("No %s found\n", readable)
+	return nil
+}
+
+// keyToReadableName converts a camelCase or singular key to a readable plural name.
+func (f *TableFormatter) keyToReadableName(key string) string {
+	// Common mappings for resource keys
+	mappings := map[string]string{
+		"services":       "services",
+		"serviceClasses": "service classes",
+		"mcpServers":     "MCP servers",
+		"workflows":      "workflows",
+		"executions":     "executions",
+		"capabilities":   "capabilities",
+		"items":          "items",
+		"results":        "results",
+		"tools":          "tools",
+		"resources":      "resources",
+		"prompts":        "prompts",
+	}
+
+	if readable, exists := mappings[key]; exists {
+		return readable
+	}
+	return key
 }
 
 // Helper methods
