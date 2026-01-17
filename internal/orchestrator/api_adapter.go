@@ -22,8 +22,8 @@ func formatOAuthAuthenticationError(name string, err error) *api.CallToolResult 
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
 				"Service '%s' requires OAuth authentication.\n\n"+
-					"To connect to this server, use the authenticate tool:\n"+
-					"  x_%s_authenticate\n\n"+
+					"To connect to this server, use the core_auth_login tool:\n"+
+					"  core_auth_login(server=\"%s\")\n\n"+
 					"The service start/restart command cannot be used for OAuth-protected servers "+
 					"because authentication is session-scoped.",
 				name, name,

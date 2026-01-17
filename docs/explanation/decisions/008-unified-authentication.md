@@ -15,6 +15,7 @@ This is fragile because:
 2. **Pattern Matching**: Relies on naming conventions that could break
 3. **No SSO Intelligence**: Can't detect that two servers use the same IdP
 4. **Requires Explicit Query**: AI must know to look for auth tools
+5. **Pollutes Server Namespace**: Synthetic auth tools are injected into each server's tool list
 
 ### Current Flow (Fragile)
 
@@ -22,7 +23,7 @@ This is fragile because:
 1. AI calls list_tools
 2. Agent scans tool names for "_authenticate" suffix
 3. Agent infers: "server_X needs auth" (loses issuer info)
-4. AI must call authenticate_server_X without knowing if SSO is possible
+4. AI must call x_server_X_authenticate without knowing if SSO is possible
 ```
 
 ### Desired Flow (Proactive)
@@ -33,11 +34,22 @@ This is fragile because:
    - server_X: needs auth, issuer=https://dex.example.com
    - server_Y: needs auth, issuer=https://dex.example.com (same issuer = SSO!)
 3. AI sees this in EVERY response and can act on it proactively
+4. AI calls core_auth_login with server parameter to authenticate
 ```
 
 ## Decision
 
-Use the MCP `_meta` field to proactively communicate authentication status in every tool response. The agent polls `auth://status` from the server and includes the result in all responses.
+### Core Principle
+
+**Authentication is a muster platform concern, not an MCP server concern.**
+
+MCP servers should expose their actual tools unchanged. Muster handles authentication orchestration through:
+- The `auth://status` **resource** for status (data/context)
+- Core **tools** for actions (`core_auth_login`, `core_auth_logout`)
+
+This follows MCP philosophy:
+- **Resources** are application-driven - the Muster Agent reads `auth://status` and decides how to present it to the model
+- **Tools** are model-controlled - the AI can invoke `core_auth_login` when it decides authentication is needed
 
 ### MCP _meta Specification
 
@@ -54,34 +66,54 @@ This follows the MCP key naming rules:
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   AI (Claude/GPT)                                                   │
-│        │                                                            │
-│        │ calls any tool                                             │
-│        ▼                                                            │
-│   ┌─────────────┐         ┌─────────────────────────────────────┐   │
-│   │ Muster Agent│────────►│ Muster Server                       │   │
-│   │             │  polls  │                                     │   │
-│   │  Caches     │ auth:// │  ┌─────────────────────────┐        │   │
-│   │  auth state │ status  │  │ auth://status resource  │        │   │
-│   │             │ (30s)   │  └─────────────────────────┘        │   │
-│   │             │         │                                     │   │
-│   │  Adds _meta │         │                                     │   │
-│   │  to EVERY   │         │                                     │   │
-│   │  response   │         │                                     │   │
-│   └─────────────┘         └─────────────────────────────────────┘   │
-│        │                                                            │
-│        │ response includes _meta["giantswarm.io/auth_required"]     │
-│        ▼                                                            │
-│   AI sees auth hints in EVERY tool response                         │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│   User → LLM (Cursor) → MCP Client (IDE)                                │
+│                              │                                          │
+│                              │ calls tools                              │
+│                              ▼                                          │
+│   ┌───────────────────────────────────────────────────────────────┐     │
+│   │ Muster Agent (MCP Server to IDE)                              │     │
+│   │                                                               │     │
+│   │  - Exposes core tools to IDE                                  │     │
+│   │  - Polls auth://status from aggregator                        │     │
+│   │  - Adds _meta to every response                               │     │
+│   │                                                               │     │
+│   └───────────────────────────────────────────────────────────────┘     │
+│                              │                                          │
+│                              │ MCP Client connection                    │
+│                              ▼                                          │
+│   ┌───────────────────────────────────────────────────────────────┐     │
+│   │ Muster Aggregator (MCP Server)                                │     │
+│   │                                                               │     │
+│   │  Resources:                                                   │     │
+│   │    auth://status    → Auth state for all servers              │     │
+│   │                                                               │     │
+│   │  Core Tools:                                                  │     │
+│   │    core_auth_login  → Initiate OAuth for a server             │     │
+│   │    core_auth_logout → Clear session for a server              │     │
+│   │                                                               │     │
+│   └───────────────────────────────────────────────────────────────┘     │
+│                              │                                          │
+│              ┌───────────────┼───────────────┐                          │
+│              ▼               ▼               ▼                          │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│   │ gitlab       │  │ jira         │  │ github       │                  │
+│   │ (OAuth)      │  │ (OAuth)      │  │ (no auth)    │                  │
+│   │              │  │              │  │              │                  │
+│   │ Tools:       │  │ Tools:       │  │ Tools:       │                  │
+│   │ - create_mr  │  │ - create_tkt │  │ - create_pr  │                  │
+│   │ - list_repos │  │ - search     │  │ - list_repos │                  │
+│   │ (pure, no    │  │ (pure, no    │  │              │                  │
+│   │  synthetic)  │  │  synthetic)  │  │              │                  │
+│   └──────────────┘  └──────────────┘  └──────────────┘                  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1. Auth Status Resource (Server)
+### 1. Auth Status Resource (Aggregator)
 
-The server exposes `auth://status` as an MCP resource (~50 lines).
+The aggregator exposes `auth://status` as an MCP resource.
 
 ```go
 // internal/aggregator/auth_resource.go
@@ -93,47 +125,43 @@ type AuthStatusResponse struct {
 }
 
 type ServerAuthStatus struct {
-    Name     string `json:"name"`
-    Status   string `json:"status"` // "connected", "auth_required", "error"
-    Issuer   string `json:"issuer,omitempty"`
-    Scope    string `json:"scope,omitempty"`
-    AuthTool string `json:"auth_tool,omitempty"`
-    Error    string `json:"error,omitempty"`
-}
-
-func (a *AggregatorServer) registerAuthStatusResource() {
-    a.mcpServer.AddResource(mcp.NewResource(
-        AuthStatusResourceURI,
-        "Authentication status for all MCP servers",
-        "application/json",
-    ), a.handleAuthStatusResource)
-}
-
-func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, req mcp.ReadResourceRequest) (string, error) {
-    servers := a.registry.GetAllServers()
-    response := AuthStatusResponse{Servers: make([]ServerAuthStatus, 0)}
-    
-    for name, info := range servers {
-        status := ServerAuthStatus{
-            Name:   name,
-            Status: string(info.Status),
-        }
-        if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-            status.Issuer = info.AuthInfo.Issuer
-            status.Scope = info.AuthInfo.Scope
-            status.AuthTool = "authenticate_" + name
-        }
-        response.Servers = append(response.Servers, status)
-    }
-    
-    data, _ := json.Marshal(response)
-    return string(data), nil
+    Name   string `json:"name"`
+    Status string `json:"status"` // "connected", "auth_required", "disconnected"
+    Issuer string `json:"issuer,omitempty"`
+    Scope  string `json:"scope,omitempty"`
+    Error  string `json:"error,omitempty"`
 }
 ```
 
-### 2. Auth Status Polling and Caching (Agent)
+### 2. Core Auth Tools (Aggregator)
 
-The agent polls `auth://status` periodically and caches the result (~40 lines).
+The aggregator exposes core tools for authentication actions.
+
+| Tool | Description | Input Schema |
+|------|-------------|--------------|
+| `core_auth_login` | Initiate OAuth login flow for a specific MCP server | `{ "server": string }` |
+| `core_auth_logout` | Clear authentication session for a specific MCP server | `{ "server": string }` |
+
+```go
+// internal/api/core_auth.go
+
+// core_auth_login initiates OAuth for the specified server
+// Returns the OAuth URL for the user to open in their browser
+func handleCoreAuthLogin(ctx context.Context, server string) (*mcp.CallToolResult, error) {
+    // Trigger OAuth flow for the server
+    // Return URL for user to complete authentication
+}
+
+// core_auth_logout clears the session for the specified server
+func handleCoreAuthLogout(ctx context.Context, server string) (*mcp.CallToolResult, error) {
+    // Clear session tokens for the server
+    // Server tools will be hidden until re-authentication
+}
+```
+
+### 3. Auth Status Polling and Caching (Agent)
+
+The agent polls `auth://status` periodically and caches the result.
 
 ```go
 // internal/agent/auth_poller.go
@@ -141,26 +169,9 @@ The agent polls `auth://status` periodically and caches the result (~40 lines).
 const AuthPollInterval = 30 * time.Second
 
 type AuthRequiredInfo struct {
-    Server   string `json:"server"`
-    Issuer   string `json:"issuer"`
-    Scope    string `json:"scope,omitempty"`
-    AuthTool string `json:"auth_tool"`
-}
-
-func (s *MCPServer) startAuthPoller(ctx context.Context) {
-    ticker := time.NewTicker(AuthPollInterval)
-    defer ticker.Stop()
-    
-    s.pollAuthStatus(ctx) // Initial poll
-    
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            s.pollAuthStatus(ctx)
-        }
-    }
+    Server string `json:"server"`
+    Issuer string `json:"issuer"`
+    Scope  string `json:"scope,omitempty"`
 }
 
 func (s *MCPServer) pollAuthStatus(ctx context.Context) {
@@ -178,10 +189,9 @@ func (s *MCPServer) pollAuthStatus(ctx context.Context) {
     for _, srv := range status.Servers {
         if srv.Status == "auth_required" {
             authRequired = append(authRequired, AuthRequiredInfo{
-                Server:   srv.Name,
-                Issuer:   srv.Issuer,
-                Scope:    srv.Scope,
-                AuthTool: srv.AuthTool,
+                Server: srv.Name,
+                Issuer: srv.Issuer,
+                Scope:  srv.Scope,
             })
         }
     }
@@ -192,11 +202,11 @@ func (s *MCPServer) pollAuthStatus(ctx context.Context) {
 }
 ```
 
-### 3. Adding Auth Notification to Tool Responses (Agent)
+### 4. Adding Auth Notification to Tool Responses (Agent)
 
 Every tool response includes:
 1. **Human-readable notification** in content (tells AI what to do)
-2. **Structured data** in `_meta` (for future automation)
+2. **Structured data** in `_meta` (for programmatic use)
 
 ```go
 // internal/agent/server_mcp_handlers.go
@@ -210,14 +220,14 @@ func (s *MCPServer) wrapToolResult(result *mcp.CallToolResult) *mcp.CallToolResu
         return result
     }
     
-    // Add human-readable notification that tells the AI what to do
+    // Add human-readable notification
     notification := s.buildAuthNotification(authRequired)
     result.Content = append(result.Content, mcp.TextContent{
         Type: "text",
         Text: notification,
     })
     
-    // Add structured data in _meta for programmatic use
+    // Add structured data in _meta
     if result.Meta == nil {
         result.Meta = make(map[string]interface{})
     }
@@ -231,17 +241,17 @@ func (s *MCPServer) buildAuthNotification(authRequired []AuthRequiredInfo) strin
     sb.WriteString("\n---\n")
     sb.WriteString("Authentication Required:\n")
     
+    for _, auth := range authRequired {
+        sb.WriteString(fmt.Sprintf("- %s: use core_auth_login tool with server='%s'\n", 
+            auth.Server, auth.Server))
+    }
+    
     // Group by issuer for SSO hints
     issuerServers := make(map[string][]string)
     for _, auth := range authRequired {
         issuerServers[auth.Issuer] = append(issuerServers[auth.Issuer], auth.Server)
     }
     
-    for _, auth := range authRequired {
-        sb.WriteString(fmt.Sprintf("- %s: call '%s' to sign in\n", auth.Server, auth.AuthTool))
-    }
-    
-    // Add SSO hints
     for issuer, servers := range issuerServers {
         if len(servers) > 1 {
             sb.WriteString(fmt.Sprintf("\nNote: %s use the same identity provider (%s). ",
@@ -253,6 +263,16 @@ func (s *MCPServer) buildAuthNotification(authRequired []AuthRequiredInfo) strin
     return sb.String()
 }
 ```
+
+### 5. Tool Visibility
+
+| Server State | What's Visible |
+|--------------|----------------|
+| `auth_required` (session not authenticated) | No tools from that server |
+| `connected` (session authenticated) | All actual tools from that server, unchanged |
+| Core tools | Always visible (`core_auth_*`, `core_mcpserver_*`, etc.) |
+
+No synthetic `x_<server>_authenticate` tools are injected. Server tool lists remain pure.
 
 ### Example Tool Response
 
@@ -267,20 +287,18 @@ When the AI calls any tool, the response includes clear instructions:
     },
     {
       "type": "text",
-      "text": "\n---\nAuthentication Required:\n- gitlab: call 'authenticate_gitlab' to sign in\n- jira: call 'authenticate_jira' to sign in\n\nNote: gitlab and jira use the same identity provider (dex.example.com). Signing in to one will authenticate all of them.\n"
+      "text": "\n---\nAuthentication Required:\n- gitlab: use core_auth_login tool with server='gitlab'\n- jira: use core_auth_login tool with server='jira'\n\nNote: gitlab and jira use the same identity provider (dex.example.com). Signing in to one will authenticate all of them.\n"
     }
   ],
   "_meta": {
     "giantswarm.io/auth_required": [
       {
         "server": "gitlab",
-        "issuer": "https://dex.example.com",
-        "auth_tool": "authenticate_gitlab"
+        "issuer": "https://dex.example.com"
       },
       {
         "server": "jira", 
-        "issuer": "https://dex.example.com",
-        "auth_tool": "authenticate_jira"
+        "issuer": "https://dex.example.com"
       }
     ]
   }
@@ -292,40 +310,52 @@ When the AI calls any tool, the response includes clear instructions:
 The AI reads the human-readable notification and understands:
 
 1. **What needs auth**: "gitlab and jira require authentication"
-2. **How to authenticate**: "call 'authenticate_gitlab' or 'authenticate_jira'"
+2. **How to authenticate**: "use core_auth_login tool with server parameter"
 3. **SSO opportunity**: "same identity provider, sign in once for both"
 
 **Typical AI response to user:**
 > "I notice that gitlab and jira require authentication before I can use their tools. Good news: they use the same identity provider, so you only need to sign in once. Would you like me to start the authentication process?"
 
-When the user agrees, the AI calls `authenticate_gitlab`, which returns an OAuth URL for the user to open.
+When the user agrees, the AI invokes the tool:
+
+```json
+{
+  "name": "core_auth_login",
+  "arguments": { "server": "gitlab" }
+}
+```
+
+The tool returns an OAuth URL for the user to open in their browser.
 
 ## What This ADR Does NOT Include
 
 Previous iterations proposed complexity that is not needed:
 
-- **Shared pkg/oauth package**: Code deduplication is a separate concern, not required for this feature
-- **submit_auth_token tool**: Not needed; existing `authenticate_X` tools work fine
+- **Synthetic per-server authenticate tools**: Replaced by `core_auth_login`
+- **Shared pkg/oauth package**: Code deduplication is a separate concern
 - **Issuer-keyed agent token storage**: Nice-to-have but not required for explicit auth state
 - **Agent-initiated SSO**: The AI can orchestrate SSO based on the issuer info
 
-**Estimated implementation: ~110 lines of code**
-
 ## Implementation Steps
 
-1. Add `auth://status` resource to `internal/aggregator/server.go`
-2. Add auth poller to agent in `internal/agent/auth_poller.go`
-3. Wrap all tool handlers to add `_meta` in `internal/agent/server_mcp_handlers.go`
-4. Ensure `ServerInfo.AuthInfo` contains issuer from 401 WWW-Authenticate header
+1. Add `core_auth_login` tool to `internal/api/`
+2. Add `core_auth_logout` tool to `internal/api/`
+3. Remove synthetic `x_<server>_authenticate` tool injection
+4. Remove `IsSyntheticAuthTool()` and related logic
+5. Update `_meta` notifications to reference `core_auth_login`
+6. Ensure tool visibility hides unauthenticated server tools (no synthetic replacement)
 
 ## Consequences
 
 ### Positive
 
-- **Proactive Notification**: AI gets auth info in every response without asking
+- **Clean Separation**: MCP servers expose only their actual capabilities
+- **Stable Interface**: `core_auth_*` tools are always available, predictable
+- **Discoverable**: Auth is in the `core_*` namespace where users expect muster functionality
+- **Logout Support**: Natural place for session management via `core_auth_logout`
+- **Consistent Patterns**: Matches `core_mcpserver_*`, `core_config_*`
+- **Simpler Implementation**: No synthetic tool injection/hiding logic
 - **SSO Awareness**: AI can see which servers share an issuer and suggest SSO
-- **Minimal Change**: ~110 lines of code, no architectural changes
-- **Backwards Compatible**: Existing `authenticate_X` tools still work
 - **MCP Compliant**: Uses standard `_meta` field per specification
 
 ### Negative
@@ -338,7 +368,6 @@ Previous iterations proposed complexity that is not needed:
 If needed later:
 - Agent-side issuer-keyed token storage for automatic SSO
 - Server-side SSE notifications when auth state changes (avoid polling)
-- `get_auth_status` tool for explicit queries
 
 ## Related Decisions
 

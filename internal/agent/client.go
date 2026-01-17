@@ -1267,6 +1267,81 @@ func (c *Client) GetPromptByName(name string) *mcp.Prompt {
 	return nil
 }
 
+// authStatusResponse mirrors the auth://status resource structure for parsing.
+type authStatusResponse struct {
+	Servers []authServerStatus `json:"servers"`
+}
+
+type authServerStatus struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Issuer   string `json:"issuer,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	AuthTool string `json:"auth_tool,omitempty"`
+}
+
+// AuthRequiredInfo contains information about a server requiring authentication.
+type AuthRequiredInfo struct {
+	Server   string
+	Issuer   string
+	Scope    string
+	AuthTool string
+}
+
+// GetAuthRequired fetches the auth://status resource and returns a list of servers
+// requiring authentication. This method is used by the agent to detect which
+// remote MCP servers need OAuth authentication.
+//
+// Returns an empty slice if no servers require authentication or if the resource
+// cannot be fetched.
+func (c *Client) GetAuthRequired() []AuthRequiredInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	resource, err := c.GetResource(ctx, "auth://status")
+	if err != nil {
+		// Silently return empty list - auth status is best-effort
+		return []AuthRequiredInfo{}
+	}
+
+	// Parse the response content
+	if len(resource.Contents) == 0 {
+		return []AuthRequiredInfo{}
+	}
+
+	var responseText string
+	for _, content := range resource.Contents {
+		if textContent, ok := mcp.AsTextResourceContents(content); ok {
+			responseText = textContent.Text
+			break
+		}
+	}
+
+	if responseText == "" {
+		return []AuthRequiredInfo{}
+	}
+
+	var status authStatusResponse
+	if err := json.Unmarshal([]byte(responseText), &status); err != nil {
+		return []AuthRequiredInfo{}
+	}
+
+	// Build the auth required list
+	var authRequired []AuthRequiredInfo
+	for _, srv := range status.Servers {
+		if srv.Status == "auth_required" {
+			authRequired = append(authRequired, AuthRequiredInfo{
+				Server:   srv.Name,
+				Issuer:   srv.Issuer,
+				Scope:    srv.Scope,
+				AuthTool: srv.AuthTool,
+			})
+		}
+	}
+
+	return authRequired
+}
+
 func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
 	oldMap := make(map[string]mcp.Tool)
 	for _, tool := range oldTools {

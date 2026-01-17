@@ -36,8 +36,8 @@ func TestFormatOAuthAuthenticationError_WithAuthRequiredError(t *testing.T) {
 	if !contains(content, "test-service") {
 		t.Error("Expected content to contain service name")
 	}
-	if !contains(content, "x_test-service_authenticate") {
-		t.Error("Expected content to contain authenticate tool name")
+	if !contains(content, "core_auth_login") {
+		t.Error("Expected content to contain core_auth_login tool")
 	}
 	if !contains(content, "OAuth authentication") {
 		t.Error("Expected content to mention OAuth authentication")

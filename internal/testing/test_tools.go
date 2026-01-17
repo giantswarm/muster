@@ -261,21 +261,22 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	return nil, fmt.Errorf("callback returned error status: %d", resp.StatusCode)
 }
 
-// callAuthenticateTool calls the authenticate tool via MCP to get the auth URL.
+// callAuthenticateTool calls the core_auth_login tool via MCP to get the auth URL.
 func (h *TestToolsHandler) callAuthenticateTool(ctx context.Context, serverName string) (string, error) {
 	if h.mcpClient == nil {
 		return "", fmt.Errorf("MCP client not available")
 	}
 
-	// The authenticate tool follows the pattern: x_<server>_authenticate
-	// This matches the naming convention in the aggregator's tool factory
-	authToolName := fmt.Sprintf("x_%s_authenticate", serverName)
+	// Use the unified core_auth_login tool with server argument
+	authToolName := "core_auth_login"
 
 	if h.debug {
-		h.logger.Debug("🔐 Calling authenticate tool: %s\n", authToolName)
+		h.logger.Debug("🔐 Calling authenticate tool: %s with server=%s\n", authToolName, serverName)
 	}
 
-	result, err := h.mcpClient.CallTool(ctx, authToolName, map[string]interface{}{})
+	result, err := h.mcpClient.CallTool(ctx, authToolName, map[string]interface{}{
+		"server": serverName,
+	})
 	if err != nil {
 		return "", fmt.Errorf("authenticate tool call failed: %w", err)
 	}

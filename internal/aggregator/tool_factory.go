@@ -162,6 +162,25 @@ func (a *AggregatorServer) createToolsFromProviders() []mcpserver.ServerTool {
 		}
 	}
 
+	// Integrate authentication tools (core_auth_login, core_auth_logout)
+	// These are always available and allow users to authenticate to OAuth-protected MCP servers
+	authProvider := NewAuthToolProvider(a)
+	for _, toolMeta := range authProvider.GetTools() {
+		mcpToolName := a.prefixToolName(toolMeta.Name)
+		a.toolManager.setActive(mcpToolName, true)
+
+		tool := mcpserver.ServerTool{
+			Tool: mcp.Tool{
+				Name:        mcpToolName,
+				Description: toolMeta.Description,
+				InputSchema: convertToMCPSchema(toolMeta.Args),
+			},
+			Handler: a.createAuthToolHandler(authProvider, toolMeta.Name),
+		}
+
+		tools = append(tools, tool)
+	}
+
 	return tools
 }
 
@@ -171,7 +190,7 @@ func (a *AggregatorServer) createToolsFromProviders() []mcpserver.ServerTool {
 // types and applies appropriate prefixes:
 //
 // Management Tools (get "core_" prefix):
-//   - service_*, serviceclass_*, mcpserver_*, workflow_*, config_* operations
+//   - service_*, serviceclass_*, mcpserver_*, workflow_*, config_*, auth_* operations
 //   - These are administrative tools for managing muster components
 //
 // Execution Tools (get transformed prefixes):
@@ -198,6 +217,7 @@ func (a *AggregatorServer) prefixToolName(toolName string) string {
 		"workflow_",     // workflow management (not execution) operations
 		"config_",       // configuration management operations
 		"events",        // Event management operations
+		"auth_",         // authentication operations (core_auth_login, core_auth_logout)
 	}
 
 	// Check if this is a management tool that should get core_ prefix
@@ -253,6 +273,39 @@ func (a *AggregatorServer) createToolHandler(provider api.ToolProvider, toolName
 		if err != nil {
 			logging.Error("AggregatorToolHandler", err, "Tool execution failed for %s with args %+v", toolName, args)
 			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: %v", err)), nil
+		}
+
+		// Convert API result to MCP result format
+		return convertToMCPResult(result), nil
+	}
+}
+
+// createAuthToolHandler creates an MCP handler function for authentication tools.
+//
+// This is similar to createToolHandler but uses the AuthToolProvider directly.
+// Authentication tools need special handling because they require session context
+// for managing per-session OAuth state.
+//
+// Args:
+//   - provider: The auth tool provider that will execute the tool
+//   - toolName: The original tool name (before prefixing)
+//
+// Returns an MCP handler function that can be registered with the MCP server.
+func (a *AggregatorServer) createAuthToolHandler(provider *AuthToolProvider, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Extract arguments from MCP request format
+		args := make(map[string]interface{})
+		if req.Params.Arguments != nil {
+			if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
+				args = argsMap
+			}
+		}
+
+		// Execute the tool through the auth provider
+		result, err := provider.ExecuteTool(ctx, toolName, args)
+		if err != nil {
+			logging.Error("AggregatorAuthToolHandler", err, "Auth tool execution failed for %s", toolName)
+			return mcp.NewToolResultError(fmt.Sprintf("Auth tool execution failed: %v", err)), nil
 		}
 
 		// Convert API result to MCP result format

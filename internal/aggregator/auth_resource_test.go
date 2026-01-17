@@ -121,7 +121,7 @@ func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
 				Status:   "auth_required",
 				Issuer:   "https://idp.example.com",
 				Scope:    "openid",
-				AuthTool: "x_server2_authenticate",
+				AuthTool: "core_auth_login",
 			},
 		},
 	}

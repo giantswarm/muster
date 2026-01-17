@@ -74,11 +74,12 @@ steps:
       contains:
         - "success"
 
-  # Step 3: Establish connection for alpha
+  # Step 3: Establish connection for alpha (per ADR-008)
   - id: establish-connection-alpha
     description: "Establish session connection for server-alpha"
-    tool: "x_server-alpha_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "server-alpha"
     expected:
       success: true
 
@@ -92,12 +93,13 @@ steps:
       contains:
         - "alpha"
 
-  # Step 5: Try to authenticate to beta - it uses different IdP
+  # Step 5: Try to authenticate to beta - it uses different IdP (per ADR-008)
   # so it should require its own authentication flow
   - id: authenticate-beta-check
-    description: "Beta uses different IdP - authenticate should return auth URL (not auto-connect)"
-    tool: "x_server-beta_authenticate"
-    args: {}
+    description: "Beta uses different IdP - core_auth_login should return auth URL (not auto-connect)"
+    tool: "core_auth_login"
+    args:
+      server: "server-beta"
     expected:
       success: true
       # Should return an auth URL since no token exists for idp-beta
@@ -115,11 +117,12 @@ steps:
       contains:
         - "success"
 
-  # Step 7: Establish connection for beta
+  # Step 7: Establish connection for beta (per ADR-008)
   - id: establish-connection-beta
     description: "Establish session connection for server-beta"
-    tool: "x_server-beta_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "server-beta"
     expected:
       success: true
 

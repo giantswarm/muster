@@ -191,8 +191,8 @@ func (r *ServerRegistry) GetClient(name string) (MCPClient, error) {
 // intelligent prefixing to avoid name conflicts. Only servers that are currently
 // connected contribute their tools to the result.
 //
-// Additionally, servers in auth_required state contribute their synthetic
-// authentication tools to allow users to initiate the OAuth flow.
+// Per ADR-008, servers in auth_required state do NOT contribute any tools.
+// Users must use core_auth_login to authenticate before server tools become visible.
 //
 // The returned tools have their names modified to include appropriate prefixes
 // following the pattern: {muster_prefix}_{server_prefix}_{original_name}
@@ -210,18 +210,11 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 	for serverName, info := range r.servers {
 		totalServerCount++
 
-		// Handle servers requiring authentication - expose synthetic auth tools
+		// Per ADR-008: Servers requiring authentication do NOT expose any tools
+		// Users must use core_auth_login to authenticate first
 		if info.Status == StatusAuthRequired {
 			authRequiredCount++
-			info.mu.RLock()
-			for _, tool := range info.Tools {
-				// Apply prefixing to synthetic auth tools as well
-				exposedTool := tool
-				exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
-				allTools = append(allTools, exposedTool)
-			}
-			info.mu.RUnlock()
-			logging.Debug("Aggregator", "Server %s requires auth, exposing synthetic tool", serverName)
+			logging.Debug("Aggregator", "Server %s requires auth, no tools exposed (use core_auth_login)", serverName)
 			continue
 		}
 
@@ -244,8 +237,8 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 		logging.Debug("Aggregator", "Server %s has %d tools", serverName, serverToolCount)
 	}
 
-	logging.Debug("Aggregator", "GetAllTools: returning %d tools from %d connected + %d auth_required servers (out of %d total servers)",
-		len(allTools), connectedCount, authRequiredCount, totalServerCount)
+	logging.Debug("Aggregator", "GetAllTools: returning %d tools from %d connected servers (%d servers require auth, use core_auth_login)",
+		len(allTools), connectedCount, authRequiredCount)
 
 	return allTools
 }
@@ -481,8 +474,8 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 }
 
 // RegisterPendingAuth registers a server that requires authentication before it can be fully connected.
-// This creates a placeholder server entry with StatusAuthRequired and registers a synthetic
-// authentication tool that users can call to initiate the OAuth flow.
+// This creates a placeholder server entry with StatusAuthRequired. Per ADR-008, no synthetic
+// authentication tools are created - users should use core_auth_login to authenticate.
 //
 // Args:
 //   - name: Unique identifier for the server
@@ -500,6 +493,7 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 	}
 
 	// Create server info in auth_required state
+	// Per ADR-008: No synthetic tools are created. Users use core_auth_login instead.
 	info := &ServerInfo{
 		Name:       name,
 		URL:        url,
@@ -508,32 +502,16 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 		AuthInfo:   authInfo,
 		Connected:  false, // Not connected until authenticated
 		Client:     nil,   // No client until authentication succeeds
+		Tools:      nil,   // No tools exposed until authenticated
 	}
 
 	// Configure the server prefix in the name tracker
 	r.nameTracker.SetServerPrefix(name, toolPrefix)
 
-	// Create a synthetic authentication tool
-	// Note: We use just "authenticate" here because the name tracker will add
-	// the server prefix when exposing the tool (e.g., "x_serverName_authenticate")
-	authToolName := "authenticate"
-	authTool := mcp.Tool{
-		Name:        authToolName,
-		Description: fmt.Sprintf("REQUIRED: Authenticate to connect to %s. Run this tool to start the OAuth login flow.", name),
-		InputSchema: mcp.ToolInputSchema{
-			Type:       "object",
-			Properties: map[string]interface{}{},
-			Required:   []string{},
-		},
-	}
-
-	// Register the synthetic tool
-	info.UpdateTools([]mcp.Tool{authTool})
-
 	r.servers[name] = info
 	r.notifyUpdate()
 
-	logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication)", name)
+	logging.Info("Aggregator", "Registered pending auth server: %s (requires authentication, use core_auth_login)", name)
 	return nil
 }
 
@@ -581,33 +559,16 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 	return nil
 }
 
-// IsSyntheticAuthTool checks if a tool name is a synthetic authentication tool.
-func (r *ServerRegistry) IsSyntheticAuthTool(toolName string) (serverName string, isSynthetic bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for name, info := range r.servers {
-		if info.Status == StatusAuthRequired {
-			// The synthetic auth tool is named "authenticate" internally,
-			// and gets prefixed to e.g., "x_serverName_authenticate" when exposed
-			expectedToolName := "authenticate"
-			if toolName == expectedToolName || toolName == r.nameTracker.GetExposedToolName(name, expectedToolName) {
-				return name, true
-			}
-		}
-	}
-
-	return "", false
-}
-
 // GetAllToolsForSession returns a session-specific view of all available tools.
 //
 // The returned tool list is computed based on the session's authentication state:
 //   - GlobalTools: Tools from servers that don't require authentication
 //   - AuthenticatedServerTools: Tools from OAuth servers where the session has a valid connection
-//   - SyntheticAuthTools: <prefix>_<server>_authenticate tools for OAuth servers the session hasn't authenticated with
 //
-// This implements per-session tool visibility as described in ADR-006.
+// Per ADR-008, servers requiring authentication but not yet authenticated do NOT show any tools.
+// Users must use core_auth_login to authenticate before server tools become visible.
+//
+// This implements per-session tool visibility as described in ADR-006 and ADR-008.
 //
 // Args:
 //   - sessionRegistry: The session registry containing per-session state
@@ -639,15 +600,9 @@ func (r *ServerRegistry) GetAllToolsForSession(sessionRegistry *SessionRegistry,
 				logging.Debug("Aggregator", "Session %s has %d tools from authenticated server %s",
 					logging.TruncateSessionID(sessionID), len(tools), serverName)
 			} else {
-				// Session not authenticated - include synthetic auth tool
-				info.mu.RLock()
-				for _, tool := range info.Tools {
-					exposedTool := tool
-					exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
-					allTools = append(allTools, exposedTool)
-				}
-				info.mu.RUnlock()
-				logging.Debug("Aggregator", "Session %s sees synthetic auth tool for server %s",
+				// Per ADR-008: No tools exposed for unauthenticated servers
+				// Users must use core_auth_login to authenticate
+				logging.Debug("Aggregator", "Session %s: server %s requires auth (use core_auth_login)",
 					logging.TruncateSessionID(sessionID), serverName)
 			}
 			continue
