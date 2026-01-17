@@ -14,6 +14,8 @@ type CommandFlags struct {
 	OutputFormat string
 	// Quiet suppresses progress indicators and non-essential output
 	Quiet bool
+	// Debug enables verbose logging of MCP protocol messages
+	Debug bool
 	// ConfigPath specifies a custom configuration directory path
 	ConfigPath string
 	// Endpoint overrides the aggregator endpoint URL for remote connections
@@ -31,6 +33,7 @@ type CommandFlags struct {
 // The registered flags are:
 //   - --output/-o: Output format (table, json, yaml), default: "table"
 //   - --quiet/-q: Suppress non-essential output
+//   - --debug: Enable debug logging (show MCP protocol messages)
 //   - --config-path: Configuration directory
 //   - --endpoint: Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)
 //   - --context: Use a specific context (env: MUSTER_CONTEXT)
@@ -38,6 +41,7 @@ type CommandFlags struct {
 func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
+	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	cmd.PersistentFlags().StringVar(&flags.Endpoint, "endpoint", GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	cmd.PersistentFlags().StringVar(&flags.Context, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
@@ -71,6 +75,7 @@ func (f *CommandFlags) ToExecutorOptions() (ExecutorOptions, error) {
 	return ExecutorOptions{
 		Format:     OutputFormat(f.OutputFormat),
 		Quiet:      f.Quiet,
+		Debug:      f.Debug,
 		ConfigPath: f.ConfigPath,
 		Endpoint:   f.Endpoint,
 		Context:    f.Context,

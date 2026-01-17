@@ -7,20 +7,11 @@ import (
 	"strings"
 
 	"muster/internal/cli"
-	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	getOutputFormat string
-	getQuiet        bool
-	getDebug        bool
-	getConfigPath   string
-	getEndpoint     string
-	getContext      string
-	getAuthMode     string
-)
+var getFlags cli.CommandFlags
 
 // Available resource types for autocompletion
 var getResourceTypes = []string{
@@ -71,7 +62,7 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormatJSON,
 		Quiet:      true,
-		ConfigPath: getConfigPath,
+		ConfigPath: getFlags.ConfigPath,
 	})
 	if err != nil {
 		// Fallback if server not available
@@ -255,15 +246,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 func init() {
 	rootCmd.AddCommand(getCmd)
-
-	// Add flags to the command
-	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
-	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
-	getCmd.PersistentFlags().BoolVar(&getDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
-	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
-	getCmd.PersistentFlags().StringVar(&getContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	getCmd.PersistentFlags().StringVar(&getAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	cli.RegisterCommonFlags(getCmd, &getFlags)
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
@@ -281,21 +264,12 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: %s", resourceType, availableGetResourceTypes())
 	}
 
-	// Parse auth mode (uses environment variable as default if not specified)
-	authMode, err := cli.GetAuthModeWithOverride(getAuthMode)
+	opts, err := getFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(getOutputFormat),
-		Quiet:      getQuiet,
-		Debug:      getDebug,
-		ConfigPath: getConfigPath,
-		Endpoint:   getEndpoint,
-		Context:    getContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}
@@ -324,21 +298,12 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 // runGetMCP handles getting MCP primitives (tools, resources, prompts)
 func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
-	// Parse auth mode
-	authMode, err := cli.GetAuthModeWithOverride(getAuthMode)
+	opts, err := getFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(getOutputFormat),
-		Quiet:      getQuiet,
-		Debug:      getDebug,
-		ConfigPath: getConfigPath,
-		Endpoint:   getEndpoint,
-		Context:    getContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}

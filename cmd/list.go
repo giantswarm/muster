@@ -7,22 +7,15 @@ import (
 	"strings"
 
 	"muster/internal/cli"
-	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	listOutputFormat string
-	listQuiet        bool
-	listDebug        bool
-	listConfigPath   string
-	listEndpoint     string
-	listContext      string
-	listAuthMode     string
-	listFilter       string
-	listDescription  string
-	listServer       string
+	listFlags       cli.CommandFlags
+	listFilter      string
+	listDescription string
+	listServer      string
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -226,15 +219,9 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 
 func init() {
 	rootCmd.AddCommand(listCmd)
+	cli.RegisterCommonFlags(listCmd, &listFlags)
 
-	// Add flags to the command
-	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
-	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
-	listCmd.PersistentFlags().BoolVar(&listDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
-	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	listCmd.PersistentFlags().StringVar(&listEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
-	listCmd.PersistentFlags().StringVar(&listContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	listCmd.PersistentFlags().StringVar(&listAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	// List-specific filtering flags
 	listCmd.PersistentFlags().StringVar(&listFilter, "filter", "", "Filter by name pattern (wildcards * and ? supported, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server name prefix (for MCP primitives only)")
@@ -261,7 +248,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		Description: listDescription,
 		Server:      listServer,
 	}
-	if filterOpts.HasMCPOnlyFilters() && !listQuiet {
+	if filterOpts.HasMCPOnlyFilters() && !listFlags.Quiet {
 		var ignoredFlags []string
 		if listFilter != "" {
 			ignoredFlags = append(ignoredFlags, "--filter")
@@ -276,20 +263,12 @@ func runList(cmd *cobra.Command, args []string) error {
 			strings.Join(ignoredFlags, ", "), resourceType)
 	}
 
-	// Parse auth mode (uses environment variable as default if not specified)
-	authMode, err := cli.GetAuthModeWithOverride(listAuthMode)
+	opts, err := listFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(listOutputFormat),
-		Quiet:      listQuiet,
-		ConfigPath: listConfigPath,
-		Endpoint:   listEndpoint,
-		Context:    listContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}
@@ -305,21 +284,12 @@ func runList(cmd *cobra.Command, args []string) error {
 
 // runListMCP handles listing MCP primitives (tools, resources, prompts)
 func runListMCP(cmd *cobra.Command, mcpType string) error {
-	// Parse auth mode
-	authMode, err := cli.GetAuthModeWithOverride(listAuthMode)
+	opts, err := listFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(listOutputFormat),
-		Quiet:      listQuiet,
-		Debug:      listDebug,
-		ConfigPath: listConfigPath,
-		Endpoint:   listEndpoint,
-		Context:    listContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}

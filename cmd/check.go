@@ -3,20 +3,11 @@ package cmd
 import (
 	"fmt"
 	"muster/internal/cli"
-	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	checkOutputFormat string
-	checkQuiet        bool
-	checkDebug        bool
-	checkConfigPath   string
-	checkEndpoint     string
-	checkContext      string
-	checkAuthMode     string
-)
+var checkFlags cli.CommandFlags
 
 // Available resource types for check operations
 var checkResourceTypes = []string{
@@ -75,15 +66,7 @@ var checkResourceMappings = map[string]string{
 
 func init() {
 	rootCmd.AddCommand(checkCmd)
-
-	// Add flags to the command
-	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
-	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
-	checkCmd.PersistentFlags().BoolVar(&checkDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
-	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	checkCmd.PersistentFlags().StringVar(&checkEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
-	checkCmd.PersistentFlags().StringVar(&checkContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	checkCmd.PersistentFlags().StringVar(&checkAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	cli.RegisterCommonFlags(checkCmd, &checkFlags)
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -96,21 +79,12 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown resource type '%s'. Available types: serviceclass, mcpserver, workflow", resourceType)
 	}
 
-	// Parse auth mode (uses environment variable as default if not specified)
-	authMode, err := cli.GetAuthModeWithOverride(checkAuthMode)
+	opts, err := checkFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(checkOutputFormat),
-		Quiet:      checkQuiet,
-		Debug:      checkDebug,
-		ConfigPath: checkConfigPath,
-		Endpoint:   checkEndpoint,
-		Context:    checkContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}
