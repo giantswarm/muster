@@ -357,6 +357,47 @@ func (sr *SessionRegistry) Count() int {
 	return len(sr.sessions)
 }
 
+// RemoveServerFromAllSessions removes connections to a specific server from all sessions.
+// This is called when an MCPServer is deregistered (e.g., deleted or renamed) to clean up
+// stale session connections that would otherwise persist until session timeout.
+//
+// This fixes the issue where renamed MCPServers would show stale auth status because
+// session connections were stored under the old server name and never cleaned up.
+//
+// Args:
+//   - serverName: The name of the server to remove from all sessions
+//
+// Returns the number of connections that were removed.
+func (sr *SessionRegistry) RemoveServerFromAllSessions(serverName string) int {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+
+	removedCount := 0
+	for sessionID, session := range sr.sessions {
+		session.mu.Lock()
+		if conn, exists := session.Connections[serverName]; exists {
+			// Close the client connection if it exists
+			if conn != nil && conn.Client != nil {
+				if err := conn.Client.Close(); err != nil {
+					logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
+						logging.TruncateSessionID(sessionID), serverName, err)
+				}
+			}
+			delete(session.Connections, serverName)
+			removedCount++
+			logging.Debug("SessionRegistry", "Removed stale connection for session=%s server=%s",
+				logging.TruncateSessionID(sessionID), serverName)
+		}
+		session.mu.Unlock()
+	}
+
+	if removedCount > 0 {
+		logging.Info("SessionRegistry", "Cleaned up %d stale session connections for server %s", removedCount, serverName)
+	}
+
+	return removedCount
+}
+
 // Stop stops the session registry and cleans up all sessions.
 //
 // This method closes all session-specific MCP client connections and stops
@@ -466,6 +507,14 @@ func (s *SessionState) SetConnection(serverName string, conn *SessionConnection)
 func (s *SessionState) RemoveConnection(serverName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Close the client connection if it exists
+	if conn, exists := s.Connections[serverName]; exists && conn != nil && conn.Client != nil {
+		if err := conn.Client.Close(); err != nil {
+			logging.Warn("SessionRegistry", "Error closing client for session=%s server=%s: %v",
+				logging.TruncateSessionID(s.SessionID), serverName, err)
+		}
+	}
 
 	delete(s.Connections, serverName)
 	s.LastActivity = time.Now()

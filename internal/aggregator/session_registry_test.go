@@ -643,3 +643,202 @@ func TestNewSessionRegistryWithLimits_Defaults(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoveServerFromAllSessions tests that stale session connections are
+// properly cleaned up when an MCPServer is deregistered. This is critical for
+// issue #233: Auth status shows stale server names after MCPServer rename.
+func TestRemoveServerFromAllSessions(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	serverName := "old-server-name"
+
+	// Create multiple sessions with connections to the same server
+	session1 := sr.GetOrCreateSession("session-1")
+	session1.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     nil, // No mock client needed for this test
+	})
+
+	session2 := sr.GetOrCreateSession("session-2")
+	session2.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     nil,
+	})
+
+	// Also add a different server connection to session1
+	session1.SetConnection("other-server", &SessionConnection{
+		ServerName: "other-server",
+		Status:     StatusSessionConnected,
+		Client:     nil,
+	})
+
+	// Verify connections exist
+	conn1, exists := session1.GetConnection(serverName)
+	if !exists || conn1 == nil {
+		t.Fatal("Expected session1 to have connection to old-server-name")
+	}
+
+	conn2, exists := session2.GetConnection(serverName)
+	if !exists || conn2 == nil {
+		t.Fatal("Expected session2 to have connection to old-server-name")
+	}
+
+	// Remove the server from all sessions (simulates MCPServer deregistration)
+	removedCount := sr.RemoveServerFromAllSessions(serverName)
+
+	// Verify correct count was returned
+	if removedCount != 2 {
+		t.Errorf("Expected 2 connections removed, got %d", removedCount)
+	}
+
+	// Verify connections are removed from both sessions
+	_, exists = session1.GetConnection(serverName)
+	if exists {
+		t.Error("Expected session1's connection to old-server-name to be removed")
+	}
+
+	_, exists = session2.GetConnection(serverName)
+	if exists {
+		t.Error("Expected session2's connection to old-server-name to be removed")
+	}
+
+	// Verify other connections are NOT affected
+	otherConn, exists := session1.GetConnection("other-server")
+	if !exists || otherConn == nil {
+		t.Error("Expected session1's connection to other-server to remain")
+	}
+
+	// Verify sessions still exist (only connections removed, not sessions)
+	if sr.Count() != 2 {
+		t.Errorf("Expected 2 sessions to remain, got %d", sr.Count())
+	}
+}
+
+// TestRemoveServerFromAllSessions_NoConnections tests that RemoveServerFromAllSessions
+// handles the case where no sessions have connections to the server.
+func TestRemoveServerFromAllSessions_NoConnections(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	// Create a session with a connection to a different server
+	session := sr.GetOrCreateSession("session-1")
+	session.SetConnection("different-server", &SessionConnection{
+		ServerName: "different-server",
+		Status:     StatusSessionConnected,
+		Client:     nil,
+	})
+
+	// Try to remove a server that no session is connected to
+	removedCount := sr.RemoveServerFromAllSessions("nonexistent-server")
+
+	// Should return 0 and not error
+	if removedCount != 0 {
+		t.Errorf("Expected 0 connections removed, got %d", removedCount)
+	}
+
+	// Verify original connection is still there
+	conn, exists := session.GetConnection("different-server")
+	if !exists || conn == nil {
+		t.Error("Expected connection to different-server to remain")
+	}
+}
+
+// TestRemoveServerFromAllSessions_EmptyRegistry tests that RemoveServerFromAllSessions
+// handles an empty session registry gracefully.
+func TestRemoveServerFromAllSessions_EmptyRegistry(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	// Try to remove from empty registry
+	removedCount := sr.RemoveServerFromAllSessions("any-server")
+
+	if removedCount != 0 {
+		t.Errorf("Expected 0 connections removed from empty registry, got %d", removedCount)
+	}
+}
+
+// TestRemoveServerFromAllSessions_ClosesClient tests that RemoveServerFromAllSessions
+// properly closes the MCP client connection when removing connections.
+func TestRemoveServerFromAllSessions_ClosesClient(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	serverName := "server-with-client"
+
+	// Create a mock client to track Close() calls
+	mockClient := &mockMCPClient{initialized: true}
+
+	// Create a session with a connection that has a real client
+	session := sr.GetOrCreateSession("session-1")
+	session.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     mockClient,
+	})
+
+	// Verify the client is not closed yet
+	if mockClient.closed {
+		t.Fatal("Client should not be closed before RemoveServerFromAllSessions")
+	}
+
+	// Remove the server from all sessions
+	removedCount := sr.RemoveServerFromAllSessions(serverName)
+
+	// Verify correct count
+	if removedCount != 1 {
+		t.Errorf("Expected 1 connection removed, got %d", removedCount)
+	}
+
+	// Verify the client was closed
+	if !mockClient.closed {
+		t.Error("Expected client.Close() to be called when removing connection")
+	}
+
+	// Verify connection is removed
+	_, exists := session.GetConnection(serverName)
+	if exists {
+		t.Error("Expected connection to be removed")
+	}
+}
+
+// TestRemoveConnection_ClosesClient tests that RemoveConnection properly closes
+// the MCP client connection when removing a connection.
+func TestRemoveConnection_ClosesClient(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	serverName := "server-with-client"
+
+	// Create a mock client to track Close() calls
+	mockClient := &mockMCPClient{initialized: true}
+
+	// Create a session with a connection that has a real client
+	session := sr.GetOrCreateSession("session-1")
+	session.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     mockClient,
+	})
+
+	// Verify the client is not closed yet
+	if mockClient.closed {
+		t.Fatal("Client should not be closed before RemoveConnection")
+	}
+
+	// Remove the connection
+	session.RemoveConnection(serverName)
+
+	// Verify the client was closed
+	if !mockClient.closed {
+		t.Error("Expected client.Close() to be called when removing connection")
+	}
+
+	// Verify connection is removed
+	_, exists := session.GetConnection(serverName)
+	if exists {
+		t.Error("Expected connection to be removed")
+	}
+}
