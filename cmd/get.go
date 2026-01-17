@@ -33,12 +33,8 @@ var getResourceTypes = []string{
 	"prompt",
 }
 
-// MCP resource types that are handled specially (not via tool execution)
-var getMCPResourceTypes = map[string]string{
-	"tool":     "tool",
-	"resource": "resource",
-	"prompt":   "prompt",
-}
+// getMCPResourceTypes aliases to the shared mcpPrimitiveTypes for backward compatibility
+var getMCPResourceTypes = mcpPrimitiveTypes
 
 // Resource type mappings for get operations
 var getResourceMappings = map[string]string{
@@ -89,6 +85,11 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 	}
 	defer executor.Close()
 
+	// Check if this is an MCP primitive type
+	if _, isMCP := getMCPResourceTypes[resourceType]; isMCP {
+		return getMCPPrimitiveCompletion(ctx, executor, resourceType, toComplete)
+	}
+
 	// Map resource types to tools
 	toolMap := map[string]string{
 		"service":            "core_service_list",
@@ -117,6 +118,52 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 		}
 	}
 
+	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
+// getMCPPrimitiveCompletion provides tab completion for MCP primitives (tools, resources, prompts)
+func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, resourceType, toComplete string) ([]string, cobra.ShellCompDirective) {
+	var names []string
+
+	switch resourceType {
+	case "tool":
+		tools, err := executor.ListMCPTools(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+		}
+	case "resource":
+		resources, err := executor.ListMCPResources(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, resource := range resources {
+			// For resources, we complete on URI
+			names = append(names, resource.URI)
+		}
+	case "prompt":
+		prompts, err := executor.ListMCPPrompts(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, prompt := range prompts {
+			names = append(names, prompt.Name)
+		}
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// Filter by what the user has typed so far
+	var completions []string
+	for _, name := range names {
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(toComplete)) {
+			completions = append(completions, name)
+		}
+	}
+
+	sort.Strings(completions)
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
@@ -167,19 +214,19 @@ func extractNamesFromArray(arr []interface{}, resourceType string) []string {
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get",
+	Use:   "get <type> <name|uri|id>",
 	Short: "Get detailed information about a resource",
-	Long: `Get detailed information about a specific resource by name.
+	Long: `Get detailed information about a specific resource.
 
 Available resource types:
-  service             - Get detailed status of a service
-  serviceclass        - Get ServiceClass details and configuration
-  mcpserver           - Get MCP server details and configuration
-  workflow            - Get workflow definition and details
-  workflow-execution  - Get workflow execution details and results
-  tool                - Get MCP tool details including input schema
-  resource            - Get MCP resource metadata
-  prompt              - Get MCP prompt details including arguments
+  service             - Get detailed status of a service (by name)
+  serviceclass        - Get ServiceClass details and configuration (by name)
+  mcpserver           - Get MCP server details and configuration (by name)
+  workflow            - Get workflow definition and details (by name)
+  workflow-execution  - Get workflow execution details and results (by execution ID)
+  tool                - Get MCP tool details including input schema (by name)
+  resource            - Get MCP resource metadata (by URI)
+  prompt              - Get MCP prompt details including arguments (by name)
 
 Examples:
   muster get service prometheus

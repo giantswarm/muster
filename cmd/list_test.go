@@ -395,8 +395,18 @@ func TestMCPFilterOptionsIsEmpty(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "both set",
+			name:     "server only",
+			opts:     MCPFilterOptions{Server: "github"},
+			expected: false,
+		},
+		{
+			name:     "both pattern and description set",
 			opts:     MCPFilterOptions{Pattern: "core_*", Description: "service"},
+			expected: false,
+		},
+		{
+			name:     "all filters set",
+			opts:     MCPFilterOptions{Pattern: "core_*", Description: "service", Server: "core"},
 			expected: false,
 		},
 	}
@@ -406,6 +416,50 @@ func TestMCPFilterOptionsIsEmpty(t *testing.T) {
 			result := tt.opts.IsEmpty()
 			if result != tt.expected {
 				t.Errorf("MCPFilterOptions{%+v}.IsEmpty() = %v, expected %v",
+					tt.opts, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMCPFilterOptionsHasMCPOnlyFilters(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     MCPFilterOptions
+		expected bool
+	}{
+		{
+			name:     "empty options",
+			opts:     MCPFilterOptions{},
+			expected: false,
+		},
+		{
+			name:     "pattern only",
+			opts:     MCPFilterOptions{Pattern: "core_*"},
+			expected: true,
+		},
+		{
+			name:     "description only",
+			opts:     MCPFilterOptions{Description: "service"},
+			expected: true,
+		},
+		{
+			name:     "server only",
+			opts:     MCPFilterOptions{Server: "github"},
+			expected: true,
+		},
+		{
+			name:     "all filters set",
+			opts:     MCPFilterOptions{Pattern: "core_*", Description: "service", Server: "core"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.opts.HasMCPOnlyFilters()
+			if result != tt.expected {
+				t.Errorf("MCPFilterOptions{%+v}.HasMCPOnlyFilters() = %v, expected %v",
 					tt.opts, result, tt.expected)
 			}
 		})
@@ -470,5 +524,128 @@ func TestAvailableListResourceTypes(t *testing.T) {
 		if !strings.Contains(types, expected) {
 			t.Errorf("Expected availableListResourceTypes() to contain %q, got %q", expected, types)
 		}
+	}
+}
+
+func TestMatchesServer(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		server   string
+		expected bool
+	}{
+		// Empty server matches everything
+		{
+			name:     "empty server matches any tool",
+			toolName: "github_create_issue",
+			server:   "",
+			expected: true,
+		},
+		// Exact prefix match with underscore
+		{
+			name:     "exact prefix match with underscore",
+			toolName: "github_create_issue",
+			server:   "github",
+			expected: true,
+		},
+		{
+			name:     "prefix match core server",
+			toolName: "core_service_list",
+			server:   "core",
+			expected: true,
+		},
+		// Case-insensitive matching
+		{
+			name:     "case-insensitive match uppercase server",
+			toolName: "github_create_issue",
+			server:   "GITHUB",
+			expected: true,
+		},
+		{
+			name:     "case-insensitive match mixed case",
+			toolName: "GitHub_create_issue",
+			server:   "github",
+			expected: true,
+		},
+		// No match
+		{
+			name:     "no match different server",
+			toolName: "github_create_issue",
+			server:   "core",
+			expected: false,
+		},
+		{
+			name:     "no match partial server name",
+			toolName: "github_create_issue",
+			server:   "git",
+			expected: true, // git is a prefix of github_
+		},
+		{
+			name:     "no match when server is longer than prefix",
+			toolName: "git_action",
+			server:   "github",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchesServer(tt.toolName, tt.server)
+			if result != tt.expected {
+				t.Errorf("matchesServer(%q, %q) = %v, expected %v",
+					tt.toolName, tt.server, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMatchesMCPFilterWithServer(t *testing.T) {
+	tests := []struct {
+		name        string
+		toolName    string
+		description string
+		opts        MCPFilterOptions
+		expected    bool
+	}{
+		// Server filter only
+		{
+			name:        "server filter only - matches",
+			toolName:    "github_create_issue",
+			description: "Create an issue",
+			opts:        MCPFilterOptions{Server: "github"},
+			expected:    true,
+		},
+		{
+			name:        "server filter only - no match",
+			toolName:    "core_service_list",
+			description: "List services",
+			opts:        MCPFilterOptions{Server: "github"},
+			expected:    false,
+		},
+		// Combined filters
+		{
+			name:        "all filters match",
+			toolName:    "core_service_list",
+			description: "List all services with status",
+			opts:        MCPFilterOptions{Pattern: "*_list", Description: "status", Server: "core"},
+			expected:    true,
+		},
+		{
+			name:        "pattern and description match but server doesn't",
+			toolName:    "github_issue_list",
+			description: "List all issues with status",
+			opts:        MCPFilterOptions{Pattern: "*_list", Description: "status", Server: "core"},
+			expected:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchesMCPFilter(tt.toolName, tt.description, tt.opts)
+			if result != tt.expected {
+				t.Errorf("matchesMCPFilter(%q, %q, %+v) = %v, expected %v",
+					tt.toolName, tt.description, tt.opts, result, tt.expected)
+			}
+		})
 	}
 }

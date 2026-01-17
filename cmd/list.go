@@ -21,6 +21,7 @@ var (
 	listAuthMode     string
 	listFilter       string
 	listDescription  string
+	listServer       string
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -57,15 +58,8 @@ func getListResourceMappings() map[string]string {
 	return mappings
 }
 
-// MCP resource types that are handled specially (not via tool execution)
-var mcpResourceTypes = map[string]string{
-	"tool":      "tool",
-	"tools":     "tool",
-	"resource":  "resource",
-	"resources": "resource",
-	"prompt":    "prompt",
-	"prompts":   "prompt",
-}
+// mcpResourceTypes aliases to the shared mcpPrimitiveTypes for backward compatibility
+var mcpResourceTypes = mcpPrimitiveTypes
 
 // MCPFilterOptions contains filter criteria for MCP primitives
 type MCPFilterOptions struct {
@@ -73,11 +67,18 @@ type MCPFilterOptions struct {
 	Pattern string
 	// Description is a case-insensitive substring to match against descriptions
 	Description string
+	// Server filters by server name (case-insensitive prefix match)
+	Server string
 }
 
 // IsEmpty returns true if no filters are set
 func (o MCPFilterOptions) IsEmpty() bool {
-	return o.Pattern == "" && o.Description == ""
+	return o.Pattern == "" && o.Description == "" && o.Server == ""
+}
+
+// HasMCPOnlyFilters returns true if any MCP-specific filters are set
+func (o MCPFilterOptions) HasMCPOnlyFilters() bool {
+	return o.Pattern != "" || o.Description != "" || o.Server != ""
 }
 
 // matchesWildcard checks if a name matches a wildcard pattern.
@@ -103,9 +104,25 @@ func matchesDescription(description, filter string) bool {
 	return strings.Contains(strings.ToLower(description), strings.ToLower(filter))
 }
 
-// matchesMCPFilter checks if an item matches both name pattern and description filter
+// matchesServer checks if a tool/resource name matches the server filter.
+// For tools, server prefixes are typically formatted as "servername_toolname".
+// We do a case-insensitive prefix match.
+func matchesServer(name, server string) bool {
+	if server == "" {
+		return true
+	}
+	// Check if name starts with server prefix (case-insensitive)
+	lowerName := strings.ToLower(name)
+	lowerServer := strings.ToLower(server)
+	// Match either "server_" prefix or exact "server" prefix followed by underscore
+	return strings.HasPrefix(lowerName, lowerServer+"_") || strings.HasPrefix(lowerName, lowerServer)
+}
+
+// matchesMCPFilter checks if an item matches name pattern, description filter, and server filter
 func matchesMCPFilter(name, description string, opts MCPFilterOptions) bool {
-	return matchesWildcard(name, opts.Pattern) && matchesDescription(description, opts.Description)
+	return matchesWildcard(name, opts.Pattern) &&
+		matchesDescription(description, opts.Description) &&
+		matchesServer(name, opts.Server)
 }
 
 // filterMCPTools filters tools by name pattern and description
@@ -182,9 +199,10 @@ Available resource types:
   resource(s)             - List all MCP resources from aggregated servers
   prompt(s)               - List all MCP prompts from aggregated servers
 
-Filtering (for MCP primitives: tool, resource, prompt):
+Filtering (for MCP primitives only: tool, resource, prompt):
   --filter <pattern>       - Filter by name pattern (wildcards * and ? supported)
   --description <text>     - Filter by description content (case-insensitive substring)
+  --server <name>          - Filter by server name prefix (e.g., "github", "core")
 
 Examples:
   muster list service
@@ -193,6 +211,7 @@ Examples:
   muster list serviceclass --output json
   muster list tool
   muster list tools --filter "core_*"
+  muster list tools --server github
   muster list tools --filter "*service*" --description "status"
   muster list resources --output yaml
 
@@ -216,6 +235,7 @@ func init() {
 	listCmd.PersistentFlags().StringVar(&listAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 	listCmd.PersistentFlags().StringVar(&listFilter, "filter", "", "Filter by name pattern (wildcards * and ? supported, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
+	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server name prefix (for MCP primitives only)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -231,6 +251,27 @@ func runList(cmd *cobra.Command, args []string) error {
 	toolName, exists := resourceMappings[resourceType]
 	if !exists {
 		return fmt.Errorf("unknown resource type '%s'. Available types: %s", resourceType, availableListResourceTypes())
+	}
+
+	// Warn if MCP-only filter flags are used with non-MCP resources
+	filterOpts := MCPFilterOptions{
+		Pattern:     listFilter,
+		Description: listDescription,
+		Server:      listServer,
+	}
+	if filterOpts.HasMCPOnlyFilters() && !listQuiet {
+		var ignoredFlags []string
+		if listFilter != "" {
+			ignoredFlags = append(ignoredFlags, "--filter")
+		}
+		if listDescription != "" {
+			ignoredFlags = append(ignoredFlags, "--description")
+		}
+		if listServer != "" {
+			ignoredFlags = append(ignoredFlags, "--server")
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with tools, resources, prompts)\n",
+			strings.Join(ignoredFlags, ", "), resourceType)
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
@@ -289,6 +330,7 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	filterOpts := MCPFilterOptions{
 		Pattern:     listFilter,
 		Description: listDescription,
+		Server:      listServer,
 	}
 
 	switch mcpType {
