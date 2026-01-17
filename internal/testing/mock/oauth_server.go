@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -231,7 +233,12 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	mux.HandleFunc("/jwks", s.handleJWKS)
 	mux.HandleFunc("/callback", s.handleCallback)
 
-	s.httpServer = &http.Server{Handler: mux}
+	// Create server with error log that discards TLS handshake errors
+	// These are common during test startup when clients probe connections
+	s.httpServer = &http.Server{
+		Handler:  mux,
+		ErrorLog: log.New(io.Discard, "", 0),
+	}
 
 	go func() {
 		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {

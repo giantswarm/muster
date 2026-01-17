@@ -85,7 +85,7 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 		enabled: true,
 	}
 	api.RegisterOAuthHandler(mockHandler)
-	defer api.RegisterOAuthHandler(nil) // Clean up
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	// Create an aggregator with OAuthServer.Config properly set
 	aggregator := &AggregatorServer{
@@ -120,7 +120,7 @@ func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
 		},
 	}
 	api.RegisterOAuthHandler(mockHandler)
-	defer api.RegisterOAuthHandler(nil) // Clean up
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	// Create an aggregator with OAuthServer.Config but empty BaseURL
 	aggregator := &AggregatorServer{
@@ -151,7 +151,7 @@ func TestGetMusterIssuer_OAuthNotEnabled(t *testing.T) {
 		enabled: false,
 	}
 	api.RegisterOAuthHandler(mockHandler)
-	defer api.RegisterOAuthHandler(nil) // Clean up
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	// Create an aggregator with OAuthServer.Config
 	aggregator := &AggregatorServer{
@@ -211,7 +211,7 @@ func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
 		},
 	}
 	api.RegisterOAuthHandler(mockHandler)
-	defer api.RegisterOAuthHandler(nil) // Clean up
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	// Create an aggregator with OAuthServer.Config set to wrong type
 	aggregator := &AggregatorServer{
@@ -241,7 +241,7 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 		findTokenResult: nil, // No fallback token
 	}
 	api.RegisterOAuthHandler(mockHandler)
-	defer api.RegisterOAuthHandler(nil) // Clean up
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	// Create an aggregator with OAuthServer disabled
 	aggregator := &AggregatorServer{
