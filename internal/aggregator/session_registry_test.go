@@ -759,3 +759,86 @@ func TestRemoveServerFromAllSessions_EmptyRegistry(t *testing.T) {
 		t.Errorf("Expected 0 connections removed from empty registry, got %d", removedCount)
 	}
 }
+
+// TestRemoveServerFromAllSessions_ClosesClient tests that RemoveServerFromAllSessions
+// properly closes the MCP client connection when removing connections.
+func TestRemoveServerFromAllSessions_ClosesClient(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	serverName := "server-with-client"
+
+	// Create a mock client to track Close() calls
+	mockClient := &mockMCPClient{initialized: true}
+
+	// Create a session with a connection that has a real client
+	session := sr.GetOrCreateSession("session-1")
+	session.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     mockClient,
+	})
+
+	// Verify the client is not closed yet
+	if mockClient.closed {
+		t.Fatal("Client should not be closed before RemoveServerFromAllSessions")
+	}
+
+	// Remove the server from all sessions
+	removedCount := sr.RemoveServerFromAllSessions(serverName)
+
+	// Verify correct count
+	if removedCount != 1 {
+		t.Errorf("Expected 1 connection removed, got %d", removedCount)
+	}
+
+	// Verify the client was closed
+	if !mockClient.closed {
+		t.Error("Expected client.Close() to be called when removing connection")
+	}
+
+	// Verify connection is removed
+	_, exists := session.GetConnection(serverName)
+	if exists {
+		t.Error("Expected connection to be removed")
+	}
+}
+
+// TestRemoveConnection_ClosesClient tests that RemoveConnection properly closes
+// the MCP client connection when removing a connection.
+func TestRemoveConnection_ClosesClient(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	serverName := "server-with-client"
+
+	// Create a mock client to track Close() calls
+	mockClient := &mockMCPClient{initialized: true}
+
+	// Create a session with a connection that has a real client
+	session := sr.GetOrCreateSession("session-1")
+	session.SetConnection(serverName, &SessionConnection{
+		ServerName: serverName,
+		Status:     StatusSessionConnected,
+		Client:     mockClient,
+	})
+
+	// Verify the client is not closed yet
+	if mockClient.closed {
+		t.Fatal("Client should not be closed before RemoveConnection")
+	}
+
+	// Remove the connection
+	session.RemoveConnection(serverName)
+
+	// Verify the client was closed
+	if !mockClient.closed {
+		t.Error("Expected client.Close() to be called when removing connection")
+	}
+
+	// Verify connection is removed
+	_, exists := session.GetConnection(serverName)
+	if exists {
+		t.Error("Expected connection to be removed")
+	}
+}
