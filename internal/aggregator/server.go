@@ -428,12 +428,25 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 // cause all tools, resources, and prompts from that server to become unavailable.
 // The backend client connection is closed as part of the deregistration process.
 //
+// Additionally, this method cleans up any stale session connections for the server.
+// This is critical for handling MCPServer renames, where the old server is deleted
+// and a new one is created. Without this cleanup, session connections stored under
+// the old server name would persist and cause stale auth status displays.
+//
 // Args:
 //   - name: Unique identifier of the server to remove
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
 	logging.Debug("Aggregator", "DeregisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
+
+	// Clean up any session connections for this server before deregistering.
+	// This prevents stale session data from persisting after MCPServer renames.
+	// See issue #233: Auth status shows stale server names after MCPServer rename
+	if a.sessionRegistry != nil {
+		a.sessionRegistry.RemoveServerFromAllSessions(name)
+	}
+
 	return a.registry.Deregister(name)
 }
 
