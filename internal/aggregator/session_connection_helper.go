@@ -244,7 +244,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
 
 		// Emit event for token forwarding failure
-		emitTokenForwardingEvent(serverInfo.Name, false, err.Error())
+		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
 		// Check if fallback is configured
 		if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.FallbackToOwnAuth {
@@ -256,7 +256,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Token forwarding succeeded - emit success event
 	logging.Info("SessionConnection", "ID token forwarding succeeded for session %s to server %s",
 		logging.TruncateSessionID(sessionID), serverInfo.Name)
-	emitTokenForwardingEvent(serverInfo.Name, true, "")
+	emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
@@ -311,7 +311,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 }
 
 // emitTokenForwardingEvent emits an event for token forwarding success or failure.
-func emitTokenForwardingEvent(serverName string, success bool, errorMsg string) {
+func emitTokenForwardingEvent(serverName, namespace string, success bool, errorMsg string) {
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
 		return
@@ -334,11 +334,16 @@ func emitTokenForwardingEvent(serverName string, success bool, errorMsg string) 
 		eventType = "Warning"
 	}
 
+	// Ensure namespace has a default value
+	if namespace == "" {
+		namespace = "default"
+	}
+
 	// Create object reference for the MCPServer
 	objRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      serverName,
-		Namespace: "default",
+		Namespace: namespace,
 	}
 
 	if err := eventManager.CreateEvent(context.Background(), objRef, reason, message, eventType); err != nil {

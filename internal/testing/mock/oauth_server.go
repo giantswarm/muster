@@ -16,6 +16,21 @@ import (
 	"time"
 )
 
+// jwtHeader is the standard JWT header for unsigned tokens.
+// We use "none" algorithm since this is for testing only.
+var jwtHeader = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+
+// idTokenClaims represents the claims in an ID token.
+type idTokenClaims struct {
+	Iss   string `json:"iss"`             // Issuer
+	Sub   string `json:"sub"`             // Subject (user ID)
+	Aud   string `json:"aud"`             // Audience (client ID)
+	Exp   int64  `json:"exp"`             // Expiration time
+	Iat   int64  `json:"iat"`             // Issued at
+	Email string `json:"email,omitempty"` // User email
+	Name  string `json:"name,omitempty"`  // User name
+}
+
 // OAuthServerConfig configures the mock OAuth server behavior
 type OAuthServerConfig struct {
 	// Issuer is the OAuth issuer identifier (e.g., "http://localhost:9999")
@@ -281,6 +296,9 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
+	// Generate ID token for SSO token forwarding support
+	idToken := s.generateIDToken(entry.ClientID, entry.Scope)
+
 	token := &issuedToken{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -300,6 +318,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        entry.Scope,
+		IDToken:      idToken,
 	}, nil
 }
 
@@ -537,6 +556,9 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
+	// Generate ID token for SSO token forwarding support
+	idToken := s.generateIDToken(entry.ClientID, entry.Scope)
+
 	token := &issuedToken{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -555,10 +577,11 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        entry.Scope,
+		IDToken:      idToken,
 	}
 
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔐 Issued tokens for client %s\n", entry.ClientID)
+		fmt.Fprintf(os.Stderr, "🔐 Issued tokens for client %s (with ID token)\n", entry.ClientID)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -593,6 +616,9 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	newAccessToken := s.generateAccessToken(originalToken.ClientID, originalToken.Scope)
 	newRefreshToken := generateOpaqueToken()
 
+	// Generate new ID token for SSO token forwarding support
+	newIDToken := s.generateIDToken(originalToken.ClientID, originalToken.Scope)
+
 	newToken := &issuedToken{
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
@@ -615,6 +641,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
 		Scope:        originalToken.Scope,
+		IDToken:      newIDToken,
 	})
 }
 
@@ -711,6 +738,35 @@ func generateOpaqueToken() string {
 		panic(fmt.Errorf("crypto/rand failed: %w", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// generateIDToken generates a mock JWT ID token for testing.
+// The token is unsigned (alg: none) since this is for testing only.
+// Real production environments should use proper signing.
+func (s *OAuthServer) generateIDToken(clientID, scope string) string {
+	now := s.clock.Now()
+
+	claims := idTokenClaims{
+		Iss:   s.config.Issuer,
+		Sub:   "test-user-123",
+		Aud:   clientID,
+		Exp:   now.Add(s.config.TokenLifetime).Unix(),
+		Iat:   now.Unix(),
+		Email: "test@example.com",
+		Name:  "Test User",
+	}
+
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		// This should never happen with our fixed struct
+		panic(fmt.Errorf("failed to marshal ID token claims: %w", err))
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+
+	// Return unsigned JWT (header.payload.)
+	// The trailing dot indicates no signature (alg: none)
+	return fmt.Sprintf("%s.%s.", jwtHeader, payload)
 }
 
 // WaitForReady waits for the OAuth server to be ready

@@ -85,6 +85,24 @@ func (a *Adapter) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken
 	return fullTokenToAPIToken(token)
 }
 
+// FindTokenWithIDToken searches for any token in the session that has an ID token.
+// This is used as a fallback when the muster issuer is not explicitly configured.
+// Returns the first token found with an ID token, or nil if none exists.
+func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return nil
+	}
+
+	// Get all tokens for the session and find one with an ID token
+	allTokens := a.manager.client.tokenStore.GetAllForSession(sessionID)
+	for _, token := range allTokens {
+		if token != nil && token.IDToken != "" {
+			return fullTokenToAPIToken(token)
+		}
+	}
+	return nil
+}
+
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
 func (a *Adapter) ClearTokenByIssuer(sessionID, issuer string) {
 	a.manager.ClearTokenByIssuer(sessionID, issuer)

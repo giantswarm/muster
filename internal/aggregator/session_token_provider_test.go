@@ -35,6 +35,9 @@ func (m *mockOAuthHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuth
 func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return nil
 }
+func (m *mockOAuthHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+	return nil
+}
 func (m *mockOAuthHandler) ClearTokenByIssuer(sessionID, issuer string)     {}
 func (m *mockOAuthHandler) GetHTTPHandler() http.Handler                    { return nil }
 func (m *mockOAuthHandler) GetCallbackPath() string                         { return "" }

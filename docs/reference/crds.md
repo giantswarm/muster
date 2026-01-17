@@ -56,6 +56,12 @@ spec:
   
   # Optional: Connection timeout in seconds (all types)
   timeout: 30
+  
+  # Optional: Authentication configuration (remote servers)
+  auth:
+    type: oauth|none          # Authentication type
+    forwardToken: true        # Forward muster's ID token for SSO
+    fallbackToOwnAuth: true   # Fallback to separate OAuth if forwarding fails
 
 # Status is managed automatically by muster (via reconciliation)
 status:
@@ -83,6 +89,15 @@ status:
 | `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers |
 | `headers` | `map[string]string` | No | HTTP headers for remote servers | Only for streamable-http and sse servers |
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
+| `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
+
+#### MCPServerAuth Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
+| `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
+| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding fails | Default: `false` |
 
 #### Status Fields
 
@@ -170,6 +185,35 @@ spec:
     Authorization: "Bearer sse-token"
     Accept: "text/event-stream"
 ```
+
+#### OAuth-Protected Server with SSO Token Forwarding
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: mcp-kubernetes
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "k8s"
+  description: "Kubernetes MCP server with SSO authentication"
+  url: "https://mcp-kubernetes.example.com/mcp"
+  timeout: 30
+  auth:
+    type: oauth
+    forwardToken: true           # Forward muster's ID token for SSO
+    fallbackToOwnAuth: true      # If forwarding fails, trigger separate auth
+```
+
+When `forwardToken: true` is configured:
+1. User authenticates to muster once via OAuth
+2. When calling this MCP server, muster forwards the user's ID token
+3. The downstream server validates the token (must configure `TrustedAudiences`)
+4. If forwarding fails and `fallbackToOwnAuth: true`, a separate OAuth flow is triggered
+
+Downstream servers must be configured to trust muster's client ID:
+- **mcp-kubernetes**: Set `oauth.trustedAudiences: ["muster-client"]` in Helm values
+- **inboxfewer**: Set `oauthSecurity.trustedAudiences: ["muster-client"]` in Helm values
 
 ### CLI Usage
 
@@ -1016,6 +1060,21 @@ serviceConfig:
           runAsNonRoot: true
           readOnlyRootFilesystem: true
 ```
+
+#### SSO Token Forwarding Security
+
+When using `forwardToken: true` for SSO:
+
+1. **ID Tokens Only**: Muster forwards ID tokens (containing identity claims), not access tokens
+2. **TLS Required**: All communication must be over HTTPS
+3. **Tokens Not Logged**: Tokens are never logged in plaintext
+4. **Downstream Opt-In**: Downstream servers must explicitly configure `TrustedAudiences`
+5. **Constant-Time Comparison**: mcp-oauth uses `subtle.ConstantTimeCompare` for audience matching
+6. **Audit Logging**: Both muster and downstream servers log when cross-client tokens are used
+
+Events emitted for token forwarding:
+- `MCPServerTokenForwarded`: Successful SSO token forwarding
+- `MCPServerTokenForwardingFailed`: Token forwarding failed
 
 ### Error Handling
 

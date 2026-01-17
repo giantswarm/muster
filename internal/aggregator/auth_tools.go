@@ -447,13 +447,10 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 // findTokenWithIDToken searches for a token in the session that has an ID token.
 // This is used as a fallback when the muster issuer is not explicitly configured.
 func findTokenWithIDToken(sessionID string, oauthHandler api.OAuthHandler) *api.OAuthToken {
-	// This is a limitation - we don't have a way to iterate all tokens for a session
-	// through the OAuthHandler interface. In practice, this means token forwarding
-	// works best when there's a single OAuth provider in use.
-	//
-	// The proper solution would be to configure the muster issuer explicitly in
-	// the aggregator configuration.
-	return nil
+	if oauthHandler == nil {
+		return nil
+	}
+	return oauthHandler.FindTokenWithIDToken(sessionID)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

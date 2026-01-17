@@ -44,6 +44,11 @@ type OAuthHandler interface {
 	// Returns nil if no valid token exists or if the token doesn't have an ID token.
 	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
 
+	// FindTokenWithIDToken searches for any token in the session that has an ID token.
+	// This is used as a fallback when the muster issuer is not explicitly configured.
+	// Returns the first token found with an ID token, or nil if none exists.
+	FindTokenWithIDToken(sessionID string) *OAuthToken
+
 	// ClearTokenByIssuer removes all tokens for a given session and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
 	ClearTokenByIssuer(sessionID, issuer string)

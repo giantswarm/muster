@@ -65,6 +65,11 @@ type ServerInfo struct {
 	// Name is the unique identifier for this server within the aggregator
 	Name string
 
+	// Namespace is the Kubernetes namespace for this server.
+	// This is used for event emission and resource references.
+	// Defaults to "default" if not specified.
+	Namespace string
+
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient
 
@@ -141,6 +146,15 @@ func (s *ServerInfo) IsConnected() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Connected
+}
+
+// GetNamespace returns the namespace for this server.
+// Returns "default" if the namespace is not set.
+func (s *ServerInfo) GetNamespace() string {
+	if s.Namespace == "" {
+		return "default"
+	}
+	return s.Namespace
 }
 
 // AggregatorConfig holds configuration args for the aggregator.
