@@ -24,9 +24,13 @@ func NewTableBuilder() *TableBuilder {
 	return &TableBuilder{}
 }
 
-// FormatCellValue formats individual cell values with appropriate styling and icons.
+// FormatCellValue formats individual cell values with ANSI color styling and icons.
 // It applies different formatting rules based on the column name and data type,
 // providing consistent and readable output across all muster tables.
+//
+// NOTE: This method is currently unused as table output uses FormatCellValuePlain
+// for kubectl-style plain text formatting. It is preserved for potential future
+// color output support (e.g., --color=auto|always|never flag).
 //
 // The formatter recognizes common column types and applies appropriate styling:
 //   - Status fields get color-coded icons
@@ -39,7 +43,7 @@ func NewTableBuilder() *TableBuilder {
 //   - value: The raw value to format
 //
 // Returns:
-//   - interface{}: Formatted value with styling applied
+//   - interface{}: Formatted value with ANSI styling applied
 func (b *TableBuilder) FormatCellValue(column string, value interface{}) interface{} {
 	return b.FormatCellValueWithContext(column, value, nil)
 }
@@ -103,9 +107,13 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 	}
 }
 
-// FormatCellValueWithContext formats individual cell values with row context.
+// FormatCellValueWithContext formats individual cell values with ANSI color styling and row context.
 // This allows for context-aware formatting where the display depends on other
 // fields in the same row (e.g., state terminology depends on server type).
+//
+// NOTE: This method is currently unused as table output uses FormatCellValuePlain
+// for kubectl-style plain text formatting. It is preserved for potential future
+// color output support (e.g., --color=auto|always|never flag).
 //
 // Args:
 //   - column: The column name/type to determine formatting rules
@@ -113,7 +121,7 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 //   - rowContext: The full row data for context-aware formatting (may be nil)
 //
 // Returns:
-//   - interface{}: Formatted value with styling applied
+//   - interface{}: Formatted value with ANSI styling applied
 func (b *TableBuilder) FormatCellValueWithContext(column string, value interface{}, rowContext map[string]interface{}) interface{} {
 	if value == nil {
 		return text.Faint.Sprint("-")
@@ -183,8 +191,8 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 			return b.formatObject(obj)
 		}
 		// Default string truncation
-		if len(strValue) > 30 {
-			return strValue[:27] + text.Faint.Sprint("...")
+		if len(strValue) > 50 {
+			return strValue[:47] + text.Faint.Sprint("...")
 		}
 		return strValue
 	}
@@ -497,7 +505,7 @@ func (b *TableBuilder) formatDescription(desc string) interface{} {
 	if len(desc) <= 50 {
 		return desc
 	}
-	return desc[:45] + text.Faint.Sprint("...")
+	return desc[:47] + text.Faint.Sprint("...")
 }
 
 // formatType adds subtle styling to type information.

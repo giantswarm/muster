@@ -101,6 +101,11 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 	}
 
 	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%d tools\n", len(tools))
+	}
 	return nil
 }
 
@@ -157,6 +162,11 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 	}
 
 	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%d resources\n", len(resources))
+	}
 	return nil
 }
 
@@ -202,6 +212,11 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 	}
 
 	tw.Render()
+
+	// Print summary unless headers are suppressed (implies scripting mode)
+	if !noHeaders {
+		fmt.Printf("\n%d prompts\n", len(prompts))
+	}
 	return nil
 }
 

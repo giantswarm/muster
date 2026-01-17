@@ -198,6 +198,10 @@ Filtering (for MCP primitives only: tool, resource, prompt):
   --description <text>     - Filter by description content (case-insensitive substring)
   --server <name>          - Filter by server name prefix (e.g., "github", "core")
 
+Output options:
+  --output/-o <format>     - Output format: table (default), json, yaml
+  --no-headers             - Suppress header row in table output (useful for scripting)
+
 Examples:
   muster list service
   muster list workflow
@@ -208,6 +212,7 @@ Examples:
   muster list tools --server github
   muster list tools --filter "*service*" --description "status"
   muster list resources --output yaml
+  muster list mcpservers --no-headers | awk '{print $1}'
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args:                  cobra.ExactArgs(1),
