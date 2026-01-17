@@ -17,7 +17,6 @@ import (
 	"muster/internal/oauth"
 	"muster/internal/server"
 	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -1529,124 +1528,6 @@ func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverNa
 					"  core_auth_login with server='%s'\n\n"+
 					"This provides a unified authentication experience across all MCP servers.",
 				serverName,
-			)),
-		},
-		IsError: false,
-	}, nil
-}
-
-// handleSyntheticAuthToolLegacy is the original implementation kept for reference.
-// This will be removed in a future version.
-func (a *AggregatorServer) handleSyntheticAuthToolLegacy(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
-	logging.Info("Aggregator", "Handling synthetic auth tool for server: %s", serverName)
-
-	// Get server info
-	serverInfo, exists := a.registry.GetServerInfo(serverName)
-	if !exists {
-		return nil, fmt.Errorf("server %s not found", serverName)
-	}
-
-	if serverInfo.Status != StatusAuthRequired {
-		return nil, fmt.Errorf("server %s is not in auth_required state", serverName)
-	}
-
-	// Check if OAuth handler is available
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return mcp.NewToolResultError(fmt.Sprintf(
-			"OAuth is not configured. Server %s requires authentication but OAuth proxy is not enabled. "+
-				"Enable OAuth proxy in the configuration to authenticate to remote MCP servers.",
-			serverName,
-		)), nil
-	}
-
-	// Get session ID from context (if available) or use a default
-	sessionID := getSessionIDFromContext(ctx)
-
-	// Get the auth info for this server
-	authInfo := serverInfo.AuthInfo
-	if authInfo == nil {
-		authInfo = &AuthInfo{}
-	}
-
-	// If issuer or scope is empty, try to discover it from the server's resource metadata
-	if (authInfo.Issuer == "" || authInfo.Scope == "") && serverInfo.URL != "" {
-		metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL)
-		if err != nil {
-			logging.Warn("Aggregator", "Failed to discover protected resource metadata for %s: %v", serverName, err)
-		} else {
-			if authInfo.Issuer == "" {
-				authInfo.Issuer = metadata.Issuer
-				logging.Info("Aggregator", "Discovered authorization server for %s: %s", serverName, metadata.Issuer)
-			}
-			if authInfo.Scope == "" && metadata.Scope != "" {
-				authInfo.Scope = metadata.Scope
-				logging.Info("Aggregator", "Discovered required scope for %s: %s", serverName, metadata.Scope)
-			}
-		}
-	}
-
-	// If still empty, we can't proceed
-	if authInfo.Issuer == "" {
-		return mcp.NewToolResultError(fmt.Sprintf(
-			"Cannot authenticate to %s: unable to discover OAuth authorization server. "+
-				"The server's /.well-known/oauth-protected-resource endpoint may not be available.",
-			serverName,
-		)), nil
-	}
-
-	// Check if we already have a valid token for this server/issuer
-	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
-	if token != nil {
-		logging.Info("Aggregator", "Found existing token for server %s, attempting to connect", serverName)
-
-		// Try to establish connection using the existing token
-		// Pass issuer and scope to enable dynamic token refresh
-		connectResult, connectErr := a.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
-		if connectErr == nil {
-			// Connection successful
-			return connectResult, nil
-		}
-
-		// Check if the error is a 401 - token is expired/invalid
-		// Uses structured 401 detection (ADR-008) instead of string matching
-		if pkgoauth.Is401Error(connectErr) {
-			logging.Info("Aggregator", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			// Clear the invalid token before requesting fresh authentication
-			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
-			// Token is invalid - fall through to create a fresh auth challenge
-		} else {
-			// Some other error - report it
-			logging.Error("Aggregator", connectErr, "Failed to connect to server %s with existing token", serverName)
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"Failed to connect to %s: %v\n\nPlease try again or check the server status.",
-				serverName, connectErr,
-			)), nil
-		}
-	}
-
-	// No token - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
-	if err != nil {
-		logging.Error("Aggregator", err, "Failed to create auth challenge for server %s", serverName)
-		return mcp.NewToolResultError(fmt.Sprintf(
-			"Failed to create authentication challenge: %v", err,
-		)), nil
-	}
-
-	// Return the auth challenge as a tool result with the sign-in link
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(fmt.Sprintf(
-				"Authentication Required\n\n"+
-					"Server: %s\n"+
-					"Status: %s\n\n"+
-					"Please sign in to connect to this server:\n\n"+
-					"%s\n\n"+
-					"After signing in, run this tool again to complete the connection.",
-				serverName,
-				challenge.Message,
-				challenge.AuthURL,
 			)),
 		},
 		IsError: false,
