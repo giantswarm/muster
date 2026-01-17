@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"muster/internal/cli"
-	"muster/internal/config"
 	"os"
 	"strconv"
 	"strings"
@@ -12,14 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	createOutputFormat string
-	createQuiet        bool
-	createConfigPath   string
-	createEndpoint     string
-	createContext      string
-	createAuthMode     string
-)
+var createFlags cli.CommandFlags
 
 // Available resource types for create operations
 var createResourceTypes = []string{
@@ -39,7 +31,7 @@ func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toCompl
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormatJSON,
 		Quiet:      true,
-		ConfigPath: createConfigPath,
+		ConfigPath: createFlags.ConfigPath,
 	})
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -117,14 +109,7 @@ var createResourceMappings = map[string]string{
 
 func init() {
 	rootCmd.AddCommand(createCmd)
-
-	// Add flags to the command
-	createCmd.PersistentFlags().StringVarP(&createOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
-	createCmd.PersistentFlags().BoolVarP(&createQuiet, "quiet", "q", false, "Suppress non-essential output")
-	createCmd.PersistentFlags().StringVar(&createConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	createCmd.PersistentFlags().StringVar(&createEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
-	createCmd.PersistentFlags().StringVar(&createContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	createCmd.PersistentFlags().StringVar(&createAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	cli.RegisterCommonFlags(createCmd, &createFlags)
 }
 
 // parseServiceParameters extracts service parameters from raw command line arguments
@@ -319,20 +304,12 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 func runCreate(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 
-	// Parse auth mode (uses environment variable as default if not specified)
-	authMode, err := cli.GetAuthModeWithOverride(createAuthMode)
+	opts, err := createFlags.ToExecutorOptions()
 	if err != nil {
 		return err
 	}
 
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormat(createOutputFormat),
-		Quiet:      createQuiet,
-		ConfigPath: createConfigPath,
-		Endpoint:   createEndpoint,
-		Context:    createContext,
-		AuthMode:   authMode,
-	})
+	executor, err := cli.NewToolExecutor(opts)
 	if err != nil {
 		return err
 	}
