@@ -19,6 +19,14 @@ import (
 // jwtHeader is the pre-computed base64-encoded JWT header for unsigned tokens.
 // We use "none" algorithm since this is for testing only.
 // Value: base64url({"alg":"none","typ":"JWT"})
+//
+// SECURITY WARNING: This generates unsigned JWTs with alg:none for TESTING ONLY.
+// Production OAuth servers and downstream MCP servers MUST:
+//  1. Use proper cryptographic signing (RS256, ES256, etc.)
+//  2. Explicitly reject tokens with alg:none to prevent signature bypass attacks
+//  3. Validate token signatures against the IdP's JWKS endpoint
+//
+// If you see alg:none tokens in production, it indicates a security misconfiguration.
 const jwtHeader = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
 
 // idTokenClaims represents the claims in an ID token.
@@ -742,8 +750,13 @@ func generateOpaqueToken() string {
 }
 
 // generateIDToken generates a mock JWT ID token for testing.
-// The token is unsigned (alg: none) since this is for testing only.
-// Real production environments should use proper signing.
+//
+// SECURITY WARNING: This generates UNSIGNED tokens (alg: none) for TESTING ONLY.
+// These tokens have no cryptographic signature and MUST NOT be used in production.
+// Production environments MUST:
+//   - Use proper JWT signing (RS256, ES256)
+//   - Reject tokens with alg: none
+//   - Verify signatures against the IdP's JWKS
 func (s *OAuthServer) generateIDToken(clientID, scope string) string {
 	now := s.clock.Now()
 

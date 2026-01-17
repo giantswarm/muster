@@ -97,7 +97,7 @@ status:
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
-| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding fails | Default: `false` |
+| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding fails | Default: `true` |
 
 #### Status Fields
 
