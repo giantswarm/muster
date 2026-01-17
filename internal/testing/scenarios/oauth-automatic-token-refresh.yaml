@@ -92,10 +92,12 @@ steps:
 
   # Step 4: Establish session connection
   # This creates a DynamicAuthClient with SessionTokenProvider
+  # Per ADR-008: Use core_auth_login instead of synthetic auth tools
   - id: establish-connection
     description: "Establish authenticated session connection to the protected server"
-    tool: "x_refresh-protected-server_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "refresh-protected-server"
     expected:
       success: true
 

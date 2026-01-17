@@ -15,7 +15,7 @@ func TestBuildAuthNotification_SingleServer(t *testing.T) {
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
 			Scope:    "openid",
-			AuthTool: "x_gitlab_authenticate",
+			AuthTool: "core_auth_login",
 		},
 	}
 
@@ -27,7 +27,7 @@ func TestBuildAuthNotification_SingleServer(t *testing.T) {
 	}
 
 	// Should contain the auth tool
-	if !strings.Contains(notification, "x_gitlab_authenticate") {
+	if !strings.Contains(notification, "core_auth_login") {
 		t.Error("notification should contain auth tool name")
 	}
 
@@ -48,13 +48,13 @@ func TestBuildAuthNotification_MultipleServersWithSSO(t *testing.T) {
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
 			Scope:    "openid",
-			AuthTool: "x_gitlab_authenticate",
+			AuthTool: "core_auth_login",
 		},
 		{
 			Server:   "jira",
 			Issuer:   "https://dex.example.com", // Same issuer = SSO
 			Scope:    "openid",
-			AuthTool: "x_jira_authenticate",
+			AuthTool: "core_auth_login",
 		},
 	}
 
@@ -85,13 +85,13 @@ func TestBuildAuthNotification_MultipleServersDifferentIssuers(t *testing.T) {
 			Server:   "gitlab",
 			Issuer:   "https://dex.example.com",
 			Scope:    "openid",
-			AuthTool: "x_gitlab_authenticate",
+			AuthTool: "core_auth_login",
 		},
 		{
 			Server:   "github",
 			Issuer:   "https://github.com/oauth", // Different issuer
 			Scope:    "repo",
-			AuthTool: "x_github_authenticate",
+			AuthTool: "core_auth_login",
 		},
 	}
 
@@ -117,7 +117,7 @@ func TestBuildAuthNotification_EmptyIssuer(t *testing.T) {
 			Server:   "legacy-server",
 			Issuer:   "", // No issuer
 			Scope:    "",
-			AuthTool: "x_legacy-server_authenticate",
+			AuthTool: "core_auth_login",
 		},
 	}
 
@@ -139,7 +139,7 @@ func TestAuthRequiredInfo_JSON(t *testing.T) {
 		Server:   "test-server",
 		Issuer:   "https://idp.example.com",
 		Scope:    "openid profile",
-		AuthTool: "x_test-server_authenticate",
+		AuthTool: "core_auth_login",
 	}
 
 	// Verify fields are accessible
@@ -217,7 +217,7 @@ func TestWrapToolResultWithAuth_WithAuthRequired(t *testing.T) {
 					Server:   "gitlab",
 					Issuer:   "https://dex.example.com",
 					Scope:    "openid",
-					AuthTool: "x_gitlab_authenticate",
+					AuthTool: "core_auth_login",
 				},
 			},
 		},
@@ -286,13 +286,13 @@ func TestWrapToolResultWithAuth_MetaFieldStructure(t *testing.T) {
 					Server:   "gitlab",
 					Issuer:   "https://dex.example.com",
 					Scope:    "openid",
-					AuthTool: "x_gitlab_authenticate",
+					AuthTool: "core_auth_login",
 				},
 				{
 					Server:   "jira",
 					Issuer:   "https://dex.example.com",
 					Scope:    "openid profile",
-					AuthTool: "x_jira_authenticate",
+					AuthTool: "core_auth_login",
 				},
 			},
 		},
@@ -373,7 +373,7 @@ func TestWrapToolResultWithAuth_PreservesExistingMeta(t *testing.T) {
 				{
 					Server:   "test-server",
 					Issuer:   "https://idp.example.com",
-					AuthTool: "x_test-server_authenticate",
+					AuthTool: "core_auth_login",
 				},
 			},
 		},

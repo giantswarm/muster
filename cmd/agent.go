@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"muster/internal/cli"
 	"muster/internal/config"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -486,22 +484,15 @@ type failedServer struct {
 // and automatically triggers the OAuth flow for each one. Since they typically share
 // the same IdP (Dex), the browser session from Muster auth will provide SSO.
 func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger *agent.Logger) {
-	// Get all tools from the cache (already populated by upgradeToConnectedServer)
-	tools := client.GetToolCache()
-	if len(tools) == 0 {
-		logger.Info("SSO chain skipped: no tools available in cache")
-		return
-	}
+	// Get servers requiring auth from the auth://status resource
+	pendingServers := client.GetAuthRequired()
 
-	// Find all authenticate_* tools (excluding authenticate_muster)
-	pendingAuthTools := findPendingAuthTools(tools)
-
-	if len(pendingAuthTools) == 0 {
+	if len(pendingServers) == 0 {
 		logger.Info("SSO chain skipped: no remote servers require authentication")
 		return
 	}
 
-	logger.Info("Found %d remote server(s) requiring authentication, starting SSO chain...", len(pendingAuthTools))
+	logger.Info("Found %d remote server(s) requiring authentication, starting SSO chain...", len(pendingServers))
 
 	// Track results for summary
 	var successCount, failureCount int
@@ -509,7 +500,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 
 	// Trigger auth for each pending server sequentially, waiting for completion
 	// This ensures SSO cookies are available for subsequent flows
-	for i, toolName := range pendingAuthTools {
+	for i, srv := range pendingServers {
 		select {
 		case <-ctx.Done():
 			logger.Info("SSO chain cancelled")
@@ -517,13 +508,15 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		default:
 		}
 
-		serverName := extractServerNameFromAuthTool(toolName)
-		logger.Info("[%d/%d] Authenticating with %s...", i+1, len(pendingAuthTools), serverName)
+		serverName := srv.Server
+		logger.Info("[%d/%d] Authenticating with %s...", i+1, len(pendingServers), serverName)
 
-		// Call the authenticate tool to get the auth URL
-		result, err := client.CallTool(ctx, toolName, nil)
+		// Call core_auth_login with the server name as argument
+		result, err := client.CallTool(ctx, "core_auth_login", map[string]interface{}{
+			"server": serverName,
+		})
 		if err != nil {
-			logger.Error("Failed to call %s: %v", toolName, err)
+			logger.Error("Failed to call core_auth_login for %s: %v", serverName, err)
 			failureCount++
 			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
 			continue
@@ -532,7 +525,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 		// Extract the auth URL from the result
 		authURL := extractAuthURL(result)
 		if authURL == "" {
-			logger.Error("Could not extract auth URL from %s response", toolName)
+			logger.Error("Could not extract auth URL from core_auth_login response for %s", serverName)
 			failureCount++
 			failedServers = append(failedServers, failedServer{name: serverName, url: ""})
 			continue
@@ -558,7 +551,7 @@ func triggerPendingRemoteAuth(ctx context.Context, client *agent.Client, logger 
 	}
 
 	// Log summary with accurate counts
-	total := len(pendingAuthTools)
+	total := len(pendingServers)
 	if failureCount == 0 {
 		logger.Success("SSO chain complete - %d/%d servers authenticated", successCount, total)
 	} else if successCount > 0 {
@@ -601,51 +594,23 @@ func waitForServerConnection(ctx context.Context, client *agent.Client, serverNa
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for %s to authenticate\n\nPlease complete authentication in your browser, then run:\n  muster auth login --server %s", serverName, serverName)
 		case <-ticker.C:
-			// Check if the server is now connected by looking at the tool cache
-			// If the authenticate tool is gone, the server has connected
-			tools := client.GetToolCache()
-			authToolName := "x_" + serverName + "_authenticate"
-			authToolExists := false
-			for _, tool := range tools {
-				if tool.Name == authToolName {
-					authToolExists = true
+			// Check if the server is still in auth_required state using the auth://status resource
+			pendingServers := client.GetAuthRequired()
+			stillPending := false
+			for _, srv := range pendingServers {
+				if srv.Server == serverName {
+					stillPending = true
 					break
 				}
 			}
-			if !authToolExists {
-				// Auth tool is gone - server has connected
+			if !stillPending {
+				// Server is no longer in auth_required state - it has connected
 				logger.Debug("%s connection confirmed", serverName)
 				return nil
 			}
-			// Still waiting - auth tool still present
+			// Still waiting - server still requires auth
 		}
 	}
-}
-
-// findPendingAuthTools finds all authentication tools for remote MCP servers.
-// These are synthetic tools exposed by the aggregator for servers in auth_required state.
-// Tool names follow the pattern: x_<serverName>_authenticate
-func findPendingAuthTools(tools []mcp.Tool) []string {
-	var pendingAuthTools []string
-	for _, tool := range tools {
-		// Match tools that end with "_authenticate" (e.g., x_mcp-kubernetes_authenticate)
-		// but exclude authenticate_muster which is the synthetic tool for local Muster auth
-		if strings.HasSuffix(tool.Name, "_authenticate") && tool.Name != "authenticate_muster" {
-			pendingAuthTools = append(pendingAuthTools, tool.Name)
-		}
-	}
-	return pendingAuthTools
-}
-
-// extractServerNameFromAuthTool extracts the server name from an auth tool name.
-// Tool names follow the pattern: x_<serverName>_authenticate
-// Example: "x_mcp-kubernetes_authenticate" -> "mcp-kubernetes"
-func extractServerNameFromAuthTool(toolName string) string {
-	// Remove the "_authenticate" suffix
-	name := strings.TrimSuffix(toolName, "_authenticate")
-	// Remove the "x_" prefix if present
-	name = strings.TrimPrefix(name, "x_")
-	return name
 }
 
 // connectWithRetry attempts to connect to the aggregator with retry logic

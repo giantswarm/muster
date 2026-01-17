@@ -50,11 +50,12 @@ steps:
       contains:
         - "pre-auth-server"
 
-  # Step 3: Verify authenticate tool is available and returns auth URL
+  # Step 3: Verify core_auth_login returns auth URL (per ADR-008)
   - id: call-authenticate-tool
-    description: "Authenticate tool should be available and return auth URL"
-    tool: "x_pre-auth-server_authenticate"
-    args: {}
+    description: "core_auth_login should return auth URL for unauthenticated server"
+    tool: "core_auth_login"
+    args:
+      server: "pre-auth-server"
     expected:
       success: true
       contains:
@@ -71,13 +72,14 @@ steps:
       contains:
         - "success"
 
-  # Step 5: Call authenticate again to establish the session connection
-  # After callback, the token is stored. Calling authenticate again
-  # triggers the aggregator to use the stored token.
+  # Step 5: Call core_auth_login again to establish the session connection
+  # After callback, the token is stored. Calling core_auth_login again
+  # triggers the aggregator to use the stored token (per ADR-008).
   - id: establish-connection
-    description: "Call authenticate to establish session connection with stored token"
-    tool: "x_pre-auth-server_authenticate"
-    args: {}
+    description: "Call core_auth_login to establish session connection with stored token"
+    tool: "core_auth_login"
+    args:
+      server: "pre-auth-server"
     expected:
       success: true
 

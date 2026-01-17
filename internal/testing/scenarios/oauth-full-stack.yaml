@@ -137,11 +137,12 @@ steps:
       contains:
         - "success"
 
-  # Step 5: Establish connection using stored token
+  # Step 5: Establish connection using stored token (per ADR-008)
   - id: establish-kubernetes-connection
-    description: "Call authenticate to establish session connection with stored token"
-    tool: "x_kubernetes-mcp_authenticate"
-    args: {}
+    description: "Call core_auth_login to establish session connection with stored token"
+    tool: "core_auth_login"
+    args:
+      server: "kubernetes-mcp"
     expected:
       success: true
       contains:
@@ -181,12 +182,13 @@ steps:
         - "Running"
 
   # Step 9: Authenticate to github-mcp (SSO should detect existing token for same issuer)
-  # When calling authenticate for github-mcp, it should find an existing token for
-  # the enterprise-idp issuer and automatically establish the connection.
+  # When calling core_auth_login for github-mcp, it should find an existing token for
+  # the enterprise-idp issuer and automatically establish the connection (per ADR-008).
   - id: authenticate-github-sso
-    description: "Authenticate to github-mcp - SSO should use existing token"
-    tool: "x_github-mcp_authenticate"
-    args: {}
+    description: "core_auth_login for github-mcp - SSO should use existing token"
+    tool: "core_auth_login"
+    args:
+      server: "github-mcp"
     expected:
       success: true
       contains:

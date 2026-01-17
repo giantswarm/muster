@@ -625,15 +625,14 @@ func (m *musterInstanceManager) extractExpectedTools(config *MusterPreConfigurat
 
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
-		// For OAuth-protected servers, expect the synthetic authenticate tool
-		// instead of the actual server tools (which won't be available until authenticated)
+		// For OAuth-protected servers, no tools are exposed until authenticated (per ADR-008)
+		// Users must use core_auth_login to authenticate, which is always available as a core tool
 		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
 		if oauthConfig != nil && oauthConfig.Required {
-			// Add the synthetic authenticate tool to expected tools
-			authenticateTool := fmt.Sprintf("x_%s_authenticate", mcpServer.Name)
-			expectedTools = append(expectedTools, authenticateTool)
+			// Per ADR-008: No synthetic auth tools are exposed
+			// The core_auth_login tool is always available as part of core tools
 			if m.debug {
-				m.logger.Debug("🔐 Added synthetic authenticate tool for OAuth-protected server %s: %s\n", mcpServer.Name, authenticateTool)
+				m.logger.Debug("🔐 OAuth-protected server %s: no tools until authenticated (use core_auth_login)\n", mcpServer.Name)
 			}
 			continue
 		}
@@ -1339,16 +1338,13 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 
 	// Extract tools from MCP server configurations
 	for _, mcpServer := range config.MCPServers {
-		// For OAuth-protected servers, expect the synthetic authenticate tool
-		// instead of the actual server tools (which won't be available until authenticated)
+		// For OAuth-protected servers, no tools are exposed until authenticated (per ADR-008)
+		// Users must use core_auth_login to authenticate
 		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
 		if oauthConfig != nil && oauthConfig.Required {
-			// Add the synthetic authenticate tool to expected tools
-			// This ensures we wait for it to be registered before running tests
-			authenticateTool := fmt.Sprintf("x_%s_authenticate", mcpServer.Name)
-			expectedTools = append(expectedTools, authenticateTool)
+			// Per ADR-008: No synthetic auth tools - core_auth_login is always available
 			if m.debug {
-				m.logger.Debug("🔐 Added synthetic authenticate tool for OAuth-protected server %s: %s\n", mcpServer.Name, authenticateTool)
+				m.logger.Debug("🔐 OAuth-protected server %s: no tools until authenticated (use core_auth_login)\n", mcpServer.Name)
 			}
 			continue
 		}

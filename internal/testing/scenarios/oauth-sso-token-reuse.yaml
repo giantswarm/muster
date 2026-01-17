@@ -84,11 +84,12 @@ steps:
       contains:
         - "success"
 
-  # Step 4: Call authenticate again to establish connection with stored token
+  # Step 4: Call core_auth_login to establish connection with stored token (per ADR-008)
   - id: establish-connection-a
     description: "Establish session connection for server-a"
-    tool: "x_sso-server-a_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "sso-server-a"
     expected:
       success: true
 
@@ -102,7 +103,7 @@ steps:
       contains:
         - "server-a"
 
-  # Step 6: Call authenticate on server-b
+  # Step 6: Call core_auth_login on server-b (per ADR-008)
   # Because both servers use "shared-idp", the aggregator should:
   # 1. Call GetTokenByIssuer(sessionID, "shared-idp") 
   # 2. Find the token we stored when authenticating to server-a
@@ -110,8 +111,9 @@ steps:
   # 4. Return "Successfully connected" without requiring new auth
   - id: sso-authenticate-server-b
     description: "SSO should detect existing token for same issuer"
-    tool: "x_sso-server-b_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "sso-server-b"
     expected:
       success: true
 

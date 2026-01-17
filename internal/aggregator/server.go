@@ -1006,81 +1006,14 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 	}
 }
 
-// RegisterSyntheticAuthToolSync synchronously registers the synthetic auth tool for a pending auth server.
-// This is called immediately after RegisterPendingAuth to prevent race conditions where clients
-// try to call the authenticate tool before the async update has processed.
+// RegisterSyntheticAuthToolSync is deprecated and does nothing.
+// Per ADR-008, synthetic auth tools are no longer created. Use core_auth_login instead.
 //
-// This method uses a write lock to ensure that concurrent registrations from multiple
-// OAuth servers don't interfere with each other when calling AddTools on the MCP server.
-//
-// Args:
-//   - serverName: Name of the server that requires authentication
+// Deprecated: Synthetic auth tools are no longer used. This function is kept for
+// backward compatibility and will be removed in a future version.
 func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
-	logging.Info("Aggregator", "RegisterSyntheticAuthToolSync called for server %s", serverName)
-
-	// Use write lock to prevent concurrent AddTools calls from interfering with each other
-	// This is critical when multiple OAuth servers are being registered simultaneously
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	mcpServer := a.mcpServer
-	if mcpServer == nil {
-		logging.Warn("Aggregator", "RegisterSyntheticAuthToolSync: mcpServer is nil for %s", serverName)
-		return
-	}
-
-	// Get server info to access the synthetic auth tool
-	serverInfo, exists := a.registry.GetServerInfo(serverName)
-	if !exists || serverInfo == nil {
-		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s not found", serverName)
-		return
-	}
-
-	if serverInfo.Status != StatusAuthRequired {
-		logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync: server %s is not in auth_required state", serverName)
-		return
-	}
-
-	// Get the tools from server info (should contain the synthetic auth tool)
-	serverInfo.mu.RLock()
-	tools := make([]mcp.Tool, len(serverInfo.Tools))
-	copy(tools, serverInfo.Tools)
-	serverInfo.mu.RUnlock()
-
-	var toolsToAdd []mcpserver.ServerTool
-	for _, tool := range tools {
-		// Apply the standard tool name prefixing
-		exposedName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
-
-		// Check if already registered
-		if a.toolManager.isActive(exposedName) {
-			continue
-		}
-
-		// Mark as active
-		a.toolManager.setActive(exposedName, true)
-
-		// Create the tool with a handler
-		serverTool := mcpserver.ServerTool{
-			Tool: mcp.Tool{
-				Name:        exposedName,
-				Description: tool.Description,
-				InputSchema: tool.InputSchema,
-			},
-			Handler: toolHandlerFactory(a, exposedName),
-		}
-		toolsToAdd = append(toolsToAdd, serverTool)
-	}
-
-	if len(toolsToAdd) > 0 {
-		logging.Info("Aggregator", "Synchronously registering %d synthetic auth tools for server %s", len(toolsToAdd), serverName)
-		for _, t := range toolsToAdd {
-			logging.Info("Aggregator", "  - Registering tool: %s", t.Tool.Name)
-		}
-		mcpServer.AddTools(toolsToAdd...)
-	} else {
-		logging.Info("Aggregator", "RegisterSyntheticAuthToolSync: no tools to add for %s (already registered or no tools)", serverName)
-	}
+	// ADR-008: No more synthetic auth tools
+	logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync is deprecated, use core_auth_login instead (server: %s)", serverName)
 }
 
 // NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
@@ -1264,7 +1197,8 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 		"core_serviceclass_",
 		"core_mcpserver_",
 		"core_events",
-		"workflow_", // Direct workflow execution tools
+		"core_auth_", // Authentication tools (core_auth_login, core_auth_logout)
+		"workflow_",  // Direct workflow execution tools
 	}
 
 	for _, prefix := range coreToolPrefixes {
@@ -1425,6 +1359,15 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 		}
 		return nil, fmt.Errorf("event manager does not implement ToolProvider interface")
 
+	case strings.HasPrefix(originalToolName, "auth_"):
+		// Authentication operations (auth_login, auth_logout)
+		authProvider := NewAuthToolProvider(a)
+		result, err := authProvider.ExecuteTool(ctx, originalToolName, args)
+		if err != nil {
+			return nil, err
+		}
+		return convertToMCPResult(result), nil
+
 	default:
 		return nil, fmt.Errorf("no handler found for core tool: %s", originalToolName)
 	}
@@ -1564,22 +1507,37 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 	}
 }
 
-// handleSyntheticAuthTool handles calls to synthetic authentication tools.
-// These are placeholder tools created for servers that require OAuth authentication
-// before they can complete the MCP protocol handshake.
+// handleSyntheticAuthTool is deprecated and should not be used.
+// Per ADR-008, synthetic authentication tools are no longer created.
+// Users should use core_auth_login with a server parameter instead.
 //
-// The flow:
-//  1. Check if we already have a valid token (user might have authenticated via browser)
-//  2. If token exists, attempt to re-initialize the server
-//  3. If successful, upgrade the server to connected status and return success
-//  4. If no token or reinit fails, create an auth challenge for the user
+// Deprecated: Use core_auth_login tool instead. This function is kept for
+// backward compatibility but will be removed in a future version.
 //
 // Args:
 //   - ctx: Context for the operation
 //   - serverName: Name of the server requiring authentication
 //
-// Returns a success message if authentication/connection succeeds, or an auth challenge error.
+// Returns a success message pointing users to core_auth_login.
 func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
+	// ADR-008: Redirect users to core_auth_login
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(fmt.Sprintf(
+				"Deprecated: This authentication method is no longer supported.\n\n"+
+					"Please use the core_auth_login tool instead:\n"+
+					"  core_auth_login with server='%s'\n\n"+
+					"This provides a unified authentication experience across all MCP servers.",
+				serverName,
+			)),
+		},
+		IsError: false,
+	}, nil
+}
+
+// handleSyntheticAuthToolLegacy is the original implementation kept for reference.
+// This will be removed in a future version.
+func (a *AggregatorServer) handleSyntheticAuthToolLegacy(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
 	logging.Info("Aggregator", "Handling synthetic auth tool for server: %s", serverName)
 
 	// Get server info

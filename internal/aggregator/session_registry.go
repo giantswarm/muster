@@ -461,6 +461,19 @@ func (s *SessionState) SetConnection(serverName string, conn *SessionConnection)
 	s.LastActivity = time.Now()
 }
 
+// RemoveConnection removes the session's connection to a specific server.
+// This is used when logging out from a server or when a connection becomes invalid.
+func (s *SessionState) RemoveConnection(serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.Connections, serverName)
+	s.LastActivity = time.Now()
+
+	logging.Debug("SessionRegistry", "Removed connection for session=%s server=%s",
+		logging.TruncateSessionID(s.SessionID), serverName)
+}
+
 // UpgradeConnection upgrades a connection from pending_auth to connected.
 //
 // This method validates the connection state before upgrading:

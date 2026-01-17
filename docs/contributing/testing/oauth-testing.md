@@ -220,8 +220,9 @@ steps:
       error_contains: ["authentication required"]
 
   - id: authenticate
-    tool: "x_protected-server_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "protected-server"
     expected:
       success: true
       contains: ["http"]
@@ -296,8 +297,9 @@ steps:
 
   # SSO should work for second server
   - id: sso-authenticate-server-b
-    tool: "x_sso-server-b_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "sso-server-b"
     expected:
       success: true
       contains: ["Successfully connected"]

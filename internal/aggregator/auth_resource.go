@@ -79,8 +79,8 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 				// Session has not authenticated - include auth tool info
 				status.Issuer = info.AuthInfo.Issuer
 				status.Scope = info.AuthInfo.Scope
-				// The auth tool name follows the pattern: x_<server>_authenticate
-				status.AuthTool = a.registry.nameTracker.GetExposedToolName(name, "authenticate")
+				// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
+				status.AuthTool = "core_auth_login"
 			}
 		} else if info.IsConnected() {
 			status.Status = "connected"

@@ -56,11 +56,12 @@ steps:
       contains:
         - "success"
 
-  # Step 3: Establish connection
+  # Step 3: Establish connection (per ADR-008)
   - id: establish-connection
     description: "Establish session connection"
-    tool: "x_expiry-server_authenticate"
-    args: {}
+    tool: "core_auth_login"
+    args:
+      server: "expiry-server"
     expected:
       success: true
 
