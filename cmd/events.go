@@ -15,6 +15,7 @@ import (
 var (
 	eventsOutputFormat string
 	eventsQuiet        bool
+	eventsDebug        bool
 	eventsConfigPath   string
 	eventsResourceType string
 	eventsResourceName string
@@ -94,6 +95,7 @@ func init() {
 	// Add flags to the command
 	eventsCmd.PersistentFlags().StringVarP(&eventsOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	eventsCmd.PersistentFlags().BoolVarP(&eventsQuiet, "quiet", "q", false, "Suppress non-essential output")
+	eventsCmd.PersistentFlags().BoolVar(&eventsDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	eventsCmd.PersistentFlags().StringVar(&eventsConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 
 	// Filtering flags
@@ -181,6 +183,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(eventsOutputFormat),
 		Quiet:      eventsQuiet,
+		Debug:      eventsDebug,
 		ConfigPath: eventsConfigPath,
 		Endpoint:   eventsEndpoint,
 		Context:    eventsContext,

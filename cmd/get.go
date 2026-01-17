@@ -15,6 +15,7 @@ import (
 var (
 	getOutputFormat string
 	getQuiet        bool
+	getDebug        bool
 	getConfigPath   string
 	getEndpoint     string
 	getContext      string
@@ -258,6 +259,7 @@ func init() {
 	// Add flags to the command
 	getCmd.PersistentFlags().StringVarP(&getOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	getCmd.PersistentFlags().BoolVarP(&getQuiet, "quiet", "q", false, "Suppress non-essential output")
+	getCmd.PersistentFlags().BoolVar(&getDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	getCmd.PersistentFlags().StringVar(&getConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	getCmd.PersistentFlags().StringVar(&getEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	getCmd.PersistentFlags().StringVar(&getContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
@@ -288,6 +290,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(getOutputFormat),
 		Quiet:      getQuiet,
+		Debug:      getDebug,
 		ConfigPath: getConfigPath,
 		Endpoint:   getEndpoint,
 		Context:    getContext,
@@ -330,6 +333,7 @@ func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(getOutputFormat),
 		Quiet:      getQuiet,
+		Debug:      getDebug,
 		ConfigPath: getConfigPath,
 		Endpoint:   getEndpoint,
 		Context:    getContext,
