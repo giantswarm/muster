@@ -10,7 +10,7 @@ import (
 // to a muster aggregator. This struct consolidates the repetitive flag pattern used
 // by commands like get, list, check, start, stop, create, and events.
 type CommandFlags struct {
-	// OutputFormat specifies the desired output format (table, json, yaml, wide)
+	// OutputFormat specifies the desired output format (table, json, yaml)
 	OutputFormat string
 	// NoHeaders suppresses the header row in table output
 	NoHeaders bool
@@ -33,7 +33,7 @@ type CommandFlags struct {
 // and ensures consistent flag naming and descriptions.
 //
 // The registered flags are:
-//   - --output/-o: Output format (table, json, yaml, wide), default: "table"
+//   - --output/-o: Output format (table, json, yaml), default: "table"
 //   - --no-headers: Suppress header row in table output
 //   - --quiet/-q: Suppress non-essential output
 //   - --debug: Enable debug logging (show MCP protocol messages)
@@ -42,7 +42,7 @@ type CommandFlags struct {
 //   - --context: Use a specific context (env: MUSTER_CONTEXT)
 //   - --auth: Authentication mode (env: MUSTER_AUTH_MODE)
 func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
-	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml, wide)")
+	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	cmd.PersistentFlags().BoolVar(&flags.NoHeaders, "no-headers", false, "Suppress header row in table output")
 	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
 	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false, "Enable debug logging (show MCP protocol messages)")

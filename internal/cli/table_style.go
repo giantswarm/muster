@@ -81,6 +81,11 @@ func (w *PlainTableWriter) Render() {
 		return
 	}
 
+	// Don't output anything if no rows and headers are suppressed
+	if len(w.rows) == 0 && !w.showHeaders {
+		return
+	}
+
 	// Print headers if enabled
 	if w.showHeaders {
 		w.printRow(w.headers)
@@ -106,9 +111,4 @@ func (w *PlainTableWriter) printRow(row []string) {
 		}
 	}
 	fmt.Fprintln(w.output, strings.TrimRight(sb.String(), " "))
-}
-
-// RowCount returns the number of data rows (excluding headers).
-func (w *PlainTableWriter) RowCount() int {
-	return len(w.rows)
 }
