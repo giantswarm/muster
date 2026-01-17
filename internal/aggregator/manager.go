@@ -382,10 +382,8 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 		return err
 	}
 
-	// Immediately register the synthetic auth tool with the MCP server
-	// This prevents race conditions where clients call the tool before
-	// the async update has processed
-	am.aggregatorServer.RegisterSyntheticAuthToolSync(serverName)
+	// Per ADR-008: No synthetic auth tools are created.
+	// Users authenticate via core_auth_login tool with server parameter.
 
 	return nil
 }

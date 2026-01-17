@@ -72,6 +72,10 @@ func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, arg
 
 // handleAuthLogin initiates OAuth login flow for a specific MCP server.
 // This implements the logic previously in handleSyntheticAuthTool, but as a core tool.
+//
+// Security features:
+//   - Rate limiting: Prevents OAuth flow abuse by limiting attempts per session
+//   - Metrics: Tracks login attempts, successes, and failures for monitoring
 func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
@@ -79,6 +83,34 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			Content: []interface{}{"Error: 'server' argument is required and must be a string"},
 			IsError: true,
 		}, nil
+	}
+
+	// Get session ID early for rate limiting and metrics
+	sessionID := getSessionIDFromContext(ctx)
+
+	// Check rate limit before processing
+	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sessionID, serverName) {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sessionID)
+		}
+		remaining := 0
+		if p.aggregator.authRateLimiter != nil {
+			remaining = p.aggregator.authRateLimiter.RemainingAttempts(sessionID)
+		}
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf(
+				"Rate limit exceeded. Too many authentication attempts.\n\n"+
+					"Please wait a moment before trying again.\n"+
+					"Remaining attempts: %d",
+				remaining,
+			)},
+			IsError: true,
+		}, nil
+	}
+
+	// Record the login attempt in metrics
+	if p.aggregator.authMetrics != nil {
+		p.aggregator.authMetrics.RecordLoginAttempt(serverName, sessionID)
 	}
 
 	logging.Info("AuthTools", "Handling auth login for server: %s", serverName)
@@ -109,6 +141,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// Check if OAuth handler is available
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "oauth_not_configured")
+		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
 				"OAuth is not configured. Server '%s' requires authentication but OAuth proxy is not enabled. "+
@@ -118,9 +153,6 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			IsError: true,
 		}, nil
 	}
-
-	// Get session ID from context
-	sessionID := getSessionIDFromContext(ctx)
 
 	// Get the auth info for this server
 	authInfo := serverInfo.AuthInfo
@@ -147,6 +179,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// If still empty, we can't proceed
 	if authInfo.Issuer == "" {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "issuer_discovery_failed")
+		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
 				"Cannot authenticate to '%s': unable to discover OAuth authorization server. "+
@@ -165,6 +200,13 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Try to establish connection using the existing token
 		connectResult, connectErr := p.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
+			// Record success and reset rate limiter for this session
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			}
+			if p.aggregator.authRateLimiter != nil {
+				p.aggregator.authRateLimiter.Reset(sessionID)
+			}
 			return connectResult, nil
 		}
 
@@ -175,6 +217,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "connection_failed")
+			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
 					"Failed to connect to '%s': %v\n\nPlease try again or check the server status.",
@@ -189,6 +234,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "challenge_creation_failed")
+		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
 			IsError: true,
@@ -213,6 +261,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 }
 
 // handleAuthLogout clears authentication session for a specific MCP server.
+//
+// Security features:
+//   - Metrics: Tracks logout attempts and successes for monitoring
 func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
@@ -220,6 +271,14 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 			Content: []interface{}{"Error: 'server' argument is required and must be a string"},
 			IsError: true,
 		}, nil
+	}
+
+	// Get session ID from context
+	sessionID := getSessionIDFromContext(ctx)
+
+	// Record the logout attempt in metrics
+	if p.aggregator.authMetrics != nil {
+		p.aggregator.authMetrics.RecordLogoutAttempt(serverName, sessionID)
 	}
 
 	logging.Info("AuthTools", "Handling auth logout for server: %s", serverName)
@@ -232,9 +291,6 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 			IsError: true,
 		}, nil
 	}
-
-	// Get session ID from context
-	sessionID := getSessionIDFromContext(ctx)
 
 	// Get the session and remove the connection
 	session := p.aggregator.sessionRegistry.GetOrCreateSession(sessionID)
@@ -260,6 +316,11 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 
 	// Notify the session that tools have changed
 	p.aggregator.NotifySessionToolsChanged(sessionID)
+
+	// Record logout success
+	if p.aggregator.authMetrics != nil {
+		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sessionID)
+	}
 
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf(

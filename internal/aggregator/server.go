@@ -75,6 +75,10 @@ type AggregatorServer struct {
 	promptManager   *activeItemManager // Tracks active prompts and their handlers
 	resourceManager *activeItemManager // Tracks active resources and their handlers
 	isShuttingDown  bool               // Indicates whether the server is currently stopping
+
+	// Authentication rate limiting and metrics (security hardening per ADR-008)
+	authRateLimiter *AuthRateLimiter // Per-session rate limiting for auth operations
+	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 }
 
 // DefaultSessionTimeout is the default timeout for idle session cleanup.
@@ -104,6 +108,9 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		promptManager:   newActiveItemManager(itemTypePrompt),
 		resourceManager: newActiveItemManager(itemTypeResource),
 		errorCallback:   errorCallback,
+		// Security hardening: rate limiting and metrics for auth operations (ADR-008)
+		authRateLimiter: NewAuthRateLimiter(DefaultAuthRateLimiterConfig()),
+		authMetrics:     NewAuthMetrics(),
 	}
 }
 
@@ -1003,19 +1010,6 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 	}
 }
 
-// RegisterSyntheticAuthToolSync is deprecated and does nothing.
-// Per ADR-008, synthetic auth tools are no longer created. Use core_auth_login instead.
-//
-// TODO(cleanup): Remove this function and its call site in manager.go after confirming
-// no external callers depend on it. Tracked as part of ADR-008 cleanup.
-//
-// Deprecated: Synthetic auth tools are no longer used. This function is kept for
-// backward compatibility and will be removed in a future version.
-func (a *AggregatorServer) RegisterSyntheticAuthToolSync(serverName string) {
-	// ADR-008: No more synthetic auth tools
-	logging.Debug("Aggregator", "RegisterSyntheticAuthToolSync is deprecated, use core_auth_login instead (server: %s)", serverName)
-}
-
 // NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
 func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
 	a.mu.RLock()
@@ -1505,37 +1499,6 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 		// The goroutine scheduling provides the necessary separation without explicit delays.
 		go a.updateCapabilities()
 	}
-}
-
-// handleSyntheticAuthTool is deprecated and should not be used.
-// Per ADR-008, synthetic authentication tools are no longer created.
-// Users should use core_auth_login with a server parameter instead.
-//
-// TODO(cleanup): Remove this function after confirming no external callers depend on it.
-// Tracked as part of ADR-008 cleanup.
-//
-// Deprecated: Use core_auth_login tool instead. This function is kept for
-// backward compatibility but will be removed in a future version.
-//
-// Args:
-//   - ctx: Context for the operation
-//   - serverName: Name of the server requiring authentication
-//
-// Returns a success message pointing users to core_auth_login.
-func (a *AggregatorServer) handleSyntheticAuthTool(ctx context.Context, serverName string) (*mcp.CallToolResult, error) {
-	// ADR-008: Redirect users to core_auth_login
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(fmt.Sprintf(
-				"Deprecated: This authentication method is no longer supported.\n\n"+
-					"Please use the core_auth_login tool instead:\n"+
-					"  core_auth_login with server='%s'\n\n"+
-					"This provides a unified authentication experience across all MCP servers.",
-				serverName,
-			)),
-		},
-		IsError: false,
-	}, nil
 }
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
