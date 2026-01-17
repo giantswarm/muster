@@ -67,6 +67,10 @@ type OAuthConfig struct {
 	// Muster will serve the CIMD at this path when OAuth is enabled and PublicURL is set.
 	CIMDPath string `yaml:"cimdPath,omitempty"`
 
+	// CAFile is the path to a CA certificate file for verifying TLS connections to OAuth servers.
+	// This is useful when connecting to OAuth servers with self-signed certificates.
+	CAFile string `yaml:"caFile,omitempty"`
+
 	// Enabled controls whether OAuth proxy functionality is active.
 	// When false, remote MCP servers requiring auth will return errors.
 	Enabled bool `yaml:"enabled,omitempty"`

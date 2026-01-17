@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -67,14 +68,41 @@ func NewMCPTestClientWithLogger(debug bool, logger TestLogger) MCPTestClient {
 
 // Connect establishes connection to the MCP aggregator
 func (c *mcpTestClient) Connect(ctx context.Context, endpoint string) error {
+	return c.connectWithOptions(ctx, endpoint, "")
+}
+
+// ConnectWithAuth establishes connection to the MCP aggregator with an access token.
+// This is used when muster's OAuth server is enabled and requires authentication.
+func (c *mcpTestClient) ConnectWithAuth(ctx context.Context, endpoint, accessToken string) error {
+	return c.connectWithOptions(ctx, endpoint, accessToken)
+}
+
+// connectWithOptions establishes connection with optional authentication.
+func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, accessToken string) error {
 	c.endpoint = endpoint
 
 	if c.debug {
-		c.logger.Debug("🔗 Connecting to MCP aggregator at %s\n", endpoint)
+		if accessToken != "" {
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s (with auth)\n", endpoint)
+		} else {
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s\n", endpoint)
+		}
 	}
 
 	// Create streamable HTTP client for muster aggregator
-	httpClient, err := client.NewStreamableHttpClient(endpoint)
+	var httpClient *client.Client
+	var err error
+
+	if accessToken != "" {
+		// Create client with Authorization header
+		httpClient, err = client.NewStreamableHttpClient(endpoint,
+			transport.WithHTTPHeaders(map[string]string{
+				"Authorization": "Bearer " + accessToken,
+			}),
+		)
+	} else {
+		httpClient, err = client.NewStreamableHttpClient(endpoint)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create streamable HTTP client: %w", err)
 	}

@@ -2,11 +2,18 @@ package mock
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -72,6 +79,11 @@ type OAuthServerConfig struct {
 	// Clock is the clock to use for time operations (defaults to RealClock)
 	// Set this to a MockClock for testing token expiry without waiting
 	Clock Clock
+
+	// UseTLS enables HTTPS mode with a self-signed certificate.
+	// This is required for testing muster's OAuth server integration,
+	// as the Dex provider enforces HTTPS for security.
+	UseTLS bool
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -104,6 +116,10 @@ type OAuthServer struct {
 
 	// clock is the clock used for time operations
 	clock Clock
+
+	// TLS certificate and CA for HTTPS mode
+	tlsCert   *tls.Certificate
+	caCertPEM []byte // PEM-encoded CA certificate for clients
 }
 
 type authCodeEntry struct {
@@ -175,12 +191,35 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to listen: %w", err)
 	}
 
-	s.listener = listener
 	s.port = listener.Addr().(*net.TCPAddr).Port
+
+	// Generate self-signed certificate for TLS mode
+	if s.config.UseTLS {
+		cert, caPEM, err := generateSelfSignedCert()
+		if err != nil {
+			listener.Close()
+			return 0, fmt.Errorf("failed to generate self-signed certificate: %w", err)
+		}
+		s.tlsCert = cert
+		s.caCertPEM = caPEM
+
+		// Wrap listener with TLS
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{*cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		listener = tls.NewListener(listener, tlsConfig)
+	}
+
+	s.listener = listener
 
 	// Update issuer with actual port if it's a placeholder
 	if s.config.Issuer == "" {
-		s.config.Issuer = fmt.Sprintf("http://localhost:%d", s.port)
+		if s.config.UseTLS {
+			s.config.Issuer = fmt.Sprintf("https://localhost:%d", s.port)
+		} else {
+			s.config.Issuer = fmt.Sprintf("http://localhost:%d", s.port)
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -205,7 +244,11 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	s.running = true
 
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔐 Mock OAuth server started on port %d (issuer: %s)\n", s.port, s.config.Issuer)
+		protocol := "http"
+		if s.config.UseTLS {
+			protocol = "https"
+		}
+		fmt.Fprintf(os.Stderr, "🔐 Mock OAuth server started on port %d (%s, issuer: %s)\n", s.port, protocol, s.config.Issuer)
 	}
 
 	return s.port, nil
@@ -253,6 +296,81 @@ func (s *OAuthServer) GetIssuerURL() string {
 // GetMetadataURL returns the OAuth metadata URL
 func (s *OAuthServer) GetMetadataURL() string {
 	return s.GetIssuerURL() + "/.well-known/oauth-authorization-server"
+}
+
+// GetCACertPEM returns the PEM-encoded CA certificate for TLS mode.
+// This can be used by clients to trust the self-signed certificate.
+// Returns nil if the server is not running in TLS mode.
+func (s *OAuthServer) GetCACertPEM() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.caCertPEM
+}
+
+// IsTLS returns whether the server is running in TLS mode.
+func (s *OAuthServer) IsTLS() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.UseTLS
+}
+
+// generateSelfSignedCert generates a self-signed TLS certificate for testing.
+// It returns the TLS certificate and the PEM-encoded CA certificate.
+func generateSelfSignedCert() (*tls.Certificate, []byte, error) {
+	// Generate ECDSA private key (P-256 curve)
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
+
+	// Create certificate template
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	notBefore := time.Now()
+	notAfter := notBefore.Add(24 * time.Hour) // Valid for 24 hours
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Muster Test"},
+			CommonName:   "localhost",
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true, // Self-signed, so it's its own CA
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+	}
+
+	// Create self-signed certificate
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+
+	// Encode certificate to PEM
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+
+	// Encode private key to PEM
+	keyBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+
+	// Parse into tls.Certificate
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse key pair: %w", err)
+	}
+
+	return &cert, certPEM, nil
 }
 
 // GetAuthorizeURL returns the authorization endpoint URL
@@ -346,6 +464,48 @@ func (s *OAuthServer) ValidateToken(accessToken string) bool {
 	}
 
 	return s.clock.Now().Before(token.ExpiresAt)
+}
+
+// GenerateTestToken generates a test access token directly without going through the OAuth flow.
+// This is useful for testing scenarios where the test framework needs to authenticate
+// with muster's OAuth server without implementing the full browser-based OAuth flow.
+func (s *OAuthServer) GenerateTestToken(clientID, scope string) *TokenResponse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if clientID == "" {
+		clientID = s.config.ClientID
+	}
+	if scope == "" {
+		scope = "openid profile email"
+	}
+
+	accessToken := s.generateAccessToken(clientID, scope)
+	refreshToken := generateOpaqueToken()
+	idToken := s.generateIDToken(clientID, scope)
+
+	token := &issuedToken{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		Scope:        scope,
+		ClientID:     clientID,
+		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+	}
+
+	s.issuedTokens[accessToken] = token
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 Generated test token for client %s (scope: %s)\n", clientID, scope)
+	}
+
+	return &TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(s.config.TokenLifetime.Seconds()),
+		Scope:        scope,
+		IDToken:      idToken,
+	}
 }
 
 // GetTokenInfo returns information about a token

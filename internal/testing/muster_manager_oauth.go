@@ -48,6 +48,9 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			ClientID:       oauthCfg.ClientID,
 			ClientSecret:   oauthCfg.ClientSecret,
 			Debug:          m.debug,
+			// Use TLS when this server is configured as muster's OAuth server.
+			// The Dex provider requires HTTPS for security.
+			UseTLS: oauthCfg.UseAsMusterOAuthServer,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
@@ -87,15 +90,33 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		m.mockOAuthServers[instanceID][oauthCfg.Name] = oauthServer
 		m.mu.Unlock()
 
-		result[oauthCfg.Name] = &MockOAuthServerInfo{
+		info := &MockOAuthServerInfo{
 			Name:      oauthCfg.Name,
 			Port:      port,
 			IssuerURL: oauthServer.GetIssuerURL(),
 		}
 
+		// If this server is used as muster's OAuth server, generate a test token
+		// that the test framework can use to authenticate with muster
+		if oauthCfg.UseAsMusterOAuthServer {
+			tokenResp := oauthServer.GenerateTestToken(oauthCfg.ClientID, "openid profile email")
+			if tokenResp != nil {
+				info.AccessToken = tokenResp.AccessToken
+				if m.debug {
+					m.logger.Debug("🔑 Generated test access token for muster authentication\n")
+				}
+			}
+		}
+
+		result[oauthCfg.Name] = info
+
 		if m.debug {
-			m.logger.Debug("🔐 Started mock OAuth server %s on port %d (issuer: %s)\n",
-				oauthCfg.Name, port, oauthServer.GetIssuerURL())
+			protocol := "http"
+			if oauthCfg.UseAsMusterOAuthServer {
+				protocol = "https"
+			}
+			m.logger.Debug("🔐 Started mock OAuth server %s on port %d (%s, issuer: %s)\n",
+				oauthCfg.Name, port, protocol, oauthServer.GetIssuerURL())
 		}
 	}
 

@@ -207,6 +207,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ClientID:     cfg.OAuthClientID, // CLI flag value (empty if not specified)
 			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
 			CIMDPath:     cfg.MusterConfig.Aggregator.OAuth.CIMDPath,
+			CAFile:       cfg.MusterConfig.Aggregator.OAuth.CAFile,
 		}
 		// If CLI flag didn't set ClientID, check config file
 		if mergedOAuthConfig.ClientID == "" {
@@ -229,6 +230,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				PublicURL:    oauthPublicURL,
 				ClientID:     effectiveClientID,
 				CallbackPath: mergedOAuthConfig.CallbackPath,
+				CAFile:       mergedOAuthConfig.CAFile,
 			},
 			OAuthServer: aggregator.OAuthServerConfig{
 				// CLI flag overrides config file if enabled

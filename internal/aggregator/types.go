@@ -221,6 +221,10 @@ type OAuthProxyConfig struct {
 
 	// CallbackPath is the path for the OAuth callback endpoint.
 	CallbackPath string
+
+	// CAFile is the path to a CA certificate file for verifying TLS connections.
+	// This is useful when connecting to OAuth servers with self-signed certificates.
+	CAFile string
 }
 
 // RegistrationEvent represents a server registration or deregistration event.

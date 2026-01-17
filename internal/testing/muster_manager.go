@@ -225,7 +225,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 
 	// Generate configuration files (passing mock HTTP server endpoints)
-	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo); err != nil {
+	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID); err != nil {
 		// Clean up mock HTTP servers on failure
 		m.stopMockHTTPServers(ctx, instanceID)
 		m.releasePort(port, instanceID)
@@ -252,6 +252,15 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	expectedTools := m.extractExpectedToolsWithHTTPMocks(config, mockHTTPServerInfo)
 	expectedServiceClasses := m.extractExpectedServiceClasses(config)
 
+	// Extract muster OAuth access token if any mock OAuth server is used as muster's OAuth server
+	var musterOAuthToken string
+	for _, oauthInfo := range mockOAuthServerInfo {
+		if oauthInfo.AccessToken != "" {
+			musterOAuthToken = oauthInfo.AccessToken
+			break
+		}
+	}
+
 	instance := &MusterInstance{
 		ID:                     instanceID,
 		ConfigPath:             configPath,
@@ -264,6 +273,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		ExpectedServiceClasses: expectedServiceClasses,
 		MockHTTPServers:        mockHTTPServerInfo,
 		MockOAuthServers:       mockOAuthServerInfo,
+		MusterOAuthAccessToken: musterOAuthToken,
 	}
 
 	if m.debug {
@@ -437,6 +447,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	defer mcpClient.Close()
 
 	// Connect to the MCP aggregator
+	// Use authenticated connection if muster's OAuth server is enabled
 	connectCtx, connectCancel := context.WithTimeout(readyCtx, 30*time.Second)
 	defer connectCancel()
 
@@ -452,7 +463,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			time.Sleep(3 * time.Second)
 			return nil
 		case <-time.After(100 * time.Millisecond):
-			err := mcpClient.Connect(connectCtx, instance.Endpoint)
+			var err error
+			if instance.MusterOAuthAccessToken != "" {
+				err = mcpClient.ConnectWithAuth(connectCtx, instance.Endpoint, instance.MusterOAuthAccessToken)
+			} else {
+				err = mcpClient.Connect(connectCtx, instance.Endpoint)
+			}
 			if err == nil {
 				connected = true
 				if m.debug {
@@ -879,8 +895,9 @@ func (m *musterInstanceManager) isInMusterSource(dir string) bool {
 
 // generateConfigFiles generates configuration files for the muster instance.
 // This is a wrapper for generateConfigFilesWithMocks with no mock HTTP servers.
+// Note: instanceID is empty since this is used for simple configs without mocks.
 func (m *musterInstanceManager) generateConfigFiles(configPath string, config *MusterPreConfiguration, port int) error {
-	return m.generateConfigFilesWithMocks(configPath, config, port, nil)
+	return m.generateConfigFilesWithMocks(configPath, config, port, nil, "")
 }
 
 // writeYAMLFile writes data to a YAML file
@@ -1061,7 +1078,7 @@ func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanc
 }
 
 // generateConfigFilesWithMocks generates configuration files with mock HTTP server information
-func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, mockHTTPServers map[string]*MockHTTPServerInfo) error {
+func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, mockHTTPServers map[string]*MockHTTPServerInfo, instanceID string) error {
 	// Create muster subdirectory - this is where muster serve will look for configs
 	musterConfigPath := filepath.Join(configPath, "muster")
 
@@ -1093,7 +1110,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	// Enable OAuth proxy if mock OAuth servers are defined
 	// This allows muster to handle OAuth flows for protected MCP servers
 	if config != nil && len(config.MockOAuthServers) > 0 {
-		aggregatorConfig["oauth"] = map[string]interface{}{
+		oauthProxyConfig := map[string]interface{}{
 			"enabled":      true,
 			"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
 			"callbackPath": "/oauth/proxy/callback",
@@ -1101,6 +1118,71 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		if m.debug {
 			m.logger.Debug("🔐 Enabled OAuth proxy for test instance (publicUrl: http://localhost:%d)\n", port)
 		}
+
+		// Check if any mock OAuth server should be used as muster's OAuth server
+		// This enables testing of SSO token forwarding with muster's OAuth server protection
+		for _, oauthCfg := range config.MockOAuthServers {
+			if oauthCfg.UseAsMusterOAuthServer {
+				// Get the mock OAuth server info (should already be started)
+				m.mu.RLock()
+				oauthServers := m.mockOAuthServers[instanceID]
+				m.mu.RUnlock()
+
+				if oauthServers != nil {
+					if mockServer, exists := oauthServers[oauthCfg.Name]; exists {
+						issuerURL := mockServer.GetIssuerURL()
+
+						// Build Dex config with the issuer URL
+						dexConfig := map[string]interface{}{
+							"issuerUrl":    issuerURL,
+							"clientId":     oauthCfg.ClientID,
+							"clientSecret": oauthCfg.ClientSecret,
+						}
+
+						// If the mock server uses TLS, write the CA certificate to a file
+						// so muster can trust the self-signed certificate
+						if mockServer.IsTLS() {
+							caPEM := mockServer.GetCACertPEM()
+							if len(caPEM) > 0 {
+								caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
+								if err := os.WriteFile(caFile, caPEM, 0644); err != nil {
+									if m.debug {
+										m.logger.Debug("⚠️  Failed to write CA file: %v\n", err)
+									}
+								} else {
+									dexConfig["caFile"] = caFile
+									// Also configure the OAuth proxy to trust this CA
+									// so it can discover metadata from the same IdP
+									oauthProxyConfig["caFile"] = caFile
+									if m.debug {
+										m.logger.Debug("🔒 Wrote mock OAuth CA certificate to %s\n", caFile)
+									}
+								}
+							}
+						}
+
+						aggregatorConfig["oauthServer"] = map[string]interface{}{
+							"enabled": true,
+							"baseUrl": fmt.Sprintf("http://localhost:%d", port),
+							// Use mock OAuth server as the upstream provider
+							"provider": "dex", // Mock server acts like Dex
+							"dex":      dexConfig,
+							// Use memory storage for tests
+							"storage": map[string]interface{}{
+								"type": "memory",
+							},
+							"allowLocalhostRedirectURIs": true,
+						}
+						if m.debug {
+							m.logger.Debug("🔐 Enabled muster OAuth server with mock provider (issuer: %s)\n", issuerURL)
+						}
+					}
+				}
+				break // Only one mock server can be used as muster's OAuth server
+			}
+		}
+
+		aggregatorConfig["oauth"] = oauthProxyConfig
 	}
 
 	mainConfig := map[string]interface{}{
