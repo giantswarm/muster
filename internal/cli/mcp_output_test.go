@@ -374,6 +374,193 @@ func TestFormatMCPPromptDetail_Table(t *testing.T) {
 
 	assert.NoError(t, err)
 	output := buf.String()
+	// Check kubectl-like format
+	assert.Contains(t, output, "Name:")
 	assert.Contains(t, output, "test_prompt")
-	assert.Contains(t, output, "Arguments")
+	assert.Contains(t, output, "Arguments:")
+	assert.Contains(t, output, "arg1 (string, required)")
+}
+
+func TestFormatMCPToolDetail_Table(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	tool := MCPTool{
+		Name:        "test_tool",
+		Description: "A test tool",
+		InputSchema: mcp.ToolInputSchema{
+			Properties: map[string]interface{}{
+				"param1": map[string]interface{}{
+					"type":        "string",
+					"description": "First parameter",
+				},
+				"param2": map[string]interface{}{
+					"type": "integer",
+				},
+			},
+			Required: []string{"param1"},
+		},
+	}
+	err := FormatMCPToolDetail(tool, OutputFormatTable)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Check kubectl-like format
+	assert.Contains(t, output, "Name:")
+	assert.Contains(t, output, "test_tool")
+	assert.Contains(t, output, "Description:")
+	assert.Contains(t, output, "A test tool")
+	assert.Contains(t, output, "Arguments:")
+	assert.Contains(t, output, "param1 (string, required)")
+	assert.Contains(t, output, "param2 (integer)")
+	assert.Contains(t, output, "Description: First parameter")
+}
+
+func TestFormatMCPResourceDetail_Table(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	resource := MCPResource{
+		URI:         "file://test.txt",
+		Name:        "test.txt",
+		Description: "A test file",
+		MIMEType:    "text/plain",
+	}
+	err := FormatMCPResourceDetail(resource, OutputFormatTable)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Check kubectl-like format
+	assert.Contains(t, output, "URI:")
+	assert.Contains(t, output, "file://test.txt")
+	assert.Contains(t, output, "Name:")
+	assert.Contains(t, output, "test.txt")
+	assert.Contains(t, output, "Description:")
+	assert.Contains(t, output, "A test file")
+	assert.Contains(t, output, "MIME Type:")
+	assert.Contains(t, output, "text/plain")
+}
+
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		width    int
+		expected []string
+	}{
+		{
+			name:     "short text unchanged",
+			input:    "hello world",
+			width:    20,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "text wrapped at word boundary",
+			input:    "hello world this is a test",
+			width:    12,
+			expected: []string{"hello world", "this is a", "test"},
+		},
+		{
+			name:     "empty text",
+			input:    "",
+			width:    10,
+			expected: []string{""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapText(tt.input, tt.width)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestRenderSchemaProperties(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	properties := map[string]interface{}{
+		"name": map[string]interface{}{
+			"type":        "string",
+			"description": "The name of the item",
+		},
+		"count": map[string]interface{}{
+			"type":    "integer",
+			"default": 10,
+		},
+		"type": map[string]interface{}{
+			"type": "string",
+			"enum": []interface{}{"a", "b", "c"},
+		},
+	}
+	required := []string{"name"}
+
+	renderSchemaProperties(properties, required, "  ")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	output := buf.String()
+	assert.Contains(t, output, "name (string, required)")
+	assert.Contains(t, output, "Description: The name of the item")
+	assert.Contains(t, output, "count (integer)")
+	assert.Contains(t, output, "Default: 10")
+	assert.Contains(t, output, "type (string)")
+	assert.Contains(t, output, "Values: a, b, c")
+}
+
+func TestRenderNestedSchema(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	properties := map[string]interface{}{
+		"config": map[string]interface{}{
+			"type":        "object",
+			"description": "Configuration object",
+			"properties": map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Whether feature is enabled",
+				},
+			},
+			"required": []interface{}{"enabled"},
+		},
+	}
+
+	renderSchemaProperties(properties, nil, "  ")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	output := buf.String()
+	assert.Contains(t, output, "config (object)")
+	assert.Contains(t, output, "Properties:")
+	assert.Contains(t, output, "enabled (boolean, required)")
 }

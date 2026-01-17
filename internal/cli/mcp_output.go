@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -233,6 +234,7 @@ func FormatMCPPrompts(prompts []MCPPrompt, format OutputFormat) error {
 }
 
 // FormatMCPToolDetail formats and displays detailed MCP tool info.
+// For table format, it uses a kubectl-describe-like plain text output.
 func FormatMCPToolDetail(tool MCPTool, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		toolInfo := map[string]interface{}{
@@ -246,38 +248,201 @@ func FormatMCPToolDetail(tool MCPTool, format OutputFormat) error {
 		return outputYAML(toolInfo)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
+	// kubectl-describe-like plain text format
+	fmt.Printf("Name:         %s\n", tool.Name)
+	fmt.Printf("Description:  %s\n", tool.Description)
 
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint(tool.Name),
-	})
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-		tool.Description,
-	})
-
-	t.Render()
-
-	// Print input schema separately for better readability
+	// Render input schema as readable arguments
 	if tool.InputSchema.Properties != nil {
-		fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Input Schema:"))
-		if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "", "  "); err == nil {
-			fmt.Println(string(schemaJSON))
-		}
+		fmt.Println("\nArguments:")
+		renderSchemaProperties(tool.InputSchema.Properties, tool.InputSchema.Required, "  ")
 	}
 
 	return nil
 }
 
+// renderSchemaProperties renders JSON schema properties in a readable format.
+// It recursively handles nested objects and arrays.
+func renderSchemaProperties(properties map[string]interface{}, required []string, indent string) {
+	// Build a set of required properties for fast lookup
+	requiredSet := make(map[string]bool)
+	for _, r := range required {
+		requiredSet[r] = true
+	}
+
+	// Get sorted property names for consistent output
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		prop := properties[name]
+		propMap, ok := prop.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get type
+		propType := "any"
+		if t, ok := propMap["type"].(string); ok {
+			propType = t
+		}
+
+		// Check if required
+		isRequired := requiredSet[name]
+		requiredStr := ""
+		if isRequired {
+			requiredStr = ", required"
+		}
+
+		fmt.Printf("%s%s (%s%s)\n", indent, name, propType, requiredStr)
+
+		// Description
+		if desc, ok := propMap["description"].(string); ok && desc != "" {
+			// Wrap long descriptions
+			wrapped := wrapText(desc, 60)
+			for i, line := range wrapped {
+				if i == 0 {
+					fmt.Printf("%s  Description: %s\n", indent, line)
+				} else {
+					fmt.Printf("%s               %s\n", indent, line)
+				}
+			}
+		}
+
+		// Default value
+		if def, ok := propMap["default"]; ok {
+			fmt.Printf("%s  Default: %v\n", indent, def)
+		}
+
+		// Enum values
+		if enum, ok := propMap["enum"].([]interface{}); ok && len(enum) > 0 {
+			enumStrs := make([]string, len(enum))
+			for i, e := range enum {
+				enumStrs[i] = fmt.Sprintf("%v", e)
+			}
+			fmt.Printf("%s  Values: %s\n", indent, strings.Join(enumStrs, ", "))
+		}
+
+		// Handle nested object properties
+		if propType == "object" {
+			if nestedProps, ok := propMap["properties"].(map[string]interface{}); ok {
+				var nestedRequired []string
+				if req, ok := propMap["required"].([]interface{}); ok {
+					for _, r := range req {
+						if s, ok := r.(string); ok {
+							nestedRequired = append(nestedRequired, s)
+						}
+					}
+				}
+				fmt.Printf("%s  Properties:\n", indent)
+				renderSchemaProperties(nestedProps, nestedRequired, indent+"    ")
+			}
+			// Handle additionalProperties for map-like objects
+			if addProps, ok := propMap["additionalProperties"].(map[string]interface{}); ok {
+				fmt.Printf("%s  Value Schema:\n", indent)
+				renderAdditionalProperties(addProps, indent+"    ")
+			}
+		}
+
+		// Handle array items
+		if propType == "array" {
+			if items, ok := propMap["items"].(map[string]interface{}); ok {
+				fmt.Printf("%s  Items:\n", indent)
+				renderArrayItems(items, indent+"    ")
+			}
+		}
+	}
+}
+
+// renderAdditionalProperties renders the schema for additionalProperties.
+func renderAdditionalProperties(props map[string]interface{}, indent string) {
+	propType := "any"
+	if t, ok := props["type"].(string); ok {
+		propType = t
+	}
+	fmt.Printf("%sType: %s\n", indent, propType)
+
+	if desc, ok := props["description"].(string); ok && desc != "" {
+		fmt.Printf("%sDescription: %s\n", indent, desc)
+	}
+
+	if propType == "object" {
+		if nestedProps, ok := props["properties"].(map[string]interface{}); ok {
+			var nestedRequired []string
+			if req, ok := props["required"].([]interface{}); ok {
+				for _, r := range req {
+					if s, ok := r.(string); ok {
+						nestedRequired = append(nestedRequired, s)
+					}
+				}
+			}
+			fmt.Printf("%sProperties:\n", indent)
+			renderSchemaProperties(nestedProps, nestedRequired, indent+"  ")
+		}
+	}
+}
+
+// renderArrayItems renders the schema for array items.
+func renderArrayItems(items map[string]interface{}, indent string) {
+	itemType := "any"
+	if t, ok := items["type"].(string); ok {
+		itemType = t
+	}
+	fmt.Printf("%sType: %s\n", indent, itemType)
+
+	if desc, ok := items["description"].(string); ok && desc != "" {
+		fmt.Printf("%sDescription: %s\n", indent, desc)
+	}
+
+	if itemType == "object" {
+		if nestedProps, ok := items["properties"].(map[string]interface{}); ok {
+			var nestedRequired []string
+			if req, ok := items["required"].([]interface{}); ok {
+				for _, r := range req {
+					if s, ok := r.(string); ok {
+						nestedRequired = append(nestedRequired, s)
+					}
+				}
+			}
+			fmt.Printf("%sProperties:\n", indent)
+			renderSchemaProperties(nestedProps, nestedRequired, indent+"  ")
+		}
+	}
+}
+
+// wrapText wraps text to the specified width at word boundaries.
+func wrapText(text string, width int) []string {
+	if len(text) <= width {
+		return []string{text}
+	}
+
+	var lines []string
+	words := strings.Fields(text)
+	currentLine := ""
+
+	for _, word := range words {
+		if currentLine == "" {
+			currentLine = word
+		} else if len(currentLine)+1+len(word) <= width {
+			currentLine += " " + word
+		} else {
+			lines = append(lines, currentLine)
+			currentLine = word
+		}
+	}
+
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
+}
+
 // FormatMCPResourceDetail formats and displays detailed MCP resource info.
+// For table format, it uses a kubectl-describe-like plain text output.
 func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		resourceInfo := map[string]interface{}{
@@ -292,41 +457,21 @@ func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 		return outputYAML(resourceInfo)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
-
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("uri"),
-		text.Colors{text.FgHiCyan, text.Bold}.Sprint(resource.URI),
-	})
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-		resource.Name,
-	})
+	// kubectl-describe-like plain text format
+	fmt.Printf("URI:          %s\n", resource.URI)
+	fmt.Printf("Name:         %s\n", resource.Name)
 	if resource.Description != "" {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-			resource.Description,
-		})
+		fmt.Printf("Description:  %s\n", resource.Description)
 	}
 	if resource.MIMEType != "" {
-		t.AppendRow(table.Row{
-			text.Colors{text.FgHiYellow, text.Bold}.Sprint("mimeType"),
-			resource.MIMEType,
-		})
+		fmt.Printf("MIME Type:    %s\n", resource.MIMEType)
 	}
 
-	t.Render()
 	return nil
 }
 
 // FormatMCPPromptDetail formats and displays detailed MCP prompt info.
+// For table format, it uses a kubectl-describe-like plain text output.
 func FormatMCPPromptDetail(prompt MCPPrompt, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		promptInfo := map[string]interface{}{
@@ -350,50 +495,30 @@ func FormatMCPPromptDetail(prompt MCPPrompt, format OutputFormat) error {
 		return outputYAML(promptInfo)
 	}
 
-	// Table format
-	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.SetStyle(table.StyleRounded)
-	t.AppendHeader(table.Row{
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("PROPERTY"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint("VALUE"),
-	})
+	// kubectl-describe-like plain text format
+	fmt.Printf("Name:         %s\n", prompt.Name)
+	fmt.Printf("Description:  %s\n", prompt.Description)
 
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("name"),
-		text.Colors{text.FgHiBlue, text.Bold}.Sprint(prompt.Name),
-	})
-	t.AppendRow(table.Row{
-		text.Colors{text.FgHiYellow, text.Bold}.Sprint("description"),
-		prompt.Description,
-	})
-
-	t.Render()
-
-	// Print arguments separately for better readability
+	// Print arguments
 	if len(prompt.Arguments) > 0 {
-		fmt.Printf("\n%s\n", text.Colors{text.FgHiBlue, text.Bold}.Sprint("📝 Arguments:"))
-		argsTable := table.NewWriter()
-		argsTable.SetOutputMirror(os.Stdout)
-		argsTable.SetStyle(table.StyleRounded)
-		argsTable.AppendHeader(table.Row{
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("NAME"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("DESCRIPTION"),
-			text.Colors{text.FgHiBlue, text.Bold}.Sprint("REQUIRED"),
-		})
-
+		fmt.Println("\nArguments:")
 		for _, arg := range prompt.Arguments {
-			required := "No"
+			requiredStr := ""
 			if arg.Required {
-				required = text.Colors{text.FgHiYellow, text.Bold}.Sprint("Yes")
+				requiredStr = ", required"
 			}
-			argsTable.AppendRow(table.Row{
-				text.Bold.Sprint(arg.Name),
-				arg.Description,
-				required,
-			})
+			fmt.Printf("  %s (string%s)\n", arg.Name, requiredStr)
+			if arg.Description != "" {
+				wrapped := wrapText(arg.Description, 60)
+				for i, line := range wrapped {
+					if i == 0 {
+						fmt.Printf("    Description: %s\n", line)
+					} else {
+						fmt.Printf("                 %s\n", line)
+					}
+				}
+			}
 		}
-		argsTable.Render()
 	}
 
 	return nil
