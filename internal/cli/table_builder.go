@@ -44,6 +44,65 @@ func (b *TableBuilder) FormatCellValue(column string, value interface{}) interfa
 	return b.FormatCellValueWithContext(column, value, nil)
 }
 
+// FormatCellValuePlain formats individual cell values as plain text without ANSI styling.
+// This is used for kubectl-style table output where we don't want color codes.
+//
+// Args:
+//   - column: The column name/type to determine formatting rules
+//   - value: The raw value to format
+//   - rowContext: The full row data for context-aware formatting (may be nil)
+//
+// Returns:
+//   - string: Formatted value as plain text
+func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, rowContext map[string]interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	strValue := fmt.Sprintf("%v", value)
+	colLower := strings.ToLower(column)
+
+	switch colLower {
+	case "name", "label", "id", "workflow", "execution_id", "workflow_name", "resource_name":
+		return strValue
+	case "health", "status":
+		return b.formatHealthStatusPlain(strValue)
+	case "available":
+		return b.formatAvailableStatusPlain(value)
+	case "autostart":
+		return b.formatAutoStartStatusPlain(value)
+	case "state":
+		serverType := b.getServerTypeFromContext(rowContext)
+		if serverType != "" {
+			return b.formatStateForServerTypePlain(strValue, serverType)
+		}
+		return b.formatStatePlain(strValue)
+	case "started_at", "completed_at", "timestamp":
+		return b.formatTimestampPlain(strValue)
+	case "duration_ms":
+		return b.formatDurationPlain(value)
+	case "metadata":
+		return b.formatMetadataPlain(value)
+	case "requiredtools", "tools":
+		return b.formatToolsListPlain(value)
+	case "description":
+		return b.formatDescriptionPlain(strValue)
+	case "steps":
+		return b.formatStepsPlain(value)
+	default:
+		if arr, ok := value.([]interface{}); ok {
+			return b.formatArrayPlain(arr)
+		}
+		if obj, ok := value.(map[string]interface{}); ok {
+			return b.formatObjectPlain(obj)
+		}
+		if len(strValue) > 50 {
+			return strValue[:47] + "..."
+		}
+		return strValue
+	}
+}
+
 // FormatCellValueWithContext formats individual cell values with row context.
 // This allows for context-aware formatting where the display depends on other
 // fields in the same row (e.g., state terminology depends on server type).
@@ -786,4 +845,273 @@ func (b *TableBuilder) formatEventMessage(message string) interface{} {
 		return message[:57] + text.Faint.Sprint("...")
 	}
 	return message
+}
+
+// Plain text formatting methods for kubectl-style output
+
+// formatHealthStatusPlain returns health status as plain text.
+func (b *TableBuilder) formatHealthStatusPlain(status string) string {
+	return status
+}
+
+// formatAvailableStatusPlain returns availability status as plain text.
+func (b *TableBuilder) formatAvailableStatusPlain(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "Available"
+		}
+		return "Unavailable"
+	case string:
+		if v == "true" {
+			return "Available"
+		}
+		return "Unavailable"
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatAutoStartStatusPlain returns autoStart status as plain text.
+func (b *TableBuilder) formatAutoStartStatusPlain(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "Yes"
+		}
+		return "No"
+	case string:
+		if v == "true" {
+			return "Yes"
+		}
+		return "No"
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+// formatStatePlain returns state as plain text.
+func (b *TableBuilder) formatStatePlain(state string) string {
+	switch strings.ToLower(state) {
+	case "running":
+		return "Running"
+	case "stopped":
+		return "Stopped"
+	case "starting":
+		return "Starting"
+	case "stopping":
+		return "Stopping"
+	case "failed":
+		return "Failed"
+	case "error":
+		return "Error"
+	default:
+		return state
+	}
+}
+
+// formatStateForServerTypePlain returns state with context-appropriate terminology as plain text.
+func (b *TableBuilder) formatStateForServerTypePlain(state string, serverType string) string {
+	isRemote := IsRemoteServerType(serverType)
+
+	switch strings.ToLower(state) {
+	case "running":
+		if isRemote {
+			return "Connected"
+		}
+		return "Running"
+	case "stopped":
+		if isRemote {
+			return "Disconnected"
+		}
+		return "Stopped"
+	case "starting":
+		if isRemote {
+			return "Connecting"
+		}
+		return "Starting"
+	case "stopping":
+		if isRemote {
+			return "Disconnecting"
+		}
+		return "Stopping"
+	case "failed":
+		return "Failed"
+	case "error":
+		return "Error"
+	default:
+		return state
+	}
+}
+
+// formatTimestampPlain formats timestamp as plain text.
+func (b *TableBuilder) formatTimestampPlain(timestamp string) string {
+	if timestamp == "" || timestamp == "-" {
+		return "-"
+	}
+
+	if strings.Contains(timestamp, "T") {
+		parts := strings.Split(timestamp, "T")
+		if len(parts) == 2 {
+			timePart := parts[1]
+			if dotIndex := strings.Index(timePart, "."); dotIndex != -1 {
+				timePart = timePart[:dotIndex]
+			}
+			if strings.HasSuffix(timePart, "Z") {
+				timePart = strings.TrimSuffix(timePart, "Z")
+			}
+			return parts[0] + " " + timePart
+		}
+	}
+
+	return timestamp
+}
+
+// formatDurationPlain formats duration as plain text.
+func (b *TableBuilder) formatDurationPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	var durationMs float64
+	switch v := value.(type) {
+	case int:
+		durationMs = float64(v)
+	case int64:
+		durationMs = float64(v)
+	case float64:
+		durationMs = v
+	case string:
+		if parsed, err := fmt.Sscanf(v, "%f", &durationMs); parsed != 1 || err != nil {
+			return v
+		}
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+
+	if durationMs < 1000 {
+		return fmt.Sprintf("%.0fms", durationMs)
+	} else if durationMs < 60000 {
+		return fmt.Sprintf("%.1fs", durationMs/1000)
+	} else if durationMs < 3600000 {
+		return fmt.Sprintf("%.1fm", durationMs/60000)
+	}
+	return fmt.Sprintf("%.1fh", durationMs/3600000)
+}
+
+// formatMetadataPlain formats metadata as plain text.
+func (b *TableBuilder) formatMetadataPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if metaMap, ok := value.(map[string]interface{}); ok {
+		var parts []string
+		if icon, exists := metaMap["icon"]; exists && icon != nil {
+			parts = append(parts, fmt.Sprintf("%v", icon))
+		}
+		if typ, exists := metaMap["type"]; exists && typ != nil {
+			parts = append(parts, fmt.Sprintf("%v", typ))
+		}
+		if enabled, exists := metaMap["enabled"]; exists {
+			if enabledBool, ok := enabled.(bool); ok {
+				if enabledBool {
+					parts = append(parts, "enabled")
+				} else {
+					parts = append(parts, "disabled")
+				}
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
+		}
+	}
+
+	return "[metadata]"
+}
+
+// formatToolsListPlain formats tools list as plain text.
+func (b *TableBuilder) formatToolsListPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if toolsArray, ok := value.([]interface{}); ok {
+		if len(toolsArray) == 0 {
+			return "none"
+		}
+
+		var toolNames []string
+		for _, tool := range toolsArray {
+			if toolStr, ok := tool.(string); ok {
+				simplified := b.SimplifyToolName(toolStr)
+				toolNames = append(toolNames, simplified)
+			}
+		}
+
+		if len(toolNames) <= 2 {
+			return strings.Join(toolNames, ", ")
+		}
+		return fmt.Sprintf("%s, %s (+%d more)", toolNames[0], toolNames[1], len(toolNames)-2)
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+// formatDescriptionPlain formats description as plain text with truncation.
+func (b *TableBuilder) formatDescriptionPlain(desc string) string {
+	if len(desc) <= 50 {
+		return desc
+	}
+	return desc[:47] + "..."
+}
+
+// formatStepsPlain formats steps as plain text.
+func (b *TableBuilder) formatStepsPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	if stepsArray, ok := value.([]interface{}); ok {
+		count := len(stepsArray)
+		if count == 0 {
+			return "No steps"
+		}
+		return fmt.Sprintf("%d steps", count)
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+// formatArrayPlain formats array as plain text.
+func (b *TableBuilder) formatArrayPlain(arr []interface{}) string {
+	if len(arr) == 0 {
+		return "[]"
+	}
+
+	if len(arr) <= 2 {
+		var items []string
+		for _, item := range arr {
+			items = append(items, fmt.Sprintf("%v", item))
+		}
+		return strings.Join(items, ", ")
+	}
+
+	return fmt.Sprintf("[%d items]", len(arr))
+}
+
+// formatObjectPlain formats object as plain text.
+func (b *TableBuilder) formatObjectPlain(obj map[string]interface{}) string {
+	if len(obj) == 0 {
+		return "{}"
+	}
+
+	displayFields := []string{"name", "type", "status", "id"}
+	for _, field := range displayFields {
+		if value, exists := obj[field]; exists && value != nil {
+			return fmt.Sprintf("%v", value)
+		}
+	}
+
+	return fmt.Sprintf("{%d fields}", len(obj))
 }

@@ -10,8 +10,10 @@ import (
 // to a muster aggregator. This struct consolidates the repetitive flag pattern used
 // by commands like get, list, check, start, stop, create, and events.
 type CommandFlags struct {
-	// OutputFormat specifies the desired output format (table, json, yaml)
+	// OutputFormat specifies the desired output format (table, json, yaml, wide)
 	OutputFormat string
+	// NoHeaders suppresses the header row in table output
+	NoHeaders bool
 	// Quiet suppresses progress indicators and non-essential output
 	Quiet bool
 	// Debug enables verbose logging of MCP protocol messages
@@ -31,7 +33,8 @@ type CommandFlags struct {
 // and ensures consistent flag naming and descriptions.
 //
 // The registered flags are:
-//   - --output/-o: Output format (table, json, yaml), default: "table"
+//   - --output/-o: Output format (table, json, yaml, wide), default: "table"
+//   - --no-headers: Suppress header row in table output
 //   - --quiet/-q: Suppress non-essential output
 //   - --debug: Enable debug logging (show MCP protocol messages)
 //   - --config-path: Configuration directory
@@ -39,7 +42,8 @@ type CommandFlags struct {
 //   - --context: Use a specific context (env: MUSTER_CONTEXT)
 //   - --auth: Authentication mode (env: MUSTER_AUTH_MODE)
 func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
-	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
+	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml, wide)")
+	cmd.PersistentFlags().BoolVar(&flags.NoHeaders, "no-headers", false, "Suppress header row in table output")
 	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
 	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
@@ -74,6 +78,7 @@ func (f *CommandFlags) ToExecutorOptions() (ExecutorOptions, error) {
 
 	return ExecutorOptions{
 		Format:     OutputFormat(f.OutputFormat),
+		NoHeaders:  f.NoHeaders,
 		Quiet:      f.Quiet,
 		Debug:      f.Debug,
 		ConfigPath: f.ConfigPath,

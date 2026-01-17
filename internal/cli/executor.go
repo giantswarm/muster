@@ -33,8 +33,10 @@ type (
 type OutputFormat string
 
 const (
-	// OutputFormatTable formats output as a professional table with styling and icons
+	// OutputFormatTable formats output as a kubectl-style plain table
 	OutputFormatTable OutputFormat = "table"
+	// OutputFormatWide formats output as a table with additional columns
+	OutputFormatWide OutputFormat = "wide"
 	// OutputFormatJSON formats output as raw JSON data
 	OutputFormatJSON OutputFormat = "json"
 	// OutputFormatYAML formats output as YAML data converted from JSON
@@ -107,8 +109,10 @@ func GetAuthModeWithOverride(override string) (AuthMode, error) {
 // ExecutorOptions contains configuration options for tool execution.
 // These options control how commands are executed and how output is formatted.
 type ExecutorOptions struct {
-	// Format specifies the desired output format (table, json, yaml)
+	// Format specifies the desired output format (table, json, yaml, wide)
 	Format OutputFormat
+	// NoHeaders suppresses the header row in table output
+	NoHeaders bool
 	// Quiet suppresses progress indicators and non-essential output
 	Quiet bool
 	// Debug enables verbose logging of MCP protocol messages and initialization

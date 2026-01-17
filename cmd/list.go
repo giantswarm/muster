@@ -326,7 +326,8 @@ func runListMCPTools(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpts 
 	}
 
 	tools = filterMCPTools(tools, filterOpts)
-	return cli.FormatMCPTools(tools, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPToolsWithOptions(tools, opts.Format, opts.NoHeaders)
 }
 
 // runListMCPResources lists all MCP resources with optional filtering
@@ -337,7 +338,8 @@ func runListMCPResources(cmd *cobra.Command, executor *cli.ToolExecutor, filterO
 	}
 
 	resources = filterMCPResources(resources, filterOpts)
-	return cli.FormatMCPResources(resources, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPResourcesWithOptions(resources, opts.Format, opts.NoHeaders)
 }
 
 // runListMCPPrompts lists all MCP prompts with optional filtering
@@ -348,5 +350,6 @@ func runListMCPPrompts(cmd *cobra.Command, executor *cli.ToolExecutor, filterOpt
 	}
 
 	prompts = filterMCPPrompts(prompts, filterOpts)
-	return cli.FormatMCPPrompts(prompts, executor.GetOptions().Format)
+	opts := executor.GetOptions()
+	return cli.FormatMCPPromptsWithOptions(prompts, opts.Format, opts.NoHeaders)
 }
