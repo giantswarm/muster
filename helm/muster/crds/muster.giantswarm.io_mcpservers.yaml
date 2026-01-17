@@ -98,6 +98,35 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
+              auth:
+                description: |-
+                  Auth defines authentication configuration for this MCP server.
+                  This enables OAuth-based authentication and SSO token forwarding.
+                properties:
+                  type:
+                    description: |-
+                      Type specifies the authentication type.
+                      Supported values: "oauth"
+                    enum:
+                    - oauth
+                    type: string
+                  forwardToken:
+                    default: false
+                    description: |-
+                      ForwardToken determines whether the user's ID token from muster's session
+                      should be forwarded to the downstream MCP server.
+                      When true, muster will inject the ID token as an Authorization: Bearer header.
+                      This enables Single Sign-On (SSO) to downstream services that trust muster's ID tokens.
+                    type: boolean
+                  fallbackToOwnAuth:
+                    default: false
+                    description: |-
+                      FallbackToOwnAuth determines whether to trigger a separate OAuth flow for this
+                      downstream server if token forwarding fails (e.g., 401 Unauthorized).
+                      When true, if the forwarded token is rejected, muster will attempt to
+                      authenticate directly to this server.
+                    type: boolean
+                type: object
               timeout:
                 default: 30
                 description: Timeout specifies the connection timeout for remote operations

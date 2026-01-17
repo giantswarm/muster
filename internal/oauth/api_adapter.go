@@ -35,6 +35,7 @@ func (a *Adapter) IsEnabled() bool {
 
 // tokenToAPIToken converts a pkgoauth.Token to an api.OAuthToken.
 // Returns nil if the input token is nil.
+// This function includes basic token fields; use fullTokenToAPIToken to include IDToken.
 func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 	if token == nil {
 		return nil
@@ -43,6 +44,23 @@ func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		AccessToken: token.AccessToken,
 		TokenType:   token.TokenType,
 		Scope:       token.Scope,
+		Issuer:      token.Issuer,
+	}
+}
+
+// fullTokenToAPIToken converts a pkgoauth.Token to an api.OAuthToken including the IDToken.
+// Returns nil if the input token is nil.
+// This is used for SSO token forwarding where the ID token is required.
+func fullTokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
+	if token == nil {
+		return nil
+	}
+	return &api.OAuthToken{
+		AccessToken: token.AccessToken,
+		TokenType:   token.TokenType,
+		Scope:       token.Scope,
+		IDToken:     token.IDToken,
+		Issuer:      token.Issuer,
 	}
 }
 
@@ -54,6 +72,17 @@ func (a *Adapter) GetToken(sessionID, serverName string) *api.OAuthToken {
 // GetTokenByIssuer retrieves a valid token for the given session and issuer.
 func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
+}
+
+// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
+// This is used for SSO token forwarding to downstream MCP servers.
+// Returns nil if no valid token exists or if the token doesn't have an ID token.
+func (a *Adapter) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	token := a.manager.GetTokenByIssuer(sessionID, issuer)
+	if token == nil || token.IDToken == "" {
+		return nil
+	}
+	return fullTokenToAPIToken(token)
 }
 
 // ClearTokenByIssuer removes all tokens for a given session and issuer.

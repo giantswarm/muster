@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"muster/internal/api"
+	"muster/internal/events"
 	internalmcp "muster/internal/mcpserver"
 	"muster/internal/oauth"
 	"muster/pkg/logging"
@@ -182,4 +183,173 @@ func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 		},
 		IsError: false,
 	}
+}
+
+// EstablishSessionConnectionWithTokenForwarding attempts to establish a session connection
+// using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
+//
+// The function:
+//  1. Gets the user's ID token from muster's OAuth session
+//  2. Forwards it to the downstream MCP server
+//  3. If successful, establishes the session connection
+//  4. If forwarding fails and fallbackToOwnAuth is true, returns an error indicating fallback is needed
+//
+// Args:
+//   - ctx: Context for the operation
+//   - a: The aggregator server instance
+//   - sessionID: The session to register the connection with
+//   - serverInfo: The server info containing URL and auth config
+//   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
+//
+// Returns:
+//   - *SessionConnectionResult: The connection result if successful
+//   - needsFallback: true if token forwarding failed and fallback is configured
+//   - error: The error if connection failed
+func EstablishSessionConnectionWithTokenForwarding(
+	ctx context.Context,
+	a *AggregatorServer,
+	sessionID string,
+	serverInfo *ServerInfo,
+	musterIssuer string,
+) (*SessionConnectionResult, bool, error) {
+	// Get OAuth handler
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return nil, true, fmt.Errorf("OAuth handler not available for token forwarding")
+	}
+
+	// Get the full token (including ID token) for the muster session
+	fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+	if fullToken == nil || fullToken.IDToken == "" {
+		logging.Debug("SessionConnection", "No ID token available for session %s from issuer %s, fallback to regular auth",
+			logging.TruncateSessionID(sessionID), musterIssuer)
+		return nil, true, fmt.Errorf("no ID token available for forwarding")
+	}
+
+	logging.Info("SessionConnection", "Attempting ID token forwarding for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+
+	// Create a client with the forwarded ID token
+	headers := map[string]string{
+		"Authorization": "Bearer " + fullToken.IDToken,
+	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
+
+	// Try to initialize the client with the forwarded token
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+
+		// Log the token forwarding failure
+		logging.Warn("SessionConnection", "ID token forwarding failed for session %s to server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+
+		// Emit event for token forwarding failure
+		emitTokenForwardingEvent(serverInfo.Name, false, err.Error())
+
+		// Check if fallback is configured
+		if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.FallbackToOwnAuth {
+			return nil, true, fmt.Errorf("ID token forwarding failed: %w", err)
+		}
+		return nil, false, fmt.Errorf("ID token forwarding failed and fallback disabled: %w", err)
+	}
+
+	// Token forwarding succeeded - emit success event
+	logging.Info("SessionConnection", "ID token forwarding succeeded for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	emitTokenForwardingEvent(serverInfo.Name, true, "")
+
+	// Fetch tools from the server
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		client.Close()
+		return nil, true, fmt.Errorf("failed to list tools after token forwarding: %w", err)
+	}
+
+	// Fetch resources and prompts (optional)
+	resources, _ := client.ListResources(ctx)
+	prompts, _ := client.ListPrompts(ctx)
+
+	// Upgrade the session connection
+	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Create a token key using the muster issuer (since the token is from muster's auth)
+	tokenKey := &oauth.TokenKey{
+		SessionID: sessionID,
+		Issuer:    musterIssuer,
+		Scope:     fullToken.Scope,
+	}
+
+	// Create the session connection
+	conn := &SessionConnection{
+		ServerName:  serverInfo.Name,
+		Status:      StatusSessionConnected,
+		Client:      client,
+		TokenKey:    tokenKey,
+		ConnectedAt: time.Now(),
+	}
+	conn.UpdateTools(tools)
+	conn.UpdateResources(resources)
+	conn.UpdatePrompts(prompts)
+
+	session.SetConnection(serverInfo.Name, conn)
+
+	// Register the session-specific tools
+	a.registerSessionTools(serverInfo.Name, tools)
+
+	// Notify the session
+	a.NotifySessionToolsChanged(sessionID)
+
+	logging.Info("SessionConnection", "Session %s connected to %s via SSO token forwarding with %d tools",
+		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
+
+	return &SessionConnectionResult{
+		ServerName:    serverInfo.Name,
+		ToolCount:     len(tools),
+		ResourceCount: len(resources),
+		PromptCount:   len(prompts),
+	}, false, nil
+}
+
+// emitTokenForwardingEvent emits an event for token forwarding success or failure.
+func emitTokenForwardingEvent(serverName string, success bool, errorMsg string) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		return
+	}
+
+	var reason string
+	var message string
+	var eventType string
+
+	if success {
+		reason = string(events.ReasonMCPServerTokenForwarded)
+		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
+		eventType = "Normal"
+	} else {
+		reason = string(events.ReasonMCPServerTokenForwardingFailed)
+		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s", serverName)
+		if errorMsg != "" {
+			message = fmt.Sprintf("%s: %s", message, errorMsg)
+		}
+		eventType = "Warning"
+	}
+
+	// Create object reference for the MCPServer
+	objRef := api.ObjectReference{
+		Kind:      "MCPServer",
+		Name:      serverName,
+		Namespace: "default",
+	}
+
+	if err := eventManager.CreateEvent(context.Background(), objRef, reason, message, eventType); err != nil {
+		logging.Debug("SessionConnection", "Failed to emit token forwarding event: %v", err)
+	}
+}
+
+// ShouldUseTokenForwarding checks if token forwarding should be used for a server.
+func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
+	if serverInfo == nil || serverInfo.AuthConfig == nil {
+		return false
+	}
+	return serverInfo.AuthConfig.Type == "oauth" && serverInfo.AuthConfig.ForwardToken
 }

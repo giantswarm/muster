@@ -371,6 +371,21 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 //
 // Returns an error if registration fails.
 func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPrefix string, authInfo *AuthInfo) error {
+	return am.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, nil)
+}
+
+// RegisterServerPendingAuthWithConfig registers a server that requires authentication with auth config.
+// This is an extended version that also accepts auth config for SSO token forwarding.
+//
+// Args:
+//   - serverName: Unique name of the server
+//   - url: The server endpoint URL
+//   - toolPrefix: Server-specific prefix for tools
+//   - authInfo: OAuth information from the 401 response
+//   - authConfig: Auth configuration for token forwarding (may be nil)
+//
+// Returns an error if registration fails.
+func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *ServerAuthConfig) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -378,7 +393,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(serverName, url, toolPrefix, authInfo); err != nil {
+	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, authConfig); err != nil {
 		return err
 	}
 

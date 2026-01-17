@@ -1,0 +1,89 @@
+name: "oauth-sso-token-forwarding"
+category: "behavioral"
+concept: "mcpserver"
+description: "Test SSO ID token forwarding from muster to downstream MCP servers"
+tags: ["oauth", "sso", "token-forwarding", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server for muster authentication
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+
+  # MCP server configured for SSO token forwarding
+  # This server trusts muster's ID tokens
+  mcp_servers:
+    - name: "sso-downstream"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          scope: "mcp:admin"
+          # Trust tokens forwarded from muster
+          forward_token: true
+        tools:
+          - name: "downstream_op"
+            description: "Operation on downstream server via SSO"
+            responses:
+              - response:
+                  source: "sso-downstream"
+                  status: "authenticated-via-sso"
+
+steps:
+  # Step 1: Verify the mock OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the muster OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "muster-idp"
+    expected:
+      success: true
+      contains:
+        - "muster-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the MCP server is registered
+  - id: verify-server-registered
+    description: "Verify the SSO downstream server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-downstream"
+
+  # Step 3: Authenticate to muster first (get ID token from muster-idp)
+  - id: authenticate-muster
+    description: "Authenticate to muster via OAuth (get ID token)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sso-downstream"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Call core_auth_login - this should forward the ID token
+  - id: login-with-sso
+    description: "Login to downstream server - should forward muster's ID token"
+    tool: "core_auth_login"
+    args:
+      server: "sso-downstream"
+    expected:
+      success: true
+
+  # Step 5: Verify the downstream server tools are available
+  - id: call-downstream-tool
+    description: "Call tool on downstream server authenticated via SSO token forwarding"
+    tool: "x_sso-downstream_downstream_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-downstream"

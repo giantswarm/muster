@@ -154,6 +154,45 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
+	// Check if token forwarding is enabled for this server
+	if ShouldUseTokenForwarding(serverInfo) {
+		logging.Info("AuthTools", "Token forwarding is enabled for server %s, attempting SSO", serverName)
+
+		// Get the muster issuer from the OAuth server configuration
+		// For token forwarding, we use the same issuer that muster authenticated the user with
+		result, needsFallback, err := p.tryTokenForwarding(ctx, sessionID, serverInfo)
+		if err == nil {
+			// Token forwarding succeeded
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			}
+			if p.aggregator.authRateLimiter != nil {
+				p.aggregator.authRateLimiter.Reset(sessionID)
+			}
+			return result, nil
+		}
+
+		logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
+
+		if !needsFallback {
+			// Fallback is disabled - fail the login
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_forwarding_failed")
+			}
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf(
+					"SSO token forwarding failed for '%s' and fallback is disabled.\n\n"+
+						"Error: %v\n\n"+
+						"Please check that the downstream server is configured to trust muster's client ID in its TrustedAudiences.",
+					serverName, err,
+				)},
+				IsError: true,
+			}, nil
+		}
+
+		logging.Info("AuthTools", "Falling back to separate OAuth flow for server %s", serverName)
+	}
+
 	// Get the auth info for this server
 	authInfo := serverInfo.AuthInfo
 	if authInfo == nil {
@@ -340,6 +379,81 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, s
 		return nil, err
 	}
 	return result.FormatAsAPIResult(), nil
+}
+
+// tryTokenForwarding attempts to establish a connection using ID token forwarding.
+// This is used when an MCPServer has forwardToken: true configured.
+//
+// Returns:
+//   - *api.CallToolResult: The connection result if successful
+//   - needsFallback: true if token forwarding failed and fallback should be tried
+//   - error: The error if token forwarding failed
+func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, bool, error) {
+	// Get the muster issuer from the configuration
+	// We need to find what issuer muster used to authenticate the user
+	musterIssuer := p.getMusterIssuer(sessionID)
+	if musterIssuer == "" {
+		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, session %s",
+			logging.TruncateSessionID(sessionID))
+		return nil, true, fmt.Errorf("cannot determine muster issuer for token forwarding")
+	}
+
+	result, needsFallback, err := EstablishSessionConnectionWithTokenForwarding(
+		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
+	)
+	if err != nil {
+		return nil, needsFallback, err
+	}
+
+	return result.FormatAsAPIResult(), false, nil
+}
+
+// getMusterIssuer determines the OAuth issuer that muster used to authenticate the user.
+// This is needed for token forwarding - we need to get the ID token from muster's auth session.
+func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return ""
+	}
+
+	// The muster server's issuer is configured in the OAuth server configuration.
+	// We need to find a token in the session that has an ID token.
+	// For now, we'll iterate through known issuers to find one with an ID token.
+	// In a production setup, this should be the configured muster OAuth issuer.
+
+	// Try to get the issuer from the OAuth server configuration
+	// The aggregator's OAuthServer.Config contains the issuer information
+	if p.aggregator.config.OAuthServer.Enabled && p.aggregator.config.OAuthServer.Config != nil {
+		// The config is stored as interface{}, we need to extract the issuer
+		// from the actual config type
+		if cfg, ok := p.aggregator.config.OAuthServer.Config.(interface{ GetIssuer() string }); ok {
+			issuer := cfg.GetIssuer()
+			if issuer != "" {
+				return issuer
+			}
+		}
+	}
+
+	// Fallback: Look for any token in the session that has an ID token
+	// This is a best-effort approach when we can't determine the configured issuer
+	fullToken := findTokenWithIDToken(sessionID, oauthHandler)
+	if fullToken != nil && fullToken.Issuer != "" {
+		return fullToken.Issuer
+	}
+
+	return ""
+}
+
+// findTokenWithIDToken searches for a token in the session that has an ID token.
+// This is used as a fallback when the muster issuer is not explicitly configured.
+func findTokenWithIDToken(sessionID string, oauthHandler api.OAuthHandler) *api.OAuthToken {
+	// This is a limitation - we don't have a way to iterate all tokens for a session
+	// through the OAuthHandler interface. In practice, this means token forwarding
+	// works best when there's a single OAuth provider in use.
+	//
+	// The proper solution would be to configure the muster issuer explicitly in
+	// the aggregator configuration.
+	return nil
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

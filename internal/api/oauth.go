@@ -39,6 +39,11 @@ type OAuthHandler interface {
 	// This is used for SSO when we have the issuer from a 401 response.
 	GetTokenByIssuer(sessionID, issuer string) *OAuthToken
 
+	// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
+	// This is used for SSO token forwarding to downstream MCP servers.
+	// Returns nil if no valid token exists or if the token doesn't have an ID token.
+	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
+
 	// ClearTokenByIssuer removes all tokens for a given session and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
 	ClearTokenByIssuer(sessionID, issuer string)
