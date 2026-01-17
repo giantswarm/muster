@@ -111,6 +111,8 @@ type ExecutorOptions struct {
 	Format OutputFormat
 	// Quiet suppresses progress indicators and non-essential output
 	Quiet bool
+	// Debug enables verbose logging of MCP protocol messages and initialization
+	Debug bool
 	// ConfigPath specifies a custom configuration directory path
 	ConfigPath string
 	// Endpoint overrides the aggregator endpoint URL for remote connections
@@ -149,7 +151,14 @@ type ToolExecutor struct {
 //   - *ToolExecutor: Configured tool executor ready for use
 //   - error: Configuration or connection setup error
 func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
-	logger := agent.NewLogger(false, false, false)
+	// Use DevNullLogger by default to suppress MCP protocol messages
+	// Only enable verbose logging when Debug mode is explicitly requested
+	var logger *agent.Logger
+	if options.Debug {
+		logger = agent.NewLogger(true, true, false)
+	} else {
+		logger = agent.NewDevNullLogger()
+	}
 
 	var endpoint string
 	var transport agent.TransportType

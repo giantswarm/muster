@@ -11,6 +11,7 @@ import (
 var (
 	checkOutputFormat string
 	checkQuiet        bool
+	checkDebug        bool
 	checkConfigPath   string
 	checkEndpoint     string
 	checkContext      string
@@ -78,6 +79,7 @@ func init() {
 	// Add flags to the command
 	checkCmd.PersistentFlags().StringVarP(&checkOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	checkCmd.PersistentFlags().BoolVarP(&checkQuiet, "quiet", "q", false, "Suppress non-essential output")
+	checkCmd.PersistentFlags().BoolVar(&checkDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	checkCmd.PersistentFlags().StringVar(&checkConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	checkCmd.PersistentFlags().StringVar(&checkEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	checkCmd.PersistentFlags().StringVar(&checkContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
@@ -103,6 +105,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(checkOutputFormat),
 		Quiet:      checkQuiet,
+		Debug:      checkDebug,
 		ConfigPath: checkConfigPath,
 		Endpoint:   checkEndpoint,
 		Context:    checkContext,

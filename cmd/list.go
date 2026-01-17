@@ -15,6 +15,7 @@ import (
 var (
 	listOutputFormat string
 	listQuiet        bool
+	listDebug        bool
 	listConfigPath   string
 	listEndpoint     string
 	listContext      string
@@ -229,6 +230,7 @@ func init() {
 	// Add flags to the command
 	listCmd.PersistentFlags().StringVarP(&listOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	listCmd.PersistentFlags().BoolVarP(&listQuiet, "quiet", "q", false, "Suppress non-essential output")
+	listCmd.PersistentFlags().BoolVar(&listDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	listCmd.PersistentFlags().StringVar(&listConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	listCmd.PersistentFlags().StringVar(&listEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	listCmd.PersistentFlags().StringVar(&listContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
@@ -312,6 +314,7 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(listOutputFormat),
 		Quiet:      listQuiet,
+		Debug:      listDebug,
 		ConfigPath: listConfigPath,
 		Endpoint:   listEndpoint,
 		Context:    listContext,

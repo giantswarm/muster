@@ -11,6 +11,7 @@ import (
 var (
 	stopOutputFormat string
 	stopQuiet        bool
+	stopDebug        bool
 	stopConfigPath   string
 	stopEndpoint     string
 	stopContext      string
@@ -71,6 +72,7 @@ func init() {
 	// Add flags to the command
 	stopCmd.PersistentFlags().StringVarP(&stopOutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
 	stopCmd.PersistentFlags().BoolVarP(&stopQuiet, "quiet", "q", false, "Suppress non-essential output")
+	stopCmd.PersistentFlags().BoolVar(&stopDebug, "debug", false, "Enable debug logging (show MCP protocol messages)")
 	stopCmd.PersistentFlags().StringVar(&stopConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	stopCmd.PersistentFlags().StringVar(&stopEndpoint, "endpoint", cli.GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	stopCmd.PersistentFlags().StringVar(&stopContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
@@ -96,6 +98,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
 		Format:     cli.OutputFormat(stopOutputFormat),
 		Quiet:      stopQuiet,
+		Debug:      stopDebug,
 		ConfigPath: stopConfigPath,
 		Endpoint:   stopEndpoint,
 		Context:    stopContext,
