@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"muster/internal/cli"
-	"muster/internal/config"
 	"sort"
 	"strings"
+
+	"muster/internal/cli"
+	"muster/internal/config"
 
 	"github.com/spf13/cobra"
 )
@@ -27,6 +28,34 @@ var getResourceTypes = []string{
 	"mcpserver",
 	"workflow",
 	"workflow-execution",
+	"tool",
+	"resource",
+	"prompt",
+}
+
+// getMCPResourceTypes aliases to the shared mcpPrimitiveTypes for backward compatibility
+var getMCPResourceTypes = mcpPrimitiveTypes
+
+// Resource type mappings for get operations
+var getResourceMappings = map[string]string{
+	"service":            "core_service_status",
+	"serviceclass":       "core_serviceclass_get",
+	"mcpserver":          "core_mcpserver_get",
+	"workflow":           "core_workflow_get",
+	"workflow-execution": "core_workflow_execution_get",
+}
+
+// availableGetResourceTypes returns a comma-separated list of available resource types
+func availableGetResourceTypes() string {
+	types := make([]string, 0, len(getResourceMappings)+len(getMCPResourceTypes))
+	for t := range getResourceMappings {
+		types = append(types, t)
+	}
+	for t := range getMCPResourceTypes {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return strings.Join(types, ", ")
 }
 
 // Dynamic completion function for resource names
@@ -56,6 +85,11 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 	}
 	defer executor.Close()
 
+	// Check if this is an MCP primitive type
+	if _, isMCP := getMCPResourceTypes[resourceType]; isMCP {
+		return getMCPPrimitiveCompletion(ctx, executor, resourceType, toComplete)
+	}
+
 	// Map resource types to tools
 	toolMap := map[string]string{
 		"service":            "core_service_list",
@@ -84,6 +118,52 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 		}
 	}
 
+	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
+// getMCPPrimitiveCompletion provides tab completion for MCP primitives (tools, resources, prompts)
+func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, resourceType, toComplete string) ([]string, cobra.ShellCompDirective) {
+	var names []string
+
+	switch resourceType {
+	case "tool":
+		tools, err := executor.ListMCPTools(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, tool := range tools {
+			names = append(names, tool.Name)
+		}
+	case "resource":
+		resources, err := executor.ListMCPResources(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, resource := range resources {
+			// For resources, we complete on URI
+			names = append(names, resource.URI)
+		}
+	case "prompt":
+		prompts, err := executor.ListMCPPrompts(ctx)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		for _, prompt := range prompts {
+			names = append(names, prompt.Name)
+		}
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	// Filter by what the user has typed so far
+	var completions []string
+	for _, name := range names {
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(toComplete)) {
+			completions = append(completions, name)
+		}
+	}
+
+	sort.Strings(completions)
 	return completions, cobra.ShellCompDirectiveNoFileComp
 }
 
@@ -134,22 +214,28 @@ func extractNamesFromArray(arr []interface{}, resourceType string) []string {
 
 // getCmd represents the get command
 var getCmd = &cobra.Command{
-	Use:   "get",
+	Use:   "get <type> <name|uri|id>",
 	Short: "Get detailed information about a resource",
-	Long: `Get detailed information about a specific resource by name.
+	Long: `Get detailed information about a specific resource.
 
 Available resource types:
-  service             - Get detailed status of a service
-  serviceclass        - Get ServiceClass details and configuration
-  mcpserver           - Get MCP server details and configuration
-  workflow            - Get workflow definition and details
-  workflow-execution  - Get workflow execution details and results
+  service             - Get detailed status of a service (by name)
+  serviceclass        - Get ServiceClass details and configuration (by name)
+  mcpserver           - Get MCP server details and configuration (by name)
+  workflow            - Get workflow definition and details (by name)
+  workflow-execution  - Get workflow execution details and results (by execution ID)
+  tool                - Get MCP tool details including input schema (by name)
+  resource            - Get MCP resource metadata (by URI)
+  prompt              - Get MCP prompt details including arguments (by name)
 
 Examples:
   muster get service prometheus
   muster get workflow auth-flow
   muster get workflow-execution abc123-def456-789
   muster get serviceclass kubernetes --output yaml
+  muster get tool core_service_list
+  muster get resource muster://auth/status
+  muster get prompt code_review
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.ExactArgs(2),
@@ -164,15 +250,6 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 	},
 	DisableFlagsInUseLine: true,
 	RunE:                  runGet,
-}
-
-// Resource type mappings for get operations
-var getResourceMappings = map[string]string{
-	"service":            "core_service_status",
-	"serviceclass":       "core_serviceclass_get",
-	"mcpserver":          "core_mcpserver_get",
-	"workflow":           "core_workflow_get",
-	"workflow-execution": "core_workflow_execution_get",
 }
 
 func init() {
@@ -191,10 +268,15 @@ func runGet(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 	resourceName := args[1]
 
+	// Check if this is an MCP primitive type
+	if mcpType, isMCP := getMCPResourceTypes[resourceType]; isMCP {
+		return runGetMCP(cmd, mcpType, resourceName)
+	}
+
 	// Validate resource type
 	toolName, exists := getResourceMappings[resourceType]
 	if !exists {
-		return fmt.Errorf("unknown resource type '%s'. Available types: service, serviceclass, mcpserver, workflow, workflow-execution", resourceType)
+		return fmt.Errorf("unknown resource type '%s'. Available types: %s", resourceType, availableGetResourceTypes())
 	}
 
 	// Parse auth mode (uses environment variable as default if not specified)
@@ -235,4 +317,84 @@ func runGet(cmd *cobra.Command, args []string) error {
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)
+}
+
+// runGetMCP handles getting MCP primitives (tools, resources, prompts)
+func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
+	// Parse auth mode
+	authMode, err := cli.GetAuthModeWithOverride(getAuthMode)
+	if err != nil {
+		return err
+	}
+
+	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
+		Format:     cli.OutputFormat(getOutputFormat),
+		Quiet:      getQuiet,
+		ConfigPath: getConfigPath,
+		Endpoint:   getEndpoint,
+		Context:    getContext,
+		AuthMode:   authMode,
+	})
+	if err != nil {
+		return err
+	}
+	defer executor.Close()
+
+	ctx := cmd.Context()
+	if err := executor.Connect(ctx); err != nil {
+		return err
+	}
+
+	switch mcpType {
+	case "tool":
+		return runGetMCPTool(cmd, executor, name)
+	case "resource":
+		return runGetMCPResource(cmd, executor, name)
+	case "prompt":
+		return runGetMCPPrompt(cmd, executor, name)
+	default:
+		return fmt.Errorf("unknown MCP type: %s", mcpType)
+	}
+}
+
+// runGetMCPTool gets details of a specific MCP tool
+func runGetMCPTool(cmd *cobra.Command, executor *cli.ToolExecutor, name string) error {
+	tool, err := executor.GetMCPTool(cmd.Context(), name)
+	if err != nil {
+		return fmt.Errorf("failed to get tool: %w", err)
+	}
+
+	if tool == nil {
+		return fmt.Errorf("tool not found: %s", name)
+	}
+
+	return cli.FormatMCPToolDetail(*tool, executor.GetOptions().Format)
+}
+
+// runGetMCPResource gets details of a specific MCP resource
+func runGetMCPResource(cmd *cobra.Command, executor *cli.ToolExecutor, uri string) error {
+	resource, err := executor.GetMCPResource(cmd.Context(), uri)
+	if err != nil {
+		return fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	if resource == nil {
+		return fmt.Errorf("resource not found: %s", uri)
+	}
+
+	return cli.FormatMCPResourceDetail(*resource, executor.GetOptions().Format)
+}
+
+// runGetMCPPrompt gets details of a specific MCP prompt
+func runGetMCPPrompt(cmd *cobra.Command, executor *cli.ToolExecutor, name string) error {
+	prompt, err := executor.GetMCPPrompt(cmd.Context(), name)
+	if err != nil {
+		return fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	if prompt == nil {
+		return fmt.Errorf("prompt not found: %s", name)
+	}
+
+	return cli.FormatMCPPromptDetail(*prompt, executor.GetOptions().Format)
 }

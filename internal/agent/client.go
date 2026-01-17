@@ -1141,6 +1141,132 @@ func (c *Client) RefreshPromptCache(ctx context.Context) error {
 	return c.listPrompts(ctx, false)
 }
 
+// ListToolsFromServer retrieves all tools from the MCP server using the native MCP protocol.
+// This method refreshes the cache and returns the complete list of tools.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - []mcp.Tool: Slice of all available tools from the server
+//   - error: Any connection or retrieval errors
+func (c *Client) ListToolsFromServer(ctx context.Context) ([]mcp.Tool, error) {
+	if err := c.listTools(ctx, false); err != nil {
+		return nil, fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	c.mu.RLock()
+	tools := make([]mcp.Tool, len(c.toolCache))
+	copy(tools, c.toolCache)
+	c.mu.RUnlock()
+
+	return tools, nil
+}
+
+// ListResourcesFromServer retrieves all resources from the MCP server using the native MCP protocol.
+// This method refreshes the cache and returns the complete list of resources.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - []mcp.Resource: Slice of all available resources from the server
+//   - error: Any connection or retrieval errors
+func (c *Client) ListResourcesFromServer(ctx context.Context) ([]mcp.Resource, error) {
+	if err := c.listResources(ctx, false); err != nil {
+		return nil, fmt.Errorf("failed to list resources: %w", err)
+	}
+
+	c.mu.RLock()
+	resources := make([]mcp.Resource, len(c.resourceCache))
+	copy(resources, c.resourceCache)
+	c.mu.RUnlock()
+
+	return resources, nil
+}
+
+// ListPromptsFromServer retrieves all prompts from the MCP server using the native MCP protocol.
+// This method refreshes the cache and returns the complete list of prompts.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - []mcp.Prompt: Slice of all available prompts from the server
+//   - error: Any connection or retrieval errors
+func (c *Client) ListPromptsFromServer(ctx context.Context) ([]mcp.Prompt, error) {
+	if err := c.listPrompts(ctx, false); err != nil {
+		return nil, fmt.Errorf("failed to list prompts: %w", err)
+	}
+
+	c.mu.RLock()
+	prompts := make([]mcp.Prompt, len(c.promptCache))
+	copy(prompts, c.promptCache)
+	c.mu.RUnlock()
+
+	return prompts, nil
+}
+
+// GetToolByName finds a specific tool by name from the cached tool list.
+// This method does not refresh the cache; call ListToolsFromServer first if you need fresh data.
+//
+// Args:
+//   - name: The exact name of the tool to find
+//
+// Returns:
+//   - *mcp.Tool: Pointer to the found tool, or nil if not found
+func (c *Client) GetToolByName(name string) *mcp.Tool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, tool := range c.toolCache {
+		if tool.Name == name {
+			return &tool
+		}
+	}
+	return nil
+}
+
+// GetResourceByURI finds a specific resource by URI from the cached resource list.
+// This method does not refresh the cache; call ListResourcesFromServer first if you need fresh data.
+//
+// Args:
+//   - uri: The exact URI of the resource to find
+//
+// Returns:
+//   - *mcp.Resource: Pointer to the found resource, or nil if not found
+func (c *Client) GetResourceByURI(uri string) *mcp.Resource {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, resource := range c.resourceCache {
+		if resource.URI == uri {
+			return &resource
+		}
+	}
+	return nil
+}
+
+// GetPromptByName finds a specific prompt by name from the cached prompt list.
+// This method does not refresh the cache; call ListPromptsFromServer first if you need fresh data.
+//
+// Args:
+//   - name: The exact name of the prompt to find
+//
+// Returns:
+//   - *mcp.Prompt: Pointer to the found prompt, or nil if not found
+func (c *Client) GetPromptByName(name string) *mcp.Prompt {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, prompt := range c.promptCache {
+		if prompt.Name == name {
+			return &prompt
+		}
+	}
+	return nil
+}
+
 func (c *Client) showToolDiff(oldTools, newTools []mcp.Tool) {
 	oldMap := make(map[string]mcp.Tool)
 	for _, tool := range oldTools {

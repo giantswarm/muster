@@ -94,7 +94,7 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 // Returns:
 //   - string: The key name containing array data, or empty string if none found
 func (f *TableFormatter) findArrayKey(data map[string]interface{}) string {
-	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "executions", "capabilities", "items", "results"}
+	arrayKeys := []string{"services", "serviceClasses", "mcpServers", "workflows", "executions", "capabilities", "items", "results", "tools", "resources", "prompts"}
 
 	for _, key := range arrayKeys {
 		if value, exists := data[key]; exists {
@@ -225,6 +225,9 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"workflows":      {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
 		"event":          {"timestamp", "type", "resource_type", "resource_name", "reason", "message"},
+		"mcpTool":        {"description"},
+		"mcpResource":    {"uri", "description", "mimeType"},
+		"mcpPrompt":      {"description"},
 		"generic":        {"status", "type", "description", "available"},
 	}
 
@@ -303,6 +306,18 @@ func (f *TableFormatter) detectResourceType(sample map[string]interface{}) strin
 	}
 	if f.keyExists(sample, "workflow_name") && f.keyExists(sample, "started_at") {
 		return "execution"
+	}
+	// Check for MCP tools - has inputSchema and name but NOT uri
+	if f.keyExists(sample, "inputSchema") && f.keyExists(sample, "name") && !f.keyExists(sample, "uri") {
+		return "mcpTool"
+	}
+	// Check for MCP resources - has uri field
+	if f.keyExists(sample, "uri") && (f.keyExists(sample, "mimeType") || f.keyExists(sample, "name")) {
+		return "mcpResource"
+	}
+	// Check for MCP prompts - has arguments field but NOT inputSchema or steps
+	if f.keyExists(sample, "arguments") && !f.keyExists(sample, "inputSchema") && !f.keyExists(sample, "steps") {
+		return "mcpPrompt"
 	}
 	// Check for MCP servers by looking at the type field value
 	if f.keyExists(sample, "type") {

@@ -240,3 +240,71 @@ func TestToolExecutor_Close(t *testing.T) {
 		executor.Close()
 	})
 }
+
+func TestToolExecutor_GetOptions(t *testing.T) {
+	logger := agent.NewLogger(false, false, false)
+	client := agent.NewClient("http://localhost:8090/mcp", logger, agent.TransportStreamableHTTP)
+	executor := &ToolExecutor{
+		client: client,
+		options: ExecutorOptions{
+			Format:   OutputFormatJSON,
+			Quiet:    true,
+			Endpoint: "http://test.example.com/mcp",
+		},
+		formatter: NewTableFormatter(ExecutorOptions{}),
+	}
+
+	options := executor.GetOptions()
+	assert.Equal(t, OutputFormatJSON, options.Format)
+	assert.True(t, options.Quiet)
+	assert.Equal(t, "http://test.example.com/mcp", options.Endpoint)
+}
+
+func TestToolExecutor_GetFormatter(t *testing.T) {
+	logger := agent.NewLogger(false, false, false)
+	client := agent.NewClient("http://localhost:8090/mcp", logger, agent.TransportStreamableHTTP)
+	formatter := NewTableFormatter(ExecutorOptions{Format: OutputFormatTable})
+	executor := &ToolExecutor{
+		client:    client,
+		options:   ExecutorOptions{Format: OutputFormatTable},
+		formatter: formatter,
+	}
+
+	assert.NotNil(t, executor.GetFormatter())
+	assert.Equal(t, formatter, executor.GetFormatter())
+}
+
+func TestToolExecutor_GetClient(t *testing.T) {
+	logger := agent.NewLogger(false, false, false)
+	client := agent.NewClient("http://localhost:8090/mcp", logger, agent.TransportStreamableHTTP)
+	executor := &ToolExecutor{
+		client:  client,
+		options: ExecutorOptions{Format: OutputFormatTable},
+	}
+
+	assert.NotNil(t, executor.GetClient())
+	assert.Equal(t, client, executor.GetClient())
+}
+
+func TestMCPTypeAliases(t *testing.T) {
+	// Verify that the type aliases work correctly
+	var tool MCPTool
+	tool.Name = "test_tool"
+	tool.Description = "Test tool description"
+	assert.Equal(t, "test_tool", tool.Name)
+	assert.Equal(t, "Test tool description", tool.Description)
+
+	var resource MCPResource
+	resource.URI = "file://test.txt"
+	resource.Name = "test.txt"
+	resource.MIMEType = "text/plain"
+	assert.Equal(t, "file://test.txt", resource.URI)
+	assert.Equal(t, "test.txt", resource.Name)
+	assert.Equal(t, "text/plain", resource.MIMEType)
+
+	var prompt MCPPrompt
+	prompt.Name = "test_prompt"
+	prompt.Description = "Test prompt description"
+	assert.Equal(t, "test_prompt", prompt.Name)
+	assert.Equal(t, "Test prompt description", prompt.Description)
+}
