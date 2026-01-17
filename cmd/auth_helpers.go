@@ -170,8 +170,13 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 	}
 	defer client.Close()
 
-	// Call the auth tool
-	result, err := client.CallTool(ctx, authTool, nil)
+	// Call the auth tool with the server name as argument.
+	// Per ADR-008, core_auth_login requires a "server" parameter to identify
+	// which MCP server to authenticate to.
+	args := map[string]interface{}{
+		"server": serverName,
+	}
+	result, err := client.CallTool(ctx, authTool, args)
 	if err != nil {
 		return fmt.Errorf("failed to call auth tool: %w", err)
 	}
