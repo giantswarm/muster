@@ -138,6 +138,9 @@ steps:
         - "success"
 
   # Step 5: Establish connection using stored token (per ADR-008)
+  # Note: test_simulate_oauth_callback may already establish the session connection,
+  # so core_auth_login might return "Already Connected" instead of "Successfully connected".
+  # We just verify success, not the specific message.
   - id: establish-kubernetes-connection
     description: "Call core_auth_login to establish session connection with stored token"
     tool: "core_auth_login"
@@ -145,8 +148,6 @@ steps:
       server: "kubernetes-mcp"
     expected:
       success: true
-      contains:
-        - "Successfully connected"
 
   # Step 6: Verify protected servers are accessible
   - id: verify-kubernetes-server

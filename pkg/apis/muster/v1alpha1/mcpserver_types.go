@@ -84,6 +84,15 @@ type MCPServerAuth struct {
 	// When false, token forwarding failures result in an error.
 	// +kubebuilder:default=true
 	FallbackToOwnAuth bool `json:"fallbackToOwnAuth,omitempty" yaml:"fallbackToOwnAuth,omitempty"`
+
+	// SSO controls Single Sign-On token reuse for this server.
+	// When true (default), tokens from other servers using the same OAuth issuer
+	// can be reused to authenticate to this server without re-authenticating.
+	// When false, this server always requires its own authentication flow,
+	// even if a token exists for the same issuer. Use this when you want to
+	// use different accounts for servers that share the same OAuth provider.
+	// +kubebuilder:default=true
+	SSO *bool `json:"sso,omitempty" yaml:"sso,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer

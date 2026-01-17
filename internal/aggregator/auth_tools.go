@@ -231,10 +231,51 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if we already have a valid token for this server/issuer
-	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	// Check if this session already has a connection to THIS specific server.
+	// This provides a clear message to the user that they're already connected.
+	if p.aggregator.sessionRegistry != nil {
+		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Info("AuthTools", "Session %s already has connection to server %s",
+				logging.TruncateSessionID(sessionID), serverName)
+			// Record success metrics since the user is already connected
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			}
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf(
+					api.AuthMsgAlreadyConnected+"\n\n"+
+						"Server: %s\n"+
+						"Status: connected\n\n"+
+						"You are already authenticated to this server. Use core_auth_logout to disconnect first if you want to re-authenticate with a different account.",
+					serverName,
+				)},
+				IsError: false,
+			}, nil
+		}
+	}
+
+	// Check if SSO token reuse is enabled for this server (default: true).
+	// This allows operators to disable SSO for specific servers that need separate accounts
+	// even when they share the same OAuth issuer (e.g., personal vs work accounts).
+	ssoEnabled := true
+	if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.SSO != nil {
+		ssoEnabled = *serverInfo.AuthConfig.SSO
+	}
+
+	// Check if we already have a valid token for this server/issuer (SSO).
+	// This enables single sign-on: if the user authenticated to another server
+	// with the same OAuth issuer, we can reuse that token.
+	// Skip SSO token reuse if explicitly disabled for this server.
+	var token *api.OAuthToken
+	if ssoEnabled {
+		token = oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	} else {
+		logging.Info("AuthTools", "SSO disabled for server %s, skipping token reuse", serverName)
+	}
+
 	if token != nil {
-		logging.Info("AuthTools", "Found existing token for server %s, attempting to connect", serverName)
+		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
+			serverName, authInfo.Issuer)
 
 		// Try to establish connection using the existing token
 		connectResult, connectErr := p.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
@@ -269,7 +310,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 	}
 
-	// No token - need to create an auth challenge
+	// No token or token was cleared - need to create an auth challenge
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
