@@ -1,0 +1,202 @@
+# Gateway API template tests for muster Helm chart
+#
+# These tests verify the Gateway API configuration:
+# - HTTPRoute is only created when gatewayAPI.enabled is true
+# - BackendTrafficPolicy requires both gatewayAPI.enabled and backendTrafficPolicy.enabled
+# - Correct service name/port references
+#
+# Run with: helm unittest ./helm/muster
+
+suite: Gateway API template tests
+templates:
+  - templates/httproute.yaml
+  - templates/backendtrafficpolicy.yaml
+tests:
+  # HTTPRoute tests
+  - it: should not create HTTPRoute when gatewayAPI is disabled
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create HTTPRoute when gatewayAPI is enabled
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: apiVersion
+          value: gateway.networking.k8s.io/v1
+
+  - it: should include parent refs when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: internal
+          namespace: envoy-gateway-system
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: internal
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: envoy-gateway-system
+
+  - it: should include hostnames when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.hostnames:
+        - muster.example.com
+    asserts:
+      - equal:
+          path: spec.hostnames[0]
+          value: muster.example.com
+
+  - it: should use default rule when no custom rules specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+
+  - it: should reference the correct service name and port
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      service.port: 8080
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: RELEASE-NAME-muster
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 8080
+
+  - it: should include custom labels when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.labels:
+        custom-label: custom-value
+    asserts:
+      - equal:
+          path: metadata.labels.custom-label
+          value: custom-value
+
+  - it: should include custom annotations when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.annotations:
+        custom-annotation: custom-value
+    asserts:
+      - equal:
+          path: metadata.annotations.custom-annotation
+          value: custom-value
+
+  # BackendTrafficPolicy tests
+  - it: should not create BackendTrafficPolicy when gatewayAPI is disabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: false
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create BackendTrafficPolicy when only gatewayAPI is enabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create BackendTrafficPolicy when both flags are enabled
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: BackendTrafficPolicy
+      - equal:
+          path: apiVersion
+          value: gateway.envoyproxy.io/v1alpha1
+
+  - it: should reference the HTTPRoute in targetRefs
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.targetRefs[0].group
+          value: gateway.networking.k8s.io
+      - equal:
+          path: spec.targetRefs[0].kind
+          value: HTTPRoute
+      - equal:
+          path: spec.targetRefs[0].name
+          value: RELEASE-NAME-muster
+
+  - it: should use default timeout value
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+    asserts:
+      - equal:
+          path: spec.timeout.http.requestTimeout
+          value: "300s"
+
+  - it: should use custom timeout when specified
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.timeout: "600s"
+    asserts:
+      - equal:
+          path: spec.timeout.http.requestTimeout
+          value: "600s"
+
+  - it: should include custom labels on BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.labels:
+        policy-label: policy-value
+    asserts:
+      - equal:
+          path: metadata.labels.policy-label
+          value: policy-value
+
+  - it: should include custom annotations on BackendTrafficPolicy
+    template: templates/backendtrafficpolicy.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.backendTrafficPolicy.enabled: true
+      gatewayAPI.backendTrafficPolicy.annotations:
+        policy-annotation: policy-value
+    asserts:
+      - equal:
+          path: metadata.annotations.policy-annotation
+          value: policy-value
