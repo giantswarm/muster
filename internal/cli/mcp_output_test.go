@@ -648,6 +648,37 @@ func TestFormatMCPResources_Wide(t *testing.T) {
 	assert.Contains(t, output, "test.txt")
 }
 
+func TestFormatMCPResources_Wide_LongNameTruncation(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	longName := "This is a very long name that exceeds the normal display width and should be truncated to prevent layout issues"
+	resources := []MCPResource{
+		{
+			URI:         "auth://status",
+			Name:        longName,
+			Description: "A short description",
+			MIMEType:    "application/json",
+		},
+	}
+	err := FormatMCPResourcesWithOptions(resources, OutputFormatWide, false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Wide format should truncate long NAME values
+	assert.Contains(t, output, "...")
+	// Should NOT contain the full long name
+	assert.NotContains(t, output, longName)
+}
+
 func TestFormatMCPPrompts_Wide(t *testing.T) {
 	// Capture stdout
 	old := os.Stdout

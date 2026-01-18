@@ -70,7 +70,13 @@ func RegisterConnectionFlags(cmd *cobra.Command, flags *CommandFlags) {
 
 // ToExecutorOptions converts CommandFlags to ExecutorOptions for use with NewToolExecutor.
 // This provides a convenient bridge between the flag registration and executor creation.
+// It validates the output format and returns an error for unsupported formats.
 func (f *CommandFlags) ToExecutorOptions() (ExecutorOptions, error) {
+	// Validate output format before proceeding
+	if err := ValidateOutputFormat(f.OutputFormat); err != nil {
+		return ExecutorOptions{}, err
+	}
+
 	authMode, err := GetAuthModeWithOverride(f.AuthMode)
 	if err != nil {
 		return ExecutorOptions{}, err

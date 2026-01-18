@@ -235,9 +235,16 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 			desc = resource.Name
 		}
 		if isWide {
+			// In wide mode, truncate both NAME and DESCRIPTION columns
+			// to prevent excessively wide output when Name contains long text
+			name := resource.Name
+			// If Name looks like a description (long sentence), truncate it
+			if len(name) > descLengthWide {
+				name = truncateString(name, descLengthWide)
+			}
 			tw.AppendRow([]string{
 				resource.URI,
-				resource.Name,
+				name,
 				truncateString(desc, descLengthCompact),
 				resource.MIMEType,
 			})

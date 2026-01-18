@@ -93,6 +93,9 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 		return b.formatDescriptionPlain(strValue)
 	case "steps":
 		return b.formatStepsPlain(value)
+	case "timeout":
+		// Format timeout values with "s" suffix for seconds
+		return b.formatTimeoutPlain(value)
 	case "url", "command", "uri", "endpoint":
 		// Don't truncate URLs, commands, URIs, or endpoints - show full value
 		return strValue
@@ -1007,6 +1010,51 @@ func (b *TableBuilder) formatDurationPlain(value interface{}) string {
 		return fallback
 	}
 	return b.normalizeDuration(durationMs)
+}
+
+// formatTimeoutPlain formats timeout values with "s" suffix for seconds.
+// This provides clear units for timeout configuration values.
+func (b *TableBuilder) formatTimeoutPlain(value interface{}) string {
+	if value == nil {
+		return "-"
+	}
+
+	switch v := value.(type) {
+	case float64:
+		if v == 0 {
+			return "-"
+		}
+		// Format as integer if it's a whole number
+		if v == float64(int(v)) {
+			return fmt.Sprintf("%ds", int(v))
+		}
+		return fmt.Sprintf("%.1fs", v)
+	case int:
+		if v == 0 {
+			return "-"
+		}
+		return fmt.Sprintf("%ds", v)
+	case int64:
+		if v == 0 {
+			return "-"
+		}
+		return fmt.Sprintf("%ds", v)
+	case string:
+		if v == "" || v == "0" {
+			return "-"
+		}
+		// If already has a suffix, return as-is
+		if strings.HasSuffix(v, "s") || strings.HasSuffix(v, "m") || strings.HasSuffix(v, "h") {
+			return v
+		}
+		return v + "s"
+	default:
+		strVal := fmt.Sprintf("%v", v)
+		if strVal == "" || strVal == "0" {
+			return "-"
+		}
+		return strVal + "s"
+	}
 }
 
 // formatMetadataPlain formats metadata as plain text.
