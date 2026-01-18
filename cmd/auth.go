@@ -15,7 +15,6 @@ var (
 	authEndpoint   string
 	authContext    string
 	authConfigPath string
-	authServer     string
 	authQuiet      bool
 )
 
@@ -51,6 +50,7 @@ re-authenticate on the next connection to protected endpoints.
 Examples:
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --endpoint <url>  # Logout from specific endpoint
+  muster auth logout --server <name>   # Logout from specific MCP server
   muster auth logout --all             # Clear all stored tokens
   muster auth logout --all --yes       # Clear all without confirmation`,
 	RunE: runAuthLogout,
@@ -88,8 +88,9 @@ Examples:
 
 // Logout-specific flags
 var (
-	logoutAll bool
-	logoutYes bool
+	logoutAll    bool
+	logoutYes    bool
+	logoutServer string
 )
 
 // authPrint prints output only if the --quiet flag is not set.
@@ -125,6 +126,7 @@ func init() {
 	// Logout-specific flags (only on logout subcommand)
 	authLogoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Clear all stored tokens")
 	authLogoutCmd.Flags().BoolVarP(&logoutYes, "yes", "y", false, "Skip confirmation prompt for --all")
+	authLogoutCmd.Flags().StringVar(&logoutServer, "server", "", "MCP server name to disconnect")
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
@@ -184,7 +186,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	var endpoint string
 	if authEndpoint != "" {
 		endpoint = authEndpoint
-	} else if authServer != "" {
+	} else if logoutServer != "" {
 		// MCP server logout - note that MCP server auth is managed by the aggregator,
 		// not stored locally. We can inform the user about this.
 		fmt.Println("Note: MCP server authentication is managed by the aggregator.")

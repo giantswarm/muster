@@ -114,6 +114,13 @@ func TestAuthLogoutCommand(t *testing.T) {
 			t.Error("expected --yes flag on logout command")
 		}
 	})
+
+	t.Run("logout has --server flag", func(t *testing.T) {
+		flag := authLogoutCmd.Flags().Lookup("server")
+		if flag == nil {
+			t.Error("expected --server flag on logout command")
+		}
+	})
 }
 
 func TestAuthStatusCommand(t *testing.T) {
