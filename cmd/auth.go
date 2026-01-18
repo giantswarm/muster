@@ -50,7 +50,7 @@ re-authenticate on the next connection to protected endpoints.
 Examples:
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --endpoint <url>  # Logout from specific endpoint
-  muster auth logout --server <name>   # Logout from specific MCP server
+  muster auth logout -s <name>         # Logout from specific MCP server
   muster auth logout --all             # Clear all stored tokens
   muster auth logout --all --yes       # Clear all without confirmation`,
 	RunE: runAuthLogout,
@@ -126,7 +126,7 @@ func init() {
 	// Logout-specific flags (only on logout subcommand)
 	authLogoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Clear all stored tokens")
 	authLogoutCmd.Flags().BoolVarP(&logoutYes, "yes", "y", false, "Skip confirmation prompt for --all")
-	authLogoutCmd.Flags().StringVar(&logoutServer, "server", "", "MCP server name to disconnect")
+	authLogoutCmd.Flags().StringVarP(&logoutServer, "server", "s", "", "MCP server name to disconnect")
 }
 
 func runAuthLogout(cmd *cobra.Command, args []string) error {
