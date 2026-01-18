@@ -43,6 +43,25 @@ const (
 	OutputFormatYAML OutputFormat = "yaml"
 )
 
+// ValidOutputFormats contains all valid output format values.
+var ValidOutputFormats = []OutputFormat{
+	OutputFormatTable,
+	OutputFormatWide,
+	OutputFormatJSON,
+	OutputFormatYAML,
+}
+
+// ValidateOutputFormat validates that the given format string is a supported output format.
+// Returns nil if valid, or an error with a helpful message listing valid formats.
+func ValidateOutputFormat(format string) error {
+	switch OutputFormat(format) {
+	case OutputFormatTable, OutputFormatWide, OutputFormatJSON, OutputFormatYAML:
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format: %q (valid: table, wide, json, yaml)", format)
+	}
+}
+
 // AuthMode represents authentication behavior for CLI commands.
 type AuthMode string
 

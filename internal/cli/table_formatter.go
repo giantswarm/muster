@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -258,7 +259,7 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	if priorities, exists := priorityColumns[resourceType]; exists {
 		// Add priority columns that exist (and haven't been added yet)
 		for _, col := range priorities {
-			if f.keyExists(sample, col) && !f.containsString(columns, col) {
+			if f.keyExists(sample, col) && !slices.Contains(columns, col) {
 				columns = append(columns, col)
 			}
 		}
@@ -268,7 +269,7 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 	if f.isWideMode() {
 		if wideCols, exists := wideColumns[resourceType]; exists {
 			for _, col := range wideCols {
-				if f.keyExists(sample, col) && !f.containsString(columns, col) {
+				if f.keyExists(sample, col) && !slices.Contains(columns, col) {
 					columns = append(columns, col)
 				}
 			}
@@ -300,10 +301,9 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		remaining := f.getRemainingKeys(allKeys, columns)
 
 		// Filter out unwanted columns based on resource type (in non-wide mode only)
-		filteredRemaining := []string{}
-		var unwantedColumns []string
-
+		filteredRemaining := remaining
 		if !f.isWideMode() {
+			var unwantedColumns []string
 			switch resourceType {
 			case "mcpServers", "mcpServer":
 				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
@@ -311,24 +311,22 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 				// metadata contains nested data that doesn't display well in a list view
 				unwantedColumns = []string{"metadata"}
 			}
-		}
 
-		if len(unwantedColumns) > 0 {
-			for _, key := range remaining {
-				isUnwanted := false
-				for _, unwanted := range unwantedColumns {
-					if strings.ToLower(key) == strings.ToLower(unwanted) {
-						isUnwanted = true
-						break
+			if len(unwantedColumns) > 0 {
+				filteredRemaining = []string{}
+				for _, key := range remaining {
+					isUnwanted := false
+					for _, unwanted := range unwantedColumns {
+						if strings.ToLower(key) == strings.ToLower(unwanted) {
+							isUnwanted = true
+							break
+						}
+					}
+					if !isUnwanted {
+						filteredRemaining = append(filteredRemaining, key)
 					}
 				}
-				if !isUnwanted {
-					filteredRemaining = append(filteredRemaining, key)
-				}
 			}
-			remaining = filteredRemaining
-		} else {
-			filteredRemaining = remaining
 		}
 
 		spaceLeft := maxColumns - len(columns)
@@ -922,24 +920,6 @@ func (f *TableFormatter) getRemainingKeys(allKeys, usedKeys []string) []string {
 		}
 	}
 	return remaining
-}
-
-// containsString checks if a string slice contains a specific item.
-// This is a utility function for string slice operations.
-//
-// Args:
-//   - slice: String slice to search in
-//   - item: Item to look for
-//
-// Returns:
-//   - bool: true if the item is found in the slice
-func (f *TableFormatter) containsString(slice []string, item string) bool {
-	for _, i := range slice {
-		if i == item {
-			return true
-		}
-	}
-	return false
 }
 
 // min returns the smaller of two integers.

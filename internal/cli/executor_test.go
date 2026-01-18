@@ -69,6 +69,75 @@ func TestOutputFormat_Constants(t *testing.T) {
 	assert.Equal(t, OutputFormat("yaml"), OutputFormatYAML)
 }
 
+func TestValidateOutputFormat(t *testing.T) {
+	tests := []struct {
+		name    string
+		format  string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid table format",
+			format:  "table",
+			wantErr: false,
+		},
+		{
+			name:    "valid wide format",
+			format:  "wide",
+			wantErr: false,
+		},
+		{
+			name:    "valid json format",
+			format:  "json",
+			wantErr: false,
+		},
+		{
+			name:    "valid yaml format",
+			format:  "yaml",
+			wantErr: false,
+		},
+		{
+			name:    "invalid format returns error",
+			format:  "invalid",
+			wantErr: true,
+			errMsg:  "unsupported output format",
+		},
+		{
+			name:    "empty format returns error",
+			format:  "",
+			wantErr: true,
+			errMsg:  "unsupported output format",
+		},
+		{
+			name:    "case sensitive - TABLE is invalid",
+			format:  "TABLE",
+			wantErr: true,
+			errMsg:  "unsupported output format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateOutputFormat(tt.format)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidOutputFormats(t *testing.T) {
+	// Ensure the slice contains all expected formats
+	assert.Len(t, ValidOutputFormats, 4)
+	assert.Contains(t, ValidOutputFormats, OutputFormatTable)
+	assert.Contains(t, ValidOutputFormats, OutputFormatWide)
+	assert.Contains(t, ValidOutputFormats, OutputFormatJSON)
+	assert.Contains(t, ValidOutputFormats, OutputFormatYAML)
+}
+
 func TestAuthMode_Constants(t *testing.T) {
 	assert.Equal(t, AuthMode("auto"), AuthModeAuto)
 	assert.Equal(t, AuthMode("prompt"), AuthModePrompt)

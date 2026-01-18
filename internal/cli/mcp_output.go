@@ -51,6 +51,17 @@ func outputYAML(data interface{}) error {
 	return nil
 }
 
+// Description truncation lengths for table output.
+// Different lengths are used based on the number of columns displayed.
+const (
+	// descLengthNormal is used for standard table output with fewer columns.
+	descLengthNormal = 60
+	// descLengthWide is used for wide output where more columns are displayed.
+	descLengthWide = 50
+	// descLengthCompact is used when space is very limited (e.g., resources with many columns).
+	descLengthCompact = 40
+)
+
 // truncateString truncates a string to maxLen characters, adding "..." if truncated.
 func truncateString(s string, maxLen int) string {
 	if len(s) > maxLen {
@@ -118,12 +129,12 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 			argCount := countToolArgs(tool)
 			tw.AppendRow([]string{
 				tool.Name,
-				truncateString(tool.Description, 50),
+				truncateString(tool.Description, descLengthWide),
 				server,
 				argCount,
 			})
 		} else {
-			tw.AppendRow([]string{tool.Name, truncateString(tool.Description, 60)})
+			tw.AppendRow([]string{tool.Name, truncateString(tool.Description, descLengthNormal)})
 		}
 	}
 
@@ -227,13 +238,13 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 			tw.AppendRow([]string{
 				resource.URI,
 				resource.Name,
-				truncateString(desc, 40),
+				truncateString(desc, descLengthCompact),
 				resource.MIMEType,
 			})
 		} else {
 			tw.AppendRow([]string{
 				resource.URI,
-				truncateString(desc, 60),
+				truncateString(desc, descLengthNormal),
 				resource.MIMEType,
 			})
 		}
@@ -297,11 +308,11 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 			argCount := countPromptArgs(prompt)
 			tw.AppendRow([]string{
 				prompt.Name,
-				truncateString(prompt.Description, 50),
+				truncateString(prompt.Description, descLengthWide),
 				argCount,
 			})
 		} else {
-			tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, 60)})
+			tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, descLengthNormal)})
 		}
 	}
 

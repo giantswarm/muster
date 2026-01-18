@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -276,16 +277,15 @@ func TestTableFormatter_keyExists(t *testing.T) {
 	assert.False(t, formatter.keyExists(data, "missing"))
 }
 
-func TestTableFormatter_containsString(t *testing.T) {
-	formatter := NewTableFormatter(ExecutorOptions{})
-
+func TestSlicesContains(t *testing.T) {
+	// Verify slices.Contains works as expected (standard library)
 	slice := []string{"a", "b", "c"}
 
-	assert.True(t, formatter.containsString(slice, "a"))
-	assert.True(t, formatter.containsString(slice, "b"))
-	assert.True(t, formatter.containsString(slice, "c"))
-	assert.False(t, formatter.containsString(slice, "d"))
-	assert.False(t, formatter.containsString(slice, ""))
+	assert.True(t, slices.Contains(slice, "a"))
+	assert.True(t, slices.Contains(slice, "b"))
+	assert.True(t, slices.Contains(slice, "c"))
+	assert.False(t, slices.Contains(slice, "d"))
+	assert.False(t, slices.Contains(slice, ""))
 }
 
 func TestTableFormatter_getRemainingKeys(t *testing.T) {
