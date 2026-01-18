@@ -179,6 +179,83 @@
         }
       }
     },
+    "gatewayAPI": {
+      "type": "object",
+      "description": "Gateway API configuration (successor to Ingress)",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Gateway API HTTPRoute"
+        },
+        "httpRoute": {
+          "type": "object",
+          "description": "HTTPRoute configuration",
+          "properties": {
+            "parentRefs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Gateway name"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "description": "Gateway namespace"
+                  }
+                }
+              },
+              "description": "Parent gateway references"
+            },
+            "hostnames": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Route hostnames"
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Custom routing rules"
+            },
+            "annotations": {
+              "type": "object",
+              "description": "HTTPRoute annotations"
+            },
+            "labels": {
+              "type": "object",
+              "description": "HTTPRoute labels"
+            }
+          }
+        },
+        "backendTrafficPolicy": {
+          "type": "object",
+          "description": "Envoy Gateway BackendTrafficPolicy configuration",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable BackendTrafficPolicy creation"
+            },
+            "timeout": {
+              "type": "string",
+              "description": "Request timeout (e.g., 300s, 5m)"
+            },
+            "annotations": {
+              "type": "object",
+              "description": "BackendTrafficPolicy annotations"
+            },
+            "labels": {
+              "type": "object",
+              "description": "BackendTrafficPolicy labels"
+            }
+          }
+        }
+      }
+    },
     "resources": {
       "type": "object",
       "properties": {

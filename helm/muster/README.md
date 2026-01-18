@@ -172,6 +172,54 @@ OAuth tokens are stored in-memory only:
 - No encryption-at-rest needed (tokens exist only in process memory)
 - Each MCP connection gets a unique session ID for token isolation
 
+### Gateway API
+
+Gateway API is the successor to Ingress in Kubernetes, providing more powerful and expressive routing capabilities. Muster supports Gateway API HTTPRoute as an alternative to (or alongside) traditional Ingress.
+
+```yaml
+gatewayAPI:
+  enabled: true
+  httpRoute:
+    parentRefs:
+      - name: internal
+        namespace: envoy-gateway-system
+    hostnames:
+      - muster.example.com
+```
+
+Both Ingress and Gateway API can be enabled simultaneously for migration scenarios.
+
+#### Gateway API with Envoy Gateway
+
+When using Envoy Gateway, you can configure timeouts using BackendTrafficPolicy. MCP sessions can be long-running, so a longer timeout is recommended:
+
+```yaml
+gatewayAPI:
+  enabled: true
+  httpRoute:
+    parentRefs:
+      - name: internal
+        namespace: envoy-gateway-system
+    hostnames:
+      - muster.example.com
+  backendTrafficPolicy:
+    enabled: true
+    timeout: "300s"  # 5 minute timeout for long-running MCP sessions
+```
+
+#### Gateway API Configuration Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `gatewayAPI.enabled` | Enable Gateway API HTTPRoute | `false` |
+| `gatewayAPI.httpRoute.parentRefs` | Parent gateway references | `[]` |
+| `gatewayAPI.httpRoute.hostnames` | Route hostnames | `[]` |
+| `gatewayAPI.httpRoute.rules` | Custom routing rules | `[]` |
+| `gatewayAPI.httpRoute.annotations` | HTTPRoute annotations | `{}` |
+| `gatewayAPI.httpRoute.labels` | HTTPRoute labels | `{}` |
+| `gatewayAPI.backendTrafficPolicy.enabled` | Enable Envoy Gateway BackendTrafficPolicy | `false` |
+| `gatewayAPI.backendTrafficPolicy.timeout` | Request timeout | `"300s"` |
+
 ### CiliumNetworkPolicy
 
 For clusters using Cilium:

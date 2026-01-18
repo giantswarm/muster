@@ -1,0 +1,24 @@
+{{- if and .Values.gatewayAPI.enabled .Values.gatewayAPI.backendTrafficPolicy.enabled -}}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ include "muster.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.gatewayAPI.backendTrafficPolicy.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.gatewayAPI.backendTrafficPolicy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "muster.fullname" . }}
+  timeout:
+    http:
+      requestTimeout: {{ .Values.gatewayAPI.backendTrafficPolicy.timeout | quote }}
+{{- end }}

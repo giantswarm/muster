@@ -1,0 +1,62 @@
+{{- if .Values.gatewayAPI.enabled -}}
+{{- $fullName := include "muster.fullname" . -}}
+{{- $svcPort := .Values.service.port -}}
+{{- if not .Values.gatewayAPI.httpRoute.parentRefs -}}
+{{- fail "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference." -}}
+{{- end -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.gatewayAPI.httpRoute.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.gatewayAPI.httpRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml .Values.gatewayAPI.httpRoute.parentRefs | nindent 4 }}
+  {{- with .Values.gatewayAPI.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.gatewayAPI.httpRoute.rules }}
+    {{- range .Values.gatewayAPI.httpRoute.rules }}
+    - {{- if .matches }}
+      matches:
+        {{- toYaml .matches | nindent 8 }}
+      {{- else }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+      {{- end }}
+      {{- if .filters }}
+      filters:
+        {{- toYaml .filters | nindent 8 }}
+      {{- end }}
+      {{- if .timeouts }}
+      timeouts:
+        {{- toYaml .timeouts | nindent 8 }}
+      {{- end }}
+      backendRefs:
+        - name: {{ $fullName }}
+          port: {{ $svcPort }}
+    {{- end }}
+    {{- else }}
+    # Default rule: match all paths and forward to the service
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ $fullName }}
+          port: {{ $svcPort }}
+    {{- end }}
+{{- end }}
