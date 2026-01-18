@@ -33,7 +33,7 @@ type CommandFlags struct {
 // and ensures consistent flag naming and descriptions.
 //
 // The registered flags are:
-//   - --output/-o: Output format (table, json, yaml), default: "table"
+//   - --output/-o: Output format (table, wide, json, yaml), default: "table"
 //   - --no-headers: Suppress header row in table output
 //   - --quiet/-q: Suppress non-essential output
 //   - --debug: Enable debug logging (show MCP protocol messages)
@@ -42,7 +42,7 @@ type CommandFlags struct {
 //   - --context: Use a specific context (env: MUSTER_CONTEXT)
 //   - --auth: Authentication mode (env: MUSTER_AUTH_MODE)
 func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
-	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, json, yaml)")
+	cmd.PersistentFlags().StringVarP(&flags.OutputFormat, "output", "o", "table", "Output format (table, wide, json, yaml)")
 	cmd.PersistentFlags().BoolVar(&flags.NoHeaders, "no-headers", false, "Suppress header row in table output")
 	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
 	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false, "Enable debug logging (show MCP protocol messages)")
@@ -70,7 +70,13 @@ func RegisterConnectionFlags(cmd *cobra.Command, flags *CommandFlags) {
 
 // ToExecutorOptions converts CommandFlags to ExecutorOptions for use with NewToolExecutor.
 // This provides a convenient bridge between the flag registration and executor creation.
+// It validates the output format and returns an error for unsupported formats.
 func (f *CommandFlags) ToExecutorOptions() (ExecutorOptions, error) {
+	// Validate output format before proceeding
+	if err := ValidateOutputFormat(f.OutputFormat); err != nil {
+		return ExecutorOptions{}, err
+	}
+
 	authMode, err := GetAuthModeWithOverride(f.AuthMode)
 	if err != nil {
 		return ExecutorOptions{}, err

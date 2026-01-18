@@ -564,3 +564,304 @@ func TestRenderNestedSchema(t *testing.T) {
 	assert.Contains(t, output, "Properties:")
 	assert.Contains(t, output, "enabled (boolean, required)")
 }
+
+func TestFormatMCPTools_Wide(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	tools := []MCPTool{
+		{
+			Name:        "core_service_list",
+			Description: "List all services",
+			InputSchema: mcp.ToolInputSchema{
+				Properties: map[string]interface{}{
+					"filter": map[string]interface{}{"type": "string"},
+				},
+			},
+		},
+		{
+			Name:        "github_create_issue",
+			Description: "Create a GitHub issue",
+			InputSchema: mcp.ToolInputSchema{
+				Properties: map[string]interface{}{
+					"title": map[string]interface{}{"type": "string"},
+					"body":  map[string]interface{}{"type": "string"},
+				},
+				Required: []string{"title"},
+			},
+		},
+	}
+	err := FormatMCPToolsWithOptions(tools, OutputFormatWide, false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Wide format should have SERVER and ARGS columns
+	assert.Contains(t, output, "NAME")
+	assert.Contains(t, output, "DESCRIPTION")
+	assert.Contains(t, output, "SERVER")
+	assert.Contains(t, output, "ARGS")
+	// Check server extraction
+	assert.Contains(t, output, "core")
+	assert.Contains(t, output, "github")
+	// Check arg counts
+	assert.Contains(t, output, "1")         // core_service_list has 1 arg
+	assert.Contains(t, output, "2 (1 req)") // github_create_issue has 2 args, 1 required
+}
+
+func TestFormatMCPResources_Wide(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	resources := []MCPResource{
+		{
+			URI:         "file://test.txt",
+			Name:        "test.txt",
+			Description: "A test file",
+			MIMEType:    "text/plain",
+		},
+	}
+	err := FormatMCPResourcesWithOptions(resources, OutputFormatWide, false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Wide format should have NAME column
+	assert.Contains(t, output, "URI")
+	assert.Contains(t, output, "NAME")
+	assert.Contains(t, output, "DESCRIPTION")
+	assert.Contains(t, output, "MIME TYPE")
+	assert.Contains(t, output, "test.txt")
+}
+
+func TestFormatMCPResources_Wide_LongNameTruncation(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	longName := "This is a very long name that exceeds the normal display width and should be truncated to prevent layout issues"
+	resources := []MCPResource{
+		{
+			URI:         "auth://status",
+			Name:        longName,
+			Description: "A short description",
+			MIMEType:    "application/json",
+		},
+	}
+	err := FormatMCPResourcesWithOptions(resources, OutputFormatWide, false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Wide format should truncate long NAME values
+	assert.Contains(t, output, "...")
+	// Should NOT contain the full long name
+	assert.NotContains(t, output, longName)
+}
+
+func TestFormatMCPPrompts_Wide(t *testing.T) {
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	prompts := []MCPPrompt{
+		{
+			Name:        "test_prompt",
+			Description: "A test prompt",
+			Arguments: []mcp.PromptArgument{
+				{Name: "arg1", Description: "First argument", Required: true},
+				{Name: "arg2", Description: "Second argument", Required: false},
+			},
+		},
+	}
+	err := FormatMCPPromptsWithOptions(prompts, OutputFormatWide, false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	assert.NoError(t, err)
+	output := buf.String()
+	// Wide format should have ARGS column
+	assert.Contains(t, output, "NAME")
+	assert.Contains(t, output, "DESCRIPTION")
+	assert.Contains(t, output, "ARGS")
+	assert.Contains(t, output, "2 (1 req)") // 2 args, 1 required
+}
+
+func TestExtractServerFromToolName(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		expected string
+	}{
+		{
+			name:     "core prefix",
+			toolName: "core_service_list",
+			expected: "core",
+		},
+		{
+			name:     "mcp prefix",
+			toolName: "mcp_github_create_issue",
+			expected: "mcp",
+		},
+		{
+			name:     "workflow prefix",
+			toolName: "workflow_deploy_app",
+			expected: "workflow",
+		},
+		{
+			name:     "action prefix",
+			toolName: "action_run_test",
+			expected: "action",
+		},
+		{
+			name:     "custom server prefix",
+			toolName: "github_create_issue",
+			expected: "github",
+		},
+		{
+			name:     "no underscore",
+			toolName: "simpletool",
+			expected: "-",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractServerFromToolName(tt.toolName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCountToolArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     MCPTool
+		expected string
+	}{
+		{
+			name: "no properties",
+			tool: MCPTool{
+				Name:        "test",
+				InputSchema: mcp.ToolInputSchema{},
+			},
+			expected: "-",
+		},
+		{
+			name: "empty properties",
+			tool: MCPTool{
+				Name: "test",
+				InputSchema: mcp.ToolInputSchema{
+					Properties: map[string]interface{}{},
+				},
+			},
+			expected: "-",
+		},
+		{
+			name: "properties with no required",
+			tool: MCPTool{
+				Name: "test",
+				InputSchema: mcp.ToolInputSchema{
+					Properties: map[string]interface{}{
+						"arg1": map[string]string{"type": "string"},
+						"arg2": map[string]string{"type": "string"},
+					},
+				},
+			},
+			expected: "2",
+		},
+		{
+			name: "properties with required",
+			tool: MCPTool{
+				Name: "test",
+				InputSchema: mcp.ToolInputSchema{
+					Properties: map[string]interface{}{
+						"arg1": map[string]string{"type": "string"},
+						"arg2": map[string]string{"type": "string"},
+						"arg3": map[string]string{"type": "string"},
+					},
+					Required: []string{"arg1", "arg2"},
+				},
+			},
+			expected: "3 (2 req)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countToolArgs(tt.tool)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestCountPromptArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		prompt   MCPPrompt
+		expected string
+	}{
+		{
+			name: "no arguments",
+			prompt: MCPPrompt{
+				Name: "test",
+			},
+			expected: "-",
+		},
+		{
+			name: "arguments with no required",
+			prompt: MCPPrompt{
+				Name: "test",
+				Arguments: []mcp.PromptArgument{
+					{Name: "arg1", Required: false},
+					{Name: "arg2", Required: false},
+				},
+			},
+			expected: "2",
+		},
+		{
+			name: "arguments with required",
+			prompt: MCPPrompt{
+				Name: "test",
+				Arguments: []mcp.PromptArgument{
+					{Name: "arg1", Required: true},
+					{Name: "arg2", Required: false},
+					{Name: "arg3", Required: true},
+				},
+			},
+			expected: "3 (2 req)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := countPromptArgs(tt.prompt)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -199,15 +199,27 @@ Filtering (for MCP primitives only: tool, resource, prompt):
   --server <name>          - Filter by server name prefix (e.g., "github", "core")
 
 Output options:
-  --output/-o <format>     - Output format: table (default), json, yaml
+  --output/-o <format>     - Output format: table (default), wide, json, yaml
   --no-headers             - Suppress header row in table output (useful for scripting)
+
+The 'wide' format (-o wide) shows additional columns for each resource type:
+  services       - endpoint, tools count
+  mcpservers     - url/command, timeout
+  serviceclasses - required tools
+  workflows      - input arguments
+  tools          - server, argument count
+  resources      - name
+  prompts        - argument count
 
 Examples:
   muster list service
+  muster list services -o wide
   muster list workflow
   muster list workflow-execution
   muster list serviceclass --output json
+  muster list mcpservers -o wide
   muster list tool
+  muster list tools -o wide
   muster list tools --filter "core_*"
   muster list tools --server github
   muster list tools --filter "*service*" --description "status"

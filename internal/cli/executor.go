@@ -35,11 +35,32 @@ type OutputFormat string
 const (
 	// OutputFormatTable formats output as a kubectl-style plain table
 	OutputFormatTable OutputFormat = "table"
+	// OutputFormatWide formats output as a table with additional columns
+	OutputFormatWide OutputFormat = "wide"
 	// OutputFormatJSON formats output as raw JSON data
 	OutputFormatJSON OutputFormat = "json"
 	// OutputFormatYAML formats output as YAML data converted from JSON
 	OutputFormatYAML OutputFormat = "yaml"
 )
+
+// ValidOutputFormats contains all valid output format values.
+var ValidOutputFormats = []OutputFormat{
+	OutputFormatTable,
+	OutputFormatWide,
+	OutputFormatJSON,
+	OutputFormatYAML,
+}
+
+// ValidateOutputFormat validates that the given format string is a supported output format.
+// Returns nil if valid, or an error with a helpful message listing valid formats.
+func ValidateOutputFormat(format string) error {
+	switch OutputFormat(format) {
+	case OutputFormatTable, OutputFormatWide, OutputFormatJSON, OutputFormatYAML:
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format: %q (valid: table, wide, json, yaml)", format)
+	}
+}
 
 // AuthMode represents authentication behavior for CLI commands.
 type AuthMode string
@@ -556,7 +577,7 @@ func (e *ToolExecutor) formatOutput(result *mcp.CallToolResult) error {
 		return nil
 	case OutputFormatYAML:
 		return e.outputYAML(textContent.Text)
-	case OutputFormatTable:
+	case OutputFormatTable, OutputFormatWide:
 		return e.outputTable(textContent.Text)
 	default:
 		return fmt.Errorf("unsupported output format: %s", e.options.Format)
