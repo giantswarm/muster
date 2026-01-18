@@ -2,8 +2,10 @@
 #
 # These tests verify the Gateway API configuration:
 # - HTTPRoute is only created when gatewayAPI.enabled is true
+# - HTTPRoute requires parentRefs when enabled
 # - BackendTrafficPolicy requires both gatewayAPI.enabled and backendTrafficPolicy.enabled
 # - Correct service name/port references
+# - Support for filters and timeouts in custom rules
 #
 # Run with: helm unittest ./helm/muster
 
@@ -21,10 +23,22 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should create HTTPRoute when gatewayAPI is enabled
+  - it: should fail when gatewayAPI is enabled but parentRefs is empty
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference."
+
+  - it: should create HTTPRoute when gatewayAPI is enabled with parentRefs
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
     asserts:
       - hasDocuments:
           count: 1
@@ -53,6 +67,9 @@ tests:
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.httpRoute.hostnames:
         - muster.example.com
     asserts:
@@ -64,6 +81,9 @@ tests:
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
     asserts:
       - equal:
           path: spec.rules[0].matches[0].path.type
@@ -76,6 +96,9 @@ tests:
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       service.port: 8080
     asserts:
       - equal:
@@ -89,6 +112,9 @@ tests:
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.httpRoute.labels:
         custom-label: custom-value
     asserts:
@@ -100,12 +126,88 @@ tests:
     template: templates/httproute.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.httpRoute.annotations:
         custom-annotation: custom-value
     asserts:
       - equal:
           path: metadata.annotations.custom-annotation
           value: custom-value
+
+  - it: should include filters in custom rules when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+          filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                add:
+                  - name: X-Custom-Header
+                    value: custom-value
+    asserts:
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: RequestHeaderModifier
+      - equal:
+          path: spec.rules[0].filters[0].requestHeaderModifier.add[0].name
+          value: X-Custom-Header
+
+  - it: should include timeouts in custom rules when specified
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+          timeouts:
+            request: 30s
+    asserts:
+      - equal:
+          path: spec.rules[0].timeouts.request
+          value: 30s
+
+  - it: should support both filters and timeouts in the same rule
+    template: templates/httproute.yaml
+    set:
+      gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
+      gatewayAPI.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /api
+          filters:
+            - type: ResponseHeaderModifier
+              responseHeaderModifier:
+                set:
+                  - name: X-Response-Header
+                    value: response-value
+          timeouts:
+            request: 60s
+    asserts:
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: ResponseHeaderModifier
+      - equal:
+          path: spec.rules[0].timeouts.request
+          value: 60s
 
   # BackendTrafficPolicy tests
   - it: should not create BackendTrafficPolicy when gatewayAPI is disabled
@@ -121,6 +223,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: false
     asserts:
       - hasDocuments:
@@ -130,6 +235,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
     asserts:
       - hasDocuments:
@@ -144,6 +252,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
     asserts:
       - equal:
@@ -160,6 +271,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
     asserts:
       - equal:
@@ -170,6 +284,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
       gatewayAPI.backendTrafficPolicy.timeout: "600s"
     asserts:
@@ -181,6 +298,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
       gatewayAPI.backendTrafficPolicy.labels:
         policy-label: policy-value
@@ -193,6 +313,9 @@ tests:
     template: templates/backendtrafficpolicy.yaml
     set:
       gatewayAPI.enabled: true
+      gatewayAPI.httpRoute.parentRefs:
+        - name: default
+          namespace: gateway-system
       gatewayAPI.backendTrafficPolicy.enabled: true
       gatewayAPI.backendTrafficPolicy.annotations:
         policy-annotation: policy-value

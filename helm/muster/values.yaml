@@ -116,7 +116,8 @@ gatewayAPI:
 
   # HTTPRoute configuration
   httpRoute:
-    # Parent gateway references (required when enabled)
+    # Parent gateway references (REQUIRED when enabled)
+    # At least one parentRef must be specified when gatewayAPI.enabled is true
     # Example:
     #   parentRefs:
     #     - name: internal
@@ -131,12 +132,19 @@ gatewayAPI:
 
     # Routing rules (optional, defaults to a single PathPrefix "/" rule)
     # If not specified, a default rule matching "/" with PathPrefix is created
+    # Supports matches, filters, and timeouts per rule
     # Example:
     #   rules:
     #     - matches:
     #         - path:
     #             type: PathPrefix
     #             value: /api
+    #       filters:
+    #         - type: RequestHeaderModifier
+    #           requestHeaderModifier:
+    #             add:
+    #               - name: X-Custom-Header
+    #                 value: custom-value
     #       timeouts:
     #         request: 30s
     rules: []

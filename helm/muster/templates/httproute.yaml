@@ -1,6 +1,9 @@
 {{- if .Values.gatewayAPI.enabled -}}
 {{- $fullName := include "muster.fullname" . -}}
 {{- $svcPort := .Values.service.port -}}
+{{- if not .Values.gatewayAPI.httpRoute.parentRefs -}}
+{{- fail "gatewayAPI.httpRoute.parentRefs is required when gatewayAPI.enabled is true. Specify at least one parent Gateway reference." -}}
+{{- end -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -16,10 +19,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.gatewayAPI.httpRoute.parentRefs }}
   parentRefs:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- toYaml .Values.gatewayAPI.httpRoute.parentRefs | nindent 4 }}
   {{- with .Values.gatewayAPI.httpRoute.hostnames }}
   hostnames:
     {{- toYaml . | nindent 4 }}
@@ -35,6 +36,10 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      {{- end }}
+      {{- if .filters }}
+      filters:
+        {{- toYaml .filters | nindent 8 }}
       {{- end }}
       {{- if .timeouts }}
       timeouts:
