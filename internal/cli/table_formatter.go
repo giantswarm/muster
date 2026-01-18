@@ -166,11 +166,17 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	return nil
 }
 
+// isWideMode returns true if the formatter is configured for wide output.
+func (f *TableFormatter) isWideMode() bool {
+	return f.options.Format == OutputFormatWide
+}
+
 // optimizeColumns determines the best columns to show based on the data type.
 // It analyzes the data structure and selects the most relevant columns for
 // display, prioritizing key fields and limiting the total number of columns
 // to prevent layout issues. Different resource types get specialized column
-// selection logic.
+// selection logic. When wide mode is enabled (-o wide), additional columns
+// are included.
 //
 // Args:
 //   - objects: Objects used to determine available columns
@@ -228,6 +234,25 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"generic":        {"status", "type", "description", "available"},
 	}
 
+	// Extended columns for wide mode (-o wide)
+	wideColumns := map[string][]string{
+		"service":        {"endpoint", "tools"},
+		"services":       {"endpoint", "tools"},
+		"serviceClasses": {"requiredTools"},
+		"serviceClass":   {"requiredTools"},
+		"mcpServers":     {"url", "command", "timeout"},
+		"mcpServer":      {"url", "command", "timeout"},
+		"workflows":      {"args"},
+		"workflow":       {"args"},
+		"executions":     {"completed_at"},
+		"execution":      {"completed_at"},
+		"event":          {"message"},
+		"mcpTool":        {"inputSchema"},
+		"mcpResource":    {"mimeType"},
+		"mcpPrompt":      {"arguments"},
+		"generic":        {"metadata"},
+	}
+
 	// Detect resource type and use optimized columns
 	resourceType := f.detectResourceType(sample)
 	if priorities, exists := priorityColumns[resourceType]; exists {
@@ -239,35 +264,53 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		}
 	}
 
-	// For complex resource types, limit columns to prevent wrapping
+	// Add wide columns if in wide mode
+	if f.isWideMode() {
+		if wideCols, exists := wideColumns[resourceType]; exists {
+			for _, col := range wideCols {
+				if f.keyExists(sample, col) && !f.containsString(columns, col) {
+					columns = append(columns, col)
+				}
+			}
+		}
+	}
+
+	// For complex resource types, limit columns to prevent wrapping (in non-wide mode)
 	var maxColumns int
-	switch resourceType {
-	case "service", "services":
-		maxColumns = 4 // name, health, state, service_type
-	case "serviceClasses", "serviceClass":
-		maxColumns = 5 // More conservative for wider data
-	case "mcpServers", "mcpServer":
-		maxColumns = 4 // name, type, autoStart
-	case "event":
-		maxColumns = 6 // Allow more columns for events
-	default:
-		maxColumns = 6
+	if f.isWideMode() {
+		// In wide mode, allow more columns
+		maxColumns = 10
+	} else {
+		switch resourceType {
+		case "service", "services":
+			maxColumns = 4 // name, health, state, service_type
+		case "serviceClasses", "serviceClass":
+			maxColumns = 5 // More conservative for wider data
+		case "mcpServers", "mcpServer":
+			maxColumns = 4 // name, type, autoStart
+		case "event":
+			maxColumns = 6 // Allow more columns for events
+		default:
+			maxColumns = 6
+		}
 	}
 
 	// Add remaining columns alphabetically if we have space
 	if len(columns) < maxColumns {
 		remaining := f.getRemainingKeys(allKeys, columns)
 
-		// Filter out unwanted columns based on resource type
+		// Filter out unwanted columns based on resource type (in non-wide mode only)
 		filteredRemaining := []string{}
 		var unwantedColumns []string
 
-		switch resourceType {
-		case "mcpServers", "mcpServer":
-			unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
-		case "service", "services":
-			// metadata contains nested data that doesn't display well in a list view
-			unwantedColumns = []string{"metadata"}
+		if !f.isWideMode() {
+			switch resourceType {
+			case "mcpServers", "mcpServer":
+				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
+			case "service", "services":
+				// metadata contains nested data that doesn't display well in a list view
+				unwantedColumns = []string{"metadata"}
+			}
 		}
 
 		if len(unwantedColumns) > 0 {
@@ -284,12 +327,14 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 				}
 			}
 			remaining = filteredRemaining
+		} else {
+			filteredRemaining = remaining
 		}
 
 		spaceLeft := maxColumns - len(columns)
-		if spaceLeft > 0 && len(remaining) > 0 {
-			addCount := f.min(spaceLeft, len(remaining))
-			columns = append(columns, remaining[:addCount]...)
+		if spaceLeft > 0 && len(filteredRemaining) > 0 {
+			addCount := f.min(spaceLeft, len(filteredRemaining))
+			columns = append(columns, filteredRemaining[:addCount]...)
 		}
 	}
 

@@ -102,11 +102,29 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+
+	// Wide mode: add SERVER column and show input schema summary
+	isWide := format == OutputFormatWide
+	if isWide {
+		tw.SetHeaders([]string{"NAME", "DESCRIPTION", "SERVER", "ARGS"})
+	} else {
+		tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+	}
 	tw.SetNoHeaders(noHeaders)
 
 	for _, tool := range tools {
-		tw.AppendRow([]string{tool.Name, truncateString(tool.Description, 60)})
+		if isWide {
+			server := extractServerFromToolName(tool.Name)
+			argCount := countToolArgs(tool)
+			tw.AppendRow([]string{
+				tool.Name,
+				truncateString(tool.Description, 50),
+				server,
+				argCount,
+			})
+		} else {
+			tw.AppendRow([]string{tool.Name, truncateString(tool.Description, 60)})
+		}
 	}
 
 	tw.Render()
@@ -116,6 +134,40 @@ func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders b
 		fmt.Printf("\n%s\n", pluralize(len(tools), "tool"))
 	}
 	return nil
+}
+
+// extractServerFromToolName extracts the server name from a tool name.
+// Tool names follow the pattern "server_toolname" (e.g., "github_create_issue").
+func extractServerFromToolName(name string) string {
+	// Handle well-known prefixes
+	knownPrefixes := []string{"core_", "mcp_", "workflow_", "action_"}
+	for _, prefix := range knownPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return strings.TrimSuffix(prefix, "_")
+		}
+	}
+
+	// Extract the first segment before underscore
+	if idx := strings.Index(name, "_"); idx > 0 {
+		return name[:idx]
+	}
+	return "-"
+}
+
+// countToolArgs returns a string representation of the number of arguments.
+func countToolArgs(tool MCPTool) string {
+	if tool.InputSchema.Properties == nil {
+		return "-"
+	}
+	count := len(tool.InputSchema.Properties)
+	if count == 0 {
+		return "-"
+	}
+	reqCount := len(tool.InputSchema.Required)
+	if reqCount > 0 {
+		return fmt.Sprintf("%d (%d req)", count, reqCount)
+	}
+	return fmt.Sprintf("%d", count)
 }
 
 // FormatMCPResources formats and displays MCP resources in the specified format.
@@ -154,21 +206,37 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"URI", "DESCRIPTION", "MIME TYPE"})
+
+	// Wide mode: add NAME column
+	isWide := format == OutputFormatWide
+	if isWide {
+		tw.SetHeaders([]string{"URI", "NAME", "DESCRIPTION", "MIME TYPE"})
+	} else {
+		tw.SetHeaders([]string{"URI", "DESCRIPTION", "MIME TYPE"})
+	}
 	tw.SetNoHeaders(noHeaders)
 
 	for _, resource := range resources {
 		// Use description if available, otherwise use name (some MCP resources
 		// store description in the name field)
 		desc := resource.Description
-		if desc == "" {
+		if desc == "" && !isWide {
 			desc = resource.Name
 		}
-		tw.AppendRow([]string{
-			resource.URI,
-			truncateString(desc, 60),
-			resource.MIMEType,
-		})
+		if isWide {
+			tw.AppendRow([]string{
+				resource.URI,
+				resource.Name,
+				truncateString(desc, 40),
+				resource.MIMEType,
+			})
+		} else {
+			tw.AppendRow([]string{
+				resource.URI,
+				truncateString(desc, 60),
+				resource.MIMEType,
+			})
+		}
 	}
 
 	tw.Render()
@@ -214,11 +282,27 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 
 	// kubectl-style plain table format
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+
+	// Wide mode: add ARGS column
+	isWide := format == OutputFormatWide
+	if isWide {
+		tw.SetHeaders([]string{"NAME", "DESCRIPTION", "ARGS"})
+	} else {
+		tw.SetHeaders([]string{"NAME", "DESCRIPTION"})
+	}
 	tw.SetNoHeaders(noHeaders)
 
 	for _, prompt := range prompts {
-		tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, 60)})
+		if isWide {
+			argCount := countPromptArgs(prompt)
+			tw.AppendRow([]string{
+				prompt.Name,
+				truncateString(prompt.Description, 50),
+				argCount,
+			})
+		} else {
+			tw.AppendRow([]string{prompt.Name, truncateString(prompt.Description, 60)})
+		}
 	}
 
 	tw.Render()
@@ -228,6 +312,23 @@ func FormatMCPPromptsWithOptions(prompts []MCPPrompt, format OutputFormat, noHea
 		fmt.Printf("\n%s\n", pluralize(len(prompts), "prompt"))
 	}
 	return nil
+}
+
+// countPromptArgs returns a string representation of the number of arguments.
+func countPromptArgs(prompt MCPPrompt) string {
+	if len(prompt.Arguments) == 0 {
+		return "-"
+	}
+	reqCount := 0
+	for _, arg := range prompt.Arguments {
+		if arg.Required {
+			reqCount++
+		}
+	}
+	if reqCount > 0 {
+		return fmt.Sprintf("%d (%d req)", len(prompt.Arguments), reqCount)
+	}
+	return fmt.Sprintf("%d", len(prompt.Arguments))
 }
 
 // FormatMCPToolDetail formats and displays detailed MCP tool info.

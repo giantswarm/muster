@@ -64,6 +64,7 @@ func TestNewToolExecutor(t *testing.T) {
 
 func TestOutputFormat_Constants(t *testing.T) {
 	assert.Equal(t, OutputFormat("table"), OutputFormatTable)
+	assert.Equal(t, OutputFormat("wide"), OutputFormatWide)
 	assert.Equal(t, OutputFormat("json"), OutputFormatJSON)
 	assert.Equal(t, OutputFormat("yaml"), OutputFormatYAML)
 }

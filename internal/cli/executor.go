@@ -35,6 +35,8 @@ type OutputFormat string
 const (
 	// OutputFormatTable formats output as a kubectl-style plain table
 	OutputFormatTable OutputFormat = "table"
+	// OutputFormatWide formats output as a table with additional columns
+	OutputFormatWide OutputFormat = "wide"
 	// OutputFormatJSON formats output as raw JSON data
 	OutputFormatJSON OutputFormat = "json"
 	// OutputFormatYAML formats output as YAML data converted from JSON
@@ -556,7 +558,7 @@ func (e *ToolExecutor) formatOutput(result *mcp.CallToolResult) error {
 		return nil
 	case OutputFormatYAML:
 		return e.outputYAML(textContent.Text)
-	case OutputFormatTable:
+	case OutputFormatTable, OutputFormatWide:
 		return e.outputTable(textContent.Text)
 	default:
 		return fmt.Errorf("unsupported output format: %s", e.options.Format)
