@@ -114,6 +114,23 @@ func TestAuthLogoutCommand(t *testing.T) {
 			t.Error("expected --yes flag on logout command")
 		}
 	})
+
+	t.Run("logout has --server flag", func(t *testing.T) {
+		flag := authLogoutCmd.Flags().Lookup("server")
+		if flag == nil {
+			t.Error("expected --server flag on logout command")
+		}
+	})
+
+	t.Run("logout --server flag has -s shorthand", func(t *testing.T) {
+		flag := authLogoutCmd.Flags().ShorthandLookup("s")
+		if flag == nil {
+			t.Error("expected -s shorthand for --server flag")
+		}
+		if flag.Name != "server" {
+			t.Errorf("expected -s to be shorthand for 'server', got %q", flag.Name)
+		}
+	})
 }
 
 func TestAuthStatusCommand(t *testing.T) {
