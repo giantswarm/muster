@@ -1,0 +1,55 @@
+{{- if .Values.gatewayAPI.enabled -}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "muster.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    {{- with .Values.gatewayAPI.httpRoute.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.gatewayAPI.httpRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.gatewayAPI.httpRoute.parentRefs }}
+  parentRefs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.gatewayAPI.httpRoute.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.gatewayAPI.httpRoute.rules }}
+    {{- range .Values.gatewayAPI.httpRoute.rules }}
+    - {{- if .matches }}
+      matches:
+        {{- toYaml .matches | nindent 8 }}
+      {{- else }}
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+      {{- end }}
+      {{- if .timeouts }}
+      timeouts:
+        {{- toYaml .timeouts | nindent 8 }}
+      {{- end }}
+      backendRefs:
+        - name: {{ include "muster.fullname" $ }}
+          port: {{ $.Values.service.port }}
+    {{- end }}
+    {{- else }}
+    # Default rule: match all paths and forward to the service
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "muster.fullname" . }}
+          port: {{ .Values.service.port }}
+    {{- end }}
+{{- end }}

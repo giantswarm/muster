@@ -107,6 +107,63 @@ ingress:
   # OAuth callback endpoints must be accessed over HTTPS to prevent
   # authorization code interception attacks.
 
+# Gateway API Configuration
+# Gateway API is the successor to Ingress, providing more powerful and expressive routing.
+# Both Ingress and Gateway API can be enabled simultaneously for migration scenarios.
+gatewayAPI:
+  # Enable Gateway API HTTPRoute
+  enabled: false
+
+  # HTTPRoute configuration
+  httpRoute:
+    # Parent gateway references (required when enabled)
+    # Example:
+    #   parentRefs:
+    #     - name: internal
+    #       namespace: envoy-gateway-system
+    parentRefs: []
+
+    # Hostnames for the route
+    # Example:
+    #   hostnames:
+    #     - muster.example.com
+    hostnames: []
+
+    # Routing rules (optional, defaults to a single PathPrefix "/" rule)
+    # If not specified, a default rule matching "/" with PathPrefix is created
+    # Example:
+    #   rules:
+    #     - matches:
+    #         - path:
+    #             type: PathPrefix
+    #             value: /api
+    #       timeouts:
+    #         request: 30s
+    rules: []
+
+    # Additional annotations for the HTTPRoute
+    annotations: {}
+
+    # Additional labels for the HTTPRoute
+    labels: {}
+
+  # BackendTrafficPolicy for Envoy Gateway (optional)
+  # Provides timeout configuration at the backend level
+  # This is specific to Envoy Gateway - other implementations may use different CRDs
+  backendTrafficPolicy:
+    # Enable BackendTrafficPolicy creation
+    enabled: false
+
+    # Request timeout (e.g., "300s", "5m")
+    # MCP sessions can be long-running, so a longer timeout is recommended
+    timeout: "300s"
+
+    # Additional annotations for the BackendTrafficPolicy
+    annotations: {}
+
+    # Additional labels for the BackendTrafficPolicy
+    labels: {}
+
 resources:
   limits:
     cpu: 500m
