@@ -64,31 +64,50 @@ type MCPServer struct {
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.
-// This enables Single Sign-On (SSO) via token forwarding between muster and
-// downstream MCP servers that share the same Identity Provider.
+//
+// Muster supports two distinct SSO mechanisms (see auth_tools.go for full documentation):
+//
+//   - SSO Token Reuse: Tokens are shared between servers with the same OAuth issuer.
+//     This is the default behavior. Disable per-server with SSO: false.
+//
+//   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
+//     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
-	// ForwardToken enables ID token forwarding for SSO.
-	// When true, muster forwards the user's ID token to this server instead of
-	// triggering a separate OAuth flow. The downstream server must be configured
-	// to trust muster's client ID in its TrustedAudiences.
+	// ForwardToken enables SSO via Token Forwarding.
+	// When true, muster forwards its own ID token (obtained when user authenticated
+	// TO muster) to this downstream server. The downstream server must be configured
+	// to trust muster's OAuth client ID in its TrustedAudiences configuration.
+	//
+	// This is different from SSO Token Reuse (controlled by the SSO field below),
+	// which shares tokens between servers that happen to use the same OAuth issuer.
+	//
+	// Use ForwardToken when:
+	//   - Muster itself is OAuth-protected (oauth_server enabled)
+	//   - The downstream server trusts muster as an identity relay
+	//   - You want users to authenticate once to muster for all downstream access
 	ForwardToken bool `yaml:"forwardToken,omitempty" json:"forwardToken,omitempty"`
 
-	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
-	// When true and token forwarding fails (e.g., 401 response despite forwarded token),
+	// FallbackToOwnAuth enables graceful degradation when token forwarding fails.
+	// When true and ForwardToken is enabled but fails (e.g., downstream returns 401),
 	// muster will trigger a separate OAuth flow for this server.
-	// When false, token forwarding failures result in an error.
+	// When false, token forwarding failures result in an error requiring intervention.
 	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
 
-	// SSO controls Single Sign-On token reuse for this server.
+	// SSO controls SSO via Token Reuse for this server.
 	// When true (default), tokens from other servers using the same OAuth issuer
 	// can be reused to authenticate to this server without re-authenticating.
 	// When false, this server always requires its own authentication flow,
-	// even if a token exists for the same issuer. Use this when you want to
-	// use different accounts for servers that share the same OAuth provider.
+	// even if a token exists for the same issuer.
+	//
+	// Use SSO: false when you need different accounts for servers that share
+	// the same OAuth provider (e.g., personal vs work GitHub accounts).
+	//
+	// This is different from ForwardToken (Token Forwarding), which forwards
+	// muster's identity rather than sharing tokens between peer servers.
 	SSO *bool `yaml:"sso,omitempty" json:"sso,omitempty"`
 }
 

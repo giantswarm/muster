@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 
@@ -45,19 +46,31 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 //   - If the current session has an authenticated connection, status is "connected"
 //   - If the current session has not authenticated, status is "auth_required"
 //
+// For servers with forwardToken: true (SSO-enabled), this handler proactively
+// attempts to establish a connection using the user's muster ID token. This enables
+// seamless SSO where users authenticate once to muster and automatically gain
+// access to all SSO-enabled MCP servers.
+//
 // This enables the CLI to correctly show whether the user is authenticated to each
 // MCP server, not just whether the server requires authentication globally.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	// Get session ID from context for session-specific auth status
 	sessionID := getSessionIDFromContext(ctx)
 
+	// Get muster issuer for SSO token forwarding
+	musterIssuer := a.getMusterIssuer()
+
 	servers := a.registry.GetAllServers()
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
+		// Check if this server uses SSO via token forwarding
+		usesTokenForwarding := ShouldUseTokenForwarding(info)
+
 		status := pkgoauth.ServerAuthStatus{
-			Name:   name,
-			Status: string(info.Status),
+			Name:                   name,
+			Status:                 string(info.Status),
+			TokenForwardingEnabled: usesTokenForwarding,
 		}
 
 		// For servers requiring auth globally, check if the current session has authenticated
@@ -72,6 +85,24 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 					status.Status = "connected"
 					logging.Debug("Aggregator", "Session %s has authenticated connection to %s",
 						logging.TruncateSessionID(sessionID), name)
+				}
+			}
+
+			// If not connected, check if SSO via token forwarding is available
+			if !sessionAuthenticated && usesTokenForwarding && musterIssuer != "" {
+				// Attempt proactive SSO connection using muster's ID token
+				result, _, err := EstablishSessionConnectionWithTokenForwarding(
+					ctx, a, sessionID, info, musterIssuer,
+				)
+				if err == nil && result != nil {
+					// SSO connection succeeded
+					sessionAuthenticated = true
+					status.Status = "connected"
+					logging.Info("Aggregator", "Proactively connected session %s to SSO server %s via token forwarding",
+						logging.TruncateSessionID(sessionID), name)
+				} else {
+					logging.Debug("Aggregator", "SSO token forwarding failed for %s (session %s): %v",
+						name, logging.TruncateSessionID(sessionID), err)
 				}
 			}
 
@@ -106,4 +137,18 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Text:     string(data),
 		},
 	}, nil
+}
+
+// getMusterIssuer returns the OAuth issuer URL configured for muster's OAuth server.
+// This is used for SSO token forwarding - the issuer identifies the ID token source.
+func (a *AggregatorServer) getMusterIssuer() string {
+	if a.config.OAuthServer.Enabled && a.config.OAuthServer.Config != nil {
+		// The config is stored as interface{}, cast to the actual config type
+		if cfg, ok := a.config.OAuthServer.Config.(config.OAuthServerConfig); ok {
+			if cfg.BaseURL != "" {
+				return cfg.BaseURL
+			}
+		}
+	}
+	return ""
 }

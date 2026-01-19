@@ -279,13 +279,26 @@ type AuthStatusResponse struct {
 
 // ServerAuthStatus represents the authentication status of a single MCP server.
 // The Issuer field enables SSO detection - servers with the same issuer can share auth.
+//
+// SSO in muster has two distinct mechanisms:
+//   - SSO Token Reuse: When multiple servers share the same OAuth issuer, a token obtained
+//     for one server can be reused for others. This is the default behavior.
+//   - SSO Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
+//     ID token to the downstream server (requires forwardToken: true in MCPServer config).
 type ServerAuthStatus struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
-	Issuer   string `json:"issuer,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
-	Error    string `json:"error,omitempty"`
+	Name       string `json:"name"`
+	Status     string `json:"status"` // "connected", "auth_required", "disconnected", "error"
+	Issuer     string `json:"issuer,omitempty"`
+	Scope      string `json:"scope,omitempty"`
+	AuthTool   string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
+	Error      string `json:"error,omitempty"`
+
+	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
+	// When true, muster forwards its own ID token (from muster's OAuth server protection)
+	// to this downstream server, rather than requiring a separate OAuth flow.
+	// This is distinct from SSO Token Reuse, which shares tokens between servers with
+	// the same OAuth issuer without forwarding muster's identity.
+	TokenForwardingEnabled bool `json:"token_forwarding_enabled,omitempty"`
 }
 
 // AuthRequiredInfo contains information about a server requiring authentication.

@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
+	"muster/internal/api"
 	"muster/internal/config"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/spf13/cobra"
 )
@@ -187,12 +190,8 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	if authEndpoint != "" {
 		endpoint = authEndpoint
 	} else if logoutServer != "" {
-		// MCP server logout - note that MCP server auth is managed by the aggregator,
-		// not stored locally. We can inform the user about this.
-		fmt.Println("Note: MCP server authentication is managed by the aggregator.")
-		fmt.Println("To disconnect a server, use the aggregator's management interface.")
-		fmt.Println("To clear all local tokens including aggregator auth, run: muster auth logout --all")
-		return nil
+		// MCP server logout - check if it's SSO-managed
+		return handleMCPServerLogout(cmd.Context(), handler, logoutServer)
 	} else {
 		// Use configured aggregator endpoint
 		endpoint, err = getEndpointFromConfig()
@@ -279,6 +278,67 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 	}
 	if !status.ExpiresAt.IsZero() {
 		fmt.Printf("Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
+	}
+
+	return nil
+}
+
+// handleMCPServerLogout handles logout for a specific MCP server.
+// It checks if the server is SSO-managed and provides appropriate guidance.
+func handleMCPServerLogout(ctx context.Context, handler api.AuthHandler, serverName string) error {
+	// Get the aggregator endpoint
+	endpoint, err := getEndpointFromConfig()
+	if err != nil {
+		return err
+	}
+
+	// Check if we're authenticated to the aggregator
+	if !handler.HasValidToken(endpoint) {
+		authPrintln("Not authenticated to aggregator.")
+		authPrintln("Run 'muster auth login' first to check server status.")
+		return nil
+	}
+
+	// Query the aggregator for server status
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
+	if err != nil {
+		// Fall back to generic message if we can't get status
+		authPrintln("Note: MCP server authentication is managed by the aggregator.")
+		authPrintln("To disconnect all servers, run: muster auth logout")
+		return nil
+	}
+
+	// Find the requested server
+	var serverInfo *pkgoauth.ServerAuthStatus
+	for i := range authStatus.Servers {
+		if authStatus.Servers[i].Name == serverName {
+			serverInfo = &authStatus.Servers[i]
+			break
+		}
+	}
+
+	if serverInfo == nil {
+		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
+	}
+
+	// Provide appropriate message based on authentication mechanism
+	if serverInfo.TokenForwardingEnabled {
+		authPrint("Server '%s' uses SSO via Token Forwarding.\n\n", serverName)
+		authPrintln("This server automatically receives your muster ID token.")
+		authPrintln("You authenticated once to muster, and that identity is forwarded")
+		authPrintln("to this server. To disconnect, log out from muster:")
+		authPrintln("  muster auth logout")
+	} else if serverInfo.Issuer != "" {
+		authPrint("Server '%s' uses SSO via Token Reuse.\n\n", serverName)
+		authPrintln("This server shares an OAuth issuer with other servers.")
+		authPrintln("Your token for this issuer is reused across all servers that")
+		authPrintln("trust the same identity provider. To disconnect:")
+		authPrintln("  muster auth logout")
+	} else {
+		authPrint("Server '%s' uses direct authentication.\n\n", serverName)
+		authPrintln("MCP server sessions are managed by the aggregator and will be")
+		authPrintln("cleared when you log out from the aggregator:")
+		authPrintln("  muster auth logout")
 	}
 
 	return nil

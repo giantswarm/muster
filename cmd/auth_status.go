@@ -129,6 +129,9 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 		if srv.Name == serverName {
 			authPrint("\nMCP Server: %s\n", srv.Name)
 			authPrint("  Status:   %s\n", formatMCPServerStatus(srv.Status))
+			if ssoType := getSSOType(srv); ssoType != "" {
+				authPrint("  SSO:      %s\n", ssoType)
+			}
 			if srv.Issuer != "" {
 				authPrint("  Issuer:   %s\n", srv.Issuer)
 			}
@@ -167,10 +170,20 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 
 	for _, srv := range servers {
 		statusStr := formatMCPServerStatus(srv.Status)
+		ssoType := getSSOType(srv)
+
 		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
-			fmt.Printf("  %-*s %s   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, srv.Name)
+			if ssoType != "" {
+				fmt.Printf("  %-*s %s [%s]   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoType, srv.Name)
+			} else {
+				fmt.Printf("  %-*s %s   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, srv.Name)
+			}
 		} else {
-			fmt.Printf("  %-*s %s\n", maxNameLen, srv.Name, statusStr)
+			if ssoType != "" {
+				fmt.Printf("  %-*s %s [%s]\n", maxNameLen, srv.Name, statusStr, ssoType)
+			} else {
+				fmt.Printf("  %-*s %s\n", maxNameLen, srv.Name, statusStr)
+			}
 		}
 	}
 }
@@ -189,4 +202,20 @@ func formatMCPServerStatus(status string) string {
 	default:
 		return text.FgHiBlack.Sprint(status)
 	}
+}
+
+// getSSOType returns a human-readable SSO type for the server.
+// Returns empty string if no SSO mechanism is applicable.
+//
+// SSO mechanisms:
+//   - "Token Forwarding": Muster forwards its ID token to this server
+//   - "Token Reuse": Server shares an OAuth issuer with other servers
+func getSSOType(srv pkgoauth.ServerAuthStatus) string {
+	if srv.TokenForwardingEnabled {
+		return "Token Forwarding"
+	}
+	if srv.Issuer != "" {
+		return "Token Reuse"
+	}
+	return ""
 }

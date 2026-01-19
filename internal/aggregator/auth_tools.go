@@ -1,3 +1,46 @@
+// Package aggregator provides the MCP aggregator server implementation.
+//
+// # SSO Authentication Mechanisms
+//
+// Muster supports two distinct Single Sign-On (SSO) mechanisms for authenticating
+// to downstream MCP servers. Understanding the difference is important for both
+// configuration and troubleshooting:
+//
+// ## SSO Token Reuse (default behavior)
+//
+// When multiple MCP servers share the same OAuth issuer (Identity Provider), a token
+// obtained by authenticating to one server can be reused for other servers with the
+// same issuer. This is the default behavior and requires no special configuration.
+//
+// Flow:
+//  1. User authenticates to server-a (issuer: https://idp.example.com)
+//  2. Token is stored keyed by (sessionID, issuer)
+//  3. User calls core_auth_login for server-b (same issuer)
+//  4. GetTokenByIssuer() finds existing token
+//  5. Connection established without re-authentication
+//
+// Configuration: Enabled by default. Disable per-server with `auth.sso: false`
+// when you need separate accounts for servers sharing an issuer.
+//
+// ## SSO Token Forwarding (explicit opt-in)
+//
+// When muster itself is protected by OAuth (via oauth_server configuration), muster
+// can forward its own ID token to downstream MCP servers. The downstream server must
+// be configured to trust muster's OAuth client ID in its TrustedAudiences.
+//
+// Flow:
+//  1. User authenticates TO muster via OAuth (Google, Dex, etc.)
+//  2. Muster receives and stores the user's ID token
+//  3. User accesses server with forwardToken: true
+//  4. Muster injects ID token as Authorization: Bearer header
+//  5. Downstream server validates token, trusts muster's client ID
+//
+// Configuration: Requires `auth.forwardToken: true` in MCPServer spec.
+// Optional: `auth.fallbackToOwnAuth: true` for graceful degradation.
+//
+// The key difference: Token Reuse shares tokens between servers that happen to use
+// the same IdP, while Token Forwarding specifically forwards muster's identity to
+// downstream servers that trust muster as an intermediary.
 package aggregator
 
 import (
