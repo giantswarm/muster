@@ -28,6 +28,15 @@ const (
 	TransportStreamableHTTP TransportType = "streamable-http"
 )
 
+// ServerInfo contains information about the connected MCP server.
+// This is populated during the MCP protocol handshake.
+type ServerInfo struct {
+	// Name is the server's name as reported during initialization
+	Name string
+	// Version is the server's version as reported during initialization
+	Version string
+}
+
 // Client represents an MCP client that provides comprehensive Model Context Protocol support.
 // It handles protocol communication, connection management, caching, and notification processing.
 // The client supports multiple transport types (SSE and Streamable HTTP) and can operate
@@ -46,6 +55,7 @@ type Client struct {
 	transport        TransportType
 	logger           *Logger
 	client           client.MCPClient
+	serverInfo       *ServerInfo // Stores server info from initialization
 	toolCache        []mcp.Tool
 	resourceCache    []mcp.Resource
 	promptCache      []mcp.Prompt
@@ -415,6 +425,14 @@ func (c *Client) initialize(ctx context.Context) error {
 		}
 		return err
 	}
+
+	// Store server info from the handshake response
+	c.mu.Lock()
+	c.serverInfo = &ServerInfo{
+		Name:    result.ServerInfo.Name,
+		Version: result.ServerInfo.Version,
+	}
+	c.mu.Unlock()
 
 	// Log response only if logger is available
 	if c.logger != nil {
@@ -1018,6 +1036,26 @@ func (c *Client) GetPromptCache() []mcp.Prompt {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.promptCache
+}
+
+// GetServerInfo returns the server information obtained during MCP initialization.
+// This includes the server's name and version as reported by the server.
+//
+// Returns nil if the client has not been initialized yet.
+//
+// Example:
+//
+//	client := agent.NewClient(endpoint, nil, agent.TransportStreamableHTTP)
+//	if err := client.Connect(ctx); err != nil {
+//	    return err
+//	}
+//	defer client.Close()
+//	info := client.GetServerInfo()
+//	fmt.Printf("Connected to %s version %s\n", info.Name, info.Version)
+func (c *Client) GetServerInfo() *ServerInfo {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.serverInfo
 }
 
 // GetFormatters returns the formatters instance used by this client.

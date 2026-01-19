@@ -19,6 +19,10 @@ import (
 //   - ConfigPath: Optional custom configuration directory path
 //   - MusterConfig: Loaded muster configuration (populated during bootstrap)
 type Config struct {
+	// Version is the muster build version (e.g., "v0.1.0").
+	// This is passed to the aggregator to report in the MCP protocol handshake.
+	Version string
+
 	// Debug settings
 	Debug bool
 
@@ -110,5 +114,18 @@ func (c *Config) WithOAuth(enabled bool, publicURL, clientID string) *Config {
 func (c *Config) WithOAuthServer(enabled bool, baseURL string) *Config {
 	c.OAuthServerEnabled = enabled
 	c.OAuthServerBaseURL = baseURL
+	return c
+}
+
+// WithVersion sets the muster build version on the Config.
+// This version is passed to the aggregator to report in the MCP protocol handshake,
+// allowing clients to discover the server version during initialization.
+//
+// Args:
+//   - version: the build version string (e.g., "v0.1.0", "dev")
+//
+// Returns the modified Config for method chaining.
+func (c *Config) WithVersion(version string) *Config {
+	c.Version = version
 	return c
 }

@@ -186,6 +186,11 @@ type AggregatorConfig struct {
 	// Default value is "x".
 	MusterPrefix string
 
+	// Version is the muster server version to report in the MCP protocol handshake.
+	// This should be set to the build version during application initialization.
+	// Defaults to "dev" if not specified.
+	Version string
+
 	// OAuth configuration for remote MCP server authentication (client role)
 	OAuth OAuthProxyConfig
 
