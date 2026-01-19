@@ -250,29 +250,32 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Retrieve the user's stored OAuth token
+		// Retrieve the user's stored OAuth token.
+		// This token was stored when the user authenticated via browser OAuth.
+		// We need the ID token from this stored token for SSO forwarding.
 		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
 		if err != nil {
-			if s.debug {
-				logging.Debug("OAuth", "Failed to get token from store: %v", err)
-			}
+			// Log at WARN level to help diagnose SSO issues
+			logging.Warn("OAuth", "SSO: Failed to get token from store for email=%s: %v",
+				hashEmail(userInfo.Email), err)
 			next.ServeHTTP(w, r)
 			return
 		}
 		if token == nil {
-			if s.debug {
-				logging.Debug("OAuth", "No token stored for user")
-			}
+			// This is a critical path for SSO - log at WARN to help diagnose
+			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
+				hashEmail(userInfo.Email))
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Extract the ID token for downstream OIDC authentication
+		// Extract the ID token for downstream OIDC authentication.
+		// The ID token is required for SSO forwarding to downstream MCP servers.
 		idToken := GetIDToken(token)
 		if idToken == "" {
-			if s.debug {
-				logging.Debug("OAuth", "No ID token in stored token")
-			}
+			// This is a critical path for SSO - log at WARN to help diagnose
+			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
+				hashEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -281,14 +284,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx = ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
 
-		if s.debug {
-			logging.Debug("OAuth", "Injected access token for user (email hash: %s...)", hashEmail(userInfo.Email))
-		}
+		// Log successful ID token injection - this confirms SSO forwarding will be attempted
+		logging.Info("OAuth", "SSO: ID token available for forwarding (email=%s)", hashEmail(userInfo.Email))
 
 		// Trigger session initialization callback on first request for this session.
 		// This enables proactive SSO: after muster auth login, SSO-enabled servers
 		// are automatically connected using muster's ID token.
-		s.triggerSessionInitIfNeeded(ctx)
+		s.triggerSessionInitIfNeeded(ctx, r)
 
 		next.ServeHTTP(w, r)
 	})
@@ -297,22 +299,27 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 // triggerSessionInitIfNeeded triggers the session initialization callback if this
 // is the first authenticated request for the session. This enables proactive SSO
 // connections to be established after muster auth login.
-func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context) {
-	// Get session ID from context using the shared api package type
-	sessionID, ok := api.GetClientSessionIDFromContext(ctx)
-	if !ok || sessionID == "" {
+func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
+	// Get session ID from the request header directly.
+	// We can't rely on context here because clientSessionIDMiddleware runs
+	// AFTER this middleware in the chain (it wraps the MCP handler, not the OAuth chain).
+	sessionID := r.Header.Get(api.ClientSessionIDHeader)
+	if sessionID == "" {
+		logging.Debug("OAuth", "SSO: No session ID header, skipping session init")
 		return
 	}
 
 	// Check if we've already initialized this session
 	if _, exists := s.sessionInitTracker.LoadOrStore(sessionID, true); exists {
 		// Already initialized
+		logging.Debug("OAuth", "SSO: Session %s already initialized, skipping", logging.TruncateSessionID(sessionID))
 		return
 	}
 
 	// Get the session init callback
 	callback := api.GetSessionInitCallback()
 	if callback == nil {
+		logging.Warn("OAuth", "SSO: No session init callback registered, proactive SSO disabled")
 		return
 	}
 
@@ -320,12 +327,17 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context) {
 	// We must NOT pass the original ctx to the goroutine because it will be
 	// canceled when the HTTP request completes, potentially before the callback finishes.
 	// Instead, we create a new background context and copy the necessary values.
-	idToken, _ := GetAccessTokenFromContext(ctx)
+	idToken, hasToken := GetAccessTokenFromContext(ctx)
+	if !hasToken || idToken == "" {
+		logging.Warn("OAuth", "SSO: No ID token in context for session %s, proactive SSO will fail",
+			logging.TruncateSessionID(sessionID))
+	}
 
 	// Trigger the callback asynchronously to not block the request.
 	// Use a background context with the necessary values copied over.
 	go func() {
-		logging.Info("OAuth", "Triggering proactive SSO for new session %s", logging.TruncateSessionID(sessionID))
+		logging.Info("OAuth", "SSO: Triggering proactive SSO for session %s (has_id_token=%v)",
+			logging.TruncateSessionID(sessionID), idToken != "")
 
 		// Create a background context with the ID token for SSO forwarding.
 		// This context won't be canceled when the HTTP request completes.
