@@ -8,38 +8,8 @@ import (
 	"muster/internal/api"
 )
 
-// mockOrchestratorAPI implements api.OrchestratorAPI for testing.
-type mockOrchestratorAPI struct {
-	eventChan chan api.ServiceStateChangedEvent
-}
-
-func newMockOrchestratorAPI() *mockOrchestratorAPI {
-	return &mockOrchestratorAPI{
-		eventChan: make(chan api.ServiceStateChangedEvent, 100),
-	}
-}
-
-func (m *mockOrchestratorAPI) StartService(name string) error      { return nil }
-func (m *mockOrchestratorAPI) StopService(name string) error       { return nil }
-func (m *mockOrchestratorAPI) RestartService(name string) error    { return nil }
-func (m *mockOrchestratorAPI) GetAllServices() []api.ServiceStatus { return nil }
-func (m *mockOrchestratorAPI) GetServiceStatus(name string) (*api.ServiceStatus, error) {
-	return nil, nil
-}
-func (m *mockOrchestratorAPI) SubscribeToStateChanges() <-chan api.ServiceStateChangedEvent {
-	return m.eventChan
-}
-
-func (m *mockOrchestratorAPI) sendEvent(event api.ServiceStateChangedEvent) {
-	m.eventChan <- event
-}
-
-func (m *mockOrchestratorAPI) close() {
-	close(m.eventChan)
-}
-
 func TestStateChangeBridge_StartStop(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -85,7 +55,7 @@ func TestStateChangeBridge_StartStop(t *testing.T) {
 }
 
 func TestStateChangeBridge_TriggersReconcileOnStateChange(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -110,7 +80,7 @@ func TestStateChangeBridge_TriggersReconcileOnStateChange(t *testing.T) {
 	defer func() { _ = bridge.Stop() }()
 
 	// Send a state change event
-	mockOrch.sendEvent(api.ServiceStateChangedEvent{
+	mockOrch.SendEvent(api.ServiceStateChangedEvent{
 		Name:        "test-server",
 		ServiceType: "MCPServer",
 		OldState:    "starting",
@@ -128,7 +98,7 @@ func TestStateChangeBridge_TriggersReconcileOnStateChange(t *testing.T) {
 }
 
 func TestStateChangeBridge_IgnoresNonMCPServerEvents(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -153,7 +123,7 @@ func TestStateChangeBridge_IgnoresNonMCPServerEvents(t *testing.T) {
 	defer func() { _ = bridge.Stop() }()
 
 	// Send an event for a non-MCPServer service type
-	mockOrch.sendEvent(api.ServiceStateChangedEvent{
+	mockOrch.SendEvent(api.ServiceStateChangedEvent{
 		Name:        "some-other-service",
 		ServiceType: "SomeOtherType",
 		OldState:    "starting",
@@ -171,7 +141,7 @@ func TestStateChangeBridge_IgnoresNonMCPServerEvents(t *testing.T) {
 }
 
 func TestStateChangeBridge_RespectsDisabledResourceTypes(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -199,7 +169,7 @@ func TestStateChangeBridge_RespectsDisabledResourceTypes(t *testing.T) {
 	defer func() { _ = bridge.Stop() }()
 
 	// Send a state change event for MCPServer (which is disabled)
-	mockOrch.sendEvent(api.ServiceStateChangedEvent{
+	mockOrch.SendEvent(api.ServiceStateChangedEvent{
 		Name:        "test-server",
 		ServiceType: "MCPServer",
 		OldState:    "starting",
@@ -217,7 +187,7 @@ func TestStateChangeBridge_RespectsDisabledResourceTypes(t *testing.T) {
 }
 
 func TestStateChangeBridge_HandlesChannelClose(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -234,7 +204,7 @@ func TestStateChangeBridge_HandlesChannelClose(t *testing.T) {
 	}
 
 	// Close the event channel to simulate orchestrator shutdown
-	mockOrch.close()
+	mockOrch.Close()
 
 	// Wait for the bridge to detect the closed channel and stop
 	time.Sleep(100 * time.Millisecond)
@@ -246,7 +216,7 @@ func TestStateChangeBridge_HandlesChannelClose(t *testing.T) {
 }
 
 func TestStateChangeBridge_DefaultNamespace(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
@@ -263,7 +233,7 @@ func TestStateChangeBridge_DefaultNamespace(t *testing.T) {
 }
 
 func TestStateChangeBridge_MapServiceTypeToResourceType(t *testing.T) {
-	mockOrch := newMockOrchestratorAPI()
+	mockOrch := NewMockOrchestratorAPI()
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,
 		FilesystemPath: t.TempDir(),
