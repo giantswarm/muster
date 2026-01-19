@@ -105,7 +105,7 @@ func TestValidateHTTPSRequirement(t *testing.T) {
 	}
 }
 
-func TestHashEmail(t *testing.T) {
+func TestTruncateEmail(t *testing.T) {
 	tests := []struct {
 		name     string
 		email    string
@@ -130,7 +130,7 @@ func TestHashEmail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := hashEmail(tt.email)
+			result := truncateEmail(tt.email)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
