@@ -69,8 +69,8 @@ type OAuthConfig struct {
 
 	// CIMDScopes is the OAuth scopes to advertise in the self-hosted CIMD.
 	// This determines what API scopes downstream MCP servers can use when muster
-	// forwards tokens via SSO. Default includes Google API scopes for Gmail, Calendar,
-	// Drive, Contacts, and other services.
+	// forwards tokens via SSO. Default: "openid profile email offline_access".
+	// Operators can add additional scopes (e.g., Google API scopes) as needed.
 	// Format: space-separated list of scope strings.
 	CIMDScopes string `yaml:"cimdScopes,omitempty"`
 
@@ -136,7 +136,7 @@ func (c *OAuthConfig) GetCIMDPath() string {
 }
 
 // GetCIMDScopes returns the OAuth scopes to advertise in the CIMD.
-// If not set, returns the default comprehensive Google API scopes for SSO forwarding.
+// If not set, returns the default scopes: "openid profile email offline_access".
 func (c *OAuthConfig) GetCIMDScopes() string {
 	if c.CIMDScopes != "" {
 		return c.CIMDScopes

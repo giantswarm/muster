@@ -398,15 +398,18 @@
             },
             "callbackPath": {
               "type": "string",
-              "description": "Path for the OAuth proxy callback endpoint"
+              "description": "Path for the OAuth proxy callback endpoint",
+              "default": "/oauth/proxy/callback"
             },
             "cimdPath": {
               "type": "string",
-              "description": "Path for serving the Client ID Metadata Document (CIMD)"
+              "description": "Path for serving the Client ID Metadata Document (CIMD)",
+              "default": "/.well-known/oauth-client.json"
             },
             "cimdScopes": {
               "type": "string",
-              "description": "OAuth scopes to advertise in the self-hosted CIMD for SSO token forwarding"
+              "description": "OAuth scopes to advertise in the self-hosted CIMD for SSO token forwarding",
+              "default": "openid profile email offline_access"
             }
           }
         },

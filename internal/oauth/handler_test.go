@@ -340,6 +340,46 @@ func TestHandler_ServeCIMD(t *testing.T) {
 	})
 }
 
+func TestHandler_ServeCIMD_CustomScopes(t *testing.T) {
+	clientID := "https://muster.example.com/.well-known/oauth-client.json"
+	publicURL := "https://muster.example.com"
+	callbackPath := "/oauth/proxy/callback"
+	customScopes := "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar"
+
+	client := NewClient(clientID, publicURL, callbackPath, customScopes)
+	defer client.Stop()
+
+	handler := NewHandler(client)
+
+	req := httptest.NewRequest("GET", "/.well-known/oauth-client.json", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeCIMD(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Parse and verify CIMD content
+	var cimd pkgoauth.ClientMetadata
+	if err := json.NewDecoder(rr.Body).Decode(&cimd); err != nil {
+		t.Fatalf("Failed to decode CIMD: %v", err)
+	}
+
+	// Verify custom scopes are present in the CIMD
+	if cimd.Scope != customScopes {
+		t.Errorf("Expected scope %q, got %q", customScopes, cimd.Scope)
+	}
+
+	// Verify Google API scopes are included
+	if !strings.Contains(cimd.Scope, "https://mail.google.com/") {
+		t.Error("Expected CIMD scope to contain Gmail scope")
+	}
+	if !strings.Contains(cimd.Scope, "https://www.googleapis.com/auth/calendar") {
+		t.Error("Expected CIMD scope to contain Calendar scope")
+	}
+}
+
 func TestClient_GetCIMDURL(t *testing.T) {
 	tests := []struct {
 		name         string
