@@ -89,10 +89,15 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 
 	namespace = r.GetNamespace(namespace)
 
+	// Record status sync attempt for metrics
+	metrics := GetReconcilerMetrics()
+	metrics.RecordStatusSyncAttempt(ResourceTypeWorkflow, name)
+
 	// Get the current CRD
 	workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
 	if err != nil {
 		logging.Debug("WorkflowReconciler", "Failed to get Workflow for status sync: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "get_crd_failed")
 		return
 	}
 
@@ -116,9 +121,11 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 	// Update the CRD status
 	if err := r.StatusUpdater.UpdateWorkflowStatus(ctx, workflow); err != nil {
 		logging.Debug("WorkflowReconciler", "Failed to update Workflow status: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "update_status_failed")
 	} else {
 		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
 			name, workflow.Status.Valid, workflow.Status.StepCount, referencedTools)
+		metrics.RecordStatusSyncSuccess(ResourceTypeWorkflow, name)
 	}
 }
 

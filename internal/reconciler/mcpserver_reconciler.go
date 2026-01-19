@@ -124,10 +124,15 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 
 	namespace = r.GetNamespace(namespace)
 
+	// Record status sync attempt for metrics
+	metrics := GetReconcilerMetrics()
+	metrics.RecordStatusSyncAttempt(ResourceTypeMCPServer, name)
+
 	// Get the current CRD
 	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
 	if err != nil {
 		logging.Debug("MCPServerReconciler", "Failed to get MCPServer for status sync: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, "get_crd_failed")
 		return
 	}
 
@@ -162,9 +167,11 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 	// Update the CRD status
 	if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
 		logging.Debug("MCPServerReconciler", "Failed to update MCPServer status: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, "update_status_failed")
 	} else {
 		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status: state=%s, health=%s",
 			name, server.Status.State, server.Status.Health)
+		metrics.RecordStatusSyncSuccess(ResourceTypeMCPServer, name)
 	}
 }
 
