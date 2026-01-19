@@ -182,6 +182,19 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
+	// Check if this session already has a connection to this server
+	// This can happen after proactive SSO or previous authentication
+	if p.aggregator.sessionRegistry != nil {
+		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Debug("AuthTools", "Session %s already has connection to server %s",
+				logging.TruncateSessionID(sessionID), serverName)
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated for this session.", serverName)},
+				IsError: false,
+			}, nil
+		}
+	}
+
 	// Check if OAuth handler is available
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {

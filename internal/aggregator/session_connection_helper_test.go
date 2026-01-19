@@ -87,11 +87,11 @@ func TestShouldUseTokenForwarding(t *testing.T) {
 		assert.True(t, ShouldUseTokenForwarding(info))
 	})
 
-	t.Run("returns true case insensitively for OAuth type", func(t *testing.T) {
+	t.Run("returns true when forwardToken is true without type specified", func(t *testing.T) {
+		// forwardToken: true implies OAuth authentication
 		info := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
-				Type:         "OAuth",
 				ForwardToken: true,
 			},
 		}

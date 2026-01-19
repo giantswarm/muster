@@ -1,0 +1,140 @@
+name: "oauth-auth-status-after-login"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that reading auth://status shows SSO servers as connected after muster auth login.
+  
+  This tests the core SSO behavior: after authenticating to muster (via `muster auth login`),
+  SSO-enabled servers (with forwardToken: true) should automatically appear as "connected"
+  when reading the auth://status resource. The user should NOT need to call core_auth_login
+  for each SSO server individually.
+  
+  The proactive SSO connection happens during session initialization (handleSessionInit),
+  triggered on the first authenticated MCP request after muster auth login. This ensures
+  that auth://status reads are pure read operations without side effects, while still
+  providing seamless SSO for users.
+tags: ["oauth", "authentication", "auth-status", "sso", "token-forwarding", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  # The use_as_muster_oauth_server flag enables muster's OAuth server protection
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      # This enables muster's OAuth server to use this mock as upstream IdP
+      use_as_muster_oauth_server: true
+
+  # SSO-enabled MCP server that trusts muster's forwarded ID tokens
+  mcp_servers:
+    - name: "sso-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          scope: "mcp:admin"
+          # Enable token forwarding - muster forwards its ID token to this server
+          forward_token: true
+        tools:
+          - name: "sso_protected_operation"
+            description: "Operation requiring SSO authentication"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Authenticated via SSO token forwarding"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the muster IdP OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "muster-idp"
+    expected:
+      success: true
+      contains:
+        - "muster-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the SSO server is registered
+  - id: verify-server-registered
+    description: "Verify the SSO server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-server"
+
+  # Step 3: Check auth status BEFORE muster login - should show auth_required
+  - id: check-auth-status-before-login
+    description: "Verify auth status shows auth_required before muster login"
+    tool: "test_read_auth_status"
+    args:
+      server: "sso-server"
+    expected:
+      success: true
+      contains:
+        - "sso-server"
+        - "auth_required"
+        - "token_forwarding_enabled"
+
+  # Step 4: Simulate muster auth login (user authenticates TO muster via the IdP)
+  # This is equivalent to running `muster auth login` which authenticates to muster itself
+  - id: muster-auth-login
+    description: "Authenticate to muster via OAuth (simulates 'muster auth login')"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sso-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: Check auth status AFTER muster login - SSO server should now be CONNECTED
+  # This is the key test: reading auth://status should trigger proactive SSO connection
+  # The user should NOT need to call core_auth_login for the SSO server
+  - id: check-auth-status-after-login
+    description: "Verify auth status shows SSO server as connected after muster login (proactive SSO)"
+    tool: "test_read_auth_status"
+    args:
+      server: "sso-server"
+    expected:
+      success: true
+      contains:
+        - "sso-server"
+        - "connected"
+        - "token_forwarding_enabled"
+      not_contains:
+        - "auth_required"
+
+  # Step 6: Verify the SSO-protected tool is now accessible
+  # This confirms the proactive SSO connection actually worked
+  - id: call-sso-protected-tool
+    description: "Call the SSO-protected tool to verify proactive authentication worked"
+    tool: "x_sso-server_sso_protected_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "SSO"
+
+  # Step 7: Read full auth status to verify response structure includes SSO metadata
+  - id: check-full-auth-status
+    description: "Read full auth status to verify SSO metadata is included"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "servers"
+        - "sso-server"
+        - "connected"
+        - "token_forwarding_enabled"

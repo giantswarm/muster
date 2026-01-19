@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"muster/internal/testing/mock"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Test tool name constants for BDD test scenarios.
@@ -25,6 +27,8 @@ const (
 	TestToolGetOAuthServerInfo = "test_get_oauth_server_info"
 	// TestToolAdvanceOAuthClock advances the mock OAuth server's clock for testing.
 	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
+	// TestToolReadAuthStatus reads the auth://status resource to verify auth state.
+	TestToolReadAuthStatus = "test_read_auth_status"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -65,7 +69,8 @@ func IsTestTool(toolName string) bool {
 	case TestToolSimulateOAuthCallback,
 		TestToolInjectToken,
 		TestToolGetOAuthServerInfo,
-		TestToolAdvanceOAuthClock:
+		TestToolAdvanceOAuthClock,
+		TestToolReadAuthStatus:
 		return true
 	}
 	return false
@@ -86,6 +91,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleGetOAuthServerInfo(ctx, args)
 	case TestToolAdvanceOAuthClock:
 		return h.handleAdvanceOAuthClock(ctx, args)
+	case TestToolReadAuthStatus:
+		return h.handleReadAuthStatus(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -600,6 +607,114 @@ func WrapTestToolResult(result interface{}, err error) *TestToolResult {
 	}
 }
 
+// handleReadAuthStatus reads the auth://status resource to verify authentication state.
+// This tool reads the auth://status MCP resource and returns the authentication status
+// of all MCP servers. It can optionally filter by server name.
+//
+// Args:
+//   - server (optional): Name of a specific server to check status for
+//
+// Returns the auth status as JSON, including:
+//   - Server names and their connection status ("connected", "auth_required", etc.)
+//   - SSO mechanism info (token_forwarding_enabled, token_reuse_enabled)
+func (h *TestToolsHandler) handleReadAuthStatus(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not available for reading auth status")
+	}
+
+	// Read the auth://status resource
+	result, err := h.mcpClient.ReadResource(ctx, "auth://status")
+	if err != nil {
+		return &TestToolResult{
+			Content: []TestToolContent{
+				{Type: "text", Text: fmt.Sprintf("failed to read auth://status: %v", err)},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Extract the text content from the resource result
+	if result == nil || len(result.Contents) == 0 {
+		return &TestToolResult{
+			Content: []TestToolContent{
+				{Type: "text", Text: "auth://status resource returned empty content"},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Get the text content - the auth status is returned as JSON
+	var statusJSON string
+	for _, content := range result.Contents {
+		// Use the mcp helper to extract text content
+		if textContent, ok := mcp.AsTextResourceContents(content); ok {
+			statusJSON = textContent.Text
+			break
+		}
+	}
+
+	if statusJSON == "" {
+		return &TestToolResult{
+			Content: []TestToolContent{
+				{Type: "text", Text: "could not extract text from auth://status resource"},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// If a specific server was requested, filter the response
+	if serverName, ok := args["server"].(string); ok && serverName != "" {
+		// Parse the JSON to filter by server
+		var authStatus struct {
+			Servers []struct {
+				Name                   string `json:"name"`
+				Status                 string `json:"status"`
+				Issuer                 string `json:"issuer,omitempty"`
+				Scope                  string `json:"scope,omitempty"`
+				AuthTool               string `json:"auth_tool,omitempty"`
+				TokenForwardingEnabled bool   `json:"token_forwarding_enabled,omitempty"`
+				TokenReuseEnabled      bool   `json:"token_reuse_enabled,omitempty"`
+			} `json:"servers"`
+		}
+		if err := json.Unmarshal([]byte(statusJSON), &authStatus); err != nil {
+			return &TestToolResult{
+				Content: []TestToolContent{
+					{Type: "text", Text: fmt.Sprintf("failed to parse auth status: %v", err)},
+				},
+				IsError: true,
+			}, nil
+		}
+
+		// Find the specific server
+		for _, srv := range authStatus.Servers {
+			if srv.Name == serverName {
+				filtered, _ := json.MarshalIndent(srv, "", "  ")
+				return &TestToolResult{
+					Content: []TestToolContent{
+						{Type: "text", Text: string(filtered)},
+					},
+					IsError: false,
+				}, nil
+			}
+		}
+
+		return &TestToolResult{
+			Content: []TestToolContent{
+				{Type: "text", Text: fmt.Sprintf("server '%s' not found in auth status", serverName)},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Return the full auth status
+	return &TestToolResult{
+		Content: []TestToolContent{
+			{Type: "text", Text: statusJSON},
+		},
+		IsError: false,
+	}, nil
+}
+
 // GetTestToolNames returns the names of all available test tools.
 func GetTestToolNames() []string {
 	return []string{
@@ -607,6 +722,7 @@ func GetTestToolNames() []string {
 		TestToolInjectToken,
 		TestToolGetOAuthServerInfo,
 		TestToolAdvanceOAuthClock,
+		TestToolReadAuthStatus,
 	}
 }
 
@@ -617,5 +733,6 @@ func GetTestToolDescriptions() map[string]string {
 		TestToolInjectToken:           "Directly injects an access token for testing. Required args: 'server' (name of the MCP server), 'token' (access token value).",
 		TestToolGetOAuthServerInfo:    "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
 		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
+		TestToolReadAuthStatus:        "Reads the auth://status resource to verify authentication state. Optional arg: 'server' (specific server to check).",
 	}
 }

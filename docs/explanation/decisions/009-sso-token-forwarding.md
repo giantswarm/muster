@@ -2,7 +2,46 @@
 
 ## Status
 
-Proposed
+Accepted
+
+## Implementation Status
+
+The core SSO token forwarding mechanism is implemented. Key implementation details:
+
+### Proactive SSO Session Initialization
+
+When muster's OAuth server is enabled (`aggregator.oauthServer.enabled: true`), proactive SSO connections are established automatically during session initialization.
+
+**Flow:**
+1. User authenticates to muster via `muster auth login`
+2. User's ID token is stored in muster's token store
+3. On first authenticated MCP request (any tool/resource call), the **Session Init Callback** triggers
+4. Muster proactively connects to all SSO-enabled servers (`forwardToken: true`) using the user's ID token
+5. Subsequent `auth://status` reads show SSO servers as "connected" without additional authentication
+
+**Key Components:**
+- `SessionInitCallback` (`internal/api/oauth.go`): Callback type for session initialization
+- `handleSessionInit` (`internal/aggregator/auth_resource.go`): Establishes proactive SSO connections
+- `triggerSessionInitIfNeeded` (`internal/server/oauth_http.go`): Triggers callback on first authenticated request
+
+**Why Session Init, Not Auth Status Read:**
+The proactive SSO logic runs during session initialization (first authenticated MCP request), not when reading `auth://status`. This ensures:
+- `auth://status` is a pure read operation without side effects
+- SSO connections are established exactly once per session
+- The user experience is seamless: after `muster auth login`, SSO servers are immediately connected
+
+### Session-Specific Connection Detection
+
+Before attempting authentication, `handleAuthLogin` checks if the session already has a connection to the target server. This prevents redundant authentication attempts and ensures that proactively established SSO connections are recognized.
+
+```go
+// Check if this session already has a connection to this server
+if p.aggregator.sessionRegistry != nil {
+    if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists {
+        return "Server 'X' is already authenticated for this session."
+    }
+}
+```
 
 ## Context
 
@@ -361,6 +400,22 @@ When `fallbackToOwnAuth: true`:
 2. Muster triggers a separate OAuth flow for this specific server
 3. Provides graceful degradation for misconfigured deployments
 
+### Token Forwarding Detection
+
+The `ShouldUseTokenForwarding` function determines if token forwarding is enabled for a server:
+
+```go
+func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
+    if serverInfo == nil || serverInfo.AuthConfig == nil {
+        return false
+    }
+    // ForwardToken implies OAuth-based authentication
+    return serverInfo.AuthConfig.ForwardToken
+}
+```
+
+Setting `forwardToken: true` implicitly enables OAuth-based authentication since token forwarding only makes sense in an OAuth context. This simplifies configuration - you don't need to specify `type: oauth` separately.
+
 ### Security Considerations
 
 #### 1. Trusted Relay Pattern
@@ -392,29 +447,39 @@ When a user's session is revoked:
 2. Agent connects to Muster Server
    → Muster returns 401 with auth challenge
    → Agent opens browser for OAuth flow
-   → User authenticates with Google
+   → User authenticates with Google/Dex
    → Muster receives tokens (access + ID + refresh)
    → User is now authenticated to Muster
 
-3. User requests tool from mcp-kubernetes
-   → Muster checks: forwardToken=true for mcp-kubernetes
-   → Muster injects ID token into request headers
-   → mcp-kubernetes validates token:
-       - Issuer: Google (trusted)
-       - Audience: muster-client (in trustedAudiences)
-       - Signature: Valid
-   → Request succeeds with user identity from token
+3. First MCP request (e.g., list_tools, read auth://status, call any tool)
+   → Session Init Callback triggers (first authenticated request for this session)
+   → Muster finds all SSO-enabled servers (forwardToken: true)
+   → For each SSO server:
+       → Muster extracts user's ID token from session store
+       → Muster establishes connection using ID token forwarding
+       → mcp-kubernetes validates token:
+           - Issuer: Google/Dex (trusted)
+           - Audience: muster-client (in trustedAudiences)
+           - Signature: Valid
+       → Session connection established with session-specific tools
+   → SSO servers now show as "connected" in auth://status
 
-4. User requests tool from inboxfewer
-   → Same flow as step 3
+4. User requests tool from mcp-kubernetes
+   → Session already has connection (established in step 3)
+   → Request uses existing session connection
    → No additional authentication required
 
-5. Token nearing expiry (within 5 minutes)
+5. User explicitly calls core_auth_login for SSO server
+   → Muster detects existing session connection
+   → Returns "Server 'X' is already authenticated for this session"
+   → No duplicate authentication
+
+6. Token nearing expiry (within 5 minutes)
    → Agent proactively refreshes token
    → New access/ID tokens replace old ones
    → All downstream requests continue working
 
-Result: User authenticated ONCE, uses tools from ALL servers.
+Result: User authenticated ONCE, SSO servers connected AUTOMATICALLY on first request.
 ```
 
 ## Implementation Steps

@@ -179,6 +179,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// NOTE: Must be called after releasing lock since registerAuthStatusResource acquires RLock
 	a.registerAuthStatusResource()
 
+	// Register the session init callback for proactive SSO.
+	// This callback is triggered on first authenticated MCP request for a session,
+	// enabling seamless SSO: users authenticate once to muster and automatically
+	// gain access to all SSO-enabled MCP servers.
+	api.RegisterSessionInitCallback(a.handleSessionInit)
+
 	// Perform initial capability discovery and registration
 	a.updateCapabilities()
 
