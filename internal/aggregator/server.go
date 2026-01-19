@@ -146,13 +146,19 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Create cancellable context for coordinating shutdown across all components
 	a.ctx, a.cancelFunc = context.WithCancel(ctx)
 
+	// Determine the server version to report
+	serverVersion := a.config.Version
+	if serverVersion == "" {
+		serverVersion = "dev"
+	}
+
 	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
-		"1.0.0",
-		mcpserver.WithToolCapabilities(true), // Enable tool execution
+		serverVersion,
+		mcpserver.WithToolCapabilities(true),           // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers

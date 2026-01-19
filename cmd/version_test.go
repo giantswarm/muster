@@ -45,9 +45,15 @@ func TestVersionCommandExecution(t *testing.T) {
 	versionCmd.Run(versionCmd, []string{})
 
 	output := buf.String()
-	expected := "muster version " + testVersion + "\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q", expected, output)
+
+	// Check that CLI version is printed
+	if !strings.Contains(output, "muster version "+testVersion) {
+		t.Errorf("Expected output to contain CLI version, got %q", output)
+	}
+
+	// Check that server status is present (either "Server: <version>" or "Server: (not running)")
+	if !strings.Contains(output, "Server:") {
+		t.Errorf("Expected output to contain server status, got %q", output)
 	}
 }
 
@@ -77,6 +83,8 @@ func TestVersionCommandHelp(t *testing.T) {
 	var buf bytes.Buffer
 	versionCmd.SetOut(&buf)
 	versionCmd.SetErr(&buf) // Also capture stderr for help
+
+	// Use --help flag
 	versionCmd.SetArgs([]string{"--help"})
 
 	err := versionCmd.Execute()
@@ -85,7 +93,35 @@ func TestVersionCommandHelp(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "All software has versions") {
-		t.Errorf("Help output should contain description. Got: %q", output)
+	// Updated to match the new Long description
+	if !strings.Contains(output, "CLI version") {
+		t.Errorf("Help output should contain description about CLI version. Got: %q", output)
+	}
+}
+
+func TestGetServerVersion_ReturnsInfo(t *testing.T) {
+	// This test verifies getServerVersion handles both running and not-running states.
+	// Note: This is an environment-dependent test - behavior depends on whether
+	// the muster server is actually running. For deterministic testing, consider
+	// using integration tests with controlled server lifecycle.
+	version, name, err := getServerVersion()
+
+	// If server is running, we should get valid info
+	if err == nil {
+		if version == "" {
+			t.Error("Expected non-empty version when server is running")
+		}
+		if name == "" {
+			t.Error("Expected non-empty name when server is running")
+		}
+	}
+	// If server is not running, error should be returned and values empty
+	if err != nil {
+		if version != "" {
+			t.Errorf("Expected empty version when server error occurs, got %q", version)
+		}
+		if name != "" {
+			t.Errorf("Expected empty name when server error occurs, got %q", name)
+		}
 	}
 }

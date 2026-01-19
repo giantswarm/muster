@@ -41,6 +41,12 @@ func SetVersion(v string) {
 	rootCmd.Version = v
 }
 
+// GetVersion returns the current version of the application.
+// This can be used by other commands to access the build version.
+func GetVersion() string {
+	return rootCmd.Version
+}
+
 // Execute is the main entry point for the CLI application.
 // It initializes and executes the root command, which in turn handles subcommands and flags.
 // This function is called by main.main().
