@@ -250,21 +250,19 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Retrieve the user's stored OAuth token.
-		// This token was stored when the user authenticated via browser OAuth.
-		// We need the ID token from this stored token for SSO forwarding.
+		// Retrieve the user's stored OAuth token for SSO forwarding.
 		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
 		if err != nil {
 			// Log at WARN level to help diagnose SSO issues
 			logging.Warn("OAuth", "SSO: Failed to get token from store for email=%s: %v",
-				hashEmail(userInfo.Email), err)
+				truncateEmail(userInfo.Email), err)
 			next.ServeHTTP(w, r)
 			return
 		}
 		if token == nil {
 			// This is a critical path for SSO - log at WARN to help diagnose
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
-				hashEmail(userInfo.Email))
+				truncateEmail(userInfo.Email))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -275,7 +273,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if idToken == "" {
 			// This is a critical path for SSO - log at WARN to help diagnose
 			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
-				hashEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
+				truncateEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -284,8 +282,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx = ContextWithAccessToken(ctx, idToken)
 		r = r.WithContext(ctx)
 
-		// Log successful ID token injection - this confirms SSO forwarding will be attempted
-		logging.Info("OAuth", "SSO: ID token available for forwarding (email=%s)", hashEmail(userInfo.Email))
+		if s.debug {
+			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
+		}
 
 		// Trigger session initialization callback on first request for this session.
 		// This enables proactive SSO: after muster auth login, SSO-enabled servers
@@ -327,8 +326,8 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 	// We must NOT pass the original ctx to the goroutine because it will be
 	// canceled when the HTTP request completes, potentially before the callback finishes.
 	// Instead, we create a new background context and copy the necessary values.
-	idToken, hasToken := GetAccessTokenFromContext(ctx)
-	if !hasToken || idToken == "" {
+	idToken, _ := GetAccessTokenFromContext(ctx)
+	if idToken == "" {
 		logging.Warn("OAuth", "SSO: No ID token in context for session %s, proactive SSO will fail",
 			logging.TruncateSessionID(sessionID))
 	}
@@ -656,9 +655,9 @@ func validateHTTPSRequirement(baseURL string) error {
 	return nil
 }
 
-// hashEmail returns a truncated prefix of the email for logging purposes.
+// truncateEmail returns a truncated prefix of the email for logging purposes.
 // Only the first logEmailPrefixLength characters are shown for privacy.
-func hashEmail(email string) string {
+func truncateEmail(email string) string {
 	if len(email) > logEmailPrefixLength {
 		return email[:logEmailPrefixLength]
 	}
