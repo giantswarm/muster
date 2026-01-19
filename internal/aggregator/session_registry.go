@@ -74,6 +74,11 @@ type SessionState struct {
 	// Per-server connection state for this session
 	// Maps server name to the session's connection to that server
 	Connections map[string]*SessionConnection
+
+	// SSOFailedServers tracks servers where proactive SSO authentication was
+	// attempted but failed (e.g., due to audience mismatch or token rejection).
+	// This helps the UI show "SSO failed" to explain why auth is still required.
+	SSOFailedServers map[string]bool
 }
 
 // SessionConnection represents a session's connection to a specific server.
@@ -333,6 +338,41 @@ func (sr *SessionRegistry) UpgradeConnection(sessionID, serverName string, clien
 	}
 
 	return session.UpgradeConnection(serverName, client, tokenKey)
+}
+
+// MarkSSOFailed records that SSO authentication was attempted but failed for a server.
+// This is called when proactive SSO (token forwarding) fails during session init.
+// The failure is tracked so the UI can show "SSO failed" to explain why auth is required.
+func (sr *SessionRegistry) MarkSSOFailed(sessionID, serverName string) {
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		return
+	}
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if session.SSOFailedServers == nil {
+		session.SSOFailedServers = make(map[string]bool)
+	}
+	session.SSOFailedServers[serverName] = true
+}
+
+// HasSSOFailed checks if SSO authentication was attempted but failed for a server.
+// Returns true if SSO was attempted and failed, false otherwise.
+func (sr *SessionRegistry) HasSSOFailed(sessionID, serverName string) bool {
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		return false
+	}
+
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+
+	if session.SSOFailedServers == nil {
+		return false
+	}
+	return session.SSOFailedServers[serverName]
 }
 
 // GetAllSessions returns all active sessions.

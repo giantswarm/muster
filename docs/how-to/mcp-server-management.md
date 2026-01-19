@@ -246,10 +246,10 @@ Muster supports Single Sign-On (SSO) for MCP servers, allowing users to authenti
 
 Muster supports two SSO mechanisms:
 
-| Mechanism | Description | Configuration |
-|-----------|-------------|---------------|
-| **Token Forwarding** | Muster forwards its ID token to downstream servers | `auth.forwardToken: true` |
-| **Token Reuse** | Servers share an OAuth issuer, tokens are reused automatically | Default behavior when servers share an issuer |
+| Mechanism | What You Do | What Happens | Configuration |
+|-----------|-------------|--------------|---------------|
+| **Token Forwarding** | Authenticate once to muster | Muster handles auth to downstream servers automatically | `auth.forwardToken: true` |
+| **Token Reuse** | Authenticate to one server | Other servers with same login provider work automatically | Default behavior |
 
 ### Token Forwarding (Recommended for Trusted Servers)
 
@@ -273,7 +273,7 @@ spec:
 1. User runs `muster auth login` to authenticate to muster
 2. On first MCP request, muster proactively connects to all SSO-enabled servers
 3. User can immediately access SSO servers without additional authentication
-4. The CLI shows the SSO type for each server: `mcp-kubernetes  connected [Token Forwarding]`
+4. The CLI shows the SSO type for each server: `mcp-kubernetes  Connected [SSO: Forwarded]`
 
 **Requirements:**
 - The downstream MCP server must trust muster's OAuth client ID
@@ -338,9 +338,9 @@ Muster: authenticated
   Expires:  in 23 hours
 
 MCP Servers:
-  mcp-kubernetes  connected [Token Forwarding]
-  internal-api    connected [Token Reuse]
-  isolated-server auth_required   Run: muster auth login --server isolated-server
+  mcp-kubernetes  Connected [SSO: Forwarded]
+  internal-api    Connected [SSO: Shared   ]
+  isolated-server Not authenticated          Run: muster auth login --server isolated-server
 ```
 
 ### Troubleshooting SSO

@@ -305,6 +305,13 @@ type ServerAuthStatus struct {
 	// When false, the server requires its own authentication flow even if a token
 	// exists for the same issuer (e.g., for separate personal vs work accounts).
 	TokenReuseEnabled bool `json:"token_reuse_enabled,omitempty"`
+
+	// SSOAttemptFailed indicates that SSO authentication was attempted but failed.
+	// This occurs when token forwarding is enabled but the downstream server
+	// rejected the forwarded token (e.g., audience mismatch, token expired).
+	// When true, the status will be "auth_required" and users should check
+	// server trust configuration.
+	SSOAttemptFailed bool `json:"sso_attempt_failed,omitempty"`
 }
 
 // AuthRequiredInfo contains information about a server requiring authentication.

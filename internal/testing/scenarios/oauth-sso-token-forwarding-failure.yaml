@@ -142,9 +142,11 @@ steps:
         - "OK server"
 
   # Step 7: Verify the reject server still requires auth
-  # (SSO failed, so it should show auth_required)
+  # Note: sso_attempt_failed is only set when proactive SSO is triggered (via muster OAuth login),
+  # which requires the session to authenticate TO muster, not just to individual servers.
+  # Since this test authenticates directly to sso-server-ok, proactive SSO isn't triggered.
   - id: check-reject-server-status
-    description: "Verify the reject server still requires auth (SSO failed)"
+    description: "Verify the reject server still requires auth"
     tool: "test_read_auth_status"
     args:
       server: "sso-server-reject"

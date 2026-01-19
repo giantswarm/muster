@@ -324,22 +324,30 @@ func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, s
 
 	// Provide appropriate message based on authentication mechanism
 	if serverInfo.TokenForwardingEnabled {
-		authPrint("Server '%s' uses SSO via Token Forwarding.\n\n", serverName)
-		authPrintln("This server automatically receives your muster ID token.")
-		authPrintln("You authenticated once to muster, and that identity is forwarded")
-		authPrintln("to this server. To disconnect, log out from muster:")
-		authPrintln("  muster auth logout")
+		authPrint(`Server '%s' uses SSO via Token Forwarding.
+
+This server automatically receives your muster ID token. You authenticated
+once to muster, and that identity is forwarded to this server.
+
+To disconnect, log out from muster:
+  muster auth logout
+`, serverName)
 	} else if serverInfo.Issuer != "" {
-		authPrint("Server '%s' uses SSO via Token Reuse.\n\n", serverName)
-		authPrintln("This server shares an OAuth issuer with other servers.")
-		authPrintln("Your token for this issuer is reused across all servers that")
-		authPrintln("trust the same identity provider. To disconnect:")
-		authPrintln("  muster auth logout")
+		authPrint(`Server '%s' uses SSO via Token Reuse.
+
+This server shares an OAuth issuer with other servers. Your token for this
+issuer is reused across all servers that trust the same identity provider.
+
+To disconnect:
+  muster auth logout
+`, serverName)
 	} else {
-		authPrint("Server '%s' uses direct authentication.\n\n", serverName)
-		authPrintln("MCP server sessions are managed by the aggregator and will be")
-		authPrintln("cleared when you log out from the aggregator:")
-		authPrintln("  muster auth logout")
+		authPrint(`Server '%s' uses direct authentication.
+
+MCP server sessions are managed by the aggregator and will be cleared
+when you log out from the aggregator:
+  muster auth logout
+`, serverName)
 	}
 
 	return nil

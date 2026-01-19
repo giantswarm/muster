@@ -70,11 +70,18 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			tokenReuseEnabled = *info.AuthConfig.SSO
 		}
 
+		// Check if SSO was attempted but failed for this session/server
+		ssoAttemptFailed := false
+		if a.sessionRegistry != nil && usesTokenForwarding {
+			ssoAttemptFailed = a.sessionRegistry.HasSSOFailed(sessionID, name)
+		}
+
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
 			Status:                 string(info.Status),
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenReuseEnabled:      tokenReuseEnabled,
+			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
 		// For servers requiring auth globally, check if the current session has authenticated
@@ -229,6 +236,11 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 			// Log at Warn level for visibility - SSO failures should be investigated
 			logging.Warn("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",
 				info.Name, logging.TruncateSessionID(sessionID), err)
+
+			// Track the SSO failure so the UI can show "SSO failed"
+			if a.sessionRegistry != nil {
+				a.sessionRegistry.MarkSSOFailed(sessionID, info.Name)
+			}
 		}
 	}
 }

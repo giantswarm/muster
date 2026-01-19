@@ -150,12 +150,16 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	// Count servers requiring auth and find longest name for alignment
 	var pendingCount int
 	var maxNameLen int
+	var maxSSOLen int
 	for _, srv := range servers {
 		if srv.Status == pkgoauth.ServerStatusAuthRequired {
 			pendingCount++
 		}
 		if len(srv.Name) > maxNameLen {
 			maxNameLen = len(srv.Name)
+		}
+		if ssoType := getSSOType(srv); len(ssoType) > maxSSOLen {
+			maxSSOLen = len(ssoType)
 		}
 	}
 
@@ -172,18 +176,20 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 		statusStr := formatMCPServerStatus(srv.Status)
 		ssoType := getSSOType(srv)
 
+		// Build the SSO label with consistent width padding
+		var ssoLabel string
+		if ssoType != "" {
+			// Pad SSO type to max width for alignment
+			ssoLabel = fmt.Sprintf(" [%-*s]", maxSSOLen, ssoType)
+		} else if maxSSOLen > 0 {
+			// Add empty space to maintain alignment when other servers have SSO
+			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen, "")
+		}
+
 		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
-			if ssoType != "" {
-				fmt.Printf("  %-*s %s [%s]   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoType, srv.Name)
-			} else {
-				fmt.Printf("  %-*s %s   Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, srv.Name)
-			}
+			fmt.Printf("  %-*s %s%s  Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoLabel, srv.Name)
 		} else {
-			if ssoType != "" {
-				fmt.Printf("  %-*s %s [%s]\n", maxNameLen, srv.Name, statusStr, ssoType)
-			} else {
-				fmt.Printf("  %-*s %s\n", maxNameLen, srv.Name, statusStr)
-			}
+			fmt.Printf("  %-*s %s%s\n", maxNameLen, srv.Name, statusStr, ssoLabel)
 		}
 	}
 }
@@ -204,19 +210,33 @@ func formatMCPServerStatus(status string) string {
 	}
 }
 
+// ssoLabelForwarded is the label shown for SSO via token forwarding.
+const ssoLabelForwarded = "SSO: Forwarded"
+
+// ssoLabelShared is the label shown for SSO via token reuse (shared login).
+const ssoLabelShared = "SSO: Shared"
+
+// ssoLabelFailed is the label shown when SSO was attempted but failed.
+const ssoLabelFailed = "SSO failed"
+
 // getSSOType returns a human-readable SSO type for the server.
 // Returns empty string if no SSO mechanism is applicable.
 //
 // SSO mechanisms:
-//   - "Token Forwarding": Muster forwards its ID token to this server
-//   - "Token Reuse": Server shares an OAuth issuer with other servers (and SSO is enabled)
+//   - "SSO: Forwarded": Muster forwards its ID token to this server
+//   - "SSO: Shared": Server shares an OAuth issuer with other servers (shared login)
+//   - "SSO failed": SSO was attempted but failed (token rejected)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
-	if srv.TokenForwardingEnabled {
-		return "Token Forwarding"
+	// Show failure indicator if SSO was attempted but failed
+	if srv.SSOAttemptFailed {
+		return ssoLabelFailed
 	}
-	// Only show Token Reuse if SSO is enabled and server has an issuer
+	if srv.TokenForwardingEnabled {
+		return ssoLabelForwarded
+	}
+	// Only show Shared if SSO is enabled and server has an issuer
 	if srv.TokenReuseEnabled && srv.Issuer != "" {
-		return "Token Reuse"
+		return ssoLabelShared
 	}
 	return ""
 }
