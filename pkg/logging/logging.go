@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/go-logr/logr"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 // LogLevel defines the severity of the log entry.
@@ -94,10 +97,40 @@ func Initcommon(mode string, level LogLevel, output io.Writer, channelBufferSize
 	defaultLogger = slog.New(handler)
 	slog.SetDefault(defaultLogger) // Set for any global slog calls if necessary
 
+	// Initialize controller-runtime logger to prevent "log.SetLogger(...) was never called" warnings.
+	// This bridges the Go slog logger to the logr interface used by controller-runtime.
+	// See: https://github.com/go-logr/logr for slog integration details.
+	initControllerRuntimeLogger(handler)
+
 	if isTuiMode {
 		return tuiLogChannel
 	}
 	return nil
+}
+
+// initControllerRuntimeLogger initializes the controller-runtime logger using the provided slog handler.
+// This must be called before any controller-runtime operations (informers, caches, etc.) are used,
+// otherwise controller-runtime will print warnings about the logger not being initialized and
+// status sync operations may fail.
+//
+// The function creates a logr.Logger from the slog handler and sets it as the controller-runtime
+// global logger via ctrl.SetLogger(). This ensures that controller-runtime logs are properly
+// routed through the muster logging infrastructure.
+//
+// Note: In TUI mode, the handler is set to io.Discard, so controller-runtime logs will also be
+// discarded. This is intentional as TUI mode uses a channel-based logging mechanism instead.
+func initControllerRuntimeLogger(handler slog.Handler) {
+	if handler == nil {
+		return
+	}
+
+	// Create a logr.Logger from the slog handler
+	// logr.FromSlogHandler is available in logr v1.3.0+
+	logrLogger := logr.FromSlogHandler(handler)
+
+	// Set the controller-runtime logger
+	// This must be called before any controller operations to avoid warnings
+	ctrl.SetLogger(logrLogger)
 }
 
 // InitForTUI initializes the logging system for TUI mode.
