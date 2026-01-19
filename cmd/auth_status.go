@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"muster/internal/api"
+	"muster/internal/cli"
 	pkgoauth "muster/pkg/oauth"
 
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -85,10 +87,15 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		} else {
 			// Check if auth is required
 			ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
-			authRequired, _ := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
+			authRequired, checkErr := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
 			cancel()
 
-			if authRequired {
+			if checkErr != nil {
+				// Connection failed - display appropriate error message
+				connErr := cli.ClassifyConnectionError(checkErr, aggregatorEndpoint)
+				authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
+				authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(checkErr))
+			} else if authRequired {
 				authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
 				authPrint("             Run: muster auth login\n")
 			} else {
@@ -239,4 +246,39 @@ func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 		return ssoLabelShared
 	}
 	return ""
+}
+
+// formatConnectionErrorReason extracts a concise reason from a connection error.
+// It removes verbose prefixes and presents the core issue.
+func formatConnectionErrorReason(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+
+	errStr := err.Error()
+
+	// Extract the most relevant part of the error message
+	// TLS errors often have verbose prefixes like "Get https://...: x509: ..."
+	if strings.Contains(errStr, "x509:") {
+		if idx := strings.Index(errStr, "x509:"); idx != -1 {
+			return strings.TrimSpace(errStr[idx:])
+		}
+	}
+
+	// For connection errors, extract the actual failure reason
+	if strings.Contains(errStr, "connect:") {
+		if idx := strings.Index(errStr, "connect:"); idx != -1 {
+			return strings.TrimSpace(errStr[idx:])
+		}
+	}
+
+	// For dial errors, extract the core message
+	if strings.Contains(errStr, "dial tcp") {
+		if colonIdx := strings.LastIndex(errStr, ":"); colonIdx != -1 {
+			return strings.TrimSpace(errStr[colonIdx+1:])
+		}
+	}
+
+	// Return the error as-is if no simplification applies
+	return errStr
 }
