@@ -158,7 +158,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	mcpSrv := mcpserver.NewMCPServer(
 		"muster-aggregator",
 		serverVersion,
-		mcpserver.WithToolCapabilities(true), // Enable tool execution
+		mcpserver.WithToolCapabilities(true),           // Enable tool execution
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
