@@ -51,7 +51,7 @@ func TestVersionCommandExecution(t *testing.T) {
 		t.Errorf("Expected output to contain CLI version, got %q", output)
 	}
 
-	// Check that server status is present (either "Server:" or "Server: not running")
+	// Check that server status is present (either "Server: <version>" or "Server: (not running)")
 	if !strings.Contains(output, "Server:") {
 		t.Errorf("Expected output to contain server status, got %q", output)
 	}
@@ -100,8 +100,10 @@ func TestVersionCommandHelp(t *testing.T) {
 }
 
 func TestGetServerVersion_ReturnsInfo(t *testing.T) {
-	// Test that getServerVersion returns some result (may or may not be running)
-	// This test just verifies the function doesn't panic
+	// This test verifies getServerVersion handles both running and not-running states.
+	// Note: This is an environment-dependent test - behavior depends on whether
+	// the muster server is actually running. For deterministic testing, consider
+	// using integration tests with controlled server lifecycle.
 	version, name, err := getServerVersion()
 
 	// If server is running, we should get valid info

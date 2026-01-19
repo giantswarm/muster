@@ -11,6 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// versionCheckTimeout is the timeout for connecting to the server to retrieve version info.
+const versionCheckTimeout = 5 * time.Second
+
 // newVersionCmd creates the Cobra command for displaying the application version.
 // The command displays both the CLI version (from build-time injection) and the
 // server version (if the muster aggregator is running).
@@ -27,7 +30,7 @@ also displays the server version obtained from the MCP protocol handshake.`,
 			// Try to get server version
 			serverVersion, serverName, err := getServerVersion()
 			if err != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "\nServer: not running\n")
+				fmt.Fprintf(cmd.OutOrStdout(), "\nServer: (not running)\n")
 				return
 			}
 
@@ -41,20 +44,18 @@ also displays the server version obtained from the MCP protocol handshake.`,
 func getServerVersion() (version, name string, err error) {
 	endpoint := cli.GetAggregatorEndpoint(nil)
 
-	// Quick check if server is running
+	// Quick check if server is running before creating client
 	if err := cli.CheckServerRunning(endpoint); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("server not running: %w", err)
 	}
+
+	// Create context with timeout for the entire operation
+	ctx, cancel := context.WithTimeout(context.Background(), versionCheckTimeout)
+	defer cancel()
 
 	// Create a client without logging for version check
 	mcpClient := agent.NewClient(endpoint, nil, agent.TransportStreamableHTTP)
 	defer mcpClient.Close()
-
-	// Set a short timeout for the version check
-	mcpClient.SetTimeout(5 * time.Second)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	// Connect to the server (this performs the MCP handshake)
 	if err := mcpClient.Connect(ctx); err != nil {
