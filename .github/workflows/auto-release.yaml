@@ -23,28 +23,35 @@ jobs:
           # Fetch all history and tags for version calculation and changelog
           fetch-depth: 0
 
+      # yamllint disable rule:line-length
       - name: Check if commit already tagged
         id: check_tag
         run: |
-          # Check if HEAD already has a version tag (prevents duplicate releases on re-run)
-          EXISTING_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          # Check if HEAD already has a version tag
+          # This prevents duplicate releases on workflow re-run
+          EXISTING_TAG=$(git tag --points-at HEAD \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
           if [[ -n "$EXISTING_TAG" ]]; then
             echo "Commit already has version tag: $EXISTING_TAG"
-            echo "Skipping release to prevent duplicate tags on workflow re-run"
+            echo "Skipping release to prevent duplicate tags"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "existing_tag=$EXISTING_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "No existing version tag found on HEAD, proceeding with release"
+            echo "No existing version tag found, proceeding"
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Report skipped release
         if: steps.check_tag.outputs.skip == 'true'
         run: |
-          echo "::notice::Release skipped - commit already tagged as ${{ steps.check_tag.outputs.existing_tag }}"
+          TAG="${{ steps.check_tag.outputs.existing_tag }}"
+          echo "::notice::Release skipped - already tagged as $TAG"
           echo "## Release Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "This commit already has version tag \`${{ steps.check_tag.outputs.existing_tag }}\`." >> $GITHUB_STEP_SUMMARY
-          echo "Re-running the workflow on an already-tagged commit is safe and will not create duplicate releases." >> $GITHUB_STEP_SUMMARY
+          echo "Commit already has version tag \`$TAG\`." \
+            >> $GITHUB_STEP_SUMMARY
+          echo "Re-running on an already-tagged commit is safe." \
+            >> $GITHUB_STEP_SUMMARY
+      # yamllint enable rule:line-length
 
       - name: Set up Go
         if: steps.check_tag.outputs.skip != 'true'
