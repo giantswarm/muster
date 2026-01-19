@@ -38,6 +38,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Report skipped release
+        if: steps.check_tag.outputs.skip == 'true'
+        run: |
+          echo "::notice::Release skipped - commit already tagged as ${{ steps.check_tag.outputs.existing_tag }}"
+          echo "## Release Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "This commit already has version tag \`${{ steps.check_tag.outputs.existing_tag }}\`." >> $GITHUB_STEP_SUMMARY
+          echo "Re-running the workflow on an already-tagged commit is safe and will not create duplicate releases." >> $GITHUB_STEP_SUMMARY
+
       - name: Set up Go
         if: steps.check_tag.outputs.skip != 'true'
         uses: actions/setup-go@v5
