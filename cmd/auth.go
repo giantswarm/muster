@@ -190,8 +190,8 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	if authEndpoint != "" {
 		endpoint = authEndpoint
 	} else if logoutServer != "" {
-		// MCP server logout - check if it's SSO-managed
-		return handleMCPServerLogout(cmd.Context(), handler, logoutServer)
+		// MCP server logout - show guidance based on SSO mechanism
+		return showMCPServerLogoutGuidance(cmd.Context(), handler, logoutServer)
 	} else {
 		// Use configured aggregator endpoint
 		endpoint, err = getEndpointFromConfig()
@@ -283,9 +283,10 @@ func runAuthWhoami(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// handleMCPServerLogout handles logout for a specific MCP server.
-// It checks if the server is SSO-managed and provides appropriate guidance.
-func handleMCPServerLogout(ctx context.Context, handler api.AuthHandler, serverName string) error {
+// showMCPServerLogoutGuidance displays logout guidance for a specific MCP server.
+// It explains the authentication mechanism in use and how to disconnect.
+// Note: This function provides informational output only; it does not perform logout.
+func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, serverName string) error {
 	// Get the aggregator endpoint
 	endpoint, err := getEndpointFromConfig()
 	if err != nil {

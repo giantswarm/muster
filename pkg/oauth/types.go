@@ -286,19 +286,25 @@ type AuthStatusResponse struct {
 //   - SSO Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
 //     ID token to the downstream server (requires forwardToken: true in MCPServer config).
 type ServerAuthStatus struct {
-	Name       string `json:"name"`
-	Status     string `json:"status"` // "connected", "auth_required", "disconnected", "error"
-	Issuer     string `json:"issuer,omitempty"`
-	Scope      string `json:"scope,omitempty"`
-	AuthTool   string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
-	Error      string `json:"error,omitempty"`
+	Name     string `json:"name"`
+	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
+	Issuer   string `json:"issuer,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	AuthTool string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
+	Error    string `json:"error,omitempty"`
 
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)
 	// to this downstream server, rather than requiring a separate OAuth flow.
-	// This is distinct from SSO Token Reuse, which shares tokens between servers with
-	// the same OAuth issuer without forwarding muster's identity.
+	// This is distinct from SSO Token Reuse (see TokenReuseEnabled).
 	TokenForwardingEnabled bool `json:"token_forwarding_enabled,omitempty"`
+
+	// TokenReuseEnabled indicates SSO via Token Reuse is enabled for this server.
+	// When true (the default), tokens from other servers using the same OAuth issuer
+	// can be reused to authenticate to this server without re-authenticating.
+	// When false, the server requires its own authentication flow even if a token
+	// exists for the same issuer (e.g., for separate personal vs work accounts).
+	TokenReuseEnabled bool `json:"token_reuse_enabled,omitempty"`
 }
 
 // AuthRequiredInfo contains information about a server requiring authentication.

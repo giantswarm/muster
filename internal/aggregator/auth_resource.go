@@ -67,10 +67,17 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		// Check if this server uses SSO via token forwarding
 		usesTokenForwarding := ShouldUseTokenForwarding(info)
 
+		// Check if SSO token reuse is enabled (default: true)
+		tokenReuseEnabled := true
+		if info.AuthConfig != nil && info.AuthConfig.SSO != nil {
+			tokenReuseEnabled = *info.AuthConfig.SSO
+		}
+
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
 			Status:                 string(info.Status),
 			TokenForwardingEnabled: usesTokenForwarding,
+			TokenReuseEnabled:      tokenReuseEnabled,
 		}
 
 		// For servers requiring auth globally, check if the current session has authenticated
@@ -148,6 +155,9 @@ func (a *AggregatorServer) getMusterIssuer() string {
 			if cfg.BaseURL != "" {
 				return cfg.BaseURL
 			}
+		} else {
+			logging.Debug("Aggregator", "OAuthServer.Config type assertion failed: got %T, expected config.OAuthServerConfig",
+				a.config.OAuthServer.Config)
 		}
 	}
 	return ""

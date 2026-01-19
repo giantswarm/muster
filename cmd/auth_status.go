@@ -209,12 +209,13 @@ func formatMCPServerStatus(status string) string {
 //
 // SSO mechanisms:
 //   - "Token Forwarding": Muster forwards its ID token to this server
-//   - "Token Reuse": Server shares an OAuth issuer with other servers
+//   - "Token Reuse": Server shares an OAuth issuer with other servers (and SSO is enabled)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 	if srv.TokenForwardingEnabled {
 		return "Token Forwarding"
 	}
-	if srv.Issuer != "" {
+	// Only show Token Reuse if SSO is enabled and server has an issuer
+	if srv.TokenReuseEnabled && srv.Issuer != "" {
 		return "Token Reuse"
 	}
 	return ""
