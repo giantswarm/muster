@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -84,6 +85,10 @@ type OAuthHTTPServer struct {
 	httpServer   *http.Server
 	mcpHandler   http.Handler
 	debug        bool
+
+	// sessionInitTracker tracks which sessions have had their init callback called.
+	// This prevents calling the proactive SSO logic on every request.
+	sessionInitTracker sync.Map // map[string]bool
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -218,6 +223,11 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
 // OAuth access token into the request context. This token can then be used
 // for downstream authentication (e.g., to remote MCP servers).
+//
+// Additionally, on the first request for a new session, this middleware triggers
+// the session initialization callback (if registered). This enables proactive SSO:
+// when a user authenticates to muster, SSO-enabled servers are automatically
+// connected using muster's ID token.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -275,8 +285,58 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			logging.Debug("OAuth", "Injected access token for user (email hash: %s...)", hashEmail(userInfo.Email))
 		}
 
+		// Trigger session initialization callback on first request for this session.
+		// This enables proactive SSO: after muster auth login, SSO-enabled servers
+		// are automatically connected using muster's ID token.
+		s.triggerSessionInitIfNeeded(ctx)
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+// triggerSessionInitIfNeeded triggers the session initialization callback if this
+// is the first authenticated request for the session. This enables proactive SSO
+// connections to be established after muster auth login.
+func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context) {
+	// Get session ID from context using the shared api package type
+	sessionID, ok := api.GetClientSessionIDFromContext(ctx)
+	if !ok || sessionID == "" {
+		return
+	}
+
+	// Check if we've already initialized this session
+	if _, exists := s.sessionInitTracker.LoadOrStore(sessionID, true); exists {
+		// Already initialized
+		return
+	}
+
+	// Get the session init callback
+	callback := api.GetSessionInitCallback()
+	if callback == nil {
+		return
+	}
+
+	// Extract values we need to preserve for the background goroutine.
+	// We must NOT pass the original ctx to the goroutine because it will be
+	// canceled when the HTTP request completes, potentially before the callback finishes.
+	// Instead, we create a new background context and copy the necessary values.
+	idToken, _ := GetAccessTokenFromContext(ctx)
+
+	// Trigger the callback asynchronously to not block the request.
+	// Use a background context with the necessary values copied over.
+	go func() {
+		logging.Info("OAuth", "Triggering proactive SSO for new session %s", logging.TruncateSessionID(sessionID))
+
+		// Create a background context with the ID token for SSO forwarding.
+		// This context won't be canceled when the HTTP request completes.
+		bgCtx := context.Background()
+		if idToken != "" {
+			bgCtx = ContextWithAccessToken(bgCtx, idToken)
+		}
+		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
+
+		callback(bgCtx, sessionID)
+	}()
 }
 
 // GetOAuthServer returns the underlying OAuth server for testing or direct access.

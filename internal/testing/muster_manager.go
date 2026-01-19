@@ -1264,6 +1264,25 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 
 					// Create MCPServer CRD pointing to the mock HTTP server
+					spec := map[string]interface{}{
+						"type":      serverType,
+						"autoStart": true,
+						"url":       mockInfo.Endpoint,
+					}
+
+					// If oauth.forward_token is specified, add auth.forwardToken to the CRD
+					// This enables SSO token forwarding for this server
+					if oauthConfig, hasOAuth := mcpServer.Config["oauth"].(map[string]interface{}); hasOAuth {
+						if forwardToken, hasForwardToken := oauthConfig["forward_token"].(bool); hasForwardToken && forwardToken {
+							spec["auth"] = map[string]interface{}{
+								"forwardToken": true,
+							}
+							if m.debug {
+								m.logger.Debug("🔐 Enabling token forwarding for MCPServer %s\n", mcpServer.Name)
+							}
+						}
+					}
+
 					mcpServerCRD := map[string]interface{}{
 						"apiVersion": "muster.giantswarm.io/v1alpha1",
 						"kind":       "MCPServer",
@@ -1271,11 +1290,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							"name":      mcpServer.Name,
 							"namespace": "default",
 						},
-						"spec": map[string]interface{}{
-							"type":      serverType,
-							"autoStart": true,
-							"url":       mockInfo.Endpoint,
-						},
+						"spec": spec,
 					}
 
 					if m.debug {

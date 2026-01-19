@@ -438,6 +438,8 @@ type MCPTestClient interface {
 	ListTools(ctx context.Context) ([]string, error)
 	// ListToolsWithSchemas returns available MCP tools with their full schemas
 	ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
+	// ReadResource reads an MCP resource by URI
+	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
 	// Close closes the MCP connection
 	Close() error
 }

@@ -413,12 +413,18 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 }
 
 // ShouldUseTokenForwarding checks if token forwarding should be used for a server.
+// Token forwarding is enabled when:
+//   - AuthConfig.ForwardToken is true (forwardToken implies OAuth-based auth)
+//   - OR: AuthConfig.Type is "oauth" and ForwardToken is true
+//
+// Setting forwardToken: true implicitly enables OAuth authentication since
+// token forwarding only makes sense in an OAuth context.
 func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 	if serverInfo == nil || serverInfo.AuthConfig == nil {
 		return false
 	}
-	// Use case-insensitive comparison for auth type (L2 fix)
-	return strings.EqualFold(serverInfo.AuthConfig.Type, "oauth") && serverInfo.AuthConfig.ForwardToken
+	// ForwardToken implies OAuth authentication - no need to check Type explicitly
+	return serverInfo.AuthConfig.ForwardToken
 }
 
 // idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.

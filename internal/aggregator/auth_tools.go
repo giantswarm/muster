@@ -1,3 +1,46 @@
+// Package aggregator provides the MCP aggregator server implementation.
+//
+// # SSO Authentication Mechanisms
+//
+// Muster supports two distinct Single Sign-On (SSO) mechanisms for authenticating
+// to downstream MCP servers. Understanding the difference is important for both
+// configuration and troubleshooting:
+//
+// ## SSO Token Reuse (default behavior)
+//
+// When multiple MCP servers share the same OAuth issuer (Identity Provider), a token
+// obtained by authenticating to one server can be reused for other servers with the
+// same issuer. This is the default behavior and requires no special configuration.
+//
+// Flow:
+//  1. User authenticates to server-a (issuer: https://idp.example.com)
+//  2. Token is stored keyed by (sessionID, issuer)
+//  3. User calls core_auth_login for server-b (same issuer)
+//  4. GetTokenByIssuer() finds existing token
+//  5. Connection established without re-authentication
+//
+// Configuration: Enabled by default. Disable per-server with `auth.sso: false`
+// when you need separate accounts for servers sharing an issuer.
+//
+// ## SSO Token Forwarding (explicit opt-in)
+//
+// When muster itself is protected by OAuth (via oauth_server configuration), muster
+// can forward its own ID token to downstream MCP servers. The downstream server must
+// be configured to trust muster's OAuth client ID in its TrustedAudiences.
+//
+// Flow:
+//  1. User authenticates TO muster via OAuth (Google, Dex, etc.)
+//  2. Muster receives and stores the user's ID token
+//  3. User accesses server with forwardToken: true
+//  4. Muster injects ID token as Authorization: Bearer header
+//  5. Downstream server validates token, trusts muster's client ID
+//
+// Configuration: Requires `auth.forwardToken: true` in MCPServer spec.
+// Optional: `auth.fallbackToOwnAuth: true` for graceful degradation.
+//
+// The key difference: Token Reuse shares tokens between servers that happen to use
+// the same IdP, while Token Forwarding specifically forwards muster's identity to
+// downstream servers that trust muster as an intermediary.
 package aggregator
 
 import (
@@ -5,7 +48,6 @@ import (
 	"fmt"
 
 	"muster/internal/api"
-	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
@@ -137,6 +179,19 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			Content: []interface{}{fmt.Sprintf("Server '%s' does not require authentication.", serverName)},
 			IsError: false,
 		}, nil
+	}
+
+	// Check if this session already has a connection to this server
+	// This can happen after proactive SSO or previous authentication
+	if p.aggregator.sessionRegistry != nil {
+		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Debug("AuthTools", "Session %s already has connection to server %s",
+				logging.TruncateSessionID(sessionID), serverName)
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated for this session.", serverName)},
+				IsError: false,
+			}, nil
+		}
 	}
 
 	// Check if OAuth handler is available
@@ -452,34 +507,22 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID str
 
 // getMusterIssuer determines the OAuth issuer that muster used to authenticate the user.
 // This is needed for token forwarding - we need to get the ID token from muster's auth session.
+//
+// This method first checks if the OAuth handler is enabled (required for token forwarding),
+// then delegates to the aggregator's getMusterIssuerWithFallback for the actual issuer lookup.
+//
+// Returns empty string if:
+//   - No OAuth handler is registered
+//   - The OAuth handler is not enabled
+//   - No issuer could be determined from config or tokens
 func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
+	// OAuth handler must be registered and enabled for token forwarding to work
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	// The muster server's issuer is configured in the OAuth server configuration.
-	// The issuer is the BaseURL of muster's OAuth server.
-
-	// Try to get the issuer from the OAuth server configuration
-	// The aggregator's OAuthServer.Config contains the issuer information (BaseURL)
-	if p.aggregator.config.OAuthServer.Enabled && p.aggregator.config.OAuthServer.Config != nil {
-		// The config is stored as interface{}, cast to the actual config type
-		if cfg, ok := p.aggregator.config.OAuthServer.Config.(config.OAuthServerConfig); ok {
-			if cfg.BaseURL != "" {
-				return cfg.BaseURL
-			}
-		}
-	}
-
-	// Fallback: Look for any token in the session that has an ID token
-	// This is a best-effort approach when we can't determine the configured issuer
-	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
-	if fullToken != nil && fullToken.Issuer != "" {
-		return fullToken.Issuer
-	}
-
-	return ""
+	return p.aggregator.getMusterIssuerWithFallback(sessionID)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

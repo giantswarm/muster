@@ -330,6 +330,7 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	}
 
 	fmt.Printf("\nSuccessfully authenticated to %s\n", endpoint)
+	fmt.Println("SSO-enabled servers will be connected automatically on first request.")
 	return nil
 }
 

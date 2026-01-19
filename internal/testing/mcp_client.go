@@ -250,6 +250,46 @@ func (c *mcpTestClient) ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, e
 	return result.Tools, nil
 }
 
+// ReadResource reads an MCP resource by URI
+func (c *mcpTestClient) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("MCP client not connected")
+	}
+
+	if c.debug {
+		c.logger.Debug("📖 Reading resource: %s\n", uri)
+	}
+
+	// Create timeout context for the resource read
+	readCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	// Create the request
+	request := mcp.ReadResourceRequest{
+		Params: struct {
+			URI       string         `json:"uri"`
+			Arguments map[string]any `json:"arguments,omitempty"`
+		}{
+			URI: uri,
+		},
+	}
+
+	// Read the resource
+	result, err := c.client.ReadResource(readCtx, request)
+	if err != nil {
+		if c.debug {
+			c.logger.Debug("❌ Resource read failed: %v\n", err)
+		}
+		return nil, fmt.Errorf("resource read %s failed: %w", uri, err)
+	}
+
+	if c.debug {
+		c.logger.Debug("✅ Resource read successful\n")
+	}
+
+	return result, nil
+}
+
 // Close closes the MCP connection
 func (c *mcpTestClient) Close() error {
 	if c.client == nil {

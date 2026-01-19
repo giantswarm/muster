@@ -21,6 +21,22 @@ import (
 // Returns an error if the connection could not be established.
 type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
 
+// SessionInitCallback is called when a new session is first seen with a valid muster token.
+// The aggregator registers this callback to trigger proactive SSO connections to
+// all SSO-enabled servers (forwardToken: true) using muster's ID token.
+//
+// This callback is triggered on the first authenticated MCP request for a session,
+// enabling seamless SSO: users authenticate once to muster (via `muster auth login`)
+// and automatically gain access to all SSO-enabled MCP servers.
+//
+// Args:
+//   - ctx: Context containing the ID token for forwarding
+//   - sessionID: The MCP session ID
+//
+// The callback should not return an error - SSO connection failures are logged
+// but don't prevent the request from proceeding.
+type SessionInitCallback func(ctx context.Context, sessionID string)
+
 // OAuthHandler defines the interface for OAuth proxy functionality.
 // This handler manages OAuth authentication flows for remote MCP servers,
 // including token storage, authentication challenges, and callback handling.
@@ -92,6 +108,32 @@ type OAuthHandler interface {
 // oauthHandler stores the registered OAuth handler implementation.
 var oauthHandler OAuthHandler
 var oauthMutex sync.RWMutex
+
+// sessionInitCallback stores the registered session initialization callback.
+var sessionInitCallback SessionInitCallback
+var sessionInitMutex sync.RWMutex
+
+// RegisterSessionInitCallback registers a callback for session initialization.
+// This callback is triggered on the first authenticated MCP request for a session,
+// enabling proactive SSO connections to be established.
+//
+// Thread-safe: Yes, protected by sessionInitMutex.
+func RegisterSessionInitCallback(cb SessionInitCallback) {
+	sessionInitMutex.Lock()
+	defer sessionInitMutex.Unlock()
+	logging.Debug("API", "Registering session init callback: %v", cb != nil)
+	sessionInitCallback = cb
+}
+
+// GetSessionInitCallback returns the registered session initialization callback.
+// Returns nil if no callback has been registered.
+//
+// Thread-safe: Yes, protected by sessionInitMutex read lock.
+func GetSessionInitCallback() SessionInitCallback {
+	sessionInitMutex.RLock()
+	defer sessionInitMutex.RUnlock()
+	return sessionInitCallback
+}
 
 // RegisterOAuthHandler registers the OAuth handler implementation.
 // This handler provides OAuth proxy functionality for remote MCP server authentication.
