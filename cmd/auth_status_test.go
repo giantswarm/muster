@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -78,4 +80,51 @@ func TestAuthStatusCmdProperties(t *testing.T) {
 			t.Error("expected RunE to be set")
 		}
 	})
+}
+
+func TestFormatConnectionErrorReason(t *testing.T) {
+	tests := []struct {
+		name     string
+		errMsg   string
+		expected string
+	}{
+		{
+			name:     "nil error returns unknown",
+			errMsg:   "",
+			expected: "unknown error",
+		},
+		{
+			name:     "x509 error extracts certificate message",
+			errMsg:   "Get https://example.com: x509: certificate is not valid for hostname",
+			expected: "x509: certificate is not valid for hostname",
+		},
+		{
+			name:     "connection refused extracts core message",
+			errMsg:   "dial tcp 127.0.0.1:443: connect: connection refused",
+			expected: "connection refused",
+		},
+		{
+			name:     "connect error extracts message",
+			errMsg:   "dial tcp 10.0.0.1:443: connect: no route to host",
+			expected: "no route to host",
+		},
+		{
+			name:     "simple error returns as-is",
+			errMsg:   "some error occurred",
+			expected: "some error occurred",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.errMsg != "" {
+				err = fmt.Errorf("%s", tt.errMsg)
+			}
+			result := formatConnectionErrorReason(err)
+			if !strings.Contains(result, tt.expected) && result != tt.expected {
+				t.Errorf("formatConnectionErrorReason(%q) = %q, want to contain %q", tt.errMsg, result, tt.expected)
+			}
+		})
+	}
 }
