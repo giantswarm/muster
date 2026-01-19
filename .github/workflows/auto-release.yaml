@@ -22,6 +22,9 @@ jobs:
         with:
           # Fetch all history and tags for version calculation and changelog
           fetch-depth: 0
+          # Use PAT to allow pushing tags for commits with workflow changes
+          # GITHUB_TOKEN cannot push tags that modify .github/workflows/
+          token: ${{ secrets.RELEASE_PAT }}
 
       # yamllint disable rule:line-length
       - name: Check if commit already tagged
