@@ -173,7 +173,16 @@ Set up Muster for infrastructure management:
 Configure your development environment:
 > 📖 **[Development Setup](docs/contributing/development-setup.md)**
 
-### Manual Installation
+### Installation
+
+#### Homebrew (macOS)
+
+```bash
+brew tap giantswarm/muster
+brew install muster
+```
+
+#### Manual Installation
 
 ```bash
 git clone https://github.com/giantswarm/muster.git
