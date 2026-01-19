@@ -82,6 +82,11 @@ func (r *ServiceClassReconciler) Reconcile(ctx context.Context, req ReconcileReq
 }
 
 // syncStatus syncs the validation status to the ServiceClass CRD status.
+//
+// Status sync is a best-effort operation - failures are logged at Debug level
+// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
+// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
+// API server unavailability). Failures are tracked in metrics for monitoring.
 func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace string, sc *api.ServiceClass, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -89,10 +94,15 @@ func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace
 
 	namespace = r.GetNamespace(namespace)
 
+	// Record status sync attempt for metrics
+	metrics := GetReconcilerMetrics()
+	metrics.RecordStatusSyncAttempt(ResourceTypeServiceClass, name)
+
 	// Get the current CRD
 	serviceClass, err := r.StatusUpdater.GetServiceClass(ctx, name, namespace)
 	if err != nil {
 		logging.Debug("ServiceClassReconciler", "Failed to get ServiceClass for status sync: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, "get_crd_failed")
 		return
 	}
 
@@ -113,9 +123,11 @@ func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace
 	// Update the CRD status
 	if err := r.StatusUpdater.UpdateServiceClassStatus(ctx, serviceClass); err != nil {
 		logging.Debug("ServiceClassReconciler", "Failed to update ServiceClass status: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, "update_status_failed")
 	} else {
 		logging.Debug("ServiceClassReconciler", "Synced ServiceClass %s status: valid=%t, tools=%v",
 			name, serviceClass.Status.Valid, referencedTools)
+		metrics.RecordStatusSyncSuccess(ResourceTypeServiceClass, name)
 	}
 }
 

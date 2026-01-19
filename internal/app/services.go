@@ -266,8 +266,13 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Step 5: Initialize reconciliation manager for automatic change detection
 	var reconcileManager *reconciler.Manager
 	if cfg.ConfigPath != "" {
+		// Determine watch mode based on config - this must match the MusterClient mode
+		// to ensure consistent behavior between the client and the reconciler.
+		// Use the shared helper to ensure consistent mode selection across the codebase.
+		watchMode := reconciler.WatchModeFromKubernetesFlag(cfg.MusterConfig.Kubernetes)
+
 		reconcileConfig := reconciler.ManagerConfig{
-			Mode:           reconciler.WatchModeAuto,
+			Mode:           watchMode,
 			FilesystemPath: cfg.ConfigPath,
 			Namespace:      namespace,
 			WorkerCount:    2,
@@ -280,30 +285,33 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Get handlers for reconciler dependencies
 		mcpServerMgr := api.GetMCPServerManager()
 		if mcpServerMgr != nil {
-			// Create and register MCPServer reconciler
+			// Create and register MCPServer reconciler with status updater for CRD status sync
+			// See ADR 007 for details on what status fields are synced
 			mcpReconciler := reconciler.NewMCPServerReconciler(
 				orchestratorAPI,
 				mcpServerMgr,
 				registryHandler,
-			)
+			).WithStatusUpdater(musterClient, namespace)
 			if err := reconcileManager.RegisterReconciler(mcpReconciler); err != nil {
 				logging.Warn("Services", "Failed to register MCPServer reconciler: %v", err)
 			}
 		}
 
-		// Get ServiceClass manager and register ServiceClass reconciler
+		// Get ServiceClass manager and register ServiceClass reconciler with status updater
 		serviceClassMgr := api.GetServiceClassManager()
 		if serviceClassMgr != nil {
-			serviceClassReconciler := reconciler.NewServiceClassReconciler(serviceClassMgr)
+			serviceClassReconciler := reconciler.NewServiceClassReconciler(serviceClassMgr).
+				WithStatusUpdater(musterClient, namespace)
 			if err := reconcileManager.RegisterReconciler(serviceClassReconciler); err != nil {
 				logging.Warn("Services", "Failed to register ServiceClass reconciler: %v", err)
 			}
 		}
 
-		// Get Workflow manager and register Workflow reconciler
+		// Get Workflow manager and register Workflow reconciler with status updater
 		workflowMgr := api.GetWorkflow()
 		if workflowMgr != nil {
-			workflowReconciler := reconciler.NewWorkflowReconciler(workflowMgr)
+			workflowReconciler := reconciler.NewWorkflowReconciler(workflowMgr).
+				WithStatusUpdater(musterClient, namespace)
 			if err := reconcileManager.RegisterReconciler(workflowReconciler); err != nil {
 				logging.Warn("Services", "Failed to register Workflow reconciler: %v", err)
 			}

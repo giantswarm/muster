@@ -82,6 +82,11 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ReconcileRequest
 }
 
 // syncStatus syncs the validation status to the Workflow CRD status.
+//
+// Status sync is a best-effort operation - failures are logged at Debug level
+// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
+// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
+// API server unavailability). Failures are tracked in metrics for monitoring.
 func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace string, wf *api.Workflow, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -89,10 +94,15 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 
 	namespace = r.GetNamespace(namespace)
 
+	// Record status sync attempt for metrics
+	metrics := GetReconcilerMetrics()
+	metrics.RecordStatusSyncAttempt(ResourceTypeWorkflow, name)
+
 	// Get the current CRD
 	workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
 	if err != nil {
 		logging.Debug("WorkflowReconciler", "Failed to get Workflow for status sync: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "get_crd_failed")
 		return
 	}
 
@@ -116,9 +126,11 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 	// Update the CRD status
 	if err := r.StatusUpdater.UpdateWorkflowStatus(ctx, workflow); err != nil {
 		logging.Debug("WorkflowReconciler", "Failed to update Workflow status: %v", err)
+		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "update_status_failed")
 	} else {
 		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
 			name, workflow.Status.Valid, workflow.Status.StepCount, referencedTools)
+		metrics.RecordStatusSyncSuccess(ResourceTypeWorkflow, name)
 	}
 }
 

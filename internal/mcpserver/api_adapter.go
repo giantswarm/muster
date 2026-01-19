@@ -106,6 +106,9 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Headers:     server.Spec.Headers,
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
+		// Include status fields synced by the reconciler (see ADR 007)
+		State:  server.Status.State,
+		Health: server.Status.Health,
 	}
 
 	// Convert auth configuration if present
