@@ -238,6 +238,123 @@ spec:
     Authorization: "Bearer your-token-here"
 ```
 
+## SSO Authentication
+
+Muster supports Single Sign-On (SSO) for MCP servers, allowing users to authenticate once and access multiple servers without separate authentication flows.
+
+### SSO Mechanisms
+
+Muster supports two SSO mechanisms:
+
+| Mechanism | Description | Configuration |
+|-----------|-------------|---------------|
+| **Token Forwarding** | Muster forwards its ID token to downstream servers | `auth.forwardToken: true` |
+| **Token Reuse** | Servers share an OAuth issuer, tokens are reused automatically | Default behavior when servers share an issuer |
+
+### Token Forwarding (Recommended for Trusted Servers)
+
+When Token Forwarding is enabled, muster forwards its ID token to the downstream MCP server. This provides seamless SSO without requiring users to authenticate to each server individually.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: internal-api
+spec:
+  description: "Internal API with SSO"
+  toolPrefix: "api"
+  type: streamable-http
+  url: "https://internal-api.example.com/mcp"
+  auth:
+    forwardToken: true  # Enable SSO via token forwarding
+```
+
+**How it works:**
+1. User runs `muster auth login` to authenticate to muster
+2. On first MCP request, muster proactively connects to all SSO-enabled servers
+3. User can immediately access SSO servers without additional authentication
+4. The CLI shows the SSO type for each server: `mcp-kubernetes  connected [Token Forwarding]`
+
+**Requirements:**
+- The downstream MCP server must trust muster's OAuth client ID
+- Both muster and the downstream server must use the same identity provider (issuer)
+
+### Token Reuse (Automatic SSO)
+
+When multiple MCP servers share the same OAuth issuer, muster automatically reuses tokens across servers. This is the default behavior and requires no additional configuration.
+
+```yaml
+# Both servers use the same Dex issuer - tokens are automatically reused
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: server-a
+spec:
+  type: streamable-http
+  url: "https://server-a.example.com/mcp"
+  auth:
+    type: oauth
+    issuer: "https://dex.example.com"
+---
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: server-b
+spec:
+  type: streamable-http
+  url: "https://server-b.example.com/mcp"
+  auth:
+    type: oauth
+    issuer: "https://dex.example.com"  # Same issuer = automatic SSO
+```
+
+### Disabling SSO Token Reuse
+
+In some cases, you may want to disable token reuse for a specific server (e.g., for security isolation):
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: isolated-server
+spec:
+  type: streamable-http
+  url: "https://isolated.example.com/mcp"
+  auth:
+    type: oauth
+    issuer: "https://dex.example.com"
+    sso: false  # Disable token reuse for this server
+```
+
+### Checking SSO Status
+
+Use `muster auth status` to see which servers are using SSO:
+
+```bash
+$ muster auth status
+
+Muster: authenticated
+  Endpoint: https://muster.example.com
+  Expires:  in 23 hours
+
+MCP Servers:
+  mcp-kubernetes  connected [Token Forwarding]
+  internal-api    connected [Token Reuse]
+  isolated-server auth_required   Run: muster auth login --server isolated-server
+```
+
+### Troubleshooting SSO
+
+**SSO server not connecting automatically:**
+- Verify `forwardToken: true` is set in the MCPServer spec
+- Check that the downstream server trusts muster's OAuth client ID
+- Run with `--debug` to see detailed SSO connection logs
+
+**Token reuse not working:**
+- Ensure both servers use the exact same `issuer` URL
+- Verify `sso: false` is not set on the server
+- Check that both servers require the same OAuth scopes
+
 ## Using the CLI
 
 ### Creating Servers via CLI

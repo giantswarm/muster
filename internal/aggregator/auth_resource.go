@@ -226,7 +226,8 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 			logging.Info("Aggregator", "Session init: Connected session %s to SSO server %s via token forwarding",
 				logging.TruncateSessionID(sessionID), info.Name)
 		} else {
-			logging.Debug("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",
+			// Log at Warn level for visibility - SSO failures should be investigated
+			logging.Warn("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",
 				info.Name, logging.TruncateSessionID(sessionID), err)
 		}
 	}
