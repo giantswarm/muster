@@ -64,7 +64,7 @@ jobs:
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           install-only: true
 
       - name: Run Release Dry-Run

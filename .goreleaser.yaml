@@ -127,7 +127,7 @@ release:
     - glob: ./dist/muster_windows_arm64*/muster.exe
       name_template: muster_windows_arm64.exe
 
-brews:
+homebrew:
   - name: muster
     repository:
       owner: giantswarm
