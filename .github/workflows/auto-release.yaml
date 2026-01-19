@@ -23,13 +23,45 @@ jobs:
           # Fetch all history and tags for version calculation and changelog
           fetch-depth: 0
 
+      # yamllint disable rule:line-length
+      - name: Check if commit already tagged
+        id: check_tag
+        run: |
+          # Check if HEAD already has a version tag
+          # This prevents duplicate releases on workflow re-run
+          EXISTING_TAG=$(git tag --points-at HEAD \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [[ -n "$EXISTING_TAG" ]]; then
+            echo "Commit already has version tag: $EXISTING_TAG"
+            echo "Skipping release to prevent duplicate tags"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "existing_tag=$EXISTING_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "No existing version tag found, proceeding"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report skipped release
+        if: steps.check_tag.outputs.skip == 'true'
+        run: |
+          TAG="${{ steps.check_tag.outputs.existing_tag }}"
+          echo "::notice::Release skipped - already tagged as $TAG"
+          echo "## Release Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "Commit already has version tag \`$TAG\`." \
+            >> $GITHUB_STEP_SUMMARY
+          echo "Re-running on an already-tagged commit is safe." \
+            >> $GITHUB_STEP_SUMMARY
+      # yamllint enable rule:line-length
+
       - name: Set up Go
+        if: steps.check_tag.outputs.skip != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'  # Specify Go version
           cache: true  # Cache Go modules and build cache
 
       - name: Install GoReleaser
+        if: steps.check_tag.outputs.skip != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
@@ -38,11 +70,13 @@ jobs:
           args: --version  # Print version for verification
 
       - name: Configure Git
+        if: steps.check_tag.outputs.skip != 'true'
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
 
       - name: Determine Next Version
+        if: steps.check_tag.outputs.skip != 'true'
         id: version
         run: |
           set -e
@@ -63,6 +97,7 @@ jobs:
           echo "next_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create Tag
+        if: steps.check_tag.outputs.skip != 'true'
         run: |
           NEXT_VERSION="${{ steps.version.outputs.next_version }}"
           git tag "$NEXT_VERSION"
@@ -70,6 +105,7 @@ jobs:
           echo "Created and pushed tag $NEXT_VERSION"
 
       - name: Run GoReleaser
+        if: steps.check_tag.outputs.skip != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
