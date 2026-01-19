@@ -116,7 +116,14 @@ func Initcommon(mode string, level LogLevel, output io.Writer, channelBufferSize
 // The function creates a logr.Logger from the slog handler and sets it as the controller-runtime
 // global logger via ctrl.SetLogger(). This ensures that controller-runtime logs are properly
 // routed through the muster logging infrastructure.
+//
+// Note: In TUI mode, the handler is set to io.Discard, so controller-runtime logs will also be
+// discarded. This is intentional as TUI mode uses a channel-based logging mechanism instead.
 func initControllerRuntimeLogger(handler slog.Handler) {
+	if handler == nil {
+		return
+	}
+
 	// Create a logr.Logger from the slog handler
 	// logr.FromSlogHandler is available in logr v1.3.0+
 	logrLogger := logr.FromSlogHandler(handler)
