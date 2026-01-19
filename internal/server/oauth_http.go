@@ -298,9 +298,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 // is the first authenticated request for the session. This enables proactive SSO
 // connections to be established after muster auth login.
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context) {
-	// Get session ID from context (we need to extract it the same way the aggregator does)
-	sessionID := getSessionIDForInit(ctx)
-	if sessionID == "" {
+	// Get session ID from context using the shared api package type
+	sessionID, ok := api.GetClientSessionIDFromContext(ctx)
+	if !ok || sessionID == "" {
 		return
 	}
 
@@ -316,27 +316,28 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context) {
 		return
 	}
 
-	// Trigger the callback asynchronously to not block the request
-	// The callback will establish proactive SSO connections
+	// Extract values we need to preserve for the background goroutine.
+	// We must NOT pass the original ctx to the goroutine because it will be
+	// canceled when the HTTP request completes, potentially before the callback finishes.
+	// Instead, we create a new background context and copy the necessary values.
+	idToken, _ := GetAccessTokenFromContext(ctx)
+
+	// Trigger the callback asynchronously to not block the request.
+	// Use a background context with the necessary values copied over.
 	go func() {
 		logging.Info("OAuth", "Triggering proactive SSO for new session %s", logging.TruncateSessionID(sessionID))
-		callback(ctx, sessionID)
+
+		// Create a background context with the ID token for SSO forwarding.
+		// This context won't be canceled when the HTTP request completes.
+		bgCtx := context.Background()
+		if idToken != "" {
+			bgCtx = ContextWithAccessToken(bgCtx, idToken)
+		}
+		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
+
+		callback(bgCtx, sessionID)
 	}()
 }
-
-// getSessionIDForInit extracts the session ID from context for session initialization.
-// This mirrors the logic in aggregator.getSessionIDFromContext.
-func getSessionIDForInit(ctx context.Context) string {
-	// Check for client-provided session ID header (set by clientSessionIDMiddleware)
-	if clientSessionID, ok := ctx.Value(clientSessionIDContextKey{}).(string); ok && clientSessionID != "" {
-		return clientSessionID
-	}
-	return ""
-}
-
-// clientSessionIDContextKey is the context key for client-provided session IDs.
-// This must match the key used in aggregator.clientSessionIDMiddleware.
-type clientSessionIDContextKey struct{}
 
 // GetOAuthServer returns the underlying OAuth server for testing or direct access.
 func (s *OAuthHTTPServer) GetOAuthServer() *oauth.Server {

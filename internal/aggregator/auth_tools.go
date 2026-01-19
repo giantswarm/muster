@@ -48,7 +48,6 @@ import (
 	"fmt"
 
 	"muster/internal/api"
-	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
 )
@@ -508,34 +507,22 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID str
 
 // getMusterIssuer determines the OAuth issuer that muster used to authenticate the user.
 // This is needed for token forwarding - we need to get the ID token from muster's auth session.
+//
+// This method first checks if the OAuth handler is enabled (required for token forwarding),
+// then delegates to the aggregator's getMusterIssuerWithFallback for the actual issuer lookup.
+//
+// Returns empty string if:
+//   - No OAuth handler is registered
+//   - The OAuth handler is not enabled
+//   - No issuer could be determined from config or tokens
 func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
+	// OAuth handler must be registered and enabled for token forwarding to work
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	// The muster server's issuer is configured in the OAuth server configuration.
-	// The issuer is the BaseURL of muster's OAuth server.
-
-	// Try to get the issuer from the OAuth server configuration
-	// The aggregator's OAuthServer.Config contains the issuer information (BaseURL)
-	if p.aggregator.config.OAuthServer.Enabled && p.aggregator.config.OAuthServer.Config != nil {
-		// The config is stored as interface{}, cast to the actual config type
-		if cfg, ok := p.aggregator.config.OAuthServer.Config.(config.OAuthServerConfig); ok {
-			if cfg.BaseURL != "" {
-				return cfg.BaseURL
-			}
-		}
-	}
-
-	// Fallback: Look for any token in the session that has an ID token
-	// This is a best-effort approach when we can't determine the configured issuer
-	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
-	if fullToken != nil && fullToken.Issuer != "" {
-		return fullToken.Issuer
-	}
-
-	return ""
+	return p.aggregator.getMusterIssuerWithFallback(sessionID)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response.

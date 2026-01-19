@@ -1609,9 +1609,6 @@ func discoverAuthorizationServer(ctx context.Context, serverURL string) (string,
 // This constant is used to identify tokens stored for the default session.
 const defaultSessionID = "default-session"
 
-// clientSessionIDContextKey is the context key for storing client-provided session IDs.
-type clientSessionIDContextKey struct{}
-
 // getSessionIDFromContext extracts the session ID from context.
 //
 // Session ID precedence (first match wins):
@@ -1630,7 +1627,7 @@ type clientSessionIDContextKey struct{}
 //   - A malicious client can only access tokens it previously stored with that session ID
 func getSessionIDFromContext(ctx context.Context) string {
 	// 1. Check for client-provided session ID (CLI persistence)
-	if clientSessionID, ok := ctx.Value(clientSessionIDContextKey{}).(string); ok && clientSessionID != "" {
+	if clientSessionID, ok := api.GetClientSessionIDFromContext(ctx); ok {
 		return clientSessionID
 	}
 
@@ -1658,7 +1655,7 @@ func clientSessionIDMiddleware(next http.Handler) http.Handler {
 		clientSessionID := r.Header.Get(api.ClientSessionIDHeader)
 		if clientSessionID != "" {
 			logging.Debug("Aggregator", "Client provided session ID: %s", logging.TruncateSessionID(clientSessionID))
-			ctx := context.WithValue(r.Context(), clientSessionIDContextKey{}, clientSessionID)
+			ctx := api.WithClientSessionID(r.Context(), clientSessionID)
 			r = r.WithContext(ctx)
 		}
 		next.ServeHTTP(w, r)

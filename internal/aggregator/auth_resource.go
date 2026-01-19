@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"muster/internal/api"
 	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
@@ -128,18 +129,56 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // This is used for SSO token forwarding - the issuer identifies the ID token source.
 // When users authenticate to muster via `muster auth login`, this issuer is used to
 // retrieve their ID token for forwarding to SSO-enabled downstream servers.
+//
+// The issuer is determined from the OAuth server configuration (BaseURL).
+// Returns empty string if OAuth is not enabled or not configured.
 func (a *AggregatorServer) getMusterIssuer() string {
-	if a.config.OAuthServer.Enabled && a.config.OAuthServer.Config != nil {
-		// The config is stored as interface{}, cast to the actual config type
-		if cfg, ok := a.config.OAuthServer.Config.(config.OAuthServerConfig); ok {
-			if cfg.BaseURL != "" {
-				return cfg.BaseURL
-			}
-		} else {
-			logging.Debug("Aggregator", "OAuthServer.Config type assertion failed: got %T, expected config.OAuthServerConfig",
-				a.config.OAuthServer.Config)
-		}
+	if !a.config.OAuthServer.Enabled || a.config.OAuthServer.Config == nil {
+		return ""
 	}
+
+	// The config is stored as interface{}, cast to the actual config type
+	cfg, ok := a.config.OAuthServer.Config.(config.OAuthServerConfig)
+	if !ok {
+		// Log at warn level since this indicates a potential configuration issue
+		logging.Warn("Aggregator", "OAuthServer.Config type assertion failed: got %T, expected config.OAuthServerConfig",
+			a.config.OAuthServer.Config)
+		return ""
+	}
+
+	return cfg.BaseURL
+}
+
+// getMusterIssuerWithFallback returns the OAuth issuer URL, with a fallback to
+// finding any token in the session that has an ID token.
+//
+// This is useful when we need to determine the issuer for a specific session
+// but the configuration might not be explicitly set. The fallback searches
+// the OAuth proxy token store for any token with an ID token.
+//
+// Args:
+//   - sessionID: The session to search for fallback tokens (only used if config lookup fails)
+//
+// Returns the issuer URL, or empty string if none can be determined.
+func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string {
+	// First, try to get from configuration
+	if issuer := a.getMusterIssuer(); issuer != "" {
+		return issuer
+	}
+
+	// Fallback: Look for any token in the session that has an ID token.
+	// This is a best-effort approach when the configured issuer is not available.
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return ""
+	}
+
+	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
+	if fullToken != nil && fullToken.Issuer != "" {
+		logging.Debug("Aggregator", "Using fallback issuer from session token: %s", fullToken.Issuer)
+		return fullToken.Issuer
+	}
+
 	return ""
 }
 

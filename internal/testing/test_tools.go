@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"muster/internal/testing/mock"
+	pkgoauth "muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -664,18 +665,8 @@ func (h *TestToolsHandler) handleReadAuthStatus(ctx context.Context, args map[st
 
 	// If a specific server was requested, filter the response
 	if serverName, ok := args["server"].(string); ok && serverName != "" {
-		// Parse the JSON to filter by server
-		var authStatus struct {
-			Servers []struct {
-				Name                   string `json:"name"`
-				Status                 string `json:"status"`
-				Issuer                 string `json:"issuer,omitempty"`
-				Scope                  string `json:"scope,omitempty"`
-				AuthTool               string `json:"auth_tool,omitempty"`
-				TokenForwardingEnabled bool   `json:"token_forwarding_enabled,omitempty"`
-				TokenReuseEnabled      bool   `json:"token_reuse_enabled,omitempty"`
-			} `json:"servers"`
-		}
+		// Parse the JSON using the shared type from pkg/oauth
+		var authStatus pkgoauth.AuthStatusResponse
 		if err := json.Unmarshal([]byte(statusJSON), &authStatus); err != nil {
 			return &TestToolResult{
 				Content: []TestToolContent{
