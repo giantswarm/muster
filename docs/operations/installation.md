@@ -24,7 +24,29 @@ Muster can be deployed in several configurations depending on your needs:
 
 ## Installation Methods
 
-### Method 1: Binary Installation (Recommended)
+### Method 1: Homebrew (macOS - Recommended)
+
+The easiest way to install Muster on macOS is via Homebrew:
+
+```bash
+# Add the Muster tap
+brew tap giantswarm/muster
+
+# Install Muster
+brew install muster
+```
+
+#### Upgrade
+```bash
+brew upgrade muster
+```
+
+#### Verify Installation
+```bash
+muster version
+```
+
+### Method 2: Binary Installation
 
 #### Download Latest Release
 ```bash
@@ -49,7 +71,7 @@ sudo mv muster /usr/local/bin/
 muster version
 ```
 
-### Method 2: Build from Source
+### Method 3: Build from Source
 
 ```bash
 # Clone repository
@@ -63,7 +85,7 @@ go build -o muster .
 sudo mv muster /usr/local/bin/
 ```
 
-### Method 3: Container Deployment
+### Method 4: Container Deployment
 
 ```bash
 # Run with Docker
