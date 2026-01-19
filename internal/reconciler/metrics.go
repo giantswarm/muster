@@ -247,14 +247,38 @@ func (m *ReconcilerMetrics) GetResourceTypeMetrics(resourceType ResourceType) (R
 // This is initialized lazily and should be accessed via GetReconcilerMetrics().
 var (
 	globalReconcilerMetrics     *ReconcilerMetrics
+	globalReconcilerMetricsMu   sync.RWMutex
 	globalReconcilerMetricsOnce sync.Once
 )
 
 // GetReconcilerMetrics returns the global reconciler metrics instance.
 // It creates the instance on first access (lazy initialization).
 func GetReconcilerMetrics() *ReconcilerMetrics {
-	globalReconcilerMetricsOnce.Do(func() {
+	globalReconcilerMetricsMu.RLock()
+	if globalReconcilerMetrics != nil {
+		defer globalReconcilerMetricsMu.RUnlock()
+		return globalReconcilerMetrics
+	}
+	globalReconcilerMetricsMu.RUnlock()
+
+	globalReconcilerMetricsMu.Lock()
+	defer globalReconcilerMetricsMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if globalReconcilerMetrics == nil {
 		globalReconcilerMetrics = NewReconcilerMetrics()
-	})
+	}
 	return globalReconcilerMetrics
+}
+
+// ResetReconcilerMetrics resets the global metrics instance.
+// This is primarily intended for testing to ensure test isolation.
+// Each test can call this to start with a fresh metrics instance.
+//
+// WARNING: This should NOT be called in production code as it will
+// lose all accumulated metrics data.
+func ResetReconcilerMetrics() {
+	globalReconcilerMetricsMu.Lock()
+	defer globalReconcilerMetricsMu.Unlock()
+	globalReconcilerMetrics = NewReconcilerMetrics()
 }

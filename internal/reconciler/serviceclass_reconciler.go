@@ -82,6 +82,11 @@ func (r *ServiceClassReconciler) Reconcile(ctx context.Context, req ReconcileReq
 }
 
 // syncStatus syncs the validation status to the ServiceClass CRD status.
+//
+// Status sync is a best-effort operation - failures are logged at Debug level
+// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
+// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
+// API server unavailability). Failures are tracked in metrics for monitoring.
 func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace string, sc *api.ServiceClass, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return

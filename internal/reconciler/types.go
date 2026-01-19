@@ -251,6 +251,19 @@ const (
 	WatchModeAuto WatchMode = "auto"
 )
 
+// WatchModeFromKubernetesFlag returns the appropriate WatchMode based on whether
+// Kubernetes mode is enabled. This helper ensures consistent mode selection
+// across the codebase.
+//
+// When kubernetesEnabled is true, returns WatchModeKubernetes (CRD-based).
+// When kubernetesEnabled is false, returns WatchModeFilesystem (YAML file-based).
+func WatchModeFromKubernetesFlag(kubernetesEnabled bool) WatchMode {
+	if kubernetesEnabled {
+		return WatchModeKubernetes
+	}
+	return WatchModeFilesystem
+}
+
 // ReconcileStatus represents the current status of reconciliation for a resource.
 type ReconcileStatus struct {
 	// ResourceType is the type of the resource.

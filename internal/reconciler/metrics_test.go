@@ -149,11 +149,70 @@ func TestReconcilerMetrics_FailureRateZeroAttempts(t *testing.T) {
 }
 
 func TestGetReconcilerMetrics_Singleton(t *testing.T) {
+	// Reset to ensure clean state for this test
+	ResetReconcilerMetrics()
+
 	// GetReconcilerMetrics should return the same instance
 	metrics1 := GetReconcilerMetrics()
 	metrics2 := GetReconcilerMetrics()
 
 	if metrics1 != metrics2 {
 		t.Error("expected GetReconcilerMetrics to return the same instance")
+	}
+}
+
+func TestResetReconcilerMetrics_ClearsState(t *testing.T) {
+	// Get initial metrics and record some data
+	metrics := GetReconcilerMetrics()
+	metrics.RecordReconcileAttempt(ResourceTypeMCPServer, "test-server")
+
+	summary := metrics.GetSummary()
+	if summary.TotalReconcileAttempts != 1 {
+		t.Fatalf("expected 1 attempt before reset, got %d", summary.TotalReconcileAttempts)
+	}
+
+	// Reset metrics
+	ResetReconcilerMetrics()
+
+	// Get new metrics instance and verify it's fresh
+	newMetrics := GetReconcilerMetrics()
+	newSummary := newMetrics.GetSummary()
+
+	if newSummary.TotalReconcileAttempts != 0 {
+		t.Errorf("expected 0 attempts after reset, got %d", newSummary.TotalReconcileAttempts)
+	}
+
+	// Verify it's a different instance
+	if metrics == newMetrics {
+		t.Error("expected different instance after reset")
+	}
+}
+
+func TestGetReconcilerMetrics_ConcurrentAccess(t *testing.T) {
+	// Reset to ensure clean state
+	ResetReconcilerMetrics()
+
+	// Test concurrent access to GetReconcilerMetrics
+	const goroutines = 10
+	done := make(chan *ReconcilerMetrics, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			done <- GetReconcilerMetrics()
+		}()
+	}
+
+	// Collect all instances
+	var instances []*ReconcilerMetrics
+	for i := 0; i < goroutines; i++ {
+		instances = append(instances, <-done)
+	}
+
+	// All instances should be the same
+	first := instances[0]
+	for i, inst := range instances {
+		if inst != first {
+			t.Errorf("instance %d differs from first instance", i)
+		}
 	}
 }

@@ -268,12 +268,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	if cfg.ConfigPath != "" {
 		// Determine watch mode based on config - this must match the MusterClient mode
 		// to ensure consistent behavior between the client and the reconciler.
-		// When musterConfig.Kubernetes is true, use Kubernetes mode (CRDs).
-		// Otherwise, use filesystem mode (YAML files).
-		watchMode := reconciler.WatchModeFilesystem
-		if cfg.MusterConfig.Kubernetes {
-			watchMode = reconciler.WatchModeKubernetes
-		}
+		// Use the shared helper to ensure consistent mode selection across the codebase.
+		watchMode := reconciler.WatchModeFromKubernetesFlag(cfg.MusterConfig.Kubernetes)
 
 		reconcileConfig := reconciler.ManagerConfig{
 			Mode:           watchMode,

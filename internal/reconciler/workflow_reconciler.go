@@ -82,6 +82,11 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ReconcileRequest
 }
 
 // syncStatus syncs the validation status to the Workflow CRD status.
+//
+// Status sync is a best-effort operation - failures are logged at Debug level
+// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
+// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
+// API server unavailability). Failures are tracked in metrics for monitoring.
 func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace string, wf *api.Workflow, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return

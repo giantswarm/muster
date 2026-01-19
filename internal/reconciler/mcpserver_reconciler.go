@@ -117,6 +117,11 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 }
 
 // syncStatus syncs the current service state to the MCPServer CRD status.
+//
+// Status sync is a best-effort operation - failures are logged at Debug level
+// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
+// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
+// API server unavailability). Failures are tracked in metrics for monitoring.
 func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return

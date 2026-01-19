@@ -453,3 +453,70 @@ func (m *MockStatusUpdater) AddMCPServer(server *musterv1alpha1.MCPServer) {
 	key := server.Namespace + "/" + server.Name
 	m.MCPServers[key] = server
 }
+
+// =============================================================================
+// Thread-safe getters for verification in tests
+// =============================================================================
+
+// WasGetMCPServerCalled returns whether GetMCPServer was called (thread-safe).
+func (m *MockStatusUpdater) WasGetMCPServerCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.GetMCPServerCalled
+}
+
+// WasUpdateMCPServerStatusCalled returns whether UpdateMCPServerStatus was called (thread-safe).
+func (m *MockStatusUpdater) WasUpdateMCPServerStatusCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.UpdateMCPServerStatusCalled
+}
+
+// WasGetServiceClassCalled returns whether GetServiceClass was called (thread-safe).
+func (m *MockStatusUpdater) WasGetServiceClassCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.GetServiceClassCalled
+}
+
+// WasUpdateServiceClassStatusCalled returns whether UpdateServiceClassStatus was called (thread-safe).
+func (m *MockStatusUpdater) WasUpdateServiceClassStatusCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.UpdateServiceClassStatusCalled
+}
+
+// WasGetWorkflowCalled returns whether GetWorkflow was called (thread-safe).
+func (m *MockStatusUpdater) WasGetWorkflowCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.GetWorkflowCalled
+}
+
+// WasUpdateWorkflowStatusCalled returns whether UpdateWorkflowStatus was called (thread-safe).
+func (m *MockStatusUpdater) WasUpdateWorkflowStatusCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.UpdateWorkflowStatusCalled
+}
+
+// GetLastUpdatedMCPServer returns the last updated MCPServer (thread-safe copy).
+func (m *MockStatusUpdater) GetLastUpdatedMCPServer() *musterv1alpha1.MCPServer {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastUpdatedMCPServer
+}
+
+// GetLastUpdatedServiceClass returns the last updated ServiceClass (thread-safe copy).
+func (m *MockStatusUpdater) GetLastUpdatedServiceClass() *musterv1alpha1.ServiceClass {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastUpdatedServiceClass
+}
+
+// GetLastUpdatedWorkflow returns the last updated Workflow (thread-safe copy).
+func (m *MockStatusUpdater) GetLastUpdatedWorkflow() *musterv1alpha1.Workflow {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.LastUpdatedWorkflow
+}
