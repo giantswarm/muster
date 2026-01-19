@@ -266,8 +266,17 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Step 5: Initialize reconciliation manager for automatic change detection
 	var reconcileManager *reconciler.Manager
 	if cfg.ConfigPath != "" {
+		// Determine watch mode based on config - this must match the MusterClient mode
+		// to ensure consistent behavior between the client and the reconciler.
+		// When musterConfig.Kubernetes is true, use Kubernetes mode (CRDs).
+		// Otherwise, use filesystem mode (YAML files).
+		watchMode := reconciler.WatchModeFilesystem
+		if cfg.MusterConfig.Kubernetes {
+			watchMode = reconciler.WatchModeKubernetes
+		}
+
 		reconcileConfig := reconciler.ManagerConfig{
-			Mode:           reconciler.WatchModeAuto,
+			Mode:           watchMode,
 			FilesystemPath: cfg.ConfigPath,
 			Namespace:      namespace,
 			WorkerCount:    2,

@@ -175,6 +175,16 @@ type MCPServerInfo struct {
 	// Error contains any error message from recent server operations.
 	// This field is populated if the server is in an error state.
 	Error string `json:"error,omitempty"`
+
+	// State represents the current operational state of the MCP server.
+	// This is synced from the CRD status by the reconciler.
+	// Possible values: unknown, starting, running, stopping, stopped, failed
+	State string `json:"state,omitempty"`
+
+	// Health represents the current health status of the MCP server.
+	// This is synced from the CRD status by the reconciler.
+	// Possible values: unknown, healthy, unhealthy, checking
+	Health string `json:"health,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.

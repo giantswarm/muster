@@ -49,13 +49,32 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}()
 
-	// Start all configured services
-	if err := services.Orchestrator.Start(ctx); err != nil {
-		logging.Error("CLI", err, "Failed to start orchestrator")
-		return err
+	// IMPORTANT: Startup order matters for capturing all state change events.
+	//
+	// The StateChangeBridge must subscribe to state changes BEFORE the orchestrator
+	// starts, so it can capture all state transitions (unknown -> starting -> running).
+	// The ReconcileManager must also be ready before the orchestrator starts so that
+	// reconciliation requests triggered by state changes can be processed.
+	//
+	// Startup order:
+	// 1. StateChangeBridge - subscribes to event channel (events buffered until processed)
+	// 2. ReconcileManager - starts workers to process reconcile requests
+	// 3. Orchestrator - starts services, fires state change events
+
+	// Start the state change bridge first to capture all state change events
+	// The bridge subscribes to the orchestrator's event channel (which is already created)
+	// Events will be buffered in the channel until they can be processed
+	if services.StateChangeBridge != nil {
+		if err := services.StateChangeBridge.Start(ctx); err != nil {
+			logging.Warn("CLI", "Failed to start state change bridge: %v", err)
+			// Continue without state change bridge - not a critical failure
+		} else {
+			logging.Info("CLI", "State change bridge started - ready to capture state changes")
+		}
 	}
 
-	// Start the reconciliation manager for automatic change detection
+	// Start the reconciliation manager before the orchestrator so workers are ready
+	// to process reconcile requests triggered by state changes during startup
 	if services.ReconcileManager != nil {
 		if err := services.ReconcileManager.Start(ctx); err != nil {
 			logging.Warn("CLI", "Failed to start reconciliation manager: %v", err)
@@ -65,15 +84,10 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}
 
-	// Start the state change bridge to sync runtime state changes to CRD status
-	// This must be started after the reconciliation manager since it depends on it
-	if services.StateChangeBridge != nil {
-		if err := services.StateChangeBridge.Start(ctx); err != nil {
-			logging.Warn("CLI", "Failed to start state change bridge: %v", err)
-			// Continue without state change bridge - not a critical failure
-		} else {
-			logging.Info("CLI", "State change bridge started - syncing runtime state to CRD status")
-		}
+	// Start all configured services last - state change events will now be captured
+	if err := services.Orchestrator.Start(ctx); err != nil {
+		logging.Error("CLI", err, "Failed to start orchestrator")
+		return err
 	}
 
 	logging.Info("CLI", "Services started. Press Ctrl+C to stop all services and exit.")
