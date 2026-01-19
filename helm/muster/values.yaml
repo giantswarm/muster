@@ -264,6 +264,13 @@ muster:
     # Only used when clientId is empty (self-hosted CIMD mode)
     cimdPath: "/.well-known/oauth-client.json"
 
+    # OAuth scopes to advertise in the self-hosted CIMD.
+    # These scopes determine what APIs downstream MCP servers can access when
+    # muster forwards tokens via SSO. Default: "openid profile email offline_access"
+    # Format: space-separated list of scope strings.
+    # Example with Google API scopes for Gmail, Calendar, Drive:
+    # cimdScopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
+
   # OAuth Server configuration for protecting the Muster Server itself (ADR 005)
   # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
   # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.

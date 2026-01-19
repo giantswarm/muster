@@ -19,6 +19,9 @@ data:
         {{- end }}
         callbackPath: {{ .Values.muster.oauth.callbackPath | default "/oauth/proxy/callback" | quote }}
         cimdPath: {{ .Values.muster.oauth.cimdPath | default "/.well-known/oauth-client.json" | quote }}
+        {{- if .Values.muster.oauth.cimdScopes }}
+        cimdScopes: {{ .Values.muster.oauth.cimdScopes | quote }}
+        {{- end }}
       {{- end }}
       {{- if .Values.muster.oauthServer.enabled }}
       {{- $secretsPath := "/etc/muster/secrets" }}

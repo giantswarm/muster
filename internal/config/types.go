@@ -67,6 +67,13 @@ type OAuthConfig struct {
 	// Muster will serve the CIMD at this path when OAuth is enabled and PublicURL is set.
 	CIMDPath string `yaml:"cimdPath,omitempty"`
 
+	// CIMDScopes is the OAuth scopes to advertise in the self-hosted CIMD.
+	// This determines what API scopes downstream MCP servers can use when muster
+	// forwards tokens via SSO. Default includes Google API scopes for Gmail, Calendar,
+	// Drive, Contacts, and other services.
+	// Format: space-separated list of scope strings.
+	CIMDScopes string `yaml:"cimdScopes,omitempty"`
+
 	// CAFile is the path to a CA certificate file for verifying TLS connections to OAuth servers.
 	// This is useful when connecting to OAuth servers with self-signed certificates.
 	CAFile string `yaml:"caFile,omitempty"`
@@ -126,6 +133,15 @@ func (c *OAuthConfig) GetCIMDPath() string {
 		return c.CIMDPath
 	}
 	return DefaultOAuthCIMDPath
+}
+
+// GetCIMDScopes returns the OAuth scopes to advertise in the CIMD.
+// If not set, returns the default comprehensive Google API scopes for SSO forwarding.
+func (c *OAuthConfig) GetCIMDScopes() string {
+	if c.CIMDScopes != "" {
+		return c.CIMDScopes
+	}
+	return DefaultOAuthCIMDScopes
 }
 
 // GetRedirectURI returns the full redirect URI for OAuth proxy callbacks.

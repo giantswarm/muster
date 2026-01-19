@@ -9,7 +9,6 @@ import (
 	"net/http"
 
 	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
 )
 
 //go:embed templates/*.html
@@ -204,18 +203,8 @@ func (h *Handler) ServeCIMD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cimd := pkgoauth.ClientMetadata{
-		ClientID:                h.client.GetCIMDURL(),
-		ClientName:              "Muster MCP Aggregator",
-		ClientURI:               "https://github.com/giantswarm/muster",
-		RedirectURIs:            []string{h.client.GetRedirectURI()},
-		GrantTypes:              []string{"authorization_code", "refresh_token"},
-		ResponseTypes:           []string{"code"},
-		TokenEndpointAuthMethod: "none",
-		Scope:                   "openid profile email",
-		SoftwareID:              "giantswarm-muster",
-		SoftwareVersion:         softwareVersion,
-	}
+	// Get the CIMD from the client, which includes configurable scopes
+	cimd := h.client.GetClientMetadata()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour

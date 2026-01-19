@@ -11,7 +11,7 @@ import (
 )
 
 func TestHandler_HandleCallback_MissingParams(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -62,7 +62,7 @@ func TestHandler_HandleCallback_MissingParams(t *testing.T) {
 }
 
 func TestHandler_HandleCallback_OAuthError(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -85,7 +85,7 @@ func TestHandler_HandleCallback_OAuthError(t *testing.T) {
 }
 
 func TestHandler_HandleCallback_InvalidState(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -107,7 +107,7 @@ func TestHandler_HandleCallback_InvalidState(t *testing.T) {
 }
 
 func TestHandler_ServeHTTP(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -127,7 +127,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 }
 
 func TestHandler_RenderSuccessPage(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -163,7 +163,7 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 }
 
 func TestHandler_RenderErrorPage(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -192,7 +192,7 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 }
 
 func TestHandler_SecurityHeaders(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -250,7 +250,7 @@ func TestHandler_ServeCIMD(t *testing.T) {
 	publicURL := "https://muster.example.com"
 	callbackPath := "/oauth/proxy/callback"
 
-	client := NewClient(clientID, publicURL, callbackPath)
+	client := NewClient(clientID, publicURL, callbackPath, "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
@@ -363,7 +363,7 @@ func TestClient_GetCIMDURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := NewClient(tc.clientID, tc.publicURL, "/oauth/proxy/callback")
+			client := NewClient(tc.clientID, tc.publicURL, "/oauth/proxy/callback", "openid profile email")
 			defer client.Stop()
 
 			cimdURL := client.GetCIMDURL()

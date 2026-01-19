@@ -398,7 +398,15 @@
             },
             "callbackPath": {
               "type": "string",
-              "description": "Path for the OAuth callback endpoint"
+              "description": "Path for the OAuth proxy callback endpoint"
+            },
+            "cimdPath": {
+              "type": "string",
+              "description": "Path for serving the Client ID Metadata Document (CIMD)"
+            },
+            "cimdScopes": {
+              "type": "string",
+              "description": "OAuth scopes to advertise in the self-hosted CIMD for SSO token forwarding"
             }
           }
         },
