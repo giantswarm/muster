@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -118,7 +119,7 @@ func TestFormatConnectionErrorReason(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var err error
 			if tt.errMsg != "" {
-				err = &testError{msg: tt.errMsg}
+				err = fmt.Errorf("%s", tt.errMsg)
 			}
 			result := formatConnectionErrorReason(err)
 			if !strings.Contains(result, tt.expected) && result != tt.expected {
@@ -126,13 +127,4 @@ func TestFormatConnectionErrorReason(t *testing.T) {
 			}
 		})
 	}
-}
-
-// testError is a simple error type for testing.
-type testError struct {
-	msg string
-}
-
-func (e *testError) Error() string {
-	return e.msg
 }

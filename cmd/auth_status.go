@@ -259,24 +259,18 @@ func formatConnectionErrorReason(err error) string {
 
 	// Extract the most relevant part of the error message
 	// TLS errors often have verbose prefixes like "Get https://...: x509: ..."
-	if strings.Contains(errStr, "x509:") {
-		if idx := strings.Index(errStr, "x509:"); idx != -1 {
-			return strings.TrimSpace(errStr[idx:])
-		}
+	if idx := strings.Index(errStr, "x509:"); idx != -1 {
+		return strings.TrimSpace(errStr[idx:])
 	}
 
 	// For connection errors, extract the actual failure reason
-	if strings.Contains(errStr, "connect:") {
-		if idx := strings.Index(errStr, "connect:"); idx != -1 {
-			return strings.TrimSpace(errStr[idx:])
-		}
+	if idx := strings.Index(errStr, "connect:"); idx != -1 {
+		return strings.TrimSpace(errStr[idx:])
 	}
 
 	// For dial errors, extract the core message
-	if strings.Contains(errStr, "dial tcp") {
-		if colonIdx := strings.LastIndex(errStr, ":"); colonIdx != -1 {
-			return strings.TrimSpace(errStr[colonIdx+1:])
-		}
+	if colonIdx := strings.LastIndex(errStr, ":"); strings.Contains(errStr, "dial tcp") && colonIdx != -1 {
+		return strings.TrimSpace(errStr[colonIdx+1:])
 	}
 
 	// Return the error as-is if no simplification applies

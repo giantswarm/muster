@@ -119,8 +119,6 @@ func ClassifyConnectionError(err error, endpoint string) *ConnectionError {
 		return nil
 	}
 
-	errStr := err.Error()
-
 	// Check for TLS/certificate errors
 	if isTLSError(err) {
 		return &ConnectionError{
@@ -150,7 +148,7 @@ func ClassifyConnectionError(err error, endpoint string) *ConnectionError {
 	}
 
 	// Check for network errors (connection refused, unreachable, etc.)
-	if isNetworkError(errStr) {
+	if isNetworkError(err.Error()) {
 		return &ConnectionError{
 			Endpoint: endpoint,
 			Type:     ConnectionErrorNetwork,
@@ -184,16 +182,13 @@ func isTLSError(err error) bool {
 	}
 
 	// Also check error message for TLS-related keywords
+	// Note: "certificate" is checked broadly as it covers most TLS-related error messages
 	errStr := err.Error()
 	tlsKeywords := []string{
 		"x509:",
 		"certificate",
 		"tls:",
 		"TLS handshake",
-		"certificate is not valid",
-		"certificate signed by unknown authority",
-		"certificate has expired",
-		"certificate is not trusted",
 	}
 
 	for _, keyword := range tlsKeywords {
