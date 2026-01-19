@@ -742,6 +742,11 @@ func (w *filesystemStatusWriter) Patch(ctx context.Context, obj client.Object, p
 	return w.client.Patch(ctx, obj, patch)
 }
 
+func (w *filesystemStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	// Filesystem client doesn't support ApplyConfiguration - return error
+	return fmt.Errorf("filesystem client does not support Apply operations with ApplyConfiguration")
+}
+
 // filesystemSubResourceClient implements client.SubResourceClient for filesystem client.
 type filesystemSubResourceClient struct {
 	client      *filesystemClient
@@ -766,6 +771,11 @@ func (s *filesystemSubResourceClient) Update(ctx context.Context, obj client.Obj
 func (s *filesystemSubResourceClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	// For filesystem client, sub-resource patches are the same as regular patches
 	return s.client.Patch(ctx, obj, patch)
+}
+
+func (s *filesystemSubResourceClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	// Filesystem client doesn't support ApplyConfiguration - return error
+	return fmt.Errorf("filesystem client does not support Apply operations with ApplyConfiguration")
 }
 
 // IsKubernetesMode returns false since this is the filesystem implementation.
