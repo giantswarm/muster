@@ -21,6 +21,7 @@ type Client struct {
 	clientID     string // The CIMD URL used as client_id
 	publicURL    string // The public URL of the Muster Server
 	callbackPath string // The path for OAuth callbacks (e.g., "/oauth/callback")
+	cimdScopes   string // The OAuth scopes to advertise in the CIMD
 
 	// Stores
 	tokenStore *TokenStore
@@ -31,11 +32,12 @@ type Client struct {
 }
 
 // NewClient creates a new OAuth client with the given configuration.
-func NewClient(clientID, publicURL, callbackPath string) *Client {
+func NewClient(clientID, publicURL, callbackPath, cimdScopes string) *Client {
 	return &Client{
 		clientID:     clientID,
 		publicURL:    publicURL,
 		callbackPath: callbackPath,
+		cimdScopes:   cimdScopes,
 		tokenStore:   NewTokenStore(),
 		stateStore:   NewStateStore(),
 		oauthClient:  pkgoauth.NewClient(),
@@ -258,7 +260,7 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 		GrantTypes:              []string{"authorization_code", "refresh_token"},
 		ResponseTypes:           []string{"code"},
 		TokenEndpointAuthMethod: "none",
-		Scope:                   "openid profile email",
+		Scope:                   c.cimdScopes,
 		SoftwareID:              "giantswarm-muster",
 		SoftwareVersion:         softwareVersion,
 	}

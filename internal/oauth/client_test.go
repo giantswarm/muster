@@ -41,7 +41,7 @@ func TestClient_GetRedirectURI(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := NewClient("client-id", tc.publicURL, tc.callbackPath)
+			client := NewClient("client-id", tc.publicURL, tc.callbackPath, "openid profile email")
 			defer client.Stop()
 
 			result := client.GetRedirectURI()
@@ -53,7 +53,7 @@ func TestClient_GetRedirectURI(t *testing.T) {
 }
 
 func TestClient_TokenStoreAndStateStore(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	// Verify stores are initialized
@@ -67,7 +67,7 @@ func TestClient_TokenStoreAndStateStore(t *testing.T) {
 }
 
 func TestClient_GetToken(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	sessionID := "session-123"
@@ -102,7 +102,7 @@ func TestClient_GetToken(t *testing.T) {
 }
 
 func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	sessionID := "session-123"
@@ -149,7 +149,7 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	// Fetch metadata
@@ -200,7 +200,7 @@ func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	ctx := context.Background()
@@ -222,7 +222,7 @@ func TestClient_DiscoverMetadata_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	ctx := context.Background()
@@ -250,7 +250,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	ctx := context.Background()
@@ -340,7 +340,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 	serverURL = server.URL
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	ctx := context.Background()
@@ -387,7 +387,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 	serverURL = server.URL
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	ctx := context.Background()
@@ -442,7 +442,7 @@ func TestClient_RefreshToken(t *testing.T) {
 	serverURL = server.URL
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	oldToken := &pkgoauth.Token{
@@ -468,7 +468,7 @@ func TestClient_RefreshToken(t *testing.T) {
 }
 
 func TestClient_RefreshToken_NoRefreshToken(t *testing.T) {
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	token := &pkgoauth.Token{
@@ -512,7 +512,7 @@ func TestClient_RefreshToken_NewRefreshTokenReturned(t *testing.T) {
 	serverURL = server.URL
 	defer server.Close()
 
-	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback")
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	oldToken := &pkgoauth.Token{

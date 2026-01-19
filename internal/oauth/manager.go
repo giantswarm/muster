@@ -53,7 +53,9 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 
 	// Use the effective client ID (auto-derived from PublicURL if not explicitly set)
 	effectiveClientID := cfg.GetEffectiveClientID()
-	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath)
+	// Use the effective CIMD scopes (defaults to comprehensive Google API scopes for SSO)
+	cimdScopes := cfg.GetCIMDScopes()
+	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes)
 
 	// Configure custom HTTP client with CA if provided
 	if cfg.CAFile != "" {

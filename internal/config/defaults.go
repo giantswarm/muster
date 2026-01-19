@@ -11,6 +11,11 @@ const (
 	// DefaultOAuthCIMDPath is the default path for serving the Client ID Metadata Document (CIMD)
 	DefaultOAuthCIMDPath = "/.well-known/oauth-client.json"
 
+	// DefaultOAuthCIMDScopes contains the default OAuth scopes for the CIMD.
+	// Operators can customize this via Helm values (muster.oauth.cimdScopes) to add
+	// additional scopes needed by downstream MCP servers (e.g., Google API scopes).
+	DefaultOAuthCIMDScopes = "openid profile email offline_access"
+
 	// DefaultOAuthServerProvider is the default OAuth provider for server protection.
 	DefaultOAuthServerProvider = "dex"
 
