@@ -148,6 +148,8 @@ func generateStatusMessage(state, errorMsg, serverName string) string {
 		return "Starting..."
 	case api.StateStopped:
 		return "Server stopped"
+	case api.StateDisconnected:
+		return "Server disconnected"
 	case api.StateAuthRequired:
 		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
 	case api.StateUnreachable:
@@ -403,48 +405,26 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 	}, nil
 }
 
-// adjustServerForDisplay adjusts server fields for user-friendly display
+// adjustServerForDisplay adjusts server fields for user-friendly display.
+// States are now set correctly at the source (service layer), so this function
+// only needs to:
+// 1. Clear health for non-active servers (health is only meaningful when connected)
+// 2. Hide raw error messages in non-verbose mode (statusMessage provides user-friendly version)
 func adjustServerForDisplay(server api.MCPServerInfo, verbose bool) api.MCPServerInfo {
-	state := api.ServiceState(server.State)
-
-	// Use more intuitive state labels for remote servers
-	if isRemoteServerType(server.Type) {
-		switch state {
-		case api.StateRunning:
-			// Use "connected" for remote servers as it's more intuitive
-			server.State = string(api.StateConnected)
-		case api.StateWaiting:
-			// If waiting and has auth config, it's likely auth_required
-			if server.Auth != nil && server.Auth.Type == "oauth" {
-				server.State = string(api.StateAuthRequired)
-			}
-		}
-	}
-
-	// Health is only meaningful for connected/running servers
-	// For other states, clear health to avoid confusion
-	switch state {
-	case api.StateRunning, api.StateConnected:
-		// Keep health as-is for running/connected servers
-	default:
-		// Clear health for non-connected servers to avoid "unhealthy" showing
-		// for servers we can't even reach
+	// Health is only meaningful for running/connected servers.
+	// For other states, clear health to avoid confusion (e.g., showing "unhealthy"
+	// for servers we can't even reach).
+	if !api.IsActiveState(api.ServiceState(server.State)) {
 		server.Health = ""
 	}
 
-	// If not verbose, don't include the raw error message
-	// The statusMessage field provides a user-friendly version
+	// If not verbose, don't include the raw error message.
+	// The statusMessage field provides a user-friendly version.
 	if !verbose {
 		server.Error = ""
 	}
 
 	return server
-}
-
-// isRemoteServerType checks if the server type is a remote server (HTTP-based)
-func isRemoteServerType(serverType string) bool {
-	return serverType == string(api.MCPServerTypeStreamableHTTP) ||
-		serverType == string(api.MCPServerTypeSSE)
 }
 
 func (a *Adapter) handleMCPServerGet(args map[string]interface{}) (*api.CallToolResult, error) {

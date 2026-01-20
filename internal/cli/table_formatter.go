@@ -330,8 +330,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
 		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"type", "autoStart"},
-		"mcpServer":      {"type", "autoStart"},
+		"mcpServers":     {"state", "type"},
+		"mcpServer":      {"state", "type"},
 		"workflows":      {"status", "description", "steps"},
 		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
@@ -414,7 +414,10 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 			var unwantedColumns []string
 			switch resourceType {
 			case "mcpServers", "mcpServer":
-				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
+				// auth shows the nested auth config, not useful in list view (state shows auth status)
+				// health is cleared for non-connected servers, so not useful in list
+				// statusMessage is shown in footer notes instead
+				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description", "auth", "health", "statusMessage", "consecutiveFailures", "lastAttempt", "nextRetryAfter"}
 			case "service", "services":
 				// metadata contains nested data that doesn't display well in a list view
 				unwantedColumns = []string{"metadata"}

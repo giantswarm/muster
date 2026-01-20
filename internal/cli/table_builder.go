@@ -89,7 +89,11 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 	case "name", "label", "id", "workflow", "execution_id", "workflow_name", "resource_name":
 		return strValue
 	case "health", "status":
-		return strValue // health/status values are returned as-is
+		// Return "-" for empty health/status values
+		if strValue == "" {
+			return "-"
+		}
+		return strValue
 	case "available":
 		return b.formatAvailableStatusPlain(value)
 	case "autostart":

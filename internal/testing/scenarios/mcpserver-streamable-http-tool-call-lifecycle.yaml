@@ -35,9 +35,9 @@ pre_configuration:
                   status: "executed"
 
 steps:
-  # Phase 1: Verify tool calls work when MCP server is running
+  # Phase 1: Verify tool calls work when MCP server is connected
   - id: "verify-service-running-initially"
-    description: "Verify the HTTP MCP server service is running"
+    description: "Verify the HTTP MCP server service is connected"
     tool: "core_service_status"
     args:
       name: "http-tool-provider"
@@ -45,7 +45,7 @@ steps:
       success: true
       json_path:
         name: "http-tool-provider"
-        state: "running"
+        state: "connected"  # Remote servers use "connected" state
 
   - id: "test-tool-call-when-running"
     description: "Test that tool calls work when HTTP server is running"
@@ -77,7 +77,7 @@ steps:
       success: true
 
   - id: "wait-for-stopped-mcpserver-service"
-    description: "Wait for the service to be fully stopped"
+    description: "Wait for the service to be fully disconnected"
     tool: "core_service_status"
     args:
       name: "http-tool-provider"
@@ -86,7 +86,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "http-tool-provider"
-        state: "stopped"
+        state: "disconnected"  # Remote servers use "disconnected" state
 
   - id: "test-tool-call-fails-when-stopped"
     description: "Verify tool calls fail when HTTP server is stopped"
@@ -108,7 +108,7 @@ steps:
       success: true
 
   - id: "wait-for-started-mcpserver-service"
-    description: "Wait for the service to be fully started"
+    description: "Wait for the service to be fully connected again"
     tool: "core_service_status"
     args:
       name: "http-tool-provider"
@@ -117,7 +117,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         name: "http-tool-provider"
-        state: "running"
+        state: "connected"  # Remote servers use "connected" state
 
   - id: "test-tool-call-works-after-restart"
     description: "Verify tool calls work after HTTP server restart"

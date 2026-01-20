@@ -286,6 +286,16 @@ const (
 	StateDisconnected ServiceState = "disconnected"
 )
 
+// IsActiveState returns true if the given state indicates the service is actively
+// running and operational. This includes both StateRunning (for local stdio servers)
+// and StateConnected (for remote servers).
+//
+// Use this helper when checking if a service is available for use, rather than
+// checking for StateRunning directly, to properly handle remote servers.
+func IsActiveState(state ServiceState) bool {
+	return state == StateRunning || state == StateConnected
+}
+
 // ServiceStateChangedEvent represents a service state transition event.
 // These events are published whenever a service changes state, allowing
 // components to react to service lifecycle changes.

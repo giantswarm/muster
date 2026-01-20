@@ -247,9 +247,9 @@ func (am *AggregatorManager) GetServiceData() map[string]interface{} {
 			allServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
 			totalServers = len(allServices)
 
-			// Count healthy running services (these have ready clients)
+			// Count healthy running/connected services (these have ready clients)
 			for _, service := range allServices {
-				if service.GetState() == api.StateRunning && service.GetHealth() == api.HealthHealthy {
+				if api.IsActiveState(service.GetState()) && service.GetHealth() == api.HealthHealthy {
 					connectedServers++
 				}
 			}
@@ -287,8 +287,8 @@ func (am *AggregatorManager) registerHealthyMCPServers(ctx context.Context) erro
 
 	registeredCount := 0
 	for _, service := range mcpServices {
-		// Only register servers that are running AND healthy (client is guaranteed ready)
-		if service.GetState() != api.StateRunning || service.GetHealth() != api.HealthHealthy {
+		// Only register servers that are running/connected AND healthy (client is guaranteed ready)
+		if !api.IsActiveState(service.GetState()) || service.GetHealth() != api.HealthHealthy {
 			continue
 		}
 
@@ -725,8 +725,8 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 	mcpServices := am.serviceRegistry.GetByType(api.TypeMCPServer)
 
 	for _, service := range mcpServices {
-		// Only try services that are running and healthy
-		if service.GetState() != api.StateRunning || service.GetHealth() != api.HealthHealthy {
+		// Only try services that are running/connected and healthy
+		if !api.IsActiveState(service.GetState()) || service.GetHealth() != api.HealthHealthy {
 			continue
 		}
 
