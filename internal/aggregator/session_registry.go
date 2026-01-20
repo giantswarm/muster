@@ -79,6 +79,11 @@ type SessionState struct {
 	// attempted but failed (e.g., due to audience mismatch or token rejection).
 	// This helps the UI show "SSO failed" to explain why auth is still required.
 	SSOFailedServers map[string]bool
+
+	// SSOInitInProgress indicates that SSO initialization is currently in progress.
+	// While this is true, the session should not be cleaned up by the timeout cleanup.
+	// This prevents race conditions where sessions are cleaned up before SSO completes.
+	SSOInitInProgress bool
 }
 
 // SessionConnection represents a session's connection to a specific server.
@@ -375,6 +380,56 @@ func (sr *SessionRegistry) HasSSOFailed(sessionID, serverName string) bool {
 	return session.SSOFailedServers[serverName]
 }
 
+// StartSSOInit marks that SSO initialization is starting for a session.
+// While SSO init is in progress, the session will not be cleaned up by timeout.
+// This prevents race conditions where sessions are cleaned up before SSO completes.
+//
+// IMPORTANT: Callers MUST call EndSSOInit when SSO initialization completes,
+// typically using defer. Failure to do so will prevent the session from ever
+// being cleaned up.
+func (sr *SessionRegistry) StartSSOInit(sessionID string) {
+	session := sr.GetOrCreateSession(sessionID)
+	if session == nil {
+		return
+	}
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	session.SSOInitInProgress = true
+	session.LastActivity = time.Now()
+	logging.Debug("SessionRegistry", "Started SSO init for session %s", logging.TruncateSessionID(sessionID))
+}
+
+// EndSSOInit marks that SSO initialization has completed for a session.
+// The session can now be cleaned up by timeout if it becomes idle.
+func (sr *SessionRegistry) EndSSOInit(sessionID string) {
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		return
+	}
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	session.SSOInitInProgress = false
+	session.LastActivity = time.Now()
+	logging.Debug("SessionRegistry", "Ended SSO init for session %s", logging.TruncateSessionID(sessionID))
+}
+
+// IsSSOInitInProgress checks if SSO initialization is in progress for a session.
+func (sr *SessionRegistry) IsSSOInitInProgress(sessionID string) bool {
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		return false
+	}
+
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+
+	return session.SSOInitInProgress
+}
+
 // GetAllSessions returns all active sessions.
 //
 // Returns a map of session IDs to session states. The returned map is a copy
@@ -480,18 +535,29 @@ func (sr *SessionRegistry) cleanupLoop() {
 }
 
 // cleanup removes all idle sessions from the registry.
+// Sessions with SSO initialization in progress are skipped to prevent race conditions.
 func (sr *SessionRegistry) cleanup() {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	now := time.Now()
 	count := 0
+	skippedSSOInit := 0
 
 	for sessionID, session := range sr.sessions {
 		// Acquire write lock directly since we may need to close connections.
 		// This avoids a race condition where LastActivity could be updated
 		// between checking and closing.
 		session.mu.Lock()
+
+		// Skip sessions with SSO initialization in progress
+		// This prevents race conditions where sessions are cleaned up before SSO completes
+		if session.SSOInitInProgress {
+			session.mu.Unlock()
+			skippedSSOInit++
+			continue
+		}
+
 		lastActivity := session.LastActivity
 		if now.Sub(lastActivity) > sr.sessionTimeout {
 			// Close connections inline while holding the lock
@@ -514,6 +580,9 @@ func (sr *SessionRegistry) cleanup() {
 
 	if count > 0 {
 		logging.Debug("SessionRegistry", "Cleaned up %d idle sessions", count)
+	}
+	if skippedSSOInit > 0 {
+		logging.Debug("SessionRegistry", "Skipped %d sessions with SSO init in progress", skippedSSOInit)
 	}
 }
 

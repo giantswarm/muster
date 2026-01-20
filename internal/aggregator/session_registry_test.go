@@ -842,3 +842,138 @@ func TestRemoveConnection_ClosesClient(t *testing.T) {
 		t.Error("Expected connection to be removed")
 	}
 }
+
+// TestSessionRegistry_SSOInitTracking tests the SSO initialization tracking functionality.
+func TestSessionRegistry_SSOInitTracking(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	sessionID := "sso-init-session"
+
+	// Initially, SSO init should not be in progress
+	if sr.IsSSOInitInProgress(sessionID) {
+		t.Error("Expected SSO init to not be in progress for new session")
+	}
+
+	// Start SSO init
+	sr.StartSSOInit(sessionID)
+
+	// Now SSO init should be in progress
+	if !sr.IsSSOInitInProgress(sessionID) {
+		t.Error("Expected SSO init to be in progress after StartSSOInit")
+	}
+
+	// End SSO init
+	sr.EndSSOInit(sessionID)
+
+	// SSO init should no longer be in progress
+	if sr.IsSSOInitInProgress(sessionID) {
+		t.Error("Expected SSO init to not be in progress after EndSSOInit")
+	}
+}
+
+// TestSessionRegistry_SSOInitPreventsCleanup tests that sessions with SSO init in progress
+// are not cleaned up by the timeout cleanup.
+func TestSessionRegistry_SSOInitPreventsCleanup(t *testing.T) {
+	// Create a registry with a very short timeout
+	sr := NewSessionRegistryWithLimits(100*time.Millisecond, 100)
+	defer sr.Stop()
+
+	sessionID := "sso-protected-session"
+
+	// Create the session and start SSO init
+	sr.StartSSOInit(sessionID)
+
+	// Verify session exists
+	if sr.Count() != 1 {
+		t.Fatalf("Expected 1 session, got %d", sr.Count())
+	}
+
+	// Wait for the timeout to expire
+	time.Sleep(200 * time.Millisecond)
+
+	// Trigger cleanup manually
+	sr.cleanup()
+
+	// Session should still exist because SSO init is in progress
+	if sr.Count() != 1 {
+		t.Fatalf("Expected session to survive cleanup due to SSO init in progress, got %d sessions", sr.Count())
+	}
+
+	// End SSO init
+	sr.EndSSOInit(sessionID)
+
+	// Wait for the timeout to expire again
+	time.Sleep(200 * time.Millisecond)
+
+	// Trigger cleanup again
+	sr.cleanup()
+
+	// Now the session should be cleaned up
+	if sr.Count() != 0 {
+		t.Errorf("Expected session to be cleaned up after SSO init ended, got %d sessions", sr.Count())
+	}
+}
+
+// TestSessionRegistry_SSOInitNonexistentSession tests that SSO init operations
+// handle nonexistent sessions gracefully.
+func TestSessionRegistry_SSOInitNonexistentSession(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	// IsSSOInitInProgress should return false for nonexistent session
+	if sr.IsSSOInitInProgress("nonexistent-session") {
+		t.Error("Expected IsSSOInitInProgress to return false for nonexistent session")
+	}
+
+	// EndSSOInit should not panic for nonexistent session
+	sr.EndSSOInit("nonexistent-session")
+
+	// StartSSOInit should create the session
+	sr.StartSSOInit("new-session")
+	if sr.Count() != 1 {
+		t.Errorf("Expected 1 session after StartSSOInit, got %d", sr.Count())
+	}
+	if !sr.IsSSOInitInProgress("new-session") {
+		t.Error("Expected SSO init to be in progress for newly created session")
+	}
+}
+
+// TestSessionRegistry_SSOInitUpdatesActivity tests that SSO init operations
+// update the session's last activity timestamp.
+func TestSessionRegistry_SSOInitUpdatesActivity(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	sessionID := "activity-test-session"
+
+	// Create session
+	session := sr.GetOrCreateSession(sessionID)
+	initialActivity := session.LastActivity
+
+	// Wait a bit to ensure time difference
+	time.Sleep(10 * time.Millisecond)
+
+	// Start SSO init
+	sr.StartSSOInit(sessionID)
+
+	session, _ = sr.GetSession(sessionID)
+	afterStartActivity := session.LastActivity
+
+	if !afterStartActivity.After(initialActivity) {
+		t.Error("Expected StartSSOInit to update last activity timestamp")
+	}
+
+	// Wait a bit
+	time.Sleep(10 * time.Millisecond)
+
+	// End SSO init
+	sr.EndSSOInit(sessionID)
+
+	session, _ = sr.GetSession(sessionID)
+	afterEndActivity := session.LastActivity
+
+	if !afterEndActivity.After(afterStartActivity) {
+		t.Error("Expected EndSSOInit to update last activity timestamp")
+	}
+}

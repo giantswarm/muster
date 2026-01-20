@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"muster/internal/api"
 	"muster/internal/config"
@@ -213,6 +214,9 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 // and automatically gain access to all SSO-enabled MCP servers without needing to call
 // `core_auth_login` for each server individually.
 //
+// SSO connections are established in parallel to minimize total time and prevent race
+// conditions with session timeouts. All servers are attempted concurrently using goroutines.
+//
 // Note: This callback runs asynchronously and should not block.
 func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID string) {
 	// Get muster issuer for SSO token forwarding
@@ -238,40 +242,68 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 		return
 	}
 
-	logging.Info("Aggregator", "Session init: Establishing proactive SSO connections for session %s to %d servers",
+	logging.Info("Aggregator", "Session init: Establishing proactive SSO connections for session %s to %d servers (parallel)",
 		logging.TruncateSessionID(sessionID), len(ssoServers))
 
-	// Attempt to connect to each SSO-enabled server
+	// Mark the session as having SSO initialization in progress
+	// This prevents the session from being cleaned up while SSO connections are being established
+	if a.sessionRegistry != nil {
+		a.sessionRegistry.StartSSOInit(sessionID)
+		defer a.sessionRegistry.EndSSOInit(sessionID)
+	}
+
+	// Attempt to connect to all SSO-enabled servers in parallel
+	// This minimizes total time and prevents race conditions with session timeouts
+	var wg sync.WaitGroup
 	for _, info := range ssoServers {
-		var result *SessionConnectionResult
-		var err error
-		var ssoMethod string
+		wg.Add(1)
+		go func(serverInfo *ServerInfo) {
+			defer wg.Done()
+			a.establishSSOConnection(ctx, sessionID, serverInfo, musterIssuer)
+		}(info)
+	}
+	wg.Wait()
 
-		// Token exchange takes precedence over token forwarding
-		if ShouldUseTokenExchange(info) {
-			result, _, err = EstablishSessionConnectionWithTokenExchange(
-				ctx, a, sessionID, info, musterIssuer,
-			)
-			ssoMethod = "token exchange (RFC 8693)"
-		} else {
-			result, _, err = EstablishSessionConnectionWithTokenForwarding(
-				ctx, a, sessionID, info, musterIssuer,
-			)
-			ssoMethod = "token forwarding"
-		}
+	logging.Debug("Aggregator", "Session init: Completed SSO initialization for session %s",
+		logging.TruncateSessionID(sessionID))
+}
 
-		if err == nil && result != nil {
-			logging.Info("Aggregator", "Session init: Connected session %s to SSO server %s via %s",
-				logging.TruncateSessionID(sessionID), info.Name, ssoMethod)
-		} else {
-			// Log at Warn level for visibility - SSO failures should be investigated
-			logging.Warn("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",
-				info.Name, logging.TruncateSessionID(sessionID), err)
+// establishSSOConnection attempts to establish an SSO connection to a single server.
+// This is called from handleSessionInit for each SSO-enabled server.
+func (a *AggregatorServer) establishSSOConnection(
+	ctx context.Context,
+	sessionID string,
+	serverInfo *ServerInfo,
+	musterIssuer string,
+) {
+	var result *SessionConnectionResult
+	var err error
+	var ssoMethod string
 
-			// Track the SSO failure so the UI can show "SSO failed"
-			if a.sessionRegistry != nil {
-				a.sessionRegistry.MarkSSOFailed(sessionID, info.Name)
-			}
+	// Token exchange takes precedence over token forwarding
+	if ShouldUseTokenExchange(serverInfo) {
+		result, _, err = EstablishSessionConnectionWithTokenExchange(
+			ctx, a, sessionID, serverInfo, musterIssuer,
+		)
+		ssoMethod = "token exchange (RFC 8693)"
+	} else {
+		result, _, err = EstablishSessionConnectionWithTokenForwarding(
+			ctx, a, sessionID, serverInfo, musterIssuer,
+		)
+		ssoMethod = "token forwarding"
+	}
+
+	if err == nil && result != nil {
+		logging.Info("Aggregator", "Session init: Connected session %s to SSO server %s via %s",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, ssoMethod)
+	} else {
+		// Log at Warn level for visibility - SSO failures should be investigated
+		logging.Warn("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",
+			serverInfo.Name, logging.TruncateSessionID(sessionID), err)
+
+		// Track the SSO failure so the UI can show "SSO failed"
+		if a.sessionRegistry != nil {
+			a.sessionRegistry.MarkSSOFailed(sessionID, serverInfo.Name)
 		}
 	}
 }
