@@ -133,6 +133,12 @@ const (
 	MCPServerTypeSSE MCPServerType = "sse"
 )
 
+// IsRemote returns true if the server type is a remote (HTTP-based) server.
+// Remote servers use connected/disconnected states rather than running/stopped.
+func (t MCPServerType) IsRemote() bool {
+	return t == MCPServerTypeStreamableHTTP || t == MCPServerTypeSSE
+}
+
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
 // a flattened view of server configuration and runtime state that is convenient
@@ -180,13 +186,30 @@ type MCPServerInfo struct {
 
 	// State represents the current operational state of the MCP server.
 	// This is synced from the CRD status by the reconciler.
-	// Possible values: unknown, starting, running, stopping, stopped, failed, waiting, retrying, unreachable
+	// Possible values:
+	//   - For local stdio servers: starting, running, stopping, stopped, failed
+	//   - For remote servers: starting, connected, auth_required, unreachable, disconnected, failed
+	// Note: "running" and "connected" are semantically equivalent, with "connected" being
+	// more intuitive for remote servers.
 	State string `json:"state,omitempty"`
 
 	// Health represents the current health status of the MCP server.
 	// This is synced from the CRD status by the reconciler.
 	// Possible values: unknown, healthy, unhealthy, checking
+	//
+	// Note: Health is only meaningful for connected/running servers. For servers in
+	// states like unreachable, auth_required, or stopped, health should be displayed
+	// as "-" or omitted entirely since health checks require an active connection.
 	Health string `json:"health,omitempty"`
+
+	// StatusMessage provides a user-friendly, actionable message about the server's status.
+	// This field is populated based on the server's state and error information.
+	// Examples:
+	//   - "Server is running normally"
+	//   - "Authentication required - run: muster auth login --server <name>"
+	//   - "Cannot reach server - check network connectivity"
+	//   - "Certificate error - verify TLS configuration"
+	StatusMessage string `json:"statusMessage,omitempty"`
 
 	// ConsecutiveFailures tracks the number of consecutive connection failures.
 	// Used for exponential backoff and to identify unreachable servers.

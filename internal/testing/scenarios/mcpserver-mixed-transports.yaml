@@ -59,7 +59,7 @@ steps:
         state: "running"
 
   - id: "verify-http-service-running"
-    description: "Verify HTTP MCP server is running"
+    description: "Verify HTTP MCP server is connected"
     tool: "core_service_status"
     args:
       name: "http-provider"
@@ -67,7 +67,7 @@ steps:
       success: true
       json_path:
         name: "http-provider"
-        state: "running"
+        state: "connected"  # Remote servers use "connected" state
 
   # Phase 2: Test tool calls to each transport type
   - id: "test-stdio-tool-call"
@@ -98,7 +98,7 @@ steps:
       success: true
 
   - id: "wait-for-http-stopped"
-    description: "Wait for HTTP service to stop"
+    description: "Wait for HTTP service to disconnect"
     tool: "core_service_status"
     args:
       name: "http-provider"
@@ -106,7 +106,7 @@ steps:
       success: true
       wait_for_state: "30s"
       json_path:
-        state: "stopped"
+        state: "disconnected"  # Remote servers use "disconnected" state
 
   - id: "stdio-still-works-after-http-stopped"
     description: "Verify stdio server still works after HTTP server stopped"
@@ -136,7 +136,7 @@ steps:
       success: true
 
   - id: "wait-for-http-started"
-    description: "Wait for HTTP service to start"
+    description: "Wait for HTTP service to connect"
     tool: "core_service_status"
     args:
       name: "http-provider"
@@ -144,7 +144,7 @@ steps:
       success: true
       wait_for_state: "30s"
       json_path:
-        state: "running"
+        state: "connected"  # Remote servers use "connected" state
 
   - id: "all-tools-work-after-restart"
     description: "Test all tools work after HTTP server restart"

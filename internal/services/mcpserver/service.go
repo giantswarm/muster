@@ -145,8 +145,16 @@ func (s *Service) Start(ctx context.Context) error {
 	// Note: lastAttempt is intentionally preserved for diagnostics
 	s.failureMutex.Unlock()
 
-	s.UpdateState(services.StateRunning, services.HealthHealthy, nil)
-	s.LogInfo("MCP server started successfully")
+	// Use appropriate state based on server type:
+	// - Remote servers (streamable-http, sse): "connected" is more intuitive
+	// - Local servers (stdio): "running" describes the process state
+	if s.isRemoteServer() {
+		s.UpdateState(services.StateConnected, services.HealthHealthy, nil)
+		s.LogInfo("MCP server connected successfully")
+	} else {
+		s.UpdateState(services.StateRunning, services.HealthHealthy, nil)
+		s.LogInfo("MCP server started successfully")
+	}
 
 	// Generate success event
 	s.generateEvent(events.ReasonMCPServerStarted, events.EventData{})
@@ -165,10 +173,14 @@ func (s *Service) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// If not running and not failed, nothing to stop
-	if currentState != services.StateRunning && currentState != services.StateFailed {
-		s.LogDebug("Service %s is not in a stoppable state (%s), transitioning to stopped", s.GetName(), currentState)
-		s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
+	// If not running/connected and not failed, nothing to stop
+	if currentState != services.StateRunning && currentState != services.StateConnected && currentState != services.StateFailed {
+		s.LogDebug("Service %s is not in a stoppable state (%s), transitioning to stopped/disconnected", s.GetName(), currentState)
+		if s.isRemoteServer() {
+			s.UpdateState(services.StateDisconnected, services.HealthUnknown, nil)
+		} else {
+			s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
+		}
 		// Generate stopped event for state transition
 		s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
 		return nil
@@ -183,8 +195,16 @@ func (s *Service) Stop(ctx context.Context) error {
 		// Still transition to stopped state for graceful shutdown
 	}
 
-	s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
-	s.LogInfo("MCP server stopped successfully")
+	// Use appropriate state based on server type:
+	// - Remote servers: "disconnected" is more intuitive
+	// - Local servers: "stopped" describes the process state
+	if s.isRemoteServer() {
+		s.UpdateState(services.StateDisconnected, services.HealthUnknown, nil)
+		s.LogInfo("MCP server disconnected successfully")
+	} else {
+		s.UpdateState(services.StateStopped, services.HealthUnknown, nil)
+		s.LogInfo("MCP server stopped successfully")
+	}
 
 	// Generate stopped event
 	s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
@@ -225,9 +245,10 @@ func (s *Service) Restart(ctx context.Context) error {
 	return nil
 }
 
-// IsRunning checks if the MCP server is running
+// IsRunning checks if the MCP server is running (or connected for remote servers)
 func (s *Service) IsRunning() bool {
-	return s.GetState() == services.StateRunning
+	state := s.GetState()
+	return state == services.StateRunning || state == services.StateConnected
 }
 
 // IsHealthy checks if the MCP server is healthy
@@ -535,7 +556,7 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 // as opposed to a local stdio server. Remote servers are subject to network
 // connectivity issues and unreachable state tracking.
 func (s *Service) isRemoteServer() bool {
-	return s.definition.Type == api.MCPServerTypeStreamableHTTP || s.definition.Type == api.MCPServerTypeSSE
+	return s.definition.Type.IsRemote()
 }
 
 // isTransientConnectivityError checks if an error is a transient network/connectivity

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -131,7 +132,101 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		}
 	}
 
+	// Generate user-friendly status message based on state and error
+	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.ObjectMeta.Name)
+
 	return info
+}
+
+// generateStatusMessage creates a user-friendly, actionable status message
+// based on the server's state and error information.
+func generateStatusMessage(state, errorMsg, serverName string) string {
+	switch api.ServiceState(state) {
+	case api.StateRunning, api.StateConnected:
+		return ""
+	case api.StateStarting:
+		return "Starting..."
+	case api.StateStopped:
+		return "Server stopped"
+	case api.StateDisconnected:
+		return "Server disconnected"
+	case api.StateAuthRequired:
+		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
+	case api.StateUnreachable:
+		return generateUnreachableMessage(errorMsg)
+	case api.StateFailed:
+		return generateFailedMessage(errorMsg, serverName)
+	case api.StateWaiting:
+		return "Waiting for dependencies"
+	case api.StateRetrying:
+		return "Retrying connection..."
+	default:
+		return ""
+	}
+}
+
+// generateUnreachableMessage creates a user-friendly message for unreachable servers
+func generateUnreachableMessage(errorMsg string) string {
+	if errorMsg == "" {
+		return "Cannot reach server - check network connectivity"
+	}
+
+	lowerErr := strings.ToLower(errorMsg)
+
+	// Check for specific error patterns and provide actionable messages
+	switch {
+	case strings.Contains(lowerErr, "connection refused"):
+		return "Cannot reach server - connection refused (server may not be running)"
+	case strings.Contains(lowerErr, "no such host"):
+		return "Cannot reach server - DNS resolution failed (check hostname)"
+	case strings.Contains(lowerErr, "network is unreachable"):
+		return "Cannot reach server - network is unreachable (check connectivity)"
+	case strings.Contains(lowerErr, "host is unreachable") || strings.Contains(lowerErr, "host is down"):
+		return "Cannot reach server - host is unreachable (check routing)"
+	case strings.Contains(lowerErr, "timeout") || strings.Contains(lowerErr, "deadline exceeded"):
+		return "Cannot reach server - connection timed out"
+	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
+		return "Cannot reach server - connection was reset"
+	case strings.Contains(lowerErr, "503") || strings.Contains(lowerErr, "service unavailable"):
+		return "Cannot reach server - service temporarily unavailable"
+	case strings.Contains(lowerErr, "proxy"):
+		return "Cannot reach server - proxy error (check proxy configuration)"
+	default:
+		return "Cannot reach server - check network connectivity"
+	}
+}
+
+// generateFailedMessage creates a user-friendly message for failed servers
+func generateFailedMessage(errorMsg, serverName string) string {
+	if errorMsg == "" {
+		return "Server failed to start"
+	}
+
+	lowerErr := strings.ToLower(errorMsg)
+
+	// Check for specific error patterns and provide actionable messages
+	switch {
+	case strings.Contains(lowerErr, "certificate") || strings.Contains(lowerErr, "x509"):
+		return "Certificate error - verify TLS configuration"
+	case strings.Contains(lowerErr, "tls handshake"):
+		return "TLS error - check server certificate and TLS configuration"
+	case strings.Contains(lowerErr, "command not found") || strings.Contains(lowerErr, "executable file not found"):
+		return "Command not found - check the executable path"
+	case strings.Contains(lowerErr, "permission denied"):
+		return "Permission denied - check file permissions"
+	case strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "unauthorized"):
+		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
+	case strings.Contains(lowerErr, "403") || strings.Contains(lowerErr, "forbidden"):
+		return "Access forbidden - check server permissions and credentials"
+	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
+		return "Connection was reset by server - check server logs"
+	case strings.Contains(lowerErr, "protocol") || strings.Contains(lowerErr, "unsupported"):
+		return "Protocol error - check server type configuration"
+	case strings.Contains(lowerErr, "json") || strings.Contains(lowerErr, "parse"):
+		return "Invalid response from server - check server compatibility"
+	default:
+		return "Server failed to start"
+	}
 }
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
@@ -202,6 +297,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Description: "List all MCP server definitions with their status. By default, unreachable servers are hidden.",
 			Args: []api.ArgMetadata{
 				{Name: "showAll", Type: "boolean", Required: false, Description: "Show all servers including unreachable ones (default: false)"},
+				{Name: "verbose", Type: "boolean", Required: false, Description: "Show detailed error information for failed/unreachable servers (default: false)"},
 			},
 		},
 		{
@@ -267,10 +363,20 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 		showAll = val
 	}
 
+	// Check verbose parameter (default: false)
+	verbose := false
+	if val, ok := args["verbose"].(bool); ok {
+		verbose = val
+	}
+
 	// Filter out unreachable servers unless showAll is true
 	var filteredServers []api.MCPServerInfo
 	unreachableCount := 0
 	for _, server := range allServers {
+		// Adjust health display for non-connected servers
+		// Health is only meaningful when the server is running/connected
+		server = adjustServerForDisplay(server, verbose)
+
 		if server.State == string(api.StateUnreachable) {
 			unreachableCount++
 			if showAll {
@@ -297,6 +403,28 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 		Content: []interface{}{result},
 		IsError: false,
 	}, nil
+}
+
+// adjustServerForDisplay adjusts server fields for user-friendly display.
+// States are now set correctly at the source (service layer), so this function
+// only needs to:
+// 1. Clear health for non-active servers (health is only meaningful when connected)
+// 2. Hide raw error messages in non-verbose mode (statusMessage provides user-friendly version)
+func adjustServerForDisplay(server api.MCPServerInfo, verbose bool) api.MCPServerInfo {
+	// Health is only meaningful for running/connected servers.
+	// For other states, clear health to avoid confusion (e.g., showing "unhealthy"
+	// for servers we can't even reach).
+	if !api.IsActiveState(api.ServiceState(server.State)) {
+		server.Health = ""
+	}
+
+	// If not verbose, don't include the raw error message.
+	// The statusMessage field provides a user-friendly version.
+	if !verbose {
+		server.Error = ""
+	}
+
+	return server
 }
 
 func (a *Adapter) handleMCPServerGet(args map[string]interface{}) (*api.CallToolResult, error) {

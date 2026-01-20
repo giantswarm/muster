@@ -203,12 +203,13 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	// Generate events for service state transitions
 	eh.generateServiceStateEvents(event)
 
-	// Only register servers that are BOTH Running AND Healthy
+	// Only register servers that are BOTH Running/Connected AND Healthy
 	// This ensures that the MCP client is ready and the server is functioning properly
-	isHealthyAndRunning := event.NewState == "running" && event.Health == "healthy"
+	// "running" is used for stdio servers, "connected" is used for remote servers
+	isHealthyAndActive := (event.NewState == "running" || event.NewState == "connected") && event.Health == "healthy"
 
-	if isHealthyAndRunning {
-		// Register the healthy running server
+	if isHealthyAndActive {
+		// Register the healthy running/connected server
 		logging.Info("Aggregator-EventHandler", "Registering healthy MCP server: %s", event.Name)
 
 		if err := eh.registerFunc(context.Background(), event.Name); err != nil {

@@ -154,8 +154,8 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		} else {
 			server.Status.LastError = ""
 		}
-		// Update LastConnected if service is running
-		if service.GetState() == api.StateRunning {
+		// Update LastConnected if service is running/connected
+		if api.IsActiveState(service.GetState()) {
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}

@@ -8,6 +8,57 @@ import (
 	"strings"
 )
 
+// unwantedColumnsByResourceType defines columns that should be excluded from table
+// display in non-wide mode for each resource type. This keeps list views clean
+// and focused on the most useful information.
+//
+// Exclusion rationale for mcpServers:
+//   - args, command, url, env, headers: Configuration details, use `muster server get <name>` for full info
+//   - timeout, toolPrefix: Minor config, not useful in list view
+//   - error: Raw error messages; statusMessage provides user-friendly version
+//   - description: Can be long, use detail view for this
+//   - auth: Nested config; state already shows auth status
+//   - health: Cleared for non-connected servers, not useful in list
+//   - statusMessage: Shown in footer notes instead of column
+//   - consecutiveFailures, lastAttempt, nextRetryAfter: Diagnostic fields for verbose/debug use
+var unwantedColumnsByResourceType = map[string][]string{
+	"mcpServers": {
+		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
+		"error", "description", "auth", "health", "statusMessage",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
+	},
+	"mcpServer": {
+		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
+		"error", "description", "auth", "health", "statusMessage",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
+	},
+	"service": {
+		"metadata", // Nested data doesn't display well in list view
+	},
+	"services": {
+		"metadata", // Nested data doesn't display well in list view
+	},
+}
+
+// filterUnwantedColumns filters out columns that should not be displayed in table view.
+// The comparison is case-insensitive to handle JSON field name variations.
+func filterUnwantedColumns(columns []string, unwanted []string) []string {
+	filtered := make([]string, 0, len(columns))
+	for _, col := range columns {
+		isUnwanted := false
+		for _, u := range unwanted {
+			if strings.EqualFold(col, u) {
+				isUnwanted = true
+				break
+			}
+		}
+		if !isUnwanted {
+			filtered = append(filtered, col)
+		}
+	}
+	return filtered
+}
+
 // TableFormatter handles table creation and optimization for muster CLI output.
 // It provides intelligent formatting for different types of data structures,
 // automatically optimizing column layouts and applying consistent styling.
@@ -75,16 +126,124 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 		value := data[arrayKey]
 		// Handle nil as empty array
 		if value == nil {
+			f.printFooterMessages(data, arrayKey)
 			return f.formatEmptyList(arrayKey)
 		}
 		if arr, ok := value.([]interface{}); ok {
-			// Just format the array - the summary will be handled by formatTableFromArray
-			return f.formatTableFromArray(arr)
+			// Format the array first
+			if err := f.formatTableFromArrayWithMeta(arr, data, arrayKey); err != nil {
+				return err
+			}
+			// Print footer messages (hints about hidden servers, status messages)
+			f.printFooterMessages(data, arrayKey)
+			return nil
 		}
 	}
 
 	// No array found, format as key-value pairs
 	return f.formatKeyValueTable(data)
+}
+
+// formatTableFromArrayWithMeta creates a kubectl-style table and collects status messages.
+func (f *TableFormatter) formatTableFromArrayWithMeta(data []interface{}, meta map[string]interface{}, resourceType string) error {
+	if len(data) == 0 {
+		fmt.Println("No items found")
+		return nil
+	}
+
+	// Get the first object to determine columns
+	firstObj, ok := data[0].(map[string]interface{})
+	if !ok {
+		// Array of simple values
+		return f.formatSimpleList(data)
+	}
+
+	// Determine table type and optimize columns
+	columns := f.optimizeColumns(data)
+	detectedType := f.detectResourceType(firstObj)
+
+	// Create kubectl-style plain table
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders(columns)
+	tw.SetNoHeaders(f.options.NoHeaders)
+
+	// Add rows with formatting - sort by name field if present
+	sortedData := f.builder.SortDataByName(data, columns)
+	for _, item := range sortedData {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			row := make([]string, len(columns))
+			for i, col := range columns {
+				// Use context-aware formatting for MCP servers (plain text version)
+				if detectedType == "mcpServers" || detectedType == "mcpServer" {
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], itemMap)
+				} else {
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], nil)
+				}
+			}
+			tw.AppendRow(row)
+		}
+	}
+
+	tw.Render()
+	return nil
+}
+
+// printFooterMessages prints helpful footer messages based on response metadata.
+// This includes hints about hidden servers and actionable status messages.
+func (f *TableFormatter) printFooterMessages(data map[string]interface{}, resourceType string) {
+	// Skip footer messages if we're in JSON/YAML mode or --no-headers mode
+	if f.options.Format == OutputFormatJSON || f.options.Format == OutputFormatYAML {
+		return
+	}
+
+	// Check for hint about hidden unreachable servers
+	if hint, exists := data["hint"]; exists {
+		if hintStr, ok := hint.(string); ok && hintStr != "" {
+			fmt.Printf("\n%s\n", hintStr)
+		}
+	}
+
+	// Check for status messages from servers in error states (for mcpServers)
+	if resourceType == "mcpServers" {
+		f.printServerStatusNotes(data)
+	}
+}
+
+// printServerStatusNotes prints actionable notes for servers requiring attention.
+func (f *TableFormatter) printServerStatusNotes(data map[string]interface{}) {
+	servers, ok := data["mcpServers"].([]interface{})
+	if !ok || len(servers) == 0 {
+		return
+	}
+
+	// Collect servers with actionable status messages
+	var notes []string
+	for _, server := range servers {
+		serverMap, ok := server.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, _ := serverMap["name"].(string)
+		statusMessage, _ := serverMap["statusMessage"].(string)
+		state, _ := serverMap["state"].(string)
+
+		// Only show notes for servers that need attention
+		if statusMessage != "" && name != "" {
+			switch state {
+			case "auth_required", "unreachable", "failed":
+				notes = append(notes, fmt.Sprintf("  %s: %s", name, statusMessage))
+			}
+		}
+	}
+
+	// Print collected notes
+	if len(notes) > 0 {
+		fmt.Println("\nServers requiring attention:")
+		for _, note := range notes {
+			fmt.Println(note)
+		}
+	}
 }
 
 // findArrayKey looks for common array keys in wrapped objects.
@@ -222,8 +381,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
 		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"type", "autoStart"},
-		"mcpServer":      {"type", "autoStart"},
+		"mcpServers":     {"state", "type"},
+		"mcpServer":      {"state", "type"},
 		"workflows":      {"status", "description", "steps"},
 		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
@@ -303,29 +462,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		// Filter out unwanted columns based on resource type (in non-wide mode only)
 		filteredRemaining := remaining
 		if !f.isWideMode() {
-			var unwantedColumns []string
-			switch resourceType {
-			case "mcpServers", "mcpServer":
-				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description"}
-			case "service", "services":
-				// metadata contains nested data that doesn't display well in a list view
-				unwantedColumns = []string{"metadata"}
-			}
-
-			if len(unwantedColumns) > 0 {
-				filteredRemaining = []string{}
-				for _, key := range remaining {
-					isUnwanted := false
-					for _, unwanted := range unwantedColumns {
-						if strings.ToLower(key) == strings.ToLower(unwanted) {
-							isUnwanted = true
-							break
-						}
-					}
-					if !isUnwanted {
-						filteredRemaining = append(filteredRemaining, key)
-					}
-				}
+			if unwantedColumns, exists := unwantedColumnsByResourceType[resourceType]; exists {
+				filteredRemaining = filterUnwantedColumns(remaining, unwantedColumns)
 			}
 		}
 
@@ -697,7 +835,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		}
 	}
 
-	if argsData == nil || len(argsData) == 0 {
+	if len(argsData) == 0 {
 		return
 	}
 
