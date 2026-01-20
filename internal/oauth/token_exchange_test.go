@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"muster/internal/api"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +48,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error when not enabled", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &TokenExchangeConfig{
+			Config: &api.TokenExchangeConfig{
 				Enabled: false,
 			},
 		})
@@ -56,7 +58,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing subject token", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &TokenExchangeConfig{
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -69,7 +71,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing dex token endpoint", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &TokenExchangeConfig{
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "",
 				ConnectorID:      "local-dex",
@@ -82,7 +84,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing connector ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &TokenExchangeConfig{
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "",
@@ -95,7 +97,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 
 	t.Run("returns error for missing user ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
-			Config: &TokenExchangeConfig{
+			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "local-dex",
@@ -132,7 +134,7 @@ func TestTokenExchanger_Cache(t *testing.T) {
 
 func TestTokenExchangeConfig(t *testing.T) {
 	t.Run("config struct holds all fields", func(t *testing.T) {
-		config := TokenExchangeConfig{
+		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.remote.example.com/token",
 			ConnectorID:      "cluster-a-dex",

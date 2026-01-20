@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"muster/internal/api"
 	"muster/internal/config"
 	"muster/pkg/logging"
 	pkgoauth "muster/pkg/oauth"
@@ -391,7 +392,7 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 //   - config: Token exchange configuration for the remote cluster
 //
 // Returns the exchanged access token, or an error if exchange fails.
-func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, error) {
+func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("OAuth proxy is disabled")
 	}

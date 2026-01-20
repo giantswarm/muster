@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"muster/internal/api"
 	"muster/pkg/logging"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
@@ -30,26 +31,6 @@ type TokenExchanger struct {
 	// allowPrivateIP allows token endpoints on private IP addresses.
 	// This is useful for internal/VPN deployments.
 	allowPrivateIP bool
-}
-
-// TokenExchangeConfig holds the configuration for token exchange with a remote cluster.
-// This configuration is stored in the MCPServer CRD's auth.tokenExchange field.
-type TokenExchangeConfig struct {
-	// Enabled determines whether token exchange should be attempted.
-	Enabled bool
-
-	// DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
-	// Example: https://dex.cluster-b.example.com/token
-	DexTokenEndpoint string
-
-	// ConnectorID is the ID of the OIDC connector on the remote Dex
-	// that trusts the local cluster's Dex.
-	// Example: "cluster-a-dex"
-	ConnectorID string
-
-	// Scopes are the scopes to request for the exchanged token.
-	// Defaults to "openid profile email groups" if not specified.
-	Scopes string
 }
 
 // TokenExchangerOptions configures the TokenExchanger.
@@ -103,7 +84,8 @@ func NewTokenExchangerWithOptions(opts TokenExchangerOptions) *TokenExchanger {
 // ExchangeRequest contains the parameters for a token exchange operation.
 type ExchangeRequest struct {
 	// Config is the token exchange configuration for the target cluster.
-	Config *TokenExchangeConfig
+	// Uses the API type directly to avoid duplication (DRY principle).
+	Config *api.TokenExchangeConfig
 
 	// SubjectToken is the local token to exchange (ID token or access token).
 	SubjectToken string

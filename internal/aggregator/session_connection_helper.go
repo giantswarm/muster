@@ -384,9 +384,9 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 		return
 	}
 
-	// L3 fix: Log when namespace defaults to "default" for transparency
+	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Debug("SessionConnection", "No namespace set for server %s event, defaulting to 'default'", serverName)
+		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
 		namespace = "default"
 	}
 
@@ -619,8 +619,9 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 		return
 	}
 
+	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Debug("SessionConnection", "No namespace set for server %s event, defaulting to 'default'", serverName)
+		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
 		namespace = "default"
 	}
 
@@ -648,8 +649,13 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 // extractUserIDFromToken extracts the user ID (sub claim) from a JWT ID token.
 // This is used to generate cache keys for token exchange.
-// SECURITY: This extracts from the token payload without verification, but is only
-// used for caching. The actual token validation happens on the remote Dex server.
+//
+// SECURITY NOTE:
+//   - This extracts from the token payload WITHOUT cryptographic verification.
+//   - This is safe because the caller MUST ensure the token comes from a trusted source
+//     (e.g., muster's OAuth session or request context, not user input).
+//   - The actual token validation happens on the remote Dex server during exchange.
+//   - The extracted user ID is only used for cache key generation, not authorization.
 func extractUserIDFromToken(idToken string) string {
 	if idToken == "" {
 		return ""
@@ -661,20 +667,11 @@ func extractUserIDFromToken(idToken string) string {
 		return ""
 	}
 
-	// Decode the payload (second part)
-	payload := parts[1]
-	// Add padding if necessary
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(payload)
+	// Decode the payload using RawURLEncoding (handles missing padding automatically)
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		// Try standard base64 as fallback
-		decoded, err = base64.StdEncoding.DecodeString(parts[1])
+		// Try standard base64 as fallback for non-standard implementations
+		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
 		if err != nil {
 			return ""
 		}
@@ -718,21 +715,11 @@ func isIDTokenExpired(idToken string) bool {
 		return true
 	}
 
-	// Decode the payload (second part)
-	// JWT uses base64url encoding without padding
-	payload := parts[1]
-	// Add padding if necessary
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(payload)
+	// Decode the payload using RawURLEncoding (handles missing padding automatically)
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		// Try standard base64 as fallback (some implementations use it)
-		decoded, err = base64.StdEncoding.DecodeString(parts[1])
+		// Try standard base64 as fallback for non-standard implementations
+		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
 		if err != nil {
 			logging.Debug("TokenValidation", "Failed to decode ID token payload: %v", err)
 			return true
