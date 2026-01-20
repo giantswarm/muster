@@ -134,24 +134,20 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 
 	namespace = r.GetNamespace(namespace)
 
-	// Record status sync attempt for metrics
-	metrics := GetReconcilerMetrics()
-	metrics.RecordStatusSyncAttempt(ResourceTypeMCPServer, name)
-
-	// Get failure tracker for backoff-based logging
-	failureTracker := GetStatusSyncFailureTracker()
+	// Initialize status sync helper
+	helper := NewStatusSyncHelper(ResourceTypeMCPServer, name, "MCPServerReconciler")
+	helper.RecordAttempt()
 
 	// Use retry-on-conflict to handle optimistic locking failures.
 	// Each retry re-fetches the CRD with the latest resource version
 	// and re-applies the status changes.
 	var lastErr error
-	err := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+	retryErr := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
 		// Get the current CRD (re-fetch on each attempt to get latest resource version)
 		server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
 		if err != nil {
-			// Non-retryable error (not found, permission denied, etc.)
 			lastErr = err
-			return nil // Return nil to exit retry loop
+			return nil // Return nil to exit retry loop (non-retryable)
 		}
 
 		// Apply status from current service state
@@ -166,27 +162,10 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		return nil
 	})
 
-	// Handle the result
-	if err != nil || lastErr != nil {
-		actualErr := lastErr
-		if actualErr == nil {
-			actualErr = err
-		}
-
-		// Categorize the error for metrics
-		reason := CategorizeStatusSyncError(actualErr)
-		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, reason)
-
-		// Use backoff-based logging to reduce log spam
-		if failureTracker.RecordFailure(ResourceTypeMCPServer, name, actualErr) {
-			failureCount := failureTracker.GetFailureCount(ResourceTypeMCPServer, name)
-			logging.Debug("MCPServerReconciler", "Status sync failed for %s: %s (consecutive failures: %d)",
-				name, actualErr.Error(), failureCount)
-		}
-	} else {
+	// Handle the result and log on success
+	helper.HandleResult(retryErr, lastErr)
+	if helper.WasSuccessful(retryErr, lastErr) {
 		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status", name)
-		metrics.RecordStatusSyncSuccess(ResourceTypeMCPServer, name)
-		failureTracker.RecordSuccess(ResourceTypeMCPServer, name)
 	}
 }
 
