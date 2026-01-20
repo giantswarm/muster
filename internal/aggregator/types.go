@@ -286,6 +286,10 @@ const (
 
 	// StatusUnreachable indicates the server endpoint cannot be reached.
 	// This is distinct from auth_required - unreachable means network/connectivity failure.
+	//
+	// Related constants:
+	// - api.StateUnreachable (internal/api/service.go)
+	// - pkgoauth.ServerStatusUnreachable (pkg/oauth/types.go)
 	StatusUnreachable ServerStatus = "unreachable"
 )
 

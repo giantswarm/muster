@@ -42,10 +42,12 @@ type Service struct {
 	client          interface{} // MCP client that manages the process AND handles MCP communication
 	clientInitMutex sync.Mutex  // Protects client operations
 
-	// Connection failure tracking for exponential backoff
+	// Connection failure tracking for exponential backoff.
+	// These fields are protected by failureMutex for thread-safe access.
+	failureMutex        sync.RWMutex
 	consecutiveFailures int        // Number of consecutive connection failures
-	lastAttempt         *time.Time // When the last connection attempt was made
-	nextRetryAfter      *time.Time // When the next retry should be attempted
+	lastAttempt         *time.Time // When the last connection attempt was made (preserved after success for diagnostics)
+	nextRetryAfter      *time.Time // When the next retry should be attempted (cleared on success)
 }
 
 // NewService creates a new MCP server service
@@ -74,9 +76,11 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("service %s is already running", s.GetName())
 	}
 
-	// Record attempt time
+	// Record attempt time (thread-safe)
 	now := time.Now()
+	s.failureMutex.Lock()
 	s.lastAttempt = &now
+	s.failureMutex.Unlock()
 
 	s.UpdateState(services.StateStarting, services.HealthUnknown, nil)
 	s.LogInfo("Starting MCP server service")
@@ -104,20 +108,25 @@ func (s *Service) Start(ctx context.Context) error {
 			return authErr
 		}
 
-		// Track consecutive failures for remote servers
-		if s.isRemoteServer() && s.isConnectivityError(err) {
+		// Track consecutive failures for remote servers (transient errors only)
+		if s.isRemoteServer() && s.isTransientConnectivityError(err) {
+			s.failureMutex.Lock()
 			s.consecutiveFailures++
-			s.calculateNextRetryTime()
+			s.calculateNextRetryTimeLocked()
+			failures := s.consecutiveFailures
+			nextRetry := s.nextRetryAfter
+			s.failureMutex.Unlock()
+
 			s.LogWarn("Connection failure #%d for MCP server %s: %v (next retry after %v)",
-				s.consecutiveFailures, s.GetName(), err, s.nextRetryAfter)
+				failures, s.GetName(), err, nextRetry)
 
 			// Transition to unreachable state after threshold failures
-			if s.consecutiveFailures >= UnreachableThreshold {
+			if failures >= UnreachableThreshold {
 				s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 				s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
-					Error: fmt.Sprintf("server unreachable after %d consecutive failures: %s", s.consecutiveFailures, err.Error()),
+					Error: fmt.Sprintf("server unreachable after %d consecutive failures: %s", failures, err.Error()),
 				})
-				return fmt.Errorf("server unreachable after %d failures: %w", s.consecutiveFailures, err)
+				return fmt.Errorf("server unreachable after %d consecutive failures: %w", failures, err)
 			}
 		}
 
@@ -129,8 +138,12 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start MCP server: %w", err)
 	}
 
-	// Success - reset consecutive failure tracking
-	s.resetFailureTracking()
+	// Success - reset consecutive failure tracking (thread-safe)
+	s.failureMutex.Lock()
+	s.consecutiveFailures = 0
+	s.nextRetryAfter = nil
+	// Note: lastAttempt is intentionally preserved for diagnostics
+	s.failureMutex.Unlock()
 
 	s.UpdateState(services.StateRunning, services.HealthHealthy, nil)
 	s.LogInfo("MCP server started successfully")
@@ -305,7 +318,8 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	// Add tool prefix for aggregator registration
 	data["toolPrefix"] = s.definition.ToolPrefix
 
-	// Add failure tracking data for unreachable server detection
+	// Add failure tracking data for unreachable server detection (thread-safe read)
+	s.failureMutex.RLock()
 	data["consecutiveFailures"] = s.consecutiveFailures
 	if s.lastAttempt != nil {
 		data["lastAttempt"] = *s.lastAttempt
@@ -313,6 +327,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	if s.nextRetryAfter != nil {
 		data["nextRetryAfter"] = *s.nextRetryAfter
 	}
+	s.failureMutex.RUnlock()
 
 	return data
 }
@@ -523,11 +538,25 @@ func (s *Service) isRemoteServer() bool {
 	return s.definition.Type == api.MCPServerTypeStreamableHTTP || s.definition.Type == api.MCPServerTypeSSE
 }
 
-// isConnectivityError checks if an error is a network/connectivity error
-// that should count towards the unreachable threshold.
-// Auth errors and other application-level errors are not connectivity errors.
-func (s *Service) isConnectivityError(err error) bool {
+// isTransientConnectivityError checks if an error is a transient network/connectivity
+// error that should count towards the unreachable threshold.
+//
+// Transient errors are temporary issues that may resolve with retry:
+// - Connection refused (server not listening)
+// - Network unreachable (routing issues)
+// - DNS resolution failures
+// - Timeouts
+//
+// Configuration errors (certificates, TLS) are NOT transient and should fail
+// immediately without counting towards unreachable threshold, as they won't
+// resolve without user intervention.
+func (s *Service) isTransientConnectivityError(err error) bool {
 	if err == nil {
+		return false
+	}
+
+	// Configuration errors should fail fast, not count towards unreachable
+	if s.isConfigurationError(err) {
 		return false
 	}
 
@@ -545,8 +574,8 @@ func (s *Service) isConnectivityError(err error) bool {
 		return true
 	}
 
-	// Check for common connectivity error patterns in error messages
-	connectivityPatterns := []string{
+	// Transient connectivity patterns - these may resolve with retry
+	transientPatterns := []string{
 		"connection refused",
 		"connection reset",
 		"connection timed out",
@@ -559,18 +588,15 @@ func (s *Service) isConnectivityError(err error) bool {
 		"i/o timeout",
 		"eof",
 		"connection closed",
-		"tls handshake",
-		"certificate",
-		"x509",
 	}
 
-	for _, pattern := range connectivityPatterns {
+	for _, pattern := range transientPatterns {
 		if strings.Contains(errStr, pattern) {
 			return true
 		}
 	}
 
-	// Context timeout/deadline exceeded also count as connectivity issues
+	// Context timeout/deadline exceeded also count as transient connectivity issues
 	if strings.Contains(errStr, "context deadline exceeded") ||
 		strings.Contains(errStr, "context canceled") {
 		return true
@@ -579,9 +605,39 @@ func (s *Service) isConnectivityError(err error) bool {
 	return false
 }
 
-// calculateNextRetryTime calculates the next retry time using exponential backoff.
+// isConfigurationError checks if an error is a configuration issue that
+// requires user intervention and should NOT be retried with exponential backoff.
+// These errors won't resolve on their own - the user needs to fix the config.
+func (s *Service) isConfigurationError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+
+	// Certificate and TLS configuration errors require user intervention
+	configPatterns := []string{
+		"certificate",
+		"x509",
+		"tls handshake",
+		"certificate signed by unknown authority",
+		"certificate has expired",
+		"certificate is not valid",
+	}
+
+	for _, pattern := range configPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// calculateNextRetryTimeLocked calculates the next retry time using exponential backoff.
 // Backoff follows: InitialBackoff * 2^(failures-1), capped at MaxBackoff.
-func (s *Service) calculateNextRetryTime() {
+// MUST be called with failureMutex held.
+func (s *Service) calculateNextRetryTimeLocked() {
 	// Calculate backoff duration: initial * 2^(failures-1)
 	backoffDuration := InitialBackoff
 	for i := 1; i < s.consecutiveFailures; i++ {
@@ -596,35 +652,38 @@ func (s *Service) calculateNextRetryTime() {
 	s.nextRetryAfter = &nextRetry
 }
 
-// resetFailureTracking resets the consecutive failure tracking.
-// This should be called when a connection succeeds.
-func (s *Service) resetFailureTracking() {
-	s.consecutiveFailures = 0
-	s.nextRetryAfter = nil
-}
-
 // GetConsecutiveFailures returns the number of consecutive connection failures.
+// Thread-safe.
 func (s *Service) GetConsecutiveFailures() int {
+	s.failureMutex.RLock()
+	defer s.failureMutex.RUnlock()
 	return s.consecutiveFailures
 }
 
 // GetLastAttempt returns the time of the last connection attempt.
+// This value is preserved after successful connections for diagnostic purposes.
+// Thread-safe.
 func (s *Service) GetLastAttempt() *time.Time {
-	return s.lastAttempt
+	s.failureMutex.RLock()
+	defer s.failureMutex.RUnlock()
+	if s.lastAttempt == nil {
+		return nil
+	}
+	t := *s.lastAttempt
+	return &t
 }
 
 // GetNextRetryAfter returns the time after which the next retry should be attempted.
+// Returns nil if no retry is scheduled (either never failed or after successful connection).
+// Thread-safe.
 func (s *Service) GetNextRetryAfter() *time.Time {
-	return s.nextRetryAfter
-}
-
-// ShouldRetry returns true if enough time has passed since the last failure
-// and a retry should be attempted based on the exponential backoff.
-func (s *Service) ShouldRetry() bool {
+	s.failureMutex.RLock()
+	defer s.failureMutex.RUnlock()
 	if s.nextRetryAfter == nil {
-		return true
+		return nil
 	}
-	return time.Now().After(*s.nextRetryAfter)
+	t := *s.nextRetryAfter
+	return &t
 }
 
 // IsUnreachable returns true if the server is in the unreachable state.

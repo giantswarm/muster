@@ -273,6 +273,10 @@ const (
 	// This is distinct from auth_required - unreachable means network/connectivity failure,
 	// not an authentication issue. Users should not be prompted to authenticate
 	// for unreachable servers.
+	//
+	// Related constants:
+	// - api.StateUnreachable (internal/api/service.go)
+	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
 	ServerStatusUnreachable = "unreachable"
 )
 
