@@ -875,8 +875,9 @@ func TestSessionRegistry_SSOInitTracking(t *testing.T) {
 // TestSessionRegistry_SSOInitPreventsCleanup tests that sessions with SSO init in progress
 // are not cleaned up by the timeout cleanup.
 func TestSessionRegistry_SSOInitPreventsCleanup(t *testing.T) {
-	// Create a registry with a very short timeout
-	sr := NewSessionRegistryWithLimits(100*time.Millisecond, 100)
+	// Create a registry with a short timeout for testing
+	sessionTimeout := 100 * time.Millisecond
+	sr := NewSessionRegistryWithLimits(sessionTimeout, 100)
 	defer sr.Stop()
 
 	sessionID := "sso-protected-session"
@@ -889,8 +890,15 @@ func TestSessionRegistry_SSOInitPreventsCleanup(t *testing.T) {
 		t.Fatalf("Expected 1 session, got %d", sr.Count())
 	}
 
-	// Wait for the timeout to expire
-	time.Sleep(200 * time.Millisecond)
+	// Manually set LastActivity to the past to simulate timeout expiry
+	// This avoids using time.Sleep
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		t.Fatal("Expected session to exist")
+	}
+	session.mu.Lock()
+	session.LastActivity = time.Now().Add(-2 * sessionTimeout)
+	session.mu.Unlock()
 
 	// Trigger cleanup manually
 	sr.cleanup()
@@ -903,8 +911,14 @@ func TestSessionRegistry_SSOInitPreventsCleanup(t *testing.T) {
 	// End SSO init
 	sr.EndSSOInit(sessionID)
 
-	// Wait for the timeout to expire again
-	time.Sleep(200 * time.Millisecond)
+	// Set LastActivity to the past again to simulate timeout
+	session, exists = sr.GetSession(sessionID)
+	if !exists {
+		t.Fatal("Expected session to still exist after EndSSOInit")
+	}
+	session.mu.Lock()
+	session.LastActivity = time.Now().Add(-2 * sessionTimeout)
+	session.mu.Unlock()
 
 	// Trigger cleanup again
 	sr.cleanup()
@@ -947,33 +961,41 @@ func TestSessionRegistry_SSOInitUpdatesActivity(t *testing.T) {
 
 	sessionID := "activity-test-session"
 
-	// Create session
+	// Create session and set LastActivity to a known time in the past
 	session := sr.GetOrCreateSession(sessionID)
-	initialActivity := session.LastActivity
+	pastTime := time.Now().Add(-1 * time.Hour)
+	session.mu.Lock()
+	session.LastActivity = pastTime
+	session.mu.Unlock()
 
-	// Wait a bit to ensure time difference
-	time.Sleep(10 * time.Millisecond)
-
-	// Start SSO init
+	// Start SSO init - this should update LastActivity
 	sr.StartSSOInit(sessionID)
 
 	session, _ = sr.GetSession(sessionID)
+	session.mu.RLock()
 	afterStartActivity := session.LastActivity
+	session.mu.RUnlock()
 
-	if !afterStartActivity.After(initialActivity) {
-		t.Error("Expected StartSSOInit to update last activity timestamp")
+	if !afterStartActivity.After(pastTime) {
+		t.Errorf("Expected StartSSOInit to update last activity timestamp: got %v, want after %v",
+			afterStartActivity, pastTime)
 	}
 
-	// Wait a bit
-	time.Sleep(10 * time.Millisecond)
+	// Set LastActivity to the past again before EndSSOInit
+	session.mu.Lock()
+	session.LastActivity = pastTime
+	session.mu.Unlock()
 
-	// End SSO init
+	// End SSO init - this should also update LastActivity
 	sr.EndSSOInit(sessionID)
 
 	session, _ = sr.GetSession(sessionID)
+	session.mu.RLock()
 	afterEndActivity := session.LastActivity
+	session.mu.RUnlock()
 
-	if !afterEndActivity.After(afterStartActivity) {
-		t.Error("Expected EndSSOInit to update last activity timestamp")
+	if !afterEndActivity.After(pastTime) {
+		t.Errorf("Expected EndSSOInit to update last activity timestamp: got %v, want after %v",
+			afterEndActivity, pastTime)
 	}
 }

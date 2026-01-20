@@ -264,6 +264,8 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 	}
 	wg.Wait()
 
+	// Note: Individual SSO failures are logged within establishSSOConnection.
+	// Context cancellation will cause all goroutines to fail gracefully.
 	logging.Debug("Aggregator", "Session init: Completed SSO initialization for session %s",
 		logging.TruncateSessionID(sessionID))
 }

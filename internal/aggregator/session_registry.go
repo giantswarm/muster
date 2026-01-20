@@ -390,6 +390,8 @@ func (sr *SessionRegistry) HasSSOFailed(sessionID, serverName string) bool {
 func (sr *SessionRegistry) StartSSOInit(sessionID string) {
 	session := sr.GetOrCreateSession(sessionID)
 	if session == nil {
+		logging.Debug("SessionRegistry", "StartSSOInit: failed to get/create session %s",
+			logging.TruncateSessionID(sessionID))
 		return
 	}
 
