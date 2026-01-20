@@ -268,6 +268,16 @@ const (
 
 	// ServerStatusError indicates the server encountered an error.
 	ServerStatusError = "error"
+
+	// ServerStatusUnreachable indicates the server endpoint cannot be reached.
+	// This is distinct from auth_required - unreachable means network/connectivity failure,
+	// not an authentication issue. Users should not be prompted to authenticate
+	// for unreachable servers.
+	//
+	// Related constants:
+	// - api.StateUnreachable (internal/api/service.go)
+	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
+	ServerStatusUnreachable = "unreachable"
 )
 
 // AuthStatusResponse is the structured response from the auth://status MCP resource.

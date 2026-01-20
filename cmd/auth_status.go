@@ -154,11 +154,23 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 
 // printMCPServerStatuses prints the status of all MCP servers.
 func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
+	// Separate reachable servers from unreachable ones
+	var reachableServers []pkgoauth.ServerAuthStatus
+	var unreachableCount int
+
+	for _, srv := range servers {
+		if srv.Status == pkgoauth.ServerStatusUnreachable {
+			unreachableCount++
+		} else {
+			reachableServers = append(reachableServers, srv)
+		}
+	}
+
 	// Count servers requiring auth and find longest name for alignment
 	var pendingCount int
 	var maxNameLen int
 	var maxSSOLen int
-	for _, srv := range servers {
+	for _, srv := range reachableServers {
 		if srv.Status == pkgoauth.ServerStatusAuthRequired {
 			pendingCount++
 		}
@@ -179,7 +191,7 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 		fmt.Printf("  (%d pending authentication)\n", pendingCount)
 	}
 
-	for _, srv := range servers {
+	for _, srv := range reachableServers {
 		statusStr := formatMCPServerStatus(srv.Status)
 		ssoType := getSSOType(srv)
 
@@ -199,6 +211,11 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 			fmt.Printf("  %-*s %s%s\n", maxNameLen, srv.Name, statusStr, ssoLabel)
 		}
 	}
+
+	// Show summary for unreachable servers (don't show auth prompts for them)
+	if unreachableCount > 0 {
+		fmt.Printf("\n  (%d unreachable - not shown)\n", unreachableCount)
+	}
 }
 
 // formatMCPServerStatus formats the MCP server status with colors.
@@ -212,6 +229,8 @@ func formatMCPServerStatus(status string) string {
 		return text.FgRed.Sprint("Disconnected")
 	case pkgoauth.ServerStatusError:
 		return text.FgRed.Sprint("Error")
+	case pkgoauth.ServerStatusUnreachable:
+		return text.FgHiBlack.Sprint("Unreachable")
 	default:
 		return text.FgHiBlack.Sprint(status)
 	}

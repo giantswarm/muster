@@ -242,6 +242,16 @@ const (
 
 	// StateRetrying indicates the service is retrying a failed operation
 	StateRetrying ServiceState = "retrying"
+
+	// StateUnreachable indicates the service endpoint cannot be reached after multiple attempts.
+	// This state is used for remote MCP servers (streamable-http, sse) that fail to connect
+	// due to network issues, DNS failures, or decommissioned endpoints.
+	// Servers in this state will use exponential backoff for retry attempts.
+	//
+	// Related constants:
+	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
+	// - pkgoauth.ServerStatusUnreachable (pkg/oauth/types.go)
+	StateUnreachable ServiceState = "unreachable"
 )
 
 // ServiceStateChangedEvent represents a service state transition event.

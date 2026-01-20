@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -241,4 +242,400 @@ func TestGetRemoteInitContext(t *testing.T) {
 			assert.WithinDuration(t, expectedDeadline, deadline, 1*time.Second)
 		})
 	}
+}
+
+// TestIsTransientConnectivityError verifies detection of transient network errors
+func TestIsTransientConnectivityError(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name:    "test-server",
+		Type:    api.MCPServerTypeStreamableHTTP,
+		URL:     "http://example.com/mcp",
+		Timeout: 30,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		// Transient errors - should return true
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "connection refused",
+			err:      assert.AnError, // will be replaced
+			expected: true,
+		},
+		{
+			name:     "connection reset",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "connection timed out",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "no such host",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "network is unreachable",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "host is unreachable",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "no route to host",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "dial tcp error",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "i/o timeout",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "eof",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "connection closed",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "context deadline exceeded",
+			err:      assert.AnError,
+			expected: true,
+		},
+		{
+			name:     "context canceled",
+			err:      assert.AnError,
+			expected: true,
+		},
+		// Configuration errors - should return false (not transient)
+		{
+			name:     "certificate error",
+			err:      assert.AnError,
+			expected: false,
+		},
+		{
+			name:     "x509 error",
+			err:      assert.AnError,
+			expected: false,
+		},
+		{
+			name:     "tls handshake failure",
+			err:      assert.AnError,
+			expected: false,
+		},
+		{
+			name:     "certificate has expired",
+			err:      assert.AnError,
+			expected: false,
+		},
+		// Other errors - should return false
+		{
+			name:     "random application error",
+			err:      assert.AnError,
+			expected: false,
+		},
+	}
+
+	// Build actual error messages for testing
+	errorMessages := map[string]string{
+		"connection refused":        "dial tcp 127.0.0.1:8080: connection refused",
+		"connection reset":          "read tcp: connection reset by peer",
+		"connection timed out":      "dial tcp: connection timed out",
+		"no such host":              "lookup invalid.host: no such host",
+		"network is unreachable":    "dial tcp: network is unreachable",
+		"host is unreachable":       "dial tcp: host is unreachable",
+		"no route to host":          "dial tcp: no route to host",
+		"dial tcp error":            "dial tcp 192.168.1.1:443: connect: connection refused",
+		"i/o timeout":               "read tcp: i/o timeout",
+		"eof":                       "read: eof",
+		"connection closed":         "connection closed by remote host",
+		"context deadline exceeded": "context deadline exceeded",
+		"context canceled":          "context canceled",
+		"certificate error":         "x509: certificate signed by unknown authority",
+		"x509 error":                "x509: certificate has expired",
+		"tls handshake failure":     "tls handshake failure: certificate required",
+		"certificate has expired":   "certificate has expired or is not yet valid",
+		"random application error":  "some random error that is not connectivity related",
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var testErr error
+			if tt.err != nil {
+				if msg, ok := errorMessages[tt.name]; ok {
+					testErr = errors.New(msg)
+				} else {
+					testErr = tt.err
+				}
+			}
+
+			result := svc.isTransientConnectivityError(testErr)
+			assert.Equal(t, tt.expected, result, "isTransientConnectivityError(%v) = %v, want %v", testErr, result, tt.expected)
+		})
+	}
+}
+
+// TestIsConfigurationError verifies detection of configuration errors
+func TestIsConfigurationError(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name:    "test-server",
+		Type:    api.MCPServerTypeStreamableHTTP,
+		URL:     "http://example.com/mcp",
+		Timeout: 30,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		errMsg   string
+		expected bool
+	}{
+		{
+			name:     "certificate signed by unknown authority",
+			errMsg:   "x509: certificate signed by unknown authority",
+			expected: true,
+		},
+		{
+			name:     "certificate has expired",
+			errMsg:   "x509: certificate has expired or is not yet valid",
+			expected: true,
+		},
+		{
+			name:     "tls handshake failure",
+			errMsg:   "tls handshake timeout",
+			expected: true,
+		},
+		{
+			name:     "x509 generic",
+			errMsg:   "x509: something went wrong",
+			expected: true,
+		},
+		{
+			name:     "connection refused - not config error",
+			errMsg:   "dial tcp: connection refused",
+			expected: false,
+		},
+		{
+			name:     "timeout - not config error",
+			errMsg:   "context deadline exceeded",
+			expected: false,
+		},
+		{
+			name:     "random error - not config error",
+			errMsg:   "something went wrong",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testErr := errors.New(tt.errMsg)
+			result := svc.isConfigurationError(testErr)
+			assert.Equal(t, tt.expected, result, "isConfigurationError(%q) = %v, want %v", tt.errMsg, result, tt.expected)
+		})
+	}
+}
+
+// TestCalculateNextRetryTime verifies exponential backoff calculation
+func TestCalculateNextRetryTime(t *testing.T) {
+	tests := []struct {
+		name             string
+		failures         int
+		expectedBackoff  time.Duration
+		tolerancePercent float64
+	}{
+		{
+			name:             "first failure - initial backoff",
+			failures:         1,
+			expectedBackoff:  InitialBackoff,
+			tolerancePercent: 0.1, // 10% tolerance
+		},
+		{
+			name:             "second failure - 2x backoff",
+			failures:         2,
+			expectedBackoff:  InitialBackoff * 2,
+			tolerancePercent: 0.1,
+		},
+		{
+			name:             "third failure - 4x backoff",
+			failures:         3,
+			expectedBackoff:  InitialBackoff * 4,
+			tolerancePercent: 0.1,
+		},
+		{
+			name:             "fourth failure - 8x backoff",
+			failures:         4,
+			expectedBackoff:  InitialBackoff * 8,
+			tolerancePercent: 0.1,
+		},
+		{
+			name:             "many failures - capped at max",
+			failures:         100,
+			expectedBackoff:  MaxBackoff,
+			tolerancePercent: 0.1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, err := NewService(&api.MCPServer{
+				Name:    "test-server",
+				Type:    api.MCPServerTypeStreamableHTTP,
+				URL:     "http://example.com/mcp",
+				Timeout: 30,
+			})
+			require.NoError(t, err)
+
+			// Set consecutive failures
+			svc.failureMutex.Lock()
+			svc.consecutiveFailures = tt.failures
+			beforeCalc := time.Now()
+			svc.calculateNextRetryTimeLocked()
+			nextRetry := svc.nextRetryAfter
+			svc.failureMutex.Unlock()
+
+			require.NotNil(t, nextRetry, "nextRetryAfter should be set")
+
+			// Verify the backoff duration is approximately correct
+			actualBackoff := nextRetry.Sub(beforeCalc)
+			tolerance := time.Duration(float64(tt.expectedBackoff) * tt.tolerancePercent)
+
+			assert.InDelta(t, tt.expectedBackoff.Seconds(), actualBackoff.Seconds(), tolerance.Seconds(),
+				"backoff duration should be approximately %v, got %v", tt.expectedBackoff, actualBackoff)
+		})
+	}
+}
+
+// TestFailureTrackingThreadSafety verifies thread-safe access to failure tracking fields
+func TestFailureTrackingThreadSafety(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name:    "test-server",
+		Type:    api.MCPServerTypeStreamableHTTP,
+		URL:     "http://example.com/mcp",
+		Timeout: 30,
+	})
+	require.NoError(t, err)
+
+	// Simulate concurrent access to failure tracking
+	done := make(chan bool)
+
+	// Writer goroutine
+	go func() {
+		for i := 0; i < 100; i++ {
+			svc.failureMutex.Lock()
+			svc.consecutiveFailures = i
+			now := time.Now()
+			svc.lastAttempt = &now
+			svc.calculateNextRetryTimeLocked()
+			svc.failureMutex.Unlock()
+		}
+		done <- true
+	}()
+
+	// Reader goroutine
+	go func() {
+		for i := 0; i < 100; i++ {
+			_ = svc.GetConsecutiveFailures()
+			_ = svc.GetLastAttempt()
+			_ = svc.GetNextRetryAfter()
+		}
+		done <- true
+	}()
+
+	// Wait for both goroutines
+	<-done
+	<-done
+
+	// If we get here without a race condition, the test passes
+	assert.True(t, true, "concurrent access completed without race conditions")
+}
+
+// TestIsRemoteServer verifies remote server detection
+func TestIsRemoteServer(t *testing.T) {
+	tests := []struct {
+		name       string
+		serverType api.MCPServerType
+		expected   bool
+	}{
+		{
+			name:       "stdio is not remote",
+			serverType: api.MCPServerTypeStdio,
+			expected:   false,
+		},
+		{
+			name:       "streamable-http is remote",
+			serverType: api.MCPServerTypeStreamableHTTP,
+			expected:   true,
+		},
+		{
+			name:       "sse is remote",
+			serverType: api.MCPServerTypeSSE,
+			expected:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := &api.MCPServer{
+				Name: "test-server",
+				Type: tt.serverType,
+			}
+			if tt.serverType == api.MCPServerTypeStdio {
+				def.Command = "echo"
+			} else {
+				def.URL = "http://example.com/mcp"
+			}
+
+			svc, err := NewService(def)
+			require.NoError(t, err)
+
+			result := svc.isRemoteServer()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestIsUnreachable verifies unreachable state detection
+func TestIsUnreachable(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name:    "test-server",
+		Type:    api.MCPServerTypeStreamableHTTP,
+		URL:     "http://example.com/mcp",
+		Timeout: 30,
+	})
+	require.NoError(t, err)
+
+	// Initially not unreachable
+	assert.False(t, svc.IsUnreachable())
+
+	// Set to unreachable state
+	svc.UpdateState(services.StateUnreachable, services.HealthUnknown, nil)
+	assert.True(t, svc.IsUnreachable())
+
+	// Change to running state
+	svc.UpdateState(services.StateRunning, services.HealthHealthy, nil)
+	assert.False(t, svc.IsUnreachable())
 }

@@ -159,6 +159,22 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}
+
+		// Sync failure tracking fields for unreachable server detection
+		serviceData := service.GetServiceData()
+		if serviceData != nil {
+			if failures, ok := serviceData["consecutiveFailures"].(int); ok {
+				server.Status.ConsecutiveFailures = failures
+			}
+			if lastAttempt, ok := serviceData["lastAttempt"].(time.Time); ok {
+				t := metav1.NewTime(lastAttempt)
+				server.Status.LastAttempt = &t
+			}
+			if nextRetry, ok := serviceData["nextRetryAfter"].(time.Time); ok {
+				t := metav1.NewTime(nextRetry)
+				server.Status.NextRetryAfter = &t
+			}
+		}
 	} else {
 		// Service doesn't exist - use typed constants
 		server.Status.State = ServiceStateStopped

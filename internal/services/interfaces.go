@@ -12,14 +12,15 @@ type ServiceState = api.ServiceState
 type HealthStatus = api.HealthStatus
 
 const (
-	StateUnknown  = api.StateUnknown
-	StateWaiting  = api.StateWaiting
-	StateStarting = api.StateStarting
-	StateRunning  = api.StateRunning
-	StateStopping = api.StateStopping
-	StateStopped  = api.StateStopped
-	StateFailed   = api.StateFailed
-	StateRetrying = api.StateRetrying
+	StateUnknown     = api.StateUnknown
+	StateWaiting     = api.StateWaiting
+	StateStarting    = api.StateStarting
+	StateRunning     = api.StateRunning
+	StateStopping    = api.StateStopping
+	StateStopped     = api.StateStopped
+	StateFailed      = api.StateFailed
+	StateRetrying    = api.StateRetrying
+	StateUnreachable = api.StateUnreachable
 )
 
 const (
