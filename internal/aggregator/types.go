@@ -283,6 +283,10 @@ const (
 	// StatusAuthRequired indicates the server requires OAuth authentication
 	// before it can complete the MCP protocol handshake
 	StatusAuthRequired ServerStatus = "auth_required"
+
+	// StatusUnreachable indicates the server endpoint cannot be reached.
+	// This is distinct from auth_required - unreachable means network/connectivity failure.
+	StatusUnreachable ServerStatus = "unreachable"
 )
 
 // AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.

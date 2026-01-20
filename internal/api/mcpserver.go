@@ -1,5 +1,7 @@
 package api
 
+import "time"
+
 // MCPServer represents a single MCP (Model Context Protocol) server definition and runtime state.
 // It consolidates MCPServerDefinition, MCPServerInfo, and MCPServerConfig into a unified type
 // that can be used for both configuration persistence (YAML) and API responses (JSON).
@@ -178,13 +180,23 @@ type MCPServerInfo struct {
 
 	// State represents the current operational state of the MCP server.
 	// This is synced from the CRD status by the reconciler.
-	// Possible values: unknown, starting, running, stopping, stopped, failed
+	// Possible values: unknown, starting, running, stopping, stopped, failed, waiting, retrying, unreachable
 	State string `json:"state,omitempty"`
 
 	// Health represents the current health status of the MCP server.
 	// This is synced from the CRD status by the reconciler.
 	// Possible values: unknown, healthy, unhealthy, checking
 	Health string `json:"health,omitempty"`
+
+	// ConsecutiveFailures tracks the number of consecutive connection failures.
+	// Used for exponential backoff and to identify unreachable servers.
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
+
+	// LastAttempt indicates when the last connection attempt was made.
+	LastAttempt *time.Time `json:"lastAttempt,omitempty"`
+
+	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
+	NextRetryAfter *time.Time `json:"nextRetryAfter,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.

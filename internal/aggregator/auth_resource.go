@@ -84,8 +84,12 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		// For servers requiring auth globally, check if the current session has authenticated
-		if info.Status == StatusAuthRequired && info.AuthInfo != nil {
+		// Handle unreachable servers first - don't offer auth for these
+		if info.Status == StatusUnreachable {
+			status.Status = pkgoauth.ServerStatusUnreachable
+			// Don't set AuthTool - no point in trying to authenticate unreachable servers
+		} else if info.Status == StatusAuthRequired && info.AuthInfo != nil {
+			// For servers requiring auth globally, check if the current session has authenticated
 			sessionAuthenticated := false
 
 			// Check if this session has an authenticated connection to this server

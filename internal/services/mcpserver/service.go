@@ -2,7 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +21,19 @@ import (
 // (see pkg/apis/muster/v1alpha1/mcpserver_types.go).
 const DefaultRemoteTimeout = 30
 
+// UnreachableThreshold is the number of consecutive failures before marking a server as unreachable.
+const UnreachableThreshold = 3
+
+// Exponential backoff configuration for unreachable servers.
+const (
+	// InitialBackoff is the initial retry interval after first failure (30 seconds)
+	InitialBackoff = 30 * time.Second
+	// MaxBackoff is the maximum retry interval (30 minutes)
+	MaxBackoff = 30 * time.Minute
+	// BackoffMultiplier is the factor by which backoff increases on each failure
+	BackoffMultiplier = 2.0
+)
+
 // Service implements the Service interface for MCP server management
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
@@ -25,6 +41,11 @@ type Service struct {
 	definition      *api.MCPServer
 	client          interface{} // MCP client that manages the process AND handles MCP communication
 	clientInitMutex sync.Mutex  // Protects client operations
+
+	// Connection failure tracking for exponential backoff
+	consecutiveFailures int        // Number of consecutive connection failures
+	lastAttempt         *time.Time // When the last connection attempt was made
+	nextRetryAfter      *time.Time // When the next retry should be attempted
 }
 
 // NewService creates a new MCP server service
@@ -45,10 +66,17 @@ func NewService(definition *api.MCPServer) (*Service, error) {
 // If the server requires OAuth authentication, this method will return an
 // AuthRequiredError containing the OAuth information. The caller should handle
 // this by registering the server in auth_required state with a synthetic tool.
+//
+// For remote servers, this method tracks consecutive connection failures and
+// transitions to StateUnreachable after UnreachableThreshold failures.
 func (s *Service) Start(ctx context.Context) error {
 	if s.IsRunning() {
 		return fmt.Errorf("service %s is already running", s.GetName())
 	}
+
+	// Record attempt time
+	now := time.Now()
+	s.lastAttempt = &now
 
 	s.UpdateState(services.StateStarting, services.HealthUnknown, nil)
 	s.LogInfo("Starting MCP server service")
@@ -61,6 +89,7 @@ func (s *Service) Start(ctx context.Context) error {
 		// Check if this is an auth required error - this is a special case
 		// where the server exists but needs OAuth before it can connect
 		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
+			// Auth errors should not count as connectivity failures
 			// Use StateWaiting instead of StateStopped to prevent the event handler
 			// from deregistering the server before the orchestrator can register
 			// the pending auth. StateWaiting is semantically correct - the server
@@ -75,6 +104,23 @@ func (s *Service) Start(ctx context.Context) error {
 			return authErr
 		}
 
+		// Track consecutive failures for remote servers
+		if s.isRemoteServer() && s.isConnectivityError(err) {
+			s.consecutiveFailures++
+			s.calculateNextRetryTime()
+			s.LogWarn("Connection failure #%d for MCP server %s: %v (next retry after %v)",
+				s.consecutiveFailures, s.GetName(), err, s.nextRetryAfter)
+
+			// Transition to unreachable state after threshold failures
+			if s.consecutiveFailures >= UnreachableThreshold {
+				s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
+				s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+					Error: fmt.Sprintf("server unreachable after %d consecutive failures: %s", s.consecutiveFailures, err.Error()),
+				})
+				return fmt.Errorf("server unreachable after %d failures: %w", s.consecutiveFailures, err)
+			}
+		}
+
 		s.UpdateState(services.StateFailed, services.HealthUnhealthy, err)
 		// Generate failure event
 		s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
@@ -82,6 +128,9 @@ func (s *Service) Start(ctx context.Context) error {
 		})
 		return fmt.Errorf("failed to start MCP server: %w", err)
 	}
+
+	// Success - reset consecutive failure tracking
+	s.resetFailureTracking()
 
 	s.UpdateState(services.StateRunning, services.HealthHealthy, nil)
 	s.LogInfo("MCP server started successfully")
@@ -255,6 +304,15 @@ func (s *Service) GetServiceData() map[string]interface{} {
 
 	// Add tool prefix for aggregator registration
 	data["toolPrefix"] = s.definition.ToolPrefix
+
+	// Add failure tracking data for unreachable server detection
+	data["consecutiveFailures"] = s.consecutiveFailures
+	if s.lastAttempt != nil {
+		data["lastAttempt"] = *s.lastAttempt
+	}
+	if s.nextRetryAfter != nil {
+		data["nextRetryAfter"] = *s.nextRetryAfter
+	}
 
 	return data
 }
@@ -456,4 +514,120 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 	} else {
 		logging.Debug(s.GetLogContext(), "Generated event %s for MCPServer service", string(reason))
 	}
+}
+
+// isRemoteServer returns true if this is a remote MCP server (streamable-http or sse)
+// as opposed to a local stdio server. Remote servers are subject to network
+// connectivity issues and unreachable state tracking.
+func (s *Service) isRemoteServer() bool {
+	return s.definition.Type == api.MCPServerTypeStreamableHTTP || s.definition.Type == api.MCPServerTypeSSE
+}
+
+// isConnectivityError checks if an error is a network/connectivity error
+// that should count towards the unreachable threshold.
+// Auth errors and other application-level errors are not connectivity errors.
+func (s *Service) isConnectivityError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+
+	// Check for net.OpError (connection refused, timeout, no route to host)
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+
+	// Check for DNS errors
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+
+	// Check for common connectivity error patterns in error messages
+	connectivityPatterns := []string{
+		"connection refused",
+		"connection reset",
+		"connection timed out",
+		"no such host",
+		"network is unreachable",
+		"host is unreachable",
+		"no route to host",
+		"dial tcp",
+		"dial unix",
+		"i/o timeout",
+		"eof",
+		"connection closed",
+		"tls handshake",
+		"certificate",
+		"x509",
+	}
+
+	for _, pattern := range connectivityPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// Context timeout/deadline exceeded also count as connectivity issues
+	if strings.Contains(errStr, "context deadline exceeded") ||
+		strings.Contains(errStr, "context canceled") {
+		return true
+	}
+
+	return false
+}
+
+// calculateNextRetryTime calculates the next retry time using exponential backoff.
+// Backoff follows: InitialBackoff * 2^(failures-1), capped at MaxBackoff.
+func (s *Service) calculateNextRetryTime() {
+	// Calculate backoff duration: initial * 2^(failures-1)
+	backoffDuration := InitialBackoff
+	for i := 1; i < s.consecutiveFailures; i++ {
+		backoffDuration = time.Duration(float64(backoffDuration) * BackoffMultiplier)
+		if backoffDuration > MaxBackoff {
+			backoffDuration = MaxBackoff
+			break
+		}
+	}
+
+	nextRetry := time.Now().Add(backoffDuration)
+	s.nextRetryAfter = &nextRetry
+}
+
+// resetFailureTracking resets the consecutive failure tracking.
+// This should be called when a connection succeeds.
+func (s *Service) resetFailureTracking() {
+	s.consecutiveFailures = 0
+	s.nextRetryAfter = nil
+}
+
+// GetConsecutiveFailures returns the number of consecutive connection failures.
+func (s *Service) GetConsecutiveFailures() int {
+	return s.consecutiveFailures
+}
+
+// GetLastAttempt returns the time of the last connection attempt.
+func (s *Service) GetLastAttempt() *time.Time {
+	return s.lastAttempt
+}
+
+// GetNextRetryAfter returns the time after which the next retry should be attempted.
+func (s *Service) GetNextRetryAfter() *time.Time {
+	return s.nextRetryAfter
+}
+
+// ShouldRetry returns true if enough time has passed since the last failure
+// and a retry should be attempted based on the exponential backoff.
+func (s *Service) ShouldRetry() bool {
+	if s.nextRetryAfter == nil {
+		return true
+	}
+	return time.Now().After(*s.nextRetryAfter)
+}
+
+// IsUnreachable returns true if the server is in the unreachable state.
+func (s *Service) IsUnreachable() bool {
+	return s.GetState() == services.StateUnreachable
 }

@@ -16,6 +16,7 @@ var (
 	listFilter      string
 	listDescription string
 	listServer      string
+	listShowAll     bool
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -242,6 +243,7 @@ func init() {
 	listCmd.PersistentFlags().StringVar(&listFilter, "filter", "", "Filter by name pattern (wildcards * and ? supported, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server name prefix (for MCP primitives only)")
+	listCmd.PersistentFlags().BoolVar(&listShowAll, "all", false, "Show all servers including unreachable ones (for mcpserver only)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -296,7 +298,13 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return executor.Execute(ctx, toolName, nil)
+	// For mcpserver list, pass the showAll parameter
+	var toolArgs map[string]interface{}
+	if toolName == "core_mcpserver_list" && listShowAll {
+		toolArgs = map[string]interface{}{"showAll": true}
+	}
+
+	return executor.Execute(ctx, toolName, toolArgs)
 }
 
 // runListMCP handles listing MCP primitives (tools, resources, prompts)

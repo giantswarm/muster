@@ -98,7 +98,7 @@ type MCPServerAuth struct {
 // MCPServerStatus defines the observed state of MCPServer
 type MCPServerStatus struct {
 	// State represents the current operational state of the MCP server
-	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed
+	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable
 	State string `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// Health represents the health status of the MCP server
@@ -113,6 +113,19 @@ type MCPServerStatus struct {
 
 	// RestartCount tracks how many times this server has been restarted
 	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
+
+	// ConsecutiveFailures tracks the number of consecutive connection failures.
+	// This is used for exponential backoff and to identify unreachable servers.
+	// Reset to 0 when a connection succeeds.
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty" yaml:"consecutiveFailures,omitempty"`
+
+	// LastAttempt indicates when the last connection attempt was made.
+	// Used with ConsecutiveFailures to implement exponential backoff.
+	LastAttempt *metav1.Time `json:"lastAttempt,omitempty" yaml:"lastAttempt,omitempty"`
+
+	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
+	// This is calculated based on exponential backoff from ConsecutiveFailures.
+	NextRetryAfter *metav1.Time `json:"nextRetryAfter,omitempty" yaml:"nextRetryAfter,omitempty"`
 
 	// Conditions represent the latest available observations of the MCPServer's current state
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`

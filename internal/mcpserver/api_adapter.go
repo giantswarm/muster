@@ -107,8 +107,19 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
 		// Include status fields synced by the reconciler (see ADR 007)
-		State:  server.Status.State,
-		Health: server.Status.Health,
+		State:               server.Status.State,
+		Health:              server.Status.Health,
+		ConsecutiveFailures: server.Status.ConsecutiveFailures,
+	}
+
+	// Convert time fields from metav1.Time to time.Time
+	if server.Status.LastAttempt != nil {
+		t := server.Status.LastAttempt.Time
+		info.LastAttempt = &t
+	}
+	if server.Status.NextRetryAfter != nil {
+		t := server.Status.NextRetryAfter.Time
+		info.NextRetryAfter = &t
 	}
 
 	// Convert auth configuration if present
@@ -188,7 +199,10 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
 		{
 			Name:        "mcpserver_list",
-			Description: "List all MCP server definitions with their status",
+			Description: "List all MCP server definitions with their status. By default, unreachable servers are hidden.",
+			Args: []api.ArgMetadata{
+				{Name: "showAll", Type: "boolean", Required: false, Description: "Show all servers including unreachable ones (default: false)"},
+			},
 		},
 		{
 			Name:        "mcpserver_get",
@@ -226,7 +240,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {
 	case "mcpserver_list":
-		return a.handleMCPServerList()
+		return a.handleMCPServerList(args)
 	case "mcpserver_get":
 		return a.handleMCPServerGet(args)
 	case "mcpserver_validate":
@@ -244,13 +258,39 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 
 // Tool handlers
 
-func (a *Adapter) handleMCPServerList() (*api.CallToolResult, error) {
-	mcpServers := a.ListMCPServers()
+func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToolResult, error) {
+	allServers := a.ListMCPServers()
+
+	// Check showAll parameter (default: false)
+	showAll := false
+	if val, ok := args["showAll"].(bool); ok {
+		showAll = val
+	}
+
+	// Filter out unreachable servers unless showAll is true
+	var filteredServers []api.MCPServerInfo
+	unreachableCount := 0
+	for _, server := range allServers {
+		if server.State == string(api.StateUnreachable) {
+			unreachableCount++
+			if showAll {
+				filteredServers = append(filteredServers, server)
+			}
+		} else {
+			filteredServers = append(filteredServers, server)
+		}
+	}
 
 	result := map[string]interface{}{
-		"mcpServers": mcpServers,
-		"total":      len(mcpServers),
+		"mcpServers": filteredServers,
+		"total":      len(filteredServers),
 		"mode":       getClientMode(a.client),
+	}
+
+	// Add unreachable count if any servers were hidden
+	if unreachableCount > 0 && !showAll {
+		result["hiddenUnreachable"] = unreachableCount
+		result["hint"] = fmt.Sprintf("(%d unreachable servers hidden, use --all to show)", unreachableCount)
 	}
 
 	return &api.CallToolResult{
