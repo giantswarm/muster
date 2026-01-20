@@ -532,6 +532,34 @@ func (m *AuthManager) ClearToken() error {
 	return m.client.ClearToken(m.serverURL)
 }
 
+// HasValidTokenForEndpoint checks if a valid token exists for the given endpoint.
+// This method checks the filesystem for tokens that may have been created by
+// external processes (e.g., 'muster auth login' CLI command).
+// If a valid token is found, it updates the internal auth state to AuthStateAuthenticated.
+// This enables the agent to detect CLI-based authentication and upgrade from pending auth state.
+func (m *AuthManager) HasValidTokenForEndpoint(endpoint string) bool {
+	// Normalize the endpoint URL for consistent token lookup
+	normalizedURL := normalizeServerURL(endpoint)
+
+	// Check if the client has a valid token (reads from filesystem if not in cache)
+	if m.client.HasValidToken(normalizedURL) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		// Update internal state if we were in pending auth state
+		if m.state == AuthStatePendingAuth || m.state == AuthStateUnknown {
+			m.state = AuthStateAuthenticated
+			m.serverURL = normalizedURL
+			slog.Debug("Valid token detected for endpoint, updating auth state",
+				"endpoint", endpoint,
+				"state", m.state.String(),
+			)
+		}
+		return true
+	}
+	return false
+}
+
 // Close cleans up resources.
 func (m *AuthManager) Close() error {
 	if m.client != nil {

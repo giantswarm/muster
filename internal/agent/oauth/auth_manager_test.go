@@ -398,3 +398,210 @@ func TestAuthManager_WaitForAuth_NoFlowInProgress(t *testing.T) {
 		t.Error("expected error when waiting for auth with no flow in progress")
 	}
 }
+
+func TestAuthManager_HasValidTokenForEndpoint_NoToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Should return false when no token exists
+	if mgr.HasValidTokenForEndpoint("https://muster.example.com") {
+		t.Error("expected false when no token exists")
+	}
+
+	// State should remain unchanged
+	if mgr.GetState() != AuthStateUnknown {
+		t.Errorf("expected state to remain Unknown, got %s", mgr.GetState())
+	}
+}
+
+func TestAuthManager_HasValidTokenForEndpoint_WithValidToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Pre-store a valid token
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+	token := &StoredToken{
+		AccessToken: "valid-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+		ServerURL:   serverURL,
+		IssuerURL:   issuerURL,
+		CreatedAt:   time.Now(),
+	}
+
+	// Store directly via the client's token store
+	oauth2Token := token.ToOAuth2Token()
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	if err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should return true when valid token exists
+	if !mgr.HasValidTokenForEndpoint(serverURL) {
+		t.Error("expected true when valid token exists")
+	}
+
+	// State should be updated to Authenticated
+	if mgr.GetState() != AuthStateAuthenticated {
+		t.Errorf("expected state Authenticated, got %s", mgr.GetState())
+	}
+}
+
+func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.T) {
+	// Create a mock server that returns 401
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-protected-resource" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"resource":              "https://example.com",
+				"authorization_servers": []string{"https://oauth.example.com"},
+			})
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="https://oauth.example.com"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	ctx := context.Background()
+
+	// First check connection to trigger pending auth state
+	state, _ := mgr.CheckConnection(ctx, server.URL)
+	if state != AuthStatePendingAuth {
+		t.Skipf("Server did not trigger pending auth state, got %s", state)
+	}
+
+	// Now simulate CLI authentication by storing a token directly
+	issuerURL := "https://oauth.example.com"
+	token := &StoredToken{
+		AccessToken: "cli-auth-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+		ServerURL:   server.URL,
+		IssuerURL:   issuerURL,
+		CreatedAt:   time.Now(),
+	}
+	oauth2Token := token.ToOAuth2Token()
+	err = mgr.client.tokenStore.StoreToken(server.URL, issuerURL, oauth2Token)
+	if err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// HasValidTokenForEndpoint should detect the token and update state
+	if !mgr.HasValidTokenForEndpoint(server.URL) {
+		t.Error("expected true after CLI-stored token")
+	}
+
+	// State should be updated from PendingAuth to Authenticated
+	if mgr.GetState() != AuthStateAuthenticated {
+		t.Errorf("expected state to be updated to Authenticated, got %s", mgr.GetState())
+	}
+}
+
+func TestAuthManager_HasValidTokenForEndpoint_NormalizesURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Store token with normalized URL
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+	token := &StoredToken{
+		AccessToken: "valid-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+		ServerURL:   serverURL,
+		IssuerURL:   issuerURL,
+		CreatedAt:   time.Now(),
+	}
+	oauth2Token := token.ToOAuth2Token()
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	if err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should find token even with /mcp suffix (URL normalization)
+	if !mgr.HasValidTokenForEndpoint("https://muster.example.com/mcp") {
+		t.Error("expected to find token with /mcp suffix")
+	}
+
+	// Should find token even with /sse suffix
+	if !mgr.HasValidTokenForEndpoint("https://muster.example.com/sse") {
+		t.Error("expected to find token with /sse suffix")
+	}
+
+	// Should find token with trailing slash
+	if !mgr.HasValidTokenForEndpoint("https://muster.example.com/") {
+		t.Error("expected to find token with trailing slash")
+	}
+}
+
+func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	// Store an expired token
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+	token := &StoredToken{
+		AccessToken: "expired-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
+		ServerURL:   serverURL,
+		IssuerURL:   issuerURL,
+		CreatedAt:   time.Now().Add(-2 * time.Hour),
+	}
+	oauth2Token := token.ToOAuth2Token()
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	if err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+
+	// Should return false for expired token
+	if mgr.HasValidTokenForEndpoint(serverURL) {
+		t.Error("expected false for expired token")
+	}
+
+	// State should remain unchanged
+	if mgr.GetState() != AuthStateUnknown {
+		t.Errorf("expected state to remain Unknown, got %s", mgr.GetState())
+	}
+}

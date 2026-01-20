@@ -388,6 +388,9 @@ func runMCPServerPendingAuth(ctx context.Context, client *agent.Client, logger *
 	authCompleteChan := make(chan struct{})
 
 	// Start a goroutine to monitor auth state and upgrade when complete
+	// This checks both:
+	// 1. OAuth callback completion (via IsAuthComplete)
+	// 2. Filesystem tokens from CLI authentication (via HasValidTokenForEndpoint)
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
@@ -397,7 +400,13 @@ func runMCPServerPendingAuth(ctx context.Context, client *agent.Client, logger *
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// Check if auth completed via OAuth callback
 				if pendingServer.IsAuthComplete() {
+					close(authCompleteChan)
+					return
+				}
+				// Check if a valid token appeared in filesystem (CLI auth)
+				if authManager.HasValidTokenForEndpoint(endpoint) {
 					close(authCompleteChan)
 					return
 				}
