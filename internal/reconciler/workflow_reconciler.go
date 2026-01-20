@@ -100,12 +100,9 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 
 	namespace = r.GetNamespace(namespace)
 
-	// Record status sync attempt for metrics
-	metrics := GetReconcilerMetrics()
-	metrics.RecordStatusSyncAttempt(ResourceTypeWorkflow, name)
-
-	// Get failure tracker for backoff-based logging
-	failureTracker := GetStatusSyncFailureTracker()
+	// Initialize status sync helper
+	helper := NewStatusSyncHelper(ResourceTypeWorkflow, name, "WorkflowReconciler")
+	helper.RecordAttempt()
 
 	// Extract referenced tools from steps (computed once)
 	referencedTools := r.extractReferencedTools(wf)
@@ -124,12 +121,12 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 
 	// Use retry-on-conflict to handle optimistic locking failures.
 	var lastErr error
-	err := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+	retryErr := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
 		// Get the current CRD (re-fetch on each attempt to get latest resource version)
 		workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
 		if err != nil {
 			lastErr = err
-			return nil // Return nil to exit retry loop
+			return nil // Return nil to exit retry loop (non-retryable)
 		}
 
 		// Apply status
@@ -144,26 +141,11 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 		return nil
 	})
 
-	// Handle the result
-	if err != nil || lastErr != nil {
-		actualErr := lastErr
-		if actualErr == nil {
-			actualErr = err
-		}
-
-		reason := CategorizeStatusSyncError(actualErr)
-		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, reason)
-
-		if failureTracker.RecordFailure(ResourceTypeWorkflow, name, actualErr) {
-			failureCount := failureTracker.GetFailureCount(ResourceTypeWorkflow, name)
-			logging.Debug("WorkflowReconciler", "Status sync failed for %s: %s (consecutive failures: %d)",
-				name, actualErr.Error(), failureCount)
-		}
-	} else {
+	// Handle the result and log on success
+	helper.HandleResult(retryErr, lastErr)
+	if helper.WasSuccessful(retryErr, lastErr) {
 		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
 			name, len(validationErrors) == 0, stepCount, referencedTools)
-		metrics.RecordStatusSyncSuccess(ResourceTypeWorkflow, name)
-		failureTracker.RecordSuccess(ResourceTypeWorkflow, name)
 	}
 }
 

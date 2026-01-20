@@ -142,6 +142,9 @@ func establishSessionConnection(
 	// Send targeted notification to the session that their tools have changed
 	a.NotifySessionToolsChanged(sessionID)
 
+	// Sync service state to Connected now that authentication succeeded
+	notifyMCPServerConnected(serverName, "authentication")
+
 	logging.Info("SessionConnection", "Session %s connected to %s with %d tools, %d resources, %d prompts",
 		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
 
@@ -365,6 +368,9 @@ func EstablishSessionConnectionWithTokenForwarding(
 
 	// Notify the session
 	a.NotifySessionToolsChanged(sessionID)
+
+	// Sync service state to Connected now that SSO succeeded
+	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
 
 	logging.Info("SessionConnection", "Session %s connected to %s via SSO token forwarding with %d tools",
 		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
@@ -622,6 +628,9 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Notify the session
 	a.NotifySessionToolsChanged(sessionID)
 
+	// Sync service state to Connected now that token exchange succeeded
+	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
+
 	logging.Info("SessionConnection", "Session %s connected to %s via RFC 8693 token exchange with %d tools",
 		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
 
@@ -726,6 +735,20 @@ func extractUserIDFromToken(idToken string) string {
 // idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
 // This accounts for clock skew and network latency during forwarding.
 const idTokenExpiryMargin = 30 * time.Second
+
+// notifyMCPServerConnected updates the MCPServer service state to Connected after
+// successful authentication. This syncs the session-level connection success to
+// the service-level state, ensuring that `muster list mcpserver` shows the correct
+// connected state.
+//
+// This is a best-effort operation - failures are logged at warn level but don't
+// fail the connection flow.
+func notifyMCPServerConnected(serverName, authMethod string) {
+	if err := api.UpdateMCPServerState(serverName, api.StateConnected, api.HealthHealthy, nil); err != nil {
+		logging.Warn("SessionConnection", "Failed to update MCPServer %s state after %s: %v",
+			serverName, authMethod, err)
+	}
+}
 
 // isIDTokenExpired checks if a JWT ID token is expired or about to expire.
 // This provides basic validation before forwarding tokens to downstream servers,

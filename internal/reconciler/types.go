@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	"muster/pkg/logging"
 )
 
 // ResourceType represents the type of resource being reconciled.
@@ -495,8 +496,6 @@ func CategorizeStatusSyncError(err error) string {
 		return "unknown"
 	}
 
-	errStr := err.Error()
-
 	// Check for specific Kubernetes API errors first (most accurate)
 	if IsConflictError(err) {
 		return "conflict_after_retries"
@@ -505,30 +504,98 @@ func CategorizeStatusSyncError(err error) string {
 		return "crd_not_found"
 	}
 
+	// Use lowercase for case-insensitive string matching
+	errStrLower := strings.ToLower(err.Error())
+
 	// Check for network connectivity issues
-	if strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") ||
-		strings.Contains(errStr, "network is unreachable") {
+	if strings.Contains(errStrLower, "connection refused") ||
+		strings.Contains(errStrLower, "no route to host") ||
+		strings.Contains(errStrLower, "network is unreachable") {
 		return "api_server_unreachable"
 	}
 
 	// Check for timeout issues
-	if strings.Contains(errStr, "timeout") ||
-		strings.Contains(errStr, "deadline exceeded") {
+	if strings.Contains(errStrLower, "timeout") ||
+		strings.Contains(errStrLower, "deadline exceeded") {
 		return "timeout"
 	}
 
-	// Check for authorization issues (case-insensitive patterns)
-	if strings.Contains(errStr, "forbidden") ||
-		strings.Contains(errStr, "Forbidden") {
+	// Check for authorization issues
+	if strings.Contains(errStrLower, "forbidden") {
 		return "permission_denied"
 	}
-	if strings.Contains(errStr, "unauthorized") ||
-		strings.Contains(errStr, "Unauthorized") {
+	if strings.Contains(errStrLower, "unauthorized") {
 		return "authentication_failed"
 	}
 
 	return "update_status_failed"
+}
+
+// coalesceErrors returns the first non-nil error from the provided errors.
+// This is used in retry loops where we track both the retry library error
+// and any last error from the callback.
+func coalesceErrors(primary, fallback error) error {
+	if primary != nil {
+		return primary
+	}
+	return fallback
+}
+
+// StatusSyncResult holds the outcome of a status sync operation.
+type StatusSyncResult struct {
+	Success bool
+	Error   error
+}
+
+// StatusSyncHelper encapsulates the common retry-on-conflict pattern for status sync.
+// This helper reduces duplication across MCPServer, ServiceClass, and Workflow reconcilers.
+type StatusSyncHelper struct {
+	ResourceType   ResourceType
+	ResourceName   string
+	Metrics        *ReconcilerMetrics
+	FailureTracker *StatusSyncFailureTracker
+	ReconcilerName string
+}
+
+// NewStatusSyncHelper creates a new helper for status sync operations.
+func NewStatusSyncHelper(resourceType ResourceType, name, reconcilerName string) *StatusSyncHelper {
+	return &StatusSyncHelper{
+		ResourceType:   resourceType,
+		ResourceName:   name,
+		Metrics:        GetReconcilerMetrics(),
+		FailureTracker: GetStatusSyncFailureTracker(),
+		ReconcilerName: reconcilerName,
+	}
+}
+
+// RecordAttempt records a status sync attempt in metrics.
+func (h *StatusSyncHelper) RecordAttempt() {
+	h.Metrics.RecordStatusSyncAttempt(h.ResourceType, h.ResourceName)
+}
+
+// HandleResult processes the result of a status sync operation.
+// It records success/failure metrics and logs with backoff for failures.
+func (h *StatusSyncHelper) HandleResult(retryErr, lastErr error) {
+	if retryErr != nil || lastErr != nil {
+		actualErr := coalesceErrors(lastErr, retryErr)
+
+		reason := CategorizeStatusSyncError(actualErr)
+		h.Metrics.RecordStatusSyncFailure(h.ResourceType, h.ResourceName, reason)
+
+		if h.FailureTracker.RecordFailure(h.ResourceType, h.ResourceName, actualErr) {
+			failureCount := h.FailureTracker.GetFailureCount(h.ResourceType, h.ResourceName)
+			logging.Debug(h.ReconcilerName, "Status sync failed for %s: %s (consecutive failures: %d)",
+				h.ResourceName, actualErr.Error(), failureCount)
+		}
+	} else {
+		h.Metrics.RecordStatusSyncSuccess(h.ResourceType, h.ResourceName)
+		h.FailureTracker.RecordSuccess(h.ResourceType, h.ResourceName)
+	}
+}
+
+// WasSuccessful returns true if the status sync succeeded.
+func (h *StatusSyncHelper) WasSuccessful(retryErr, lastErr error) bool {
+	return retryErr == nil && lastErr == nil
 }
 
 // StatusSyncFailureTracker tracks per-resource status sync failures to implement
