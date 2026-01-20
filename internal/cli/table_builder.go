@@ -278,8 +278,12 @@ func (b *TableBuilder) normalizeState(state string) string {
 	switch strings.ToLower(state) {
 	case "running":
 		return "Running"
+	case "connected":
+		return "Connected"
 	case "stopped":
 		return "Stopped"
+	case "disconnected":
+		return "Disconnected"
 	case "starting":
 		return "Starting"
 	case "stopping":
@@ -288,6 +292,14 @@ func (b *TableBuilder) normalizeState(state string) string {
 		return "Failed"
 	case "error":
 		return "Error"
+	case "auth_required":
+		return "Auth Required"
+	case "unreachable":
+		return "Unreachable"
+	case "waiting":
+		return "Waiting"
+	case "retrying":
+		return "Retrying"
 	default:
 		return state
 	}
@@ -304,9 +316,9 @@ func (b *TableBuilder) normalizeState(state string) string {
 func (b *TableBuilder) formatState(state string) interface{} {
 	normalized := b.normalizeState(state)
 	switch strings.ToLower(state) {
-	case "running":
+	case "running", "connected":
 		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
-	case "stopped":
+	case "stopped", "disconnected":
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  " + normalized)
 	case "starting":
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
@@ -316,6 +328,14 @@ func (b *TableBuilder) formatState(state string) interface{} {
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
 	case "error":
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
+	case "auth_required":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔐 " + normalized)
+	case "unreachable":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🚫 " + normalized)
+	case "waiting":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+	case "retrying":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔄 " + normalized)
 	default:
 		return normalized
 	}
@@ -327,12 +347,12 @@ func (b *TableBuilder) formatState(state string) interface{} {
 // For remote servers (streamable-http/sse), it uses "Connected/Disconnected" terminology.
 func (b *TableBuilder) normalizeStateForServerType(state string, isRemote bool) string {
 	switch strings.ToLower(state) {
-	case "running":
+	case "running", "connected":
 		if isRemote {
 			return "Connected"
 		}
 		return "Running"
-	case "stopped":
+	case "stopped", "disconnected":
 		if isRemote {
 			return "Disconnected"
 		}
@@ -351,6 +371,14 @@ func (b *TableBuilder) normalizeStateForServerType(state string, isRemote bool) 
 		return "Failed"
 	case "error":
 		return "Error"
+	case "auth_required":
+		return "Auth Required"
+	case "unreachable":
+		return "Unreachable"
+	case "waiting":
+		return "Waiting"
+	case "retrying":
+		return "Retrying"
 	default:
 		return state
 	}
@@ -371,12 +399,12 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 	normalized := b.normalizeStateForServerType(state, isRemote)
 
 	switch strings.ToLower(state) {
-	case "running":
+	case "running", "connected":
 		if isRemote {
 			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🔗 " + normalized)
 		}
 		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
-	case "stopped":
+	case "stopped", "disconnected":
 		if isRemote {
 			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ " + normalized)
 		}
@@ -389,6 +417,14 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
 	case "error":
 		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
+	case "auth_required":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔐 " + normalized)
+	case "unreachable":
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🚫 " + normalized)
+	case "waiting":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+	case "retrying":
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔄 " + normalized)
 	default:
 		return normalized
 	}
@@ -696,9 +732,7 @@ func (b *TableBuilder) normalizeTimestamp(timestamp string) string {
 			if dotIndex := strings.Index(timePart, "."); dotIndex != -1 {
 				timePart = timePart[:dotIndex]
 			}
-			if strings.HasSuffix(timePart, "Z") {
-				timePart = strings.TrimSuffix(timePart, "Z")
-			}
+			timePart = strings.TrimSuffix(timePart, "Z")
 			return parts[0] + " " + timePart
 		}
 	}

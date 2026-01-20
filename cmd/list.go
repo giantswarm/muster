@@ -17,6 +17,7 @@ var (
 	listDescription string
 	listServer      string
 	listShowAll     bool
+	listVerbose     bool
 )
 
 // Resource configurations mapping tool names to their aliases
@@ -244,6 +245,7 @@ func init() {
 	listCmd.PersistentFlags().StringVar(&listDescription, "description", "", "Filter by description content (case-insensitive substring, for MCP primitives only)")
 	listCmd.PersistentFlags().StringVar(&listServer, "server", "", "Filter by server name prefix (for MCP primitives only)")
 	listCmd.PersistentFlags().BoolVar(&listShowAll, "all", false, "Show all servers including unreachable ones (for mcpserver only)")
+	listCmd.PersistentFlags().BoolVar(&listVerbose, "verbose", false, "Show detailed error information for failed/unreachable servers (for mcpserver only)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -298,10 +300,16 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// For mcpserver list, pass the showAll parameter
+	// For mcpserver list, pass the showAll and verbose parameters
 	var toolArgs map[string]interface{}
-	if toolName == "core_mcpserver_list" && listShowAll {
-		toolArgs = map[string]interface{}{"showAll": true}
+	if toolName == "core_mcpserver_list" {
+		toolArgs = map[string]interface{}{}
+		if listShowAll {
+			toolArgs["showAll"] = true
+		}
+		if listVerbose {
+			toolArgs["verbose"] = true
+		}
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)
