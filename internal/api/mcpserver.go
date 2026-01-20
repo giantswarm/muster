@@ -133,6 +133,12 @@ const (
 	MCPServerTypeSSE MCPServerType = "sse"
 )
 
+// IsRemote returns true if the server type is a remote (HTTP-based) server.
+// Remote servers use connected/disconnected states rather than running/stopped.
+func (t MCPServerType) IsRemote() bool {
+	return t == MCPServerTypeStreamableHTTP || t == MCPServerTypeSSE
+}
+
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
 // a flattened view of server configuration and runtime state that is convenient

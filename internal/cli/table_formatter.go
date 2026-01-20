@@ -8,6 +8,57 @@ import (
 	"strings"
 )
 
+// unwantedColumnsByResourceType defines columns that should be excluded from table
+// display in non-wide mode for each resource type. This keeps list views clean
+// and focused on the most useful information.
+//
+// Exclusion rationale for mcpServers:
+//   - args, command, url, env, headers: Configuration details, use `muster server get <name>` for full info
+//   - timeout, toolPrefix: Minor config, not useful in list view
+//   - error: Raw error messages; statusMessage provides user-friendly version
+//   - description: Can be long, use detail view for this
+//   - auth: Nested config; state already shows auth status
+//   - health: Cleared for non-connected servers, not useful in list
+//   - statusMessage: Shown in footer notes instead of column
+//   - consecutiveFailures, lastAttempt, nextRetryAfter: Diagnostic fields for verbose/debug use
+var unwantedColumnsByResourceType = map[string][]string{
+	"mcpServers": {
+		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
+		"error", "description", "auth", "health", "statusMessage",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
+	},
+	"mcpServer": {
+		"args", "command", "url", "env", "headers", "timeout", "toolPrefix",
+		"error", "description", "auth", "health", "statusMessage",
+		"consecutiveFailures", "lastAttempt", "nextRetryAfter",
+	},
+	"service": {
+		"metadata", // Nested data doesn't display well in list view
+	},
+	"services": {
+		"metadata", // Nested data doesn't display well in list view
+	},
+}
+
+// filterUnwantedColumns filters out columns that should not be displayed in table view.
+// The comparison is case-insensitive to handle JSON field name variations.
+func filterUnwantedColumns(columns []string, unwanted []string) []string {
+	filtered := make([]string, 0, len(columns))
+	for _, col := range columns {
+		isUnwanted := false
+		for _, u := range unwanted {
+			if strings.EqualFold(col, u) {
+				isUnwanted = true
+				break
+			}
+		}
+		if !isUnwanted {
+			filtered = append(filtered, col)
+		}
+	}
+	return filtered
+}
+
 // TableFormatter handles table creation and optimization for muster CLI output.
 // It provides intelligent formatting for different types of data structures,
 // automatically optimizing column layouts and applying consistent styling.
@@ -411,32 +462,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		// Filter out unwanted columns based on resource type (in non-wide mode only)
 		filteredRemaining := remaining
 		if !f.isWideMode() {
-			var unwantedColumns []string
-			switch resourceType {
-			case "mcpServers", "mcpServer":
-				// auth shows the nested auth config, not useful in list view (state shows auth status)
-				// health is cleared for non-connected servers, so not useful in list
-				// statusMessage is shown in footer notes instead
-				unwantedColumns = []string{"args", "command", "url", "env", "headers", "timeout", "toolPrefix", "error", "description", "auth", "health", "statusMessage", "consecutiveFailures", "lastAttempt", "nextRetryAfter"}
-			case "service", "services":
-				// metadata contains nested data that doesn't display well in a list view
-				unwantedColumns = []string{"metadata"}
-			}
-
-			if len(unwantedColumns) > 0 {
-				filteredRemaining = []string{}
-				for _, key := range remaining {
-					isUnwanted := false
-					for _, unwanted := range unwantedColumns {
-						if strings.ToLower(key) == strings.ToLower(unwanted) {
-							isUnwanted = true
-							break
-						}
-					}
-					if !isUnwanted {
-						filteredRemaining = append(filteredRemaining, key)
-					}
-				}
+			if unwantedColumns, exists := unwantedColumnsByResourceType[resourceType]; exists {
+				filteredRemaining = filterUnwantedColumns(remaining, unwantedColumns)
 			}
 		}
 
@@ -808,7 +835,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		}
 	}
 
-	if argsData == nil || len(argsData) == 0 {
+	if len(argsData) == 0 {
 		return
 	}
 

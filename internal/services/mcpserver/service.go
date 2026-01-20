@@ -556,7 +556,7 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 // as opposed to a local stdio server. Remote servers are subject to network
 // connectivity issues and unreachable state tracking.
 func (s *Service) isRemoteServer() bool {
-	return s.definition.Type == api.MCPServerTypeStreamableHTTP || s.definition.Type == api.MCPServerTypeSSE
+	return s.definition.Type.IsRemote()
 }
 
 // isTransientConnectivityError checks if an error is a transient network/connectivity
