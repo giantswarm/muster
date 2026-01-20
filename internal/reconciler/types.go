@@ -4,9 +4,11 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
@@ -456,4 +458,132 @@ func SanitizeErrorMessage(errMsg string) string {
 	})
 
 	return errMsg
+}
+
+// StatusSyncRetryBackoff is the retry backoff configuration for status updates.
+// It uses an aggressive retry strategy since status updates are idempotent and
+// conflicts are expected during high-frequency reconciliation.
+var StatusSyncRetryBackoff = retry.DefaultRetry
+
+// IsConflictError returns true if the error is a Kubernetes conflict error.
+// Conflict errors occur when the resource was modified since it was read,
+// indicating the resource version is stale (optimistic locking failure).
+func IsConflictError(err error) bool {
+	return apierrors.IsConflict(err)
+}
+
+// StatusSyncFailureTracker tracks per-resource status sync failures to implement
+// backoff-based logging. This reduces log spam when status syncs fail repeatedly
+// for the same resource.
+type StatusSyncFailureTracker struct {
+	mu       sync.RWMutex
+	failures map[string]*resourceFailureInfo
+}
+
+// resourceFailureInfo tracks failure information for a single resource.
+type resourceFailureInfo struct {
+	consecutiveFailures int
+	lastFailure         time.Time
+	lastError           string
+	lastLoggedAt        time.Time
+}
+
+// NewStatusSyncFailureTracker creates a new failure tracker.
+func NewStatusSyncFailureTracker() *StatusSyncFailureTracker {
+	return &StatusSyncFailureTracker{
+		failures: make(map[string]*resourceFailureInfo),
+	}
+}
+
+// resourceKey generates a unique key for a resource type and name.
+func resourceKey(resourceType ResourceType, name string) string {
+	return string(resourceType) + "/" + name
+}
+
+// RecordFailure records a status sync failure for a resource.
+// Returns true if this failure should be logged (based on backoff).
+func (t *StatusSyncFailureTracker) RecordFailure(resourceType ResourceType, name string, err error) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	key := resourceKey(resourceType, name)
+	info, exists := t.failures[key]
+	if !exists {
+		info = &resourceFailureInfo{}
+		t.failures[key] = info
+	}
+
+	info.consecutiveFailures++
+	info.lastFailure = time.Now()
+	info.lastError = err.Error()
+
+	// Use exponential backoff for logging:
+	// - First 3 failures: log every time
+	// - Then: log every 10, 100, 1000 failures (powers of 10)
+	// - Also log if it's been more than 5 minutes since last log
+	shouldLog := info.consecutiveFailures <= 3 ||
+		info.consecutiveFailures%10 == 0 && info.consecutiveFailures <= 100 ||
+		info.consecutiveFailures%100 == 0 && info.consecutiveFailures <= 1000 ||
+		info.consecutiveFailures%1000 == 0 ||
+		time.Since(info.lastLoggedAt) > 5*time.Minute
+
+	if shouldLog {
+		info.lastLoggedAt = time.Now()
+	}
+
+	return shouldLog
+}
+
+// RecordSuccess records a successful status sync, resetting the failure counter.
+func (t *StatusSyncFailureTracker) RecordSuccess(resourceType ResourceType, name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	key := resourceKey(resourceType, name)
+	delete(t.failures, key)
+}
+
+// GetFailureCount returns the current consecutive failure count for a resource.
+func (t *StatusSyncFailureTracker) GetFailureCount(resourceType ResourceType, name string) int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	key := resourceKey(resourceType, name)
+	if info, exists := t.failures[key]; exists {
+		return info.consecutiveFailures
+	}
+	return 0
+}
+
+// GetLastError returns the last error message for a resource.
+func (t *StatusSyncFailureTracker) GetLastError(resourceType ResourceType, name string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	key := resourceKey(resourceType, name)
+	if info, exists := t.failures[key]; exists {
+		return info.lastError
+	}
+	return ""
+}
+
+// Global failure tracker for status sync operations.
+var (
+	globalFailureTracker     *StatusSyncFailureTracker
+	globalFailureTrackerOnce sync.Once
+)
+
+// GetStatusSyncFailureTracker returns the global failure tracker instance.
+func GetStatusSyncFailureTracker() *StatusSyncFailureTracker {
+	globalFailureTrackerOnce.Do(func() {
+		globalFailureTracker = NewStatusSyncFailureTracker()
+	})
+	return globalFailureTracker
+}
+
+// ResetStatusSyncFailureTracker resets the global failure tracker.
+// This is primarily for testing.
+func ResetStatusSyncFailureTracker() {
+	globalFailureTrackerOnce = sync.Once{}
+	globalFailureTracker = nil
 }

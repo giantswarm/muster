@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"muster/internal/api"
 )
 
@@ -860,5 +863,167 @@ func TestMCPServerReconciler_SyncStatus_UpdateError(t *testing.T) {
 	}
 	if !statusUpdater.UpdateMCPServerStatusCalled {
 		t.Error("expected UpdateMCPServerStatus to be called")
+	}
+}
+
+func TestCategorizeStatusSyncError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: "unknown",
+		},
+		{
+			name:     "not found error",
+			err:      fmt.Errorf("resource not found"),
+			expected: "crd_not_found",
+		},
+		{
+			name:     "connection refused",
+			err:      fmt.Errorf("connection refused"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "no route to host",
+			err:      fmt.Errorf("no route to host"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "network unreachable",
+			err:      fmt.Errorf("network is unreachable"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "timeout error",
+			err:      fmt.Errorf("request timeout"),
+			expected: "timeout",
+		},
+		{
+			name:     "deadline exceeded",
+			err:      fmt.Errorf("context deadline exceeded"),
+			expected: "timeout",
+		},
+		{
+			name:     "forbidden lowercase",
+			err:      fmt.Errorf("forbidden: user does not have access"),
+			expected: "permission_denied",
+		},
+		{
+			name:     "Forbidden uppercase",
+			err:      fmt.Errorf("Forbidden: RBAC denied"),
+			expected: "permission_denied",
+		},
+		{
+			name:     "unauthorized",
+			err:      fmt.Errorf("unauthorized: invalid token"),
+			expected: "authentication_failed",
+		},
+		{
+			name:     "generic error",
+			err:      fmt.Errorf("some random error"),
+			expected: "update_status_failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := categorizeStatusSyncError(tt.err)
+			if result != tt.expected {
+				t.Errorf("categorizeStatusSyncError(%v) = %s, want %s", tt.err, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStatusSyncFailureTracker(t *testing.T) {
+	// Reset tracker for clean test state
+	ResetStatusSyncFailureTracker()
+	tracker := GetStatusSyncFailureTracker()
+
+	testErr := fmt.Errorf("test error")
+
+	// First 3 failures should all be logged
+	for i := 1; i <= 3; i++ {
+		shouldLog := tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+		if !shouldLog {
+			t.Errorf("failure %d should be logged (first 3)", i)
+		}
+		count := tracker.GetFailureCount(ResourceTypeMCPServer, "test-server")
+		if count != i {
+			t.Errorf("expected failure count %d, got %d", i, count)
+		}
+	}
+
+	// 4th failure should not be logged (not a power of 10)
+	shouldLog := tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+	if shouldLog {
+		t.Error("failure 4 should not be logged")
+	}
+
+	// 10th failure should be logged
+	for i := 5; i <= 10; i++ {
+		shouldLog = tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+		if i == 10 && !shouldLog {
+			t.Error("failure 10 should be logged (power of 10)")
+		} else if i != 10 && shouldLog {
+			t.Errorf("failure %d should not be logged", i)
+		}
+	}
+
+	// Success should reset the counter
+	tracker.RecordSuccess(ResourceTypeMCPServer, "test-server")
+	count := tracker.GetFailureCount(ResourceTypeMCPServer, "test-server")
+	if count != 0 {
+		t.Errorf("expected failure count 0 after success, got %d", count)
+	}
+
+	// GetLastError should return empty after success
+	lastErr := tracker.GetLastError(ResourceTypeMCPServer, "test-server")
+	if lastErr != "" {
+		t.Errorf("expected empty last error after success, got %s", lastErr)
+	}
+
+	// Different resource should have its own counter
+	tracker.RecordFailure(ResourceTypeMCPServer, "other-server", testErr)
+	count = tracker.GetFailureCount(ResourceTypeMCPServer, "other-server")
+	if count != 1 {
+		t.Errorf("expected failure count 1 for other-server, got %d", count)
+	}
+}
+
+func TestIsConflictError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "regular error",
+			err:      fmt.Errorf("some error"),
+			expected: false,
+		},
+		{
+			name:     "Kubernetes conflict error",
+			err:      apierrors.NewConflict(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, "test", fmt.Errorf("the object has been modified")),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsConflictError(tt.err)
+			if result != tt.expected {
+				t.Errorf("IsConflictError(%v) = %v, want %v", tt.err, result, tt.expected)
+			}
+		})
 	}
 }

@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
+
+	"k8s.io/client-go/util/retry"
 
 	"muster/internal/api"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
 
@@ -83,10 +87,13 @@ func (r *ServiceClassReconciler) Reconcile(ctx context.Context, req ReconcileReq
 
 // syncStatus syncs the validation status to the ServiceClass CRD status.
 //
-// Status sync is a best-effort operation - failures are logged at Debug level
-// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
-// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
-// API server unavailability). Failures are tracked in metrics for monitoring.
+// This function implements retry-on-conflict logic to handle optimistic locking
+// failures that occur when the CRD is modified between read and update operations.
+// The retry logic re-fetches the CRD and re-applies the status on each attempt.
+//
+// Status sync is a best-effort operation - failures are logged with backoff
+// to avoid log spam when a resource continuously fails. Failures are tracked
+// in metrics for monitoring.
 func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace string, sc *api.ServiceClass, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -98,37 +105,96 @@ func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace
 	metrics := GetReconcilerMetrics()
 	metrics.RecordStatusSyncAttempt(ResourceTypeServiceClass, name)
 
-	// Get the current CRD
-	serviceClass, err := r.StatusUpdater.GetServiceClass(ctx, name, namespace)
-	if err != nil {
-		logging.Debug("ServiceClassReconciler", "Failed to get ServiceClass for status sync: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, "get_crd_failed")
-		return
-	}
+	// Get failure tracker for backoff-based logging
+	failureTracker := GetStatusSyncFailureTracker()
 
-	// Extract referenced tools from lifecycle definitions
+	// Extract referenced tools from lifecycle definitions (computed once)
 	referencedTools := r.extractReferencedTools(sc)
 
-	// Validate the spec
+	// Validate the spec (computed once)
 	validationErrors := []string{}
 	if validateErr := r.validateServiceClass(sc); validateErr != nil {
 		validationErrors = append(validationErrors, validateErr.Error())
 	}
 
-	// Update status
+	// Use retry-on-conflict to handle optimistic locking failures.
+	var lastErr error
+	err := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+		// Get the current CRD (re-fetch on each attempt to get latest resource version)
+		serviceClass, err := r.StatusUpdater.GetServiceClass(ctx, name, namespace)
+		if err != nil {
+			lastErr = err
+			return nil // Return nil to exit retry loop
+		}
+
+		// Apply status
+		r.applyStatus(serviceClass, referencedTools, validationErrors)
+
+		// Update the CRD status
+		if err := r.StatusUpdater.UpdateServiceClassStatus(ctx, serviceClass); err != nil {
+			lastErr = err
+			return err // Return error to trigger retry if it's a conflict
+		}
+		lastErr = nil
+		return nil
+	})
+
+	// Handle the result
+	if err != nil || lastErr != nil {
+		actualErr := lastErr
+		if actualErr == nil {
+			actualErr = err
+		}
+
+		reason := categorizeServiceClassStatusSyncError(actualErr)
+		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, reason)
+
+		if failureTracker.RecordFailure(ResourceTypeServiceClass, name, actualErr) {
+			failureCount := failureTracker.GetFailureCount(ResourceTypeServiceClass, name)
+			logging.Debug("ServiceClassReconciler", "Status sync failed for %s: %s (consecutive failures: %d)",
+				name, actualErr.Error(), failureCount)
+		}
+	} else {
+		logging.Debug("ServiceClassReconciler", "Synced ServiceClass %s status: valid=%t, tools=%v",
+			name, len(validationErrors) == 0, referencedTools)
+		metrics.RecordStatusSyncSuccess(ResourceTypeServiceClass, name)
+		failureTracker.RecordSuccess(ResourceTypeServiceClass, name)
+	}
+}
+
+// applyStatus applies the computed status to the ServiceClass CRD.
+func (r *ServiceClassReconciler) applyStatus(serviceClass *musterv1alpha1.ServiceClass, referencedTools []string, validationErrors []string) {
 	serviceClass.Status.Valid = len(validationErrors) == 0
 	serviceClass.Status.ValidationErrors = validationErrors
 	serviceClass.Status.ReferencedTools = referencedTools
+}
 
-	// Update the CRD status
-	if err := r.StatusUpdater.UpdateServiceClassStatus(ctx, serviceClass); err != nil {
-		logging.Debug("ServiceClassReconciler", "Failed to update ServiceClass status: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, "update_status_failed")
-	} else {
-		logging.Debug("ServiceClassReconciler", "Synced ServiceClass %s status: valid=%t, tools=%v",
-			name, serviceClass.Status.Valid, referencedTools)
-		metrics.RecordStatusSyncSuccess(ResourceTypeServiceClass, name)
+// categorizeServiceClassStatusSyncError returns a descriptive reason for a status sync error.
+func categorizeServiceClassStatusSyncError(err error) string {
+	if err == nil {
+		return "unknown"
 	}
+
+	errStr := err.Error()
+
+	if IsConflictError(err) {
+		return "conflict_after_retries"
+	}
+	if IsNotFoundError(err) {
+		return "crd_not_found"
+	}
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no route to host") {
+		return "api_server_unreachable"
+	}
+	if strings.Contains(errStr, "timeout") {
+		return "timeout"
+	}
+	if strings.Contains(errStr, "forbidden") || strings.Contains(errStr, "Forbidden") {
+		return "permission_denied"
+	}
+
+	return "update_status_failed"
 }
 
 // extractReferencedTools extracts all tool names referenced in the ServiceClass.
