@@ -4,9 +4,11 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
@@ -362,6 +364,11 @@ const DefaultNamespace = "default"
 // as they primarily manage static definitions.
 const DefaultStatusSyncInterval = 30 * time.Second
 
+// FailureLogBackoffTimeout is the maximum time between log entries for persistent
+// failures. Even if a resource is continuously failing, we'll log at least once
+// every this duration to ensure operators are aware of ongoing issues.
+const FailureLogBackoffTimeout = 5 * time.Minute
+
 // StatusUpdater is an interface for updating CRD status.
 // This is implemented by the MusterClient.
 type StatusUpdater interface {
@@ -456,4 +463,198 @@ func SanitizeErrorMessage(errMsg string) string {
 	})
 
 	return errMsg
+}
+
+// StatusSyncRetryBackoff is the retry backoff configuration for status updates.
+// It uses an aggressive retry strategy since status updates are idempotent and
+// conflicts are expected during high-frequency reconciliation.
+var StatusSyncRetryBackoff = retry.DefaultRetry
+
+// IsConflictError returns true if the error is a Kubernetes conflict error.
+// Conflict errors occur when the resource was modified since it was read,
+// indicating the resource version is stale (optimistic locking failure).
+func IsConflictError(err error) bool {
+	return apierrors.IsConflict(err)
+}
+
+// CategorizeStatusSyncError returns a descriptive reason for a status sync error.
+// This provides actionable information for metrics and debugging, categorizing
+// errors into meaningful buckets rather than using a generic "update_status_failed".
+//
+// Categories:
+//   - "conflict_after_retries": Optimistic locking failed even after retries
+//   - "crd_not_found": The CRD resource doesn't exist
+//   - "api_server_unreachable": Network connectivity issues to API server
+//   - "timeout": Request timed out or context deadline exceeded
+//   - "permission_denied": RBAC or authorization failure
+//   - "authentication_failed": Authentication/token issues
+//   - "update_status_failed": Generic fallback for other errors
+//   - "unknown": Nil error (shouldn't happen but handles edge case)
+func CategorizeStatusSyncError(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+
+	errStr := err.Error()
+
+	// Check for specific Kubernetes API errors first (most accurate)
+	if IsConflictError(err) {
+		return "conflict_after_retries"
+	}
+	if IsNotFoundError(err) {
+		return "crd_not_found"
+	}
+
+	// Check for network connectivity issues
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no route to host") ||
+		strings.Contains(errStr, "network is unreachable") {
+		return "api_server_unreachable"
+	}
+
+	// Check for timeout issues
+	if strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "deadline exceeded") {
+		return "timeout"
+	}
+
+	// Check for authorization issues (case-insensitive patterns)
+	if strings.Contains(errStr, "forbidden") ||
+		strings.Contains(errStr, "Forbidden") {
+		return "permission_denied"
+	}
+	if strings.Contains(errStr, "unauthorized") ||
+		strings.Contains(errStr, "Unauthorized") {
+		return "authentication_failed"
+	}
+
+	return "update_status_failed"
+}
+
+// StatusSyncFailureTracker tracks per-resource status sync failures to implement
+// backoff-based logging. This reduces log spam when status syncs fail repeatedly
+// for the same resource.
+type StatusSyncFailureTracker struct {
+	mu       sync.RWMutex
+	failures map[string]*resourceFailureInfo
+}
+
+// resourceFailureInfo tracks failure information for a single resource.
+type resourceFailureInfo struct {
+	consecutiveFailures int
+	lastFailure         time.Time
+	lastError           string
+	lastLoggedAt        time.Time
+}
+
+// NewStatusSyncFailureTracker creates a new failure tracker.
+func NewStatusSyncFailureTracker() *StatusSyncFailureTracker {
+	return &StatusSyncFailureTracker{
+		failures: make(map[string]*resourceFailureInfo),
+	}
+}
+
+// resourceKey generates a unique key for a resource type and name.
+func resourceKey(resourceType ResourceType, name string) string {
+	return string(resourceType) + "/" + name
+}
+
+// RecordFailure records a status sync failure for a resource.
+// Returns true if this failure should be logged (based on backoff).
+func (t *StatusSyncFailureTracker) RecordFailure(resourceType ResourceType, name string, err error) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	key := resourceKey(resourceType, name)
+	info, exists := t.failures[key]
+	if !exists {
+		info = &resourceFailureInfo{}
+		t.failures[key] = info
+	}
+
+	info.consecutiveFailures++
+	info.lastFailure = time.Now()
+	info.lastError = err.Error()
+
+	// Use exponential backoff for logging to prevent log spam:
+	// - First 3 failures: log every time (immediate visibility)
+	// - Failures 4-100: log every 10th (10, 20, 30, ...)
+	// - Failures 101-1000: log every 100th (100, 200, 300, ...)
+	// - Beyond 1000: log every 1000th (1000, 2000, 3000, ...)
+	// - Also log if it's been more than FailureLogBackoffTimeout since last log
+	//
+	// Parentheses added for clarity around operator precedence (&&  binds tighter than ||)
+	shouldLog := info.consecutiveFailures <= 3 ||
+		(info.consecutiveFailures%10 == 0 && info.consecutiveFailures <= 100) ||
+		(info.consecutiveFailures%100 == 0 && info.consecutiveFailures <= 1000) ||
+		info.consecutiveFailures%1000 == 0 ||
+		time.Since(info.lastLoggedAt) > FailureLogBackoffTimeout
+
+	if shouldLog {
+		info.lastLoggedAt = time.Now()
+	}
+
+	return shouldLog
+}
+
+// RecordSuccess records a successful status sync, resetting the failure counter.
+func (t *StatusSyncFailureTracker) RecordSuccess(resourceType ResourceType, name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	key := resourceKey(resourceType, name)
+	delete(t.failures, key)
+}
+
+// GetFailureCount returns the current consecutive failure count for a resource.
+func (t *StatusSyncFailureTracker) GetFailureCount(resourceType ResourceType, name string) int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	key := resourceKey(resourceType, name)
+	if info, exists := t.failures[key]; exists {
+		return info.consecutiveFailures
+	}
+	return 0
+}
+
+// GetLastError returns the last error message for a resource.
+func (t *StatusSyncFailureTracker) GetLastError(resourceType ResourceType, name string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	key := resourceKey(resourceType, name)
+	if info, exists := t.failures[key]; exists {
+		return info.lastError
+	}
+	return ""
+}
+
+// Global failure tracker for status sync operations.
+var (
+	globalFailureTracker     *StatusSyncFailureTracker
+	globalFailureTrackerOnce sync.Once
+	globalFailureTrackerMu   sync.Mutex
+)
+
+// GetStatusSyncFailureTracker returns the global failure tracker instance.
+func GetStatusSyncFailureTracker() *StatusSyncFailureTracker {
+	globalFailureTrackerMu.Lock()
+	defer globalFailureTrackerMu.Unlock()
+
+	globalFailureTrackerOnce.Do(func() {
+		globalFailureTracker = NewStatusSyncFailureTracker()
+	})
+	return globalFailureTracker
+}
+
+// ResetStatusSyncFailureTracker resets the global failure tracker.
+// This is primarily for testing. The mutex ensures thread-safety when
+// resetting the sync.Once and tracker pointer together.
+func ResetStatusSyncFailureTracker() {
+	globalFailureTrackerMu.Lock()
+	defer globalFailureTrackerMu.Unlock()
+
+	globalFailureTrackerOnce = sync.Once{}
+	globalFailureTracker = nil
 }

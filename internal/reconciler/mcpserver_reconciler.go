@@ -7,8 +7,10 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 
 	"muster/internal/api"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
 
@@ -118,10 +120,13 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 // syncStatus syncs the current service state to the MCPServer CRD status.
 //
-// Status sync is a best-effort operation - failures are logged at Debug level
-// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
-// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
-// API server unavailability). Failures are tracked in metrics for monitoring.
+// This function implements retry-on-conflict logic to handle optimistic locking
+// failures that occur when the CRD is modified between read and update operations.
+// The retry logic re-fetches the CRD and re-applies the status on each attempt.
+//
+// Status sync is a best-effort operation - failures are logged with backoff
+// to avoid log spam when a resource continuously fails. Failures are tracked
+// in metrics for monitoring.
 func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -133,14 +138,61 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 	metrics := GetReconcilerMetrics()
 	metrics.RecordStatusSyncAttempt(ResourceTypeMCPServer, name)
 
-	// Get the current CRD
-	server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
-	if err != nil {
-		logging.Debug("MCPServerReconciler", "Failed to get MCPServer for status sync: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, "get_crd_failed")
-		return
-	}
+	// Get failure tracker for backoff-based logging
+	failureTracker := GetStatusSyncFailureTracker()
 
+	// Use retry-on-conflict to handle optimistic locking failures.
+	// Each retry re-fetches the CRD with the latest resource version
+	// and re-applies the status changes.
+	var lastErr error
+	err := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+		// Get the current CRD (re-fetch on each attempt to get latest resource version)
+		server, err := r.StatusUpdater.GetMCPServer(ctx, name, namespace)
+		if err != nil {
+			// Non-retryable error (not found, permission denied, etc.)
+			lastErr = err
+			return nil // Return nil to exit retry loop
+		}
+
+		// Apply status from current service state
+		r.applyStatusFromService(server, name, reconcileErr)
+
+		// Update the CRD status
+		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
+			lastErr = err
+			return err // Return error to trigger retry if it's a conflict
+		}
+		lastErr = nil
+		return nil
+	})
+
+	// Handle the result
+	if err != nil || lastErr != nil {
+		actualErr := lastErr
+		if actualErr == nil {
+			actualErr = err
+		}
+
+		// Categorize the error for metrics
+		reason := CategorizeStatusSyncError(actualErr)
+		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, reason)
+
+		// Use backoff-based logging to reduce log spam
+		if failureTracker.RecordFailure(ResourceTypeMCPServer, name, actualErr) {
+			failureCount := failureTracker.GetFailureCount(ResourceTypeMCPServer, name)
+			logging.Debug("MCPServerReconciler", "Status sync failed for %s: %s (consecutive failures: %d)",
+				name, actualErr.Error(), failureCount)
+		}
+	} else {
+		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status", name)
+		metrics.RecordStatusSyncSuccess(ResourceTypeMCPServer, name)
+		failureTracker.RecordSuccess(ResourceTypeMCPServer, name)
+	}
+}
+
+// applyStatusFromService applies the current service state to the MCPServer status.
+// This is extracted to allow re-application during retry-on-conflict.
+func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
 	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
@@ -183,16 +235,6 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 			// Sanitize error message to remove sensitive data before CRD exposure
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
-	}
-
-	// Update the CRD status
-	if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
-		logging.Debug("MCPServerReconciler", "Failed to update MCPServer status: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, "update_status_failed")
-	} else {
-		logging.Debug("MCPServerReconciler", "Synced MCPServer %s status: state=%s, health=%s",
-			name, server.Status.State, server.Status.Health)
-		metrics.RecordStatusSyncSuccess(ResourceTypeMCPServer, name)
 	}
 }
 

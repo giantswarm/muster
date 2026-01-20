@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"sort"
 
+	"k8s.io/client-go/util/retry"
+
 	"muster/internal/api"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 	"muster/pkg/logging"
 )
 
@@ -83,10 +86,13 @@ func (r *WorkflowReconciler) Reconcile(ctx context.Context, req ReconcileRequest
 
 // syncStatus syncs the validation status to the Workflow CRD status.
 //
-// Status sync is a best-effort operation - failures are logged at Debug level
-// rather than Warn/Error to avoid log spam. Status sync may fail frequently in
-// legitimate scenarios (e.g., filesystem mode, CRD not yet created, temporary
-// API server unavailability). Failures are tracked in metrics for monitoring.
+// This function implements retry-on-conflict logic to handle optimistic locking
+// failures that occur when the CRD is modified between read and update operations.
+// The retry logic re-fetches the CRD and re-applies the status on each attempt.
+//
+// Status sync is a best-effort operation - failures are logged with backoff
+// to avoid log spam when a resource continuously fails. Failures are tracked
+// in metrics for monitoring.
 func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace string, wf *api.Workflow, reconcileErr error) {
 	if r.StatusUpdater == nil {
 		return
@@ -98,40 +104,75 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 	metrics := GetReconcilerMetrics()
 	metrics.RecordStatusSyncAttempt(ResourceTypeWorkflow, name)
 
-	// Get the current CRD
-	workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
-	if err != nil {
-		logging.Debug("WorkflowReconciler", "Failed to get Workflow for status sync: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "get_crd_failed")
-		return
-	}
+	// Get failure tracker for backoff-based logging
+	failureTracker := GetStatusSyncFailureTracker()
 
-	// Extract referenced tools from steps
+	// Extract referenced tools from steps (computed once)
 	referencedTools := r.extractReferencedTools(wf)
 
-	// Validate the spec
+	// Validate the spec (computed once)
 	validationErrors := []string{}
 	if validateErr := r.validateWorkflow(wf); validateErr != nil {
 		validationErrors = append(validationErrors, validateErr.Error())
 	}
 
-	// Update status
+	// Calculate step count (computed once)
+	stepCount := 0
+	if wf != nil {
+		stepCount = len(wf.Steps)
+	}
+
+	// Use retry-on-conflict to handle optimistic locking failures.
+	var lastErr error
+	err := retry.OnError(StatusSyncRetryBackoff, IsConflictError, func() error {
+		// Get the current CRD (re-fetch on each attempt to get latest resource version)
+		workflow, err := r.StatusUpdater.GetWorkflow(ctx, name, namespace)
+		if err != nil {
+			lastErr = err
+			return nil // Return nil to exit retry loop
+		}
+
+		// Apply status
+		r.applyStatus(workflow, referencedTools, validationErrors, stepCount)
+
+		// Update the CRD status
+		if err := r.StatusUpdater.UpdateWorkflowStatus(ctx, workflow); err != nil {
+			lastErr = err
+			return err // Return error to trigger retry if it's a conflict
+		}
+		lastErr = nil
+		return nil
+	})
+
+	// Handle the result
+	if err != nil || lastErr != nil {
+		actualErr := lastErr
+		if actualErr == nil {
+			actualErr = err
+		}
+
+		reason := CategorizeStatusSyncError(actualErr)
+		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, reason)
+
+		if failureTracker.RecordFailure(ResourceTypeWorkflow, name, actualErr) {
+			failureCount := failureTracker.GetFailureCount(ResourceTypeWorkflow, name)
+			logging.Debug("WorkflowReconciler", "Status sync failed for %s: %s (consecutive failures: %d)",
+				name, actualErr.Error(), failureCount)
+		}
+	} else {
+		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
+			name, len(validationErrors) == 0, stepCount, referencedTools)
+		metrics.RecordStatusSyncSuccess(ResourceTypeWorkflow, name)
+		failureTracker.RecordSuccess(ResourceTypeWorkflow, name)
+	}
+}
+
+// applyStatus applies the computed status to the Workflow CRD.
+func (r *WorkflowReconciler) applyStatus(workflow *musterv1alpha1.Workflow, referencedTools []string, validationErrors []string, stepCount int) {
 	workflow.Status.Valid = len(validationErrors) == 0
 	workflow.Status.ValidationErrors = validationErrors
 	workflow.Status.ReferencedTools = referencedTools
-	if wf != nil {
-		workflow.Status.StepCount = len(wf.Steps)
-	}
-
-	// Update the CRD status
-	if err := r.StatusUpdater.UpdateWorkflowStatus(ctx, workflow); err != nil {
-		logging.Debug("WorkflowReconciler", "Failed to update Workflow status: %v", err)
-		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, "update_status_failed")
-	} else {
-		logging.Debug("WorkflowReconciler", "Synced Workflow %s status: valid=%t, steps=%d, tools=%v",
-			name, workflow.Status.Valid, workflow.Status.StepCount, referencedTools)
-		metrics.RecordStatusSyncSuccess(ResourceTypeWorkflow, name)
-	}
+	workflow.Status.StepCount = stepCount
 }
 
 // extractReferencedTools extracts all tool names referenced in the Workflow steps.

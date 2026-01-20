@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"muster/internal/api"
 )
 
@@ -860,5 +863,316 @@ func TestMCPServerReconciler_SyncStatus_UpdateError(t *testing.T) {
 	}
 	if !statusUpdater.UpdateMCPServerStatusCalled {
 		t.Error("expected UpdateMCPServerStatus to be called")
+	}
+}
+
+func TestCategorizeStatusSyncError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: "unknown",
+		},
+		{
+			name:     "not found error",
+			err:      fmt.Errorf("resource not found"),
+			expected: "crd_not_found",
+		},
+		{
+			name:     "connection refused",
+			err:      fmt.Errorf("connection refused"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "no route to host",
+			err:      fmt.Errorf("no route to host"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "network unreachable",
+			err:      fmt.Errorf("network is unreachable"),
+			expected: "api_server_unreachable",
+		},
+		{
+			name:     "timeout error",
+			err:      fmt.Errorf("request timeout"),
+			expected: "timeout",
+		},
+		{
+			name:     "deadline exceeded",
+			err:      fmt.Errorf("context deadline exceeded"),
+			expected: "timeout",
+		},
+		{
+			name:     "forbidden lowercase",
+			err:      fmt.Errorf("forbidden: user does not have access"),
+			expected: "permission_denied",
+		},
+		{
+			name:     "Forbidden uppercase",
+			err:      fmt.Errorf("Forbidden: RBAC denied"),
+			expected: "permission_denied",
+		},
+		{
+			name:     "unauthorized",
+			err:      fmt.Errorf("unauthorized: invalid token"),
+			expected: "authentication_failed",
+		},
+		{
+			name:     "generic error",
+			err:      fmt.Errorf("some random error"),
+			expected: "update_status_failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CategorizeStatusSyncError(tt.err)
+			if result != tt.expected {
+				t.Errorf("CategorizeStatusSyncError(%v) = %s, want %s", tt.err, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStatusSyncFailureTracker(t *testing.T) {
+	// Reset tracker for clean test state
+	ResetStatusSyncFailureTracker()
+	tracker := GetStatusSyncFailureTracker()
+
+	testErr := fmt.Errorf("test error")
+
+	// First 3 failures should all be logged
+	for i := 1; i <= 3; i++ {
+		shouldLog := tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+		if !shouldLog {
+			t.Errorf("failure %d should be logged (first 3)", i)
+		}
+		count := tracker.GetFailureCount(ResourceTypeMCPServer, "test-server")
+		if count != i {
+			t.Errorf("expected failure count %d, got %d", i, count)
+		}
+	}
+
+	// 4th failure should not be logged (not a power of 10)
+	shouldLog := tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+	if shouldLog {
+		t.Error("failure 4 should not be logged")
+	}
+
+	// 10th failure should be logged
+	for i := 5; i <= 10; i++ {
+		shouldLog = tracker.RecordFailure(ResourceTypeMCPServer, "test-server", testErr)
+		if i == 10 && !shouldLog {
+			t.Error("failure 10 should be logged (power of 10)")
+		} else if i != 10 && shouldLog {
+			t.Errorf("failure %d should not be logged", i)
+		}
+	}
+
+	// Success should reset the counter
+	tracker.RecordSuccess(ResourceTypeMCPServer, "test-server")
+	count := tracker.GetFailureCount(ResourceTypeMCPServer, "test-server")
+	if count != 0 {
+		t.Errorf("expected failure count 0 after success, got %d", count)
+	}
+
+	// GetLastError should return empty after success
+	lastErr := tracker.GetLastError(ResourceTypeMCPServer, "test-server")
+	if lastErr != "" {
+		t.Errorf("expected empty last error after success, got %s", lastErr)
+	}
+
+	// Different resource should have its own counter
+	tracker.RecordFailure(ResourceTypeMCPServer, "other-server", testErr)
+	count = tracker.GetFailureCount(ResourceTypeMCPServer, "other-server")
+	if count != 1 {
+		t.Errorf("expected failure count 1 for other-server, got %d", count)
+	}
+}
+
+func TestIsConflictError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "regular error",
+			err:      fmt.Errorf("some error"),
+			expected: false,
+		},
+		{
+			name:     "Kubernetes conflict error",
+			err:      apierrors.NewConflict(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, "test", fmt.Errorf("the object has been modified")),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsConflictError(tt.err)
+			if result != tt.expected {
+				t.Errorf("IsConflictError(%v) = %v, want %v", tt.err, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
+	// This test verifies that the retry-on-conflict logic works correctly:
+	// 1. First update attempt returns a conflict error
+	// 2. Retry loop should re-fetch the CRD and try again
+	// 3. Second attempt should succeed
+
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	statusUpdater := NewMockStatusUpdater()
+
+	// Configure to fail with conflict on first attempt, succeed on second
+	conflictErr := apierrors.NewConflict(
+		schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
+		"test-server",
+		fmt.Errorf("the object has been modified"),
+	)
+	statusUpdater.UpdateMCPServerStatusError = conflictErr
+	statusUpdater.UpdateMCPServerStatusFailCount = 1 // Fail only the first attempt
+
+	// Add running service
+	registry.AddService("test-server", &MockServiceInfo{
+		Name:        "test-server",
+		ServiceType: api.TypeMCPServer,
+		State:       api.StateRunning,
+		Health:      api.HealthHealthy,
+		ServiceData: map[string]interface{}{
+			"url":       "",
+			"command":   "test-command",
+			"type":      "stdio",
+			"autoStart": true,
+		},
+	})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+		WithStatusUpdater(statusUpdater, "default")
+
+	// Add MCPServer with same config (no restart needed)
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "test-server",
+		Type:      "stdio",
+		Command:   "test-command",
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:      ResourceTypeMCPServer,
+		Name:      "test-server",
+		Namespace: "default",
+		Attempt:   1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Reconciliation should succeed (status sync retried and succeeded)
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+
+	// Verify UpdateMCPServerStatus was called multiple times (retry happened)
+	callCount := statusUpdater.GetUpdateMCPServerStatusCallCount()
+	if callCount < 2 {
+		t.Errorf("expected UpdateMCPServerStatus to be called at least 2 times (retry), got %d", callCount)
+	}
+
+	// Verify the status was eventually synced correctly
+	if statusUpdater.LastUpdatedMCPServer == nil {
+		t.Fatal("expected LastUpdatedMCPServer to be set")
+	}
+	if statusUpdater.LastUpdatedMCPServer.Status.State != "running" {
+		t.Errorf("expected state 'running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
+	}
+}
+
+func TestMCPServerReconciler_SyncStatus_ConflictExhaustsRetries(t *testing.T) {
+	// This test verifies that when conflicts persist beyond retry limit,
+	// the failure is properly tracked and logged
+
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+	statusUpdater := NewMockStatusUpdater()
+
+	// Reset failure tracker for clean test state
+	ResetStatusSyncFailureTracker()
+
+	// Configure to always fail with conflict (simulates persistent conflict)
+	conflictErr := apierrors.NewConflict(
+		schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"},
+		"test-server",
+		fmt.Errorf("the object has been modified"),
+	)
+	statusUpdater.UpdateMCPServerStatusError = conflictErr
+	// Don't set FailCount, so it always fails
+
+	// Add running service
+	registry.AddService("test-server", &MockServiceInfo{
+		Name:        "test-server",
+		ServiceType: api.TypeMCPServer,
+		State:       api.StateRunning,
+		Health:      api.HealthHealthy,
+		ServiceData: map[string]interface{}{
+			"url":       "",
+			"command":   "test-command",
+			"type":      "stdio",
+			"autoStart": true,
+		},
+	})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).
+		WithStatusUpdater(statusUpdater, "default")
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "test-server",
+		Type:      "stdio",
+		Command:   "test-command",
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:      ResourceTypeMCPServer,
+		Name:      "test-server",
+		Namespace: "default",
+		Attempt:   1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Reconciliation should still succeed (status sync failures don't fail reconciliation)
+	if result.Error != nil {
+		t.Errorf("unexpected reconciliation error: %v", result.Error)
+	}
+
+	// Verify retry was attempted (multiple calls)
+	callCount := statusUpdater.GetUpdateMCPServerStatusCallCount()
+	if callCount < 2 {
+		t.Errorf("expected multiple UpdateMCPServerStatus calls (retries), got %d", callCount)
+	}
+
+	// Verify failure was tracked
+	tracker := GetStatusSyncFailureTracker()
+	failureCount := tracker.GetFailureCount(ResourceTypeMCPServer, "test-server")
+	if failureCount != 1 {
+		t.Errorf("expected failure count 1, got %d", failureCount)
 	}
 }
