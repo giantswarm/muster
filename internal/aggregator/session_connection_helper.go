@@ -142,6 +142,14 @@ func establishSessionConnection(
 	// Send targeted notification to the session that their tools have changed
 	a.NotifySessionToolsChanged(sessionID)
 
+	// Update the MCPServer service state to Connected now that authentication succeeded.
+	// This syncs the session-level connection success to the service-level state,
+	// ensuring that `muster list mcpserver` shows the correct connected state.
+	if err := api.UpdateMCPServerState(serverName, api.StateConnected, api.HealthHealthy, nil); err != nil {
+		logging.Warn("SessionConnection", "Failed to update MCPServer %s state after connection: %v",
+			serverName, err)
+	}
+
 	logging.Info("SessionConnection", "Session %s connected to %s with %d tools, %d resources, %d prompts",
 		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
 
@@ -365,6 +373,14 @@ func EstablishSessionConnectionWithTokenForwarding(
 
 	// Notify the session
 	a.NotifySessionToolsChanged(sessionID)
+
+	// Update the MCPServer service state to Connected now that SSO succeeded.
+	// This syncs the session-level connection success to the service-level state,
+	// ensuring that `muster list mcpserver` shows the correct connected state.
+	if err := api.UpdateMCPServerState(serverInfo.Name, api.StateConnected, api.HealthHealthy, nil); err != nil {
+		logging.Warn("SessionConnection", "Failed to update MCPServer %s state after SSO success: %v",
+			serverInfo.Name, err)
+	}
 
 	logging.Info("SessionConnection", "Session %s connected to %s via SSO token forwarding with %d tools",
 		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
@@ -621,6 +637,14 @@ func EstablishSessionConnectionWithTokenExchange(
 
 	// Notify the session
 	a.NotifySessionToolsChanged(sessionID)
+
+	// Update the MCPServer service state to Connected now that token exchange succeeded.
+	// This syncs the session-level connection success to the service-level state,
+	// ensuring that `muster list mcpserver` shows the correct connected state.
+	if err := api.UpdateMCPServerState(serverInfo.Name, api.StateConnected, api.HealthHealthy, nil); err != nil {
+		logging.Warn("SessionConnection", "Failed to update MCPServer %s state after token exchange success: %v",
+			serverInfo.Name, err)
+	}
 
 	logging.Info("SessionConnection", "Session %s connected to %s via RFC 8693 token exchange with %d tools",
 		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))

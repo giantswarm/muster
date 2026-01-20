@@ -355,3 +355,18 @@ type ServiceListResponse struct {
 	// Services contains the list of service status information
 	Services []ServiceStatus `json:"services"`
 }
+
+// StateUpdater is an optional interface for services that allow external state updates.
+// This is used to update service state when external events occur, such as SSO
+// authentication succeeding at the session level.
+//
+// Not all services implement this interface; callers should type-assert before use.
+type StateUpdater interface {
+	// UpdateState updates the service's operational state.
+	//
+	// Args:
+	//   - state: The new service state
+	//   - health: The new health status
+	//   - err: Optional error associated with the state change
+	UpdateState(state ServiceState, health HealthStatus, err error)
+}
