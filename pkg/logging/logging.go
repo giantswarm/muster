@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -270,32 +271,25 @@ type AuditEvent struct {
 // Example output:
 // [AUDIT] action=token_exchange outcome=success session=abc12345... user=xyz789... target=mcp-kubernetes
 func Audit(event AuditEvent) {
-	var parts []string
-	parts = append(parts, fmt.Sprintf("action=%s", event.Action))
-	parts = append(parts, fmt.Sprintf("outcome=%s", event.Outcome))
+	// Pre-allocate with expected capacity for efficiency
+	parts := make([]string, 0, 7)
+	parts = append(parts, "action="+event.Action)
+	parts = append(parts, "outcome="+event.Outcome)
 	if event.SessionID != "" {
-		parts = append(parts, fmt.Sprintf("session=%s", event.SessionID))
+		parts = append(parts, "session="+event.SessionID)
 	}
 	if event.UserID != "" {
-		parts = append(parts, fmt.Sprintf("user=%s", event.UserID))
+		parts = append(parts, "user="+event.UserID)
 	}
 	if event.Target != "" {
-		parts = append(parts, fmt.Sprintf("target=%s", event.Target))
+		parts = append(parts, "target="+event.Target)
 	}
 	if event.Details != "" {
-		parts = append(parts, fmt.Sprintf("details=%s", event.Details))
+		parts = append(parts, "details="+event.Details)
 	}
 	if event.Error != "" {
-		parts = append(parts, fmt.Sprintf("error=%s", event.Error))
+		parts = append(parts, "error="+event.Error)
 	}
 
-	msg := ""
-	for i, part := range parts {
-		if i > 0 {
-			msg += " "
-		}
-		msg += part
-	}
-
-	logInternal(LevelInfo, "AUDIT", nil, "[AUDIT] %s", msg)
+	logInternal(LevelInfo, "AUDIT", nil, "[AUDIT] %s", strings.Join(parts, " "))
 }

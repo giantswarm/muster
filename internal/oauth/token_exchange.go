@@ -34,6 +34,11 @@ type TokenExchanger struct {
 	allowPrivateIP bool
 }
 
+// DefaultOIDCScopes is the default set of scopes requested for OIDC token exchange.
+// These scopes provide identity (openid), user profile info (profile, email),
+// and group membership (groups) for RBAC decisions.
+const DefaultOIDCScopes = "openid profile email groups"
+
 // TokenExchangerOptions configures the TokenExchanger.
 type TokenExchangerOptions struct {
 	// Logger for debug/info messages (nil uses default logger).
@@ -161,7 +166,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	// Default scopes if not specified
 	scopes := req.Config.Scopes
 	if scopes == "" {
-		scopes = "openid profile email groups"
+		scopes = DefaultOIDCScopes
 	}
 
 	// Check cache first

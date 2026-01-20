@@ -248,3 +248,34 @@ func TestExtractUserIDFromToken(t *testing.T) {
 		assert.Equal(t, "", extractUserIDFromToken(token))
 	})
 }
+
+func TestDecodeJWTPayload(t *testing.T) {
+	t.Run("returns error for empty token", func(t *testing.T) {
+		_, err := decodeJWTPayload("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token is empty")
+	})
+
+	t.Run("returns error for invalid JWT format", func(t *testing.T) {
+		_, err := decodeJWTPayload("not-a-jwt")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid JWT format")
+	})
+
+	t.Run("decodes valid JWT payload", func(t *testing.T) {
+		// Token with payload: {"sub":"user123","exp":9999999999}
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
+		decoded, err := decodeJWTPayload(token)
+		assert.NoError(t, err)
+		assert.Contains(t, string(decoded), "user123")
+		assert.Contains(t, string(decoded), "9999999999")
+	})
+
+	t.Run("handles token with only two parts", func(t *testing.T) {
+		// Minimal JWT with just header and payload (no signature)
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0"
+		decoded, err := decodeJWTPayload(token)
+		assert.NoError(t, err)
+		assert.Contains(t, string(decoded), "test")
+	})
+}

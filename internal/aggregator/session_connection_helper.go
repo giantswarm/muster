@@ -668,6 +668,35 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
 }
 
+// decodeJWTPayload decodes the payload (second part) of a JWT token without
+// cryptographic verification. This is safe for extracting claims for non-security
+// purposes (e.g., cache keys, expiry checks) when the token comes from a trusted source.
+//
+// Returns the decoded payload bytes or an error if decoding fails.
+func decodeJWTPayload(token string) ([]byte, error) {
+	if token == "" {
+		return nil, fmt.Errorf("token is empty")
+	}
+
+	// JWT format: header.payload.signature
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid JWT format: expected at least 2 parts")
+	}
+
+	// Decode the payload using RawURLEncoding (handles missing padding automatically)
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		// Try standard base64 as fallback for non-standard implementations
+		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode payload: %w", err)
+		}
+	}
+
+	return decoded, nil
+}
+
 // extractUserIDFromToken extracts the user ID (sub claim) from a JWT ID token.
 // This is used to generate cache keys for token exchange.
 //
@@ -678,24 +707,9 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 //   - The actual token validation happens on the remote Dex server during exchange.
 //   - The extracted user ID is only used for cache key generation, not authorization.
 func extractUserIDFromToken(idToken string) string {
-	if idToken == "" {
-		return ""
-	}
-
-	// JWT format: header.payload.signature
-	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-
-	// Decode the payload using RawURLEncoding (handles missing padding automatically)
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	decoded, err := decodeJWTPayload(idToken)
 	if err != nil {
-		// Try standard base64 as fallback for non-standard implementations
-		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
-		if err != nil {
-			return ""
-		}
+		return ""
 	}
 
 	// Parse the claims
@@ -725,26 +739,10 @@ const idTokenExpiryMargin = 30 * time.Second
 //   - The 'exp' claim is missing
 //   - The token has expired or will expire within the margin
 func isIDTokenExpired(idToken string) bool {
-	if idToken == "" {
-		return true
-	}
-
-	// JWT format: header.payload.signature
-	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		logging.Debug("TokenValidation", "ID token has invalid format (expected JWT)")
-		return true
-	}
-
-	// Decode the payload using RawURLEncoding (handles missing padding automatically)
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	decoded, err := decodeJWTPayload(idToken)
 	if err != nil {
-		// Try standard base64 as fallback for non-standard implementations
-		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
-		if err != nil {
-			logging.Debug("TokenValidation", "Failed to decode ID token payload: %v", err)
-			return true
-		}
+		logging.Debug("TokenValidation", "Failed to decode ID token: %v", err)
+		return true
 	}
 
 	// Parse the claims

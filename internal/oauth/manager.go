@@ -410,7 +410,7 @@ func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken,
 		UserID:           userID,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("exchange token for remote cluster: %w", err)
 	}
 
 	return result.AccessToken, nil
