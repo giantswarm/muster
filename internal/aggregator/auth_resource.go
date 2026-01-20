@@ -61,7 +61,8 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
-		// Check if this server uses SSO via token forwarding
+		// Check if this server uses SSO via token exchange (RFC 8693) or token forwarding
+		usesTokenExchange := ShouldUseTokenExchange(info)
 		usesTokenForwarding := ShouldUseTokenForwarding(info)
 
 		// Check if SSO token reuse is enabled (default: true)
@@ -72,7 +73,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 		// Check if SSO was attempted but failed for this session/server
 		ssoAttemptFailed := false
-		if a.sessionRegistry != nil && usesTokenForwarding {
+		if a.sessionRegistry != nil && (usesTokenExchange || usesTokenForwarding) {
 			ssoAttemptFailed = a.sessionRegistry.HasSSOFailed(sessionID, name)
 		}
 
@@ -80,6 +81,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Name:                   name,
 			Status:                 string(info.Status),
 			TokenForwardingEnabled: usesTokenForwarding,
+			TokenExchangeEnabled:   usesTokenExchange,
 			TokenReuseEnabled:      tokenReuseEnabled,
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
@@ -141,7 +143,10 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // When users authenticate to muster via `muster auth login`, this issuer is used to
 // retrieve their ID token for forwarding to SSO-enabled downstream servers.
 //
-// The issuer is determined from the OAuth server configuration (BaseURL).
+// The issuer is determined from the OAuth provider configuration:
+//   - For Dex provider: returns Dex.IssuerURL (the upstream IdP's issuer)
+//   - For other providers: returns BaseURL (muster's own URL as issuer)
+//
 // Returns empty string if OAuth is not enabled or not configured.
 func (a *AggregatorServer) getMusterIssuer() string {
 	if !a.config.OAuthServer.Enabled || a.config.OAuthServer.Config == nil {
@@ -157,6 +162,13 @@ func (a *AggregatorServer) getMusterIssuer() string {
 		return ""
 	}
 
+	// For Dex provider, the issuer is the Dex server's URL, not muster's base URL.
+	// Tokens are stored with the Dex issuer URL, so we need to use that for lookups.
+	if cfg.Provider == "dex" && cfg.Dex.IssuerURL != "" {
+		return cfg.Dex.IssuerURL
+	}
+
+	// For other providers (or fallback), use muster's base URL as the issuer
 	return cfg.BaseURL
 }
 
@@ -214,8 +226,9 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 	var ssoServers []*ServerInfo
 
 	// Find all SSO-enabled servers that require authentication
+	// SSO can be via token exchange (RFC 8693) or token forwarding
 	for _, info := range servers {
-		if info.Status == StatusAuthRequired && ShouldUseTokenForwarding(info) {
+		if info.Status == StatusAuthRequired && (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) {
 			ssoServers = append(ssoServers, info)
 		}
 	}
@@ -230,12 +243,26 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 
 	// Attempt to connect to each SSO-enabled server
 	for _, info := range ssoServers {
-		result, _, err := EstablishSessionConnectionWithTokenForwarding(
-			ctx, a, sessionID, info, musterIssuer,
-		)
+		var result *SessionConnectionResult
+		var err error
+		var ssoMethod string
+
+		// Token exchange takes precedence over token forwarding
+		if ShouldUseTokenExchange(info) {
+			result, _, err = EstablishSessionConnectionWithTokenExchange(
+				ctx, a, sessionID, info, musterIssuer,
+			)
+			ssoMethod = "token exchange (RFC 8693)"
+		} else {
+			result, _, err = EstablishSessionConnectionWithTokenForwarding(
+				ctx, a, sessionID, info, musterIssuer,
+			)
+			ssoMethod = "token forwarding"
+		}
+
 		if err == nil && result != nil {
-			logging.Info("Aggregator", "Session init: Connected session %s to SSO server %s via token forwarding",
-				logging.TruncateSessionID(sessionID), info.Name)
+			logging.Info("Aggregator", "Session init: Connected session %s to SSO server %s via %s",
+				logging.TruncateSessionID(sessionID), info.Name, ssoMethod)
 		} else {
 			// Log at Warn level for visibility - SSO failures should be investigated
 			logging.Warn("Aggregator", "Session init: SSO connection to %s failed for session %s: %v",

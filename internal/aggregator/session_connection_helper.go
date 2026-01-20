@@ -384,9 +384,9 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 		return
 	}
 
-	// L3 fix: Log when namespace defaults to "default" for transparency
+	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Debug("SessionConnection", "No namespace set for server %s event, defaulting to 'default'", serverName)
+		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
 		namespace = "default"
 	}
 
@@ -427,6 +427,302 @@ func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 	return serverInfo.AuthConfig.ForwardToken
 }
 
+// ShouldUseTokenExchange checks if RFC 8693 token exchange should be used for a server.
+// Token exchange is enabled when:
+//   - AuthConfig.TokenExchange is not nil
+//   - AuthConfig.TokenExchange.Enabled is true
+//   - Required fields (DexTokenEndpoint, ConnectorID) are set
+//
+// Token exchange takes precedence over token forwarding if both are configured.
+func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
+	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
+		return false
+	}
+	config := serverInfo.AuthConfig.TokenExchange
+	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
+}
+
+// EstablishSessionConnectionWithTokenExchange attempts to establish a session connection
+// using RFC 8693 Token Exchange for cross-cluster SSO. This is used when an MCPServer has
+// tokenExchange configured.
+//
+// The function:
+//  1. Gets the user's ID token from muster's OAuth session
+//  2. Extracts the user ID (sub claim) from the token
+//  3. Exchanges it for a token valid on the remote cluster's Dex
+//  4. If successful, establishes the session connection with the exchanged token
+//  5. If exchange fails and fallbackToOwnAuth is true, returns an error indicating fallback is needed
+//
+// Args:
+//   - ctx: Context for the operation
+//   - a: The aggregator server instance
+//   - sessionID: The session to register the connection with
+//   - serverInfo: The server info containing URL and auth config
+//   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
+//
+// Returns:
+//   - *SessionConnectionResult: The connection result if successful
+//   - needsFallback: true if token exchange failed and fallback is configured
+//   - error: The error if connection failed
+func EstablishSessionConnectionWithTokenExchange(
+	ctx context.Context,
+	a *AggregatorServer,
+	sessionID string,
+	serverInfo *ServerInfo,
+	musterIssuer string,
+) (*SessionConnectionResult, bool, error) {
+	// Get the OAuth handler for token exchange
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return nil, true, fmt.Errorf("OAuth handler not available for token exchange")
+	}
+
+	// Get ID token from multiple sources (in priority order):
+	// 1. Request context (for tokens from muster's OAuth server protection)
+	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	if idToken == "" {
+		logging.Debug("SessionConnection", "No ID token available for session %s, fallback to regular auth",
+			logging.TruncateSessionID(sessionID))
+		return nil, true, fmt.Errorf("no ID token available for token exchange")
+	}
+
+	// Validate ID token is not expired before exchanging
+	if isIDTokenExpired(idToken) {
+		logging.Warn("SessionConnection", "ID token expired for session %s, cannot exchange for %s",
+			logging.TruncateSessionID(sessionID), serverInfo.Name)
+		return nil, true, fmt.Errorf("ID token has expired, needs refresh before exchange")
+	}
+
+	// Extract user ID from the token for cache key generation
+	userID := extractUserIDFromToken(idToken)
+	if userID == "" {
+		logging.Warn("SessionConnection", "Failed to extract user ID from token for session %s",
+			logging.TruncateSessionID(sessionID))
+		return nil, true, fmt.Errorf("failed to extract user ID from token")
+	}
+
+	logging.Info("SessionConnection", "Attempting token exchange for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+
+	// Perform the token exchange
+	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
+		ctx,
+		idToken,
+		userID,
+		serverInfo.AuthConfig.TokenExchange,
+	)
+	if err != nil {
+		logging.Warn("SessionConnection", "Token exchange failed for session %s to server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+
+		// Emit event for token exchange failure
+		emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
+
+		// Audit log for failed token exchange (compliance/security monitoring)
+		logging.Audit(logging.AuditEvent{
+			Action:    "token_exchange",
+			Outcome:   "failure",
+			SessionID: logging.TruncateSessionID(sessionID),
+			UserID:    logging.TruncateSessionID(userID),
+			Target:    serverInfo.Name,
+			Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+			Error:     err.Error(),
+		})
+
+		// Check if fallback is configured
+		if serverInfo.AuthConfig.FallbackToOwnAuth {
+			return nil, true, fmt.Errorf("token exchange failed: %w", err)
+		}
+		return nil, false, fmt.Errorf("token exchange failed and fallback disabled: %w", err)
+	}
+
+	// Token exchange succeeded - emit success event and audit log
+	logging.Info("SessionConnection", "Token exchange succeeded for session %s to server %s",
+		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
+
+	// Audit log for successful token exchange (compliance/security monitoring)
+	logging.Audit(logging.AuditEvent{
+		Action:    "token_exchange",
+		Outcome:   "success",
+		SessionID: logging.TruncateSessionID(sessionID),
+		UserID:    logging.TruncateSessionID(userID),
+		Target:    serverInfo.Name,
+		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+	})
+
+	// Create a client with the exchanged token
+	headers := map[string]string{
+		"Authorization": "Bearer " + exchangedToken,
+	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
+
+	// Try to initialize the client with the exchanged token
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+
+		logging.Warn("SessionConnection", "Connection with exchanged token failed for session %s to server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+
+		// Check if fallback is configured
+		if serverInfo.AuthConfig.FallbackToOwnAuth {
+			return nil, true, fmt.Errorf("connection with exchanged token failed: %w", err)
+		}
+		return nil, false, fmt.Errorf("connection with exchanged token failed and fallback disabled: %w", err)
+	}
+
+	// Fetch tools from the server
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		client.Close()
+		return nil, true, fmt.Errorf("failed to list tools after token exchange: %w", err)
+	}
+
+	// Fetch resources and prompts (optional - some servers may not support them)
+	resources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		resources = nil
+	}
+	prompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
+			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		prompts = nil
+	}
+
+	// Upgrade the session connection
+	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+
+	// Create a token key using the muster issuer (since the original token is from muster's auth).
+	tokenKey := &oauth.TokenKey{
+		SessionID: sessionID,
+		Issuer:    musterIssuer,
+	}
+
+	// Create the session connection
+	conn := &SessionConnection{
+		ServerName:  serverInfo.Name,
+		Status:      StatusSessionConnected,
+		Client:      client,
+		TokenKey:    tokenKey,
+		ConnectedAt: time.Now(),
+	}
+	conn.UpdateTools(tools)
+	conn.UpdateResources(resources)
+	conn.UpdatePrompts(prompts)
+
+	session.SetConnection(serverInfo.Name, conn)
+
+	// Register the session-specific tools
+	a.registerSessionTools(serverInfo.Name, tools)
+
+	// Notify the session
+	a.NotifySessionToolsChanged(sessionID)
+
+	logging.Info("SessionConnection", "Session %s connected to %s via RFC 8693 token exchange with %d tools",
+		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
+
+	return &SessionConnectionResult{
+		ServerName:    serverInfo.Name,
+		ToolCount:     len(tools),
+		ResourceCount: len(resources),
+		PromptCount:   len(prompts),
+	}, false, nil
+}
+
+// emitTokenExchangeEvent emits an event for token exchange success or failure.
+func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg string) {
+	eventManager := api.GetEventManager()
+	if eventManager == nil {
+		return
+	}
+
+	// Log when namespace is missing - this indicates a configuration issue
+	if namespace == "" {
+		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
+		namespace = "default"
+	}
+
+	objRef := api.ObjectReference{
+		Kind:      "MCPServer",
+		Name:      serverName,
+		Namespace: namespace,
+	}
+
+	var reason events.EventReason
+	var eventType, message string
+
+	if success {
+		reason = events.ReasonMCPServerTokenExchanged
+		eventType = "Normal"
+		message = fmt.Sprintf("Token successfully exchanged for cross-cluster SSO to MCPServer %s", serverName)
+	} else {
+		reason = events.ReasonMCPServerTokenExchangeFailed
+		eventType = "Warning"
+		message = fmt.Sprintf("Token exchange failed for MCPServer %s: %s", serverName, errorMsg)
+	}
+
+	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
+}
+
+// decodeJWTPayload decodes the payload (second part) of a JWT token without
+// cryptographic verification. This is safe for extracting claims for non-security
+// purposes (e.g., cache keys, expiry checks) when the token comes from a trusted source.
+//
+// Returns the decoded payload bytes or an error if decoding fails.
+func decodeJWTPayload(token string) ([]byte, error) {
+	if token == "" {
+		return nil, fmt.Errorf("token is empty")
+	}
+
+	// JWT format: header.payload.signature
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid JWT format: expected at least 2 parts")
+	}
+
+	// Decode the payload using RawURLEncoding (handles missing padding automatically)
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		// Try standard base64 as fallback for non-standard implementations
+		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode payload: %w", err)
+		}
+	}
+
+	return decoded, nil
+}
+
+// extractUserIDFromToken extracts the user ID (sub claim) from a JWT ID token.
+// This is used to generate cache keys for token exchange.
+//
+// SECURITY NOTE:
+//   - This extracts from the token payload WITHOUT cryptographic verification.
+//   - This is safe because the caller MUST ensure the token comes from a trusted source
+//     (e.g., muster's OAuth session or request context, not user input).
+//   - The actual token validation happens on the remote Dex server during exchange.
+//   - The extracted user ID is only used for cache key generation, not authorization.
+func extractUserIDFromToken(idToken string) string {
+	decoded, err := decodeJWTPayload(idToken)
+	if err != nil {
+		return ""
+	}
+
+	// Parse the claims
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return ""
+	}
+
+	return claims.Sub
+}
+
 // idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
 // This accounts for clock skew and network latency during forwarding.
 const idTokenExpiryMargin = 30 * time.Second
@@ -443,36 +739,10 @@ const idTokenExpiryMargin = 30 * time.Second
 //   - The 'exp' claim is missing
 //   - The token has expired or will expire within the margin
 func isIDTokenExpired(idToken string) bool {
-	if idToken == "" {
-		return true
-	}
-
-	// JWT format: header.payload.signature
-	parts := strings.Split(idToken, ".")
-	if len(parts) < 2 {
-		logging.Debug("TokenValidation", "ID token has invalid format (expected JWT)")
-		return true
-	}
-
-	// Decode the payload (second part)
-	// JWT uses base64url encoding without padding
-	payload := parts[1]
-	// Add padding if necessary
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(payload)
+	decoded, err := decodeJWTPayload(idToken)
 	if err != nil {
-		// Try standard base64 as fallback (some implementations use it)
-		decoded, err = base64.StdEncoding.DecodeString(parts[1])
-		if err != nil {
-			logging.Debug("TokenValidation", "Failed to decode ID token payload: %v", err)
-			return true
-		}
+		logging.Debug("TokenValidation", "Failed to decode ID token: %v", err)
+		return true
 	}
 
 	// Parse the claims

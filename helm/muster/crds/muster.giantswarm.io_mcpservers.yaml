@@ -98,6 +98,45 @@ spec:
                       even if a token exists for the same issuer. Use this when you want to
                       use different accounts for servers that share the same OAuth provider.
                     type: boolean
+                  tokenExchange:
+                    description: |-
+                      TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
+                      When configured, muster exchanges its local token for a token valid on the
+                      remote cluster's Identity Provider (e.g., Dex).
+
+                      Use TokenExchange when:
+                        - The remote cluster has its own Dex instance
+                        - The remote Dex is configured with an OIDC connector for muster's Dex
+                        - You need a token issued by the remote cluster's IdP (not just forwarded)
+
+                      Token exchange takes precedence over ForwardToken if both are configured.
+                    properties:
+                      connectorId:
+                        description: |-
+                          ConnectorID is the ID of the OIDC connector on the remote Dex that
+                          trusts the local cluster's Dex.
+                          Required when Enabled is true.
+                          Example: "cluster-a-dex"
+                        pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
+                        type: string
+                      dexTokenEndpoint:
+                        description: |-
+                          DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
+                          Required when Enabled is true.
+                          Example: https://dex.cluster-b.example.com/token
+                        pattern: ^https://[^\s/$.?#].[^\s]*$
+                        type: string
+                      enabled:
+                        default: false
+                        description: Enabled determines whether token exchange should
+                          be attempted.
+                        type: boolean
+                      scopes:
+                        default: openid profile email groups
+                        description: Scopes are the scopes to request for the exchanged
+                          token.
+                        type: string
+                    type: object
                   type:
                     default: none
                     description: |-

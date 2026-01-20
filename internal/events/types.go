@@ -80,6 +80,15 @@ const (
 	// ReasonMCPServerTokenForwardingFailed indicates ID token forwarding failed.
 	// This may trigger fallback to server-specific OAuth if configured.
 	ReasonMCPServerTokenForwardingFailed EventReason = "MCPServerTokenForwardingFailed"
+
+	// ReasonMCPServerTokenExchanged indicates a token was successfully exchanged via RFC 8693.
+	// This event is generated when muster exchanges a local token for one valid on a remote
+	// cluster's Identity Provider, enabling cross-cluster SSO.
+	ReasonMCPServerTokenExchanged EventReason = "MCPServerTokenExchanged"
+
+	// ReasonMCPServerTokenExchangeFailed indicates RFC 8693 token exchange failed.
+	// This may trigger fallback to server-specific OAuth if configured.
+	ReasonMCPServerTokenExchangeFailed EventReason = "MCPServerTokenExchangeFailed"
 )
 
 // ServiceClass event reasons

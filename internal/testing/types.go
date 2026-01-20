@@ -258,6 +258,29 @@ type MockOAuthServerConfig struct {
 	// When true, the aggregator will be configured with oauthServer.enabled=true
 	// and the issuer will be set to this mock server's URL.
 	UseAsMusterOAuthServer bool `yaml:"use_as_muster_oauth_server,omitempty"`
+
+	// TrustedIssuers configures RFC 8693 token exchange support.
+	// When configured, this OAuth server can exchange tokens from the listed
+	// issuers for tokens valid on this server. This enables cross-cluster SSO testing.
+	// Each entry maps a connector_id to a trusted OAuth server name.
+	TrustedIssuers []TrustedIssuerConfig `yaml:"trusted_issuers,omitempty"`
+
+	// UseTLS enables HTTPS mode with a self-signed certificate.
+	// This is required for OAuth servers used as token exchange targets,
+	// since RFC 8693 token exchange endpoints must use HTTPS for security.
+	// Note: This is automatically set to true when UseAsMusterOAuthServer is true.
+	UseTLS bool `yaml:"use_tls,omitempty"`
+}
+
+// TrustedIssuerConfig defines a trusted issuer for RFC 8693 token exchange
+type TrustedIssuerConfig struct {
+	// ConnectorID is the identifier used in the token exchange request
+	// to specify which connector to use (maps to audience in RFC 8693)
+	ConnectorID string `yaml:"connector_id"`
+
+	// OAuthServerRef references the mock OAuth server by name whose tokens
+	// should be accepted for exchange
+	OAuthServerRef string `yaml:"oauth_server_ref"`
 }
 
 // MCPServerOAuthConfig defines OAuth protection for an MCP server in tests

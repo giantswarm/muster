@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"muster/internal/api"
@@ -173,6 +174,17 @@ func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer st
 		return token.AccessToken
 	}
 	return ""
+}
+
+// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
+// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
+func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+	if config == nil {
+		return "", fmt.Errorf("token exchange config is nil")
+	}
+
+	// Pass API config directly - no conversion needed (DRY principle)
+	return a.manager.ExchangeTokenForRemoteCluster(ctx, localToken, userID, config)
 }
 
 // Stop stops the OAuth handler and cleans up resources.

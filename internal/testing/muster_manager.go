@@ -1096,6 +1096,17 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 		m.logger.Debug("🔐 Enabled OAuth proxy for test instance (publicUrl: http://localhost:%d)\n", port)
 	}
 
+	// Collect CA certificates from ALL TLS-enabled OAuth servers.
+	// This is needed for token exchange to work, where muster needs to call
+	// remote OAuth servers (e.g., cluster-b-idp) that use self-signed certs.
+	combinedCAFile := m.collectAndWriteCACertificates(instanceID, musterConfigPath, config)
+	if combinedCAFile != "" {
+		oauthProxyConfig["caFile"] = combinedCAFile
+		if m.debug {
+			m.logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
+		}
+	}
+
 	// Check if any mock OAuth server should be used as muster's OAuth server
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
@@ -1109,6 +1120,53 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	}
 
 	aggregatorConfig["oauth"] = oauthProxyConfig
+}
+
+// collectAndWriteCACertificates collects CA certificates from all TLS-enabled OAuth servers
+// and writes them to a combined CA file that muster can trust.
+// This is essential for token exchange scenarios where muster needs to call remote OAuth
+// servers (like cluster-b-idp) that use self-signed certificates.
+func (m *musterInstanceManager) collectAndWriteCACertificates(
+	instanceID string,
+	musterConfigPath string,
+	config *MusterPreConfiguration,
+) string {
+	m.mu.RLock()
+	oauthServers := m.mockOAuthServers[instanceID]
+	m.mu.RUnlock()
+
+	if len(oauthServers) == 0 {
+		return ""
+	}
+
+	// Collect all CA certificates
+	var combinedCAPEM []byte
+	for serverName, server := range oauthServers {
+		if server.IsTLS() {
+			caPEM := server.GetCACertPEM()
+			if len(caPEM) > 0 {
+				combinedCAPEM = append(combinedCAPEM, caPEM...)
+				if m.debug {
+					m.logger.Debug("🔒 Collected CA certificate from %s for combined trust store\n", serverName)
+				}
+			}
+		}
+	}
+
+	if len(combinedCAPEM) == 0 {
+		return ""
+	}
+
+	// Write combined CA file
+	caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
+	if err := os.WriteFile(caFile, combinedCAPEM, 0644); err != nil {
+		if m.debug {
+			m.logger.Debug("⚠️  Failed to write combined CA file: %v\n", err)
+		}
+		return ""
+	}
+
+	return caFile
 }
 
 // buildMusterOAuthServerConfig builds the OAuth server configuration for muster
@@ -1143,25 +1201,12 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"clientSecret": oauthCfg.ClientSecret,
 	}
 
-	// If the mock server uses TLS, write the CA certificate to a file
-	// so muster can trust the self-signed certificate
+	// Use the combined CA file (already written by configureOAuthForInstance)
+	// if the mock server uses TLS
 	if mockServer.IsTLS() {
-		caPEM := mockServer.GetCACertPEM()
-		if len(caPEM) > 0 {
-			caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
-			if err := os.WriteFile(caFile, caPEM, 0644); err != nil {
-				if m.debug {
-					m.logger.Debug("⚠️  Failed to write CA file: %v\n", err)
-				}
-			} else {
-				dexConfig["caFile"] = caFile
-				// Also configure the OAuth proxy to trust this CA
-				// so it can discover metadata from the same IdP
-				oauthProxyConfig["caFile"] = caFile
-				if m.debug {
-					m.logger.Debug("🔒 Wrote mock OAuth CA certificate to %s\n", caFile)
-				}
-			}
+		caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
+		if _, err := os.Stat(caFile); err == nil {
+			dexConfig["caFile"] = caFile
 		}
 	}
 
@@ -1270,16 +1315,65 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						"url":       mockInfo.Endpoint,
 					}
 
-					// If oauth.forward_token is specified, add auth.forwardToken to the CRD
-					// This enables SSO token forwarding for this server
+					// Handle SSO configuration from oauth config
 					if oauthConfig, hasOAuth := mcpServer.Config["oauth"].(map[string]interface{}); hasOAuth {
+						authConfig := make(map[string]interface{})
+
+						// If oauth.forward_token is specified, add auth.forwardToken to the CRD
+						// This enables SSO token forwarding for this server
 						if forwardToken, hasForwardToken := oauthConfig["forward_token"].(bool); hasForwardToken && forwardToken {
-							spec["auth"] = map[string]interface{}{
-								"forwardToken": true,
-							}
+							authConfig["forwardToken"] = true
 							if m.debug {
 								m.logger.Debug("🔐 Enabling token forwarding for MCPServer %s\n", mcpServer.Name)
 							}
+						}
+
+						// If oauth.token_exchange is specified, add auth.tokenExchange to the CRD
+						// This enables SSO via RFC 8693 token exchange for cross-cluster SSO
+						if tokenExchange, hasTokenExchange := oauthConfig["token_exchange"].(map[string]interface{}); hasTokenExchange {
+							tokenExchangeConfig := map[string]interface{}{
+								"enabled": true,
+							}
+
+							// Handle dex_token_endpoint - can be explicit URL or reference to OAuth server
+							if dexEndpoint, ok := tokenExchange["dex_token_endpoint"].(string); ok {
+								tokenExchangeConfig["dexTokenEndpoint"] = dexEndpoint
+							} else if oauthServerRef, ok := tokenExchange["oauth_server_ref"].(string); ok {
+								// Resolve token endpoint from referenced OAuth server
+								m.mu.RLock()
+								oauthServers := m.mockOAuthServers[instanceID]
+								m.mu.RUnlock()
+								if oauthServers != nil {
+									if oauthServer, ok := oauthServers[oauthServerRef]; ok {
+										tokenExchangeConfig["dexTokenEndpoint"] = oauthServer.GetIssuerURL() + "/token"
+										if m.debug {
+											m.logger.Debug("🔐 Resolved token exchange endpoint from %s: %s/token\n",
+												oauthServerRef, oauthServer.GetIssuerURL())
+										}
+									}
+								}
+							}
+
+							if connectorID, ok := tokenExchange["connector_id"].(string); ok {
+								tokenExchangeConfig["connectorId"] = connectorID
+							}
+							if scopes, ok := tokenExchange["scopes"].(string); ok {
+								tokenExchangeConfig["scopes"] = scopes
+							}
+							authConfig["tokenExchange"] = tokenExchangeConfig
+							if m.debug {
+								m.logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
+									mcpServer.Name, tokenExchange["connector_id"])
+							}
+						}
+
+						// If oauth.fallback_to_own_auth is specified, add auth.fallbackToOwnAuth
+						if fallback, hasFallback := oauthConfig["fallback_to_own_auth"].(bool); hasFallback {
+							authConfig["fallbackToOwnAuth"] = fallback
+						}
+
+						if len(authConfig) > 0 {
+							spec["auth"] = authConfig
 						}
 					}
 

@@ -93,6 +93,57 @@ type MCPServerAuth struct {
 	// use different accounts for servers that share the same OAuth provider.
 	// +kubebuilder:default=true
 	SSO *bool `json:"sso,omitempty" yaml:"sso,omitempty"`
+
+	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
+	// When configured, muster exchanges its local token for a token valid on the
+	// remote cluster's Identity Provider (e.g., Dex).
+	//
+	// Use TokenExchange when:
+	//   - The remote cluster has its own Dex instance
+	//   - The remote Dex is configured with an OIDC connector for muster's Dex
+	//   - You need a token issued by the remote cluster's IdP (not just forwarded)
+	//
+	// Token exchange takes precedence over ForwardToken if both are configured.
+	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty" yaml:"tokenExchange,omitempty"`
+}
+
+// TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
+// This enables muster to exchange its local token for a token valid on a remote
+// cluster's Identity Provider (typically Dex).
+//
+// The remote Dex must be configured with an OIDC connector that trusts the local
+// cluster's Dex. For example:
+//
+//	# On remote cluster's Dex (cluster-b)
+//	connectors:
+//	- type: oidc
+//	  id: cluster-a-dex
+//	  name: "Cluster A"
+//	  config:
+//	    issuer: https://dex.cluster-a.example.com
+//	    getUserInfo: true
+//	    insecureEnableGroups: true
+type TokenExchangeConfig struct {
+	// Enabled determines whether token exchange should be attempted.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+
+	// DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
+	// Required when Enabled is true.
+	// Example: https://dex.cluster-b.example.com/token
+	// +kubebuilder:validation:Pattern=`^https://[^\s/$.?#].[^\s]*$`
+	DexTokenEndpoint string `json:"dexTokenEndpoint,omitempty" yaml:"dexTokenEndpoint,omitempty"`
+
+	// ConnectorID is the ID of the OIDC connector on the remote Dex that
+	// trusts the local cluster's Dex.
+	// Required when Enabled is true.
+	// Example: "cluster-a-dex"
+	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
+	ConnectorID string `json:"connectorId,omitempty" yaml:"connectorId,omitempty"`
+
+	// Scopes are the scopes to request for the exchanged token.
+	// +kubebuilder:default="openid profile email groups"
+	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // MCPServerStatus defines the observed state of MCPServer

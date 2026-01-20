@@ -126,3 +126,156 @@ func TestIsIDTokenExpired(t *testing.T) {
 		assert.True(t, isIDTokenExpired(token))
 	})
 }
+
+func TestShouldUseTokenExchange(t *testing.T) {
+	t.Run("returns false for nil server info", func(t *testing.T) {
+		assert.False(t, ShouldUseTokenExchange(nil))
+	})
+
+	t.Run("returns false for nil auth config", func(t *testing.T) {
+		info := &ServerInfo{
+			Name:       "test-server",
+			AuthConfig: nil,
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns false when tokenExchange is nil", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type:          "oauth",
+				TokenExchange: nil,
+			},
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns false when tokenExchange.Enabled is false", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          false,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+				},
+			},
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns false when required fields are missing", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled: true,
+					// Missing DexTokenEndpoint and ConnectorID
+				},
+			},
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns false when DexTokenEndpoint is missing", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:     true,
+					ConnectorID: "local-dex",
+				},
+			},
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns false when ConnectorID is missing", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+				},
+			},
+		}
+		assert.False(t, ShouldUseTokenExchange(info))
+	})
+
+	t.Run("returns true when fully configured", func(t *testing.T) {
+		info := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					Scopes:           "openid profile email groups",
+				},
+			},
+		}
+		assert.True(t, ShouldUseTokenExchange(info))
+	})
+}
+
+func TestExtractUserIDFromToken(t *testing.T) {
+	t.Run("returns empty for empty token", func(t *testing.T) {
+		assert.Equal(t, "", extractUserIDFromToken(""))
+	})
+
+	t.Run("returns empty for invalid JWT format", func(t *testing.T) {
+		assert.Equal(t, "", extractUserIDFromToken("not-a-jwt"))
+	})
+
+	t.Run("extracts sub claim from valid JWT", func(t *testing.T) {
+		// Token with sub = "user123"
+		// Payload: {"sub":"user123","exp":9999999999}
+		// base64url encoded: eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
+		assert.Equal(t, "user123", extractUserIDFromToken(token))
+	})
+
+	t.Run("returns empty when sub claim is missing", func(t *testing.T) {
+		// Token with only exp claim
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
+		assert.Equal(t, "", extractUserIDFromToken(token))
+	})
+}
+
+func TestDecodeJWTPayload(t *testing.T) {
+	t.Run("returns error for empty token", func(t *testing.T) {
+		_, err := decodeJWTPayload("")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "token is empty")
+	})
+
+	t.Run("returns error for invalid JWT format", func(t *testing.T) {
+		_, err := decodeJWTPayload("not-a-jwt")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid JWT format")
+	})
+
+	t.Run("decodes valid JWT payload", func(t *testing.T) {
+		// Token with payload: {"sub":"user123","exp":9999999999}
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
+		decoded, err := decodeJWTPayload(token)
+		assert.NoError(t, err)
+		assert.Contains(t, string(decoded), "user123")
+		assert.Contains(t, string(decoded), "9999999999")
+	})
+
+	t.Run("handles token with only two parts", func(t *testing.T) {
+		// Minimal JWT with just header and payload (no signature)
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0"
+		decoded, err := decodeJWTPayload(token)
+		assert.NoError(t, err)
+		assert.Contains(t, string(decoded), "test")
+	})
+}

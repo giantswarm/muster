@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -242,4 +243,53 @@ func TruncateSessionID(sessionID string) string {
 		return sessionID
 	}
 	return sessionID[:8] + "..."
+}
+
+// AuditEvent represents a structured audit log event for security-sensitive operations.
+// These events can be collected by external audit systems for compliance monitoring.
+type AuditEvent struct {
+	// Action is the type of action being audited (e.g., "token_exchange", "auth_login")
+	Action string
+	// Outcome indicates whether the action succeeded or failed
+	Outcome string // "success" or "failure"
+	// SessionID is the truncated session identifier
+	SessionID string
+	// UserID is the truncated user identifier (from JWT sub claim)
+	UserID string
+	// Target is the target of the action (e.g., server name, endpoint)
+	Target string
+	// Details provides additional context-specific information
+	Details string
+	// Error contains the error message if Outcome is "failure"
+	Error string
+}
+
+// Audit logs a structured audit event for security-sensitive operations.
+// Audit events are always logged at INFO level and include a special [AUDIT] prefix
+// to make them easily filterable by log aggregation systems.
+//
+// Example output:
+// [AUDIT] action=token_exchange outcome=success session=abc12345... user=xyz789... target=mcp-kubernetes
+func Audit(event AuditEvent) {
+	// Pre-allocate with expected capacity for efficiency
+	parts := make([]string, 0, 7)
+	parts = append(parts, "action="+event.Action)
+	parts = append(parts, "outcome="+event.Outcome)
+	if event.SessionID != "" {
+		parts = append(parts, "session="+event.SessionID)
+	}
+	if event.UserID != "" {
+		parts = append(parts, "user="+event.UserID)
+	}
+	if event.Target != "" {
+		parts = append(parts, "target="+event.Target)
+	}
+	if event.Details != "" {
+		parts = append(parts, "details="+event.Details)
+	}
+	if event.Error != "" {
+		parts = append(parts, "error="+event.Error)
+	}
+
+	logInternal(LevelInfo, "AUDIT", nil, "[AUDIT] %s", strings.Join(parts, " "))
 }

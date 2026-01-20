@@ -86,6 +86,12 @@ type OAuthServerConfig struct {
 	// This is required for testing muster's OAuth server integration,
 	// as the Dex provider enforces HTTPS for security.
 	UseTLS bool
+
+	// TrustedIssuers maps connector IDs to trusted issuer URLs for RFC 8693 token exchange.
+	// When a token exchange request is received with a connector_id, this map is used
+	// to look up the trusted issuer and validate the subject token.
+	// Key: connector_id, Value: issuer URL
+	TrustedIssuers map[string]string
 }
 
 // OAuthErrorSimulation allows simulating error conditions
@@ -532,7 +538,7 @@ func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		"userinfo_endpoint":                     s.config.Issuer + "/userinfo",
 		"jwks_uri":                              s.config.Issuer + "/jwks",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"},
 		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post", "client_secret_basic"},
 		"scopes_supported":                      s.config.AcceptedScopes,
 		"code_challenge_methods_supported":      []string{"S256", "plain"},
@@ -667,6 +673,8 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthCodeExchange(w, r)
 	case "refresh_token":
 		s.handleRefreshToken(w, r)
+	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		s.handleTokenExchange(w, r)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -819,6 +827,185 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		Scope:        originalToken.Scope,
 		IDToken:      newIDToken,
 	})
+}
+
+// handleTokenExchange implements RFC 8693 OAuth 2.0 Token Exchange.
+// This allows exchanging a token from a trusted issuer for a token valid on this server.
+func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	subjectToken := r.FormValue("subject_token")
+	subjectTokenType := r.FormValue("subject_token_type")
+	scope := r.FormValue("scope")
+
+	// Dex uses "connector_id" as the audience parameter for token exchange.
+	// RFC 8693 uses "audience". Accept both for compatibility.
+	connectorID := r.FormValue("connector_id")
+	audience := r.FormValue("audience")
+	if connectorID != "" && audience == "" {
+		audience = connectorID
+	}
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 Token exchange request: connector_id=%s, audience=%s, token_type=%s\n",
+			connectorID, audience, subjectTokenType)
+	}
+
+	// Validate required parameters
+	if subjectToken == "" {
+		s.tokenExchangeError(w, "invalid_request", "subject_token is required")
+		return
+	}
+	if subjectTokenType == "" {
+		subjectTokenType = "urn:ietf:params:oauth:token-type:id_token"
+	}
+	if audience == "" {
+		s.tokenExchangeError(w, "invalid_request", "audience or connector_id is required")
+		return
+	}
+
+	// Check if we have a trusted issuer for this connector_id
+	trustedIssuer, ok := s.config.TrustedIssuers[audience]
+	if !ok {
+		s.tokenExchangeError(w, "invalid_target", fmt.Sprintf("no trusted issuer configured for connector_id: %s", audience))
+		return
+	}
+
+	// Validate the subject token (extract and verify issuer)
+	tokenIssuer := s.extractIssuerFromToken(subjectToken)
+	if tokenIssuer == "" {
+		s.tokenExchangeError(w, "invalid_grant", "could not extract issuer from subject_token")
+		return
+	}
+
+	// Verify the token is from the trusted issuer
+	if tokenIssuer != trustedIssuer {
+		if s.config.Debug {
+			fmt.Fprintf(os.Stderr, "🔐 Token exchange failed: issuer mismatch (got: %s, expected: %s)\n",
+				tokenIssuer, trustedIssuer)
+		}
+		s.tokenExchangeError(w, "invalid_grant", "subject_token issuer does not match trusted issuer")
+		return
+	}
+
+	// Extract user info from the subject token for the new token
+	userID := s.extractSubFromToken(subjectToken)
+	if userID == "" {
+		userID = "test-user-123" // fallback
+	}
+
+	// Default scope if not provided
+	if scope == "" {
+		scope = "openid profile email groups"
+	}
+
+	// Issue new tokens for this server
+	accessToken := s.generateAccessToken(s.config.ClientID, scope)
+	idToken := s.generateIDTokenWithSub(s.config.ClientID, scope, userID)
+
+	token := &issuedToken{
+		AccessToken:  accessToken,
+		RefreshToken: "", // No refresh token for exchanged tokens (per RFC 8693 best practice)
+		Scope:        scope,
+		ClientID:     s.config.ClientID,
+		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+	}
+
+	s.mu.Lock()
+	s.issuedTokens[accessToken] = token
+	s.mu.Unlock()
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 Token exchange successful: issued token for user %s\n", userID)
+	}
+
+	// RFC 8693 response format
+	response := map[string]interface{}{
+		"access_token":      accessToken,
+		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+		"token_type":        "Bearer",
+		"expires_in":        int(s.config.TokenLifetime.Seconds()),
+		"scope":             scope,
+		"id_token":          idToken,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// tokenExchangeError sends an RFC 8693 compliant error response
+func (s *OAuthServer) tokenExchangeError(w http.ResponseWriter, errorCode, description string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":             errorCode,
+		"error_description": description,
+	})
+}
+
+// extractIssuerFromToken extracts the issuer (iss) claim from a JWT token
+func (s *OAuthServer) extractIssuerFromToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+
+	return claims.Iss
+}
+
+// extractSubFromToken extracts the subject (sub) claim from a JWT token
+func (s *OAuthServer) extractSubFromToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+
+	return claims.Sub
+}
+
+// generateIDTokenWithSub generates an ID token with a specific subject
+func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) string {
+	now := s.clock.Now()
+
+	claims := idTokenClaims{
+		Iss:   s.config.Issuer,
+		Sub:   subject,
+		Aud:   clientID,
+		Exp:   now.Add(s.config.TokenLifetime).Unix(),
+		Iat:   now.Unix(),
+		Email: "test@example.com",
+		Name:  "Test User",
+	}
+
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal ID token claims: %w", err))
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	return fmt.Sprintf("%s.%s.", jwtHeader, payload)
 }
 
 func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -987,6 +1174,17 @@ func (s *OAuthServer) SetClock(clock Clock) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clock = clock
+}
+
+// SetTrustedIssuers sets the trusted issuers for RFC 8693 token exchange.
+// This should be called after all OAuth servers are started, so their issuer URLs are known.
+func (s *OAuthServer) SetTrustedIssuers(trustedIssuers map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.TrustedIssuers = trustedIssuers
+	if s.config.Debug && len(trustedIssuers) > 0 {
+		fmt.Fprintf(os.Stderr, "🔐 Configured %d trusted issuers for token exchange\n", len(trustedIssuers))
+	}
 }
 
 // WWWAuthenticateHeader returns the WWW-Authenticate header value for this server
