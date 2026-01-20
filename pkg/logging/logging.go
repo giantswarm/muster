@@ -243,3 +243,59 @@ func TruncateSessionID(sessionID string) string {
 	}
 	return sessionID[:8] + "..."
 }
+
+// AuditEvent represents a structured audit log event for security-sensitive operations.
+// These events can be collected by external audit systems for compliance monitoring.
+type AuditEvent struct {
+	// Action is the type of action being audited (e.g., "token_exchange", "auth_login")
+	Action string
+	// Outcome indicates whether the action succeeded or failed
+	Outcome string // "success" or "failure"
+	// SessionID is the truncated session identifier
+	SessionID string
+	// UserID is the truncated user identifier (from JWT sub claim)
+	UserID string
+	// Target is the target of the action (e.g., server name, endpoint)
+	Target string
+	// Details provides additional context-specific information
+	Details string
+	// Error contains the error message if Outcome is "failure"
+	Error string
+}
+
+// Audit logs a structured audit event for security-sensitive operations.
+// Audit events are always logged at INFO level and include a special [AUDIT] prefix
+// to make them easily filterable by log aggregation systems.
+//
+// Example output:
+// [AUDIT] action=token_exchange outcome=success session=abc12345... user=xyz789... target=mcp-kubernetes
+func Audit(event AuditEvent) {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("action=%s", event.Action))
+	parts = append(parts, fmt.Sprintf("outcome=%s", event.Outcome))
+	if event.SessionID != "" {
+		parts = append(parts, fmt.Sprintf("session=%s", event.SessionID))
+	}
+	if event.UserID != "" {
+		parts = append(parts, fmt.Sprintf("user=%s", event.UserID))
+	}
+	if event.Target != "" {
+		parts = append(parts, fmt.Sprintf("target=%s", event.Target))
+	}
+	if event.Details != "" {
+		parts = append(parts, fmt.Sprintf("details=%s", event.Details))
+	}
+	if event.Error != "" {
+		parts = append(parts, fmt.Sprintf("error=%s", event.Error))
+	}
+
+	msg := ""
+	for i, part := range parts {
+		if i > 0 {
+			msg += " "
+		}
+		msg += part
+	}
+
+	logInternal(LevelInfo, "AUDIT", nil, "[AUDIT] %s", msg)
+}

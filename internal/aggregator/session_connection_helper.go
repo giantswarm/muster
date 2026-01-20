@@ -519,6 +519,17 @@ func EstablishSessionConnectionWithTokenExchange(
 		// Emit event for token exchange failure
 		emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
+		// Audit log for failed token exchange (compliance/security monitoring)
+		logging.Audit(logging.AuditEvent{
+			Action:    "token_exchange",
+			Outcome:   "failure",
+			SessionID: logging.TruncateSessionID(sessionID),
+			UserID:    logging.TruncateSessionID(userID),
+			Target:    serverInfo.Name,
+			Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+			Error:     err.Error(),
+		})
+
 		// Check if fallback is configured
 		if serverInfo.AuthConfig.FallbackToOwnAuth {
 			return nil, true, fmt.Errorf("token exchange failed: %w", err)
@@ -526,10 +537,20 @@ func EstablishSessionConnectionWithTokenExchange(
 		return nil, false, fmt.Errorf("token exchange failed and fallback disabled: %w", err)
 	}
 
-	// Token exchange succeeded - emit success event
+	// Token exchange succeeded - emit success event and audit log
 	logging.Info("SessionConnection", "Token exchange succeeded for session %s to server %s",
 		logging.TruncateSessionID(sessionID), serverInfo.Name)
 	emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
+
+	// Audit log for successful token exchange (compliance/security monitoring)
+	logging.Audit(logging.AuditEvent{
+		Action:    "token_exchange",
+		Outcome:   "success",
+		SessionID: logging.TruncateSessionID(sessionID),
+		UserID:    logging.TruncateSessionID(userID),
+		Target:    serverInfo.Name,
+		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+	})
 
 	// Create a client with the exchanged token
 	headers := map[string]string{

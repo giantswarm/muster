@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -136,6 +137,13 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}
 	if req.Config.DexTokenEndpoint == "" {
 		return nil, fmt.Errorf("dex token endpoint is required")
+	}
+	// Security: Enforce HTTPS for token endpoints
+	// This prevents token leakage over insecure connections and MITM attacks.
+	// Note: The underlying mcp-oauth library also enforces HTTPS, so this is
+	// a defense-in-depth check that provides a clearer error message.
+	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
+		return nil, fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
 	}
 	if req.Config.ConnectorID == "" {
 		return nil, fmt.Errorf("connector ID is required")

@@ -108,6 +108,51 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "user ID is required")
 	})
+
+	t.Run("returns error for non-HTTPS endpoint", func(t *testing.T) {
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "http://dex.example.com/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dex token endpoint must use HTTPS")
+	})
+
+	t.Run("rejects http://localhost - HTTPS required even for local", func(t *testing.T) {
+		// HTTPS is enforced for all endpoints for security
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "http://localhost:5556/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must use HTTPS")
+	})
+
+	t.Run("accepts HTTPS endpoint", func(t *testing.T) {
+		// Valid HTTPS endpoint should pass validation (but may fail on network)
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		// Should not fail on HTTPS validation (may fail on network/exchange)
+		require.Error(t, err) // Will fail on network, but not HTTPS validation
+		assert.NotContains(t, err.Error(), "must use HTTPS")
+	})
 }
 
 func TestTokenExchanger_Cache(t *testing.T) {
