@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"k8s.io/client-go/util/retry"
 
@@ -146,7 +145,7 @@ func (r *ServiceClassReconciler) syncStatus(ctx context.Context, name, namespace
 			actualErr = err
 		}
 
-		reason := categorizeServiceClassStatusSyncError(actualErr)
+		reason := CategorizeStatusSyncError(actualErr)
 		metrics.RecordStatusSyncFailure(ResourceTypeServiceClass, name, reason)
 
 		if failureTracker.RecordFailure(ResourceTypeServiceClass, name, actualErr) {
@@ -167,34 +166,6 @@ func (r *ServiceClassReconciler) applyStatus(serviceClass *musterv1alpha1.Servic
 	serviceClass.Status.Valid = len(validationErrors) == 0
 	serviceClass.Status.ValidationErrors = validationErrors
 	serviceClass.Status.ReferencedTools = referencedTools
-}
-
-// categorizeServiceClassStatusSyncError returns a descriptive reason for a status sync error.
-func categorizeServiceClassStatusSyncError(err error) string {
-	if err == nil {
-		return "unknown"
-	}
-
-	errStr := err.Error()
-
-	if IsConflictError(err) {
-		return "conflict_after_retries"
-	}
-	if IsNotFoundError(err) {
-		return "crd_not_found"
-	}
-	if strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") {
-		return "api_server_unreachable"
-	}
-	if strings.Contains(errStr, "timeout") {
-		return "timeout"
-	}
-	if strings.Contains(errStr, "forbidden") || strings.Contains(errStr, "Forbidden") {
-		return "permission_denied"
-	}
-
-	return "update_status_failed"
 }
 
 // extractReferencedTools extracts all tool names referenced in the ServiceClass.

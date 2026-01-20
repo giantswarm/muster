@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,7 +174,7 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		}
 
 		// Categorize the error for metrics
-		reason := categorizeStatusSyncError(actualErr)
+		reason := CategorizeStatusSyncError(actualErr)
 		metrics.RecordStatusSyncFailure(ResourceTypeMCPServer, name, reason)
 
 		// Use backoff-based logging to reduce log spam
@@ -237,45 +236,6 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
 	}
-}
-
-// categorizeStatusSyncError returns a descriptive reason for a status sync error.
-// This provides more actionable information than just "update_status_failed".
-func categorizeStatusSyncError(err error) string {
-	if err == nil {
-		return "unknown"
-	}
-
-	errStr := err.Error()
-
-	// Check for specific Kubernetes API errors
-	if IsConflictError(err) {
-		return "conflict_after_retries"
-	}
-	if IsNotFoundError(err) {
-		return "crd_not_found"
-	}
-
-	// Check for common error patterns
-	if strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") ||
-		strings.Contains(errStr, "network is unreachable") {
-		return "api_server_unreachable"
-	}
-	if strings.Contains(errStr, "timeout") ||
-		strings.Contains(errStr, "deadline exceeded") {
-		return "timeout"
-	}
-	if strings.Contains(errStr, "forbidden") ||
-		strings.Contains(errStr, "Forbidden") {
-		return "permission_denied"
-	}
-	if strings.Contains(errStr, "unauthorized") ||
-		strings.Contains(errStr, "Unauthorized") {
-		return "authentication_failed"
-	}
-
-	return "update_status_failed"
 }
 
 // reconcileCreate handles creating a new MCPServer service.

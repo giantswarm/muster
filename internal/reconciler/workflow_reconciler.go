@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"k8s.io/client-go/util/retry"
 
@@ -152,7 +151,7 @@ func (r *WorkflowReconciler) syncStatus(ctx context.Context, name, namespace str
 			actualErr = err
 		}
 
-		reason := categorizeWorkflowStatusSyncError(actualErr)
+		reason := CategorizeStatusSyncError(actualErr)
 		metrics.RecordStatusSyncFailure(ResourceTypeWorkflow, name, reason)
 
 		if failureTracker.RecordFailure(ResourceTypeWorkflow, name, actualErr) {
@@ -174,34 +173,6 @@ func (r *WorkflowReconciler) applyStatus(workflow *musterv1alpha1.Workflow, refe
 	workflow.Status.ValidationErrors = validationErrors
 	workflow.Status.ReferencedTools = referencedTools
 	workflow.Status.StepCount = stepCount
-}
-
-// categorizeWorkflowStatusSyncError returns a descriptive reason for a status sync error.
-func categorizeWorkflowStatusSyncError(err error) string {
-	if err == nil {
-		return "unknown"
-	}
-
-	errStr := err.Error()
-
-	if IsConflictError(err) {
-		return "conflict_after_retries"
-	}
-	if IsNotFoundError(err) {
-		return "crd_not_found"
-	}
-	if strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") {
-		return "api_server_unreachable"
-	}
-	if strings.Contains(errStr, "timeout") {
-		return "timeout"
-	}
-	if strings.Contains(errStr, "forbidden") || strings.Contains(errStr, "Forbidden") {
-		return "permission_denied"
-	}
-
-	return "update_status_failed"
 }
 
 // extractReferencedTools extracts all tool names referenced in the Workflow steps.

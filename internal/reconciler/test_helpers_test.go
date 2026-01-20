@@ -309,6 +309,11 @@ type MockStatusUpdater struct {
 	GetWorkflowCalled              bool
 	UpdateWorkflowStatusCalled     bool
 
+	// Call counts for retry testing
+	UpdateMCPServerStatusCallCount    int
+	UpdateServiceClassStatusCallCount int
+	UpdateWorkflowStatusCallCount     int
+
 	// Last updated resources for verification
 	LastUpdatedMCPServer    *musterv1alpha1.MCPServer
 	LastUpdatedServiceClass *musterv1alpha1.ServiceClass
@@ -321,6 +326,9 @@ type MockStatusUpdater struct {
 	UpdateServiceClassStatusError error
 	GetWorkflowError              error
 	UpdateWorkflowStatusError     error
+
+	// For retry testing: fail N times before succeeding
+	UpdateMCPServerStatusFailCount int
 
 	// Mode
 	KubernetesMode bool
@@ -361,9 +369,16 @@ func (m *MockStatusUpdater) UpdateMCPServerStatus(ctx context.Context, server *m
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.UpdateMCPServerStatusCalled = true
+	m.UpdateMCPServerStatusCallCount++
 	m.LastUpdatedMCPServer = server
 
-	if m.UpdateMCPServerStatusError != nil {
+	// Support for retry testing: fail N times before succeeding
+	if m.UpdateMCPServerStatusFailCount > 0 && m.UpdateMCPServerStatusCallCount <= m.UpdateMCPServerStatusFailCount {
+		return m.UpdateMCPServerStatusError
+	}
+
+	// Regular error (always fail)
+	if m.UpdateMCPServerStatusError != nil && m.UpdateMCPServerStatusFailCount == 0 {
 		return m.UpdateMCPServerStatusError
 	}
 
@@ -519,4 +534,26 @@ func (m *MockStatusUpdater) GetLastUpdatedWorkflow() *musterv1alpha1.Workflow {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.LastUpdatedWorkflow
+}
+
+// GetUpdateMCPServerStatusCallCount returns the number of times UpdateMCPServerStatus was called.
+func (m *MockStatusUpdater) GetUpdateMCPServerStatusCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.UpdateMCPServerStatusCallCount
+}
+
+// ResetCallCounts resets all call tracking state for reuse in tests.
+func (m *MockStatusUpdater) ResetCallCounts() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.GetMCPServerCalled = false
+	m.UpdateMCPServerStatusCalled = false
+	m.GetServiceClassCalled = false
+	m.UpdateServiceClassStatusCalled = false
+	m.GetWorkflowCalled = false
+	m.UpdateWorkflowStatusCalled = false
+	m.UpdateMCPServerStatusCallCount = 0
+	m.UpdateServiceClassStatusCallCount = 0
+	m.UpdateWorkflowStatusCallCount = 0
 }
