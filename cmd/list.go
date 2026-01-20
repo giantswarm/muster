@@ -284,6 +284,21 @@ func runList(cmd *cobra.Command, args []string) error {
 			strings.Join(ignoredFlags, ", "), resourceType)
 	}
 
+	// Warn if mcpserver-specific flags are used with non-mcpserver resources
+	if toolName != "core_mcpserver_list" && !listFlags.Quiet {
+		var mcpserverFlags []string
+		if listShowAll {
+			mcpserverFlags = append(mcpserverFlags, "--all")
+		}
+		if listVerbose {
+			mcpserverFlags = append(mcpserverFlags, "--verbose")
+		}
+		if len(mcpserverFlags) > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with mcpserver)\n",
+				strings.Join(mcpserverFlags, ", "), resourceType)
+		}
+	}
+
 	opts, err := listFlags.ToExecutorOptions()
 	if err != nil {
 		return err

@@ -179,10 +179,16 @@ func generateUnreachableMessage(errorMsg string) string {
 		return "Cannot reach server - DNS resolution failed (check hostname)"
 	case strings.Contains(lowerErr, "network is unreachable"):
 		return "Cannot reach server - network is unreachable (check connectivity)"
-	case strings.Contains(lowerErr, "host is unreachable"):
+	case strings.Contains(lowerErr, "host is unreachable") || strings.Contains(lowerErr, "host is down"):
 		return "Cannot reach server - host is unreachable (check routing)"
 	case strings.Contains(lowerErr, "timeout") || strings.Contains(lowerErr, "deadline exceeded"):
 		return "Cannot reach server - connection timed out"
+	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
+		return "Cannot reach server - connection was reset"
+	case strings.Contains(lowerErr, "503") || strings.Contains(lowerErr, "service unavailable"):
+		return "Cannot reach server - service temporarily unavailable"
+	case strings.Contains(lowerErr, "proxy"):
+		return "Cannot reach server - proxy error (check proxy configuration)"
 	default:
 		return "Cannot reach server - check network connectivity"
 	}
@@ -208,6 +214,14 @@ func generateFailedMessage(errorMsg, serverName string) string {
 		return "Permission denied - check file permissions"
 	case strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "unauthorized"):
 		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
+	case strings.Contains(lowerErr, "403") || strings.Contains(lowerErr, "forbidden"):
+		return "Access forbidden - check server permissions and credentials"
+	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
+		return "Connection was reset by server - check server logs"
+	case strings.Contains(lowerErr, "protocol") || strings.Contains(lowerErr, "unsupported"):
+		return "Protocol error - check server type configuration"
+	case strings.Contains(lowerErr, "json") || strings.Contains(lowerErr, "parse"):
+		return "Invalid response from server - check server compatibility"
 	default:
 		return "Server failed to start"
 	}

@@ -75,16 +75,124 @@ func (f *TableFormatter) formatTableFromObject(data map[string]interface{}) erro
 		value := data[arrayKey]
 		// Handle nil as empty array
 		if value == nil {
+			f.printFooterMessages(data, arrayKey)
 			return f.formatEmptyList(arrayKey)
 		}
 		if arr, ok := value.([]interface{}); ok {
-			// Just format the array - the summary will be handled by formatTableFromArray
-			return f.formatTableFromArray(arr)
+			// Format the array first
+			if err := f.formatTableFromArrayWithMeta(arr, data, arrayKey); err != nil {
+				return err
+			}
+			// Print footer messages (hints about hidden servers, status messages)
+			f.printFooterMessages(data, arrayKey)
+			return nil
 		}
 	}
 
 	// No array found, format as key-value pairs
 	return f.formatKeyValueTable(data)
+}
+
+// formatTableFromArrayWithMeta creates a kubectl-style table and collects status messages.
+func (f *TableFormatter) formatTableFromArrayWithMeta(data []interface{}, meta map[string]interface{}, resourceType string) error {
+	if len(data) == 0 {
+		fmt.Println("No items found")
+		return nil
+	}
+
+	// Get the first object to determine columns
+	firstObj, ok := data[0].(map[string]interface{})
+	if !ok {
+		// Array of simple values
+		return f.formatSimpleList(data)
+	}
+
+	// Determine table type and optimize columns
+	columns := f.optimizeColumns(data)
+	detectedType := f.detectResourceType(firstObj)
+
+	// Create kubectl-style plain table
+	tw := NewPlainTableWriter(os.Stdout)
+	tw.SetHeaders(columns)
+	tw.SetNoHeaders(f.options.NoHeaders)
+
+	// Add rows with formatting - sort by name field if present
+	sortedData := f.builder.SortDataByName(data, columns)
+	for _, item := range sortedData {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			row := make([]string, len(columns))
+			for i, col := range columns {
+				// Use context-aware formatting for MCP servers (plain text version)
+				if detectedType == "mcpServers" || detectedType == "mcpServer" {
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], itemMap)
+				} else {
+					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], nil)
+				}
+			}
+			tw.AppendRow(row)
+		}
+	}
+
+	tw.Render()
+	return nil
+}
+
+// printFooterMessages prints helpful footer messages based on response metadata.
+// This includes hints about hidden servers and actionable status messages.
+func (f *TableFormatter) printFooterMessages(data map[string]interface{}, resourceType string) {
+	// Skip footer messages if we're in JSON/YAML mode or --no-headers mode
+	if f.options.Format == OutputFormatJSON || f.options.Format == OutputFormatYAML {
+		return
+	}
+
+	// Check for hint about hidden unreachable servers
+	if hint, exists := data["hint"]; exists {
+		if hintStr, ok := hint.(string); ok && hintStr != "" {
+			fmt.Printf("\n%s\n", hintStr)
+		}
+	}
+
+	// Check for status messages from servers in error states (for mcpServers)
+	if resourceType == "mcpServers" {
+		f.printServerStatusNotes(data)
+	}
+}
+
+// printServerStatusNotes prints actionable notes for servers requiring attention.
+func (f *TableFormatter) printServerStatusNotes(data map[string]interface{}) {
+	servers, ok := data["mcpServers"].([]interface{})
+	if !ok || len(servers) == 0 {
+		return
+	}
+
+	// Collect servers with actionable status messages
+	var notes []string
+	for _, server := range servers {
+		serverMap, ok := server.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, _ := serverMap["name"].(string)
+		statusMessage, _ := serverMap["statusMessage"].(string)
+		state, _ := serverMap["state"].(string)
+
+		// Only show notes for servers that need attention
+		if statusMessage != "" && name != "" {
+			switch state {
+			case "auth_required", "unreachable", "failed":
+				notes = append(notes, fmt.Sprintf("  %s: %s", name, statusMessage))
+			}
+		}
+	}
+
+	// Print collected notes
+	if len(notes) > 0 {
+		fmt.Println("\nServers requiring attention:")
+		for _, note := range notes {
+			fmt.Println(note)
+		}
+	}
 }
 
 // findArrayKey looks for common array keys in wrapped objects.

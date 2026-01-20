@@ -2,11 +2,30 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/jedib0t/go-pretty/v6/text"
 )
+
+// emojiDisabled caches whether emoji display is disabled via environment variable.
+// Check NO_EMOJI or MUSTER_NO_EMOJI environment variables.
+var emojiDisabled = os.Getenv("NO_EMOJI") != "" || os.Getenv("MUSTER_NO_EMOJI") != ""
+
+// IsEmojiDisabled returns true if emoji display is disabled via environment variables.
+// Users can set NO_EMOJI=1 or MUSTER_NO_EMOJI=1 to disable emoji in output.
+func IsEmojiDisabled() bool {
+	return emojiDisabled
+}
+
+// stateIcon returns an appropriate icon for the given state, respecting NO_EMOJI setting.
+func stateIcon(emoji, fallback string) string {
+	if emojiDisabled {
+		return fallback
+	}
+	return emoji
+}
 
 // TableBuilder handles cell formatting and styling for table display.
 // It provides specialized formatting for different types of data commonly
@@ -221,7 +240,7 @@ func (b *TableBuilder) getServerTypeFromContext(rowContext map[string]interface{
 
 // formatHealthStatus adds color coding and icons to health status values.
 // This provides immediate visual feedback about the health state of services
-// and components.
+// and components. Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables.
 //
 // Args:
 //   - status: The health status string to format
@@ -231,17 +250,17 @@ func (b *TableBuilder) getServerTypeFromContext(rowContext map[string]interface{
 func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 	switch strings.ToLower(status) {
 	case "healthy":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ " + status)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[OK] ") + status)
 	case "unhealthy":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + status)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[BAD] ") + status)
 	case "warning":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚠️  " + status)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚠️  ", "[WARN] ") + status)
 	case "running":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🟢 " + status)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🟢 ", "[+] ") + status)
 	case "stopped":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🔴 " + status)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🔴 ", "[-] ") + status)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🟡 " + status)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🟡 ", "[~] ") + status)
 	default:
 		return status
 	}
@@ -249,6 +268,7 @@ func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 
 // formatAvailableStatus formats boolean availability with clear visual indicators.
 // This is commonly used for capabilities and services to show their availability status.
+// Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables.
 //
 // Args:
 //   - value: The availability value (boolean or string)
@@ -259,14 +279,14 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Available")
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[N] ") + "Unavailable")
 	case string:
 		if v == "true" {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Available")
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[N] ") + "Unavailable")
 	default:
 		return fmt.Sprintf("%v", value)
 	}
@@ -307,6 +327,7 @@ func (b *TableBuilder) normalizeState(state string) string {
 
 // formatState formats service state with descriptive icons.
 // This provides clear visual indication of service lifecycle states.
+// Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables for terminal compatibility.
 //
 // Args:
 //   - state: The service state string to format
@@ -317,25 +338,25 @@ func (b *TableBuilder) formatState(state string) interface{} {
 	normalized := b.normalizeState(state)
 	switch strings.ToLower(state) {
 	case "running", "connected":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[+] ") + normalized)
 	case "stopped", "disconnected":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[-] ") + normalized)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[~] ") + normalized)
 	case "stopping":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[~] ") + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[X] ") + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[!] ") + normalized)
 	case "auth_required":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔐 " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[A] ") + normalized)
 	case "unreachable":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🚫 " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[U] ") + normalized)
 	case "waiting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[W] ") + normalized)
 	case "retrying":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔄 " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[R] ") + normalized)
 	default:
 		return normalized
 	}
@@ -387,6 +408,7 @@ func (b *TableBuilder) normalizeStateForServerType(state string, isRemote bool) 
 // formatStateForServerType formats service state with context-appropriate terminology.
 // For local stdio servers, it uses "Running/Stopped" terminology.
 // For remote servers (streamable-http/sse), it uses "Connected/Disconnected" terminology.
+// Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables for terminal compatibility.
 //
 // Args:
 //   - state: The service state string to format
@@ -401,30 +423,30 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 	switch strings.ToLower(state) {
 	case "running", "connected":
 		if isRemote {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("🔗 " + normalized)
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🔗 ", "[C] ") + normalized)
 		}
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint("▶️  " + normalized)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[+] ") + normalized)
 	case "stopped", "disconnected":
 		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ " + normalized)
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[D] ") + normalized)
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⏹️  " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[-] ") + normalized)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[~] ") + normalized)
 	case "stopping":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏸️  " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[~] ") + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("❌ " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[X] ") + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("⚠️  " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[!] ") + normalized)
 	case "auth_required":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔐 " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[A] ") + normalized)
 	case "unreachable":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint("🚫 " + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[U] ") + normalized)
 	case "waiting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⏳ " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[W] ") + normalized)
 	case "retrying":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("🔄 " + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[R] ") + normalized)
 	default:
 		return normalized
 	}
@@ -827,6 +849,7 @@ func (b *TableBuilder) formatDuration(value interface{}) interface{} {
 
 // formatAutoStartStatus formats boolean autoStart status with clear visual indicators.
 // This shows whether an MCP server is configured to start/connect automatically.
+// Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables.
 //
 // Args:
 //   - value: The autoStart value (boolean)
@@ -837,14 +860,14 @@ func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Yes")
 		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[N] ") + "No")
 	case string:
 		if v == "true" {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint("✅ Yes")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Yes")
 		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint("⚪ No")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[N] ") + "No")
 	default:
 		return fmt.Sprintf("%v", value)
 	}
