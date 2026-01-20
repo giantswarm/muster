@@ -58,6 +58,10 @@ func (m *mockOAuthHandler) RefreshTokenIfNeeded(ctx context.Context, sessionID, 
 	return m.refreshToken
 }
 
+func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+	return "", nil
+}
+
 func TestSessionTokenProvider(t *testing.T) {
 	t.Run("returns empty when handler is nil", func(t *testing.T) {
 		provider := NewSessionTokenProvider("session-1", "https://issuer.example.com", "openid", nil)

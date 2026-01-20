@@ -309,6 +309,12 @@ type ServerAuthStatus struct {
 	// This is distinct from SSO Token Reuse (see TokenReuseEnabled).
 	TokenForwardingEnabled bool `json:"token_forwarding_enabled,omitempty"`
 
+	// TokenExchangeEnabled indicates this server uses SSO via RFC 8693 Token Exchange.
+	// When true, muster exchanges its local token for one valid on the remote cluster's
+	// Identity Provider (e.g., Dex). This enables cross-cluster SSO when clusters have
+	// separate Dex instances. Token exchange takes precedence over token forwarding.
+	TokenExchangeEnabled bool `json:"token_exchange_enabled,omitempty"`
+
 	// TokenReuseEnabled indicates SSO via Token Reuse is enabled for this server.
 	// When true (the default), tokens from other servers using the same OAuth issuer
 	// can be reused to authenticate to this server without re-authenticating.

@@ -210,8 +210,43 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if token forwarding is enabled for this server
-	if ShouldUseTokenForwarding(serverInfo) {
+	// Check if RFC 8693 token exchange is enabled for this server (takes precedence over forwarding)
+	if ShouldUseTokenExchange(serverInfo) {
+		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
+
+		result, needsFallback, err := p.tryTokenExchange(ctx, sessionID, serverInfo)
+		if err == nil {
+			// Token exchange succeeded
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			}
+			if p.aggregator.authRateLimiter != nil {
+				p.aggregator.authRateLimiter.Reset(sessionID)
+			}
+			return result, nil
+		}
+
+		logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
+
+		if !needsFallback {
+			// Fallback is disabled - fail the login
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_exchange_failed")
+			}
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf(
+					"RFC 8693 token exchange failed for '%s' and fallback is disabled.\n\n"+
+						"Error: %v\n\n"+
+						"Please check that the remote Dex is configured with an OIDC connector for your cluster.",
+					serverName, err,
+				)},
+				IsError: true,
+			}, nil
+		}
+
+		logging.Info("AuthTools", "Falling back to separate OAuth flow for server %s", serverName)
+	} else if ShouldUseTokenForwarding(serverInfo) {
+		// Check if token forwarding is enabled for this server
 		logging.Info("AuthTools", "Token forwarding is enabled for server %s, attempting SSO", serverName)
 
 		// Get the muster issuer from the OAuth server configuration
@@ -476,6 +511,32 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, s
 		return nil, err
 	}
 	return result.FormatAsAPIResult(), nil
+}
+
+// tryTokenExchange attempts to establish a connection using RFC 8693 token exchange.
+// This is used when an MCPServer has tokenExchange configured for cross-cluster SSO.
+//
+// Returns:
+//   - *api.CallToolResult: The connection result if successful
+//   - needsFallback: true if token exchange failed and fallback should be tried
+//   - error: The error if token exchange failed
+func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, bool, error) {
+	// Get the muster issuer from the configuration
+	musterIssuer := p.getMusterIssuer(sessionID)
+	if musterIssuer == "" {
+		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, session %s",
+			logging.TruncateSessionID(sessionID))
+		return nil, true, fmt.Errorf("cannot determine muster issuer for token exchange")
+	}
+
+	result, needsFallback, err := EstablishSessionConnectionWithTokenExchange(
+		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
+	)
+	if err != nil {
+		return nil, needsFallback, err
+	}
+
+	return result.FormatAsAPIResult(), false, nil
 }
 
 // tryTokenForwarding attempts to establish a connection using ID token forwarding.

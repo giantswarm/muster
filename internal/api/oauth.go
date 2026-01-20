@@ -101,6 +101,18 @@ type OAuthHandler interface {
 	// This method is used for automatic token refresh in long-running sessions.
 	RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string
 
+	// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
+	// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
+	//
+	// Args:
+	//   - ctx: Context for the operation
+	//   - localToken: The local ID token to exchange
+	//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
+	//   - config: Token exchange configuration for the remote cluster
+	//
+	// Returns the exchanged access token, or an error if exchange fails.
+	ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, error)
+
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()
 }

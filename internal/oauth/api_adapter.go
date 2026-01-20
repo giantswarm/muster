@@ -175,6 +175,24 @@ func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer st
 	return ""
 }
 
+// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
+// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
+func (a *Adapter) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig) (string, error) {
+	if config == nil {
+		return "", nil
+	}
+
+	// Convert API config to internal config
+	internalConfig := &TokenExchangeConfig{
+		Enabled:          config.Enabled,
+		DexTokenEndpoint: config.DexTokenEndpoint,
+		ConnectorID:      config.ConnectorID,
+		Scopes:           config.Scopes,
+	}
+
+	return a.manager.ExchangeTokenForRemoteCluster(ctx, localToken, userID, internalConfig)
+}
+
 // Stop stops the OAuth handler and cleans up resources.
 func (a *Adapter) Stop() {
 	a.manager.Stop()

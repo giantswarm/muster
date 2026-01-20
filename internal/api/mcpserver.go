@@ -67,13 +67,17 @@ type MCPServer struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports two distinct SSO mechanisms (see auth_tools.go for full documentation):
+// Muster supports three distinct SSO mechanisms (see auth_tools.go for full documentation):
 //
 //   - SSO Token Reuse: Tokens are shared between servers with the same OAuth issuer.
 //     This is the default behavior. Disable per-server with SSO: false.
 //
 //   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
 //     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
+//
+//   - SSO Token Exchange (RFC 8693): Muster exchanges its token for one valid on the
+//     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
+//     to have an OIDC connector configured for the local cluster's Dex.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
@@ -93,10 +97,10 @@ type MCPServerAuth struct {
 	//   - You want users to authenticate once to muster for all downstream access
 	ForwardToken bool `yaml:"forwardToken,omitempty" json:"forwardToken,omitempty"`
 
-	// FallbackToOwnAuth enables graceful degradation when token forwarding fails.
-	// When true and ForwardToken is enabled but fails (e.g., downstream returns 401),
+	// FallbackToOwnAuth enables graceful degradation when token forwarding or exchange fails.
+	// When true and ForwardToken or TokenExchange is enabled but fails (e.g., downstream returns 401),
 	// muster will trigger a separate OAuth flow for this server.
-	// When false, token forwarding failures result in an error requiring intervention.
+	// When false, token forwarding/exchange failures result in an error requiring intervention.
 	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
 
 	// SSO controls SSO via Token Reuse for this server.
@@ -111,6 +115,55 @@ type MCPServerAuth struct {
 	// This is different from ForwardToken (Token Forwarding), which forwards
 	// muster's identity rather than sharing tokens between peer servers.
 	SSO *bool `yaml:"sso,omitempty" json:"sso,omitempty"`
+
+	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
+	// When configured, muster exchanges its local token for a token valid on the
+	// remote cluster's Identity Provider (e.g., Dex).
+	//
+	// Use TokenExchange when:
+	//   - The remote cluster has its own Dex instance
+	//   - The remote Dex is configured with an OIDC connector for muster's Dex
+	//   - You need a token issued by the remote cluster's IdP (not just forwarded)
+	//
+	// Token exchange takes precedence over ForwardToken if both are configured.
+	TokenExchange *TokenExchangeConfig `yaml:"tokenExchange,omitempty" json:"tokenExchange,omitempty"`
+}
+
+// TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
+// This enables muster to exchange its local token for a token valid on a remote
+// cluster's Identity Provider (typically Dex).
+//
+// The remote Dex must be configured with an OIDC connector that trusts the local
+// cluster's Dex. For example:
+//
+//	# On remote cluster's Dex (cluster-b)
+//	connectors:
+//	- type: oidc
+//	  id: cluster-a-dex
+//	  name: "Cluster A"
+//	  config:
+//	    issuer: https://dex.cluster-a.example.com
+//	    getUserInfo: true
+//	    insecureEnableGroups: true
+type TokenExchangeConfig struct {
+	// Enabled determines whether token exchange should be attempted.
+	// Default: false
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
+	// Required when Enabled is true.
+	// Example: https://dex.cluster-b.example.com/token
+	DexTokenEndpoint string `yaml:"dexTokenEndpoint,omitempty" json:"dexTokenEndpoint,omitempty"`
+
+	// ConnectorID is the ID of the OIDC connector on the remote Dex that
+	// trusts the local cluster's Dex.
+	// Required when Enabled is true.
+	// Example: "cluster-a-dex"
+	ConnectorID string `yaml:"connectorId,omitempty" json:"connectorId,omitempty"`
+
+	// Scopes are the scopes to request for the exchanged token.
+	// Default: "openid profile email groups"
+	Scopes string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 // MCPServerType defines the execution model for an MCP server.

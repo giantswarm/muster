@@ -48,6 +48,8 @@ func (e *MessageTemplateEngine) loadDefaultTemplates() {
 	e.templates[ReasonMCPServerAuthRequired] = "MCPServer {{.Name}} requires OAuth authentication to connect"
 	e.templates[ReasonMCPServerTokenForwarded] = "MCPServer {{.Name}}: ID token successfully forwarded for SSO authentication"
 	e.templates[ReasonMCPServerTokenForwardingFailed] = "MCPServer {{.Name}}: ID token forwarding failed{{if .Error}}: {{.Error}}{{end}}"
+	e.templates[ReasonMCPServerTokenExchanged] = "MCPServer {{.Name}}: Token successfully exchanged via RFC 8693 for cross-cluster SSO"
+	e.templates[ReasonMCPServerTokenExchangeFailed] = "MCPServer {{.Name}}: RFC 8693 token exchange failed{{if .Error}}: {{.Error}}{{end}}"
 
 	// ServiceClass templates
 	e.templates[ReasonServiceClassCreated] = "ServiceClass {{.Name}} successfully created in namespace {{.Namespace}}"

@@ -195,23 +195,27 @@ oauth:
 
 #### Strategy 2: Token Exchange (OAuth 2.0 Token Exchange - RFC 8693)
 
-Muster exchanges its access token for a new token scoped to the downstream service.
+Muster exchanges its ID token for a new token from the remote cluster's Identity Provider.
 
 **Flow:**
-1. User authenticates to Muster (receives token with `aud: muster-client`)
-2. Muster calls the IdP's token exchange endpoint
-3. IdP issues a new token with `aud: mcp-kubernetes-client`
-4. Muster uses this new token to call mcp-kubernetes
+1. User authenticates to Muster (receives token from Cluster A's Dex)
+2. Muster calls the remote cluster's Dex token exchange endpoint
+3. Remote Dex validates the token via its OIDC connector for Cluster A
+4. Remote Dex issues a new token with `iss: remote-dex`
+5. Muster uses this new token to call the MCP server on the remote cluster
 
 **Advantages:**
 - Proper audience separation
-- Fine-grained scope control per downstream service
-- No need to modify downstream server trust configuration
+- Token is issued by the remote cluster's IdP (not just forwarded)
+- Works with separate Dex instances per cluster
+- Scopes and groups can be mapped during exchange
 
 **Disadvantages:**
-- Requires IdP support for token exchange (Dex does not fully support RFC 8693)
-- More complex implementation
-- Additional network round-trip per downstream server
+- Requires remote Dex to have an OIDC connector configured for the local cluster's Dex
+- Additional network round-trip for token exchange (cached to reduce impact)
+- More complex configuration
+
+**Implemented Status:** Fully implemented in muster v0.X.X
 
 ### Recommended Approach: ID Token Forwarding
 
@@ -371,10 +375,14 @@ For the aggregator (server-side), tokens are currently in-memory and lost on res
 
 ### MCPServer Configuration for SSO
 
-When defining MCP servers that support SSO via token forwarding:
+Muster supports three SSO mechanisms, configured per MCPServer:
+
+#### 1. Token Forwarding (Recommended for Same-Cluster SSO)
+
+When the downstream MCP server trusts muster's OAuth client ID:
 
 ```yaml
-# MCPServer CRD with SSO enabled
+# MCPServer CRD with SSO via token forwarding
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -395,16 +403,75 @@ When `forwardToken: true`:
 2. The server validates the token with its multi-audience configuration
 3. No separate authentication flow is required
 
+#### 2. Token Exchange (Recommended for Cross-Cluster SSO)
+
+When the downstream MCP server is on a different cluster with its own Dex instance:
+
+```yaml
+# MCPServer CRD with SSO via RFC 8693 token exchange
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: remote-mcp-kubernetes
+spec:
+  type: streamable-http
+  url: https://mcp-kubernetes.cluster-b.example.com/mcp
+  auth:
+    type: oauth
+    # RFC 8693 Token Exchange for cross-cluster SSO
+    tokenExchange:
+      enabled: true
+      # Remote cluster's Dex token endpoint
+      dexTokenEndpoint: https://dex.cluster-b.example.com/token
+      # The connector ID on remote Dex that trusts this cluster's Dex
+      connectorId: cluster-a-dex
+      # Optional: scopes to request (defaults to "openid profile email groups")
+      scopes: "openid profile email groups"
+    # Fallback: if token exchange fails, offer separate auth
+    fallbackToOwnAuth: true
+```
+
+When `tokenExchange.enabled: true`:
+1. Muster extracts the user's ID token from the session
+2. Muster calls the remote Dex's token exchange endpoint
+3. Remote Dex validates the token via its OIDC connector
+4. Remote Dex issues a new token valid for that cluster
+5. Muster uses the exchanged token to connect to the MCP server
+
+**Remote Dex Configuration Required:**
+```yaml
+# On remote cluster's Dex (cluster-b)
+connectors:
+- type: oidc
+  id: cluster-a-dex   # Must match connectorId in MCPServer
+  name: "Cluster A"
+  config:
+    issuer: https://dex.cluster-a.example.com
+    getUserInfo: true
+    insecureEnableGroups: true
+```
+
+Token exchange takes precedence over token forwarding if both are configured.
+
 When `fallbackToOwnAuth: true`:
-1. If token forwarding fails (wrong audience, expired, etc.)
+1. If token forwarding or exchange fails (wrong audience, expired, etc.)
 2. Muster triggers a separate OAuth flow for this specific server
 3. Provides graceful degradation for misconfigured deployments
 
-### Token Forwarding Detection
+### SSO Detection
 
-The `ShouldUseTokenForwarding` function determines if token forwarding is enabled for a server:
+Two functions determine which SSO mechanism to use for a server:
 
 ```go
+// Token exchange takes precedence over token forwarding
+func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
+    if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
+        return false
+    }
+    config := serverInfo.AuthConfig.TokenExchange
+    return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
+}
+
 func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
     if serverInfo == nil || serverInfo.AuthConfig == nil {
         return false
@@ -414,7 +481,12 @@ func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 }
 ```
 
-Setting `forwardToken: true` implicitly enables OAuth-based authentication since token forwarding only makes sense in an OAuth context. This simplifies configuration - you don't need to specify `type: oauth` separately.
+**SSO Precedence Order:**
+1. Token Exchange (if `tokenExchange.enabled: true` with required fields)
+2. Token Forwarding (if `forwardToken: true`)
+3. Server-specific OAuth flow (fallback)
+
+Setting `forwardToken: true` or `tokenExchange.enabled: true` implicitly enables OAuth-based authentication since these SSO mechanisms only make sense in an OAuth context.
 
 ### Security Considerations
 
@@ -646,7 +718,7 @@ When a user's session is revoked:
 
 ### 1. OAuth 2.0 Token Exchange (RFC 8693)
 
-**Rejected because**: Limited IdP support (Dex doesn't fully implement it), more complex, additional latency.
+**Now Implemented**: Initially rejected due to limited IdP support. However, Dex has since implemented token exchange (enabled by default), and the mcp-oauth library now includes a `TokenExchangeClient`. Token exchange is now available as a second SSO mechanism alongside token forwarding, recommended for cross-cluster SSO scenarios where clusters have separate Dex instances.
 
 ### 2. Shared OAuth Client
 

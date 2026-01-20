@@ -27,8 +27,9 @@ type Manager struct {
 	config config.OAuthConfig
 
 	// Core components
-	client  *Client
-	handler *Handler
+	client         *Client
+	handler        *Handler
+	tokenExchanger *TokenExchanger
 
 	// Server authentication metadata: serverName -> AuthServerConfig
 	serverConfigs map[string]*AuthServerConfig
@@ -70,11 +71,18 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 
 	handler := NewHandler(client)
 
+	// Create token exchanger for RFC 8693 cross-cluster SSO
+	// Use the same CA configuration as the OAuth client for consistency
+	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
+		AllowPrivateIP: cfg.CAFile != "", // If custom CA is provided, likely internal deployment
+	})
+
 	m := &Manager{
-		config:        cfg,
-		client:        client,
-		handler:       handler,
-		serverConfigs: make(map[string]*AuthServerConfig),
+		config:         cfg,
+		client:         client,
+		handler:        handler,
+		tokenExchanger: tokenExchanger,
+		serverConfigs:  make(map[string]*AuthServerConfig),
 	}
 
 	// Set manager reference on handler for callback handling
@@ -371,6 +379,49 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 		stateData.SessionID, stateData.ServerName)
 
 	return nil
+}
+
+// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
+// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
+//
+// Args:
+//   - ctx: Context for the operation
+//   - localToken: The local ID token to exchange
+//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
+//   - config: Token exchange configuration for the remote cluster
+//
+// Returns the exchanged access token, or an error if exchange fails.
+func (m *Manager) ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("OAuth proxy is disabled")
+	}
+	if m.tokenExchanger == nil {
+		return "", fmt.Errorf("token exchanger not initialized")
+	}
+	if config == nil {
+		return "", fmt.Errorf("token exchange config is nil")
+	}
+
+	result, err := m.tokenExchanger.Exchange(ctx, &ExchangeRequest{
+		Config:           config,
+		SubjectToken:     localToken,
+		SubjectTokenType: "", // defaults to ID token
+		UserID:           userID,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return result.AccessToken, nil
+}
+
+// GetTokenExchanger returns the token exchanger for direct access.
+// This is useful for cache management and monitoring.
+func (m *Manager) GetTokenExchanger() *TokenExchanger {
+	if m == nil {
+		return nil
+	}
+	return m.tokenExchanger
 }
 
 // Stop stops the OAuth manager and cleans up resources.
