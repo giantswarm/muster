@@ -1,0 +1,173 @@
+name: "oauth-sso-token-exchange-basic"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test RFC 8693 Token Exchange for cross-cluster SSO.
+  
+  This scenario tests the token exchange flow where:
+  1. User authenticates to muster via OAuth (gets token from cluster-a-idp)
+  2. Muster needs to call an MCP server on a "remote cluster" (cluster-b)
+  3. The remote cluster has its own OAuth server (cluster-b-idp) that trusts cluster-a-idp
+  4. Muster exchanges its token for one valid on cluster-b
+  5. The exchanged token is used to authenticate to the remote MCP server
+  
+  This enables cross-cluster SSO without requiring the remote server to directly
+  trust muster's OAuth server.
+  
+  Key: We need a "local" server using cluster-a-idp to first establish the ID token
+  in muster's session, then the remote server can use token exchange.
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "cross-cluster", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server for muster (cluster A)
+  mock_oauth_servers:
+    - name: "cluster-a-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      # This server is used for muster's own authentication
+      use_as_muster_oauth_server: true
+
+    # Mock OAuth server for the remote cluster (cluster B)
+    # This server trusts tokens from cluster-a-idp via token exchange
+    - name: "cluster-b-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "mcp-kubernetes-client"
+      # TLS is required for token exchange endpoints (RFC 8693 security requirement)
+      use_tls: true
+      # Configure trusted issuer for token exchange
+      trusted_issuers:
+        - connector_id: "cluster-a-dex"
+          oauth_server_ref: "cluster-a-idp"
+
+  mcp_servers:
+    # Local MCP server on cluster-a that uses the same IdP as muster
+    # Authenticating to this server first establishes the ID token
+    # that will be used for token exchange to cluster-b
+    - name: "local-cluster-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-a-idp"
+          scope: "mcp:admin"
+          # Token forwarding since it uses the same IdP as muster
+          forward_token: true
+        tools:
+          - name: "local_status"
+            description: "Get local cluster status"
+            responses:
+              - response:
+                  cluster: "cluster-a"
+                  status: "healthy"
+
+    # MCP server on the "remote cluster" - uses token exchange for SSO
+    - name: "remote-mcp-kubernetes"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-b-idp"
+          scope: "mcp:admin"
+          # Configure token exchange instead of token forwarding
+          token_exchange:
+            # Reference the OAuth server - endpoint will be resolved automatically
+            oauth_server_ref: "cluster-b-idp"
+            connector_id: "cluster-a-dex"
+            # Include mcp:admin scope to match the required scope for the MCP server
+            scopes: "openid profile email groups mcp:admin"
+        tools:
+          - name: "remote_k8s_get_pods"
+            description: "List pods on remote cluster (requires cross-cluster SSO)"
+            responses:
+              - response:
+                  cluster: "cluster-b"
+                  pods:
+                    - name: "nginx-deployment-abc123"
+                      namespace: "default"
+                      status: "Running"
+                  message: "Authenticated via token exchange"
+
+steps:
+  # Step 1: Verify both OAuth servers are running
+  - id: verify-cluster-a-oauth
+    description: "Verify cluster-a OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-a-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-a-idp"
+        - "issuer_url"
+
+  - id: verify-cluster-b-oauth
+    description: "Verify cluster-b OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-b-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-b-idp"
+        - "issuer_url"
+
+  # Step 2: Verify both MCP servers are registered
+  - id: verify-servers-registered
+    description: "Verify MCP servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "local-cluster-server"
+        - "remote-mcp-kubernetes"
+
+  # Step 3: Authenticate to the LOCAL server first (using cluster-a-idp)
+  # This establishes the ID token from cluster-a-idp in muster's session
+  - id: authenticate-local-server
+    description: "Authenticate to local server via cluster-a-idp (establishes ID token)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Login to the local server to complete the SSO connection
+  - id: login-local-server
+    description: "Login to local server - token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+
+  # Step 5: Now login to the remote server - this should trigger token exchange
+  # The cluster-a ID token is exchanged for a cluster-b token
+  - id: login-with-token-exchange
+    description: "Login to remote server - should exchange cluster-a token for cluster-b token"
+    tool: "core_auth_login"
+    args:
+      server: "remote-mcp-kubernetes"
+    expected:
+      success: true
+
+  # Step 6: Call a tool on the remote server
+  - id: call-remote-tool
+    description: "Call tool on remote server authenticated via token exchange"
+    tool: "x_remote-mcp-kubernetes_remote_k8s_get_pods"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "cluster-b"
+        - "token exchange"

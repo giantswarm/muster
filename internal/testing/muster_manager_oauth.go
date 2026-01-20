@@ -39,6 +39,12 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			}
 		}
 
+		// Determine if TLS should be enabled for this OAuth server.
+		// TLS is required for:
+		// 1. Muster's OAuth server (the Dex provider requires HTTPS)
+		// 2. Token exchange targets (RFC 8693 requires HTTPS endpoints)
+		useTLS := oauthCfg.UseAsMusterOAuthServer || oauthCfg.UseTLS || len(oauthCfg.TrustedIssuers) > 0
+
 		serverConfig := mock.OAuthServerConfig{
 			Issuer:         oauthCfg.Issuer,
 			AcceptedScopes: oauthCfg.Scopes,
@@ -48,9 +54,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			ClientID:       oauthCfg.ClientID,
 			ClientSecret:   oauthCfg.ClientSecret,
 			Debug:          m.debug,
-			// Use TLS when this server is configured as muster's OAuth server.
-			// The Dex provider requires HTTPS for security.
-			UseTLS: oauthCfg.UseAsMusterOAuthServer,
+			UseTLS:         useTLS,
 		}
 
 		// Use mock clock if configured (enables test_advance_oauth_clock tool)
@@ -117,6 +121,43 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			}
 			m.logger.Debug("🔐 Started mock OAuth server %s on port %d (%s, issuer: %s)\n",
 				oauthCfg.Name, port, protocol, oauthServer.GetIssuerURL())
+		}
+	}
+
+	// Second pass: Configure trusted issuers for RFC 8693 token exchange
+	// This must be done after all servers are started, so we can resolve issuer URLs
+	for _, oauthCfg := range config.MockOAuthServers {
+		if len(oauthCfg.TrustedIssuers) == 0 {
+			continue
+		}
+
+		m.mu.RLock()
+		targetServer := m.mockOAuthServers[instanceID][oauthCfg.Name]
+		m.mu.RUnlock()
+
+		if targetServer == nil {
+			continue
+		}
+
+		trustedIssuers := make(map[string]string)
+		for _, ti := range oauthCfg.TrustedIssuers {
+			// Look up the issuer URL from the referenced OAuth server
+			if refInfo, ok := result[ti.OAuthServerRef]; ok {
+				trustedIssuers[ti.ConnectorID] = refInfo.IssuerURL
+				if m.debug {
+					m.logger.Debug("🔐 OAuth server %s trusts %s (connector: %s, issuer: %s)\n",
+						oauthCfg.Name, ti.OAuthServerRef, ti.ConnectorID, refInfo.IssuerURL)
+				}
+			} else {
+				if m.debug {
+					m.logger.Debug("⚠️  OAuth server %s references unknown server %s for trusted issuer\n",
+						oauthCfg.Name, ti.OAuthServerRef)
+				}
+			}
+		}
+
+		if len(trustedIssuers) > 0 {
+			targetServer.SetTrustedIssuers(trustedIssuers)
 		}
 	}
 

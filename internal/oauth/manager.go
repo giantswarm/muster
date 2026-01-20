@@ -60,11 +60,14 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes)
 
 	// Configure custom HTTP client with CA if provided
+	// The same HTTP client is shared with the token exchanger for consistent TLS config
+	var customHTTPClient *http.Client
 	if cfg.CAFile != "" {
 		httpClient, err := createHTTPClientWithCA(cfg.CAFile)
 		if err != nil {
 			logging.Warn("OAuth", "Failed to configure custom CA, using default: %v", err)
 		} else {
+			customHTTPClient = httpClient
 			client.SetHTTPClient(httpClient)
 			logging.Info("OAuth", "Configured OAuth proxy with custom CA from %s", cfg.CAFile)
 		}
@@ -73,9 +76,11 @@ func NewManager(cfg config.OAuthConfig) *Manager {
 	handler := NewHandler(client)
 
 	// Create token exchanger for RFC 8693 cross-cluster SSO
-	// Use the same CA configuration as the OAuth client for consistency
+	// Use the same HTTP client as the OAuth client for consistent TLS configuration.
+	// This ensures token exchange requests trust the same CA certificates.
 	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
 		AllowPrivateIP: cfg.CAFile != "", // If custom CA is provided, likely internal deployment
+		HTTPClient:     customHTTPClient, // Share the same HTTP client with CA config
 	})
 
 	m := &Manager{

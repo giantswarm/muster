@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"muster/internal/api"
@@ -50,6 +51,11 @@ type TokenExchangerOptions struct {
 
 	// CacheMaxEntries is the maximum number of cached tokens (0 = default: 10000).
 	CacheMaxEntries int
+
+	// HTTPClient is the HTTP client to use for token exchange requests.
+	// If nil, an appropriate client is created based on AllowPrivateIP setting.
+	// Use this to configure custom TLS settings (e.g., for self-signed certs).
+	HTTPClient *http.Client
 }
 
 // NewTokenExchanger creates a new TokenExchanger with default options.
@@ -67,6 +73,7 @@ func NewTokenExchangerWithOptions(opts TokenExchangerOptions) *TokenExchanger {
 	client := oidc.NewTokenExchangeClientWithOptions(oidc.TokenExchangeClientOptions{
 		Logger:         logger,
 		AllowPrivateIP: opts.AllowPrivateIP,
+		HTTPClient:     opts.HTTPClient,
 	})
 
 	maxEntries := opts.CacheMaxEntries

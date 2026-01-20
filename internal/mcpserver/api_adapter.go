@@ -129,6 +129,16 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			Type:              server.Spec.Auth.Type,
 			ForwardToken:      server.Spec.Auth.ForwardToken,
 			FallbackToOwnAuth: server.Spec.Auth.FallbackToOwnAuth,
+			SSO:               server.Spec.Auth.SSO,
+		}
+		// Convert TokenExchange config if present
+		if server.Spec.Auth.TokenExchange != nil {
+			info.Auth.TokenExchange = &api.TokenExchangeConfig{
+				Enabled:          server.Spec.Auth.TokenExchange.Enabled,
+				DexTokenEndpoint: server.Spec.Auth.TokenExchange.DexTokenEndpoint,
+				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
+				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
+			}
 		}
 	}
 

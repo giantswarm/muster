@@ -1,0 +1,183 @@
+name: "oauth-sso-token-exchange-fallback"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test fallback behavior when RFC 8693 Token Exchange fails.
+  
+  This scenario tests the graceful degradation when token exchange fails:
+  1. User authenticates to muster via OAuth (gets token from cluster-a-idp)
+  2. Muster tries to exchange the token for one valid on cluster-c
+  3. Token exchange fails (cluster-c doesn't trust cluster-a)
+  4. Because fallback_to_own_auth is enabled, muster triggers a separate OAuth flow
+  5. User can still access the remote server via direct authentication
+  
+  This ensures that token exchange failures don't block access to servers
+  when fallback is configured.
+  
+  Key: We first authenticate to a local server (cluster-a-idp) to establish the
+  ID token, then try to access the remote server where token exchange fails.
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "fallback", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server for muster (cluster A)
+  mock_oauth_servers:
+    - name: "cluster-a-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    # Mock OAuth server for remote cluster (cluster C)
+    # This server does NOT trust cluster-a-idp (no trusted_issuers configured)
+    - name: "cluster-c-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "mcp-server-client"
+      # TLS is required for token exchange endpoints
+      use_tls: true
+      # No trusted_issuers - token exchange will fail
+
+  mcp_servers:
+    # Local MCP server on cluster-a that uses the same IdP as muster
+    # Authenticating to this server first establishes the ID token
+    - name: "local-cluster-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-a-idp"
+          scope: "mcp:admin"
+          # Token forwarding since it uses the same IdP as muster
+          forward_token: true
+        tools:
+          - name: "local_status"
+            description: "Get local cluster status"
+            responses:
+              - response:
+                  cluster: "cluster-a"
+                  status: "healthy"
+
+    # MCP server that uses token exchange with fallback enabled
+    - name: "remote-server-with-fallback"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-c-idp"
+          scope: "mcp:admin"
+          # Configure token exchange (will fail because cluster-c doesn't trust cluster-a)
+          token_exchange:
+            oauth_server_ref: "cluster-c-idp"
+            connector_id: "cluster-a-dex"
+            scopes: "openid profile email groups mcp:admin"
+          # Enable fallback - when token exchange fails, use direct OAuth
+          fallback_to_own_auth: true
+        tools:
+          - name: "remote_operation"
+            description: "Operation on remote server"
+            responses:
+              - response:
+                  server: "cluster-c"
+                  message: "Authenticated (via fallback or token exchange)"
+
+steps:
+  # Step 1: Verify OAuth servers are running
+  - id: verify-cluster-a-oauth
+    description: "Verify cluster-a OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-a-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-a-idp"
+
+  - id: verify-cluster-c-oauth
+    description: "Verify cluster-c OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-c-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-c-idp"
+
+  # Step 2: Verify both MCP servers are registered
+  - id: verify-servers-registered
+    description: "Verify MCP servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "local-cluster-server"
+        - "remote-server-with-fallback"
+
+  # Step 3: Authenticate to the LOCAL server first (using cluster-a-idp)
+  # This establishes the ID token from cluster-a-idp in muster's session
+  - id: authenticate-local-server
+    description: "Authenticate to local server via cluster-a-idp (establishes ID token)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Login to the local server to complete the SSO connection
+  - id: login-local-server
+    description: "Login to local server - token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+
+  # Step 5: Login to remote server - token exchange should fail, fallback should kick in
+  # First, core_auth_login will try token exchange (which fails because cluster-c
+  # doesn't trust cluster-a). Then it falls back to regular OAuth with cluster-c-idp.
+  - id: login-with-fallback
+    description: "Login to remote server - token exchange fails, fallback to direct auth"
+    tool: "core_auth_login"
+    args:
+      server: "remote-server-with-fallback"
+    expected:
+      success: true
+
+  # Step 6: The fallback triggers a new OAuth flow with cluster-c-idp
+  # We need to complete this OAuth flow
+  - id: authenticate-fallback
+    description: "Complete fallback OAuth flow with cluster-c-idp"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "remote-server-with-fallback"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 7: Login again after fallback auth is complete
+  - id: login-after-fallback
+    description: "Login after fallback authentication"
+    tool: "core_auth_login"
+    args:
+      server: "remote-server-with-fallback"
+    expected:
+      success: true
+
+  # Step 8: Call a tool on the server (should work via fallback auth)
+  - id: call-remote-tool
+    description: "Call tool on remote server authenticated via fallback"
+    tool: "x_remote-server-with-fallback_remote_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "cluster-c"

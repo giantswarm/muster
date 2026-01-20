@@ -143,7 +143,10 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // When users authenticate to muster via `muster auth login`, this issuer is used to
 // retrieve their ID token for forwarding to SSO-enabled downstream servers.
 //
-// The issuer is determined from the OAuth server configuration (BaseURL).
+// The issuer is determined from the OAuth provider configuration:
+//   - For Dex provider: returns Dex.IssuerURL (the upstream IdP's issuer)
+//   - For other providers: returns BaseURL (muster's own URL as issuer)
+//
 // Returns empty string if OAuth is not enabled or not configured.
 func (a *AggregatorServer) getMusterIssuer() string {
 	if !a.config.OAuthServer.Enabled || a.config.OAuthServer.Config == nil {
@@ -159,6 +162,13 @@ func (a *AggregatorServer) getMusterIssuer() string {
 		return ""
 	}
 
+	// For Dex provider, the issuer is the Dex server's URL, not muster's base URL.
+	// Tokens are stored with the Dex issuer URL, so we need to use that for lookups.
+	if cfg.Provider == "dex" && cfg.Dex.IssuerURL != "" {
+		return cfg.Dex.IssuerURL
+	}
+
+	// For other providers (or fallback), use muster's base URL as the issuer
 	return cfg.BaseURL
 }
 
