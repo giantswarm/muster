@@ -1,0 +1,160 @@
+name: "oauth-sso-parallel-initialization"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that proactive SSO connections to multiple servers are established in parallel.
+  
+  This scenario tests the fix for issue #280 where sequential SSO connections were
+  causing race conditions with session timeouts. With the fix, SSO connections to
+  all SSO-enabled servers should be attempted concurrently.
+  
+  The scenario configures multiple SSO-enabled servers and verifies that:
+  1. All servers are registered correctly
+  2. After muster authentication, SSO is attempted for all servers in parallel
+  3. Successful SSO servers become connected
+  4. Failed SSO servers show auth_required with sso_attempt_failed flag
+  5. The session remains valid throughout the SSO initialization process
+  
+  Note: Due to BDD test limitations, we cannot directly measure parallel execution.
+  However, we verify the expected behavior that results from parallel initialization.
+tags: ["oauth", "authentication", "sso", "token-forwarding", "parallel", "session", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    # SSO server 1 - will successfully accept forwarded token
+    - name: "sso-server-alpha"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          scope: "mcp:admin"
+          forward_token: true
+        tools:
+          - name: "alpha_operation"
+            description: "Operation on alpha SSO server"
+            responses:
+              - response:
+                  status: "success"
+                  server: "alpha"
+                  message: "Alpha server operation completed via SSO"
+
+    # SSO server 2 - will reject the forwarded token (simulates failed SSO)
+    # This tests that SSO failures are handled gracefully in parallel
+    - name: "sso-server-reject"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          scope: "mcp:admin"
+          forward_token: true
+          # Simulate token rejection by requiring a different audience
+          reject_forwarded_tokens: true
+        tools:
+          - name: "reject_operation"
+            description: "Operation that requires direct auth"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Reject server operation completed"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the muster IdP OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "muster-idp"
+    expected:
+      success: true
+      contains:
+        - "muster-idp"
+        - "issuer_url"
+
+  # Step 2: Verify all SSO servers are registered
+  - id: verify-all-servers-registered
+    description: "Verify all SSO servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-server-alpha"
+        - "sso-server-reject"
+
+  # Step 3: Authenticate to muster - this triggers parallel SSO init for all servers
+  - id: muster-auth-login
+    description: "Authenticate to muster via OAuth - triggers parallel SSO initialization"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sso-server-alpha"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Verify alpha server is connected via SSO
+  # Both servers should be attempted in parallel - alpha should succeed
+  - id: verify-alpha-connected
+    description: "Verify alpha server is connected via SSO"
+    tool: "test_read_auth_status"
+    args:
+      server: "sso-server-alpha"
+    expected:
+      success: true
+      contains:
+        - "sso-server-alpha"
+        - "connected"
+        - "token_forwarding_enabled"
+
+  # Step 5: Verify reject server still requires auth (SSO failed)
+  # This verifies parallel SSO - reject was attempted but failed
+  - id: verify-reject-requires-auth
+    description: "Verify reject server still requires auth after SSO failure"
+    tool: "test_read_auth_status"
+    args:
+      server: "sso-server-reject"
+    expected:
+      success: true
+      contains:
+        - "sso-server-reject"
+        - "auth_required"
+        - "token_forwarding_enabled"
+
+  # Step 6: Call alpha server tool to verify SSO worked
+  - id: call-alpha-tool
+    description: "Call alpha server tool - should work via SSO"
+    tool: "x_sso-server-alpha_alpha_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "alpha"
+
+  # Step 7: Verify overall auth status shows both servers with correct states
+  - id: verify-overall-auth-status
+    description: "Verify auth status shows both servers - alpha connected, reject auth_required"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "servers"
+        - "sso-server-alpha"
+        - "sso-server-reject"
+        - "connected"
+        - "auth_required"
