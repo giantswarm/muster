@@ -26,8 +26,8 @@ spec:
     - jsonPath: .spec.autoStart
       name: AutoStart
       type: boolean
-    - jsonPath: .status.state
-      name: State
+    - jsonPath: .status.phase
+      name: Phase
       type: string
     - jsonPath: .status.health
       name: Health
@@ -212,11 +212,28 @@ spec:
             - type
             type: object
           status:
-            description: MCPServerStatus defines the observed state of MCPServer
+            description: |-
+              MCPServerStatus defines the observed state of MCPServer.
+
+              IMPORTANT: This status reflects infrastructure state only, NOT user session state.
+              Per-user connection status and authentication state are tracked in the Session Registry
+              (internal/aggregator/session_registry.go) to support multi-user environments.
+
+              Infrastructure State (CRD):
+                - Phase: Pending, Ready, Failed - reflects if the server is reachable
+                - State: Legacy field, kept for backward compatibility (deprecated)
+                - Conditions: Standard K8s conditions for detailed status
+
+              Session State (Session Registry):
+                - ConnectionStatus: Connected, PendingAuth, Failed (per-user)
+                - AuthStatus: Authenticated, AuthRequired, TokenExpired (per-user)
+                - AvailableTools: Tools visible to this specific user
             properties:
               conditions:
-                description: Conditions represent the latest available observations
-                  of the MCPServer's current state
+                description: |-
+                  Conditions represent the latest available observations of the MCPServer's current state.
+                  Standard condition types:
+                    - Ready: True if infrastructure is reachable (process running or TCP connectable)
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -298,8 +315,10 @@ spec:
                 format: date-time
                 type: string
               lastError:
-                description: LastError contains any error message from the most recent
-                  server operation
+                description: |-
+                  LastError contains any error message from the most recent server operation.
+                  Note: Per-user authentication errors are tracked in the Session Registry,
+                  not here. This field only contains infrastructure-level errors.
                 type: string
               nextRetryAfter:
                 description: |-
@@ -307,13 +326,25 @@ spec:
                   This is calculated based on exponential backoff from ConsecutiveFailures.
                 format: date-time
                 type: string
+              phase:
+                description: |-
+                  Phase represents the high-level infrastructure state of the MCP server.
+                  This is independent of user session state (authentication, connection status).
+                enum:
+                - Pending
+                - Ready
+                - Failed
+                type: string
               restartCount:
                 description: RestartCount tracks how many times this server has been
-                  restarted
+                  restarted (stdio only)
                 type: integer
               state:
-                description: State represents the current operational state of the
-                  MCP server
+                description: |-
+                  State represents the current operational state of the MCP server.
+                  DEPRECATED: Use Phase instead. State is kept for backward compatibility
+                  but will be removed in a future version. State mixes infrastructure and
+                  session state which causes issues in multi-user environments.
                 enum:
                 - unknown
                 - starting
@@ -324,7 +355,6 @@ spec:
                 - waiting
                 - retrying
                 - unreachable
-                - connected
                 type: string
             type: object
         type: object

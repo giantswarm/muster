@@ -23,17 +23,44 @@ const (
 )
 
 // ConnectionStatus represents the connection status of a session to a server.
+// This is per-user session state, NOT infrastructure state (which is in MCPServer CRD Phase).
 type ConnectionStatus string
 
 const (
 	// StatusSessionConnected indicates the session is connected to the server.
 	StatusSessionConnected ConnectionStatus = "connected"
 
+	// StatusSessionDisconnected indicates the session is not connected to the server.
+	StatusSessionDisconnected ConnectionStatus = "disconnected"
+
 	// StatusSessionPendingAuth indicates the session is waiting for authentication.
 	StatusSessionPendingAuth ConnectionStatus = "pending_auth"
 
 	// StatusSessionFailed indicates the session failed to connect to the server.
 	StatusSessionFailed ConnectionStatus = "failed"
+)
+
+// AuthStatus represents the authentication status of a session to a server.
+// This is per-user session state tracked in the Session Registry (not in CRD).
+//
+// This separation allows:
+//   - Multiple users to have different auth states for the same server
+//   - The CRD to reflect infrastructure state only (Phase: Pending/Ready/Failed)
+//   - Proper multi-tenant support without auth state race conditions
+type AuthStatus string
+
+const (
+	// AuthStatusAuthenticated indicates the user has successfully authenticated.
+	AuthStatusAuthenticated AuthStatus = "authenticated"
+
+	// AuthStatusAuthRequired indicates authentication is required to access the server.
+	AuthStatusAuthRequired AuthStatus = "auth_required"
+
+	// AuthStatusTokenExpired indicates the user's token has expired and re-authentication is needed.
+	AuthStatusTokenExpired AuthStatus = "token_expired"
+
+	// AuthStatusUnknown indicates the authentication status cannot be determined.
+	AuthStatusUnknown AuthStatus = "unknown"
 )
 
 // SessionRegistry manages per-session state for OAuth-protected MCP servers.
@@ -93,12 +120,20 @@ type SessionState struct {
 //   - OAuth tokens are user-specific and may grant different permissions
 //   - The remote MCP server may expose different tools based on user identity
 //   - Connection state (ping, health) is per-user
+//
+// This struct tracks per-user session state as defined in issue #292:
+//   - Status (ConnectionStatus): Connected, Disconnected, PendingAuth, Failed
+//   - AuthStatus: Authenticated, AuthRequired, TokenExpired
+//   - Tools/Resources/Prompts: User-specific capabilities
+//   - LastError: Session-specific errors (not infrastructure errors)
 type SessionConnection struct {
 	ServerName  string
 	Status      ConnectionStatus
+	AuthStatus  AuthStatus      // Per-user authentication status
 	Client      MCPClient       // Session-specific MCP client (with user's token)
 	TokenKey    *oauth.TokenKey // Reference to the token in the token store
 	ConnectedAt time.Time       // When the connection was established
+	LastError   string          // Session-specific error (e.g., auth failures)
 
 	// Cached capabilities for this session's connection
 	// These may differ from other sessions if the server returns different
@@ -321,6 +356,7 @@ func (sr *SessionRegistry) SetPendingAuth(sessionID, serverName string) {
 	session.SetConnection(serverName, &SessionConnection{
 		ServerName: serverName,
 		Status:     StatusSessionPendingAuth,
+		AuthStatus: AuthStatusAuthRequired,
 	})
 }
 
@@ -343,6 +379,52 @@ func (sr *SessionRegistry) UpgradeConnection(sessionID, serverName string, clien
 	}
 
 	return session.UpgradeConnection(serverName, client, tokenKey)
+}
+
+// GetAuthStatus returns the authentication status for a session's connection to a server.
+// This is per-user session state used to track if a user is authenticated, needs auth, etc.
+//
+// Args:
+//   - sessionID: Unique identifier for the session
+//   - serverName: Name of the server
+//
+// Returns the auth status and true if found, AuthStatusUnknown and false otherwise.
+func (sr *SessionRegistry) GetAuthStatus(sessionID, serverName string) (AuthStatus, bool) {
+	conn, exists := sr.GetConnection(sessionID, serverName)
+	if !exists {
+		return AuthStatusUnknown, false
+	}
+	return conn.GetAuthStatus(), true
+}
+
+// SetAuthStatus updates the authentication status for a session's connection to a server.
+//
+// Args:
+//   - sessionID: Unique identifier for the session
+//   - serverName: Name of the server
+//   - status: New auth status
+func (sr *SessionRegistry) SetAuthStatus(sessionID, serverName string, status AuthStatus) {
+	conn, exists := sr.GetConnection(sessionID, serverName)
+	if !exists {
+		return
+	}
+	conn.SetAuthStatus(status)
+}
+
+// SetAuthStatusWithError updates the auth status and records an error for a session.
+// This is used when authentication fails (e.g., token expired, invalid credentials).
+//
+// Args:
+//   - sessionID: Unique identifier for the session
+//   - serverName: Name of the server
+//   - status: New auth status
+//   - errMsg: Error message describing the failure
+func (sr *SessionRegistry) SetAuthStatusWithError(sessionID, serverName string, status AuthStatus, errMsg string) {
+	conn, exists := sr.GetConnection(sessionID, serverName)
+	if !exists {
+		return
+	}
+	conn.SetAuthStatusWithError(status, errMsg)
 }
 
 // MarkSSOFailed records that SSO authentication was attempted but failed for a server.
@@ -657,8 +739,10 @@ func (s *SessionState) UpgradeConnection(serverName string, client MCPClient, to
 
 	conn.Client = client
 	conn.Status = StatusSessionConnected
+	conn.AuthStatus = AuthStatusAuthenticated
 	conn.TokenKey = tokenKey
 	conn.ConnectedAt = time.Now()
+	conn.LastError = "" // Clear any previous auth errors
 	s.LastActivity = time.Now()
 
 	logging.Debug("SessionRegistry", "Upgraded connection for session=%s server=%s",
@@ -765,6 +849,39 @@ func (sc *SessionConnection) GetPrompts() []mcp.Prompt {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.Prompts
+}
+
+// GetAuthStatus returns the authentication status for a session connection.
+func (sc *SessionConnection) GetAuthStatus() AuthStatus {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	if sc.AuthStatus == "" {
+		return AuthStatusUnknown
+	}
+	return sc.AuthStatus
+}
+
+// SetAuthStatus updates the authentication status for a session connection.
+func (sc *SessionConnection) SetAuthStatus(status AuthStatus) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.AuthStatus = status
+}
+
+// SetAuthStatusWithError updates the auth status and records an error message.
+// This is used when authentication fails (e.g., token expired, invalid credentials).
+func (sc *SessionConnection) SetAuthStatusWithError(status AuthStatus, errMsg string) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.AuthStatus = status
+	sc.LastError = errMsg
+}
+
+// GetLastError returns the last error for this session connection.
+func (sc *SessionConnection) GetLastError() string {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.LastError
 }
 
 // SessionNotFoundError is returned when a session is not found.

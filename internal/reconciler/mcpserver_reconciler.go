@@ -171,22 +171,40 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 
 // applyStatusFromService applies the current service state to the MCPServer status.
 // This is extracted to allow re-application during retry-on-conflict.
+//
+// This function sets both:
+//   - Phase: Infrastructure state (Pending/Ready/Failed) - independent of user session state
+//   - State: Legacy field (kept for backward compatibility, will be deprecated)
+//
+// Phase semantics:
+//   - Ready: Infrastructure is reachable (stdio: process running, http: TCP reachable)
+//   - Pending: Starting up, waiting for dependencies, or auth_required (server reachable but needs auth)
+//   - Failed: Infrastructure not available (process crashed, unreachable, network error)
 func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
 	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
 	if exists {
-		// Update status from service state
-		server.Status.State = string(service.GetState())
+		state := service.GetState()
+
+		// Update legacy State field (backward compatibility)
+		server.Status.State = string(state)
 		server.Status.Health = string(service.GetHealth())
+
+		// Set Phase based on infrastructure state only
+		// Phase is independent of user session state (auth status tracked in Session Registry)
+		server.Status.Phase = r.determinePhase(state, server.Spec.Type)
+
 		if service.GetLastError() != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
+			// Note: Per-user auth errors are tracked in Session Registry, not here
 			server.Status.LastError = SanitizeErrorMessage(service.GetLastError().Error())
 		} else {
 			server.Status.LastError = ""
 		}
+
 		// Update LastConnected if service is running/connected
-		if api.IsActiveState(service.GetState()) {
+		if api.IsActiveState(state) {
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}
@@ -210,10 +228,50 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		// Service doesn't exist - use typed constants
 		server.Status.State = ServiceStateStopped
 		server.Status.Health = ServiceHealthUnknown
+		server.Status.Phase = musterv1alpha1.MCPServerPhasePending
 		if reconcileErr != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
+	}
+}
+
+// determinePhase converts service state to MCPServer Phase.
+//
+// Phase semantics (per issue #292):
+//   - Ready: Infrastructure is reachable
+//   - For stdio: process is running
+//   - For http/sse: TCP connection can be established (even if 401/403)
+//   - Pending: Starting up or waiting
+//   - Failed: Infrastructure not available
+//
+// Note: auth_required means the server IS reachable (returned 401), so that's Ready phase.
+// Per-user authentication state is tracked in the Session Registry, not in CRD Phase.
+func (r *MCPServerReconciler) determinePhase(state api.ServiceState, serverType string) musterv1alpha1.MCPServerPhase {
+	switch state {
+	case api.StateRunning, api.StateConnected:
+		// Running/Connected = infrastructure is working
+		return musterv1alpha1.MCPServerPhaseReady
+
+	case api.StateAuthRequired:
+		// auth_required means the server IS reachable (it returned a 401 response)
+		// This is an infrastructure Ready state - the auth status is per-user session state
+		return musterv1alpha1.MCPServerPhaseReady
+
+	case api.StateStarting, api.StateWaiting, api.StateRetrying, api.StateStopping:
+		// Transitional states
+		return musterv1alpha1.MCPServerPhasePending
+
+	case api.StateStopped, api.StateUnknown:
+		// Not yet started
+		return musterv1alpha1.MCPServerPhasePending
+
+	case api.StateFailed, api.StateError, api.StateUnreachable, api.StateDisconnected:
+		// Infrastructure failure
+		return musterv1alpha1.MCPServerPhaseFailed
+
+	default:
+		return musterv1alpha1.MCPServerPhasePending
 	}
 }
 

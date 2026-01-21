@@ -43,17 +43,19 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // handleAuthStatusResource handles requests for the auth://status resource.
 // It returns the authentication status of all registered MCP servers.
 //
-// This handler provides session-specific authentication status. For OAuth-protected
-// servers that require per-session authentication:
-//   - If the current session has an authenticated connection, status is "connected"
-//   - If the current session has not authenticated, status is "auth_required"
+// IMPORTANT: Per issue #292, this handler uses the Session Registry as the
+// source of truth for per-user connection/auth state, NOT the MCPServer CRD status.
+//
+// Status determination (per issue #292):
+//   - Infrastructure availability: From aggregator's internal registry (reachable, unreachable)
+//   - Per-user auth/connection: From Session Registry (connected, auth_required, etc.)
+//
+// The MCPServer CRD Phase only reflects infrastructure state (Ready/Pending/Failed),
+// while this resource shows the per-user session state.
 //
 // Note: Proactive SSO connections for servers with forwardToken: true are established
 // during session initialization (see handleSessionInit), not during auth status reads.
 // This ensures auth://status is a pure read operation without side effects.
-//
-// This enables the CLI to correctly show whether the user is authenticated to each
-// MCP server, not just whether the server requires authentication globally.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	// Get session ID from context for session-specific auth status
 	sessionID := getSessionIDFromContext(ctx)
@@ -87,55 +89,16 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		// Handle unreachable servers first - don't offer auth for these
-		// Check global service state as the source of truth.
-		// The service registry is updated by notifyMCPServerConnected when auth succeeds,
-		// but the aggregator's internal registry might be stale if it doesn't have a global client.
-		// We trust the service registry state because it reflects the actual connectivity status.
-		globalConnected := false
-		if registry := api.GetServiceRegistry(); registry != nil {
-			if svc, exists := registry.Get(info.Name); exists {
-				state := svc.GetState()
-				if state == api.StateConnected || state == api.StateRunning {
-					globalConnected = true
-				}
-			}
-		}
+		// Determine status from Session Registry (per-user session state)
+		// This is the source of truth for connection/auth state per issue #292
+		status.Status = a.determineSessionAuthStatus(sessionID, name, info)
 
-		if info.Status == StatusUnreachable {
-			status.Status = pkgoauth.ServerStatusUnreachable
-			// Don't set AuthTool - no point in trying to authenticate unreachable servers
-		} else if globalConnected {
-			// If globally connected (via service registry), report connected.
-			// This handles the case where notifyMCPServerConnected updated the service state
-			// but the aggregator's internal client might still be in auth_required (e.g. for token forwarding).
-			status.Status = "connected"
-		} else if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-			// For servers requiring auth globally, check if the current session has authenticated
-			sessionAuthenticated := false
-
-			// Check if this session has an authenticated connection to this server
-			// (only if session registry is available - may be nil in tests)
-			if a.sessionRegistry != nil {
-				if conn, exists := a.sessionRegistry.GetConnection(sessionID, name); exists && conn != nil && conn.Status == StatusSessionConnected {
-					sessionAuthenticated = true
-					status.Status = "connected"
-					logging.Debug("Aggregator", "Session %s has authenticated connection to %s",
-						logging.TruncateSessionID(sessionID), name)
-				}
-			}
-
-			if !sessionAuthenticated {
-				// Session has not authenticated - include auth tool info
-				status.Issuer = info.AuthInfo.Issuer
-				status.Scope = info.AuthInfo.Scope
-				// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
-				status.AuthTool = "core_auth_login"
-			}
-		} else if info.IsConnected() {
-			status.Status = "connected"
-		} else {
-			status.Status = "disconnected"
+		// If auth is required for this session, include auth tool info
+		if status.Status == pkgoauth.ServerStatusAuthRequired && info.AuthInfo != nil {
+			status.Issuer = info.AuthInfo.Issuer
+			status.Scope = info.AuthInfo.Scope
+			// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
+			status.AuthTool = "core_auth_login"
 		}
 
 		response.Servers = append(response.Servers, status)
@@ -156,6 +119,64 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Text:     string(data),
 		},
 	}, nil
+}
+
+// determineSessionAuthStatus determines the auth/connection status for a specific
+// session and server combination.
+//
+// Per issue #292, this function uses the Session Registry as the primary source
+// of truth for per-user session state:
+//   - If session has an authenticated connection -> "connected"
+//   - If session has pending auth -> "auth_required"
+//   - If server infrastructure is unreachable -> "unreachable" (no auth possible)
+//   - If server requires auth and session hasn't authenticated -> "auth_required"
+//   - If server doesn't require auth and is reachable -> "connected"
+//
+// This cleanly separates:
+//   - Infrastructure state (CRD Phase: Ready/Pending/Failed)
+//   - Session state (this function: connected/auth_required/etc.)
+func (a *AggregatorServer) determineSessionAuthStatus(sessionID, serverName string, info *ServerInfo) string {
+	// Handle unreachable servers first - no auth possible
+	if info.Status == StatusUnreachable {
+		return pkgoauth.ServerStatusUnreachable
+	}
+
+	// Check Session Registry for per-user connection state
+	if a.sessionRegistry != nil {
+		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil {
+			switch conn.Status {
+			case StatusSessionConnected:
+				logging.Debug("Aggregator", "Session %s has authenticated connection to %s",
+					logging.TruncateSessionID(sessionID), serverName)
+				return pkgoauth.ServerStatusConnected
+
+			case StatusSessionPendingAuth:
+				return pkgoauth.ServerStatusAuthRequired
+
+			case StatusSessionFailed:
+				// Session had a failure - check if it was an auth issue
+				if conn.AuthStatus == AuthStatusTokenExpired {
+					return pkgoauth.ServerStatusAuthRequired
+				}
+				// Other failures might be infrastructure issues
+				return "failed"
+			}
+		}
+	}
+
+	// No session connection exists - check infrastructure state
+	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
+		// Server requires auth globally but this session hasn't authenticated
+		return pkgoauth.ServerStatusAuthRequired
+	}
+
+	// Server is connected at infrastructure level (global client exists)
+	if info.IsConnected() {
+		return pkgoauth.ServerStatusConnected
+	}
+
+	// Default to disconnected
+	return "disconnected"
 }
 
 // getMusterIssuer returns the OAuth issuer URL configured for muster's OAuth server.

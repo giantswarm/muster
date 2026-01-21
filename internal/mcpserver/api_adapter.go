@@ -109,7 +109,9 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
 		// Include status fields synced by the reconciler (see ADR 007)
-		State:               server.Status.State,
+		// Phase is the primary status indicator per issue #292
+		Phase:               string(server.Status.Phase),
+		State:               server.Status.State, // Deprecated, kept for backward compatibility
 		Health:              server.Status.Health,
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
 	}

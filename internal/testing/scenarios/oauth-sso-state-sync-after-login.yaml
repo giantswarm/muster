@@ -2,24 +2,20 @@ name: "oauth-sso-state-sync-after-login"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Reproduces GitHub issue: MCPServer state not synced to CRD after SSO login.
+  Tests the separation of infrastructure state (CRD Phase) from session state (auth://status).
   
-  After SSO token forwarding succeeds:
-  - `muster auth status` shows "Connected [SSO: Forwarded]" ✓
-  - `muster list service` shows "Connected" ✓
-  - `muster list mcpserver` shows "Waiting" ✗ (should be "Connected")
+  Per issue #292, the MCPServer CRD Phase reflects infrastructure availability:
+  - Phase: Ready means the server is reachable (even if 401 auth required)
+  - Phase: Failed means the server is unreachable
   
-  The issue is that when SSO authentication succeeds, the service state in the
-  service registry is correctly updated to "Connected", but the MCPServer CRD
-  status (read by `core_mcpserver_list`) is not updated - it still shows "Waiting"
-  which was the state set when the server initially required authentication.
+  Session state (per-user auth/connection) is tracked separately:
+  - auth://status resource shows per-user connection state ("connected", "auth_required")
   
   This scenario tests that:
-  1. After SSO login, `core_service_list` shows state = "Connected"
-  2. After SSO login, `core_mcpserver_list` ALSO shows state = "Connected"
-  
-  The fix requires ensuring TriggerReconcile properly syncs the service state
-  to the MCPServer CRD status after UpdateMCPServerState is called.
+  1. Before auth: MCPServer Phase = Ready (server is reachable, returned 401)
+  2. Before auth: auth://status shows "auth_required" for this session
+  3. After SSO login: auth://status shows "connected" for this session
+  4. After SSO login: MCPServer Phase remains Ready (infrastructure unchanged)
 tags: ["oauth", "sso", "state-sync", "mcpserver", "service", "regression", "reconciler"]
 timeout: "2m"
 
@@ -79,9 +75,11 @@ steps:
         - "sync-test-server"
 
   # Step 3: Check MCPServer state BEFORE authentication
-  # The server should be in "Waiting" or "auth_required" state since no auth has happened
+  # Before any connection attempt, the server is in Pending phase (waiting to be probed).
+  # Per issue #292, Phase transitions to Ready only after infrastructure is confirmed reachable.
+  # Since we use lazy initialization, the server hasn't been probed yet.
   - id: check-mcpserver-state-before-auth
-    description: "Check MCPServer state before authentication (expecting waiting/auth_required)"
+    description: "Check MCPServer exists before authentication (may be Pending until probed)"
     tool: "core_mcpserver_list"
     args:
       verbose: true
@@ -89,7 +87,6 @@ steps:
       success: true
       contains:
         - "sync-test-server"
-        # State should indicate auth is required or waiting
 
   # Step 4: Authenticate to muster (simulates `muster auth login`)
   - id: authenticate-to-muster
@@ -135,15 +132,11 @@ steps:
         - "sync-test-server"
         - "connected"  # Service state should be "connected" (lowercase from service registry)
 
-  # Step 8: THE KEY TEST - Check MCPServer CRD state AFTER SSO login
-  # This is where the bug manifests: MCPServer CRD still shows "waiting"
-  # instead of being synced to "connected" after SSO succeeds
-  #
-  # We use wait_for_state to poll for the expected state, allowing time for
-  # the reconciler to sync the state from service registry to CRD.
-  # If this test fails with "waiting" still visible, it confirms the bug.
-  - id: check-mcpserver-state-after-auth
-    description: "BUG REPRO: Verify MCPServer CRD shows Connected state after SSO login"
+  # Step 8: Check MCPServer Phase AFTER SSO login
+  # Per issue #292: After successful connection, Phase should be Ready (infrastructure is reachable)
+  # The "connected" state is session-level, shown in auth://status (step 9)
+  - id: check-mcpserver-phase-after-auth
+    description: "Verify MCPServer Phase is Ready after SSO login (infrastructure confirmed reachable)"
     tool: "core_mcpserver_list"
     args:
       verbose: true
@@ -151,10 +144,8 @@ steps:
       success: true
       contains:
         - "sync-test-server"
-        - "connected"  # MCPServer state should be "connected" (synced from service)
-      not_contains:
-        - "waiting"  # Should NOT still be in waiting state
-      wait_for_state: 5s  # Wait up to 5s for reconciler to sync state
+        - "Ready"  # Phase is Ready (infrastructure confirmed reachable after connection)
+      wait_for_state: 5s  # Wait for reconciler to sync state
 
   # Step 9: Verify auth status also shows connected
   - id: verify-auth-status

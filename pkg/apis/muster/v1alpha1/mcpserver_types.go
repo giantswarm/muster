@@ -146,23 +146,71 @@ type TokenExchangeConfig struct {
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
-// MCPServerStatus defines the observed state of MCPServer
+// MCPServerPhase represents the high-level infrastructure state of an MCPServer.
+// This is independent of user session state (authentication, per-user connection status).
+//
+// Phase values reflect infrastructure availability:
+//   - Pending: Initial state, server is starting up or waiting for dependencies
+//   - Ready: Infrastructure is reachable (for stdio: process running, for http: TCP reachable)
+//   - Failed: Infrastructure is not available (process crashed, endpoint unreachable)
+type MCPServerPhase string
+
+const (
+	// MCPServerPhasePending indicates the server is initializing or waiting for dependencies.
+	MCPServerPhasePending MCPServerPhase = "Pending"
+
+	// MCPServerPhaseReady indicates the server infrastructure is available.
+	// For stdio: process is running.
+	// For http/sse: TCP connection can be established (ignoring 401/403 auth responses).
+	MCPServerPhaseReady MCPServerPhase = "Ready"
+
+	// MCPServerPhaseFailed indicates the server infrastructure is not available.
+	// For stdio: process is not running or crashed.
+	// For http/sse: endpoint is unreachable (network error, DNS failure, etc.).
+	MCPServerPhaseFailed MCPServerPhase = "Failed"
+)
+
+// MCPServerStatus defines the observed state of MCPServer.
+//
+// IMPORTANT: This status reflects infrastructure state only, NOT user session state.
+// Per-user connection status and authentication state are tracked in the Session Registry
+// (internal/aggregator/session_registry.go) to support multi-user environments.
+//
+// Infrastructure State (CRD):
+//   - Phase: Pending, Ready, Failed - reflects if the server is reachable
+//   - State: Legacy field, kept for backward compatibility (deprecated)
+//   - Conditions: Standard K8s conditions for detailed status
+//
+// Session State (Session Registry):
+//   - ConnectionStatus: Connected, PendingAuth, Failed (per-user)
+//   - AuthStatus: Authenticated, AuthRequired, TokenExpired (per-user)
+//   - AvailableTools: Tools visible to this specific user
 type MCPServerStatus struct {
-	// State represents the current operational state of the MCP server
-	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable;connected
+	// Phase represents the high-level infrastructure state of the MCP server.
+	// This is independent of user session state (authentication, connection status).
+	// +kubebuilder:validation:Enum=Pending;Ready;Failed
+	Phase MCPServerPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
+
+	// State represents the current operational state of the MCP server.
+	// DEPRECATED: Use Phase instead. State is kept for backward compatibility
+	// but will be removed in a future version. State mixes infrastructure and
+	// session state which causes issues in multi-user environments.
+	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable
 	State string `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// Health represents the health status of the MCP server
 	// +kubebuilder:validation:Enum=unknown;healthy;unhealthy;checking
 	Health string `json:"health,omitempty" yaml:"health,omitempty"`
 
-	// LastError contains any error message from the most recent server operation
+	// LastError contains any error message from the most recent server operation.
+	// Note: Per-user authentication errors are tracked in the Session Registry,
+	// not here. This field only contains infrastructure-level errors.
 	LastError string `json:"lastError,omitempty" yaml:"lastError,omitempty"`
 
 	// LastConnected indicates when the server was last successfully connected
 	LastConnected *metav1.Time `json:"lastConnected,omitempty" yaml:"lastConnected,omitempty"`
 
-	// RestartCount tracks how many times this server has been restarted
+	// RestartCount tracks how many times this server has been restarted (stdio only)
 	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
 
 	// ConsecutiveFailures tracks the number of consecutive connection failures.
@@ -178,7 +226,9 @@ type MCPServerStatus struct {
 	// This is calculated based on exponential backoff from ConsecutiveFailures.
 	NextRetryAfter *metav1.Time `json:"nextRetryAfter,omitempty" yaml:"nextRetryAfter,omitempty"`
 
-	// Conditions represent the latest available observations of the MCPServer's current state
+	// Conditions represent the latest available observations of the MCPServer's current state.
+	// Standard condition types:
+	//   - Ready: True if infrastructure is reachable (process running or TCP connectable)
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
@@ -188,7 +238,7 @@ type MCPServerStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.autoStart"
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Health",type="string",JSONPath=".status.health"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || has(self.spec.command)",message="command is required when type is stdio"
