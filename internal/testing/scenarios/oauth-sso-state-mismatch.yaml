@@ -136,33 +136,37 @@ steps:
         - "Revoked"
 
   # Step 8: Check auth status AFTER revocation
-  # BUG REPRODUCTION: The auth status read itself fails with 401 because
+  # EXPECTED BEHAVIOR: The auth status read fails with 401 because
   # the muster server validates tokens against the IdP on every request.
-  # After token revocation, ALL requests (including auth://status) fail.
-  # This is the exact behavior the user reported:
-  #   - `muster auth status` shows "Authenticated" (local check)
-  #   - `muster list services` fails with 401 (server validates against IdP)
+  # After token revocation, the server correctly rejects the invalid token.
+  # 
+  # The CLI fix (auth_status.go) handles this gracefully by:
+  #   1. Detecting the 401 error
+  #   2. Clearing the local cached token
+  #   3. Showing "Token invalidated" with guidance to re-login
+  #
+  # This test verifies the underlying server behavior is correct.
   - id: check-auth-status-after-revoke
-    description: "Auth status read fails after token revocation (reproduces issue #287)"
+    description: "Auth status read fails after token revocation (server correctly rejects invalid token)"
     tool: "test_read_auth_status"
     args:
       server: "state-test-server"
     expected:
-      # This documents the CURRENT (buggy) behavior:
-      # The request fails because the server validates tokens against IdP
+      # Server correctly rejects the revoked token with 401
       success: false
       error_contains:
         - "401"
         - "invalid_token"
 
   # Step 9: Try to call the protected tool after token revocation
-  # This should fail because the token has been revoked on the server
+  # EXPECTED BEHAVIOR: This should fail because the token has been revoked on the server.
+  # The server correctly validates tokens against the IdP and rejects revoked tokens.
   - id: call-tool-after-revoke
-    description: "Protected tool should fail after token revocation (401 expected)"
+    description: "Protected tool should fail after token revocation (server correctly rejects)"
     tool: "x_state-test-server_protected_operation"
     args: {}
     expected:
-      # This will fail with 401 because the OAuth server no longer accepts the token
+      # Server correctly rejects the revoked token with 401
       success: false
       error_contains:
         - "401"

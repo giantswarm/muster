@@ -557,12 +557,11 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 	}, nil
 }
 
-// handleRevokeToken revokes tokens on the mock OAuth server.
+// handleRevokeToken revokes all tokens on the mock OAuth server.
 // This simulates server-side token revocation while the client still has the token cached.
 //
 // Args:
 //   - server (optional): Name of a specific OAuth server. If not provided, revokes on all servers.
-//   - revoke_all (optional): If true, revokes all tokens on the server(s). Default: true.
 //
 // Returns success status and the number of tokens revoked.
 func (h *TestToolsHandler) handleRevokeToken(ctx context.Context, args map[string]interface{}) (interface{}, error) {
@@ -573,12 +572,6 @@ func (h *TestToolsHandler) handleRevokeToken(ctx context.Context, args map[strin
 	// Get optional server name
 	serverName, _ := args["server"].(string)
 
-	// Default to revoking all tokens
-	revokeAll := true
-	if val, ok := args["revoke_all"].(bool); ok {
-		revokeAll = val
-	}
-
 	revokedServers := []string{}
 	totalRevoked := 0
 
@@ -588,19 +581,17 @@ func (h *TestToolsHandler) handleRevokeToken(ctx context.Context, args map[strin
 		if oauthServer == nil {
 			return nil, fmt.Errorf("OAuth server %s not found", serverName)
 		}
-		if revokeAll {
-			count := oauthServer.RevokeAllTokens()
-			totalRevoked += count
-			revokedServers = append(revokedServers, serverName)
-			if h.debug {
-				h.logger.Debug("🔐 Revoked all tokens (%d) on OAuth server %s\n", count, serverName)
-			}
+		count := oauthServer.RevokeAllTokens()
+		totalRevoked += count
+		revokedServers = append(revokedServers, serverName)
+		if h.debug {
+			h.logger.Debug("🔐 Revoked all tokens (%d) on OAuth server %s\n", count, serverName)
 		}
 	} else {
 		// Revoke on all OAuth servers
 		for name := range h.currentInstance.MockOAuthServers {
 			oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
-			if oauthServer != nil && revokeAll {
+			if oauthServer != nil {
 				count := oauthServer.RevokeAllTokens()
 				totalRevoked += count
 				revokedServers = append(revokedServers, name)
@@ -797,6 +788,6 @@ func GetTestToolDescriptions() map[string]string {
 		TestToolGetOAuthServerInfo:    "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
 		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
 		TestToolReadAuthStatus:        "Reads the auth://status resource to verify authentication state. Optional arg: 'server' (specific server to check).",
-		TestToolRevokeToken:           "Revokes tokens on the mock OAuth server. Simulates server-side token revocation. Optional args: 'server' (specific OAuth server name), 'revoke_all' (default: true).",
+		TestToolRevokeToken:           "Revokes all tokens on the mock OAuth server. Simulates server-side token revocation. Optional arg: 'server' (specific OAuth server name).",
 	}
 }

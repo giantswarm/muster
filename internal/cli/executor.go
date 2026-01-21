@@ -440,10 +440,9 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 	// the local token may still appear valid (not expired locally),
 	// but the server has rejected it (401). We must clear it to force
 	// a fresh OAuth flow.
-	if err := authHandler.Logout(e.endpoint); err != nil {
-		// Log but don't fail - we still want to try re-authentication
-		// The Logout might fail if there's no token to clear
-	}
+	// Note: We ignore the error here because Logout may fail if there's
+	// no token to clear, but we still want to proceed with re-authentication.
+	_ = authHandler.Logout(e.endpoint)
 
 	if err := e.triggerAuthentication(ctx, authHandler); err != nil {
 		return err
