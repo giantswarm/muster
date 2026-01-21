@@ -337,3 +337,102 @@ func TestTableFormatter_min(t *testing.T) {
 	assert.Equal(t, 0, formatter.min(0, 5))
 	assert.Equal(t, -1, formatter.min(-1, 5))
 }
+
+func TestGetColumnDisplayName(t *testing.T) {
+	tests := []struct {
+		name         string
+		resourceType string
+		column       string
+		expected     string
+	}{
+		{
+			name:         "mcpServers phase becomes status",
+			resourceType: "mcpServers",
+			column:       "phase",
+			expected:     "status",
+		},
+		{
+			name:         "mcpServers sessionAuth becomes auth",
+			resourceType: "mcpServers",
+			column:       "sessionAuth",
+			expected:     "auth",
+		},
+		{
+			name:         "mcpServer phase becomes status",
+			resourceType: "mcpServer",
+			column:       "phase",
+			expected:     "status",
+		},
+		{
+			name:         "unknown column returns original",
+			resourceType: "mcpServers",
+			column:       "name",
+			expected:     "name",
+		},
+		{
+			name:         "unknown resource type returns original",
+			resourceType: "services",
+			column:       "phase",
+			expected:     "phase",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getColumnDisplayName(tt.resourceType, tt.column)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetDisplayHeaders(t *testing.T) {
+	columns := []string{"name", "phase", "type", "sessionAuth"}
+	headers := getDisplayHeaders("mcpServers", columns)
+
+	assert.Equal(t, []string{"name", "status", "type", "auth"}, headers)
+}
+
+func TestTableFormatter_optimizeColumns_MCPServers_SessionAuth(t *testing.T) {
+	formatter := NewTableFormatter(ExecutorOptions{Format: OutputFormatTable})
+
+	objects := []interface{}{
+		map[string]interface{}{
+			"name":        "test-server",
+			"phase":       "Ready",
+			"type":        "streamable-http",
+			"sessionAuth": "authenticated",
+			"url":         "https://example.com/mcp",
+		},
+	}
+
+	columns := formatter.optimizeColumns(objects)
+
+	// sessionAuth should be in priority columns for mcpServers
+	assert.Contains(t, columns, "sessionAuth", "expected sessionAuth to be present in mcpServers columns")
+	assert.Contains(t, columns, "phase", "expected phase to be present")
+	assert.Contains(t, columns, "type", "expected type to be present")
+}
+
+func TestTableFormatter_optimizeColumns_MCPServers_WideMode_SessionInfo(t *testing.T) {
+	formatter := NewTableFormatter(ExecutorOptions{Format: OutputFormatWide})
+
+	objects := []interface{}{
+		map[string]interface{}{
+			"name":        "test-server",
+			"phase":       "Ready",
+			"type":        "streamable-http",
+			"sessionAuth": "authenticated",
+			"toolsCount":  15,
+			"connectedAt": "2024-01-15T10:30:00Z",
+			"url":         "https://example.com/mcp",
+			"command":     "/usr/bin/mcp",
+		},
+	}
+
+	columns := formatter.optimizeColumns(objects)
+
+	// Wide mode should include session info columns
+	assert.Contains(t, columns, "toolsCount", "expected toolsCount in wide mode")
+	assert.Contains(t, columns, "connectedAt", "expected connectedAt in wide mode")
+	assert.Contains(t, columns, "url", "expected url in wide mode")
+}

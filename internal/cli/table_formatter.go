@@ -8,6 +8,20 @@ import (
 	"strings"
 )
 
+// columnDisplayNames maps internal field names to user-friendly column headers.
+// This allows us to show "STATUS" in the CLI while the underlying JSON field is "phase".
+// This improves UX by using more intuitive terminology for end users.
+var columnDisplayNames = map[string]map[string]string{
+	"mcpServers": {
+		"phase":       "status", // Phase is infrastructure state, but "Status" is more intuitive
+		"sessionAuth": "auth",   // Session auth status shown as "AUTH"
+	},
+	"mcpServer": {
+		"phase":       "status",
+		"sessionAuth": "auth",
+	},
+}
+
 // unwantedColumnsByResourceType defines columns that should be excluded from table
 // display in non-wide mode for each resource type. This keeps list views clean
 // and focused on the most useful information.
@@ -38,6 +52,27 @@ var unwantedColumnsByResourceType = map[string][]string{
 	"services": {
 		"metadata", // Nested data doesn't display well in list view
 	},
+}
+
+// getColumnDisplayName returns the user-friendly display name for a column.
+// If no mapping exists, the original column name is returned.
+func getColumnDisplayName(resourceType, column string) string {
+	if mapping, exists := columnDisplayNames[resourceType]; exists {
+		if displayName, exists := mapping[column]; exists {
+			return displayName
+		}
+	}
+	return column
+}
+
+// getDisplayHeaders converts internal column names to user-friendly display headers.
+// This allows "phase" to display as "STATUS" in the table header.
+func getDisplayHeaders(resourceType string, columns []string) []string {
+	headers := make([]string, len(columns))
+	for i, col := range columns {
+		headers[i] = getColumnDisplayName(resourceType, col)
+	}
+	return headers
 }
 
 // filterUnwantedColumns filters out columns that should not be displayed in table view.
@@ -162,9 +197,9 @@ func (f *TableFormatter) formatTableFromArrayWithMeta(data []interface{}, meta m
 	columns := f.optimizeColumns(data)
 	detectedType := f.detectResourceType(firstObj)
 
-	// Create kubectl-style plain table
+	// Create kubectl-style plain table with user-friendly display headers
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders(columns)
+	tw.SetHeaders(getDisplayHeaders(detectedType, columns))
 	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Add rows with formatting - sort by name field if present
@@ -300,9 +335,9 @@ func (f *TableFormatter) formatTableFromArray(data []interface{}) error {
 	columns := f.optimizeColumns(data)
 	resourceType := f.detectResourceType(firstObj)
 
-	// Create kubectl-style plain table
+	// Create kubectl-style plain table with user-friendly display headers
 	tw := NewPlainTableWriter(os.Stdout)
-	tw.SetHeaders(columns)
+	tw.SetHeaders(getDisplayHeaders(resourceType, columns))
 	tw.SetNoHeaders(f.options.NoHeaders)
 
 	// Add rows with formatting - sort by name field if present
@@ -381,8 +416,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
 		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"phase", "type"},
-		"mcpServer":      {"phase", "type"},
+		"mcpServers":     {"phase", "type", "sessionAuth"},
+		"mcpServer":      {"phase", "type", "sessionAuth"},
 		"workflows":      {"status", "description", "steps"},
 		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},
@@ -400,8 +435,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"services":       {"endpoint", "tools"},
 		"serviceClasses": {"requiredTools"},
 		"serviceClass":   {"requiredTools"},
-		"mcpServers":     {"url", "command", "timeout"},
-		"mcpServer":      {"url", "command", "timeout"},
+		"mcpServers":     {"toolsCount", "connectedAt", "url", "command"},
+		"mcpServer":      {"toolsCount", "connectedAt", "url", "command"},
 		"workflows":      {"args"},
 		"workflow":       {"args"},
 		"executions":     {"completed_at"},

@@ -1359,7 +1359,16 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			if err != nil {
 				return nil, err
 			}
-			return convertToMCPResult(result), nil
+			mcpResult := convertToMCPResult(result)
+
+			// Enrich mcpserver_list responses with session-specific data
+			if originalToolName == "mcpserver_list" {
+				sessionID := getSessionIDFromContext(ctx)
+				session := a.sessionRegistry.GetOrCreateSession(sessionID)
+				mcpResult = enrichMCPServerListResponse(mcpResult, session)
+			}
+
+			return mcpResult, nil
 		}
 		return nil, fmt.Errorf("MCP server manager does not implement ToolProvider interface")
 

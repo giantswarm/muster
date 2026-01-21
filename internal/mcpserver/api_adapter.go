@@ -368,7 +368,7 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 	// Add failed count if any servers were hidden
 	if failedCount > 0 && !showAll {
 		result["hiddenFailed"] = failedCount
-		result["hint"] = fmt.Sprintf("(%d failed servers hidden, use --all to show)", failedCount)
+		result["hint"] = fmt.Sprintf("(%d failed servers hidden, use --all to show, --verbose for details)", failedCount)
 	}
 
 	return &api.CallToolResult{

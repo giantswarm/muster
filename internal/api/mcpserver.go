@@ -265,6 +265,27 @@ type MCPServerInfo struct {
 
 	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
 	NextRetryAfter *time.Time `json:"nextRetryAfter,omitempty"`
+
+	// SessionStatus represents the per-user session connection status.
+	// This is only populated when the request includes a session context.
+	// Possible values: connected, disconnected, pending_auth, failed
+	// Empty if no session context is available.
+	SessionStatus string `json:"sessionStatus,omitempty"`
+
+	// SessionAuth represents the per-user authentication status for this server.
+	// This is only populated when the request includes a session context.
+	// Possible values: authenticated, auth_required, token_expired, unknown
+	// Empty if no session context is available or auth is not required.
+	SessionAuth string `json:"sessionAuth,omitempty"`
+
+	// ToolsCount is the number of tools available from this server for the current session.
+	// This is session-specific as OAuth-protected servers may expose different tools
+	// based on user permissions.
+	ToolsCount int `json:"toolsCount,omitempty"`
+
+	// ConnectedAt indicates when the current session connected to this server.
+	// Only populated if there is an active session connection.
+	ConnectedAt *time.Time `json:"connectedAt,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.

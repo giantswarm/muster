@@ -237,3 +237,93 @@ func TestTableBuilder_FormatCellValuePlain_Phase(t *testing.T) {
 	result = builder.FormatCellValuePlain("PHASE", "Pending", nil)
 	assert.Equal(t, "Starting", result)
 }
+
+func TestTableBuilder_FormatSessionAuthPlain(t *testing.T) {
+	builder := &TableBuilder{}
+
+	tests := []struct {
+		name     string
+		auth     string
+		expected string
+	}{
+		{"empty", "", "-"},
+		{"authenticated", "authenticated", "OK"},
+		{"auth_required", "auth_required", "Required"},
+		{"token_expired", "token_expired", "Expired"},
+		{"unknown", "unknown", "-"},
+		{"case insensitive - AUTHENTICATED", "AUTHENTICATED", "OK"},
+		{"case insensitive - Auth_Required", "Auth_Required", "Required"},
+		{"custom value", "custom_status", "custom_status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := builder.formatSessionAuthPlain(tt.auth)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTableBuilder_FormatSessionStatusPlain(t *testing.T) {
+	builder := &TableBuilder{}
+
+	tests := []struct {
+		name     string
+		status   string
+		expected string
+	}{
+		{"empty", "", "-"},
+		{"connected", "connected", "Connected"},
+		{"disconnected", "disconnected", "Disconnected"},
+		{"pending_auth", "pending_auth", "Pending Auth"},
+		{"failed", "failed", "Failed"},
+		{"case insensitive - CONNECTED", "CONNECTED", "Connected"},
+		{"custom value", "custom_status", "custom_status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := builder.formatSessionStatusPlain(tt.status)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTableBuilder_FormatCellValuePlain_SessionAuth(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test that sessionauth column triggers formatSessionAuthPlain
+	result := builder.FormatCellValuePlain("sessionAuth", "authenticated", nil)
+	assert.Equal(t, "OK", result)
+
+	result = builder.FormatCellValuePlain("sessionAuth", "auth_required", nil)
+	assert.Equal(t, "Required", result)
+
+	result = builder.FormatCellValuePlain("sessionAuth", "", nil)
+	assert.Equal(t, "-", result)
+}
+
+func TestTableBuilder_FormatCellValuePlain_SessionStatus(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test that sessionstatus column triggers formatSessionStatusPlain
+	result := builder.FormatCellValuePlain("sessionStatus", "connected", nil)
+	assert.Equal(t, "Connected", result)
+
+	result = builder.FormatCellValuePlain("sessionStatus", "pending_auth", nil)
+	assert.Equal(t, "Pending Auth", result)
+}
+
+func TestTableBuilder_FormatCellValuePlain_ToolsCount(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test toolscount column
+	result := builder.FormatCellValuePlain("toolsCount", "15", nil)
+	assert.Equal(t, "15", result)
+
+	result = builder.FormatCellValuePlain("toolsCount", "0", nil)
+	assert.Equal(t, "-", result)
+
+	result = builder.FormatCellValuePlain("toolsCount", "", nil)
+	assert.Equal(t, "-", result)
+}
