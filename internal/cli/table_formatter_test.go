@@ -114,12 +114,13 @@ func TestTableFormatter_optimizeColumns_MCPServers(t *testing.T) {
 				map[string]interface{}{
 					"name":      "github",
 					"type":      "streamable-http",
+					"phase":     "Ready",
 					"autoStart": true,
 					"url":       "https://github.example.com/mcp",
 					"timeout":   "30s",
 				},
 			},
-			expectContains: []string{"name", "type", "autoStart"},
+			expectContains: []string{"name", "phase", "type", "autoStart"},
 			expectMissing:  []string{"url", "timeout"},
 		},
 		{
@@ -129,12 +130,41 @@ func TestTableFormatter_optimizeColumns_MCPServers(t *testing.T) {
 				map[string]interface{}{
 					"name":      "github",
 					"type":      "streamable-http",
+					"phase":     "Ready",
 					"autoStart": true,
 					"url":       "https://github.example.com/mcp",
 					"timeout":   "30s",
 				},
 			},
-			expectContains: []string{"name", "type", "autoStart", "url", "timeout"},
+			expectContains: []string{"name", "phase", "type", "autoStart", "url", "timeout"},
+		},
+		{
+			name:   "mcpserver with Pending phase",
+			format: OutputFormatTable,
+			objects: []interface{}{
+				map[string]interface{}{
+					"name":      "local-server",
+					"type":      "stdio",
+					"phase":     "Pending",
+					"autoStart": true,
+					"command":   "/usr/bin/mcp-server",
+				},
+			},
+			expectContains: []string{"name", "phase", "type", "autoStart"},
+		},
+		{
+			name:   "mcpserver with Failed phase",
+			format: OutputFormatTable,
+			objects: []interface{}{
+				map[string]interface{}{
+					"name":      "broken-server",
+					"type":      "streamable-http",
+					"phase":     "Failed",
+					"autoStart": false,
+					"url":       "https://broken.example.com/mcp",
+				},
+			},
+			expectContains: []string{"name", "phase", "type", "autoStart"},
 		},
 	}
 
