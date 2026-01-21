@@ -1206,6 +1206,39 @@ func (s *OAuthServer) AddToken(accessToken, refreshToken, scope, clientID string
 	}
 }
 
+// RevokeToken removes a token from the server, making it invalid for future requests.
+// This is used for testing scenarios where a token is revoked server-side but the
+// client still has the token cached locally. Returns true if the token was found
+// and revoked, false if the token didn't exist.
+func (s *OAuthServer) RevokeToken(accessToken string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.issuedTokens[accessToken]; exists {
+		delete(s.issuedTokens, accessToken)
+		if s.config.Debug {
+			fmt.Fprintf(os.Stderr, "🔐 Revoked token: %s...\n", accessToken[:min(16, len(accessToken))])
+		}
+		return true
+	}
+	return false
+}
+
+// RevokeAllTokens removes all tokens from the server.
+// This is used for testing scenarios where all tokens need to be invalidated.
+// Returns the number of tokens that were revoked.
+func (s *OAuthServer) RevokeAllTokens() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := len(s.issuedTokens)
+	s.issuedTokens = make(map[string]*issuedToken)
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔐 Revoked all tokens (%d tokens)\n", count)
+	}
+	return count
+}
+
 // GetPendingAuthCode returns a pending auth code if one exists for the given state
 func (s *OAuthServer) GetPendingAuthCode(state string) string {
 	s.mu.RLock()

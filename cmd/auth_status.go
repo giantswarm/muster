@@ -68,51 +68,77 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 
 	// Show aggregator status
 	authPrintln("Muster Aggregator")
-	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
-	if status != nil {
-		authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
-		if status.Authenticated {
-			authPrint("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-			if !status.ExpiresAt.IsZero() {
-				authPrint("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
-			}
-			if status.HasRefreshToken {
-				authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
-			} else {
-				authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
-			}
-			if status.IssuerURL != "" {
-				authPrint("  Issuer:    %s\n", status.IssuerURL)
-			}
-		} else {
-			// Check if auth is required
-			ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
-			authRequired, checkErr := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
-			cancel()
+	authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
 
-			if checkErr != nil {
-				// Connection failed - display appropriate error message
-				connErr := cli.ClassifyConnectionError(checkErr, aggregatorEndpoint)
-				authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
-				authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(checkErr))
-			} else if authRequired {
-				authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-				authPrint("             Run: muster auth login\n")
-			} else {
-				authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
-			}
-		}
-	}
+	// Get local token status first
+	localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
 
-	// Try to get MCP server status from the aggregator
-	if handler.HasValidToken(aggregatorEndpoint) {
+	// If we have a local token, verify it with the server before showing "Authenticated".
+	// This catches the case where the token was invalidated server-side (e.g., IdP revoked
+	// the session) but the local expiry time hasn't passed yet.
+	if localStatus != nil && localStatus.Authenticated {
+		// Try to make an actual request to the server to verify the token
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
-		defer cancel()
+		authStatus, serverErr := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+		cancel()
 
-		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
-		if err == nil && len(authStatus.Servers) > 0 {
+		if serverErr != nil {
+			// Check if this is a 401 error (token invalidated server-side)
+			if pkgoauth.Is401Error(serverErr) {
+				// Token is invalid on the server - clear it and show not authenticated
+				_ = handler.Logout(aggregatorEndpoint)
+				authPrint("  Status:    %s\n", text.FgYellow.Sprint("Token invalidated"))
+				authPrint("             Your session was terminated by the identity provider.\n")
+				authPrint("             Run: muster auth login\n")
+				return nil
+			}
+
+			// Other connection error - might be network issue, server down, etc.
+			connErr := cli.ClassifyConnectionError(serverErr, aggregatorEndpoint)
+			authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
+			authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(serverErr))
+			// Still show local token info as it might be useful
+			if !localStatus.ExpiresAt.IsZero() {
+				authPrint("  (Local token expires: %s)\n", formatExpiryWithDirection(localStatus.ExpiresAt))
+			}
+			return nil
+		}
+
+		// Server verified the token - show authenticated status
+		authPrint("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+		if !localStatus.ExpiresAt.IsZero() {
+			authPrint("  Expires:   %s\n", formatExpiryWithDirection(localStatus.ExpiresAt))
+		}
+		if localStatus.HasRefreshToken {
+			authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
+		} else {
+			authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
+		}
+		if localStatus.IssuerURL != "" {
+			authPrint("  Issuer:    %s\n", localStatus.IssuerURL)
+		}
+
+		// Show MCP server status since we already have it
+		if len(authStatus.Servers) > 0 {
 			authPrintln("\nMCP Servers")
 			printMCPServerStatuses(authStatus.Servers)
+		}
+	} else {
+		// No local token - check if auth is required
+		ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
+		authRequired, checkErr := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
+		cancel()
+
+		if checkErr != nil {
+			// Connection failed - display appropriate error message
+			connErr := cli.ClassifyConnectionError(checkErr, aggregatorEndpoint)
+			authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
+			authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(checkErr))
+		} else if authRequired {
+			authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+			authPrint("             Run: muster auth login\n")
+		} else {
+			authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
 		}
 	}
 
@@ -128,6 +154,11 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {
+		// Check if this is a 401 error (token invalidated server-side)
+		if pkgoauth.Is401Error(err) {
+			_ = handler.Logout(aggregatorEndpoint)
+			return fmt.Errorf("your session was terminated by the identity provider. Run 'muster auth login' to re-authenticate")
+		}
 		return fmt.Errorf("failed to get server status: %w", err)
 	}
 

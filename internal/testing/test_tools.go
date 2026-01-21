@@ -30,6 +30,8 @@ const (
 	TestToolAdvanceOAuthClock = "test_advance_oauth_clock"
 	// TestToolReadAuthStatus reads the auth://status resource to verify auth state.
 	TestToolReadAuthStatus = "test_read_auth_status"
+	// TestToolRevokeToken revokes a token on the mock OAuth server for testing.
+	TestToolRevokeToken = "test_revoke_token"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -71,7 +73,8 @@ func IsTestTool(toolName string) bool {
 		TestToolInjectToken,
 		TestToolGetOAuthServerInfo,
 		TestToolAdvanceOAuthClock,
-		TestToolReadAuthStatus:
+		TestToolReadAuthStatus,
+		TestToolRevokeToken:
 		return true
 	}
 	return false
@@ -94,6 +97,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleAdvanceOAuthClock(ctx, args)
 	case TestToolReadAuthStatus:
 		return h.handleReadAuthStatus(ctx, args)
+	case TestToolRevokeToken:
+		return h.handleRevokeToken(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -552,6 +557,72 @@ func (h *TestToolsHandler) handleAdvanceOAuthClock(ctx context.Context, args map
 	}, nil
 }
 
+// handleRevokeToken revokes tokens on the mock OAuth server.
+// This simulates server-side token revocation while the client still has the token cached.
+//
+// Args:
+//   - server (optional): Name of a specific OAuth server. If not provided, revokes on all servers.
+//   - revoke_all (optional): If true, revokes all tokens on the server(s). Default: true.
+//
+// Returns success status and the number of tokens revoked.
+func (h *TestToolsHandler) handleRevokeToken(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	// Get optional server name
+	serverName, _ := args["server"].(string)
+
+	// Default to revoking all tokens
+	revokeAll := true
+	if val, ok := args["revoke_all"].(bool); ok {
+		revokeAll = val
+	}
+
+	revokedServers := []string{}
+	totalRevoked := 0
+
+	if serverName != "" {
+		// Revoke on specific OAuth server
+		oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, serverName)
+		if oauthServer == nil {
+			return nil, fmt.Errorf("OAuth server %s not found", serverName)
+		}
+		if revokeAll {
+			count := oauthServer.RevokeAllTokens()
+			totalRevoked += count
+			revokedServers = append(revokedServers, serverName)
+			if h.debug {
+				h.logger.Debug("🔐 Revoked all tokens (%d) on OAuth server %s\n", count, serverName)
+			}
+		}
+	} else {
+		// Revoke on all OAuth servers
+		for name := range h.currentInstance.MockOAuthServers {
+			oauthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+			if oauthServer != nil && revokeAll {
+				count := oauthServer.RevokeAllTokens()
+				totalRevoked += count
+				revokedServers = append(revokedServers, name)
+				if h.debug {
+					h.logger.Debug("🔐 Revoked all tokens (%d) on OAuth server %s\n", count, name)
+				}
+			}
+		}
+	}
+
+	if len(revokedServers) == 0 {
+		return nil, fmt.Errorf("no OAuth servers found to revoke tokens on")
+	}
+
+	return map[string]interface{}{
+		"success":         true,
+		"message":         fmt.Sprintf("Revoked %d tokens on %d OAuth server(s)", totalRevoked, len(revokedServers)),
+		"tokens_revoked":  totalRevoked,
+		"servers_updated": revokedServers,
+	}, nil
+}
+
 // findOAuthServerRefForMCPServer finds the OAuth server reference for an MCP server.
 // This looks up the MCP server configuration to find which OAuth server it uses.
 //
@@ -714,6 +785,7 @@ func GetTestToolNames() []string {
 		TestToolGetOAuthServerInfo,
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
+		TestToolRevokeToken,
 	}
 }
 
@@ -725,5 +797,6 @@ func GetTestToolDescriptions() map[string]string {
 		TestToolGetOAuthServerInfo:    "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
 		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
 		TestToolReadAuthStatus:        "Reads the auth://status resource to verify authentication state. Optional arg: 'server' (specific server to check).",
+		TestToolRevokeToken:           "Revokes tokens on the mock OAuth server. Simulates server-side token revocation. Optional args: 'server' (specific OAuth server name), 'revoke_all' (default: true).",
 	}
 }

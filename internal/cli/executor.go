@@ -418,6 +418,13 @@ func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler ap
 }
 
 // handleAuthError handles authentication errors during connection.
+// This is called when the server returns a 401, which can happen when:
+// 1. The local token has expired (normal case)
+// 2. The token was invalidated server-side (e.g., session revoked by IdP)
+//
+// In both cases, we need to clear the invalid cached token before
+// triggering re-authentication, otherwise the auth flow might reuse
+// the invalid token from the local cache.
 func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) error {
 	if e.options.AuthMode == AuthModeNone {
 		return &AuthRequiredError{Endpoint: e.endpoint}
@@ -426,6 +433,16 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 	authHandler := api.GetAuthHandler()
 	if authHandler == nil {
 		return &AuthRequiredError{Endpoint: e.endpoint}
+	}
+
+	// Clear the invalid token before re-authenticating.
+	// This is critical for handling server-side token invalidation:
+	// the local token may still appear valid (not expired locally),
+	// but the server has rejected it (401). We must clear it to force
+	// a fresh OAuth flow.
+	if err := authHandler.Logout(e.endpoint); err != nil {
+		// Log but don't fail - we still want to try re-authentication
+		// The Logout might fail if there's no token to clear
 	}
 
 	if err := e.triggerAuthentication(ctx, authHandler); err != nil {
