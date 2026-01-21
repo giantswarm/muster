@@ -42,12 +42,3 @@ repos:
       - id: go-imports
         args: [ -local, github.com/giantswarm/muster ]
 
-  # CRD generation - regenerate CRDs when API types change
-  - repo: local
-    hooks:
-      - id: generate-crds
-        name: Generate CRDs
-        entry: make generate-crds
-        language: system
-        files: ^pkg/apis/.*\.go$
-        pass_filenames: false
