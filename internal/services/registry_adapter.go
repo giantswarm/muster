@@ -79,3 +79,12 @@ func (s *serviceInfoAdapter) GetServiceData() map[string]interface{} {
 	}
 	return nil
 }
+
+// UpdateState implements api.StateUpdater by delegating to the underlying service
+// if it implements services.StateUpdater. This enables external state updates
+// (e.g., from SSO authentication success) to propagate to the actual service.
+func (s *serviceInfoAdapter) UpdateState(state api.ServiceState, health api.HealthStatus, err error) {
+	if updater, ok := s.service.(StateUpdater); ok {
+		updater.UpdateState(ServiceState(state), HealthStatus(health), err)
+	}
+}
