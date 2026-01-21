@@ -12,6 +12,7 @@ import (
 	"muster/internal/client"
 	"muster/internal/events"
 	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	"muster/pkg/logging"
 )
 
 // Adapter provides MCP server management functionality using the unified client
@@ -64,7 +65,7 @@ func (a *Adapter) ListMCPServers() []api.MCPServerInfo {
 	servers, err := a.client.ListMCPServers(ctx, a.namespace)
 	if err != nil {
 		// Log error and return empty list
-		fmt.Printf("Warning: Failed to list MCPServers: %v\n", err)
+		logging.Warn("MCPServer", "Failed to list MCPServers: %v", err)
 		return []api.MCPServerInfo{}
 	}
 
@@ -704,8 +705,8 @@ func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data 
 	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))
 	if err != nil {
 		// Log error but don't fail the operation
-		fmt.Printf("Debug: Failed to generate event %s for MCPServer %s: %v\n", string(reason), name, err)
+		logging.Debug("MCPServer", "Failed to generate event %s for MCPServer %s: %v", string(reason), name, err)
 	} else {
-		fmt.Printf("Debug: Generated event %s for MCPServer %s\n", string(reason), name)
+		logging.Debug("MCPServer", "Generated event %s for MCPServer %s", string(reason), name)
 	}
 }
