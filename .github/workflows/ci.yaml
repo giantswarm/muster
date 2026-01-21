@@ -48,7 +48,8 @@ jobs:
         run: |
           make generate-crds
           if ! git diff --quiet helm/muster/crds/; then
-            echo "ERROR: CRDs are out of date. Run 'make generate-crds' and commit the changes."
+            echo "ERROR: CRDs are out of date."
+            echo "Run 'make generate-crds' and commit."
             git diff helm/muster/crds/
             exit 1
           fi
