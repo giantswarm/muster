@@ -44,6 +44,20 @@ jobs:
       - name: Run Checks (Lint)
         run: make check
 
+      - name: Install controller-gen
+        run: go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+
+      - name: Check CRDs are up to date
+        run: |
+          make generate-crds
+          if ! git diff --quiet helm/muster/crds/; then
+            echo "ERROR: CRDs are out of date."
+            echo "Run 'make generate-crds' and commit."
+            git diff helm/muster/crds/
+            exit 1
+          fi
+          echo "CRDs are up to date."
+
       - name: Run Helm unit tests
         run: make helm-test
 

@@ -41,3 +41,4 @@ repos:
           - --max-issues-per-linter=0
       - id: go-imports
         args: [ -local, github.com/giantswarm/muster ]
+
