@@ -183,7 +183,7 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 		// Check if this is a 401 error (token invalidated server-side)
 		if pkgoauth.Is401Error(err) {
 			_ = handler.Logout(aggregatorEndpoint)
-			return fmt.Errorf("your session was terminated by the identity provider. Run 'muster auth login' to re-authenticate")
+			return fmt.Errorf("your session was terminated by the identity provider. Run: muster auth login")
 		}
 		return fmt.Errorf("failed to get server status: %w", err)
 	}
