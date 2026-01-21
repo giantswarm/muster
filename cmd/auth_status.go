@@ -68,55 +68,107 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 
 	// Show aggregator status
 	authPrintln("Muster Aggregator")
-	status := handler.GetStatusForEndpoint(aggregatorEndpoint)
-	if status != nil {
-		authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
-		if status.Authenticated {
-			authPrint("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
-			if !status.ExpiresAt.IsZero() {
-				authPrint("  Expires:   %s\n", formatExpiryWithDirection(status.ExpiresAt))
-			}
-			if status.HasRefreshToken {
-				authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
-			} else {
-				authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
-			}
-			if status.IssuerURL != "" {
-				authPrint("  Issuer:    %s\n", status.IssuerURL)
-			}
-		} else {
-			// Check if auth is required
-			ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
-			authRequired, checkErr := handler.CheckAuthRequired(ctx, aggregatorEndpoint)
-			cancel()
+	authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
 
-			if checkErr != nil {
-				// Connection failed - display appropriate error message
-				connErr := cli.ClassifyConnectionError(checkErr, aggregatorEndpoint)
-				authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
-				authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(checkErr))
-			} else if authRequired {
-				authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-				authPrint("             Run: muster auth login\n")
-			} else {
-				authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
-			}
-		}
+	// Get local token status first
+	localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
+
+	// If we have a local token, verify it with the server before showing "Authenticated"
+	if localStatus != nil && localStatus.Authenticated {
+		return showVerifiedAuthStatus(handler, aggregatorEndpoint, localStatus)
 	}
 
-	// Try to get MCP server status from the aggregator
-	if handler.HasValidToken(aggregatorEndpoint) {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
-		defer cancel()
+	// No local token - check if auth is required
+	return showUnauthenticatedStatus(handler, aggregatorEndpoint)
+}
 
-		authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
-		if err == nil && len(authStatus.Servers) > 0 {
-			authPrintln("\nMCP Servers")
-			printMCPServerStatuses(authStatus.Servers)
-		}
+// showVerifiedAuthStatus verifies the token with the server and displays the authenticated status.
+// This catches the case where the token was invalidated server-side (e.g., IdP revoked
+// the session) but the local expiry time hasn't passed yet.
+func showVerifiedAuthStatus(handler api.AuthHandler, endpoint string, localStatus *api.AuthStatus) error {
+	// Try to make an actual request to the server to verify the token
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
+	authStatus, serverErr := getAuthStatusFromAggregator(ctx, handler, endpoint)
+	cancel()
+
+	if serverErr != nil {
+		return handleServerVerificationError(handler, endpoint, localStatus, serverErr)
+	}
+
+	// Server verified the token - show authenticated status
+	printAuthenticatedStatus(localStatus)
+
+	// Show MCP server status since we already have it
+	if len(authStatus.Servers) > 0 {
+		authPrintln("\nMCP Servers")
+		printMCPServerStatuses(authStatus.Servers)
 	}
 
 	return nil
+}
+
+// handleServerVerificationError handles errors from server-side token verification.
+func handleServerVerificationError(handler api.AuthHandler, endpoint string, localStatus *api.AuthStatus, serverErr error) error {
+	// Check if this is a 401 error (token invalidated server-side)
+	if pkgoauth.Is401Error(serverErr) {
+		_ = handler.Logout(endpoint)
+		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Token invalidated"))
+		authPrint("             Your session was terminated by the identity provider.\n")
+		authPrint("             Run: muster auth login\n")
+		return nil
+	}
+
+	// Other connection error - might be network issue, server down, etc.
+	printConnectionError(serverErr, endpoint)
+
+	// Still show local token info as it might be useful
+	if !localStatus.ExpiresAt.IsZero() {
+		authPrint("  (Local token expires: %s)\n", formatExpiryWithDirection(localStatus.ExpiresAt))
+	}
+	return nil
+}
+
+// printAuthenticatedStatus prints the status for a verified authenticated session.
+func printAuthenticatedStatus(localStatus *api.AuthStatus) {
+	authPrint("  Status:    %s\n", text.FgGreen.Sprint("Authenticated"))
+	if !localStatus.ExpiresAt.IsZero() {
+		authPrint("  Expires:   %s\n", formatExpiryWithDirection(localStatus.ExpiresAt))
+	}
+	if localStatus.HasRefreshToken {
+		authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
+	} else {
+		authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
+	}
+	if localStatus.IssuerURL != "" {
+		authPrint("  Issuer:    %s\n", localStatus.IssuerURL)
+	}
+}
+
+// showUnauthenticatedStatus checks if auth is required and shows appropriate status.
+func showUnauthenticatedStatus(handler api.AuthHandler, endpoint string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
+	authRequired, checkErr := handler.CheckAuthRequired(ctx, endpoint)
+	cancel()
+
+	if checkErr != nil {
+		printConnectionError(checkErr, endpoint)
+		return nil
+	}
+
+	if authRequired {
+		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
+		authPrint("             Run: muster auth login\n")
+	} else {
+		authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
+	}
+	return nil
+}
+
+// printConnectionError prints a formatted connection error message.
+func printConnectionError(err error, endpoint string) {
+	connErr := cli.ClassifyConnectionError(err, endpoint)
+	authPrint("  Status:    %s\n", text.FgRed.Sprint("Connection failed"))
+	authPrint("             %s: %s\n", connErr.Type, formatConnectionErrorReason(err))
 }
 
 // showMCPServerStatus shows the authentication status of a specific MCP server.
@@ -128,6 +180,11 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {
+		// Check if this is a 401 error (token invalidated server-side)
+		if pkgoauth.Is401Error(err) {
+			_ = handler.Logout(aggregatorEndpoint)
+			return fmt.Errorf("your session was terminated by the identity provider. Run: muster auth login")
+		}
 		return fmt.Errorf("failed to get server status: %w", err)
 	}
 
@@ -198,11 +255,12 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 		// Build the SSO label with consistent width padding
 		var ssoLabel string
 		if ssoType != "" {
-			// Pad SSO type to max width for alignment
-			ssoLabel = fmt.Sprintf(" [%-*s]", maxSSOLen, ssoType)
+			// Pad SSO type to max width for alignment, with "SSO:" prefix for context
+			ssoLabel = fmt.Sprintf(" [SSO: %-*s]", maxSSOLen, ssoType)
 		} else if maxSSOLen > 0 {
 			// Add empty space to maintain alignment when other servers have SSO
-			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen, "")
+			// Account for "SSO: " prefix (5 chars) in the padding
+			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen+5, "")
 		}
 
 		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
@@ -237,21 +295,21 @@ func formatMCPServerStatus(status string) string {
 }
 
 // ssoLabelForwarded is the label shown for SSO via token forwarding.
-const ssoLabelForwarded = "SSO: Forwarded"
+const ssoLabelForwarded = "Forwarded"
 
 // ssoLabelShared is the label shown for SSO via token reuse (shared login).
-const ssoLabelShared = "SSO: Shared"
+const ssoLabelShared = "Shared"
 
 // ssoLabelFailed is the label shown when SSO was attempted but failed.
-const ssoLabelFailed = "SSO failed"
+const ssoLabelFailed = "Failed"
 
 // getSSOType returns a human-readable SSO type for the server.
 // Returns empty string if no SSO mechanism is applicable.
 //
 // SSO mechanisms:
-//   - "SSO: Forwarded": Muster forwards its ID token to this server
-//   - "SSO: Shared": Server shares an OAuth issuer with other servers (shared login)
-//   - "SSO failed": SSO was attempted but failed (token rejected)
+//   - "Forwarded": Muster forwards its ID token to this server
+//   - "Shared": Server shares an OAuth issuer with other servers (shared login)
+//   - "Failed": SSO was attempted but failed (token rejected)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 	// Show failure indicator if SSO was attempted but failed
 	if srv.SSOAttemptFailed {

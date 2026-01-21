@@ -607,39 +607,74 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 
 // validateTestToolExpectations validates expectations for test tool results.
 func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error) bool {
+	// Determine if there's an error - either from Go error or from response isError field
+	hasError := err != nil
+	var responseMap map[string]interface{}
+
+	if response != nil {
+		if respMap, ok := response.(map[string]interface{}); ok {
+			responseMap = respMap
+			// Check if response has isError field set to true
+			if isErr, exists := respMap["isError"]; exists {
+				if isErrBool, ok := isErr.(bool); ok && isErrBool {
+					hasError = true
+				}
+			}
+		}
+		// Also check for TestToolResult type
+		if result, ok := response.(*TestToolResult); ok {
+			hasError = hasError || result.IsError
+		}
+	}
+
 	// Check success expectation
-	if expected.Success && err != nil {
+	if expected.Success && hasError {
 		if r.debug {
-			r.logger.Debug("❌ Expected test tool success but got error: %v\n", err)
+			if err != nil {
+				r.logger.Debug("❌ Expected test tool success but got error: %v\n", err)
+			} else {
+				r.logger.Debug("❌ Expected test tool success but response indicates error\n")
+			}
 		}
 		return false
 	}
 
-	if !expected.Success && err == nil {
+	if !expected.Success && !hasError {
 		if r.debug {
 			r.logger.Debug("❌ Expected test tool failure but got success\n")
 		}
 		return false
 	}
 
-	// For successful calls, check the response
-	if err == nil && response != nil {
-		// Convert response to map for checking
-		responseMap, ok := response.(map[string]interface{})
-		if ok {
-			// Check "success" field if present
-			if success, exists := responseMap["success"]; exists {
-				if successBool, ok := success.(bool); ok && expected.Success && !successBool {
+	// For responses (success or failure), check expectations
+	if response != nil {
+		responseStr := fmt.Sprintf("%v", response)
+
+		// For failure cases, check error_contains against the response
+		if !expected.Success && len(expected.ErrorContains) > 0 {
+			for _, expectedText := range expected.ErrorContains {
+				if !containsText(responseStr, expectedText) {
 					if r.debug {
-						r.logger.Debug("❌ Test tool response indicates failure\n")
+						r.logger.Debug("❌ Test tool error response does not contain expected text '%s'\n", expectedText)
 					}
 					return false
 				}
 			}
 		}
 
-		// Check contains expectations
-		responseStr := fmt.Sprintf("%v", response)
+		// Check "success" field in response if expecting success
+		if expected.Success && responseMap != nil {
+			if success, exists := responseMap["success"]; exists {
+				if successBool, ok := success.(bool); ok && !successBool {
+					if r.debug {
+						r.logger.Debug("❌ Test tool response indicates failure (success=false)\n")
+					}
+					return false
+				}
+			}
+		}
+
+		// Check contains expectations (for both success and failure cases)
 		for _, expectedText := range expected.Contains {
 			if !containsText(responseStr, expectedText) {
 				if r.debug {

@@ -1,0 +1,172 @@
+name: "oauth-sso-state-mismatch"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Reproduces issue #287: SSO state mismatch after token invalidation.
+  
+  This scenario tests the case where:
+  1. User authenticates successfully and has a valid token
+  2. The token is revoked/invalidated server-side (e.g., IdP session expired, token revoked)
+  3. Local auth status still shows "connected" because it only checks local token expiry
+  4. Actual tool calls fail with 401 because server rejects the token
+  
+  This demonstrates the state inconsistency between client-side auth status checks
+  (which only validate local token expiry) and server-side token validation
+  (which validates against the actual IdP).
+  
+  The user's symptom was:
+  - `muster auth status` shows "Authenticated" with 15 minutes remaining
+  - `muster list services` fails with 401: "Token validation failed"
+  
+  After logout and re-login, everything works again because a fresh token is obtained.
+tags: ["oauth", "authentication", "sso", "state-mismatch", "issue-287", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that will be used to revoke tokens
+  mock_oauth_servers:
+    - name: "state-test-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "state-test-client"
+      client_secret: "state-test-secret"
+      # Enable this as muster's upstream OAuth server
+      use_as_muster_oauth_server: true
+      # Use mock clock so we can control time
+      use_mock_clock: true
+
+  # SSO-enabled MCP server that trusts muster's forwarded ID tokens
+  mcp_servers:
+    - name: "state-test-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "state-test-idp"
+          scope: "mcp:admin"
+          forward_token: true
+        tools:
+          - name: "protected_operation"
+            description: "Operation requiring valid SSO authentication"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Authenticated successfully"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "state-test-idp"
+    expected:
+      success: true
+      contains:
+        - "state-test-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the MCP server is registered
+  - id: verify-server-registered
+    description: "Verify the MCP server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "state-test-server"
+
+  # Step 3: Authenticate to muster (simulates `muster auth login`)
+  - id: authenticate
+    description: "Authenticate to muster via OAuth"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "state-test-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Establish session connection to trigger proactive SSO
+  - id: establish-connection
+    description: "Establish session connection to the SSO server"
+    tool: "core_auth_login"
+    args:
+      server: "state-test-server"
+    expected:
+      success: true
+
+  # Step 5: Verify the protected tool works initially
+  - id: call-tool-before-revoke
+    description: "Protected tool should work with valid token"
+    tool: "x_state-test-server_protected_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Authenticated successfully"
+
+  # Step 6: Check auth status BEFORE revocation - should show connected
+  - id: check-auth-status-before-revoke
+    description: "Verify auth status shows connected before token revocation"
+    tool: "test_read_auth_status"
+    args:
+      server: "state-test-server"
+    expected:
+      success: true
+      contains:
+        - "state-test-server"
+        - "connected"
+
+  # Step 7: REVOKE the token on the OAuth server
+  # This simulates the IdP session expiring or token being revoked server-side
+  # The client still has the token cached locally
+  - id: revoke-tokens
+    description: "Revoke all tokens on the OAuth server (simulates server-side invalidation)"
+    tool: "test_revoke_token"
+    args:
+      server: "state-test-idp"
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Revoked"
+
+  # Step 8: Check auth status AFTER revocation
+  # EXPECTED BEHAVIOR: The auth status read fails with 401 because
+  # the muster server validates tokens against the IdP on every request.
+  # After token revocation, the server correctly rejects the invalid token.
+  # 
+  # The CLI fix (auth_status.go) handles this gracefully by:
+  #   1. Detecting the 401 error
+  #   2. Clearing the local cached token
+  #   3. Showing "Token invalidated" with guidance to re-login
+  #
+  # This test verifies the underlying server behavior is correct.
+  - id: check-auth-status-after-revoke
+    description: "Auth status read fails after token revocation (server correctly rejects invalid token)"
+    tool: "test_read_auth_status"
+    args:
+      server: "state-test-server"
+    expected:
+      # Server correctly rejects the revoked token with 401
+      success: false
+      error_contains:
+        - "401"
+        - "invalid_token"
+
+  # Step 9: Try to call the protected tool after token revocation
+  # EXPECTED BEHAVIOR: This should fail because the token has been revoked on the server.
+  # The server correctly validates tokens against the IdP and rejects revoked tokens.
+  - id: call-tool-after-revoke
+    description: "Protected tool should fail after token revocation (server correctly rejects)"
+    tool: "x_state-test-server_protected_operation"
+    args: {}
+    expected:
+      # Server correctly rejects the revoked token with 401
+      success: false
+      error_contains:
+        - "401"

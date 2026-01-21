@@ -646,5 +646,12 @@ func UpdateMCPServerState(name string, state ServiceState, health HealthStatus, 
 	updater.UpdateState(state, health, err)
 	logging.Info("API", "Updated MCPServer %s state to %s (health: %s)", name, state, health)
 
+	// Trigger reconciliation to sync the state to the CRD status.
+	// This ensures that `muster list mcpserver` (which reads from CRD) shows
+	// the updated state, not just `muster list services` (which reads from memory).
+	if reconcileManager := GetReconcileManager(); reconcileManager != nil {
+		reconcileManager.TriggerReconcile("MCPServer", name, "")
+	}
+
 	return nil
 }
