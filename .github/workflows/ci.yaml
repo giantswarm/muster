@@ -44,6 +44,9 @@ jobs:
       - name: Run Checks (Lint)
         run: make check
 
+      - name: Check CRD Sync
+        run: make check-crds
+
       - name: Run Helm unit tests
         run: make helm-test
 
