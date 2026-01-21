@@ -149,7 +149,7 @@ type TokenExchangeConfig struct {
 // MCPServerStatus defines the observed state of MCPServer
 type MCPServerStatus struct {
 	// State represents the current operational state of the MCP server
-	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable
+	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable;connected
 	State string `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// Health represents the health status of the MCP server

@@ -324,6 +324,7 @@ spec:
                 - waiting
                 - retrying
                 - unreachable
+                - connected
                 type: string
             type: object
         type: object

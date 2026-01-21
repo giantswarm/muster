@@ -1,0 +1,169 @@
+name: "oauth-sso-state-sync-after-login"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Reproduces GitHub issue: MCPServer state not synced to CRD after SSO login.
+  
+  After SSO token forwarding succeeds:
+  - `muster auth status` shows "Connected [SSO: Forwarded]" ✓
+  - `muster list service` shows "Connected" ✓
+  - `muster list mcpserver` shows "Waiting" ✗ (should be "Connected")
+  
+  The issue is that when SSO authentication succeeds, the service state in the
+  service registry is correctly updated to "Connected", but the MCPServer CRD
+  status (read by `core_mcpserver_list`) is not updated - it still shows "Waiting"
+  which was the state set when the server initially required authentication.
+  
+  This scenario tests that:
+  1. After SSO login, `core_service_list` shows state = "Connected"
+  2. After SSO login, `core_mcpserver_list` ALSO shows state = "Connected"
+  
+  The fix requires ensuring TriggerReconcile properly syncs the service state
+  to the MCPServer CRD status after UpdateMCPServerState is called.
+tags: ["oauth", "sso", "state-sync", "mcpserver", "service", "regression", "reconciler"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  mock_oauth_servers:
+    - name: "sync-test-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "sync-test-client"
+      client_secret: "sync-test-secret"
+      # Enable this as muster's OAuth server for SSO token forwarding
+      use_as_muster_oauth_server: true
+
+  # SSO-enabled MCP server that trusts muster's forwarded ID tokens
+  mcp_servers:
+    - name: "sync-test-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "sync-test-idp"
+          scope: "mcp:admin"
+          # Enable token forwarding - muster should forward its ID token
+          forward_token: true
+        tools:
+          - name: "check_connection"
+            description: "Simple tool to verify connection is working"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Connection verified"
+
+steps:
+  # Step 1: Verify the OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "sync-test-idp"
+    expected:
+      success: true
+      contains:
+        - "sync-test-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the MCP server is registered
+  - id: verify-server-registered
+    description: "Verify the MCP server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+
+  # Step 3: Check MCPServer state BEFORE authentication
+  # The server should be in "Waiting" or "auth_required" state since no auth has happened
+  - id: check-mcpserver-state-before-auth
+    description: "Check MCPServer state before authentication (expecting waiting/auth_required)"
+    tool: "core_mcpserver_list"
+    args:
+      verbose: true
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        # State should indicate auth is required or waiting
+
+  # Step 4: Authenticate to muster (simulates `muster auth login`)
+  - id: authenticate-to-muster
+    description: "Authenticate to muster via OAuth (stores ID token for forwarding)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: Trigger SSO token forwarding via core_auth_login
+  # This should forward muster's ID token to the downstream server
+  - id: login-with-token-forwarding
+    description: "Login to server - muster should forward its ID token"
+    tool: "core_auth_login"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+
+  # Step 6: Verify the protected tool works (confirms SSO succeeded)
+  - id: verify-tool-works
+    description: "Call protected tool to verify SSO authentication succeeded"
+    tool: "x_sync-test-server_check_connection"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Connection verified"
+
+  # Step 7: Check service state AFTER SSO login
+  # The service registry should show state = "Connected" or "connected"
+  - id: check-service-state-after-auth
+    description: "Verify service registry shows Connected state after SSO login"
+    tool: "core_service_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "connected"  # Service state should be "connected" (lowercase from service registry)
+
+  # Step 8: THE KEY TEST - Check MCPServer CRD state AFTER SSO login
+  # This is where the bug manifests: MCPServer CRD still shows "waiting"
+  # instead of being synced to "connected" after SSO succeeds
+  #
+  # We use wait_for_state to poll for the expected state, allowing time for
+  # the reconciler to sync the state from service registry to CRD.
+  # If this test fails with "waiting" still visible, it confirms the bug.
+  - id: check-mcpserver-state-after-auth
+    description: "BUG REPRO: Verify MCPServer CRD shows Connected state after SSO login"
+    tool: "core_mcpserver_list"
+    args:
+      verbose: true
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "connected"  # MCPServer state should be "connected" (synced from service)
+      not_contains:
+        - "waiting"  # Should NOT still be in waiting state
+      wait_for_state: 5s  # Wait up to 5s for reconciler to sync state
+
+  # Step 9: Verify auth status also shows connected
+  - id: verify-auth-status
+    description: "Verify auth status shows connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "connected"
