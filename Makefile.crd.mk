@@ -15,6 +15,3 @@ generate-crds: ## Generate CRDs from Go types into helm/muster/crds.
 	controller-gen crd:crdVersions=v1 paths="./pkg/apis/..." output:crd:dir=$(CRD_DIR)
 	@echo "CRDs generated in $(CRD_DIR)"
 
-.PHONY: install-hooks
-install-hooks: ## Install git hooks for development.
-	@./scripts/install-hooks.sh
