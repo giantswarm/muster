@@ -88,9 +88,28 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		}
 
 		// Handle unreachable servers first - don't offer auth for these
+		// Check global service state as the source of truth.
+		// The service registry is updated by notifyMCPServerConnected when auth succeeds,
+		// but the aggregator's internal registry might be stale if it doesn't have a global client.
+		// We trust the service registry state because it reflects the actual connectivity status.
+		globalConnected := false
+		if registry := api.GetServiceRegistry(); registry != nil {
+			if svc, exists := registry.Get(info.Name); exists {
+				state := svc.GetState()
+				if state == api.StateConnected || state == api.StateRunning {
+					globalConnected = true
+				}
+			}
+		}
+
 		if info.Status == StatusUnreachable {
 			status.Status = pkgoauth.ServerStatusUnreachable
 			// Don't set AuthTool - no point in trying to authenticate unreachable servers
+		} else if globalConnected {
+			// If globally connected (via service registry), report connected.
+			// This handles the case where notifyMCPServerConnected updated the service state
+			// but the aggregator's internal client might still be in auth_required (e.g. for token forwarding).
+			status.Status = "connected"
 		} else if info.Status == StatusAuthRequired && info.AuthInfo != nil {
 			// For servers requiring auth globally, check if the current session has authenticated
 			sessionAuthenticated := false
