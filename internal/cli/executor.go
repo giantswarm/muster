@@ -240,9 +240,12 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 
 	client := agent.NewClient(endpoint, logger, transport)
 
+	// Handle MCP notifications silently unless debug mode is enabled
 	go func() {
 		for notification := range client.NotificationChan {
-			fmt.Println(notification)
+			if options.Debug {
+				logger.Debug("MCP Notification: %s", notification.Method)
+			}
 		}
 	}()
 
