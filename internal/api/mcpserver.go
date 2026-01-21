@@ -247,23 +247,6 @@ type MCPServerInfo struct {
 	// (auth status, connection status) is tracked in the Session Registry.
 	Phase string `json:"phase,omitempty"`
 
-	// State represents the current operational state of the MCP server.
-	// DEPRECATED: Use Phase instead. State is kept for backward compatibility.
-	// This is synced from the CRD status by the reconciler.
-	// Possible values:
-	//   - For local stdio servers: starting, running, stopping, stopped, failed
-	//   - For remote servers: starting, auth_required, unreachable, disconnected, failed
-	State string `json:"state,omitempty"`
-
-	// Health represents the current health status of the MCP server.
-	// This is synced from the CRD status by the reconciler.
-	// Possible values: unknown, healthy, unhealthy, checking
-	//
-	// Note: Health is only meaningful for connected/running servers. For servers in
-	// states like unreachable, auth_required, or stopped, health should be displayed
-	// as "-" or omitted entirely since health checks require an active connection.
-	Health string `json:"health,omitempty"`
-
 	// StatusMessage provides a user-friendly, actionable message about the server's status.
 	// This field is populated based on the server's state and error information.
 	// Examples:

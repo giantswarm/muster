@@ -178,7 +178,6 @@ const (
 //
 // Infrastructure State (CRD):
 //   - Phase: Pending, Ready, Failed - reflects if the server is reachable
-//   - State: Legacy field, kept for backward compatibility (deprecated)
 //   - Conditions: Standard K8s conditions for detailed status
 //
 // Session State (Session Registry):
@@ -190,17 +189,6 @@ type MCPServerStatus struct {
 	// This is independent of user session state (authentication, connection status).
 	// +kubebuilder:validation:Enum=Pending;Ready;Failed
 	Phase MCPServerPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
-
-	// State represents the current operational state of the MCP server.
-	// DEPRECATED: Use Phase instead. State is kept for backward compatibility
-	// but will be removed in a future version. State mixes infrastructure and
-	// session state which causes issues in multi-user environments.
-	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable
-	State string `json:"state,omitempty" yaml:"state,omitempty"`
-
-	// Health represents the health status of the MCP server
-	// +kubebuilder:validation:Enum=unknown;healthy;unhealthy;checking
-	Health string `json:"health,omitempty" yaml:"health,omitempty"`
 
 	// LastError contains any error message from the most recent server operation.
 	// Note: Per-user authentication errors are tracked in the Session Registry,
@@ -239,7 +227,6 @@ type MCPServerStatus struct {
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.autoStart"
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
-// +kubebuilder:printcolumn:name="Health",type="string",JSONPath=".status.health"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || has(self.spec.command)",message="command is required when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"

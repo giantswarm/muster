@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"muster/internal/api"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
 func TestMCPServerReconciler_GetResourceType(t *testing.T) {
@@ -638,11 +639,8 @@ func TestMCPServerReconciler_SyncStatus_RunningService(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "running" {
-		t.Errorf("expected state 'running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
-	}
-	if statusUpdater.LastUpdatedMCPServer.Status.Health != "healthy" {
-		t.Errorf("expected health 'healthy', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Health)
+	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseReady {
+		t.Errorf("expected phase 'Ready', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastConnected == nil {
 		t.Error("expected LastConnected to be set for running service")
@@ -727,8 +725,8 @@ func TestMCPServerReconciler_SyncStatus_WithError(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "error" {
-		t.Errorf("expected state 'error', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
+	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseFailed {
+		t.Errorf("expected phase 'Failed', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastError == "" {
 		t.Error("expected LastError to be set")
@@ -1098,8 +1096,8 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "running" {
-		t.Errorf("expected state 'running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
+	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseReady {
+		t.Errorf("expected phase 'Ready', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
 	}
 }
 

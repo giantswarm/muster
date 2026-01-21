@@ -29,9 +29,6 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
-    - jsonPath: .status.health
-      name: Health
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -221,7 +218,6 @@ spec:
 
               Infrastructure State (CRD):
                 - Phase: Pending, Ready, Failed - reflects if the server is reachable
-                - State: Legacy field, kept for backward compatibility (deprecated)
                 - Conditions: Standard K8s conditions for detailed status
 
               Session State (Session Registry):
@@ -295,14 +291,6 @@ spec:
                   This is used for exponential backoff and to identify unreachable servers.
                   Reset to 0 when a connection succeeds.
                 type: integer
-              health:
-                description: Health represents the health status of the MCP server
-                enum:
-                - unknown
-                - healthy
-                - unhealthy
-                - checking
-                type: string
               lastAttempt:
                 description: |-
                   LastAttempt indicates when the last connection attempt was made.
@@ -339,23 +327,6 @@ spec:
                 description: RestartCount tracks how many times this server has been
                   restarted (stdio only)
                 type: integer
-              state:
-                description: |-
-                  State represents the current operational state of the MCP server.
-                  DEPRECATED: Use Phase instead. State is kept for backward compatibility
-                  but will be removed in a future version. State mixes infrastructure and
-                  session state which causes issues in multi-user environments.
-                enum:
-                - unknown
-                - starting
-                - running
-                - stopping
-                - stopped
-                - failed
-                - waiting
-                - retrying
-                - unreachable
-                type: string
             type: object
         type: object
         x-kubernetes-validations:

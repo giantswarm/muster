@@ -172,13 +172,12 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 // applyStatusFromService applies the current service state to the MCPServer status.
 // This is extracted to allow re-application during retry-on-conflict.
 //
-// This function sets both:
-//   - Phase: Infrastructure state (Pending/Ready/Failed) - independent of user session state
-//   - State: Legacy field (kept for backward compatibility, will be deprecated)
+// This function sets Phase based on infrastructure state (Pending/Ready/Failed),
+// independent of user session state (which is tracked in Session Registry).
 //
 // Phase semantics:
 //   - Ready: Infrastructure is reachable (stdio: process running, http: TCP reachable)
-//   - Pending: Starting up, waiting for dependencies, or auth_required (server reachable but needs auth)
+//   - Pending: Starting up, waiting for dependencies
 //   - Failed: Infrastructure not available (process crashed, unreachable, network error)
 func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
 	// Get the current service state
@@ -186,10 +185,6 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 
 	if exists {
 		state := service.GetState()
-
-		// Update legacy State field (backward compatibility)
-		server.Status.State = string(state)
-		server.Status.Health = string(service.GetHealth())
 
 		// Set Phase based on infrastructure state only
 		// Phase is independent of user session state (auth status tracked in Session Registry)
@@ -225,9 +220,7 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			}
 		}
 	} else {
-		// Service doesn't exist - use typed constants
-		server.Status.State = ServiceStateStopped
-		server.Status.Health = ServiceHealthUnknown
+		// Service doesn't exist
 		server.Status.Phase = musterv1alpha1.MCPServerPhasePending
 		if reconcileErr != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure

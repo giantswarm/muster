@@ -108,11 +108,8 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Headers:     server.Spec.Headers,
 		Timeout:     server.Spec.Timeout,
 		Error:       server.Status.LastError,
-		// Include status fields synced by the reconciler (see ADR 007)
 		// Phase is the primary status indicator per issue #292
 		Phase:               string(server.Status.Phase),
-		State:               server.Status.State, // Deprecated, kept for backward compatibility
-		Health:              server.Status.Health,
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
 	}
 
@@ -145,67 +142,29 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		}
 	}
 
-	// Generate user-friendly status message based on state and error
-	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.ObjectMeta.Name)
+	// Generate user-friendly status message based on phase and error
+	info.StatusMessage = generateStatusMessage(info.Phase, info.Error, server.ObjectMeta.Name)
 
 	return info
 }
 
 // generateStatusMessage creates a user-friendly, actionable status message
-// based on the server's state and error information.
-func generateStatusMessage(state, errorMsg, serverName string) string {
-	switch api.ServiceState(state) {
-	case api.StateRunning, api.StateConnected:
+// based on the server's phase and error information.
+//
+// Per issue #292, Phase is infrastructure-only state:
+//   - Ready: Infrastructure reachable (no message needed)
+//   - Pending: Starting or waiting
+//   - Failed: Infrastructure unavailable (include error context)
+func generateStatusMessage(phase, errorMsg, serverName string) string {
+	switch phase {
+	case "Ready":
 		return ""
-	case api.StateStarting:
+	case "Pending":
 		return "Starting..."
-	case api.StateStopped:
-		return "Server stopped"
-	case api.StateDisconnected:
-		return "Server disconnected"
-	case api.StateAuthRequired:
-		return fmt.Sprintf("Authentication required - run: muster auth login --server %s", serverName)
-	case api.StateUnreachable:
-		return generateUnreachableMessage(errorMsg)
-	case api.StateFailed:
+	case "Failed":
 		return generateFailedMessage(errorMsg, serverName)
-	case api.StateWaiting:
-		return "Waiting for dependencies"
-	case api.StateRetrying:
-		return "Retrying connection..."
 	default:
 		return ""
-	}
-}
-
-// generateUnreachableMessage creates a user-friendly message for unreachable servers
-func generateUnreachableMessage(errorMsg string) string {
-	if errorMsg == "" {
-		return "Cannot reach server - check network connectivity"
-	}
-
-	lowerErr := strings.ToLower(errorMsg)
-
-	// Check for specific error patterns and provide actionable messages
-	switch {
-	case strings.Contains(lowerErr, "connection refused"):
-		return "Cannot reach server - connection refused (server may not be running)"
-	case strings.Contains(lowerErr, "no such host"):
-		return "Cannot reach server - DNS resolution failed (check hostname)"
-	case strings.Contains(lowerErr, "network is unreachable"):
-		return "Cannot reach server - network is unreachable (check connectivity)"
-	case strings.Contains(lowerErr, "host is unreachable") || strings.Contains(lowerErr, "host is down"):
-		return "Cannot reach server - host is unreachable (check routing)"
-	case strings.Contains(lowerErr, "timeout") || strings.Contains(lowerErr, "deadline exceeded"):
-		return "Cannot reach server - connection timed out"
-	case strings.Contains(lowerErr, "connection reset") || strings.Contains(lowerErr, "econnreset"):
-		return "Cannot reach server - connection was reset"
-	case strings.Contains(lowerErr, "503") || strings.Contains(lowerErr, "service unavailable"):
-		return "Cannot reach server - service temporarily unavailable"
-	case strings.Contains(lowerErr, "proxy"):
-		return "Cannot reach server - proxy error (check proxy configuration)"
-	default:
-		return "Cannot reach server - check network connectivity"
 	}
 }
 
@@ -382,16 +341,16 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 		verbose = val
 	}
 
-	// Filter out unreachable servers unless showAll is true
+	// Filter out failed servers unless showAll is true
+	// Per issue #292, Failed phase indicates infrastructure unavailable
 	var filteredServers []api.MCPServerInfo
-	unreachableCount := 0
+	failedCount := 0
 	for _, server := range allServers {
-		// Adjust health display for non-connected servers
-		// Health is only meaningful when the server is running/connected
+		// Adjust server for display (hide raw errors in non-verbose mode)
 		server = adjustServerForDisplay(server, verbose)
 
-		if server.State == string(api.StateUnreachable) {
-			unreachableCount++
+		if server.Phase == "Failed" {
+			failedCount++
 			if showAll {
 				filteredServers = append(filteredServers, server)
 			}
@@ -406,10 +365,10 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 		"mode":       getClientMode(a.client),
 	}
 
-	// Add unreachable count if any servers were hidden
-	if unreachableCount > 0 && !showAll {
-		result["hiddenUnreachable"] = unreachableCount
-		result["hint"] = fmt.Sprintf("(%d unreachable servers hidden, use --all to show)", unreachableCount)
+	// Add failed count if any servers were hidden
+	if failedCount > 0 && !showAll {
+		result["hiddenFailed"] = failedCount
+		result["hint"] = fmt.Sprintf("(%d failed servers hidden, use --all to show)", failedCount)
 	}
 
 	return &api.CallToolResult{
@@ -419,18 +378,8 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 }
 
 // adjustServerForDisplay adjusts server fields for user-friendly display.
-// States are now set correctly at the source (service layer), so this function
-// only needs to:
-// 1. Clear health for non-active servers (health is only meaningful when connected)
-// 2. Hide raw error messages in non-verbose mode (statusMessage provides user-friendly version)
+// In non-verbose mode, hide raw error messages (statusMessage provides user-friendly version).
 func adjustServerForDisplay(server api.MCPServerInfo, verbose bool) api.MCPServerInfo {
-	// Health is only meaningful for running/connected servers.
-	// For other states, clear health to avoid confusion (e.g., showing "unhealthy"
-	// for servers we can't even reach).
-	if !api.IsActiveState(api.ServiceState(server.State)) {
-		server.Health = ""
-	}
-
 	// If not verbose, don't include the raw error message.
 	// The statusMessage field provides a user-friendly version.
 	if !verbose {
