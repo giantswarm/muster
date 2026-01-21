@@ -135,7 +135,9 @@ For container orchestration environments.
 
 #### Install CRDs
 ```bash
-kubectl apply -f https://github.com/giantswarm/muster/releases/latest/download/crds.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_mcpservers.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_workflows.yaml
 ```
 
 #### Deploy Muster Server
@@ -426,7 +428,9 @@ sudo systemctl start muster
 ### Kubernetes Upgrade
 ```bash
 # Update CRDs
-kubectl apply -f https://github.com/giantswarm/muster/releases/latest/download/crds.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_mcpservers.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_serviceclasses.yaml
+kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_workflows.yaml
 
 # Update deployment image
 kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n muster-system
