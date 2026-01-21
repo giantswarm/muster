@@ -255,11 +255,12 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 		// Build the SSO label with consistent width padding
 		var ssoLabel string
 		if ssoType != "" {
-			// Pad SSO type to max width for alignment
-			ssoLabel = fmt.Sprintf(" [%-*s]", maxSSOLen, ssoType)
+			// Pad SSO type to max width for alignment, with "SSO:" prefix for context
+			ssoLabel = fmt.Sprintf(" [SSO: %-*s]", maxSSOLen, ssoType)
 		} else if maxSSOLen > 0 {
 			// Add empty space to maintain alignment when other servers have SSO
-			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen, "")
+			// Account for "SSO: " prefix (5 chars) in the padding
+			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen+5, "")
 		}
 
 		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
@@ -294,21 +295,21 @@ func formatMCPServerStatus(status string) string {
 }
 
 // ssoLabelForwarded is the label shown for SSO via token forwarding.
-const ssoLabelForwarded = "SSO: Forwarded"
+const ssoLabelForwarded = "Forwarded"
 
 // ssoLabelShared is the label shown for SSO via token reuse (shared login).
-const ssoLabelShared = "SSO: Shared"
+const ssoLabelShared = "Shared"
 
 // ssoLabelFailed is the label shown when SSO was attempted but failed.
-const ssoLabelFailed = "SSO failed"
+const ssoLabelFailed = "Failed"
 
 // getSSOType returns a human-readable SSO type for the server.
 // Returns empty string if no SSO mechanism is applicable.
 //
 // SSO mechanisms:
-//   - "SSO: Forwarded": Muster forwards its ID token to this server
-//   - "SSO: Shared": Server shares an OAuth issuer with other servers (shared login)
-//   - "SSO failed": SSO was attempted but failed (token rejected)
+//   - "Forwarded": Muster forwards its ID token to this server
+//   - "Shared": Server shares an OAuth issuer with other servers (shared login)
+//   - "Failed": SSO was attempted but failed (token rejected)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 	// Show failure indicator if SSO was attempted but failed
 	if srv.SSOAttemptFailed {
