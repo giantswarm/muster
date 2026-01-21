@@ -346,6 +346,9 @@ type TestStep struct {
 	Retry *RetryConfig `yaml:"retry,omitempty"`
 	// Timeout for this specific step
 	Timeout time.Duration `yaml:"timeout,omitempty"`
+	// AsUser specifies which user session to execute this step as.
+	// For multi-user testing scenarios. If not set, uses the current user.
+	AsUser string `yaml:"as_user,omitempty"`
 }
 
 // TestExpectation defines what result is expected from a test step

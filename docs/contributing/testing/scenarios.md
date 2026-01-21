@@ -431,6 +431,75 @@ cleanup:
     # ... proper cleanup
 ```
 
+## Multi-User Testing
+
+The test framework supports multi-user scenarios to verify session isolation and per-user tool visibility. This is critical for testing OAuth-protected MCP servers where different users may have access to different tools.
+
+### Multi-User Test Tools
+
+| Tool | Description |
+|------|-------------|
+| `test_create_user` | Creates a new user session with a separate MCP connection. Required arg: `name` |
+| `test_switch_user` | Switches to a different user session. Required arg: `name` |
+| `test_list_tools_for_user` | Lists tools visible to a specific user. Optional arg: `name` (defaults to current) |
+| `test_get_current_user` | Returns the current user name and list of available users |
+
+### Using `as_user` Field
+
+Steps can specify which user session to execute as:
+
+```yaml
+steps:
+  # Create multiple users
+  - id: create-user-a
+    tool: test_create_user
+    args:
+      name: "user-a"
+    expected:
+      success: true
+
+  - id: create-user-b
+    tool: test_create_user
+    args:
+      name: "user-b"
+    expected:
+      success: true
+
+  # Execute a step as a specific user
+  - id: user-a-authenticates
+    as_user: "user-a"
+    tool: test_simulate_oauth_callback
+    args:
+      server: "protected-server"
+    expected:
+      success: true
+
+  # Verify different users see different tools
+  - id: verify-user-a-tools
+    tool: test_list_tools_for_user
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains:
+        - "x_protected-server_some_tool"
+
+  - id: verify-user-b-no-tools
+    tool: test_list_tools_for_user
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      not_contains:
+        - "x_protected-server"
+```
+
+### Multi-User Scenario Examples
+
+See these scenarios for complete examples:
+- `session-multi-user-tool-isolation.yaml` - Verifies session isolation between users
+- `session-multi-user-progressive-auth.yaml` - Tests progressive tool access accumulation
+
 ## Validation and Testing
 
 ### Schema Validation

@@ -1,0 +1,259 @@
+name: "session-multi-user-tool-isolation"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that multiple users connecting to the same muster instance see different
+  tools based on their individual OAuth authentication state.
+  
+  This is a critical security test for multi-tenant environments. It verifies:
+  1. User A authenticates with server-alpha → sees alpha's tools
+  2. User B authenticates with server-beta → sees beta's tools (NOT alpha's)
+  3. User A still sees only alpha's tools (no cross-contamination from B)
+  4. Tool isolation is maintained per-session
+  
+  This tests the session-scoped tool visibility implementation (ADR-006).
+tags: ["oauth", "multi-user", "session-isolation", "security", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  # Single OAuth server for simplicity - both servers use the same IdP
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "mcp:read", "mcp:write"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+
+  mcp_servers:
+    # Server Alpha - protected by OAuth
+    - name: "server-alpha"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "alpha_operation"
+            description: "Operation only available on alpha server"
+            responses:
+              - response:
+                  source: "alpha"
+                  message: "Alpha operation completed"
+
+    # Server Beta - protected by OAuth
+    - name: "server-beta"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          scope: "mcp:write"
+        tools:
+          - name: "beta_operation"
+            description: "Operation only available on beta server"
+            responses:
+              - response:
+                  source: "beta"
+                  message: "Beta operation completed"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the shared IdP OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains:
+        - "shared-idp"
+        - "issuer_url"
+
+  # Step 2: Verify both servers are registered
+  - id: verify-servers-registered
+    description: "Verify both OAuth-protected servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "server-alpha"
+        - "server-beta"
+
+  # Step 3: Create User A - first user
+  - id: create-user-a
+    description: "Create a new user session for User A"
+    tool: "test_create_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains:
+        - "user-a"
+        - "Created user session"
+
+  # Step 4: Create User B - second user
+  - id: create-user-b
+    description: "Create a new user session for User B"
+    tool: "test_create_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      contains:
+        - "user-b"
+        - "Created user session"
+
+  # Step 5: Switch to User A
+  - id: switch-to-user-a
+    description: "Switch to User A's session"
+    tool: "test_switch_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains:
+        - "user-a"
+
+  # Step 6: User A lists tools before authentication - should NOT see alpha or beta tools
+  - id: user-a-list-tools-before-auth
+    description: "User A lists tools before authenticating - no server tools visible"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      # Should have core tools but not server-specific tools
+      not_contains:
+        - "x_server-alpha_alpha_operation"
+        - "x_server-beta_beta_operation"
+
+  # Step 7: User A authenticates with server-alpha
+  - id: user-a-auth-alpha
+    as_user: "user-a"
+    description: "User A authenticates with server-alpha"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 8: User A establishes connection to server-alpha
+  - id: user-a-login-alpha
+    as_user: "user-a"
+    description: "User A logs in to server-alpha"
+    tool: "core_auth_login"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+
+  # Step 9: User A lists tools after alpha auth - should see alpha tools
+  - id: user-a-list-tools-after-alpha
+    description: "User A lists tools after authenticating - sees alpha tools"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains:
+        - "x_server-alpha_alpha_operation"
+      not_contains:
+        - "x_server-beta_beta_operation"
+
+  # Step 10: Switch to User B
+  - id: switch-to-user-b
+    description: "Switch to User B's session"
+    tool: "test_switch_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      contains:
+        - "user-b"
+
+  # Step 11: User B lists tools - should NOT see alpha tools (User A's auth)
+  - id: user-b-list-tools-before-auth
+    description: "User B lists tools before authenticating - should NOT see User A's alpha tools"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      not_contains:
+        - "x_server-alpha_alpha_operation"
+        - "x_server-beta_beta_operation"
+
+  # Step 12: User B authenticates with server-beta
+  - id: user-b-auth-beta
+    as_user: "user-b"
+    description: "User B authenticates with server-beta"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-beta"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 13: User B establishes connection to server-beta
+  - id: user-b-login-beta
+    as_user: "user-b"
+    description: "User B logs in to server-beta"
+    tool: "core_auth_login"
+    args:
+      server: "server-beta"
+    expected:
+      success: true
+
+  # Step 14: User B lists tools after beta auth - should see beta tools ONLY
+  - id: user-b-list-tools-after-beta
+    description: "User B lists tools after authenticating - sees beta tools only"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-b"
+    expected:
+      success: true
+      contains:
+        - "x_server-beta_beta_operation"
+      not_contains:
+        - "x_server-alpha_alpha_operation"
+
+  # Step 15: Verify User A still sees ONLY alpha tools (not beta)
+  - id: verify-user-a-isolation
+    description: "Verify User A still sees only alpha tools (not affected by User B's auth)"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "user-a"
+    expected:
+      success: true
+      contains:
+        - "x_server-alpha_alpha_operation"
+      not_contains:
+        - "x_server-beta_beta_operation"
+
+  # Step 16: User A can call alpha tool
+  - id: user-a-call-alpha
+    as_user: "user-a"
+    description: "User A can successfully call alpha operation"
+    tool: "x_server-alpha_alpha_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alpha"
+
+  # Step 17: User B can call beta tool
+  - id: user-b-call-beta
+    as_user: "user-b"
+    description: "User B can successfully call beta operation"
+    tool: "x_server-beta_beta_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "beta"

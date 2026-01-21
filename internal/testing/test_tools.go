@@ -32,6 +32,14 @@ const (
 	TestToolReadAuthStatus = "test_read_auth_status"
 	// TestToolRevokeToken revokes a token on the mock OAuth server for testing.
 	TestToolRevokeToken = "test_revoke_token"
+	// TestToolCreateUser creates a new user session for multi-user testing.
+	TestToolCreateUser = "test_create_user"
+	// TestToolSwitchUser switches to a different user session for multi-user testing.
+	TestToolSwitchUser = "test_switch_user"
+	// TestToolListToolsForUser lists tools visible to a specific user.
+	TestToolListToolsForUser = "test_list_tools_for_user"
+	// TestToolGetCurrentUser returns the current active user name.
+	TestToolGetCurrentUser = "test_get_current_user"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -40,7 +48,9 @@ const (
 type TestToolsHandler struct {
 	instanceManager *musterInstanceManager
 	currentInstance *MusterInstance
-	mcpClient       MCPTestClient // MCP client for calling tools in the muster instance
+	mcpClient       MCPTestClient            // Default MCP client for calling tools
+	userClients     map[string]MCPTestClient // Named user sessions for multi-user testing
+	currentUser     string                   // Name of the currently active user ("default" if not set)
 	debug           bool
 	logger          TestLogger
 }
@@ -55,6 +65,8 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 	return &TestToolsHandler{
 		instanceManager: manager,
 		currentInstance: instance,
+		userClients:     make(map[string]MCPTestClient),
+		currentUser:     "default",
 		debug:           debug,
 		logger:          logger,
 	}
@@ -64,6 +76,43 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 // This is used by test_simulate_oauth_callback to call the authenticate tool.
 func (h *TestToolsHandler) SetMCPClient(client MCPTestClient) {
 	h.mcpClient = client
+	// Also store as the "default" user for multi-user testing
+	if h.userClients == nil {
+		h.userClients = make(map[string]MCPTestClient)
+	}
+	h.userClients["default"] = client
+	h.currentUser = "default"
+}
+
+// GetCurrentClient returns the MCP client for the currently active user.
+func (h *TestToolsHandler) GetCurrentClient() MCPTestClient {
+	if h.currentUser != "" && h.currentUser != "default" {
+		if client, exists := h.userClients[h.currentUser]; exists {
+			return client
+		}
+	}
+	return h.mcpClient
+}
+
+// GetCurrentUserName returns the name of the currently active user.
+func (h *TestToolsHandler) GetCurrentUserName() string {
+	if h.currentUser == "" {
+		return "default"
+	}
+	return h.currentUser
+}
+
+// CloseAllUserClients closes all user MCP clients except the default one.
+// The default client is managed by the test runner.
+func (h *TestToolsHandler) CloseAllUserClients() {
+	for name, client := range h.userClients {
+		if name != "default" && client != nil {
+			if h.debug {
+				h.logger.Debug("🔌 Closing MCP client for user %s\n", name)
+			}
+			client.Close()
+		}
+	}
 }
 
 // IsTestTool returns true if the tool name is a test helper tool.
@@ -74,7 +123,11 @@ func IsTestTool(toolName string) bool {
 		TestToolGetOAuthServerInfo,
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
-		TestToolRevokeToken:
+		TestToolRevokeToken,
+		TestToolCreateUser,
+		TestToolSwitchUser,
+		TestToolListToolsForUser,
+		TestToolGetCurrentUser:
 		return true
 	}
 	return false
@@ -99,6 +152,14 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleReadAuthStatus(ctx, args)
 	case TestToolRevokeToken:
 		return h.handleRevokeToken(ctx, args)
+	case TestToolCreateUser:
+		return h.handleCreateUser(ctx, args)
+	case TestToolSwitchUser:
+		return h.handleSwitchUser(ctx, args)
+	case TestToolListToolsForUser:
+		return h.handleListToolsForUser(ctx, args)
+	case TestToolGetCurrentUser:
+		return h.handleGetCurrentUser(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -768,6 +829,160 @@ func (h *TestToolsHandler) handleReadAuthStatus(ctx context.Context, args map[st
 	}, nil
 }
 
+// handleCreateUser creates a new user session for multi-user testing.
+// This tool creates a new MCP client connection with a separate session ID,
+// simulating a different user connecting to the same muster instance.
+//
+// Args:
+//   - name: Required. Name for this user session (e.g., "user-a", "alice").
+//
+// Returns success status with the user name.
+func (h *TestToolsHandler) handleCreateUser(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	userName, ok := args["name"].(string)
+	if !ok || userName == "" {
+		return nil, fmt.Errorf("name argument is required")
+	}
+
+	// Check if user already exists
+	if _, exists := h.userClients[userName]; exists {
+		return nil, fmt.Errorf("user '%s' already exists", userName)
+	}
+
+	if h.currentInstance == nil {
+		return nil, fmt.Errorf("current instance not available")
+	}
+
+	if h.debug {
+		h.logger.Debug("👤 Creating new user session: %s\n", userName)
+	}
+
+	// Create a new MCP client for this user
+	newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
+
+	// Connect with optional OAuth token if muster OAuth is enabled
+	var connectErr error
+	if h.currentInstance.MusterOAuthAccessToken != "" {
+		connectErr = newClient.ConnectWithAuth(ctx, h.currentInstance.Endpoint, h.currentInstance.MusterOAuthAccessToken)
+	} else {
+		connectErr = newClient.Connect(ctx, h.currentInstance.Endpoint)
+	}
+
+	if connectErr != nil {
+		return nil, fmt.Errorf("failed to create user session '%s': %w", userName, connectErr)
+	}
+
+	// Store the new client
+	h.userClients[userName] = newClient
+
+	if h.debug {
+		h.logger.Debug("✅ Created user session: %s (now have %d user sessions)\n", userName, len(h.userClients))
+	}
+
+	return map[string]interface{}{
+		"success":      true,
+		"message":      fmt.Sprintf("Created user session '%s'", userName),
+		"user":         userName,
+		"total_users":  len(h.userClients),
+		"current_user": h.currentUser,
+	}, nil
+}
+
+// handleSwitchUser switches to a different user session.
+// After switching, all subsequent tool calls will use this user's MCP client.
+//
+// Args:
+//   - name: Required. Name of the user session to switch to.
+//
+// Returns success status with the new current user.
+func (h *TestToolsHandler) handleSwitchUser(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	userName, ok := args["name"].(string)
+	if !ok || userName == "" {
+		return nil, fmt.Errorf("name argument is required")
+	}
+
+	// Check if user exists
+	if _, exists := h.userClients[userName]; !exists {
+		available := make([]string, 0, len(h.userClients))
+		for name := range h.userClients {
+			available = append(available, name)
+		}
+		return nil, fmt.Errorf("user '%s' not found; available users: %v", userName, available)
+	}
+
+	previousUser := h.currentUser
+	h.currentUser = userName
+	h.mcpClient = h.userClients[userName]
+
+	if h.debug {
+		h.logger.Debug("👤 Switched from user '%s' to user '%s'\n", previousUser, userName)
+	}
+
+	return map[string]interface{}{
+		"success":       true,
+		"message":       fmt.Sprintf("Switched to user '%s'", userName),
+		"current_user":  userName,
+		"previous_user": previousUser,
+	}, nil
+}
+
+// handleListToolsForUser lists tools visible to a specific user.
+// This allows verifying that different users see different tools
+// based on their OAuth authentication state.
+//
+// Args:
+//   - name: Optional. Name of the user session to list tools for.
+//     If not provided, lists tools for the current user.
+//
+// Returns the list of tool names visible to the specified user.
+func (h *TestToolsHandler) handleListToolsForUser(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	userName := h.currentUser
+	if name, ok := args["name"].(string); ok && name != "" {
+		userName = name
+	}
+
+	// Get the client for this user
+	client, exists := h.userClients[userName]
+	if !exists {
+		return nil, fmt.Errorf("user '%s' not found", userName)
+	}
+
+	if h.debug {
+		h.logger.Debug("🛠️  Listing tools for user '%s'\n", userName)
+	}
+
+	// List tools using this user's client
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tools for user '%s': %w", userName, err)
+	}
+
+	if h.debug {
+		h.logger.Debug("🛠️  User '%s' has %d tools\n", userName, len(tools))
+	}
+
+	return map[string]interface{}{
+		"success":    true,
+		"user":       userName,
+		"tool_count": len(tools),
+		"tools":      tools,
+	}, nil
+}
+
+// handleGetCurrentUser returns the name of the currently active user.
+func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	available := make([]string, 0, len(h.userClients))
+	for name := range h.userClients {
+		available = append(available, name)
+	}
+
+	return map[string]interface{}{
+		"success":         true,
+		"current_user":    h.currentUser,
+		"available_users": available,
+		"total_users":     len(h.userClients),
+	}, nil
+}
+
 // GetTestToolNames returns the names of all available test tools.
 func GetTestToolNames() []string {
 	return []string{
@@ -777,6 +992,10 @@ func GetTestToolNames() []string {
 		TestToolAdvanceOAuthClock,
 		TestToolReadAuthStatus,
 		TestToolRevokeToken,
+		TestToolCreateUser,
+		TestToolSwitchUser,
+		TestToolListToolsForUser,
+		TestToolGetCurrentUser,
 	}
 }
 
@@ -789,5 +1008,9 @@ func GetTestToolDescriptions() map[string]string {
 		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
 		TestToolReadAuthStatus:        "Reads the auth://status resource to verify authentication state. Optional arg: 'server' (specific server to check).",
 		TestToolRevokeToken:           "Revokes all tokens on the mock OAuth server. Simulates server-side token revocation. Optional arg: 'server' (specific OAuth server name).",
+		TestToolCreateUser:            "Creates a new user session for multi-user testing. Required arg: 'name' (unique user name). Creates a separate MCP connection with its own session ID.",
+		TestToolSwitchUser:            "Switches to a different user session. Required arg: 'name' (user name to switch to). All subsequent tool calls use this user's session.",
+		TestToolListToolsForUser:      "Lists tools visible to a specific user. Optional arg: 'name' (user name, defaults to current). Returns tool list for that user's session.",
+		TestToolGetCurrentUser:        "Returns the name of the currently active user and list of all available users.",
 	}
 }
