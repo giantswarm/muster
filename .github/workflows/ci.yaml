@@ -44,6 +44,9 @@ jobs:
       - name: Run Checks (Lint)
         run: make check
 
+      - name: Install controller-gen
+        run: go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
+
       - name: Check CRDs are up to date
         run: |
           make generate-crds
