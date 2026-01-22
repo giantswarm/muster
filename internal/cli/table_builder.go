@@ -27,61 +27,6 @@ func stateIcon(emoji, fallback string) string {
 	return emoji
 }
 
-// stateStyle defines the visual styling for a state display.
-type stateStyle struct {
-	emoji    string      // Unicode emoji for rich terminals
-	fallback string      // ASCII fallback for limited terminals
-	color    text.Colors // Color scheme for the state
-	label    string      // Display label (may be overridden by terminology)
-}
-
-// statusStyles maps Status values to their visual styling.
-// Status values are now stored directly in the CRD with context-appropriate terminology:
-//   - stdio servers: Running, Starting, Stopped, Failed
-//   - remote servers: Connected, Connecting, Disconnected, Failed
-var statusStyles = map[string]struct {
-	emoji, fallback string
-	color           text.Colors
-}{
-	// Stdio server states
-	"running": {
-		emoji: "▶️  ", fallback: "[RUN] ",
-		color: text.Colors{text.FgHiGreen, text.Bold},
-	},
-	"starting": {
-		emoji: "⏳ ", fallback: "[INIT] ",
-		color: text.Colors{text.FgHiYellow, text.Bold},
-	},
-	"stopped": {
-		emoji: "⏹️  ", fallback: "[STOP] ",
-		color: text.Colors{text.FgHiYellow, text.Bold},
-	},
-	// Remote server states
-	"connected": {
-		emoji: "🔗 ", fallback: "[CONN] ",
-		color: text.Colors{text.FgHiGreen, text.Bold},
-	},
-	"connecting": {
-		emoji: "⏳ ", fallback: "[INIT] ",
-		color: text.Colors{text.FgHiYellow, text.Bold},
-	},
-	"disconnected": {
-		emoji: "⚪ ", fallback: "[DISC] ",
-		color: text.Colors{text.FgHiYellow, text.Bold},
-	},
-	// Common states
-	"failed": {
-		emoji: "❌ ", fallback: "[FAIL] ",
-		color: text.Colors{text.FgHiRed, text.Bold},
-	},
-}
-
-// formatStateWithStyle applies visual styling to a state/phase display.
-// This helper reduces duplication across state and phase formatting functions.
-func formatStateWithStyle(normalized, emoji, fallback string, color text.Colors) interface{} {
-	return color.Sprint(stateIcon(emoji, fallback) + normalized)
-}
-
 // TableBuilder handles cell formatting and styling for table display.
 // It provides specialized formatting for different types of data commonly
 // encountered in muster operations, including status indicators, metadata,
