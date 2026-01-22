@@ -332,7 +332,25 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 			if err := a.trySilentReAuth(ctx, mgr, storedToken, endpoint); err == nil {
 				return nil
 			}
-			// Silent auth failed - fall through to interactive login
+			// Silent auth failed - need to re-create manager for clean state
+			// because WaitForAuth sets state to AuthStateError on failure
+			a.mu.Lock()
+			delete(a.managers, normalizeEndpoint(endpoint))
+			a.mu.Unlock()
+
+			// Re-create manager and check connection to get back to AuthStatePendingAuth
+			mgr, err = a.getOrCreateManager(endpoint)
+			if err != nil {
+				return err
+			}
+			state, err = mgr.CheckConnection(ctx, endpoint)
+			if err != nil && state != oauth.AuthStatePendingAuth {
+				return fmt.Errorf("failed to check connection after silent auth: %w", err)
+			}
+			if state != oauth.AuthStatePendingAuth {
+				// Somehow we're authenticated or don't need auth
+				return nil
+			}
 		}
 	}
 
