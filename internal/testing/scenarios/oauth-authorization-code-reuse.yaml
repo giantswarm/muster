@@ -1,0 +1,202 @@
+name: "oauth-authorization-code-reuse"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test scenario for issue #269: OAuth authorization code reuse detection.
+  
+  This scenario tests the multi-MCPServer OAuth flow where servers have
+  different SSO configurations that can cause authorization code issues when:
+  1. One server uses token forwarding (forwardToken=true)
+  2. Another server uses a different IdP requiring fallback OAuth
+  3. Fallback triggers a separate OAuth flow
+  
+  The test verifies that:
+  - Token forwarding works for servers sharing muster's IdP
+  - Fallback OAuth works for servers with different IdPs
+  - Both servers remain connected (no token revocation)
+
+tags: ["oauth", "authentication", "security", "issue-269", "mcpserver", "sso", "token-forwarding", "token-exchange", "fallback"]
+timeout: "2m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # Shared Dex-like OAuth server for muster and the forwarding server
+    - name: "muster-dex"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "muster-dex-client"
+      client_secret: "muster-dex-secret"
+      use_as_muster_oauth_server: true
+
+    # Remote cluster's IdP for the fallback server
+    # This is a different IdP, so token forwarding from muster won't work
+    - name: "remote-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "remote-client"
+
+  mcp_servers:
+    # Server A: Uses token forwarding (same IdP as muster)
+    - name: "forwarding-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-dex"
+          scope: "mcp:admin"
+          forward_token: true
+          fallback_to_own_auth: true
+        tools:
+          - name: "forwarding_op"
+            description: "Operation on server with token forwarding"
+            responses:
+              - response:
+                  server: "forwarding-server"
+                  auth_method: "token-forwarding"
+
+    # Server B: Uses different IdP with fallback
+    # Token forwarding won't work because it uses a different IdP
+    - name: "fallback-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "remote-idp"
+          scope: "mcp:admin"
+          forward_token: true
+          fallback_to_own_auth: true
+        tools:
+          - name: "fallback_op"
+            description: "Operation on server requiring fallback"
+            responses:
+              - response:
+                  server: "fallback-server"
+                  auth_method: "fallback-oauth"
+
+steps:
+  # Step 1: Verify OAuth servers are running
+  - id: verify-muster-dex
+    description: "Verify the muster Dex OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "muster-dex"
+    expected:
+      success: true
+      contains:
+        - "muster-dex"
+
+  - id: verify-remote-idp
+    description: "Verify the remote IdP is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "remote-idp"
+    expected:
+      success: true
+      contains:
+        - "remote-idp"
+
+  # Step 2: Verify MCP servers are registered
+  - id: verify-servers-registered
+    description: "Verify all MCP servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "forwarding-server"
+        - "fallback-server"
+
+  # Step 3: Authenticate to forwarding-server (establishes ID token from muster-dex)
+  - id: authenticate-forwarding
+    description: "Authenticate to forwarding-server via muster-dex"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "forwarding-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Connect to forwarding-server (token forwarding should work)
+  - id: connect-forwarding-server
+    description: "Connect to forwarding-server - token forwarding should succeed"
+    tool: "core_auth_login"
+    args:
+      server: "forwarding-server"
+    expected:
+      success: true
+
+  # Step 5: Verify forwarding-server works
+  - id: call-forwarding-tool
+    description: "Call tool on forwarding-server"
+    tool: "x_forwarding-server_forwarding_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "forwarding-server"
+
+  # Step 6: Try to connect to fallback-server
+  # Token forwarding will fail (different IdP), should trigger fallback
+  - id: connect-fallback-attempt
+    description: "Attempt to connect to fallback-server (will trigger fallback)"
+    tool: "core_auth_login"
+    args:
+      server: "fallback-server"
+    expected:
+      success: true
+
+  # Step 7: Complete the fallback OAuth flow
+  - id: authenticate-fallback
+    description: "Complete fallback OAuth flow for fallback-server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "fallback-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 8: Login after fallback auth
+  - id: login-after-fallback
+    description: "Login after fallback authentication"
+    tool: "core_auth_login"
+    args:
+      server: "fallback-server"
+    expected:
+      success: true
+
+  # Step 9: Verify fallback-server works
+  - id: call-fallback-tool
+    description: "Call tool on fallback-server (authenticated via fallback)"
+    tool: "x_fallback-server_fallback_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "fallback-server"
+
+  # Step 10: Verify forwarding-server still works (no token revocation)
+  - id: verify-forwarding-still-works
+    description: "Verify forwarding-server still works (no token revocation occurred)"
+    tool: "x_forwarding-server_forwarding_op"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "forwarding-server"
+
+  # Step 11: Check auth status
+  - id: verify-final-auth-status
+    description: "Verify final auth status shows both servers connected"
+    tool: "test_read_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "forwarding-server"
+        - "fallback-server"
