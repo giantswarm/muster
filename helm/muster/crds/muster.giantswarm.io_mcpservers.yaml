@@ -26,8 +26,8 @@ spec:
     - jsonPath: .spec.autoStart
       name: AutoStart
       type: boolean
-    - jsonPath: .status.phase
-      name: Phase
+    - jsonPath: .status.state
+      name: Status
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -217,7 +217,7 @@ spec:
               (internal/aggregator/session_registry.go) to support multi-user environments.
 
               Infrastructure State (CRD):
-                - Phase: Pending, Ready, Failed - reflects if the server is reachable
+                - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
                 - Conditions: Standard K8s conditions for detailed status
 
               Session State (Session Registry):
@@ -314,19 +314,26 @@ spec:
                   This is calculated based on exponential backoff from ConsecutiveFailures.
                 format: date-time
                 type: string
-              phase:
-                description: |-
-                  Phase represents the high-level infrastructure state of the MCP server.
-                  This is independent of user session state (authentication, connection status).
-                enum:
-                - Pending
-                - Ready
-                - Failed
-                type: string
               restartCount:
                 description: RestartCount tracks how many times this server has been
                   restarted (stdio only)
                 type: integer
+              state:
+                description: |-
+                  State represents the high-level infrastructure state of the MCP server.
+                  This is independent of user session state (authentication, connection status).
+
+                  For stdio servers: Running, Starting, Stopped, Failed
+                  For remote servers: Connected, Connecting, Disconnected, Failed
+                enum:
+                - Running
+                - Starting
+                - Stopped
+                - Connected
+                - Connecting
+                - Disconnected
+                - Failed
+                type: string
             type: object
         type: object
         x-kubernetes-validations:

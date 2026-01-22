@@ -237,15 +237,13 @@ type MCPServerInfo struct {
 	// This field is populated if the server is in an error state.
 	Error string `json:"error,omitempty"`
 
-	// Phase represents the high-level infrastructure state of the MCP server.
-	// This is the primary status indicator per issue #292.
-	// Possible values:
-	//   - Pending: Server is starting or waiting for dependencies
-	//   - Ready: Infrastructure is reachable (stdio: process running, http: TCP reachable)
-	//   - Failed: Infrastructure is not available (process crashed, endpoint unreachable)
-	// Note: Phase reflects infrastructure availability only. Per-user session state
+	// State represents the high-level infrastructure state of the MCP server.
+	// This is the primary status indicator.
+	// Possible values for stdio servers: Running, Starting, Stopped, Failed
+	// Possible values for remote servers: Connected, Connecting, Disconnected, Failed
+	// Note: State reflects infrastructure availability only. Per-user session state
 	// (auth status, connection status) is tracked in the Session Registry.
-	Phase string `json:"phase,omitempty"`
+	State string `json:"state,omitempty"`
 
 	// StatusMessage provides a user-friendly, actionable message about the server's status.
 	// This field is populated based on the server's state and error information.

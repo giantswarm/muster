@@ -35,31 +35,41 @@ type stateStyle struct {
 	label    string      // Display label (may be overridden by terminology)
 }
 
-// phaseTerminology maps Phase values to context-appropriate display labels.
-// The first value is for remote servers, the second for local (stdio) servers.
-var phaseTerminology = map[string]struct{ remote, local string }{
-	"ready":   {"Connected", "Running"},
-	"pending": {"Connecting", "Starting"},
-	"failed":  {"Failed", "Failed"},
-}
-
-// phaseStyles maps Phase values to their visual styling.
-var phaseStyles = map[string]struct {
+// statusStyles maps Status values to their visual styling.
+// Status values are now stored directly in the CRD with context-appropriate terminology:
+//   - stdio servers: Running, Starting, Stopped, Failed
+//   - remote servers: Connected, Connecting, Disconnected, Failed
+var statusStyles = map[string]struct {
 	emoji, fallback string
 	color           text.Colors
-	// For phases where remote/local use different icons
-	remoteEmoji, remoteFallback string
 }{
-	"ready": {
+	// Stdio server states
+	"running": {
 		emoji: "▶️  ", fallback: "[RUN] ",
-		color:          text.Colors{text.FgHiGreen, text.Bold},
-		remoteEmoji:    "🔗 ",
-		remoteFallback: "[CONN] ",
+		color: text.Colors{text.FgHiGreen, text.Bold},
 	},
-	"pending": {
+	"starting": {
 		emoji: "⏳ ", fallback: "[INIT] ",
 		color: text.Colors{text.FgHiYellow, text.Bold},
 	},
+	"stopped": {
+		emoji: "⏹️  ", fallback: "[STOP] ",
+		color: text.Colors{text.FgHiYellow, text.Bold},
+	},
+	// Remote server states
+	"connected": {
+		emoji: "🔗 ", fallback: "[CONN] ",
+		color: text.Colors{text.FgHiGreen, text.Bold},
+	},
+	"connecting": {
+		emoji: "⏳ ", fallback: "[INIT] ",
+		color: text.Colors{text.FgHiYellow, text.Bold},
+	},
+	"disconnected": {
+		emoji: "⚪ ", fallback: "[DISC] ",
+		color: text.Colors{text.FgHiYellow, text.Bold},
+	},
+	// Common states
 	"failed": {
 		emoji: "❌ ", fallback: "[FAIL] ",
 		color: text.Colors{text.FgHiRed, text.Bold},
@@ -144,16 +154,13 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 	case "autostart":
 		return b.formatAutoStartStatusPlain(value)
 	case "state":
+		// State represents infrastructure state for MCPServers and services
+		// MCPServer values are context-appropriate: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 		serverType := b.getServerTypeFromContext(rowContext)
 		if serverType != "" {
 			return b.formatStateForServerTypePlain(strValue, serverType)
 		}
 		return b.formatStatePlain(strValue)
-	case "phase":
-		// Phase represents infrastructure state for MCPServers (Pending, Ready, Failed)
-		// Per issue #292, Phase is the primary status indicator for MCPServer CRD
-		serverType := b.getServerTypeFromContext(rowContext)
-		return b.formatPhasePlain(strValue, serverType)
 	case "sessionauth":
 		// Per-user authentication status for OAuth-protected servers
 		return b.formatSessionAuthPlain(strValue)
@@ -245,17 +252,13 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 	case "autostart":
 		return b.formatAutoStartStatus(value)
 	case "state":
-		// Use context-aware state formatting if we have server type info
+		// State represents infrastructure state for MCPServers and services
+		// MCPServer values are context-appropriate: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 		serverType := b.getServerTypeFromContext(rowContext)
 		if serverType != "" {
 			return b.formatStateForServerType(strValue, serverType)
 		}
 		return b.formatState(strValue)
-	case "phase":
-		// Phase represents infrastructure state for MCPServers (Pending, Ready, Failed)
-		// Per issue #292, Phase is the primary status indicator for MCPServer CRD
-		serverType := b.getServerTypeFromContext(rowContext)
-		return b.formatPhase(strValue, serverType)
 	case "started_at", "completed_at", "timestamp":
 		return b.formatTimestamp(strValue)
 	case "duration_ms":
@@ -524,43 +527,6 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 	default:
 		return normalized
 	}
-}
-
-// formatPhase formats MCPServer Phase with color and context-appropriate terminology.
-// Per issue #292, Phase represents infrastructure state only:
-//   - Pending: Server is starting or waiting for dependencies
-//   - Ready: Infrastructure is reachable
-//   - Failed: Infrastructure is not available
-//
-// Respects NO_EMOJI/MUSTER_NO_EMOJI environment variables for terminal compatibility.
-//
-// Args:
-//   - phase: The Phase string to format (Pending, Ready, Failed)
-//   - serverType: The type of server (stdio, streamable-http, sse)
-//
-// Returns:
-//   - interface{}: Formatted phase with appropriate icon, color, and terminology
-func (b *TableBuilder) formatPhase(phase string, serverType string) interface{} {
-	if phase == "" {
-		return "-"
-	}
-
-	isRemote := IsRemoteServerType(serverType)
-	normalized := b.normalizePhase(phase, isRemote)
-	lowerPhase := strings.ToLower(phase)
-
-	style, exists := phaseStyles[lowerPhase]
-	if !exists {
-		return normalized
-	}
-
-	// Use remote-specific icons if available and this is a remote server
-	emoji, fallback := style.emoji, style.fallback
-	if isRemote && style.remoteEmoji != "" {
-		emoji, fallback = style.remoteEmoji, style.remoteFallback
-	}
-
-	return formatStateWithStyle(normalized, emoji, fallback, style.color)
 }
 
 // formatMetadata extracts and formats useful information from metadata objects.
@@ -1161,41 +1127,6 @@ func (b *TableBuilder) formatStatePlain(state string) string {
 // formatStateForServerTypePlain returns state with context-appropriate terminology as plain text.
 func (b *TableBuilder) formatStateForServerTypePlain(state string, serverType string) string {
 	return b.normalizeStateForServerType(state, IsRemoteServerType(serverType))
-}
-
-// formatPhasePlain formats MCPServer Phase as plain text with context-appropriate terminology.
-// Per issue #292, Phase represents infrastructure state only:
-//   - Pending: Server is starting or waiting for dependencies
-//   - Ready: Infrastructure is reachable (stdio: process running, http: TCP reachable)
-//   - Failed: Infrastructure is not available
-//
-// The display terminology adapts based on server type:
-//   - stdio servers: "Running" vs "Stopped"
-//   - remote servers (http/sse): "Connected" vs "Disconnected"
-func (b *TableBuilder) formatPhasePlain(phase string, serverType string) string {
-	isRemote := IsRemoteServerType(serverType)
-	return b.normalizePhase(phase, isRemote)
-}
-
-// normalizePhase returns the canonical display name for an MCPServer Phase.
-// Uses context-appropriate terminology based on server type:
-//   - stdio servers: Running/Stopped/Starting
-//   - remote servers: Connected/Disconnected/Connecting
-func (b *TableBuilder) normalizePhase(phase string, isRemote bool) string {
-	if phase == "" {
-		return "-"
-	}
-
-	lowerPhase := strings.ToLower(phase)
-	if terms, exists := phaseTerminology[lowerPhase]; exists {
-		if isRemote {
-			return terms.remote
-		}
-		return terms.local
-	}
-
-	// Return as-is for unknown phases
-	return phase
 }
 
 // formatTimestampPlain formats timestamp as plain text.

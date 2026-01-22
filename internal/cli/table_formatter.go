@@ -9,15 +9,12 @@ import (
 )
 
 // columnDisplayNames maps internal field names to user-friendly column headers.
-// This allows us to show "STATUS" in the CLI while the underlying JSON field is "phase".
-// This improves UX by using more intuitive terminology for end users.
+// This allows consistent presentation of column names across CLI output.
 var columnDisplayNames = map[string]map[string]string{
 	"mcpServers": {
-		"phase":       "status", // Phase is infrastructure state, but "Status" is more intuitive
-		"sessionAuth": "auth",   // Session auth status shown as "AUTH"
+		"sessionAuth": "auth", // Session auth status shown as "AUTH"
 	},
 	"mcpServer": {
-		"phase":       "status",
 		"sessionAuth": "auth",
 	},
 }
@@ -66,7 +63,7 @@ func getColumnDisplayName(resourceType, column string) string {
 }
 
 // getDisplayHeaders converts internal column names to user-friendly display headers.
-// This allows "phase" to display as "STATUS" in the table header.
+// For example, "sessionAuth" is displayed as "AUTH" in the table header.
 func getDisplayHeaders(resourceType string, columns []string) []string {
 	headers := make([]string, len(columns))
 	for i, col := range columns {
@@ -416,8 +413,8 @@ func (f *TableFormatter) optimizeColumns(objects []interface{}) []string {
 		"services":       {"health", "state", "service_type"},
 		"serviceClasses": {"available", "serviceType", "description", "requiredTools"},
 		"serviceClass":   {"available", "serviceType", "description", "requiredTools"},
-		"mcpServers":     {"phase", "type", "sessionAuth"},
-		"mcpServer":      {"phase", "type", "sessionAuth"},
+		"mcpServers":     {"state", "type", "sessionAuth"},
+		"mcpServer":      {"state", "type", "sessionAuth"},
 		"workflows":      {"status", "description", "steps"},
 		"workflow":       {"status", "description", "steps"},
 		"executions":     {"workflow_name", "status", "started_at", "duration_ms"},

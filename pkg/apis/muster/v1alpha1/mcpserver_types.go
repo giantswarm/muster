@@ -146,28 +146,54 @@ type TokenExchangeConfig struct {
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
-// MCPServerPhase represents the high-level infrastructure state of an MCPServer.
+// MCPServerStateValue represents the high-level infrastructure state of an MCPServer.
 // This is independent of user session state (authentication, per-user connection status).
 //
-// Phase values reflect infrastructure availability:
-//   - Pending: Initial state, server is starting up or waiting for dependencies
-//   - Ready: Infrastructure is reachable (for stdio: process running, for http: TCP reachable)
-//   - Failed: Infrastructure is not available (process crashed, endpoint unreachable)
-type MCPServerPhase string
+// Status values reflect infrastructure availability with context-appropriate terminology:
+//
+// For stdio (local process) servers:
+//   - Running: Process is running and responding
+//   - Starting: Process is being started
+//   - Stopped: Process is not running (initial state or explicitly stopped)
+//   - Failed: Process crashed or cannot be started
+//
+// For remote (streamable-http, sse) servers:
+//   - Connected: TCP connection established (may still require auth)
+//   - Connecting: Attempting to establish connection
+//   - Disconnected: Not connected (initial state or connection closed)
+//   - Failed: Endpoint unreachable (network error, DNS failure, etc.)
+type MCPServerStateValue string
 
 const (
-	// MCPServerPhasePending indicates the server is initializing or waiting for dependencies.
-	MCPServerPhasePending MCPServerPhase = "Pending"
+	// Stdio server states (local process)
 
-	// MCPServerPhaseReady indicates the server infrastructure is available.
-	// For stdio: process is running.
-	// For http/sse: TCP connection can be established (ignoring 401/403 auth responses).
-	MCPServerPhaseReady MCPServerPhase = "Ready"
+	// MCPServerStateRunning indicates a stdio server process is running.
+	MCPServerStateRunning MCPServerStateValue = "Running"
 
-	// MCPServerPhaseFailed indicates the server infrastructure is not available.
-	// For stdio: process is not running or crashed.
-	// For http/sse: endpoint is unreachable (network error, DNS failure, etc.).
-	MCPServerPhaseFailed MCPServerPhase = "Failed"
+	// MCPServerStateStarting indicates a stdio server process is being started.
+	MCPServerStateStarting MCPServerStateValue = "Starting"
+
+	// MCPServerStateStopped indicates a stdio server process is not running.
+	MCPServerStateStopped MCPServerStateValue = "Stopped"
+
+	// Remote server states (streamable-http, sse)
+
+	// MCPServerStateConnected indicates a remote server is reachable.
+	// TCP connection can be established (ignoring 401/403 auth responses).
+	MCPServerStateConnected MCPServerStateValue = "Connected"
+
+	// MCPServerStateConnecting indicates a connection attempt is in progress.
+	MCPServerStateConnecting MCPServerStateValue = "Connecting"
+
+	// MCPServerStateDisconnected indicates a remote server is not connected.
+	MCPServerStateDisconnected MCPServerStateValue = "Disconnected"
+
+	// Common states (both server types)
+
+	// MCPServerStateFailed indicates infrastructure is not available.
+	// For stdio: process crashed or cannot be started.
+	// For http/sse: endpoint unreachable (network error, DNS failure, etc.).
+	MCPServerStateFailed MCPServerStateValue = "Failed"
 )
 
 // MCPServerStatus defines the observed state of MCPServer.
@@ -177,7 +203,7 @@ const (
 // (internal/aggregator/session_registry.go) to support multi-user environments.
 //
 // Infrastructure State (CRD):
-//   - Phase: Pending, Ready, Failed - reflects if the server is reachable
+//   - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 //   - Conditions: Standard K8s conditions for detailed status
 //
 // Session State (Session Registry):
@@ -185,10 +211,13 @@ const (
 //   - AuthStatus: Authenticated, AuthRequired, TokenExpired (per-user)
 //   - AvailableTools: Tools visible to this specific user
 type MCPServerStatus struct {
-	// Phase represents the high-level infrastructure state of the MCP server.
+	// State represents the high-level infrastructure state of the MCP server.
 	// This is independent of user session state (authentication, connection status).
-	// +kubebuilder:validation:Enum=Pending;Ready;Failed
-	Phase MCPServerPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
+	//
+	// For stdio servers: Running, Starting, Stopped, Failed
+	// For remote servers: Connected, Connecting, Disconnected, Failed
+	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Connecting;Disconnected;Failed
+	State MCPServerStateValue `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// LastError contains any error message from the most recent server operation.
 	// Note: Per-user authentication errors are tracked in the Session Registry,
@@ -226,7 +255,7 @@ type MCPServerStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.autoStart"
-// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.state"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || has(self.spec.command)",message="command is required when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"

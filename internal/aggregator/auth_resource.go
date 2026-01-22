@@ -50,7 +50,7 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 //   - Infrastructure availability: From aggregator's internal registry (reachable, unreachable)
 //   - Per-user auth/connection: From Session Registry (connected, auth_required, etc.)
 //
-// The MCPServer CRD Phase only reflects infrastructure state (Ready/Pending/Failed),
+// The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user session state.
 //
 // Note: Proactive SSO connections for servers with forwardToken: true are established
@@ -133,7 +133,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 //   - If server doesn't require auth and is reachable -> "connected"
 //
 // This cleanly separates:
-//   - Infrastructure state (CRD Phase: Ready/Pending/Failed)
+//   - Infrastructure state (CRD State: Running/Connected/Failed/etc.)
 //   - Session state (this function: connected/auth_required/etc.)
 func (a *AggregatorServer) determineSessionAuthStatus(sessionID, serverName string, info *ServerInfo) string {
 	// Handle unreachable servers first - no auth possible

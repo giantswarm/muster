@@ -96,20 +96,19 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info := api.MCPServerInfo{
-		Name:        server.ObjectMeta.Name,
-		Type:        server.Spec.Type,
-		Description: server.Spec.Description,
-		ToolPrefix:  server.Spec.ToolPrefix,
-		AutoStart:   server.Spec.AutoStart,
-		Command:     server.Spec.Command,
-		Args:        server.Spec.Args,
-		URL:         server.Spec.URL,
-		Env:         server.Spec.Env,
-		Headers:     server.Spec.Headers,
-		Timeout:     server.Spec.Timeout,
-		Error:       server.Status.LastError,
-		// Phase is the primary status indicator per issue #292
-		Phase:               string(server.Status.Phase),
+		Name:                server.ObjectMeta.Name,
+		Type:                server.Spec.Type,
+		Description:         server.Spec.Description,
+		ToolPrefix:          server.Spec.ToolPrefix,
+		AutoStart:           server.Spec.AutoStart,
+		Command:             server.Spec.Command,
+		Args:                server.Spec.Args,
+		URL:                 server.Spec.URL,
+		Env:                 server.Spec.Env,
+		Headers:             server.Spec.Headers,
+		Timeout:             server.Spec.Timeout,
+		Error:               server.Status.LastError,
+		State:               string(server.Status.State),
 		ConsecutiveFailures: server.Status.ConsecutiveFailures,
 	}
 
@@ -142,25 +141,28 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		}
 	}
 
-	// Generate user-friendly status message based on phase and error
-	info.StatusMessage = generateStatusMessage(info.Phase, info.Error, server.ObjectMeta.Name)
+	// Generate user-friendly status message based on state and error
+	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.ObjectMeta.Name)
 
 	return info
 }
 
 // generateStatusMessage creates a user-friendly, actionable status message
-// based on the server's phase and error information.
+// based on the server's state and error information.
 //
-// Per issue #292, Phase is infrastructure-only state:
-//   - Ready: Infrastructure reachable (no message needed)
-//   - Pending: Starting or waiting
+// State is infrastructure-only:
+//   - Running/Connected: Infrastructure reachable (no message needed)
+//   - Starting/Connecting: In progress
+//   - Stopped/Disconnected: Not running (no message needed)
 //   - Failed: Infrastructure unavailable (include error context)
-func generateStatusMessage(phase, errorMsg, serverName string) string {
-	switch phase {
-	case "Ready":
+func generateStatusMessage(state, errorMsg, serverName string) string {
+	switch state {
+	case "Running", "Connected":
 		return ""
-	case "Pending":
+	case "Starting", "Connecting":
 		return "Starting..."
+	case "Stopped", "Disconnected":
+		return ""
 	case "Failed":
 		return generateFailedMessage(errorMsg, serverName)
 	default:
@@ -349,7 +351,7 @@ func (a *Adapter) handleMCPServerList(args map[string]interface{}) (*api.CallToo
 		// Adjust server for display (hide raw errors in non-verbose mode)
 		server = adjustServerForDisplay(server, verbose)
 
-		if server.Phase == "Failed" {
+		if server.State == "Failed" {
 			failedCount++
 			if showAll {
 				filteredServers = append(filteredServers, server)

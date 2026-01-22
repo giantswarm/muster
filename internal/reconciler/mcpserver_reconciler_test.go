@@ -639,8 +639,9 @@ func TestMCPServerReconciler_SyncStatus_RunningService(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseReady {
-		t.Errorf("expected phase 'Ready', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
+	// For stdio servers, Running state maps to MCPServerStateRunning
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
+		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastConnected == nil {
 		t.Error("expected LastConnected to be set for running service")
@@ -725,8 +726,8 @@ func TestMCPServerReconciler_SyncStatus_WithError(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseFailed {
-		t.Errorf("expected phase 'Failed', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateFailed {
+		t.Errorf("expected state 'Failed', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastError == "" {
 		t.Error("expected LastError to be set")
@@ -1096,8 +1097,9 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.Phase != musterv1alpha1.MCPServerPhaseReady {
-		t.Errorf("expected phase 'Ready', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Phase)
+	// For stdio servers, Running state maps to MCPServerStateRunning
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
+		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 }
 

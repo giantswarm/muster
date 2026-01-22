@@ -23,7 +23,7 @@ const (
 )
 
 // ConnectionStatus represents the connection status of a session to a server.
-// This is per-user session state, NOT infrastructure state (which is in MCPServer CRD Phase).
+// This is per-user session state, NOT infrastructure state (which is in MCPServer CRD State).
 type ConnectionStatus string
 
 const (
@@ -45,7 +45,7 @@ const (
 //
 // This separation allows:
 //   - Multiple users to have different auth states for the same server
-//   - The CRD to reflect infrastructure state only (Phase: Pending/Ready/Failed)
+//   - The CRD to reflect infrastructure state only (State: Running/Connected/Failed/etc.)
 //   - Proper multi-tenant support without auth state race conditions
 type AuthStatus string
 

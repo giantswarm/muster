@@ -114,13 +114,13 @@ func TestTableFormatter_optimizeColumns_MCPServers(t *testing.T) {
 				map[string]interface{}{
 					"name":      "github",
 					"type":      "streamable-http",
-					"phase":     "Ready",
+					"state":     "Connected",
 					"autoStart": true,
 					"url":       "https://github.example.com/mcp",
 					"timeout":   "30s",
 				},
 			},
-			expectContains: []string{"name", "phase", "type", "autoStart"},
+			expectContains: []string{"name", "state", "type", "autoStart"},
 			expectMissing:  []string{"url", "timeout"},
 		},
 		{
@@ -130,41 +130,41 @@ func TestTableFormatter_optimizeColumns_MCPServers(t *testing.T) {
 				map[string]interface{}{
 					"name":      "github",
 					"type":      "streamable-http",
-					"phase":     "Ready",
+					"state":     "Connected",
 					"autoStart": true,
 					"url":       "https://github.example.com/mcp",
 					"timeout":   "30s",
 				},
 			},
-			expectContains: []string{"name", "phase", "type", "autoStart", "url", "timeout"},
+			expectContains: []string{"name", "state", "type", "autoStart", "url", "timeout"},
 		},
 		{
-			name:   "mcpserver with Pending phase",
+			name:   "mcpserver with Connecting state",
 			format: OutputFormatTable,
 			objects: []interface{}{
 				map[string]interface{}{
 					"name":      "local-server",
 					"type":      "stdio",
-					"phase":     "Pending",
+					"state":     "Starting",
 					"autoStart": true,
 					"command":   "/usr/bin/mcp-server",
 				},
 			},
-			expectContains: []string{"name", "phase", "type", "autoStart"},
+			expectContains: []string{"name", "state", "type", "autoStart"},
 		},
 		{
-			name:   "mcpserver with Failed phase",
+			name:   "mcpserver with Failed state",
 			format: OutputFormatTable,
 			objects: []interface{}{
 				map[string]interface{}{
 					"name":      "broken-server",
 					"type":      "streamable-http",
-					"phase":     "Failed",
+					"state":     "Failed",
 					"autoStart": false,
 					"url":       "https://broken.example.com/mcp",
 				},
 			},
-			expectContains: []string{"name", "phase", "type", "autoStart"},
+			expectContains: []string{"name", "state", "type", "autoStart"},
 		},
 	}
 
@@ -346,22 +346,16 @@ func TestGetColumnDisplayName(t *testing.T) {
 		expected     string
 	}{
 		{
-			name:         "mcpServers phase becomes status",
-			resourceType: "mcpServers",
-			column:       "phase",
-			expected:     "status",
-		},
-		{
 			name:         "mcpServers sessionAuth becomes auth",
 			resourceType: "mcpServers",
 			column:       "sessionAuth",
 			expected:     "auth",
 		},
 		{
-			name:         "mcpServer phase becomes status",
+			name:         "mcpServer sessionAuth becomes auth",
 			resourceType: "mcpServer",
-			column:       "phase",
-			expected:     "status",
+			column:       "sessionAuth",
+			expected:     "auth",
 		},
 		{
 			name:         "unknown column returns original",
@@ -370,10 +364,16 @@ func TestGetColumnDisplayName(t *testing.T) {
 			expected:     "name",
 		},
 		{
+			name:         "state column returns original",
+			resourceType: "mcpServers",
+			column:       "state",
+			expected:     "state",
+		},
+		{
 			name:         "unknown resource type returns original",
 			resourceType: "services",
-			column:       "phase",
-			expected:     "phase",
+			column:       "state",
+			expected:     "state",
 		},
 	}
 
@@ -386,10 +386,10 @@ func TestGetColumnDisplayName(t *testing.T) {
 }
 
 func TestGetDisplayHeaders(t *testing.T) {
-	columns := []string{"name", "phase", "type", "sessionAuth"}
+	columns := []string{"name", "state", "type", "sessionAuth"}
 	headers := getDisplayHeaders("mcpServers", columns)
 
-	assert.Equal(t, []string{"name", "status", "type", "auth"}, headers)
+	assert.Equal(t, []string{"name", "state", "type", "auth"}, headers)
 }
 
 func TestTableFormatter_optimizeColumns_MCPServers_SessionAuth(t *testing.T) {
@@ -398,7 +398,7 @@ func TestTableFormatter_optimizeColumns_MCPServers_SessionAuth(t *testing.T) {
 	objects := []interface{}{
 		map[string]interface{}{
 			"name":        "test-server",
-			"phase":       "Ready",
+			"state":       "Connected",
 			"type":        "streamable-http",
 			"sessionAuth": "authenticated",
 			"url":         "https://example.com/mcp",
@@ -409,7 +409,7 @@ func TestTableFormatter_optimizeColumns_MCPServers_SessionAuth(t *testing.T) {
 
 	// sessionAuth should be in priority columns for mcpServers
 	assert.Contains(t, columns, "sessionAuth", "expected sessionAuth to be present in mcpServers columns")
-	assert.Contains(t, columns, "phase", "expected phase to be present")
+	assert.Contains(t, columns, "state", "expected state to be present")
 	assert.Contains(t, columns, "type", "expected type to be present")
 }
 
@@ -419,7 +419,7 @@ func TestTableFormatter_optimizeColumns_MCPServers_WideMode_SessionInfo(t *testi
 	objects := []interface{}{
 		map[string]interface{}{
 			"name":        "test-server",
-			"phase":       "Ready",
+			"state":       "Connected",
 			"type":        "streamable-http",
 			"sessionAuth": "authenticated",
 			"toolsCount":  15,

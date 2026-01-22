@@ -100,142 +100,113 @@ func TestTableBuilder_FormatCellValuePlain_Timeout(t *testing.T) {
 	assert.Equal(t, "60s", result)
 }
 
-func TestTableBuilder_FormatPhasePlain(t *testing.T) {
+func TestTableBuilder_FormatStatePlain(t *testing.T) {
 	builder := &TableBuilder{}
 
+	// State values are stored directly in the CRD with context-appropriate
+	// terminology. No translation is needed - values are returned as-is.
 	tests := []struct {
 		name       string
-		phase      string
+		state      string
 		serverType string
 		expected   string
 	}{
-		// Remote server (http/sse) - uses Connected/Disconnected terminology
+		// Remote server state values (stored directly in CRD)
 		{
-			name:       "Ready phase with remote server",
-			phase:      "Ready",
+			name:       "Connected state with remote server",
+			state:      "Connected",
 			serverType: "streamable-http",
 			expected:   "Connected",
 		},
 		{
-			name:       "Pending phase with remote server",
-			phase:      "Pending",
+			name:       "Connecting state with remote server",
+			state:      "Connecting",
 			serverType: "sse",
 			expected:   "Connecting",
 		},
 		{
-			name:       "Failed phase with remote server",
-			phase:      "Failed",
+			name:       "Disconnected state with remote server",
+			state:      "Disconnected",
 			serverType: "streamable-http",
-			expected:   "Failed",
+			expected:   "Disconnected",
 		},
-		// Local server (stdio) - uses Running/Stopped terminology
+		// Local server state values (stored directly in CRD)
 		{
-			name:       "Ready phase with stdio server",
-			phase:      "Ready",
+			name:       "Running state with stdio server",
+			state:      "Running",
 			serverType: "stdio",
 			expected:   "Running",
 		},
 		{
-			name:       "Pending phase with stdio server",
-			phase:      "Pending",
+			name:       "Starting state with stdio server",
+			state:      "Starting",
 			serverType: "stdio",
 			expected:   "Starting",
 		},
 		{
-			name:       "Failed phase with stdio server",
-			phase:      "Failed",
+			name:       "Stopped state with stdio server",
+			state:      "Stopped",
+			serverType: "stdio",
+			expected:   "Stopped",
+		},
+		// Common state values
+		{
+			name:       "Failed state",
+			state:      "Failed",
 			serverType: "stdio",
 			expected:   "Failed",
 		},
 		// Edge cases
 		{
-			name:       "empty phase",
-			phase:      "",
+			name:       "empty state",
+			state:      "",
 			serverType: "stdio",
-			expected:   "-",
+			expected:   "", // normalizeState returns empty string as-is
 		},
 		{
-			name:       "unknown phase",
-			phase:      "Unknown",
+			name:       "unknown state",
+			state:      "Unknown",
 			serverType: "stdio",
 			expected:   "Unknown",
 		},
-		{
-			name:       "case insensitive - lowercase ready",
-			phase:      "ready",
-			serverType: "stdio",
-			expected:   "Running",
-		},
-		{
-			name:       "case insensitive - uppercase PENDING",
-			phase:      "PENDING",
-			serverType: "sse",
-			expected:   "Connecting",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := builder.formatPhasePlain(tt.phase, tt.serverType)
+			// formatStatePlain just normalizes the state, server type is used by formatStateForServerTypePlain
+			result := builder.formatStatePlain(tt.state)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestTableBuilder_NormalizePhase(t *testing.T) {
+func TestTableBuilder_FormatCellValuePlain_State(t *testing.T) {
 	builder := &TableBuilder{}
 
-	tests := []struct {
-		name     string
-		phase    string
-		isRemote bool
-		expected string
-	}{
-		// Remote servers
-		{"Ready remote", "Ready", true, "Connected"},
-		{"Pending remote", "Pending", true, "Connecting"},
-		{"Failed remote", "Failed", true, "Failed"},
-		// Local servers
-		{"Ready local", "Ready", false, "Running"},
-		{"Pending local", "Pending", false, "Starting"},
-		{"Failed local", "Failed", false, "Failed"},
-		// Edge cases
-		{"empty phase", "", false, "-"},
-		{"unknown phase", "CustomPhase", false, "CustomPhase"},
-	}
+	// State values are stored directly in the CRD with context-appropriate
+	// terminology. No translation is needed - values are returned as-is.
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := builder.normalizePhase(tt.phase, tt.isRemote)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestTableBuilder_FormatCellValuePlain_Phase(t *testing.T) {
-	builder := &TableBuilder{}
-
-	// Test that phase column triggers formatPhasePlain with context
+	// Test that state column returns values as-is
 	rowContext := map[string]interface{}{
 		"type": "streamable-http",
 	}
-	result := builder.FormatCellValuePlain("phase", "Ready", rowContext)
+	result := builder.FormatCellValuePlain("state", "Connected", rowContext)
 	assert.Equal(t, "Connected", result)
 
-	// Test with stdio server type
+	// Test with stdio server type - values are already correct in CRD
 	rowContext = map[string]interface{}{
 		"type": "stdio",
 	}
-	result = builder.FormatCellValuePlain("phase", "Ready", rowContext)
+	result = builder.FormatCellValuePlain("state", "Running", rowContext)
 	assert.Equal(t, "Running", result)
 
 	// Test without context (should still work)
-	result = builder.FormatCellValuePlain("phase", "Failed", nil)
+	result = builder.FormatCellValuePlain("state", "Failed", nil)
 	assert.Equal(t, "Failed", result)
 
 	// Test case insensitivity of column name
-	result = builder.FormatCellValuePlain("PHASE", "Pending", nil)
-	assert.Equal(t, "Starting", result)
+	result = builder.FormatCellValuePlain("STATE", "Connecting", nil)
+	assert.Equal(t, "Connecting", result)
 }
 
 func TestTableBuilder_FormatSessionAuthPlain(t *testing.T) {
