@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"muster/internal/api"
+	"muster/internal/config"
 	pkgoauth "muster/pkg/oauth"
 
 	"github.com/spf13/cobra"
@@ -50,9 +51,24 @@ func init() {
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	// Create handler with options based on flags
+	// Load config once for both auth settings and endpoint resolution
+	cfg, err := config.LoadConfig(authConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Determine the effective noSilent value:
+	// 1. If --no-silent flag was explicitly set, use it
+	// 2. Otherwise, use the config value (inverted: silent_refresh: false means noSilent: true)
+	noSilent := loginNoSilent
+	if !cmd.Flags().Changed("no-silent") {
+		// Flag not explicitly set - use config value
+		noSilent = !cfg.Auth.IsSilentRefreshEnabled()
+	}
+
+	// Create handler with options based on flags and config
 	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
-		NoSilentRefresh: loginNoSilent,
+		NoSilentRefresh: noSilent,
 	})
 	if err != nil {
 		return err
@@ -63,8 +79,8 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	if authEndpoint != "" {
 		endpoint = authEndpoint
 	} else {
-		// Use configured aggregator endpoint
-		endpoint, err = getEndpointFromConfig()
+		// Use configured aggregator endpoint (reuse loaded config)
+		endpoint, err = getEndpointFromLoadedConfig(&cfg)
 		if err != nil {
 			return err
 		}

@@ -32,6 +32,8 @@ muster auth login [OPTIONS]
   - Authenticates to a remote MCP server managed by the aggregator
 - `--all`: Authenticate to aggregator and all pending MCP servers
   - Provides SSO-style authentication chain
+- `--no-silent`: Skip silent re-authentication, always use interactive login
+  - By default, muster attempts silent re-auth using OIDC `prompt=none`
 
 **Examples:**
 
@@ -47,15 +49,35 @@ muster auth login --server mcp-kubernetes
 
 # Login to aggregator and all MCP servers requiring auth
 muster auth login --all
+
+# Skip silent re-auth and always show the login page
+muster auth login --no-silent
 ```
 
 **What happens during login:**
 
 1. Muster probes the endpoint to check if OAuth is required
 2. If required, discovers OAuth metadata (issuer, authorization endpoint)
-3. Opens your browser to the authorization page
-4. Waits for you to complete authentication
-5. Stores the token securely for future use
+3. **Silent re-authentication** (if previous session exists):
+   - Opens browser with OIDC `prompt=none` parameter
+   - If IdP session is still valid, completes without user interaction
+   - If IdP session expired, falls back to interactive login
+4. Opens your browser to the authorization page (if interactive)
+5. Waits for you to complete authentication
+6. Stores the token securely for future use
+
+**Silent Re-Authentication:**
+
+When you have a previous session (stored token), muster attempts silent re-authentication using the OIDC `prompt=none` parameter. This provides a seamless experience similar to `tsh kube login`:
+
+- The browser opens briefly but closes quickly if your IdP session is valid
+- No user interaction is required for re-authentication
+- Falls back gracefully to interactive login when the IdP session expires
+
+To disable silent re-authentication:
+
+- **Per command:** Use `--no-silent` flag
+- **Permanently:** Set `auth.silent_refresh: false` in config (see [Configuration](../configuration.md#auth-configuration))
 
 ### muster auth logout
 

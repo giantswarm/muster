@@ -5,8 +5,29 @@ import "strings"
 // MusterConfig is the top-level configuration structure for muster.
 type MusterConfig struct {
 	Aggregator AggregatorConfig `yaml:"aggregator"`
+	Auth       AuthConfig       `yaml:"auth,omitempty"`       // Authentication settings for CLI
 	Namespace  string           `yaml:"namespace,omitempty"`  // Namespace for MCPServer, ServiceClass and Workflow discovery
 	Kubernetes bool             `yaml:"kubernetes,omitempty"` // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
+}
+
+// AuthConfig defines authentication behavior settings for the CLI.
+// These settings control how the CLI handles authentication to the Muster aggregator.
+type AuthConfig struct {
+	// SilentRefresh controls whether silent re-authentication is enabled.
+	// When true (the default), the CLI attempts OIDC prompt=none re-authentication
+	// when a previous session exists, allowing seamless token refresh without
+	// user interaction if the IdP session is still valid.
+	// When false, the CLI always uses interactive authentication.
+	SilentRefresh *bool `yaml:"silent_refresh,omitempty"`
+}
+
+// IsSilentRefreshEnabled returns whether silent refresh is enabled.
+// Returns DefaultAuthSilentRefresh if SilentRefresh is nil.
+func (c *AuthConfig) IsSilentRefreshEnabled() bool {
+	if c.SilentRefresh == nil {
+		return DefaultAuthSilentRefresh
+	}
+	return *c.SilentRefresh
 }
 
 // MCPServerType defines the type of MCP server.
