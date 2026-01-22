@@ -1,0 +1,212 @@
+name: "session-multi-user-progressive-auth"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test progressive authentication where a user authenticates with multiple
+  servers over time, accumulating tool access, while another user remains
+  unauthenticated and sees no server tools.
+  
+  This tests:
+  1. Starting with zero server tools (unauthenticated)
+  2. Progressively gaining access to more tools as user authenticates
+  3. Tool accumulation - user keeps access to previously authenticated servers
+  4. Complete isolation between authenticated and unauthenticated users
+  
+  This tests the session-scoped tool visibility implementation (ADR-006).
+tags: ["oauth", "multi-user", "session-isolation", "progressive-auth", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  # Use separate identity providers to avoid SSO scope conflicts
+  mock_oauth_servers:
+    - name: "alpha-idp"
+      scopes: ["openid", "profile", "mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "alpha-client"
+
+    - name: "beta-idp"
+      scopes: ["openid", "profile", "mcp:write"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "beta-client"
+
+  mcp_servers:
+    - name: "server-alpha"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "alpha-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "alpha_tool"
+            description: "Tool from alpha server"
+            responses:
+              - response:
+                  server: "alpha"
+
+    - name: "server-beta"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "beta-idp"
+          scope: "mcp:write"
+        tools:
+          - name: "beta_tool"
+            description: "Tool from beta server"
+            responses:
+              - response:
+                  server: "beta"
+
+steps:
+  # Setup: Create two users
+  - id: create-power-user
+    description: "Create a power user who will authenticate with both servers"
+    tool: "test_create_user"
+    args:
+      name: "power-user"
+    expected:
+      success: true
+
+  - id: create-readonly-user
+    description: "Create a read-only user who won't authenticate with anything"
+    tool: "test_create_user"
+    args:
+      name: "readonly-user"
+    expected:
+      success: true
+
+  # Baseline: Neither user sees server tools
+  - id: power-user-no-tools-initially
+    description: "Power user has no server tools initially"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "power-user"
+    expected:
+      success: true
+      not_contains:
+        - "x_server-alpha"
+        - "x_server-beta"
+
+  - id: readonly-user-no-tools-initially
+    description: "Readonly user has no server tools initially"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "readonly-user"
+    expected:
+      success: true
+      not_contains:
+        - "x_server-alpha"
+        - "x_server-beta"
+
+  # Power user authenticates with alpha
+  - id: power-user-auth-alpha
+    as_user: "power-user"
+    description: "Power user authenticates with server-alpha"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+
+  - id: power-user-login-alpha
+    as_user: "power-user"
+    description: "Power user logs in to server-alpha"
+    tool: "core_auth_login"
+    args:
+      server: "server-alpha"
+    expected:
+      success: true
+
+  # Verify power user has alpha tools only
+  - id: power-user-has-alpha-only
+    description: "Power user now has alpha tools, not beta"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "power-user"
+    expected:
+      success: true
+      contains:
+        - "x_server-alpha_alpha_tool"
+      not_contains:
+        - "x_server-beta_beta_tool"
+
+  # Verify readonly user still has no tools
+  - id: readonly-user-still-no-tools
+    description: "Readonly user still has no server tools after power user auth"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "readonly-user"
+    expected:
+      success: true
+      not_contains:
+        - "x_server-alpha"
+        - "x_server-beta"
+
+  # Power user also authenticates with beta
+  - id: power-user-auth-beta
+    as_user: "power-user"
+    description: "Power user authenticates with server-beta"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "server-beta"
+    expected:
+      success: true
+
+  - id: power-user-login-beta
+    as_user: "power-user"
+    description: "Power user logs in to server-beta"
+    tool: "core_auth_login"
+    args:
+      server: "server-beta"
+    expected:
+      success: true
+
+  # Verify power user now has BOTH alpha and beta tools
+  - id: power-user-has-both-tools
+    description: "Power user now has both alpha and beta tools"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "power-user"
+    expected:
+      success: true
+      contains:
+        - "x_server-alpha_alpha_tool"
+        - "x_server-beta_beta_tool"
+
+  # Verify readonly user STILL has no tools
+  - id: readonly-user-still-isolated
+    description: "Readonly user still has no tools despite power user having both"
+    tool: "test_list_tools_for_user"
+    args:
+      name: "readonly-user"
+    expected:
+      success: true
+      not_contains:
+        - "x_server-alpha"
+        - "x_server-beta"
+
+  # Power user can call both tools
+  - id: power-user-calls-alpha
+    as_user: "power-user"
+    description: "Power user can call alpha tool"
+    tool: "x_server-alpha_alpha_tool"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alpha"
+
+  - id: power-user-calls-beta
+    as_user: "power-user"
+    description: "Power user can call beta tool"
+    tool: "x_server-beta_beta_tool"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "beta"

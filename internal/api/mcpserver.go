@@ -237,23 +237,13 @@ type MCPServerInfo struct {
 	// This field is populated if the server is in an error state.
 	Error string `json:"error,omitempty"`
 
-	// State represents the current operational state of the MCP server.
-	// This is synced from the CRD status by the reconciler.
-	// Possible values:
-	//   - For local stdio servers: starting, running, stopping, stopped, failed
-	//   - For remote servers: starting, connected, auth_required, unreachable, disconnected, failed
-	// Note: "running" and "connected" are semantically equivalent, with "connected" being
-	// more intuitive for remote servers.
+	// State represents the high-level infrastructure state of the MCP server.
+	// This is the primary status indicator.
+	// Possible values for stdio servers: Running, Starting, Stopped, Failed
+	// Possible values for remote servers: Connected, Connecting, Disconnected, Failed
+	// Note: State reflects infrastructure availability only. Per-user session state
+	// (auth status, connection status) is tracked in the Session Registry.
 	State string `json:"state,omitempty"`
-
-	// Health represents the current health status of the MCP server.
-	// This is synced from the CRD status by the reconciler.
-	// Possible values: unknown, healthy, unhealthy, checking
-	//
-	// Note: Health is only meaningful for connected/running servers. For servers in
-	// states like unreachable, auth_required, or stopped, health should be displayed
-	// as "-" or omitted entirely since health checks require an active connection.
-	Health string `json:"health,omitempty"`
 
 	// StatusMessage provides a user-friendly, actionable message about the server's status.
 	// This field is populated based on the server's state and error information.
@@ -273,6 +263,27 @@ type MCPServerInfo struct {
 
 	// NextRetryAfter indicates the earliest time when the next retry should be attempted.
 	NextRetryAfter *time.Time `json:"nextRetryAfter,omitempty"`
+
+	// SessionStatus represents the per-user session connection status.
+	// This is only populated when the request includes a session context.
+	// Possible values: connected, disconnected, pending_auth, failed
+	// Empty if no session context is available.
+	SessionStatus string `json:"sessionStatus,omitempty"`
+
+	// SessionAuth represents the per-user authentication status for this server.
+	// This is only populated when the request includes a session context.
+	// Possible values: authenticated, auth_required, token_expired, unknown
+	// Empty if no session context is available or auth is not required.
+	SessionAuth string `json:"sessionAuth,omitempty"`
+
+	// ToolsCount is the number of tools available from this server for the current session.
+	// This is session-specific as OAuth-protected servers may expose different tools
+	// based on user permissions.
+	ToolsCount int `json:"toolsCount,omitempty"`
+
+	// ConnectedAt indicates when the current session connected to this server.
+	// Only populated if there is an active session connection.
+	ConnectedAt *time.Time `json:"connectedAt,omitempty"`
 }
 
 // MCPServerManagerHandler defines the interface for MCP server management operations.

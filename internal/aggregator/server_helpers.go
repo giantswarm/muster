@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -506,4 +507,114 @@ func processResourcesForServer(a *AggregatorServer, serverName string, info *Ser
 		}
 	}
 	return resourcesToAdd
+}
+
+// enrichMCPServerWithSessionData adds session-specific state to an MCPServerInfo.
+// This includes the session's connection status, authentication status, and tools count.
+//
+// Args:
+//   - serverInfo: The MCPServerInfo map from the mcpserver_list response
+//   - session: The session state (may be nil if no session)
+//
+// Returns the enriched serverInfo map with session fields added.
+func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, session *SessionState) map[string]interface{} {
+	if session == nil {
+		return serverInfo
+	}
+
+	serverName, ok := serverInfo["name"].(string)
+	if !ok || serverName == "" {
+		return serverInfo
+	}
+
+	conn, hasConn := session.GetConnection(serverName)
+	if !hasConn || conn == nil {
+		// No session connection - leave session fields empty
+		return serverInfo
+	}
+
+	// Add session status (using thread-safe getter)
+	serverInfo["sessionStatus"] = string(conn.GetStatus())
+
+	// Add auth status (only for non-empty values)
+	authStatus := conn.GetAuthStatus()
+	if authStatus != "" && authStatus != AuthStatusUnknown {
+		serverInfo["sessionAuth"] = string(authStatus)
+	}
+
+	// Add connected timestamp if available (using thread-safe getter)
+	connectedAt := conn.GetConnectedAt()
+	if !connectedAt.IsZero() {
+		serverInfo["connectedAt"] = connectedAt
+	}
+
+	// Add tools count from session connection
+	tools := conn.GetTools()
+	if len(tools) > 0 {
+		serverInfo["toolsCount"] = len(tools)
+	}
+
+	return serverInfo
+}
+
+// enrichMCPServerListResponse enriches the mcpserver_list response with session-specific data.
+// It modifies the response in place to add sessionStatus, sessionAuth, toolsCount, and connectedAt
+// fields to each server based on the current session's connection state.
+//
+// Args:
+//   - result: The mcp.CallToolResult from mcpserver_list
+//   - session: The session state (may be nil if no session)
+//
+// Returns the enriched result.
+func enrichMCPServerListResponse(result *mcp.CallToolResult, session *SessionState) *mcp.CallToolResult {
+	if session == nil || result == nil || len(result.Content) == 0 {
+		return result
+	}
+
+	// The mcpserver_list response has Content containing a map with "mcpServers" array
+	for i, content := range result.Content {
+		textContent, ok := content.(mcp.TextContent)
+		if !ok {
+			continue
+		}
+
+		// Parse the JSON content
+		var responseMap map[string]interface{}
+		if err := json.Unmarshal([]byte(textContent.Text), &responseMap); err != nil {
+			logging.Debug("ServerHelpers", "Failed to parse mcpserver_list response: %v", err)
+			continue
+		}
+
+		// Find the mcpServers array
+		servers, ok := responseMap["mcpServers"].([]interface{})
+		if !ok {
+			logging.Debug("ServerHelpers", "mcpserver_list response missing 'mcpServers' array, skipping session enrichment")
+			continue
+		}
+
+		// Enrich each server with session data
+		for j, server := range servers {
+			serverMap, ok := server.(map[string]interface{})
+			if !ok {
+				logging.Debug("ServerHelpers", "mcpserver_list server at index %d is not a map, skipping", j)
+				continue
+			}
+			servers[j] = enrichMCPServerWithSessionData(serverMap, session)
+		}
+		responseMap["mcpServers"] = servers
+
+		// Re-serialize and update the content
+		enrichedJSON, err := json.Marshal(responseMap)
+		if err != nil {
+			logging.Debug("ServerHelpers", "Failed to serialize enriched response: %v", err)
+			continue
+		}
+
+		result.Content[i] = mcp.TextContent{
+			Type: "text",
+			Text: string(enrichedJSON),
+		}
+	}
+
+	return result
 }

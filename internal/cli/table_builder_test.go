@@ -99,3 +99,202 @@ func TestTableBuilder_FormatCellValuePlain_Timeout(t *testing.T) {
 	result = builder.FormatCellValuePlain("TIMEOUT", 60.0, nil)
 	assert.Equal(t, "60s", result)
 }
+
+func TestTableBuilder_FormatStatePlain(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// State values are stored directly in the CRD with context-appropriate
+	// terminology. No translation is needed - values are returned as-is.
+	tests := []struct {
+		name       string
+		state      string
+		serverType string
+		expected   string
+	}{
+		// Remote server state values (stored directly in CRD)
+		{
+			name:       "Connected state with remote server",
+			state:      "Connected",
+			serverType: "streamable-http",
+			expected:   "Connected",
+		},
+		{
+			name:       "Connecting state with remote server",
+			state:      "Connecting",
+			serverType: "sse",
+			expected:   "Connecting",
+		},
+		{
+			name:       "Disconnected state with remote server",
+			state:      "Disconnected",
+			serverType: "streamable-http",
+			expected:   "Disconnected",
+		},
+		// Local server state values (stored directly in CRD)
+		{
+			name:       "Running state with stdio server",
+			state:      "Running",
+			serverType: "stdio",
+			expected:   "Running",
+		},
+		{
+			name:       "Starting state with stdio server",
+			state:      "Starting",
+			serverType: "stdio",
+			expected:   "Starting",
+		},
+		{
+			name:       "Stopped state with stdio server",
+			state:      "Stopped",
+			serverType: "stdio",
+			expected:   "Stopped",
+		},
+		// Common state values
+		{
+			name:       "Failed state",
+			state:      "Failed",
+			serverType: "stdio",
+			expected:   "Failed",
+		},
+		// Edge cases
+		{
+			name:       "empty state",
+			state:      "",
+			serverType: "stdio",
+			expected:   "", // normalizeState returns empty string as-is
+		},
+		{
+			name:       "unknown state",
+			state:      "Unknown",
+			serverType: "stdio",
+			expected:   "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// formatStatePlain just normalizes the state, server type is used by formatStateForServerTypePlain
+			result := builder.formatStatePlain(tt.state)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTableBuilder_FormatCellValuePlain_State(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// State values are stored directly in the CRD with context-appropriate
+	// terminology. No translation is needed - values are returned as-is.
+
+	// Test that state column returns values as-is
+	rowContext := map[string]interface{}{
+		"type": "streamable-http",
+	}
+	result := builder.FormatCellValuePlain("state", "Connected", rowContext)
+	assert.Equal(t, "Connected", result)
+
+	// Test with stdio server type - values are already correct in CRD
+	rowContext = map[string]interface{}{
+		"type": "stdio",
+	}
+	result = builder.FormatCellValuePlain("state", "Running", rowContext)
+	assert.Equal(t, "Running", result)
+
+	// Test without context (should still work)
+	result = builder.FormatCellValuePlain("state", "Failed", nil)
+	assert.Equal(t, "Failed", result)
+
+	// Test case insensitivity of column name
+	result = builder.FormatCellValuePlain("STATE", "Connecting", nil)
+	assert.Equal(t, "Connecting", result)
+}
+
+func TestTableBuilder_FormatSessionAuthPlain(t *testing.T) {
+	builder := &TableBuilder{}
+
+	tests := []struct {
+		name     string
+		auth     string
+		expected string
+	}{
+		{"empty", "", "-"},
+		{"authenticated", "authenticated", "OK"},
+		{"auth_required", "auth_required", "Required"},
+		{"token_expired", "token_expired", "Expired"},
+		{"unknown", "unknown", "-"},
+		{"case insensitive - AUTHENTICATED", "AUTHENTICATED", "OK"},
+		{"case insensitive - Auth_Required", "Auth_Required", "Required"},
+		{"custom value", "custom_status", "custom_status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := builder.formatSessionAuthPlain(tt.auth)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTableBuilder_FormatSessionStatusPlain(t *testing.T) {
+	builder := &TableBuilder{}
+
+	tests := []struct {
+		name     string
+		status   string
+		expected string
+	}{
+		{"empty", "", "-"},
+		{"connected", "connected", "Connected"},
+		{"disconnected", "disconnected", "Disconnected"},
+		{"pending_auth", "pending_auth", "Pending Auth"},
+		{"failed", "failed", "Failed"},
+		{"case insensitive - CONNECTED", "CONNECTED", "Connected"},
+		{"custom value", "custom_status", "custom_status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := builder.formatSessionStatusPlain(tt.status)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestTableBuilder_FormatCellValuePlain_SessionAuth(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test that sessionauth column triggers formatSessionAuthPlain
+	result := builder.FormatCellValuePlain("sessionAuth", "authenticated", nil)
+	assert.Equal(t, "OK", result)
+
+	result = builder.FormatCellValuePlain("sessionAuth", "auth_required", nil)
+	assert.Equal(t, "Required", result)
+
+	result = builder.FormatCellValuePlain("sessionAuth", "", nil)
+	assert.Equal(t, "-", result)
+}
+
+func TestTableBuilder_FormatCellValuePlain_SessionStatus(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test that sessionstatus column triggers formatSessionStatusPlain
+	result := builder.FormatCellValuePlain("sessionStatus", "connected", nil)
+	assert.Equal(t, "Connected", result)
+
+	result = builder.FormatCellValuePlain("sessionStatus", "pending_auth", nil)
+	assert.Equal(t, "Pending Auth", result)
+}
+
+func TestTableBuilder_FormatCellValuePlain_ToolsCount(t *testing.T) {
+	builder := &TableBuilder{}
+
+	// Test toolscount column
+	result := builder.FormatCellValuePlain("toolsCount", "15", nil)
+	assert.Equal(t, "15", result)
+
+	result = builder.FormatCellValuePlain("toolsCount", "0", nil)
+	assert.Equal(t, "-", result)
+
+	result = builder.FormatCellValuePlain("toolsCount", "", nil)
+	assert.Equal(t, "-", result)
+}

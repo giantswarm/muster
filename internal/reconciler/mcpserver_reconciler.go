@@ -171,22 +171,34 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 
 // applyStatusFromService applies the current service state to the MCPServer status.
 // This is extracted to allow re-application during retry-on-conflict.
+//
+// This function sets Status based on infrastructure state, using context-appropriate
+// terminology based on server type:
+//   - stdio servers: Running, Starting, Stopped, Failed
+//   - remote servers: Connected, Connecting, Disconnected, Failed
+//
+// Status is independent of user session state (which is tracked in Session Registry).
 func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPServer, name string, reconcileErr error) {
 	// Get the current service state
 	service, exists := r.serviceRegistry.Get(name)
 
 	if exists {
-		// Update status from service state
-		server.Status.State = string(service.GetState())
-		server.Status.Health = string(service.GetHealth())
+		state := service.GetState()
+
+		// Set State based on infrastructure state and server type
+		// State terminology differs based on server type (stdio vs remote)
+		server.Status.State = r.determineState(state, server.Spec.Type)
+
 		if service.GetLastError() != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
+			// Note: Per-user auth errors are tracked in Session Registry, not here
 			server.Status.LastError = SanitizeErrorMessage(service.GetLastError().Error())
 		} else {
 			server.Status.LastError = ""
 		}
+
 		// Update LastConnected if service is running/connected
-		if api.IsActiveState(service.GetState()) {
+		if api.IsActiveState(state) {
 			now := metav1.NewTime(time.Now())
 			server.Status.LastConnected = &now
 		}
@@ -207,13 +219,92 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 			}
 		}
 	} else {
-		// Service doesn't exist - use typed constants
-		server.Status.State = ServiceStateStopped
-		server.Status.Health = ServiceHealthUnknown
+		// Service doesn't exist - use appropriate initial state based on server type
+		isRemote := server.Spec.Type == "streamable-http" || server.Spec.Type == "sse"
+		if isRemote {
+			server.Status.State = musterv1alpha1.MCPServerStateDisconnected
+		} else {
+			server.Status.State = musterv1alpha1.MCPServerStateStopped
+		}
 		if reconcileErr != nil {
 			// Sanitize error message to remove sensitive data before CRD exposure
 			server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
 		}
+	}
+}
+
+// determineState converts service state to MCPServer State using context-appropriate terminology.
+//
+// For stdio (local process) servers:
+//   - Running: Process is running and responding
+//   - Starting: Process is being started
+//   - Stopped: Process is not running
+//   - Failed: Process crashed or cannot be started
+//
+// For remote (streamable-http, sse) servers:
+//   - Connected: TCP connection established (may still require auth)
+//   - Connecting: Attempting to establish connection
+//   - Disconnected: Not connected
+//   - Failed: Endpoint unreachable
+//
+// Note: auth_required means the server IS reachable (returned 401), so that's Connected state.
+// Per-user authentication state is tracked in the Session Registry, not in CRD State.
+func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType string) musterv1alpha1.MCPServerStateValue {
+	isRemote := serverType == "streamable-http" || serverType == "sse"
+
+	switch state {
+	case api.StateRunning, api.StateConnected:
+		// Infrastructure is working
+		if isRemote {
+			return musterv1alpha1.MCPServerStateConnected
+		}
+		return musterv1alpha1.MCPServerStateRunning
+
+	case api.StateAuthRequired:
+		// auth_required means the server IS reachable (it returned a 401 response)
+		// This is infrastructure Connected state - the auth status is per-user session state
+		if isRemote {
+			return musterv1alpha1.MCPServerStateConnected
+		}
+		return musterv1alpha1.MCPServerStateRunning
+
+	case api.StateStarting, api.StateWaiting, api.StateRetrying:
+		// Transitional states - starting up or retrying
+		if isRemote {
+			return musterv1alpha1.MCPServerStateConnecting
+		}
+		return musterv1alpha1.MCPServerStateStarting
+
+	case api.StateStopping:
+		// Stopping - treat as still running/connected until fully stopped
+		if isRemote {
+			return musterv1alpha1.MCPServerStateConnected
+		}
+		return musterv1alpha1.MCPServerStateRunning
+
+	case api.StateStopped, api.StateUnknown:
+		// Not yet started or stopped
+		if isRemote {
+			return musterv1alpha1.MCPServerStateDisconnected
+		}
+		return musterv1alpha1.MCPServerStateStopped
+
+	case api.StateDisconnected:
+		// Disconnected - different from failed (intentional disconnect vs error)
+		if isRemote {
+			return musterv1alpha1.MCPServerStateDisconnected
+		}
+		return musterv1alpha1.MCPServerStateStopped
+
+	case api.StateFailed, api.StateError, api.StateUnreachable:
+		// Infrastructure failure
+		return musterv1alpha1.MCPServerStateFailed
+
+	default:
+		if isRemote {
+			return musterv1alpha1.MCPServerStateDisconnected
+		}
+		return musterv1alpha1.MCPServerStateStopped
 	}
 }
 

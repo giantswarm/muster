@@ -99,11 +99,28 @@ func (b *TableBuilder) FormatCellValuePlain(column string, value interface{}, ro
 	case "autostart":
 		return b.formatAutoStartStatusPlain(value)
 	case "state":
+		// State represents infrastructure state for MCPServers and services
+		// MCPServer values are context-appropriate: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 		serverType := b.getServerTypeFromContext(rowContext)
 		if serverType != "" {
 			return b.formatStateForServerTypePlain(strValue, serverType)
 		}
 		return b.formatStatePlain(strValue)
+	case "sessionauth":
+		// Per-user authentication status for OAuth-protected servers
+		return b.formatSessionAuthPlain(strValue)
+	case "sessionstatus":
+		// Per-user session connection status
+		return b.formatSessionStatusPlain(strValue)
+	case "toolscount":
+		// Number of tools available for the session
+		if strValue == "" || strValue == "0" {
+			return "-"
+		}
+		return strValue
+	case "connectedat":
+		// When the session connected to the server
+		return b.formatTimestampPlain(strValue)
 	case "started_at", "completed_at", "timestamp":
 		return b.formatTimestampPlain(strValue)
 	case "duration_ms":
@@ -180,7 +197,8 @@ func (b *TableBuilder) FormatCellValueWithContext(column string, value interface
 	case "autostart":
 		return b.formatAutoStartStatus(value)
 	case "state":
-		// Use context-aware state formatting if we have server type info
+		// State represents infrastructure state for MCPServers and services
+		// MCPServer values are context-appropriate: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
 		serverType := b.getServerTypeFromContext(rowContext)
 		if serverType != "" {
 			return b.formatStateForServerType(strValue, serverType)
@@ -260,11 +278,11 @@ func (b *TableBuilder) formatHealthStatus(status string) interface{} {
 	case "warning":
 		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚠️  ", "[WARN] ") + status)
 	case "running":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🟢 ", "[+] ") + status)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🟢 ", "[RUN] ") + status)
 	case "stopped":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🔴 ", "[-] ") + status)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🔴 ", "[STOP] ") + status)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🟡 ", "[~] ") + status)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🟡 ", "[INIT] ") + status)
 	default:
 		return status
 	}
@@ -283,14 +301,14 @@ func (b *TableBuilder) formatAvailableStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[YES] ") + "Available")
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[N] ") + "Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[NO] ") + "Unavailable")
 	case string:
 		if v == "true" {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Available")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[YES] ") + "Available")
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[N] ") + "Unavailable")
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[NO] ") + "Unavailable")
 	default:
 		return fmt.Sprintf("%v", value)
 	}
@@ -342,25 +360,25 @@ func (b *TableBuilder) formatState(state string) interface{} {
 	normalized := b.normalizeState(state)
 	switch strings.ToLower(state) {
 	case "running", "connected":
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[+] ") + normalized)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[RUN] ") + normalized)
 	case "stopped", "disconnected":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[-] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[STOP] ") + normalized)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[~] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[INIT] ") + normalized)
 	case "stopping":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[~] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[HALT] ") + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[X] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[FAIL] ") + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[!] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[ERR] ") + normalized)
 	case "auth_required":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[A] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[AUTH] ") + normalized)
 	case "unreachable":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[U] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[UNRCH] ") + normalized)
 	case "waiting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[W] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[WAIT] ") + normalized)
 	case "retrying":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[R] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[RETRY] ") + normalized)
 	default:
 		return normalized
 	}
@@ -427,30 +445,30 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 	switch strings.ToLower(state) {
 	case "running", "connected":
 		if isRemote {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🔗 ", "[C] ") + normalized)
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🔗 ", "[CONN] ") + normalized)
 		}
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[+] ") + normalized)
+		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[RUN] ") + normalized)
 	case "stopped", "disconnected":
 		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[D] ") + normalized)
+			return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[DISC] ") + normalized)
 		}
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[-] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⏹️  ", "[STOP] ") + normalized)
 	case "starting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[~] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[INIT] ") + normalized)
 	case "stopping":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[~] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏸️  ", "[HALT] ") + normalized)
 	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[X] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[FAIL] ") + normalized)
 	case "error":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[!] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("⚠️  ", "[ERR] ") + normalized)
 	case "auth_required":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[A] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔐 ", "[AUTH] ") + normalized)
 	case "unreachable":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[U] ") + normalized)
+		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("🚫 ", "[UNRCH] ") + normalized)
 	case "waiting":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[W] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[WAIT] ") + normalized)
 	case "retrying":
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[R] ") + normalized)
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("🔄 ", "[RETRY] ") + normalized)
 	default:
 		return normalized
 	}
@@ -864,14 +882,14 @@ func (b *TableBuilder) formatAutoStartStatus(value interface{}) interface{} {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Yes")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[YES] ") + "Yes")
 		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[N] ") + "No")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[NO] ") + "No")
 	case string:
 		if v == "true" {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[Y] ") + "Yes")
+			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("✅ ", "[YES] ") + "Yes")
 		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[N] ") + "No")
+		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⚪ ", "[NO] ") + "No")
 	default:
 		return fmt.Sprintf("%v", value)
 	}
@@ -1059,6 +1077,59 @@ func (b *TableBuilder) formatStateForServerTypePlain(state string, serverType st
 // formatTimestampPlain formats timestamp as plain text.
 func (b *TableBuilder) formatTimestampPlain(timestamp string) string {
 	return b.normalizeTimestamp(timestamp)
+}
+
+// formatSessionAuthPlain formats per-user authentication status as plain text.
+// This shows the user's auth status for OAuth-protected servers.
+//
+// Possible values:
+//   - authenticated: User has successfully authenticated
+//   - auth_required: Server requires authentication, user has not authenticated
+//   - token_expired: User's token has expired, re-authentication needed
+//   - unknown: Auth status cannot be determined
+func (b *TableBuilder) formatSessionAuthPlain(auth string) string {
+	if auth == "" {
+		return "-"
+	}
+
+	switch strings.ToLower(auth) {
+	case "authenticated":
+		return "OK"
+	case "auth_required":
+		return "Required"
+	case "token_expired":
+		return "Expired"
+	case "unknown":
+		return "-"
+	default:
+		return auth
+	}
+}
+
+// formatSessionStatusPlain formats per-user session connection status as plain text.
+//
+// Possible values:
+//   - connected: Session is connected to the server
+//   - disconnected: Session is not connected
+//   - pending_auth: Waiting for user authentication
+//   - failed: Session connection failed
+func (b *TableBuilder) formatSessionStatusPlain(status string) string {
+	if status == "" {
+		return "-"
+	}
+
+	switch strings.ToLower(status) {
+	case "connected":
+		return "Connected"
+	case "disconnected":
+		return "Disconnected"
+	case "pending_auth":
+		return "Pending Auth"
+	case "failed":
+		return "Failed"
+	default:
+		return status
+	}
 }
 
 // formatDurationPlain formats duration as plain text.

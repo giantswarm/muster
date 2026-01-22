@@ -405,6 +405,13 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Pass the MCP client to the test tools handler so it can call authenticate tools
 	testToolsHandler.SetMCPClient(scenarioClient)
 
+	// Ensure cleanup of additional user clients created during multi-user testing
+	defer func() {
+		if testToolsHandler != nil {
+			testToolsHandler.CloseAllUserClients()
+		}
+	}()
+
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
 		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler)
@@ -524,10 +531,46 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 // runStepWithTestTools executes a single test step, handling test tools specially.
 // Test tools (prefixed with "test_") are handled directly by the test runner
 // instead of being sent to the muster MCP server.
+//
+// For multi-user scenarios:
+// - If step.AsUser is set, temporarily switch to that user before executing
+// - Test tools that manage users (create, switch) update the handler's current user
+// - Regular tool calls use the current user's MCP client
 func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler) TestStepResult {
+	// Handle as_user field - switch to specified user before executing
+	if step.AsUser != "" && testToolsHandler != nil {
+		previousUser := testToolsHandler.GetCurrentUserName()
+		if step.AsUser != previousUser {
+			// Check if user exists using encapsulated HasUser method
+			if testToolsHandler.HasUser(step.AsUser) {
+				testToolsHandler.SwitchToUser(step.AsUser)
+				if r.debug {
+					r.logger.Debug("👤 Step '%s': temporarily switching to user '%s' (was '%s')\n",
+						step.ID, step.AsUser, previousUser)
+				}
+				// Use the new user's client for this step
+				client = testToolsHandler.GetCurrentClient()
+			} else {
+				// User doesn't exist - fail the step
+				return TestStepResult{
+					Step:      step,
+					StartTime: time.Now(),
+					EndTime:   time.Now(),
+					Result:    ResultError,
+					Error:     fmt.Sprintf("as_user '%s' not found; use test_create_user first", step.AsUser),
+				}
+			}
+		}
+	}
+
 	// Check if this is a test tool that should be handled locally
 	if IsTestTool(step.Tool) {
 		return r.runTestToolStep(ctx, step, config, scenarioContext, testToolsHandler)
+	}
+
+	// For regular tools, use the current user's client from the handler
+	if testToolsHandler != nil {
+		client = testToolsHandler.GetCurrentClient()
 	}
 
 	// Delegate to the standard runStep for regular tools

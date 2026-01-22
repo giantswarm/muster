@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"muster/internal/api"
+	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
 )
 
 func TestMCPServerReconciler_GetResourceType(t *testing.T) {
@@ -638,11 +639,9 @@ func TestMCPServerReconciler_SyncStatus_RunningService(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "running" {
-		t.Errorf("expected state 'running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
-	}
-	if statusUpdater.LastUpdatedMCPServer.Status.Health != "healthy" {
-		t.Errorf("expected health 'healthy', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.Health)
+	// For stdio servers, Running state maps to MCPServerStateRunning
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
+		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastConnected == nil {
 		t.Error("expected LastConnected to be set for running service")
@@ -727,8 +726,8 @@ func TestMCPServerReconciler_SyncStatus_WithError(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "error" {
-		t.Errorf("expected state 'error', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateFailed {
+		t.Errorf("expected state 'Failed', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 	if statusUpdater.LastUpdatedMCPServer.Status.LastError == "" {
 		t.Error("expected LastError to be set")
@@ -1098,8 +1097,9 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 	if statusUpdater.LastUpdatedMCPServer == nil {
 		t.Fatal("expected LastUpdatedMCPServer to be set")
 	}
-	if statusUpdater.LastUpdatedMCPServer.Status.State != "running" {
-		t.Errorf("expected state 'running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
+	// For stdio servers, Running state maps to MCPServerStateRunning
+	if statusUpdater.LastUpdatedMCPServer.Status.State != musterv1alpha1.MCPServerStateRunning {
+		t.Errorf("expected state 'Running', got '%s'", statusUpdater.LastUpdatedMCPServer.Status.State)
 	}
 }
 

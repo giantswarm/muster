@@ -278,6 +278,11 @@ const (
 	// - api.StateUnreachable (internal/api/service.go)
 	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
 	ServerStatusUnreachable = "unreachable"
+
+	// ServerStatusFailed indicates a session-level failure (e.g., connection dropped,
+	// unexpected error during communication). This is distinct from infrastructure
+	// failures (tracked in MCPServer Phase) and auth failures (tracked in AuthStatus).
+	ServerStatusFailed = "failed"
 )
 
 // AuthStatusResponse is the structured response from the auth://status MCP resource.

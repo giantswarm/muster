@@ -146,23 +146,88 @@ type TokenExchangeConfig struct {
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
-// MCPServerStatus defines the observed state of MCPServer
+// MCPServerStateValue represents the high-level infrastructure state of an MCPServer.
+// This is independent of user session state (authentication, per-user connection status).
+//
+// Status values reflect infrastructure availability with context-appropriate terminology:
+//
+// For stdio (local process) servers:
+//   - Running: Process is running and responding
+//   - Starting: Process is being started
+//   - Stopped: Process is not running (initial state or explicitly stopped)
+//   - Failed: Process crashed or cannot be started
+//
+// For remote (streamable-http, sse) servers:
+//   - Connected: TCP connection established (may still require auth)
+//   - Connecting: Attempting to establish connection
+//   - Disconnected: Not connected (initial state or connection closed)
+//   - Failed: Endpoint unreachable (network error, DNS failure, etc.)
+type MCPServerStateValue string
+
+const (
+	// Stdio server states (local process)
+
+	// MCPServerStateRunning indicates a stdio server process is running.
+	MCPServerStateRunning MCPServerStateValue = "Running"
+
+	// MCPServerStateStarting indicates a stdio server process is being started.
+	MCPServerStateStarting MCPServerStateValue = "Starting"
+
+	// MCPServerStateStopped indicates a stdio server process is not running.
+	MCPServerStateStopped MCPServerStateValue = "Stopped"
+
+	// Remote server states (streamable-http, sse)
+
+	// MCPServerStateConnected indicates a remote server is reachable.
+	// TCP connection can be established (ignoring 401/403 auth responses).
+	MCPServerStateConnected MCPServerStateValue = "Connected"
+
+	// MCPServerStateConnecting indicates a connection attempt is in progress.
+	MCPServerStateConnecting MCPServerStateValue = "Connecting"
+
+	// MCPServerStateDisconnected indicates a remote server is not connected.
+	MCPServerStateDisconnected MCPServerStateValue = "Disconnected"
+
+	// Common states (both server types)
+
+	// MCPServerStateFailed indicates infrastructure is not available.
+	// For stdio: process crashed or cannot be started.
+	// For http/sse: endpoint unreachable (network error, DNS failure, etc.).
+	MCPServerStateFailed MCPServerStateValue = "Failed"
+)
+
+// MCPServerStatus defines the observed state of MCPServer.
+//
+// IMPORTANT: This status reflects infrastructure state only, NOT user session state.
+// Per-user connection status and authentication state are tracked in the Session Registry
+// (internal/aggregator/session_registry.go) to support multi-user environments.
+//
+// Infrastructure State (CRD):
+//   - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
+//   - Conditions: Standard K8s conditions for detailed status
+//
+// Session State (Session Registry):
+//   - ConnectionStatus: Connected, PendingAuth, Failed (per-user)
+//   - AuthStatus: Authenticated, AuthRequired, TokenExpired (per-user)
+//   - AvailableTools: Tools visible to this specific user
 type MCPServerStatus struct {
-	// State represents the current operational state of the MCP server
-	// +kubebuilder:validation:Enum=unknown;starting;running;stopping;stopped;failed;waiting;retrying;unreachable
-	State string `json:"state,omitempty" yaml:"state,omitempty"`
+	// State represents the high-level infrastructure state of the MCP server.
+	// This is independent of user session state (authentication, connection status).
+	//
+	// For stdio servers: Running, Starting, Stopped, Failed
+	// For remote servers: Connected, Connecting, Disconnected, Failed
+	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Connecting;Disconnected;Failed
+	State MCPServerStateValue `json:"state,omitempty" yaml:"state,omitempty"`
 
-	// Health represents the health status of the MCP server
-	// +kubebuilder:validation:Enum=unknown;healthy;unhealthy;checking
-	Health string `json:"health,omitempty" yaml:"health,omitempty"`
-
-	// LastError contains any error message from the most recent server operation
+	// LastError contains any error message from the most recent server operation.
+	// Note: Per-user authentication errors are tracked in the Session Registry,
+	// not here. This field only contains infrastructure-level errors.
 	LastError string `json:"lastError,omitempty" yaml:"lastError,omitempty"`
 
 	// LastConnected indicates when the server was last successfully connected
 	LastConnected *metav1.Time `json:"lastConnected,omitempty" yaml:"lastConnected,omitempty"`
 
-	// RestartCount tracks how many times this server has been restarted
+	// RestartCount tracks how many times this server has been restarted (stdio only)
 	RestartCount int `json:"restartCount,omitempty" yaml:"restartCount,omitempty"`
 
 	// ConsecutiveFailures tracks the number of consecutive connection failures.
@@ -178,7 +243,9 @@ type MCPServerStatus struct {
 	// This is calculated based on exponential backoff from ConsecutiveFailures.
 	NextRetryAfter *metav1.Time `json:"nextRetryAfter,omitempty" yaml:"nextRetryAfter,omitempty"`
 
-	// Conditions represent the latest available observations of the MCPServer's current state
+	// Conditions represent the latest available observations of the MCPServer's current state.
+	// Standard condition types:
+	//   - Ready: True if infrastructure is reachable (process running or TCP connectable)
 	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
@@ -188,8 +255,7 @@ type MCPServerStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="AutoStart",type="boolean",JSONPath=".spec.autoStart"
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state"
-// +kubebuilder:printcolumn:name="Health",type="string",JSONPath=".status.health"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.state"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || has(self.spec.command)",message="command is required when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"

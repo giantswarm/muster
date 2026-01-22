@@ -1,0 +1,160 @@
+name: "oauth-sso-state-sync-after-login"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Tests the separation of infrastructure state (CRD State) from session state (auth://status).
+  
+  The MCPServer CRD State reflects infrastructure availability with context-appropriate values:
+  - Remote servers: Connected, Connecting, Disconnected, Failed
+  - Stdio servers: Running, Starting, Stopped, Failed
+  
+  Session state (per-user auth/connection) is tracked separately:
+  - auth://status resource shows per-user connection state ("connected", "auth_required")
+  
+  This scenario tests that:
+  1. Before auth: MCPServer State = Connected (server is reachable, returned 401)
+  2. Before auth: auth://status shows "auth_required" for this session
+  3. After SSO login: auth://status shows "connected" for this session
+  4. After SSO login: MCPServer State remains Connected (infrastructure unchanged)
+tags: ["oauth", "sso", "state-sync", "mcpserver", "service", "regression", "reconciler"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  mock_oauth_servers:
+    - name: "sync-test-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "sync-test-client"
+      client_secret: "sync-test-secret"
+      # Enable this as muster's OAuth server for SSO token forwarding
+      use_as_muster_oauth_server: true
+
+  # SSO-enabled MCP server that trusts muster's forwarded ID tokens
+  mcp_servers:
+    - name: "sync-test-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "sync-test-idp"
+          scope: "mcp:admin"
+          # Enable token forwarding - muster should forward its ID token
+          forward_token: true
+        tools:
+          - name: "check_connection"
+            description: "Simple tool to verify connection is working"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Connection verified"
+
+steps:
+  # Step 1: Verify the OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "sync-test-idp"
+    expected:
+      success: true
+      contains:
+        - "sync-test-idp"
+        - "issuer_url"
+
+  # Step 2: Verify the MCP server is registered
+  - id: verify-server-registered
+    description: "Verify the MCP server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+
+  # Step 3: Check MCPServer state BEFORE authentication
+  # Before any connection attempt, the server is in Disconnected state (waiting to be probed).
+  # State transitions to Connected only after infrastructure is confirmed reachable.
+  # Since we use lazy initialization, the server hasn't been probed yet.
+  - id: check-mcpserver-state-before-auth
+    description: "Check MCPServer exists before authentication (may be Pending until probed)"
+    tool: "core_mcpserver_list"
+    args:
+      verbose: true
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+
+  # Step 4: Authenticate to muster (simulates `muster auth login`)
+  - id: authenticate-to-muster
+    description: "Authenticate to muster via OAuth (stores ID token for forwarding)"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 5: Trigger SSO token forwarding via core_auth_login
+  # This should forward muster's ID token to the downstream server
+  - id: login-with-token-forwarding
+    description: "Login to server - muster should forward its ID token"
+    tool: "core_auth_login"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+
+  # Step 6: Verify the protected tool works (confirms SSO succeeded)
+  - id: verify-tool-works
+    description: "Call protected tool to verify SSO authentication succeeded"
+    tool: "x_sync-test-server_check_connection"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Connection verified"
+
+  # Step 7: Check service state AFTER SSO login
+  # The service registry should show state = "Connected" or "connected"
+  - id: check-service-state-after-auth
+    description: "Verify service registry shows Connected state after SSO login"
+    tool: "core_service_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "connected"  # Service state should be "connected" (lowercase from service registry)
+
+  # Step 8: Check MCPServer State AFTER SSO login
+  # After successful connection, State should be Connected (infrastructure is reachable)
+  # The "connected" state is session-level, shown in auth://status (step 9)
+  - id: check-mcpserver-state-after-auth
+    description: "Verify MCPServer State is Connected after SSO login (infrastructure confirmed reachable)"
+    tool: "core_mcpserver_list"
+    args:
+      verbose: true
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "Connected"  # State is Connected (infrastructure confirmed reachable after connection)
+      wait_for_state: 5s  # Wait for reconciler to sync state
+
+  # Step 9: Verify auth status also shows connected
+  - id: verify-auth-status
+    description: "Verify auth status shows connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "sync-test-server"
+    expected:
+      success: true
+      contains:
+        - "sync-test-server"
+        - "connected"
