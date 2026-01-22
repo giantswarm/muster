@@ -533,17 +533,19 @@ func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, session *
 		return serverInfo
 	}
 
-	// Add session status
-	serverInfo["sessionStatus"] = string(conn.Status)
+	// Add session status (using thread-safe getter)
+	serverInfo["sessionStatus"] = string(conn.GetStatus())
 
 	// Add auth status (only for non-empty values)
-	if conn.AuthStatus != "" && conn.AuthStatus != AuthStatusUnknown {
-		serverInfo["sessionAuth"] = string(conn.AuthStatus)
+	authStatus := conn.GetAuthStatus()
+	if authStatus != "" && authStatus != AuthStatusUnknown {
+		serverInfo["sessionAuth"] = string(authStatus)
 	}
 
-	// Add connected timestamp if available
-	if !conn.ConnectedAt.IsZero() {
-		serverInfo["connectedAt"] = conn.ConnectedAt
+	// Add connected timestamp if available (using thread-safe getter)
+	connectedAt := conn.GetConnectedAt()
+	if !connectedAt.IsZero() {
+		serverInfo["connectedAt"] = connectedAt
 	}
 
 	// Add tools count from session connection
@@ -586,6 +588,7 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, session *SessionSta
 		// Find the mcpServers array
 		servers, ok := responseMap["mcpServers"].([]interface{})
 		if !ok {
+			logging.Debug("ServerHelpers", "mcpserver_list response missing 'mcpServers' array, skipping session enrichment")
 			continue
 		}
 
@@ -593,6 +596,7 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, session *SessionSta
 		for j, server := range servers {
 			serverMap, ok := server.(map[string]interface{})
 			if !ok {
+				logging.Debug("ServerHelpers", "mcpserver_list server at index %d is not a map, skipping", j)
 				continue
 			}
 			servers[j] = enrichMCPServerWithSessionData(serverMap, session)

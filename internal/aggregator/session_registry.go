@@ -884,6 +884,22 @@ func (sc *SessionConnection) GetLastError() string {
 	return sc.LastError
 }
 
+// GetStatus returns the connection status for a session connection.
+// This provides thread-safe access to the Status field.
+func (sc *SessionConnection) GetStatus() ConnectionStatus {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.Status
+}
+
+// GetConnectedAt returns the timestamp when the connection was established.
+// This provides thread-safe access to the ConnectedAt field.
+func (sc *SessionConnection) GetConnectedAt() time.Time {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.ConnectedAt
+}
+
 // SessionNotFoundError is returned when a session is not found.
 type SessionNotFoundError struct {
 	SessionID string

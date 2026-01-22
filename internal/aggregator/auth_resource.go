@@ -159,7 +159,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sessionID, serverName stri
 					return pkgoauth.ServerStatusAuthRequired
 				}
 				// Other failures might be infrastructure issues
-				return "failed"
+				return pkgoauth.ServerStatusFailed
 			}
 		}
 	}

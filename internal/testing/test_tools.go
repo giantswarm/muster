@@ -115,6 +115,27 @@ func (h *TestToolsHandler) CloseAllUserClients() {
 	}
 }
 
+// HasUser returns true if a user session with the given name exists.
+// This provides encapsulated access to check user existence without
+// exposing the internal userClients map.
+func (h *TestToolsHandler) HasUser(name string) bool {
+	_, exists := h.userClients[name]
+	return exists
+}
+
+// SwitchToUser switches the current user context to the specified user.
+// This is used by the test runner to switch user context for as_user steps.
+// Returns false if the user doesn't exist.
+func (h *TestToolsHandler) SwitchToUser(name string) bool {
+	client, exists := h.userClients[name]
+	if !exists {
+		return false
+	}
+	h.currentUser = name
+	h.mcpClient = client
+	return true
+}
+
 // IsTestTool returns true if the tool name is a test helper tool.
 func IsTestTool(toolName string) bool {
 	switch toolName {

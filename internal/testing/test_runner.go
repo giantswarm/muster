@@ -541,10 +541,9 @@ func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, co
 	if step.AsUser != "" && testToolsHandler != nil {
 		previousUser := testToolsHandler.GetCurrentUserName()
 		if step.AsUser != previousUser {
-			// Check if user exists
-			if _, exists := testToolsHandler.userClients[step.AsUser]; exists {
-				testToolsHandler.currentUser = step.AsUser
-				testToolsHandler.mcpClient = testToolsHandler.userClients[step.AsUser]
+			// Check if user exists using encapsulated HasUser method
+			if testToolsHandler.HasUser(step.AsUser) {
+				testToolsHandler.SwitchToUser(step.AsUser)
 				if r.debug {
 					r.logger.Debug("👤 Step '%s': temporarily switching to user '%s' (was '%s')\n",
 						step.ID, step.AsUser, previousUser)

@@ -27,6 +27,51 @@ func stateIcon(emoji, fallback string) string {
 	return emoji
 }
 
+// stateStyle defines the visual styling for a state display.
+type stateStyle struct {
+	emoji    string      // Unicode emoji for rich terminals
+	fallback string      // ASCII fallback for limited terminals
+	color    text.Colors // Color scheme for the state
+	label    string      // Display label (may be overridden by terminology)
+}
+
+// phaseTerminology maps Phase values to context-appropriate display labels.
+// The first value is for remote servers, the second for local (stdio) servers.
+var phaseTerminology = map[string]struct{ remote, local string }{
+	"ready":   {"Connected", "Running"},
+	"pending": {"Connecting", "Starting"},
+	"failed":  {"Failed", "Failed"},
+}
+
+// phaseStyles maps Phase values to their visual styling.
+var phaseStyles = map[string]struct {
+	emoji, fallback string
+	color           text.Colors
+	// For phases where remote/local use different icons
+	remoteEmoji, remoteFallback string
+}{
+	"ready": {
+		emoji: "▶️  ", fallback: "[RUN] ",
+		color:          text.Colors{text.FgHiGreen, text.Bold},
+		remoteEmoji:    "🔗 ",
+		remoteFallback: "[CONN] ",
+	},
+	"pending": {
+		emoji: "⏳ ", fallback: "[INIT] ",
+		color: text.Colors{text.FgHiYellow, text.Bold},
+	},
+	"failed": {
+		emoji: "❌ ", fallback: "[FAIL] ",
+		color: text.Colors{text.FgHiRed, text.Bold},
+	},
+}
+
+// formatStateWithStyle applies visual styling to a state/phase display.
+// This helper reduces duplication across state and phase formatting functions.
+func formatStateWithStyle(normalized, emoji, fallback string, color text.Colors) interface{} {
+	return color.Sprint(stateIcon(emoji, fallback) + normalized)
+}
+
 // TableBuilder handles cell formatting and styling for table display.
 // It provides specialized formatting for different types of data commonly
 // encountered in muster operations, including status indicators, metadata,
@@ -496,28 +541,26 @@ func (b *TableBuilder) formatStateForServerType(state string, serverType string)
 // Returns:
 //   - interface{}: Formatted phase with appropriate icon, color, and terminology
 func (b *TableBuilder) formatPhase(phase string, serverType string) interface{} {
+	if phase == "" {
+		return "-"
+	}
+
 	isRemote := IsRemoteServerType(serverType)
 	normalized := b.normalizePhase(phase, isRemote)
+	lowerPhase := strings.ToLower(phase)
 
-	switch strings.ToLower(phase) {
-	case "ready":
-		if isRemote {
-			return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("🔗 ", "[CONN] ") + normalized)
-		}
-		return text.Colors{text.FgHiGreen, text.Bold}.Sprint(stateIcon("▶️  ", "[RUN] ") + normalized)
-	case "pending":
-		if isRemote {
-			return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[INIT] ") + normalized)
-		}
-		return text.Colors{text.FgHiYellow, text.Bold}.Sprint(stateIcon("⏳ ", "[INIT] ") + normalized)
-	case "failed":
-		return text.Colors{text.FgHiRed, text.Bold}.Sprint(stateIcon("❌ ", "[FAIL] ") + normalized)
-	default:
-		if phase == "" {
-			return "-"
-		}
+	style, exists := phaseStyles[lowerPhase]
+	if !exists {
 		return normalized
 	}
+
+	// Use remote-specific icons if available and this is a remote server
+	emoji, fallback := style.emoji, style.fallback
+	if isRemote && style.remoteEmoji != "" {
+		emoji, fallback = style.remoteEmoji, style.remoteFallback
+	}
+
+	return formatStateWithStyle(normalized, emoji, fallback, style.color)
 }
 
 // formatMetadata extracts and formats useful information from metadata objects.
@@ -1139,26 +1182,20 @@ func (b *TableBuilder) formatPhasePlain(phase string, serverType string) string 
 //   - stdio servers: Running/Stopped/Starting
 //   - remote servers: Connected/Disconnected/Connecting
 func (b *TableBuilder) normalizePhase(phase string, isRemote bool) string {
-	switch strings.ToLower(phase) {
-	case "ready":
-		if isRemote {
-			return "Connected"
-		}
-		return "Running"
-	case "pending":
-		if isRemote {
-			return "Connecting"
-		}
-		return "Starting"
-	case "failed":
-		return "Failed"
-	default:
-		// Return as-is for unknown phases
-		if phase == "" {
-			return "-"
-		}
-		return phase
+	if phase == "" {
+		return "-"
 	}
+
+	lowerPhase := strings.ToLower(phase)
+	if terms, exists := phaseTerminology[lowerPhase]; exists {
+		if isRemote {
+			return terms.remote
+		}
+		return terms.local
+	}
+
+	// Return as-is for unknown phases
+	return phase
 }
 
 // formatTimestampPlain formats timestamp as plain text.
