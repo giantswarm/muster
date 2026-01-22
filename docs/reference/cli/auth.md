@@ -32,6 +32,8 @@ muster auth login [OPTIONS]
   - Authenticates to a remote MCP server managed by the aggregator
 - `--all`: Authenticate to aggregator and all pending MCP servers
   - Provides SSO-style authentication chain
+- `--no-silent`: Skip silent re-authentication, always use interactive login
+  - By default, muster attempts silent re-auth using OIDC `prompt=none`
 
 **Examples:**
 
@@ -47,15 +49,37 @@ muster auth login --server mcp-kubernetes
 
 # Login to aggregator and all MCP servers requiring auth
 muster auth login --all
+
+# Skip silent re-auth and always show the login page
+muster auth login --no-silent
 ```
 
 **What happens during login:**
 
 1. Muster probes the endpoint to check if OAuth is required
 2. If required, discovers OAuth metadata (issuer, authorization endpoint)
-3. Opens your browser to the authorization page
-4. Waits for you to complete authentication
-5. Stores the token securely for future use
+3. **Silent re-authentication** (if previous session exists):
+   - Opens browser with OIDC `prompt=none` parameter
+   - If IdP session is still valid, completes without user interaction
+   - If IdP session expired, falls back to interactive login
+4. Opens your browser to the authorization page (if interactive)
+5. Waits for you to complete authentication
+6. Stores the token securely for future use
+
+**Silent Re-Authentication:**
+
+When you have a previous session (stored token), muster attempts silent re-authentication using the OIDC `prompt=none` parameter. This provides a seamless experience similar to `tsh kube login`:
+
+- The browser opens briefly but redirects quickly if your IdP session is valid
+- No user interaction is required for re-authentication
+- Falls back gracefully to interactive login when the IdP session expires
+
+**Note:** You will see a browser window open briefly even during silent re-authentication. This is expected behavior - OIDC requires the browser to complete the redirect flow. The window typically closes within a few seconds.
+
+To disable silent re-authentication:
+
+- **Per command:** Use `--no-silent` flag
+- **Permanently:** Set `auth.silent_refresh: false` in config (see [Configuration](../configuration.md#auth-configuration))
 
 ### muster auth logout
 
@@ -384,6 +408,30 @@ lsof -i :3000
 kill <PID>
 ```
 
+### Silent Re-Authentication Issues
+
+If silent re-authentication consistently fails or causes issues:
+
+**Symptom:** Browser opens but immediately falls back to login page
+
+This is expected when your IdP session has expired. The IdP returns `login_required` and muster falls back to interactive login.
+
+**Symptom:** Browser opens twice during login
+
+This happens when silent auth fails and muster retries with interactive auth. This is normal behavior - the first attempt is silent, the second is interactive.
+
+**Disable silent auth if problematic:**
+
+```bash
+# For a single command
+muster auth login --no-silent
+
+# Permanently in config
+# ~/.config/muster/config.yaml
+auth:
+  silent_refresh: false
+```
+
 ### Token Expired
 
 Tokens typically expire after 24 hours. The status command shows expiry:
@@ -439,6 +487,20 @@ esac
 - Refresh tokens enable automatic renewal
 - Token values are never logged (only metadata)
 - All OAuth communication uses HTTPS in production
+- PKCE (Proof Key for Code Exchange) protects against authorization code interception
+- State parameter validation prevents CSRF attacks
+
+### Silent Re-Authentication Security
+
+Silent re-authentication (`prompt=none`) is secure because:
+
+- **PKCE is still enforced**: Every silent auth flow uses a unique code verifier/challenge pair
+- **State validation**: CSRF protection is maintained for silent flows
+- **IdP validation**: The Identity Provider validates the ID token hint and session
+- **Shorter timeout**: Silent auth uses a 15-second timeout (vs standard callback timeout)
+- **Graceful degradation**: Any failure falls back to full interactive authentication
+
+The stored ID token is only used to provide `login_hint` and `id_token_hint` parameters to the IdP. These are hints that help the IdP identify the user - the IdP performs all actual authentication and validation.
 
 ## Related Commands
 

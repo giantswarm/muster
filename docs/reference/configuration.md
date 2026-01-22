@@ -60,6 +60,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer, ServiceClass, and Workflow CRs |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
+| `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 
 ### Aggregator Configuration
 
@@ -79,6 +80,46 @@ The aggregator manages the unified MCP interface and tool aggregation.
 | `streamable-http` | HTTP with streaming support | **Recommended** - Most compatible |
 | `sse` | Server-Sent Events | Real-time updates |
 | `stdio` | Standard I/O | Command-line clients |
+
+### Auth Configuration
+
+The auth configuration controls CLI authentication behavior.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `silent_refresh` | `bool` | `true` | Enable silent re-authentication using OIDC `prompt=none` |
+
+#### Silent Re-Authentication
+
+When `silent_refresh` is enabled (the default), `muster auth login` attempts silent re-authentication before showing the login page:
+
+1. If you have a previous session, muster opens the browser with OIDC `prompt=none`
+2. If your IdP session is still valid, authentication completes without user interaction
+3. If the IdP session has expired, muster falls back to interactive login
+
+This provides a seamless experience similar to `tsh kube login` where the browser opens briefly but no interaction is needed if you have an existing IdP session.
+
+**Note:** You will see a browser window open briefly even during silent auth. This is expected - OIDC requires the browser to complete the redirect. The window typically closes within a few seconds if your IdP session is valid.
+
+**Security:** Silent re-authentication maintains full security:
+- PKCE is enforced on every flow
+- State parameter prevents CSRF attacks
+- The IdP validates the session, not muster
+- Any failure falls back to interactive authentication
+
+To disable silent re-authentication globally:
+
+```yaml
+# ~/.config/muster/config.yaml
+auth:
+  silent_refresh: false  # Always use interactive login
+```
+
+You can also use the `--no-silent` flag to skip silent auth for a single command:
+
+```bash
+muster auth login --no-silent
+```
 
 ### Example Configurations
 

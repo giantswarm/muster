@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 	tests := []struct {
@@ -196,4 +200,23 @@ func TestOAuthConfig_GetRedirectURI(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthConfig_IsSilentRefreshEnabled(t *testing.T) {
+	t.Run("returns true when SilentRefresh is nil (default)", func(t *testing.T) {
+		cfg := AuthConfig{}
+		assert.True(t, cfg.IsSilentRefreshEnabled())
+	})
+
+	t.Run("returns true when SilentRefresh is explicitly true", func(t *testing.T) {
+		silentRefresh := true
+		cfg := AuthConfig{SilentRefresh: &silentRefresh}
+		assert.True(t, cfg.IsSilentRefreshEnabled())
+	})
+
+	t.Run("returns false when SilentRefresh is explicitly false", func(t *testing.T) {
+		silentRefresh := false
+		cfg := AuthConfig{SilentRefresh: &silentRefresh}
+		assert.False(t, cfg.IsSilentRefreshEnabled())
+	})
 }
