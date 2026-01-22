@@ -99,6 +99,14 @@ When `silent_refresh` is enabled (the default), `muster auth login` attempts sil
 
 This provides a seamless experience similar to `tsh kube login` where the browser opens briefly but no interaction is needed if you have an existing IdP session.
 
+**Note:** You will see a browser window open briefly even during silent auth. This is expected - OIDC requires the browser to complete the redirect. The window typically closes within a few seconds if your IdP session is valid.
+
+**Security:** Silent re-authentication maintains full security:
+- PKCE is enforced on every flow
+- State parameter prevents CSRF attacks
+- The IdP validates the session, not muster
+- Any failure falls back to interactive authentication
+
 To disable silent re-authentication globally:
 
 ```yaml
