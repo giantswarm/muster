@@ -12,8 +12,9 @@ import (
 
 // Login-specific flags
 var (
-	loginAll    bool
-	loginServer string
+	loginAll      bool
+	loginServer   string
+	loginNoSilent bool
 )
 
 // authLoginCmd represents the auth login command
@@ -25,11 +26,17 @@ var authLoginCmd = &cobra.Command{
 This command initiates an OAuth browser-based authentication flow to obtain
 access tokens for connecting to OAuth-protected muster aggregators.
 
+By default, if you have a previous session, muster attempts silent re-authentication
+using OIDC prompt=none. This allows seamless token refresh when the user already has
+a valid session at the Identity Provider (IdP). If silent auth fails, muster falls
+back to interactive authentication.
+
 Examples:
   muster auth login                    # Login to configured aggregator
   muster auth login --endpoint <url>   # Login to specific endpoint
   muster auth login --server <name>    # Login to specific MCP server
-  muster auth login --all              # Login to aggregator + all pending MCP servers`,
+  muster auth login --all              # Login to aggregator + all pending MCP servers
+  muster auth login --no-silent        # Skip silent re-auth, always show login page`,
 	RunE: runAuthLogin,
 }
 
@@ -37,12 +44,16 @@ func init() {
 	// Login-specific flags (only on login subcommand)
 	authLoginCmd.Flags().BoolVar(&loginAll, "all", false, "Login to aggregator and all pending MCP servers")
 	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "MCP server name (managed by aggregator) to authenticate to")
+	authLoginCmd.Flags().BoolVar(&loginNoSilent, "no-silent", false, "Skip silent re-authentication, always use interactive login")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	handler, err := ensureAuthHandler()
+	// Create handler with options based on flags
+	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
+		NoSilentRefresh: loginNoSilent,
+	})
 	if err != nil {
 		return err
 	}

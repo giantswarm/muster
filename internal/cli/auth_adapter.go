@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	mcpoauth "github.com/giantswarm/mcp-oauth"
+
 	"muster/internal/agent/oauth"
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -58,14 +60,21 @@ type AuthAdapter struct {
 	// sessionID is the persistent session ID for this CLI user.
 	// This is sent via X-Muster-Session-ID header to enable MCP server token persistence.
 	sessionID string
+
+	// noSilentRefresh disables silent re-authentication attempts.
+	// When true, Login() always uses interactive authentication.
+	noSilentRefresh bool
 }
 
-// NewAuthAdapter creates a new auth adapter with default configuration.
 // AuthAdapterConfig provides configuration options for the AuthAdapter.
 type AuthAdapterConfig struct {
 	// TokenStorageDir is the directory for storing OAuth tokens.
 	// If empty, defaults to ~/.config/muster/tokens
 	TokenStorageDir string
+
+	// NoSilentRefresh disables silent re-authentication attempts.
+	// When true, Login() always uses interactive authentication.
+	NoSilentRefresh bool
 }
 
 // NewAuthAdapter creates a new auth adapter with default configuration.
@@ -100,6 +109,7 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tokenDir,
 		sessionID:       sessionID,
+		noSilentRefresh: cfg.NoSilentRefresh,
 	}, nil
 }
 
@@ -156,6 +166,15 @@ func generateSessionID() string {
 // This is used for the X-Muster-Session-ID header.
 func (a *AuthAdapter) GetSessionID() string {
 	return a.sessionID
+}
+
+// SetNoSilentRefresh enables or disables silent re-authentication.
+// When disabled (the default), Login() attempts silent re-auth before interactive login.
+// When enabled, Login() always uses interactive authentication.
+func (a *AuthAdapter) SetNoSilentRefresh(noSilent bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.noSilentRefresh = noSilent
 }
 
 // Register registers the adapter with the API layer.
@@ -276,6 +295,8 @@ func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 }
 
 // Login initiates the OAuth flow for the given endpoint.
+// If a previous session exists, it first attempts silent re-authentication
+// using prompt=none. If silent auth fails, it falls back to interactive login.
 func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
@@ -298,6 +319,73 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 		return nil
 	}
 
+	// Check if we have a stored token that might indicate a previous session
+	// This enables silent re-authentication when the IdP session is still valid
+	a.mu.RLock()
+	noSilent := a.noSilentRefresh
+	a.mu.RUnlock()
+
+	if !noSilent {
+		storedToken := mgr.GetStoredToken()
+		if storedToken != nil {
+			// We have a previous session - try silent re-authentication
+			if err := a.trySilentReAuth(ctx, mgr, storedToken, endpoint); err == nil {
+				return nil
+			}
+			// Silent auth failed - fall through to interactive login
+		}
+	}
+
+	// Interactive authentication
+	return a.interactiveLogin(ctx, mgr, endpoint)
+}
+
+// trySilentReAuth attempts silent re-authentication using prompt=none.
+// This is used when the user has a previous session and may still have an
+// active session at the IdP, avoiding the need for manual re-authentication.
+func (a *AuthAdapter) trySilentReAuth(ctx context.Context, mgr *oauth.AuthManager, storedToken *oauth.StoredToken, endpoint string) error {
+	logging.Debug("AuthAdapter", "Attempting silent re-authentication for %s", endpoint)
+
+	// Extract login hint from previous session
+	var loginHint string
+	var idTokenHint string
+	if storedToken.IDToken != "" {
+		claims := parseIDTokenClaims(storedToken.IDToken)
+		loginHint = claims.Email
+		idTokenHint = storedToken.IDToken
+	}
+
+	// Start silent auth flow
+	authURL, err := mgr.StartAuthFlowSilent(ctx, loginHint, idTokenHint)
+	if err != nil {
+		logging.Debug("AuthAdapter", "Failed to start silent auth flow: %v", err)
+		return err
+	}
+
+	// Open browser for silent auth (should redirect quickly without UI)
+	if err := oauth.OpenBrowser(authURL); err != nil {
+		logging.Debug("AuthAdapter", "Failed to open browser for silent auth: %v", err)
+		return err
+	}
+
+	// Wait for silent auth to complete
+	if err := mgr.WaitForAuth(ctx); err != nil {
+		// Check if this is a silent auth failure (login_required, consent_required, etc.)
+		if mcpoauth.IsSilentAuthError(err) {
+			logging.Debug("AuthAdapter", "Silent re-authentication failed, IdP requires interaction: %v", err)
+			return err
+		}
+		// Other errors (network, timeout, etc.)
+		logging.Debug("AuthAdapter", "Silent re-authentication failed: %v", err)
+		return err
+	}
+
+	fmt.Printf("\nSuccessfully re-authenticated to %s (silent)\n", endpoint)
+	return nil
+}
+
+// interactiveLogin performs the standard interactive OAuth login flow.
+func (a *AuthAdapter) interactiveLogin(ctx context.Context, mgr *oauth.AuthManager, endpoint string) error {
 	// Start auth flow
 	authURL, err := mgr.StartAuthFlow(ctx)
 	if err != nil {

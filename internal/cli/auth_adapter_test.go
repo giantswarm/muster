@@ -365,3 +365,64 @@ func isAuthRequiredError(err error) bool {
 	var authErr *AuthRequiredError
 	return errors.As(err, &authErr)
 }
+
+func TestAuthAdapterConfig_NoSilentRefresh(t *testing.T) {
+	t.Run("creates adapter with NoSilentRefresh enabled", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+			NoSilentRefresh: true,
+		})
+		if err != nil {
+			t.Fatalf("failed to create adapter: %v", err)
+		}
+		defer adapter.Close()
+
+		if !adapter.noSilentRefresh {
+			t.Error("expected noSilentRefresh to be true")
+		}
+	})
+
+	t.Run("creates adapter with NoSilentRefresh disabled by default", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("failed to create adapter: %v", err)
+		}
+		defer adapter.Close()
+
+		if adapter.noSilentRefresh {
+			t.Error("expected noSilentRefresh to be false by default")
+		}
+	})
+}
+
+func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
+	tmpDir := t.TempDir()
+	adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+		TokenStorageDir: tmpDir,
+	})
+	if err != nil {
+		t.Fatalf("failed to create adapter: %v", err)
+	}
+	defer adapter.Close()
+
+	// Initially false
+	if adapter.noSilentRefresh {
+		t.Error("expected noSilentRefresh to be false initially")
+	}
+
+	// Set to true
+	adapter.SetNoSilentRefresh(true)
+	if !adapter.noSilentRefresh {
+		t.Error("expected noSilentRefresh to be true after setting")
+	}
+
+	// Set back to false
+	adapter.SetNoSilentRefresh(false)
+	if adapter.noSilentRefresh {
+		t.Error("expected noSilentRefresh to be false after unsetting")
+	}
+}

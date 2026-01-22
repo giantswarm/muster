@@ -605,3 +605,55 @@ func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
 		t.Errorf("expected state to remain Unknown, got %s", mgr.GetState())
 	}
 }
+
+func TestAuthFlowOptions(t *testing.T) {
+	t.Run("default options", func(t *testing.T) {
+		opts := &AuthFlowOptions{}
+		if opts.Silent {
+			t.Error("expected Silent to be false by default")
+		}
+		if opts.LoginHint != "" {
+			t.Error("expected LoginHint to be empty by default")
+		}
+		if opts.IDTokenHint != "" {
+			t.Error("expected IDTokenHint to be empty by default")
+		}
+	})
+
+	t.Run("silent mode options", func(t *testing.T) {
+		opts := &AuthFlowOptions{
+			Silent:      true,
+			LoginHint:   "user@example.com",
+			IDTokenHint: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+		}
+		if !opts.Silent {
+			t.Error("expected Silent to be true")
+		}
+		if opts.LoginHint != "user@example.com" {
+			t.Errorf("expected LoginHint to be 'user@example.com', got '%s'", opts.LoginHint)
+		}
+		if opts.IDTokenHint == "" {
+			t.Error("expected IDTokenHint to be set")
+		}
+	})
+}
+
+func TestAuthManager_StartAuthFlowSilent_RequiresPendingState(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	ctx := context.Background()
+
+	// Attempt to start silent auth flow in Unknown state should fail
+	_, err = mgr.StartAuthFlowSilent(ctx, "user@example.com", "")
+	if err == nil {
+		t.Error("expected error when starting silent auth flow in Unknown state")
+	}
+}

@@ -30,15 +30,33 @@ const (
 	ShortAuthCheckTimeout = 5 * time.Second
 )
 
+// AuthHandlerOptions configures the auth handler creation.
+type AuthHandlerOptions struct {
+	// NoSilentRefresh disables silent re-authentication attempts.
+	// When true, Login() always uses interactive authentication.
+	NoSilentRefresh bool
+}
+
 // ensureAuthHandler ensures an auth handler is registered and returns it.
 func ensureAuthHandler() (api.AuthHandler, error) {
+	return ensureAuthHandlerWithOptions(AuthHandlerOptions{})
+}
+
+// ensureAuthHandlerWithOptions ensures an auth handler with options is registered and returns it.
+func ensureAuthHandlerWithOptions(opts AuthHandlerOptions) (api.AuthHandler, error) {
 	handler := api.GetAuthHandler()
 	if handler != nil {
+		// If handler already exists, try to update its silent refresh setting
+		if adapter, ok := handler.(*cli.AuthAdapter); ok {
+			adapter.SetNoSilentRefresh(opts.NoSilentRefresh)
+		}
 		return handler, nil
 	}
 
-	// Create and register the auth adapter
-	adapter, err := cli.NewAuthAdapter()
+	// Create and register the auth adapter with options
+	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
+		NoSilentRefresh: opts.NoSilentRefresh,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize authentication: %w", err)
 	}

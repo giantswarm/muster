@@ -347,6 +347,29 @@ func (m *AuthManager) discoverOAuthMetadata(ctx context.Context, serverURL strin
 // Returns the authorization URL that the user should open in their browser.
 // This should only be called when in AuthStatePendingAuth.
 func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
+	return m.startAuthFlowWithOptions(ctx, nil)
+}
+
+// StartAuthFlowSilent initiates a silent OAuth authentication flow using prompt=none.
+// This attempts re-authentication without user interaction if the user has an active
+// session at the IdP. The loginHint should be the user's email from a previous session.
+//
+// If silent auth fails (user needs to log in), WaitForAuth will return an error
+// that can be detected with mcpoauth.IsSilentAuthError(). The caller should then
+// fall back to interactive authentication via StartAuthFlow().
+//
+// This should only be called when in AuthStatePendingAuth.
+func (m *AuthManager) StartAuthFlowSilent(ctx context.Context, loginHint, idTokenHint string) (string, error) {
+	opts := &AuthFlowOptions{
+		Silent:      true,
+		LoginHint:   loginHint,
+		IDTokenHint: idTokenHint,
+	}
+	return m.startAuthFlowWithOptions(ctx, opts)
+}
+
+// startAuthFlowWithOptions is the internal method that handles both regular and silent auth flows.
+func (m *AuthManager) startAuthFlowWithOptions(ctx context.Context, opts *AuthFlowOptions) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -363,11 +386,12 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 		return "", errors.New("no issuer URL in auth challenge")
 	}
 
-	authURL, waitFn, err := m.client.CompleteAuthFlow(ctx, m.serverURL, issuerURL)
+	authURL, waitFn, err := m.client.CompleteAuthFlowWithOptions(ctx, m.serverURL, issuerURL, opts)
 	if err != nil {
 		slog.Debug("Failed to start OAuth authentication flow",
 			"server_url", m.serverURL,
 			"issuer_url", issuerURL,
+			"silent", opts != nil && opts.Silent,
 			"error", err.Error(),
 		)
 		m.lastError = err
@@ -377,6 +401,7 @@ func (m *AuthManager) StartAuthFlow(ctx context.Context) (string, error) {
 	slog.Debug("OAuth authentication flow started",
 		"server_url", m.serverURL,
 		"issuer_url", issuerURL,
+		"silent", opts != nil && opts.Silent,
 	)
 
 	m.authURL = authURL
