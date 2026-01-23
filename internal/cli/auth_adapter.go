@@ -326,7 +326,9 @@ func (a *AuthAdapter) Login(ctx context.Context, endpoint string) error {
 	a.mu.RUnlock()
 
 	if !noSilent {
-		storedToken := mgr.GetStoredToken()
+		// Use GetStoredTokenForEndpoint to get token including expired ones
+		// We need the id_token from expired tokens for silent re-auth hints
+		storedToken := mgr.GetStoredTokenForEndpoint(endpoint)
 		if storedToken != nil {
 			// We have a previous session - try silent re-authentication
 			if err := a.trySilentReAuth(ctx, mgr, storedToken, endpoint); err == nil {
