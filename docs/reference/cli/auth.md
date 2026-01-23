@@ -457,7 +457,7 @@ Silent re-authentication using OIDC `prompt=none` requires IdP support. Some IdP
 Silent re-authentication works with IdPs that properly support OIDC `prompt=none`:
 
 - **Azure AD / Entra ID**: Full support
-- **Google Identity Platform**: Full support  
+- **Google Identity Platform**: Full support
 - **Okta**: Full support
 - **Auth0**: Full support
 - **Keycloak**: Supported (with session management enabled)

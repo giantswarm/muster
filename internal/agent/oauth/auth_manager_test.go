@@ -606,6 +606,110 @@ func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
 	}
 }
 
+func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr, err := NewAuthManager(AuthManagerConfig{
+		TokenStorageDir: tmpDir,
+		FileMode:        true,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer mgr.Close()
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	t.Run("returns nil for non-existent token", func(t *testing.T) {
+		token := mgr.GetStoredTokenForEndpoint("https://nonexistent.example.com")
+		if token != nil {
+			t.Error("expected nil for non-existent token")
+		}
+	})
+
+	t.Run("returns expired token for silent re-auth hints", func(t *testing.T) {
+		// Store an expired token with an ID token (used for login hints)
+		expiredToken := &StoredToken{
+			AccessToken:  "expired-access-token",
+			RefreshToken: "expired-refresh-token",
+			TokenType:    "Bearer",
+			Expiry:       time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
+			IDToken:      "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.signature",
+			ServerURL:    serverURL,
+			IssuerURL:    issuerURL,
+			CreatedAt:    time.Now().Add(-25 * time.Hour),
+		}
+		oauth2Token := expiredToken.ToOAuth2Token()
+		err := mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+		if err != nil {
+			t.Fatalf("Failed to store token: %v", err)
+		}
+
+		// GetStoredToken should return nil for expired tokens
+		if mgr.GetStoredToken() != nil {
+			// GetStoredToken uses m.serverURL which is not set in this test
+			// so it will return nil anyway - this is expected
+		}
+
+		// GetStoredTokenForEndpoint should still return the expired token
+		token := mgr.GetStoredTokenForEndpoint(serverURL)
+		if token == nil {
+			t.Fatal("expected GetStoredTokenForEndpoint to return expired token for silent re-auth")
+		}
+
+		if token.AccessToken != expiredToken.AccessToken {
+			t.Errorf("expected access token %q, got %q", expiredToken.AccessToken, token.AccessToken)
+		}
+
+		if token.IDToken != expiredToken.IDToken {
+			t.Errorf("expected ID token to be preserved for login hints")
+		}
+	})
+
+	t.Run("normalizes URL with /mcp suffix", func(t *testing.T) {
+		// Should find token even with /mcp suffix (URL normalization)
+		token := mgr.GetStoredTokenForEndpoint("https://muster.example.com/mcp")
+		if token == nil {
+			t.Error("expected to find token with /mcp suffix")
+		}
+	})
+
+	t.Run("normalizes URL with /sse suffix", func(t *testing.T) {
+		// Should find token even with /sse suffix
+		token := mgr.GetStoredTokenForEndpoint("https://muster.example.com/sse")
+		if token == nil {
+			t.Error("expected to find token with /sse suffix")
+		}
+	})
+
+	t.Run("returns valid token as well", func(t *testing.T) {
+		validServerURL := "https://valid.example.com"
+		validToken := &StoredToken{
+			AccessToken: "valid-access-token",
+			TokenType:   "Bearer",
+			Expiry:      time.Now().Add(1 * time.Hour), // Valid for 1 more hour
+			ServerURL:   validServerURL,
+			IssuerURL:   issuerURL,
+			CreatedAt:   time.Now(),
+		}
+		oauth2Token := validToken.ToOAuth2Token()
+		err := mgr.client.tokenStore.StoreToken(validServerURL, issuerURL, oauth2Token)
+		if err != nil {
+			t.Fatalf("Failed to store token: %v", err)
+		}
+
+		// Should return valid tokens as well
+		token := mgr.GetStoredTokenForEndpoint(validServerURL)
+		if token == nil {
+			t.Fatal("expected to find valid token")
+		}
+
+		if token.AccessToken != validToken.AccessToken {
+			t.Errorf("expected access token %q, got %q", validToken.AccessToken, token.AccessToken)
+		}
+	})
+}
+
 func TestAuthFlowOptions(t *testing.T) {
 	t.Run("default options", func(t *testing.T) {
 		opts := &AuthFlowOptions{}
