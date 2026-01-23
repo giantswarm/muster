@@ -420,6 +420,10 @@ This is expected when your IdP session has expired. The IdP returns `login_requi
 
 This happens when silent auth fails and muster retries with interactive auth. This is normal behavior - the first attempt is silent, the second is interactive.
 
+**Symptom:** Silent re-auth never works, always requires clicking in browser
+
+This may be due to your Identity Provider not supporting `prompt=none`. See the [Known Limitations](#silent-re-auth-known-limitations) section below.
+
 **Disable silent auth if problematic:**
 
 ```bash
@@ -431,6 +435,32 @@ muster auth login --no-silent
 auth:
   silent_refresh: false
 ```
+
+### Silent Re-Auth Known Limitations
+
+Silent re-authentication using OIDC `prompt=none` requires IdP support. Some IdPs do not fully support this feature:
+
+#### Dex
+
+**Silent re-authentication does not work with Dex.** This is a known architectural limitation:
+
+- **Dex doesn't maintain browser sessions**: Unlike direct OIDC providers (Azure AD, Google, etc.), Dex acts as a federation layer and doesn't maintain its own session state between requests.
+- **Dex ignores `prompt=none`**: Current Dex versions do not honor the `prompt=none` parameter. Instead of returning `login_required` error or tokens silently, Dex shows its login UI.
+- **Open feature requests**: See [dexidp/dex#990](https://github.com/dexidp/dex/issues/990), [dexidp/dex#4325](https://github.com/dexidp/dex/pull/4325), and [dexidp/dex#4086](https://github.com/dexidp/dex/pull/4086) for ongoing work.
+
+**Impact:** When using Dex (common in Kubernetes environments), you will always need to click in the browser to select your account or confirm login, even if you recently authenticated.
+
+**Workaround:** If your Dex instance uses an OIDC connector (e.g., Azure AD, Google), the upstream IdP may have an active session. While Dex still requires a click, the upstream IdP won't require re-entering credentials if its session is valid.
+
+#### Supported IdPs
+
+Silent re-authentication works with IdPs that properly support OIDC `prompt=none`:
+
+- **Azure AD / Entra ID**: Full support
+- **Google Identity Platform**: Full support
+- **Okta**: Full support
+- **Auth0**: Full support
+- **Keycloak**: Supported (with session management enabled)
 
 ### Token Expired
 

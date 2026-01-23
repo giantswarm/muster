@@ -544,6 +544,15 @@ func (m *AuthManager) GetStoredToken() *StoredToken {
 	return m.client.tokenStore.GetToken(m.serverURL)
 }
 
+// GetStoredTokenForEndpoint returns the stored token for a specific endpoint,
+// including expired tokens. This is used for silent re-authentication where
+// we need the id_token from an expired session for login hints.
+// Note: No mutex is needed here - we only use the endpoint parameter, not struct fields.
+func (m *AuthManager) GetStoredTokenForEndpoint(endpoint string) *StoredToken {
+	normalizedURL := normalizeServerURL(endpoint)
+	return m.client.tokenStore.GetTokenIncludingExpiring(normalizedURL)
+}
+
 // ClearToken clears the stored token for the current server.
 func (m *AuthManager) ClearToken() error {
 	m.mu.Lock()
