@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -436,6 +437,9 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 //
 // If the server returns a 401 during initialization, an AuthRequiredError is returned
 // containing OAuth information that can be used to initiate the authentication flow.
+//
+// If the server uses Teleport authentication, this method obtains an HTTP client
+// configured with Teleport Machine ID certificates from the Teleport handler.
 func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
@@ -448,6 +452,16 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Env:     s.definition.Env,
 		URL:     s.definition.URL,
 		Headers: s.definition.Headers,
+	}
+
+	// If Teleport authentication is configured, get a custom HTTP client
+	if s.definition.Auth != nil && s.definition.Auth.Type == api.AuthTypeTeleport {
+		httpClient, err := s.getTeleportHTTPClient()
+		if err != nil {
+			return fmt.Errorf("failed to get Teleport HTTP client: %w", err)
+		}
+		config.HTTPClient = httpClient
+		s.LogDebug("Using Teleport HTTP client for %s", s.GetName())
 	}
 
 	// Use factory to create the appropriate client type
@@ -557,6 +571,35 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 // connectivity issues and unreachable state tracking.
 func (s *Service) isRemoteServer() bool {
 	return s.definition.Type.IsRemote()
+}
+
+// getTeleportHTTPClient returns an HTTP client configured with Teleport certificates.
+// It uses the Teleport handler registered in the API service locator.
+func (s *Service) getTeleportHTTPClient() (*http.Client, error) {
+	teleportAuth := s.definition.Auth.Teleport
+	if teleportAuth == nil {
+		return nil, fmt.Errorf("teleport auth configured but teleport settings are missing")
+	}
+
+	// Get the Teleport handler from the API service locator
+	teleportHandler := api.GetTeleportClient()
+	if teleportHandler == nil {
+		return nil, fmt.Errorf("teleport client handler not registered")
+	}
+
+	// Determine the identity directory
+	identityDir := teleportAuth.IdentityDir
+	if identityDir == "" {
+		return nil, fmt.Errorf("teleport identityDir is required")
+	}
+
+	// Get the HTTP client from the Teleport handler
+	httpClient, err := teleportHandler.GetHTTPClientForIdentity(identityDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HTTP client for identity %s: %w", identityDir, err)
+	}
+
+	return httpClient, nil
 }
 
 // isTransientConnectivityError checks if an error is a transient network/connectivity

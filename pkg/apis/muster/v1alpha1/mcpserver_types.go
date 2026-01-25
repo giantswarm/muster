@@ -63,11 +63,15 @@ type MCPServerSpec struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 // This enables Single Sign-On (SSO) via token forwarding between muster and
-// downstream MCP servers that share the same Identity Provider.
+// downstream MCP servers that share the same Identity Provider, or Teleport
+// authentication for private installations.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
-	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
-	// +kubebuilder:validation:Enum=oauth;none
+	// Supported values:
+	//   - "oauth": OAuth 2.0/OIDC authentication
+	//   - "teleport": Teleport Application Access with Machine ID certificates
+	//   - "none": No authentication
+	// +kubebuilder:validation:Enum=oauth;teleport;none
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -105,6 +109,38 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty" yaml:"tokenExchange,omitempty"`
+
+	// Teleport configures Teleport authentication for accessing private installations.
+	// This is only used when Type is "teleport".
+	//
+	// When configured, muster uses Teleport Machine ID certificates to establish
+	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
+	Teleport *TeleportAuthConfig `json:"teleport,omitempty" yaml:"teleport,omitempty"`
+}
+
+// TeleportAuthConfig configures Teleport authentication for an MCP server.
+// This enables access to MCP servers on private installations via Teleport
+// Application Access using Machine ID certificates managed by tbot.
+type TeleportAuthConfig struct {
+	// IdentitySecretName is the name of the Kubernetes Secret containing
+	// tbot identity files. The secret should contain: tls.crt, tls.key, ca.crt
+	// Required when running in Kubernetes mode.
+	// Example: tbot-identity-output
+	IdentitySecretName string `json:"identitySecretName,omitempty" yaml:"identitySecretName,omitempty"`
+
+	// IdentitySecretNamespace is the Kubernetes namespace where the identity
+	// secret is located. Defaults to the MCPServer's namespace if not specified.
+	IdentitySecretNamespace string `json:"identitySecretNamespace,omitempty" yaml:"identitySecretNamespace,omitempty"`
+
+	// IdentityDir is the directory containing Teleport identity files.
+	// Used in filesystem mode when certificates are mounted directly.
+	// Example: /var/run/tbot/identity
+	IdentityDir string `json:"identityDir,omitempty" yaml:"identityDir,omitempty"`
+
+	// AppName is the Teleport application name for routing.
+	// This is used to identify which Teleport-protected application to connect to.
+	// Example: mcp-kubernetes
+	AppName string `json:"appName,omitempty" yaml:"appName,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
