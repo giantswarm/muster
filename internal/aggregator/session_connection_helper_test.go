@@ -2,6 +2,8 @@ package aggregator
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"muster/internal/api"
@@ -9,6 +11,46 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
+// mockTeleportClientHandler implements api.TeleportClientHandler for testing.
+type mockTeleportClientHandler struct {
+	httpClient    *http.Client
+	httpTransport *http.Transport
+	err           error
+	// Track calls for verification
+	getClientCalls    int
+	getTransportCalls int
+	getConfigCalls    int
+	lastConfig        api.TeleportClientConfig
+	lastIdentityDir   string
+}
+
+func (m *mockTeleportClientHandler) GetHTTPClientForIdentity(identityDir string) (*http.Client, error) {
+	m.getClientCalls++
+	m.lastIdentityDir = identityDir
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.httpClient, nil
+}
+
+func (m *mockTeleportClientHandler) GetHTTPTransportForIdentity(identityDir string) (*http.Transport, error) {
+	m.getTransportCalls++
+	m.lastIdentityDir = identityDir
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.httpTransport, nil
+}
+
+func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, config api.TeleportClientConfig) (*http.Client, error) {
+	m.getConfigCalls++
+	m.lastConfig = config
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.httpClient, nil
+}
 
 func TestGetIDTokenForForwarding(t *testing.T) {
 	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
@@ -367,5 +409,116 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
 		assert.Nil(t, result)
+	})
+
+	t.Run("returns http client when handler is registered with identityDir", func(t *testing.T) {
+		expectedClient := &http.Client{}
+		mockHandler := &mockTeleportClientHandler{
+			httpClient: expectedClient,
+		}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+					AppName:     "mcp-kubernetes",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Equal(t, expectedClient, result)
+		assert.Equal(t, 1, mockHandler.getConfigCalls)
+		assert.Equal(t, "/var/run/tbot/identity", mockHandler.lastConfig.IdentityDir)
+		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
+	})
+
+	t.Run("returns http client when handler is registered with secret", func(t *testing.T) {
+		expectedClient := &http.Client{}
+		mockHandler := &mockTeleportClientHandler{
+			httpClient: expectedClient,
+		}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentitySecretName:      "tbot-identity-output",
+					IdentitySecretNamespace: "teleport-system",
+					AppName:                 "mcp-kubernetes",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Equal(t, expectedClient, result)
+		assert.Equal(t, 1, mockHandler.getConfigCalls)
+		assert.Equal(t, "tbot-identity-output", mockHandler.lastConfig.IdentitySecretName)
+		assert.Equal(t, "teleport-system", mockHandler.lastConfig.IdentitySecretNamespace)
+		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
+	})
+
+	t.Run("returns nil when handler returns error", func(t *testing.T) {
+		mockHandler := &mockTeleportClientHandler{
+			err: errors.New("failed to load certificates"),
+		}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+					AppName:     "mcp-kubernetes",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+		assert.Equal(t, 1, mockHandler.getConfigCalls)
+	})
+
+	t.Run("returns nil for empty auth type", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "", // Empty type, should not match teleport
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("works without AppName", func(t *testing.T) {
+		expectedClient := &http.Client{}
+		mockHandler := &mockTeleportClientHandler{
+			httpClient: expectedClient,
+		}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+					// No AppName - should still work
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Equal(t, expectedClient, result)
+		assert.Equal(t, "", mockHandler.lastConfig.AppName)
 	})
 }

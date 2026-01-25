@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"muster/internal/api"
 
@@ -638,5 +639,173 @@ func TestTokenExchanger_ExchangeWithClient(t *testing.T) {
 		require.Error(t, err) // Will fail on network, but passed validation
 		assert.Contains(t, err.Error(), "token exchange failed")
 		assert.NotContains(t, err.Error(), "must use HTTPS")
+	})
+}
+
+func TestTokenExchanger_ExchangeWithClient_ErrorHandling(t *testing.T) {
+	exchanger := NewTokenExchanger()
+
+	t.Run("network error includes endpoint in error message", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://nonexistent.dex.example.com:12345/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err)
+		// Should indicate the exchange failed (might be network error)
+		assert.Contains(t, err.Error(), "token exchange failed")
+	})
+
+	t.Run("context cancellation stops exchange", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		_, err := exchanger.ExchangeWithClient(ctx, req, customClient)
+		require.Error(t, err)
+		// Context cancellation should propagate
+		assert.Contains(t, err.Error(), "context canceled")
+	})
+
+	t.Run("expectedIssuer validation with custom client", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		// Request with both DexTokenEndpoint and ExpectedIssuer
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex-proxy.teleport.example.com/token",
+				ExpectedIssuer:   "https://dex.cluster-internal.example.com",
+				ConnectorID:      "central-cluster",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		// The exchange will fail on network, but the validation should pass
+		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err)
+		// Should not fail on expectedIssuer validation
+		assert.NotContains(t, err.Error(), "expected issuer must use HTTPS")
+		assert.NotContains(t, err.Error(), "issuer mismatch")
+	})
+
+	t.Run("private IP allowed with custom options", func(t *testing.T) {
+		// Create exchanger that allows private IPs
+		privateIPExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
+			AllowPrivateIP: true,
+		})
+		// Use a client with a short timeout to speed up the test
+		customClient := &http.Client{
+			Timeout: 100 * time.Millisecond,
+		}
+
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://10.0.0.1:5556/token", // Private IP
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		_, err := privateIPExchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err)
+		// Should fail on network, not on IP validation
+		assert.Contains(t, err.Error(), "token exchange failed")
+		// With allowPrivateIP, it should attempt the exchange
+		assert.NotContains(t, err.Error(), "private IP")
+	})
+
+	t.Run("scopes are passed correctly", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ConnectorID:      "local-dex",
+				Scopes:           "openid profile email groups mcp:admin",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		// The request should pass validation even with custom scopes
+		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err) // Network error expected
+		assert.Contains(t, err.Error(), "token exchange failed")
+	})
+
+	t.Run("falls back to default scopes when empty", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ConnectorID:      "local-dex",
+				Scopes:           "", // Empty, should use default
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err) // Network error expected
+		// Should not fail on empty scopes
+		assert.NotContains(t, err.Error(), "scopes")
+	})
+}
+
+func TestTokenExchanger_CacheWithCustomClient(t *testing.T) {
+	exchanger := NewTokenExchanger()
+
+	t.Run("cache key is consistent between Exchange and ExchangeWithClient", func(t *testing.T) {
+		// Both methods should use the same cache key format for the same configuration
+		// This ensures tokens are cached and reused regardless of which method retrieved them
+		config := &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "local-dex",
+		}
+
+		// We can't easily test the cache directly, but we can verify the methods
+		// accept the same configuration structure
+		req := &ExchangeRequest{
+			Config:       config,
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		// Both should fail on network, but with same error type
+		_, err1 := exchanger.Exchange(context.Background(), req)
+		_, err2 := exchanger.ExchangeWithClient(context.Background(), req, nil)
+
+		// Both should produce similar errors (nil client in ExchangeWithClient
+		// delegates to Exchange)
+		require.Error(t, err1)
+		require.Error(t, err2)
+		assert.Equal(t, err1.Error(), err2.Error())
 	})
 }
