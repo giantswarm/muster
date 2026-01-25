@@ -107,11 +107,11 @@ status:
 |-------|------|----------|-------------|-------------|
 | `enabled` | `boolean` | No | Enable token exchange | Default: `false` |
 | `dexTokenEndpoint` | `string` | Yes* | URL to access Dex's token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
-| `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified |
+| `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
 | `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
 
-**Note**: When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+**Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
 
 #### Status Fields
 

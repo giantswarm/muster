@@ -246,6 +246,67 @@ func TestGetExpectedIssuer(t *testing.T) {
 	})
 }
 
+func TestDeriveIssuerFromTokenEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		expected string
+	}{
+		{
+			name:     "standard /token suffix",
+			endpoint: "https://dex.example.com/token",
+			expected: "https://dex.example.com",
+		},
+		{
+			name:     "with port number",
+			endpoint: "https://dex.example.com:5556/token",
+			expected: "https://dex.example.com:5556",
+		},
+		{
+			name:     "with path prefix",
+			endpoint: "https://dex.example.com/dex/token",
+			expected: "https://dex.example.com/dex",
+		},
+		{
+			name:     "no /token suffix",
+			endpoint: "https://dex.example.com/auth",
+			expected: "https://dex.example.com/auth",
+		},
+		{
+			name:     "trailing slash before token",
+			endpoint: "https://dex.example.com//token",
+			expected: "https://dex.example.com", // Both /token and trailing / are removed
+		},
+		{
+			name:     "empty string",
+			endpoint: "",
+			expected: "",
+		},
+		{
+			name:     "just domain",
+			endpoint: "https://dex.example.com",
+			expected: "https://dex.example.com",
+		},
+		{
+			name:     "with query params removes /token from path",
+			endpoint: "https://dex.example.com/token?foo=bar",
+			expected: "https://dex.example.com?foo=bar", // /token is removed, query params preserved
+		},
+		{
+			name:     "deep path",
+			endpoint: "https://dex.example.com/api/v1/oauth/token",
+			expected: "https://dex.example.com/api/v1/oauth",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := deriveIssuerFromTokenEndpoint(tt.endpoint)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestValidateTokenIssuer(t *testing.T) {
 	// Create a valid JWT with a specific issuer
 	createTestToken := func(issuer string) string {

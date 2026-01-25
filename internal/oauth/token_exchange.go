@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -351,7 +352,11 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 	normalizedExpected := strings.TrimSuffix(expectedIssuer, "/")
 	normalizedActual := strings.TrimSuffix(actualIssuer, "/")
 
-	if normalizedActual != normalizedExpected {
+	// Use constant-time comparison to prevent timing attacks.
+	// While timing attacks on issuer validation are unlikely to be practical,
+	// this provides consistency with other security-sensitive comparisons
+	// in the codebase (e.g., audience matching in mcp-oauth).
+	if subtle.ConstantTimeCompare([]byte(normalizedActual), []byte(normalizedExpected)) != 1 {
 		return fmt.Errorf("token issuer mismatch: expected %q, got %q", normalizedExpected, normalizedActual)
 	}
 
