@@ -2,6 +2,8 @@ package oauth
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"muster/internal/api"
@@ -182,13 +184,174 @@ func TestTokenExchangeConfig(t *testing.T) {
 		config := api.TokenExchangeConfig{
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.remote.example.com/token",
+			ExpectedIssuer:   "https://dex.original.example.com",
 			ConnectorID:      "cluster-a-dex",
 			Scopes:           "openid profile email groups",
 		}
 
 		assert.True(t, config.Enabled)
 		assert.Equal(t, "https://dex.remote.example.com/token", config.DexTokenEndpoint)
+		assert.Equal(t, "https://dex.original.example.com", config.ExpectedIssuer)
 		assert.Equal(t, "cluster-a-dex", config.ConnectorID)
 		assert.Equal(t, "openid profile email groups", config.Scopes)
+	})
+
+	t.Run("supports separate access URL and issuer URL", func(t *testing.T) {
+		// This is the key scenario from issue #303:
+		// - DexTokenEndpoint is the proxy URL used to access Dex
+		// - ExpectedIssuer is the actual Dex issuer URL
+		config := api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex-cluster.proxy.example.com/token", // Via proxy
+			ExpectedIssuer:   "https://dex.cluster.example.com",             // Original issuer
+			ConnectorID:      "upstream-cluster",
+		}
+
+		assert.Equal(t, "https://dex-cluster.proxy.example.com/token", config.DexTokenEndpoint)
+		assert.Equal(t, "https://dex.cluster.example.com", config.ExpectedIssuer)
+		assert.NotEqual(t, config.DexTokenEndpoint, config.ExpectedIssuer)
+	})
+}
+
+func TestGetExpectedIssuer(t *testing.T) {
+	t.Run("returns ExpectedIssuer when explicitly set", func(t *testing.T) {
+		config := &api.TokenExchangeConfig{
+			DexTokenEndpoint: "https://dex-proxy.example.com/token",
+			ExpectedIssuer:   "https://dex.original.example.com",
+		}
+		assert.Equal(t, "https://dex.original.example.com", GetExpectedIssuer(config))
+	})
+
+	t.Run("derives issuer from DexTokenEndpoint when ExpectedIssuer not set", func(t *testing.T) {
+		config := &api.TokenExchangeConfig{
+			DexTokenEndpoint: "https://dex.example.com/token",
+		}
+		assert.Equal(t, "https://dex.example.com", GetExpectedIssuer(config))
+	})
+
+	t.Run("handles /dex/token path correctly", func(t *testing.T) {
+		config := &api.TokenExchangeConfig{
+			DexTokenEndpoint: "https://dex.example.com/dex/token",
+		}
+		assert.Equal(t, "https://dex.example.com/dex", GetExpectedIssuer(config))
+	})
+
+	t.Run("returns empty for nil config", func(t *testing.T) {
+		assert.Equal(t, "", GetExpectedIssuer(nil))
+	})
+
+	t.Run("returns empty for empty config", func(t *testing.T) {
+		config := &api.TokenExchangeConfig{}
+		assert.Equal(t, "", GetExpectedIssuer(config))
+	})
+}
+
+func TestValidateTokenIssuer(t *testing.T) {
+	// Create a valid JWT with a specific issuer
+	createTestToken := func(issuer string) string {
+		// JWT payload with the specified issuer
+		payload := fmt.Sprintf(`{"iss":"%s","sub":"user123","exp":9999999999}`, issuer)
+		// Encode as base64 (header.payload.signature format)
+		encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
+		return "eyJhbGciOiJSUzI1NiJ9." + encodedPayload + ".signature"
+	}
+
+	t.Run("validation passes when issuer matches", func(t *testing.T) {
+		token := createTestToken("https://dex.example.com")
+		err := validateTokenIssuer(token, "https://dex.example.com")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validation passes with trailing slash normalization", func(t *testing.T) {
+		token := createTestToken("https://dex.example.com/")
+		err := validateTokenIssuer(token, "https://dex.example.com")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validation fails when issuer mismatches", func(t *testing.T) {
+		token := createTestToken("https://evil.example.com")
+		err := validateTokenIssuer(token, "https://dex.example.com")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "issuer mismatch")
+		assert.Contains(t, err.Error(), "evil.example.com")
+		assert.Contains(t, err.Error(), "dex.example.com")
+	})
+
+	t.Run("validation skipped when expected issuer is empty", func(t *testing.T) {
+		token := createTestToken("https://any.issuer.com")
+		err := validateTokenIssuer(token, "")
+		assert.NoError(t, err) // No validation when expected is empty
+	})
+
+	t.Run("validation fails for empty token", func(t *testing.T) {
+		err := validateTokenIssuer("", "https://dex.example.com")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "token is empty")
+	})
+
+	t.Run("validation skipped for non-JWT opaque token", func(t *testing.T) {
+		// Opaque tokens (not JWTs) should skip validation
+		err := validateTokenIssuer("opaque-access-token-abc123", "https://dex.example.com")
+		assert.NoError(t, err) // Skips validation for non-JWT tokens
+	})
+
+	t.Run("validation skipped for token with wrong number of parts", func(t *testing.T) {
+		// Token with only 2 parts is not a valid JWT
+		err := validateTokenIssuer("header.payload", "https://dex.example.com")
+		assert.NoError(t, err) // Skips validation for non-JWT tokens
+	})
+}
+
+func TestIsJWTToken(t *testing.T) {
+	t.Run("returns true for valid JWT format", func(t *testing.T) {
+		assert.True(t, isJWTToken("header.payload.signature"))
+	})
+
+	t.Run("returns false for opaque token", func(t *testing.T) {
+		assert.False(t, isJWTToken("opaque-token-abc123"))
+	})
+
+	t.Run("returns false for token with 2 parts", func(t *testing.T) {
+		assert.False(t, isJWTToken("header.payload"))
+	})
+
+	t.Run("returns false for token with 4 parts", func(t *testing.T) {
+		assert.False(t, isJWTToken("a.b.c.d"))
+	})
+
+	t.Run("returns false for empty token", func(t *testing.T) {
+		assert.False(t, isJWTToken(""))
+	})
+}
+
+func TestExtractIssuerFromToken(t *testing.T) {
+	createTestToken := func(payload string) string {
+		encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
+		return "eyJhbGciOiJSUzI1NiJ9." + encodedPayload + ".signature"
+	}
+
+	t.Run("extracts issuer from valid token", func(t *testing.T) {
+		token := createTestToken(`{"iss":"https://dex.example.com","sub":"user123"}`)
+		issuer, err := extractIssuerFromToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, "https://dex.example.com", issuer)
+	})
+
+	t.Run("returns error for token without iss claim", func(t *testing.T) {
+		token := createTestToken(`{"sub":"user123"}`)
+		_, err := extractIssuerFromToken(token)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "iss claim not found")
+	})
+
+	t.Run("returns error for invalid JWT format", func(t *testing.T) {
+		_, err := extractIssuerFromToken("invalid")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid JWT format")
+	})
+
+	t.Run("returns error for empty token", func(t *testing.T) {
+		_, err := extractIssuerFromToken("")
+		require.Error(t, err)
 	})
 }
