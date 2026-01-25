@@ -205,7 +205,7 @@ func TestCertWatcher_IsRelevantFile(t *testing.T) {
 		{"client.key", true},
 		{"ca.crt", true},
 		{"other.txt", false},
-		{"tls.crt", false}, // Not matching custom cert file
+		{"tlscert", false}, // Not matching custom cert file (would be default)
 		{"", false},
 	}
 

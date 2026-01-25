@@ -545,9 +545,9 @@ func TestAdapter_GetHTTPClientForConfig_WithSecret(t *testing.T) {
 			Namespace: "teleport-system",
 		},
 		Data: map[string][]byte{
-			"tls.crt": certPEM,
-			"tls.key": keyPEM,
-			"ca.crt":  caPEM,
+			DefaultCertFile: certPEM,
+			DefaultKeyFile:  keyPEM,
+			DefaultCAFile:   caPEM,
 		},
 	}
 
@@ -584,9 +584,9 @@ func TestAdapter_GetHTTPClientForConfig_SecretMissingCert(t *testing.T) {
 			Namespace: "teleport-system",
 		},
 		Data: map[string][]byte{
-			"tls.key": []byte("key-data"),
-			"ca.crt":  []byte("ca-data"),
-			// Missing tls.crt
+			DefaultKeyFile: []byte("key-data"),
+			DefaultCAFile:  []byte("ca-data"),
+			// Missing tlscert
 		},
 	}
 
@@ -606,7 +606,7 @@ func TestAdapter_GetHTTPClientForConfig_SecretMissingCert(t *testing.T) {
 
 	_, err := adapter.GetHTTPClientForConfig(ctx, config)
 	if err == nil {
-		t.Error("Expected error when secret is missing tls.crt")
+		t.Error("Expected error when secret is missing tlscert")
 	}
 }
 
@@ -783,9 +783,9 @@ func TestAdapter_CloseWithSecretProviders(t *testing.T) {
 			Namespace: "teleport-system",
 		},
 		Data: map[string][]byte{
-			"tls.crt": certPEM,
-			"tls.key": keyPEM,
-			"ca.crt":  caPEM,
+			DefaultCertFile: certPEM,
+			DefaultKeyFile:  keyPEM,
+			DefaultCAFile:   caPEM,
 		},
 	}
 
@@ -833,9 +833,9 @@ func TestAdapter_SecretProviderCaching(t *testing.T) {
 			Namespace: "teleport-system",
 		},
 		Data: map[string][]byte{
-			"tls.crt": certPEM,
-			"tls.key": keyPEM,
-			"ca.crt":  caPEM,
+			DefaultCertFile: certPEM,
+			DefaultKeyFile:  keyPEM,
+			DefaultCAFile:   caPEM,
 		},
 	}
 

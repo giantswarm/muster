@@ -31,26 +31,29 @@ type TeleportConfig struct {
 	WatchInterval time.Duration
 
 	// CertFile is the path to the client certificate file (relative to IdentityDir).
-	// Defaults to "tls.crt" if not specified.
+	// Defaults to "tlscert" if not specified (matching tbot's application output).
 	CertFile string
 
 	// KeyFile is the path to the client private key file (relative to IdentityDir).
-	// Defaults to "tls.key" if not specified.
+	// Defaults to "key" if not specified (matching tbot's application output).
 	KeyFile string
 
 	// CAFile is the path to the CA certificate file (relative to IdentityDir).
-	// Defaults to "ca.crt" if not specified.
+	// Defaults to "teleport-application-ca.pem" if not specified (matching tbot's application output).
 	CAFile string
 }
 
 // DefaultCertFile is the default filename for the client certificate.
-const DefaultCertFile = "tls.crt"
+// This matches tbot's application output type which produces "tlscert".
+const DefaultCertFile = "tlscert"
 
 // DefaultKeyFile is the default filename for the client private key.
-const DefaultKeyFile = "tls.key"
+// This matches tbot's application output type which produces "key".
+const DefaultKeyFile = "key"
 
 // DefaultCAFile is the default filename for the CA certificate.
-const DefaultCAFile = "ca.crt"
+// This matches tbot's application output type which produces "teleport-application-ca.pem".
+const DefaultCAFile = "teleport-application-ca.pem"
 
 // DefaultWatchInterval is the default interval for checking certificate changes.
 const DefaultWatchInterval = 30 * time.Second

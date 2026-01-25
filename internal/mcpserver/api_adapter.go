@@ -140,6 +140,15 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
 			}
 		}
+		// Convert Teleport config if present
+		if server.Spec.Auth.Teleport != nil {
+			info.Auth.Teleport = &api.TeleportAuth{
+				IdentityDir:             server.Spec.Auth.Teleport.IdentityDir,
+				IdentitySecretName:      server.Spec.Auth.Teleport.IdentitySecretName,
+				IdentitySecretNamespace: server.Spec.Auth.Teleport.IdentitySecretNamespace,
+				AppName:                 server.Spec.Auth.Teleport.AppName,
+			}
+		}
 	}
 
 	// Generate user-friendly status message based on state and error
@@ -229,6 +238,37 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		},
 	}
 
+	// Convert auth configuration if present
+	if req.Auth != nil {
+		crd.Spec.Auth = &musterv1alpha1.MCPServerAuth{
+			Type:              req.Auth.Type,
+			ForwardToken:      req.Auth.ForwardToken,
+			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
+			SSO:               req.Auth.SSO,
+		}
+
+		// Convert TokenExchange if present
+		if req.Auth.TokenExchange != nil {
+			crd.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
+				Enabled:          req.Auth.TokenExchange.Enabled,
+				DexTokenEndpoint: req.Auth.TokenExchange.DexTokenEndpoint,
+				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
+				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
+				Scopes:           req.Auth.TokenExchange.Scopes,
+			}
+		}
+
+		// Convert Teleport auth if present
+		if req.Auth.Teleport != nil {
+			crd.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
+				IdentityDir:             req.Auth.Teleport.IdentityDir,
+				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
+				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
+				AppName:                 req.Auth.Teleport.AppName,
+			}
+		}
+	}
+
 	return crd
 }
 
@@ -261,6 +301,51 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			"description":          "HTTP headers for remote servers",
 		}},
 		{Name: "timeout", Type: "integer", Required: false, Description: "Connection timeout in seconds"},
+		{Name: "auth", Type: "object", Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
+			"type":        "object",
+			"description": "Authentication configuration (oauth, teleport, or none)",
+			"properties": map[string]interface{}{
+				"type": map[string]interface{}{
+					"type":        "string",
+					"description": "Authentication type: oauth, teleport, or none",
+					"enum":        []string{"oauth", "teleport", "none"},
+				},
+				"forwardToken": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Enable SSO token forwarding (oauth only)",
+				},
+				"fallbackToOwnAuth": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Fall back to server-specific auth on failure",
+				},
+				"sso": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Enable SSO token reuse",
+				},
+				"teleport": map[string]interface{}{
+					"type":        "object",
+					"description": "Teleport authentication configuration",
+					"properties": map[string]interface{}{
+						"identityDir": map[string]interface{}{
+							"type":        "string",
+							"description": "Filesystem path to tbot identity files",
+						},
+						"identitySecretName": map[string]interface{}{
+							"type":        "string",
+							"description": "Kubernetes Secret name containing tbot identity files",
+						},
+						"identitySecretNamespace": map[string]interface{}{
+							"type":        "string",
+							"description": "Kubernetes namespace of the identity secret",
+						},
+						"appName": map[string]interface{}{
+							"type":        "string",
+							"description": "Teleport application name for routing",
+						},
+					},
+				},
+			},
+		}},
 	}
 }
 
@@ -435,6 +520,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Env:         req.Env,
 		Headers:     req.Headers,
 		Timeout:     req.Timeout,
+		Auth:        req.Auth,
 	})
 
 	// Basic validation (more comprehensive validation would be done by the CRD schema)
@@ -538,6 +624,32 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 	if req.Timeout > 0 {
 		existing.Spec.Timeout = req.Timeout
 	}
+	// Update auth configuration if provided
+	if req.Auth != nil {
+		existing.Spec.Auth = &musterv1alpha1.MCPServerAuth{
+			Type:              req.Auth.Type,
+			ForwardToken:      req.Auth.ForwardToken,
+			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
+			SSO:               req.Auth.SSO,
+		}
+		if req.Auth.TokenExchange != nil {
+			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
+				Enabled:          req.Auth.TokenExchange.Enabled,
+				DexTokenEndpoint: req.Auth.TokenExchange.DexTokenEndpoint,
+				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
+				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
+				Scopes:           req.Auth.TokenExchange.Scopes,
+			}
+		}
+		if req.Auth.Teleport != nil {
+			existing.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
+				IdentityDir:             req.Auth.Teleport.IdentityDir,
+				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
+				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
+				AppName:                 req.Auth.Teleport.AppName,
+			}
+		}
+	}
 
 	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
@@ -605,6 +717,10 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		if server.Spec.Command == "" {
 			return fmt.Errorf("command is required for stdio type")
 		}
+		// Auth is not supported for stdio servers
+		if server.Spec.Auth != nil && server.Spec.Auth.Type != "" && server.Spec.Auth.Type != "none" {
+			return fmt.Errorf("auth configuration is only supported for remote server types (streamable-http or sse)")
+		}
 	case string(api.MCPServerTypeStreamableHTTP), string(api.MCPServerTypeSSE):
 		if server.Spec.URL == "" {
 			return fmt.Errorf("url is required for streamable-http and sse types")
@@ -613,6 +729,32 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
 			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
+	}
+
+	// Validate Teleport auth configuration if present
+	if server.Spec.Auth != nil && server.Spec.Auth.Type == api.AuthTypeTeleport {
+		if err := a.validateTeleportAuth(server.Spec.Auth.Teleport); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateTeleportAuth validates Teleport authentication configuration
+func (a *Adapter) validateTeleportAuth(teleport *musterv1alpha1.TeleportAuthConfig) error {
+	if teleport == nil {
+		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
+	}
+
+	// Validate mutual exclusivity
+	if teleport.IdentityDir != "" && teleport.IdentitySecretName != "" {
+		return fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
+	}
+
+	// Require at least one identity source
+	if teleport.IdentityDir == "" && teleport.IdentitySecretName == "" {
+		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
 	}
 
 	return nil

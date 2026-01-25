@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2026-01-22T08:07:57+01:00",
+  "generated_at": "2026-01-25T23:07:25+01:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -115,6 +115,55 @@
               },
               "type": "array"
             },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "fallbackToOwnAuth": {
+                  "description": "Fall back to server-specific auth on failure",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "sso": {
+                  "description": "Enable SSO token reuse",
+                  "type": "boolean"
+                },
+                "teleport": {
+                  "description": "Teleport authentication configuration",
+                  "properties": {
+                    "appName": {
+                      "description": "Teleport application name for routing",
+                      "type": "string"
+                    },
+                    "identityDir": {
+                      "description": "Filesystem path to tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretName": {
+                      "description": "Kubernetes Secret name containing tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretNamespace": {
+                      "description": "Kubernetes namespace of the identity secret",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, teleport, or none",
+                  "enum": [
+                    "oauth",
+                    "teleport",
+                    "none"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether server should auto-start",
               "type": "boolean"
@@ -218,6 +267,55 @@
               },
               "type": "array"
             },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "fallbackToOwnAuth": {
+                  "description": "Fall back to server-specific auth on failure",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "sso": {
+                  "description": "Enable SSO token reuse",
+                  "type": "boolean"
+                },
+                "teleport": {
+                  "description": "Teleport authentication configuration",
+                  "properties": {
+                    "appName": {
+                      "description": "Teleport application name for routing",
+                      "type": "string"
+                    },
+                    "identityDir": {
+                      "description": "Filesystem path to tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretName": {
+                      "description": "Kubernetes Secret name containing tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretNamespace": {
+                      "description": "Kubernetes namespace of the identity secret",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, teleport, or none",
+                  "enum": [
+                    "oauth",
+                    "teleport",
+                    "none"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "autoStart": {
               "description": "Whether server should auto-start",
               "type": "boolean"
@@ -279,6 +377,55 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "fallbackToOwnAuth": {
+                  "description": "Fall back to server-specific auth on failure",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "sso": {
+                  "description": "Enable SSO token reuse",
+                  "type": "boolean"
+                },
+                "teleport": {
+                  "description": "Teleport authentication configuration",
+                  "properties": {
+                    "appName": {
+                      "description": "Teleport application name for routing",
+                      "type": "string"
+                    },
+                    "identityDir": {
+                      "description": "Filesystem path to tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretName": {
+                      "description": "Kubernetes Secret name containing tbot identity files",
+                      "type": "string"
+                    },
+                    "identitySecretNamespace": {
+                      "description": "Kubernetes namespace of the identity secret",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, teleport, or none",
+                  "enum": [
+                    "oauth",
+                    "teleport",
+                    "none"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
             },
             "autoStart": {
               "description": "Whether server should auto-start",

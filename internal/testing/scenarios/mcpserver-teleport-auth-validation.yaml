@@ -1,0 +1,100 @@
+name: "mcpserver-teleport-auth-validation"
+description: "Test validation for MCP servers with Teleport authentication configuration"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "teleport", "validation", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "validate-teleport-mutual-exclusivity"
+  description: "Try to create server with both identityDir and identitySecretName (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-mutual-exclusive"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        identitySecretName: "tbot-identity-output"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+- id: "validate-teleport-missing-identity"
+  description: "Try to create Teleport server without any identity source (should fail)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-no-identity"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        appName: "mcp-kubernetes"
+  expected:
+    success: false
+    error_contains: ["identityDir", "identitySecretName"]
+
+- id: "validate-teleport-valid-config"
+  description: "Validate a valid Teleport configuration without creating"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "teleport-valid"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+  expected:
+    success: true
+
+- id: "validate-teleport-identity-dir-only"
+  description: "Validate Teleport config with identity dir only (valid)"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "teleport-identity-dir-only"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+  expected:
+    success: true
+
+- id: "validate-teleport-secret-only"
+  description: "Validate Teleport config with secret only (valid)"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "teleport-secret-only"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identitySecretName: "tbot-identity-output"
+  expected:
+    success: true
+
+- id: "create-teleport-for-stdio-invalid"
+  description: "Try to create a stdio server with Teleport auth (should fail - Teleport is for remote servers only)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-stdio-invalid"
+    type: "stdio"
+    command: "echo"
+    args: ["test"]
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+  expected:
+    success: false
+    error_contains: ["auth"]

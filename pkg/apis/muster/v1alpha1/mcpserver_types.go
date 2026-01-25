@@ -123,7 +123,8 @@ type MCPServerAuth struct {
 // Application Access using Machine ID certificates managed by tbot.
 type TeleportAuthConfig struct {
 	// IdentitySecretName is the name of the Kubernetes Secret containing
-	// tbot identity files. The secret should contain: tls.crt, tls.key, ca.crt
+	// tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
+	// (matching tbot's application output type).
 	// Required when running in Kubernetes mode.
 	// Example: tbot-identity-output
 	IdentitySecretName string `json:"identitySecretName,omitempty" yaml:"identitySecretName,omitempty"`

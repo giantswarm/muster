@@ -175,6 +175,10 @@ type MCPServerCreateRequest struct {
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
+
+	// Auth configures authentication behavior for this MCP server.
+	// This is only relevant for remote servers (streamable-http or sse).
+	Auth *MCPServerAuth `json:"auth,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -212,6 +216,9 @@ type MCPServerUpdateRequest struct {
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
+
+	// Auth configures authentication behavior for this MCP server.
+	Auth *MCPServerAuth `json:"auth,omitempty"`
 }
 
 // MCPServerValidateRequest represents a request to validate an MCP server definition
@@ -249,6 +256,9 @@ type MCPServerValidateRequest struct {
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`
+
+	// Auth configures authentication behavior for this MCP server.
+	Auth *MCPServerAuth `json:"auth,omitempty"`
 }
 
 // Workflow Request Types

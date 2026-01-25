@@ -22,10 +22,10 @@ type TeleportClientHandler interface {
 	// GetHTTPClientForIdentity returns an HTTP client configured with Teleport
 	// certificates from the specified identity directory.
 	//
-	// The identity directory should contain:
-	//   - tls.crt: Client certificate
-	//   - tls.key: Client private key
-	//   - ca.crt: Teleport CA certificate
+	// The identity directory should contain tbot application output files:
+	//   - tlscert: Client certificate
+	//   - key: Client private key
+	//   - teleport-application-ca.pem: Teleport CA certificate
 	//
 	// The returned client uses mutual TLS and trusts the Teleport CA.
 	//
@@ -98,7 +98,7 @@ type TeleportAuth struct {
 
 	// IdentitySecretName is the name of the Kubernetes Secret containing
 	// tbot identity files. Used when running in Kubernetes mode.
-	// The secret should contain: tls.crt, tls.key, ca.crt
+	// The secret should contain: tlscert, key, teleport-application-ca.pem
 	// Example: tbot-identity-output
 	IdentitySecretName string `yaml:"identitySecretName,omitempty" json:"identitySecretName,omitempty"`
 

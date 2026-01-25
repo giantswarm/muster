@@ -63,13 +63,26 @@ spec:
 
 ## Identity File Format
 
-tbot outputs identity files that Muster expects in the following format:
+Muster uses tbot's `application` output type files. When you configure tbot with an application output, it produces:
 
 | File | Description |
 |------|-------------|
-| `tls.crt` | Client certificate |
-| `tls.key` | Client private key |
-| `ca.crt` | Teleport CA certificate |
+| `tlscert` | Client certificate |
+| `key` | Client private key |
+| `teleport-application-ca.pem` | Teleport CA certificate |
+
+### tbot Configuration
+
+Configure tbot with an `application` output type:
+
+```yaml
+outputs:
+  - type: application
+    app_name: mcp-kubernetes
+    destination:
+      type: directory
+      path: /var/run/teleport/identity
+```
 
 ### Creating the Kubernetes Secret
 
@@ -77,9 +90,9 @@ If tbot doesn't directly create a Kubernetes Secret, you can create one manually
 
 ```bash
 kubectl create secret generic tbot-identity-output \
-  --from-file=tls.crt=/var/run/tbot/identity/tls.crt \
-  --from-file=tls.key=/var/run/tbot/identity/tls.key \
-  --from-file=ca.crt=/var/run/tbot/identity/ca.crt \
+  --from-file=tlscert=/var/run/tbot/identity/tlscert \
+  --from-file=key=/var/run/tbot/identity/key \
+  --from-file=teleport-application-ca.pem=/var/run/tbot/identity/teleport-application-ca.pem \
   -n teleport-system
 ```
 
@@ -93,9 +106,9 @@ metadata:
   namespace: teleport-system
 type: Opaque
 data:
-  tls.crt: <base64-encoded-cert>
-  tls.key: <base64-encoded-key>
-  ca.crt: <base64-encoded-ca>
+  tlscert: <base64-encoded-cert>
+  key: <base64-encoded-key>
+  teleport-application-ca.pem: <base64-encoded-ca>
 ```
 
 ## Configuration Options
@@ -121,13 +134,15 @@ In Kubernetes mode, certificate updates require restarting the affected MCP serv
 
 This error means the Teleport adapter was not initialized. Ensure Muster is running with the correct configuration. The adapter is automatically registered during startup.
 
-### "secret missing tls.crt/tls.key/ca.crt"
+### "secret missing tlscert/key/teleport-application-ca.pem"
 
 The Kubernetes Secret doesn't contain the required certificate files. Verify the secret contents:
 
 ```bash
 kubectl get secret tbot-identity-output -n teleport-system -o yaml
 ```
+
+Ensure tbot is configured with `type: application` output, which produces these files.
 
 ### "failed to get Teleport HTTP client"
 
@@ -195,21 +210,23 @@ spec:
 ```yaml
 # tbot.yaml
 version: v2
+proxy_server: teleport.example.com:443
 onboarding:
   join_method: kubernetes
   token: tbot-token
 storage:
-  type: kubernetes-secret
-  name: tbot-identity-output
-  namespace: teleport-system
+  type: memory
 outputs:
   - type: application
     app_name: mcp-kubernetes
     destination:
-      type: kubernetes-secret
-      name: tbot-identity-output
-      namespace: teleport-system
+      type: directory
+      path: /var/run/teleport/identity
+renewal_interval: 20m
+certificate_ttl: 1h
 ```
+
+This configuration produces files: `tlscert`, `key`, and `teleport-application-ca.pem` in the output directory.
 
 3. **Create the MCPServer**:
 
