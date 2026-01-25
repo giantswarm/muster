@@ -95,11 +95,23 @@ status:
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
+| `type` | `string` | No | Authentication type | Must be `oauth`, `teleport`, or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
 | `sso` | `boolean` | No | Enable SSO token reuse between servers with same issuer | Default: `true` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
+| `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
+
+#### TeleportAuth Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `identityDir` | `string` | No* | Filesystem path to tbot identity directory | Mutually exclusive with `identitySecretName` |
+| `identitySecretName` | `string` | No* | Name of Kubernetes Secret with tbot identity | Mutually exclusive with `identityDir` |
+| `identitySecretNamespace` | `string` | No | Namespace of identity secret | Default: same as MCPServer |
+| `appName` | `string` | No | Teleport application name for routing | Used in Host header |
+
+*Note: Either `identityDir` or `identitySecretName` must be specified
 
 #### TokenExchangeConfig Fields
 
@@ -271,7 +283,7 @@ connectors:
       insecureEnableGroups: true
 ```
 
-#### Cross-Cluster SSO via Proxy (Teleport, VPN)
+#### Cross-Cluster SSO via Proxy (OAuth Token Forwarding)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -288,21 +300,115 @@ spec:
     type: oauth
     tokenExchange:
       enabled: true
-      # Access URL goes through Teleport proxy
-      dexTokenEndpoint: "https://dex.private-cluster.teleport.example.com/token"
+      # Access URL goes through proxy
+      dexTokenEndpoint: "https://dex.private-cluster.proxy.example.com/token"
       # Expected issuer is the actual Dex issuer (not the proxy URL)
       expectedIssuer: "https://dex.private-cluster.internal.example.com"
       connectorId: "management-cluster-dex"
     fallbackToOwnAuth: true
 ```
 
-When accessing Dex through a proxy (e.g., Teleport Application Access):
+When accessing Dex through a proxy (e.g., VPN, HTTP proxy):
 - `dexTokenEndpoint`: The proxy URL used to reach Dex's token endpoint
 - `expectedIssuer`: The actual issuer URL configured in Dex (used for token validation)
 
 This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. Muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
 
 > **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
+
+#### Teleport Application Access with Token Exchange (Private Installations)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: private-cluster-mcp
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "private"
+  description: "MCP server on private cluster via Teleport with cross-cluster SSO"
+  # MCP server URL is accessed via Teleport
+  url: "https://mcp-kubernetes.private-cluster.teleport.example.com/mcp"
+  timeout: 60
+  auth:
+    # Teleport provides the network access layer (mutual TLS)
+    type: teleport
+    teleport:
+      # Kubernetes Secret containing tbot identity files
+      identitySecretName: tbot-private-cluster
+      identitySecretNamespace: muster-system
+      # Teleport application name for routing
+      appName: mcp-kubernetes-private
+    # Token exchange provides user identity (cross-cluster SSO)
+    tokenExchange:
+      enabled: true
+      # Token endpoint accessed via Teleport
+      dexTokenEndpoint: "https://dex.private-cluster.teleport.example.com/token"
+      # Expected issuer is the actual Dex issuer URL
+      expectedIssuer: "https://dex.private-cluster.internal.example.com"
+      connectorId: "management-cluster-dex"
+      scopes: "openid profile email groups"
+    fallbackToOwnAuth: false
+```
+
+This configuration combines:
+
+1. **Teleport Authentication (`auth.type: teleport`)**: Provides encrypted network access to private installations
+   - Uses Machine ID certificates for mutual TLS authentication
+   - Supports both filesystem identity directories and Kubernetes Secrets
+   - Routes requests through Teleport Application Access
+
+2. **Token Exchange (`auth.tokenExchange`)**: Provides user identity via RFC 8693
+   - Exchanges local user token for one valid on remote cluster's Dex
+   - Preserves user identity for RBAC on the remote cluster
+   - Token exchange request uses the Teleport HTTP client
+
+The complete flow:
+```
+User authenticates to muster (local Dex)
+    ↓
+Muster loads Teleport identity certificates
+    ↓
+Token exchange request via Teleport → Remote Dex
+    ↓
+Remote Dex validates token via OIDC connector
+    ↓
+Remote Dex issues new token with user identity
+    ↓
+MCP server call via Teleport with exchanged token
+    ↓
+Remote MCP server authenticates user for RBAC
+```
+
+**Prerequisites for Teleport + Token Exchange:**
+
+1. **tbot (Teleport Machine ID)** configured to output identity files:
+   ```yaml
+   # Kubernetes Secret created by tbot
+   apiVersion: v1
+   kind: Secret
+   metadata:
+     name: tbot-private-cluster
+     namespace: muster-system
+   data:
+     tlscert: <base64-encoded-client-cert>
+     key: <base64-encoded-private-key>
+     teleport-application-ca.pem: <base64-encoded-ca-cert>
+   ```
+
+2. **Remote Dex** configured with OIDC connector for local cluster:
+   ```yaml
+   connectors:
+     - type: oidc
+       id: management-cluster-dex
+       name: "Management Cluster"
+       config:
+         issuer: https://dex.management-cluster.example.com
+         getUserInfo: true
+         insecureEnableGroups: true
+   ```
+
+3. **Teleport Application Access** configured for both Dex and MCP server
 
 #### Troubleshooting Token Exchange
 

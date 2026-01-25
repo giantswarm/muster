@@ -130,6 +130,60 @@ type ExchangeResult struct {
 	FromCache bool
 }
 
+// validateExchangeRequest validates the exchange request and returns an error if invalid.
+// This is used by both Exchange and ExchangeWithClient to ensure consistent validation.
+func validateExchangeRequest(req *ExchangeRequest) error {
+	if req == nil {
+		return fmt.Errorf("exchange request is nil")
+	}
+	if req.Config == nil {
+		return fmt.Errorf("token exchange config is nil")
+	}
+	if !req.Config.Enabled {
+		return fmt.Errorf("token exchange is not enabled")
+	}
+	if req.SubjectToken == "" {
+		return fmt.Errorf("subject token is required")
+	}
+	if req.Config.DexTokenEndpoint == "" {
+		return fmt.Errorf("dex token endpoint is required")
+	}
+	// Security: Enforce HTTPS for token endpoints
+	// This prevents token leakage over insecure connections and MITM attacks.
+	// Note: The underlying mcp-oauth library also enforces HTTPS, so this is
+	// a defense-in-depth check that provides a clearer error message.
+	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
+		return fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
+	}
+	// Security: Enforce HTTPS for expectedIssuer when explicitly set.
+	// This is defense-in-depth: the CRD has schema validation, but we also
+	// validate in code to protect against bypasses (direct API, config files,
+	// older CRD versions without validation).
+	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
+		return fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
+	}
+	if req.Config.ConnectorID == "" {
+		return fmt.Errorf("connector ID is required")
+	}
+	if req.UserID == "" {
+		return fmt.Errorf("user ID is required for cache key generation")
+	}
+	return nil
+}
+
+// getExchangeDefaults returns the token type and scopes with defaults applied.
+func getExchangeDefaults(req *ExchangeRequest) (tokenType, scopes string) {
+	tokenType = req.SubjectTokenType
+	if tokenType == "" {
+		tokenType = oidc.TokenTypeIDToken
+	}
+	scopes = req.Config.Scopes
+	if scopes == "" {
+		scopes = DefaultOIDCScopes
+	}
+	return tokenType, scopes
+}
+
 // Exchange exchanges a local token for a token valid on a remote cluster.
 // The token is cached to reduce the number of exchange requests.
 //
@@ -139,53 +193,11 @@ type ExchangeResult struct {
 //
 // Returns the exchanged token or an error if exchange fails.
 func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*ExchangeResult, error) {
-	if req == nil {
-		return nil, fmt.Errorf("exchange request is nil")
-	}
-	if req.Config == nil {
-		return nil, fmt.Errorf("token exchange config is nil")
-	}
-	if !req.Config.Enabled {
-		return nil, fmt.Errorf("token exchange is not enabled")
-	}
-	if req.SubjectToken == "" {
-		return nil, fmt.Errorf("subject token is required")
-	}
-	if req.Config.DexTokenEndpoint == "" {
-		return nil, fmt.Errorf("dex token endpoint is required")
-	}
-	// Security: Enforce HTTPS for token endpoints
-	// This prevents token leakage over insecure connections and MITM attacks.
-	// Note: The underlying mcp-oauth library also enforces HTTPS, so this is
-	// a defense-in-depth check that provides a clearer error message.
-	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
-		return nil, fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
-	}
-	// Security: Enforce HTTPS for expectedIssuer when explicitly set.
-	// This is defense-in-depth: the CRD has schema validation, but we also
-	// validate in code to protect against bypasses (direct API, config files,
-	// older CRD versions without validation).
-	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
-		return nil, fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
-	}
-	if req.Config.ConnectorID == "" {
-		return nil, fmt.Errorf("connector ID is required")
-	}
-	if req.UserID == "" {
-		return nil, fmt.Errorf("user ID is required for cache key generation")
+	if err := validateExchangeRequest(req); err != nil {
+		return nil, err
 	}
 
-	// Default token type to ID token
-	tokenType := req.SubjectTokenType
-	if tokenType == "" {
-		tokenType = oidc.TokenTypeIDToken
-	}
-
-	// Default scopes if not specified
-	scopes := req.Config.Scopes
-	if scopes == "" {
-		scopes = DefaultOIDCScopes
-	}
+	tokenType, scopes := getExchangeDefaults(req)
 
 	// Check cache first
 	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
@@ -237,6 +249,101 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s",
+		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+
+	return &ExchangeResult{
+		AccessToken:     resp.AccessToken,
+		IssuedTokenType: resp.IssuedTokenType,
+		FromCache:       false,
+	}, nil
+}
+
+// ExchangeWithClient exchanges a local token for a token valid on a remote cluster using
+// a custom HTTP client. This is used when the token exchange endpoint is accessed via
+// Teleport Application Access, which requires mutual TLS authentication.
+//
+// The httpClient parameter should be configured with the appropriate TLS certificates
+// (e.g., Teleport Machine ID certificates). If nil, uses the default exchanger client.
+//
+// Args:
+//   - ctx: Context for cancellation and timeouts
+//   - req: Exchange request parameters
+//   - httpClient: Custom HTTP client with Teleport TLS certificates (or nil for default)
+//
+// Returns the exchanged token or an error if exchange fails.
+func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRequest, httpClient *http.Client) (*ExchangeResult, error) {
+	// If no custom client provided, use the default Exchange method
+	if httpClient == nil {
+		return e.Exchange(ctx, req)
+	}
+
+	// Validate request using shared validation logic (DRY)
+	if err := validateExchangeRequest(req); err != nil {
+		return nil, err
+	}
+
+	tokenType, scopes := getExchangeDefaults(req)
+
+	// Check cache first (same cache key as normal exchange)
+	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
+	if cached := e.cache.Get(cacheKey); cached != nil {
+		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s (with custom client)",
+			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+		return &ExchangeResult{
+			AccessToken:     cached.AccessToken,
+			IssuedTokenType: cached.IssuedTokenType,
+			FromCache:       true,
+		}, nil
+	}
+
+	// Create a temporary TokenExchangeClient with the custom HTTP client
+	// This is efficient because:
+	// 1. Cache hit above means we rarely reach this code path
+	// 2. Creating the client is cheap (just wraps the HTTP client)
+	tempClient := oidc.NewTokenExchangeClientWithOptions(oidc.TokenExchangeClientOptions{
+		Logger:         e.logger,
+		AllowPrivateIP: e.allowPrivateIP,
+		HTTPClient:     httpClient,
+	})
+
+	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s (with custom client)",
+		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
+
+	// Perform the exchange with the custom client
+	resp, err := tempClient.Exchange(ctx, oidc.TokenExchangeRequest{
+		TokenEndpoint:      req.Config.DexTokenEndpoint,
+		SubjectToken:       req.SubjectToken,
+		SubjectTokenType:   tokenType,
+		ConnectorID:        req.Config.ConnectorID,
+		Scope:              scopes,
+		RequestedTokenType: oidc.TokenTypeAccessToken,
+	})
+	if err != nil {
+		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
+			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+		return nil, fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	// Validate the issuer claim of the exchanged token
+	expectedIssuer := GetExpectedIssuer(req.Config)
+	if expectedIssuer != "" {
+		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
+			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s (with custom client): %v",
+				logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+			return nil, fmt.Errorf("issuer validation failed: %w", err)
+		}
+		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s, with custom client)",
+			logging.TruncateSessionID(req.UserID), expectedIssuer)
+	}
+
+	// Cache the result (same cache as normal exchange)
+	if resp.ExpiresIn > 0 {
+		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
+		logging.Debug("TokenExchange", "Cached exchanged token for user=%s (expires in %ds, with custom client)",
+			logging.TruncateSessionID(req.UserID), resp.ExpiresIn)
+	}
+
+	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s (with custom client)",
 		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
 
 	return &ExchangeResult{

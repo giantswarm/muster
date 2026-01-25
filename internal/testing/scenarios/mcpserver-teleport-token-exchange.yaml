@@ -1,0 +1,340 @@
+name: "mcpserver-teleport-token-exchange"
+description: |
+  Test creating and validating MCP servers with combined Teleport and Token Exchange configuration.
+  
+  This scenario tests the configuration parsing for the private installations flow where:
+  1. Teleport provides the encrypted tunnel to reach private endpoints
+  2. Token Exchange converts the user's local token to one valid on the remote cluster
+  
+  The scenario includes:
+  - Positive tests: Valid configurations with various identity sources and token exchange options
+  - Negative tests: Invalid configurations that should fail at creation time:
+    - Mutually exclusive identity sources (both identityDir and identitySecretName)
+    - Missing identity sources (neither identityDir nor identitySecretName)
+    - Missing teleport settings when auth type is teleport
+    - Teleport auth on stdio servers (invalid combination)
+  
+  Note: Token exchange field validation (dexTokenEndpoint HTTPS, connectorID) happens at runtime
+  when token exchange is attempted, not at MCPServer creation time. This is by design - 
+  configuration can be created before the endpoints exist.
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "teleport", "token-exchange", "rfc8693", "authentication", "core-api"]
+timeout: "1m"
+
+steps:
+# Test valid combined configurations
+- id: "create-teleport-with-token-exchange-identity-dir"
+  description: "Create a streamable-http MCP server with Teleport auth and token exchange using identity directory"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-token-exchange-dir"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        expectedIssuer: "https://dex.cluster.internal.example.com"
+        connectorID: "central-cluster-dex"
+        scopes: "openid profile email groups"
+  expected:
+    success: true
+
+- id: "verify-teleport-token-exchange-dir-created"
+  description: "Verify the Teleport + token exchange server was created correctly"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-token-exchange-dir"
+  expected:
+    success: true
+    json_path:
+      name: "teleport-token-exchange-dir"
+      type: "streamable-http"
+    contains:
+      - "teleport"
+      - "identityDir"
+      - "tokenExchange"
+      - "expectedIssuer"
+      - "connectorID"
+
+- id: "create-teleport-with-token-exchange-secret"
+  description: "Create MCP server with Teleport secret and token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-token-exchange-secret"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identitySecretName: "tbot-identity-output"
+        identitySecretNamespace: "teleport-system"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        expectedIssuer: "https://dex.cluster.internal.example.com"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: true
+
+- id: "verify-teleport-token-exchange-secret-created"
+  description: "Verify the Teleport secret + token exchange server was created correctly"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-token-exchange-secret"
+  expected:
+    success: true
+    contains:
+      - "teleport"
+      - "identitySecretName"
+      - "identitySecretNamespace"
+      - "tokenExchange"
+
+# Note: Token exchange field validation (dexTokenEndpoint, connectorID, HTTPS requirements)
+# happens at runtime when token exchange is attempted, not at MCPServer creation time.
+# This is by design - configuration can be created before the endpoints exist.
+
+# Test valid edge cases
+- id: "create-teleport-token-exchange-optional-issuer"
+  description: "Create server with Teleport + token exchange without optional expectedIssuer"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-no-expected-issuer"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+        # expectedIssuer is optional - will be derived from dexTokenEndpoint
+  expected:
+    success: true
+
+- id: "create-teleport-token-exchange-custom-scopes"
+  description: "Create server with custom scopes for token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-custom-scopes"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+        scopes: "openid profile email groups mcp:admin kubernetes:read"
+  expected:
+    success: true
+
+- id: "verify-custom-scopes-preserved"
+  description: "Verify custom scopes are preserved in the server config"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-te-custom-scopes"
+  expected:
+    success: true
+    contains:
+      - "mcp:admin"
+      - "kubernetes:read"
+
+# Test disabled token exchange with Teleport
+- id: "create-teleport-disabled-token-exchange"
+  description: "Create Teleport server with explicitly disabled token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-disabled"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: false  # Explicitly disabled
+        dexTokenEndpoint: "https://dex.example.com/token"
+        connectorID: "some-connector"
+  expected:
+    success: true
+
+# =============================================================================
+# NEGATIVE TESTS: Invalid configurations that should fail at creation time
+# =============================================================================
+
+# Test: Mutually exclusive identity sources with token exchange
+- id: "negative-both-identity-sources-with-token-exchange"
+  description: "Fail when both identityDir and identitySecretName are specified with token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-both-identity"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        identitySecretName: "tbot-identity-output"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# Test: Missing identity source with token exchange
+- id: "negative-no-identity-source-with-token-exchange"
+  description: "Fail when neither identityDir nor identitySecretName is specified with token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-no-identity"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        appName: "mcp-kubernetes"
+        # Neither identityDir nor identitySecretName specified
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["identityDir", "identitySecretName"]
+
+# Test: Teleport type without teleport settings but with token exchange
+- id: "negative-teleport-type-missing-teleport-settings"
+  description: "Fail when auth type is teleport but teleport settings are missing (even with token exchange)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-missing-settings"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      # teleport settings missing entirely
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["teleport"]
+
+# Test: Validate invalid configuration (using validate instead of create)
+- id: "negative-validate-both-identity-sources"
+  description: "Validate should also reject mutually exclusive identity sources"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "teleport-te-validate-invalid"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        identitySecretName: "also-a-secret"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# Test: Teleport auth on stdio type (invalid combination)
+- id: "negative-teleport-token-exchange-on-stdio"
+  description: "Fail when trying to use Teleport + token exchange on a stdio server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-stdio-invalid"
+    type: "stdio"
+    command: "echo"
+    args: ["test"]
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.example.com/token"
+        connectorID: "local-dex"
+  expected:
+    success: false
+    error_contains: ["auth"]
+
+# =============================================================================
+# END NEGATIVE TESTS
+# =============================================================================
+
+- id: "list-all-teleport-token-exchange-servers"
+  description: "List all created servers to verify they're all registered"
+  tool: "core_mcpserver_list"
+  args: {}
+  expected:
+    success: true
+    contains:
+      - "teleport-token-exchange-dir"
+      - "teleport-token-exchange-secret"
+      - "teleport-te-no-expected-issuer"
+      - "teleport-te-custom-scopes"
+      - "teleport-te-disabled"
+
+cleanup:
+- id: "cleanup-teleport-token-exchange-dir"
+  description: "Delete the Teleport + token exchange identity dir server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-token-exchange-dir"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-token-exchange-secret"
+  description: "Delete the Teleport + token exchange secret server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-token-exchange-secret"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-te-no-expected-issuer"
+  description: "Delete the server without expectedIssuer"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-te-no-expected-issuer"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-te-custom-scopes"
+  description: "Delete the custom scopes server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-te-custom-scopes"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-te-disabled"
+  description: "Delete the disabled token exchange server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-te-disabled"
+  expected:
+    success: true

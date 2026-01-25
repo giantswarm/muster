@@ -113,6 +113,23 @@ type OAuthHandler interface {
 	// Returns the exchanged access token, or an error if exchange fails.
 	ExchangeTokenForRemoteCluster(ctx context.Context, localToken, userID string, config *TokenExchangeConfig) (string, error)
 
+	// ExchangeTokenForRemoteClusterWithClient exchanges a local token for one valid on a remote cluster
+	// using a custom HTTP client. This is used when the token exchange endpoint is accessed via
+	// Teleport Application Access, which requires mutual TLS authentication.
+	//
+	// The httpClient parameter should be configured with the appropriate TLS certificates
+	// (e.g., Teleport Machine ID certificates). If nil, uses the default HTTP client.
+	//
+	// Args:
+	//   - ctx: Context for the operation
+	//   - localToken: The local ID token to exchange
+	//   - userID: The user's unique identifier (from validated JWT 'sub' claim)
+	//   - config: Token exchange configuration for the remote cluster
+	//   - httpClient: Custom HTTP client with Teleport TLS certificates (or nil for default)
+	//
+	// Returns the exchanged access token, or an error if exchange fails.
+	ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *TokenExchangeConfig, httpClient *http.Client) (string, error)
+
 	// Stop stops the OAuth handler and cleans up resources.
 	Stop()
 }
