@@ -238,6 +238,11 @@ func (a *Adapter) RemoveProvider(identityDir string) error {
 //   - IdentityDir is validated to prevent path traversal
 //   - Secret namespace is validated against allowed list
 func (a *Adapter) GetHTTPClientForConfig(ctx context.Context, config api.TeleportClientConfig) (*http.Client, error) {
+	// Validate mutual exclusivity: only one of identityDir or identitySecretName can be specified
+	if config.IdentityDir != "" && config.IdentitySecretName != "" {
+		return nil, fmt.Errorf("identityDir and identitySecretName are mutually exclusive; specify only one")
+	}
+
 	// Validate AppName to prevent header injection
 	if err := ValidateAppName(config.AppName); err != nil {
 		return nil, fmt.Errorf("invalid app name: %w", err)

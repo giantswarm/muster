@@ -595,9 +595,12 @@ func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, erro
 		AppName:                 teleportAuth.AppName,
 	}
 
-	// Validate that at least one identity source is specified
+	// Validate that exactly one identity source is specified (mutual exclusivity)
 	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
 		return nil, fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
+	}
+	if clientConfig.IdentityDir != "" && clientConfig.IdentitySecretName != "" {
+		return nil, fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
 	}
 
 	// Get the HTTP client from the Teleport handler

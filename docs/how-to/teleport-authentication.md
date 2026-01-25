@@ -102,10 +102,12 @@ data:
 
 | Field | Description | Required |
 |-------|-------------|----------|
-| `identityDir` | Filesystem path to tbot identity files | One of identityDir or identitySecretName |
-| `identitySecretName` | Kubernetes Secret name | One of identityDir or identitySecretName |
+| `identityDir` | Filesystem path to tbot identity files | Exactly one of identityDir or identitySecretName (mutually exclusive) |
+| `identitySecretName` | Kubernetes Secret name | Exactly one of identityDir or identitySecretName (mutually exclusive) |
 | `identitySecretNamespace` | Secret namespace | No (defaults to MCPServer namespace) |
 | `appName` | Teleport application name | No (but recommended for routing) |
+
+**Note:** `identityDir` and `identitySecretName` are mutually exclusive. You must specify exactly one of them.
 
 ## Certificate Hot-Reloading
 
