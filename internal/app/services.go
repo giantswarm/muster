@@ -14,6 +14,7 @@ import (
 	"muster/internal/serviceclass"
 	"muster/internal/services"
 	aggregatorService "muster/internal/services/aggregator"
+	"muster/internal/teleport"
 	"muster/internal/workflow"
 	"muster/pkg/logging"
 )
@@ -158,6 +159,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Register event manager adapter using the unified client
 	eventAdapter := events.NewAdapter(musterClient)
 	eventAdapter.Register()
+
+	// Register Teleport client adapter for private installation access
+	// The adapter uses the muster client for Kubernetes secret access when in K8s mode
+	var teleportAdapter *teleport.Adapter
+	if musterClient.IsKubernetesMode() {
+		teleportAdapter = teleport.NewAdapterWithClient(musterClient)
+	} else {
+		teleportAdapter = teleport.NewAdapter()
+	}
+	teleportAdapter.Register()
 
 	// Initialize and register ServiceClass adapter using the muster client
 	serviceClassAdapter := serviceclass.NewAdapterWithClient(musterClient, namespace)

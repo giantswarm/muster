@@ -1,9 +1,15 @@
 package teleport
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
+
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"muster/internal/api"
 	"muster/pkg/logging"
@@ -20,26 +26,50 @@ var _ api.TeleportClientHandler = (*Adapter)(nil)
 type Adapter struct {
 	mu sync.RWMutex
 
+	// k8sClient is an optional Kubernetes client for loading secrets.
+	// When nil, only filesystem-based identity directories are supported.
+	k8sClient client.Client
+
 	// providers maps identity directory paths to their ClientProviders.
 	// This allows sharing providers across MCP servers using the same identity.
 	providers map[string]*ClientProvider
 
+	// secretProviders maps secret names to their ClientProviders.
+	// Key format: "namespace/secretName"
+	secretProviders map[string]*ClientProvider
+
 	// defaultConfig holds default configuration values.
 	defaultConfig TeleportConfig
+
+	// tempDirs tracks temporary directories created for secrets.
+	// These are cleaned up when the adapter is closed.
+	tempDirs []string
 }
 
 // NewAdapter creates a new Teleport API adapter.
 func NewAdapter() *Adapter {
 	return &Adapter{
-		providers: make(map[string]*ClientProvider),
+		providers:       make(map[string]*ClientProvider),
+		secretProviders: make(map[string]*ClientProvider),
+	}
+}
+
+// NewAdapterWithClient creates a new adapter with a Kubernetes client.
+// This enables loading certificates from Kubernetes secrets.
+func NewAdapterWithClient(k8sClient client.Client) *Adapter {
+	return &Adapter{
+		k8sClient:       k8sClient,
+		providers:       make(map[string]*ClientProvider),
+		secretProviders: make(map[string]*ClientProvider),
 	}
 }
 
 // NewAdapterWithDefaults creates a new adapter with default configuration.
 func NewAdapterWithDefaults(defaultConfig TeleportConfig) *Adapter {
 	return &Adapter{
-		providers:     make(map[string]*ClientProvider),
-		defaultConfig: defaultConfig,
+		providers:       make(map[string]*ClientProvider),
+		secretProviders: make(map[string]*ClientProvider),
+		defaultConfig:   defaultConfig,
 	}
 }
 
@@ -192,12 +222,184 @@ func (a *Adapter) RemoveProvider(identityDir string) error {
 	return nil
 }
 
+// GetHTTPClientForConfig returns an HTTP client based on TeleportClientConfig.
+// This method supports both filesystem identity directories and Kubernetes secrets.
+//
+// When IdentitySecretName is specified, certificates are loaded from the Kubernetes secret.
+// Otherwise, certificates are loaded from IdentityDir.
+//
+// If AppName is specified, the returned client will have a custom transport that
+// sets the appropriate Host header for Teleport application routing.
+func (a *Adapter) GetHTTPClientForConfig(ctx context.Context, config api.TeleportClientConfig) (*http.Client, error) {
+	var provider *ClientProvider
+	var err error
+
+	if config.IdentitySecretName != "" {
+		// Load certificates from Kubernetes secret
+		provider, err = a.getOrCreateSecretProvider(ctx, config.IdentitySecretName, config.IdentitySecretNamespace)
+	} else if config.IdentityDir != "" {
+		// Use filesystem-based identity directory
+		provider, err = a.getOrCreateProvider(config.IdentityDir)
+	} else {
+		return nil, fmt.Errorf("either identityDir or identitySecretName must be specified")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the base HTTP client
+	httpClient, err := provider.GetHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+
+	// If AppName is specified, wrap the transport to add the Host header
+	if config.AppName != "" {
+		httpClient = a.wrapClientWithAppName(httpClient, config.AppName)
+	}
+
+	return httpClient, nil
+}
+
+// getOrCreateSecretProvider returns an existing provider or creates a new one from a Kubernetes secret.
+func (a *Adapter) getOrCreateSecretProvider(ctx context.Context, secretName, namespace string) (*ClientProvider, error) {
+	if a.k8sClient == nil {
+		return nil, fmt.Errorf("Kubernetes client not available for secret-based identity")
+	}
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	key := fmt.Sprintf("%s/%s", namespace, secretName)
+
+	// Try to get existing provider with read lock
+	a.mu.RLock()
+	provider, exists := a.secretProviders[key]
+	a.mu.RUnlock()
+
+	if exists {
+		return provider, nil
+	}
+
+	// Need to create a new provider
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if provider, exists = a.secretProviders[key]; exists {
+		return provider, nil
+	}
+
+	// Load secret from Kubernetes
+	secret := &corev1.Secret{}
+	if err := a.k8sClient.Get(ctx, client.ObjectKey{
+		Name:      secretName,
+		Namespace: namespace,
+	}, secret); err != nil {
+		return nil, fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
+	}
+
+	// Extract certificate data from secret
+	certData, ok := secret.Data[DefaultCertFile]
+	if !ok {
+		return nil, fmt.Errorf("secret %s/%s missing %s", namespace, secretName, DefaultCertFile)
+	}
+	keyData, ok := secret.Data[DefaultKeyFile]
+	if !ok {
+		return nil, fmt.Errorf("secret %s/%s missing %s", namespace, secretName, DefaultKeyFile)
+	}
+	caData, ok := secret.Data[DefaultCAFile]
+	if !ok {
+		return nil, fmt.Errorf("secret %s/%s missing %s", namespace, secretName, DefaultCAFile)
+	}
+
+	// Create a temporary directory to store the certificate files
+	// This is required because the ClientProvider expects filesystem paths
+	tempDir, err := os.MkdirTemp("", "teleport-identity-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	a.tempDirs = append(a.tempDirs, tempDir)
+
+	// Write certificate files to temp directory
+	if err := os.WriteFile(filepath.Join(tempDir, DefaultCertFile), certData, 0600); err != nil {
+		return nil, fmt.Errorf("failed to write cert file: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, DefaultKeyFile), keyData, 0600); err != nil {
+		return nil, fmt.Errorf("failed to write key file: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, DefaultCAFile), caData, 0600); err != nil {
+		return nil, fmt.Errorf("failed to write CA file: %w", err)
+	}
+
+	// Create provider with the temp directory
+	config := TeleportConfig{
+		IdentityDir:   tempDir,
+		WatchInterval: DefaultWatchInterval,
+		CertFile:      DefaultCertFile,
+		KeyFile:       DefaultKeyFile,
+		CAFile:        DefaultCAFile,
+	}
+
+	// Don't enable watching for secret-based providers since we manage refresh differently
+	provider, err = NewClientProvider(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Teleport client provider: %w", err)
+	}
+
+	a.secretProviders[key] = provider
+	logging.Info("TeleportAdapter", "Created Teleport client provider from secret: %s", key)
+
+	return provider, nil
+}
+
+// wrapClientWithAppName wraps an HTTP client to add the Host header for Teleport app routing.
+func (a *Adapter) wrapClientWithAppName(httpClient *http.Client, appName string) *http.Client {
+	originalTransport := httpClient.Transport
+	if originalTransport == nil {
+		originalTransport = http.DefaultTransport
+	}
+
+	return &http.Client{
+		Transport: &appNameTransport{
+			base:    originalTransport,
+			appName: appName,
+		},
+		Timeout: httpClient.Timeout,
+	}
+}
+
+// appNameTransport wraps an http.RoundTripper to add the Teleport app Host header.
+type appNameTransport struct {
+	base    http.RoundTripper
+	appName string
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *appNameTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Clone the request to avoid modifying the original
+	reqCopy := req.Clone(req.Context())
+
+	// Set the Host header for Teleport application routing
+	// The app name is used as-is since Teleport uses the Host header
+	// to route to the correct application
+	if t.appName != "" {
+		reqCopy.Host = t.appName
+	}
+
+	return t.base.RoundTrip(reqCopy)
+}
+
 // Close stops all providers and releases resources.
 func (a *Adapter) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	var lastErr error
+
+	// Close filesystem-based providers
 	for dir, provider := range a.providers {
 		if err := provider.Close(); err != nil {
 			logging.Warn("TeleportAdapter", "Error closing provider for %s: %v", dir, err)
@@ -205,7 +407,24 @@ func (a *Adapter) Close() error {
 		}
 	}
 
+	// Close secret-based providers
+	for key, provider := range a.secretProviders {
+		if err := provider.Close(); err != nil {
+			logging.Warn("TeleportAdapter", "Error closing secret provider for %s: %v", key, err)
+			lastErr = err
+		}
+	}
+
+	// Clean up temporary directories
+	for _, tempDir := range a.tempDirs {
+		if err := os.RemoveAll(tempDir); err != nil {
+			logging.Warn("TeleportAdapter", "Error removing temp directory %s: %v", tempDir, err)
+		}
+	}
+
 	a.providers = make(map[string]*ClientProvider)
+	a.secretProviders = make(map[string]*ClientProvider)
+	a.tempDirs = nil
 	logging.Info("TeleportAdapter", "Closed all Teleport client providers")
 
 	return lastErr

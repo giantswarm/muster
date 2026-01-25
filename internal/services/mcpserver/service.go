@@ -456,7 +456,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 
 	// If Teleport authentication is configured, get a custom HTTP client
 	if s.definition.Auth != nil && s.definition.Auth.Type == api.AuthTypeTeleport {
-		httpClient, err := s.getTeleportHTTPClient()
+		httpClient, err := s.getTeleportHTTPClient(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get Teleport HTTP client: %w", err)
 		}
@@ -575,7 +575,7 @@ func (s *Service) isRemoteServer() bool {
 
 // getTeleportHTTPClient returns an HTTP client configured with Teleport certificates.
 // It uses the Teleport handler registered in the API service locator.
-func (s *Service) getTeleportHTTPClient() (*http.Client, error) {
+func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, error) {
 	teleportAuth := s.definition.Auth.Teleport
 	if teleportAuth == nil {
 		return nil, fmt.Errorf("teleport auth configured but teleport settings are missing")
@@ -587,16 +587,23 @@ func (s *Service) getTeleportHTTPClient() (*http.Client, error) {
 		return nil, fmt.Errorf("teleport client handler not registered")
 	}
 
-	// Determine the identity directory
-	identityDir := teleportAuth.IdentityDir
-	if identityDir == "" {
-		return nil, fmt.Errorf("teleport identityDir is required")
+	// Build the client configuration from the MCPServer auth settings
+	clientConfig := api.TeleportClientConfig{
+		IdentityDir:             teleportAuth.IdentityDir,
+		IdentitySecretName:      teleportAuth.IdentitySecretName,
+		IdentitySecretNamespace: teleportAuth.IdentitySecretNamespace,
+		AppName:                 teleportAuth.AppName,
+	}
+
+	// Validate that at least one identity source is specified
+	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
+		return nil, fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
 	}
 
 	// Get the HTTP client from the Teleport handler
-	httpClient, err := teleportHandler.GetHTTPClientForIdentity(identityDir)
+	httpClient, err := teleportHandler.GetHTTPClientForConfig(ctx, clientConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get HTTP client for identity %s: %w", identityDir, err)
+		return nil, fmt.Errorf("failed to get Teleport HTTP client: %w", err)
 	}
 
 	return httpClient, nil

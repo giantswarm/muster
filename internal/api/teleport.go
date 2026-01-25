@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // TeleportClientHandler defines the interface for providing HTTP clients
 // configured with Teleport Machine ID certificates.
@@ -10,7 +13,7 @@ import "net/http"
 // certificate loading, hot-reloading, and HTTP client lifecycle.
 //
 // Implementations should:
-//   - Load TLS certificates from the specified identity directory
+//   - Load TLS certificates from the specified identity directory or Kubernetes secret
 //   - Monitor certificates for changes and reload automatically
 //   - Provide HTTP clients configured with mutual TLS
 //
@@ -45,6 +48,42 @@ type TeleportClientHandler interface {
 	//   - *http.Transport: HTTP transport configured with Teleport certificates
 	//   - error: Error if certificates cannot be loaded or are invalid
 	GetHTTPTransportForIdentity(identityDir string) (*http.Transport, error)
+
+	// GetHTTPClientForConfig returns an HTTP client configured with Teleport
+	// certificates based on TeleportClientConfig, supporting both filesystem
+	// identity directories and Kubernetes secrets.
+	//
+	// When IdentitySecretName is specified, certificates are loaded from the
+	// Kubernetes secret. Otherwise, certificates are loaded from IdentityDir.
+	//
+	// Args:
+	//   - ctx: Context for Kubernetes API calls
+	//   - config: Configuration specifying identity source and options
+	//
+	// Returns:
+	//   - *http.Client: HTTP client configured with Teleport certificates
+	//   - error: Error if certificates cannot be loaded or are invalid
+	GetHTTPClientForConfig(ctx context.Context, config TeleportClientConfig) (*http.Client, error)
+}
+
+// TeleportClientConfig provides configuration for obtaining a Teleport HTTP client.
+// It supports both filesystem-based identity directories and Kubernetes secrets.
+type TeleportClientConfig struct {
+	// IdentityDir is the filesystem path to the tbot identity directory.
+	// Used when running in filesystem mode (local development).
+	IdentityDir string
+
+	// IdentitySecretName is the name of the Kubernetes Secret containing
+	// tbot identity files. Used when running in Kubernetes mode.
+	IdentitySecretName string
+
+	// IdentitySecretNamespace is the namespace of the identity secret.
+	// Defaults to "default" if not specified.
+	IdentitySecretNamespace string
+
+	// AppName is the Teleport application name for routing.
+	// When specified, the HTTP client will include the appropriate Host header.
+	AppName string
 }
 
 // TeleportAuth configures Teleport authentication for an MCP server.
