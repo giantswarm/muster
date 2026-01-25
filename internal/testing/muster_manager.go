@@ -1360,6 +1360,15 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if scopes, ok := tokenExchange["scopes"].(string); ok {
 								tokenExchangeConfig["scopes"] = scopes
 							}
+							// Handle expected_issuer for proxied access scenarios
+							// This allows tests to specify a different issuer than the access URL
+							if expectedIssuer, ok := tokenExchange["expected_issuer"].(string); ok {
+								tokenExchangeConfig["expectedIssuer"] = expectedIssuer
+								if m.debug {
+									m.logger.Debug("🔐 Using explicit expectedIssuer for %s: %s\n",
+										mcpServer.Name, expectedIssuer)
+								}
+							}
 							authConfig["tokenExchange"] = tokenExchangeConfig
 							if m.debug {
 								m.logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
