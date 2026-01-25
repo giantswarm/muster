@@ -304,6 +304,43 @@ This is necessary because Dex's tokens contain the configured issuer URL in the 
 
 > **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
 
+#### Troubleshooting Token Exchange
+
+**Common Issues and Solutions:**
+
+| Symptom | Likely Cause | Solution |
+|---------|--------------|----------|
+| `issuer mismatch: expected "proxy-url", got "actual-issuer"` | Missing `expectedIssuer` for proxied access | Set `expectedIssuer` to the actual Dex issuer URL shown in the error |
+| `token exchange failed: connection refused` | Wrong `dexTokenEndpoint` URL | Verify the endpoint is reachable from muster's network |
+| `token exchange failed: 401 Unauthorized` | Remote Dex doesn't trust local Dex | Configure OIDC connector on remote Dex (see example above) |
+| `token exchange failed: invalid_grant` | Token expired or connector misconfigured | Check token lifetime and connector ID matches |
+
+**Debugging Steps:**
+
+1. **Verify configuration**: Check the MCPServer's token exchange config
+   ```bash
+   kubectl get mcpserver <name> -o yaml | grep -A10 tokenExchange
+   ```
+
+2. **Check muster logs**: Look for token exchange events
+   ```bash
+   kubectl logs -l app=muster | grep -i "token.*exchange"
+   ```
+
+3. **Verify remote Dex connectivity**: Test the token endpoint is reachable
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" https://<dex-endpoint>/.well-known/openid-configuration
+   ```
+
+4. **Check Kubernetes events**: Muster emits events for token exchange
+   ```bash
+   kubectl get events --field-selector involvedObject.kind=MCPServer
+   ```
+
+**Events Reference:**
+- `MCPServerTokenExchanged`: Token exchange succeeded
+- `MCPServerTokenExchangeFailed`: Token exchange failed (check message for details)
+
 ### CLI Usage
 
 ```bash

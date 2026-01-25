@@ -364,7 +364,10 @@ func validateTokenIssuer(token, expectedIssuer string) error {
 	// this provides consistency with other security-sensitive comparisons
 	// in the codebase (e.g., audience matching in mcp-oauth).
 	if subtle.ConstantTimeCompare([]byte(normalizedActual), []byte(normalizedExpected)) != 1 {
-		return fmt.Errorf("token issuer mismatch: expected %q, got %q", normalizedExpected, normalizedActual)
+		// Provide actionable guidance in the error message
+		return fmt.Errorf("token issuer mismatch: expected %q, got %q. "+
+			"Hint: If accessing Dex via a proxy (e.g., Teleport), set 'expectedIssuer' to the actual Dex issuer URL (%q)",
+			normalizedExpected, normalizedActual, normalizedActual)
 	}
 
 	return nil

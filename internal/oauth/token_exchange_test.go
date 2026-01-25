@@ -387,6 +387,9 @@ func TestValidateTokenIssuer(t *testing.T) {
 		assert.Contains(t, err.Error(), "issuer mismatch")
 		assert.Contains(t, err.Error(), "evil.example.com")
 		assert.Contains(t, err.Error(), "dex.example.com")
+		// Verify actionable guidance is included
+		assert.Contains(t, err.Error(), "Hint:")
+		assert.Contains(t, err.Error(), "expectedIssuer")
 	})
 
 	t.Run("error message does not leak token content", func(t *testing.T) {
