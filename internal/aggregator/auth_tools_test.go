@@ -83,6 +83,10 @@ func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteCluster(ctx context.Conte
 	return "", nil
 }
 
+func (m *issuerMockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, localToken, userID string, config *api.TokenExchangeConfig, httpClient *http.Client) (string, error) {
+	return "", nil
+}
+
 func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 	// Register a mock OAuth handler
 	mockHandler := &issuerMockOAuthHandler{

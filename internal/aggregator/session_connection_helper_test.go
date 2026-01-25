@@ -279,3 +279,93 @@ func TestDecodeJWTPayload(t *testing.T) {
 		assert.Contains(t, string(decoded), "test")
 	})
 }
+
+func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns nil for nil serverInfo", func(t *testing.T) {
+		result := getTeleportHTTPClientIfConfigured(ctx, nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil for nil authConfig", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name:       "test-server",
+			AuthConfig: nil,
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil for non-teleport auth type", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil for teleport type without teleport settings", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type:     api.AuthTypeTeleport,
+				Teleport: nil,
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil when no identity source is configured", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					// No IdentityDir or IdentitySecretName
+					AppName: "test-app",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil when both identity sources are configured", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir:        "/var/run/tbot/identity",
+					IdentitySecretName: "tbot-identity",
+					AppName:            "test-app",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns nil when teleport handler is not registered", func(t *testing.T) {
+		// Ensure no handler is registered
+		api.RegisterTeleportClient(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+					AppName:     "test-app",
+				},
+			},
+		}
+		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		assert.Nil(t, result)
+	})
+}

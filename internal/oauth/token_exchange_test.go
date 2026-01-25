@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"muster/internal/api"
@@ -487,5 +488,155 @@ func TestExtractIssuerFromToken(t *testing.T) {
 	t.Run("returns error for empty token", func(t *testing.T) {
 		_, err := extractIssuerFromToken("")
 		require.Error(t, err)
+	})
+}
+
+func TestTokenExchanger_ExchangeWithClient(t *testing.T) {
+	exchanger := NewTokenExchanger()
+
+	t.Run("calls Exchange when httpClient is nil", func(t *testing.T) {
+		// When httpClient is nil, it should delegate to Exchange
+		_, err := exchanger.ExchangeWithClient(context.Background(), nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exchange request is nil")
+	})
+
+	t.Run("returns error for nil request", func(t *testing.T) {
+		// Create a custom HTTP client (even though it won't be used due to nil request)
+		customClient := &http.Client{}
+		_, err := exchanger.ExchangeWithClient(context.Background(), nil, customClient)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exchange request is nil")
+	})
+
+	t.Run("returns error for nil config with custom client", func(t *testing.T) {
+		customClient := &http.Client{}
+		_, err := exchanger.ExchangeWithClient(context.Background(), &ExchangeRequest{
+			Config: nil,
+		}, customClient)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "token exchange config is nil")
+	})
+
+	t.Run("validates request same as Exchange", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		// Test all validation errors same as Exchange
+		testCases := []struct {
+			name    string
+			req     *ExchangeRequest
+			errText string
+		}{
+			{
+				name: "not enabled",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{Enabled: false},
+				},
+				errText: "token exchange is not enabled",
+			},
+			{
+				name: "missing subject token",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "local-dex",
+					},
+					SubjectToken: "",
+				},
+				errText: "subject token is required",
+			},
+			{
+				name: "missing dex token endpoint",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:     true,
+						ConnectorID: "local-dex",
+					},
+					SubjectToken: "test-token",
+				},
+				errText: "dex token endpoint is required",
+			},
+			{
+				name: "non-HTTPS endpoint",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "http://dex.example.com/token",
+						ConnectorID:      "local-dex",
+					},
+					SubjectToken: "test-token",
+					UserID:       "user123",
+				},
+				errText: "dex token endpoint must use HTTPS",
+			},
+			{
+				name: "non-HTTPS expectedIssuer",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ExpectedIssuer:   "http://dex.example.com",
+						ConnectorID:      "local-dex",
+					},
+					SubjectToken: "test-token",
+					UserID:       "user123",
+				},
+				errText: "expected issuer must use HTTPS",
+			},
+			{
+				name: "missing connector ID",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+					},
+					SubjectToken: "test-token",
+					UserID:       "user123",
+				},
+				errText: "connector ID is required",
+			},
+			{
+				name: "missing user ID",
+				req: &ExchangeRequest{
+					Config: &api.TokenExchangeConfig{
+						Enabled:          true,
+						DexTokenEndpoint: "https://dex.example.com/token",
+						ConnectorID:      "local-dex",
+					},
+					SubjectToken: "test-token",
+					UserID:       "",
+				},
+				errText: "user ID is required",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := exchanger.ExchangeWithClient(context.Background(), tc.req, customClient)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errText)
+			})
+		}
+	})
+
+	t.Run("uses custom HTTP client for exchange", func(t *testing.T) {
+		customClient := &http.Client{}
+
+		// Valid request - should fail on network but validation passes
+		req := &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		}
+
+		_, err := exchanger.ExchangeWithClient(context.Background(), req, customClient)
+		require.Error(t, err) // Will fail on network, but passed validation
+		assert.Contains(t, err.Error(), "token exchange failed")
+		assert.NotContains(t, err.Error(), "must use HTTPS")
 	})
 }
