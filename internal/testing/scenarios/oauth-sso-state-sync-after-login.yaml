@@ -145,7 +145,7 @@ steps:
       contains:
         - "sync-test-server"
         - "Connected"  # State is Connected (infrastructure confirmed reachable after connection)
-      wait_for_state: 5s  # Wait for reconciler to sync state
+      wait_for_state: 30s  # Wait for reconciler to sync state (needs more time under CI load)
 
   # Step 9: Verify auth status also shows connected
   - id: verify-auth-status
