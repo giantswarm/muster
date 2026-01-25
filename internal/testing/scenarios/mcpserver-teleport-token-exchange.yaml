@@ -6,8 +6,17 @@ description: |
   1. Teleport provides the encrypted tunnel to reach private endpoints
   2. Token Exchange converts the user's local token to one valid on the remote cluster
   
-  Note: This tests configuration validation only, not actual Teleport connectivity.
-  Real Teleport connectivity requires infrastructure that isn't available in test scenarios.
+  The scenario includes:
+  - Positive tests: Valid configurations with various identity sources and token exchange options
+  - Negative tests: Invalid configurations that should fail at creation time:
+    - Mutually exclusive identity sources (both identityDir and identitySecretName)
+    - Missing identity sources (neither identityDir nor identitySecretName)
+    - Missing teleport settings when auth type is teleport
+    - Teleport auth on stdio servers (invalid combination)
+  
+  Note: Token exchange field validation (dexTokenEndpoint HTTPS, connectorID) happens at runtime
+  when token exchange is attempted, not at MCPServer creation time. This is by design - 
+  configuration can be created before the endpoints exist.
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "teleport", "token-exchange", "rfc8693", "authentication", "core-api"]
@@ -163,6 +172,118 @@ steps:
         connectorID: "some-connector"
   expected:
     success: true
+
+# =============================================================================
+# NEGATIVE TESTS: Invalid configurations that should fail at creation time
+# =============================================================================
+
+# Test: Mutually exclusive identity sources with token exchange
+- id: "negative-both-identity-sources-with-token-exchange"
+  description: "Fail when both identityDir and identitySecretName are specified with token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-both-identity"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        identitySecretName: "tbot-identity-output"
+        appName: "mcp-kubernetes"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# Test: Missing identity source with token exchange
+- id: "negative-no-identity-source-with-token-exchange"
+  description: "Fail when neither identityDir nor identitySecretName is specified with token exchange"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-no-identity"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        appName: "mcp-kubernetes"
+        # Neither identityDir nor identitySecretName specified
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["identityDir", "identitySecretName"]
+
+# Test: Teleport type without teleport settings but with token exchange
+- id: "negative-teleport-type-missing-teleport-settings"
+  description: "Fail when auth type is teleport but teleport settings are missing (even with token exchange)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-missing-settings"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      # teleport settings missing entirely
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["teleport"]
+
+# Test: Validate invalid configuration (using validate instead of create)
+- id: "negative-validate-both-identity-sources"
+  description: "Validate should also reject mutually exclusive identity sources"
+  tool: "core_mcpserver_validate"
+  args:
+    name: "teleport-te-validate-invalid"
+    type: "streamable-http"
+    url: "https://mcp-kubernetes.teleport.example.com/mcp"
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        identitySecretName: "also-a-secret"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.teleport.example.com/token"
+        connectorID: "central-cluster-dex"
+  expected:
+    success: false
+    error_contains: ["mutually exclusive"]
+
+# Test: Teleport auth on stdio type (invalid combination)
+- id: "negative-teleport-token-exchange-on-stdio"
+  description: "Fail when trying to use Teleport + token exchange on a stdio server"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-te-stdio-invalid"
+    type: "stdio"
+    command: "echo"
+    args: ["test"]
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+      tokenExchange:
+        enabled: true
+        dexTokenEndpoint: "https://dex.example.com/token"
+        connectorID: "local-dex"
+  expected:
+    success: false
+    error_contains: ["auth"]
+
+# =============================================================================
+# END NEGATIVE TESTS
+# =============================================================================
 
 - id: "list-all-teleport-token-exchange-servers"
   description: "List all created servers to verify they're all registered"
