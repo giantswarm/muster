@@ -325,21 +325,25 @@ func TestDecodeJWTPayload(t *testing.T) {
 func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("returns nil for nil serverInfo", func(t *testing.T) {
+	t.Run("returns not configured for nil serverInfo", func(t *testing.T) {
 		result := getTeleportHTTPClientIfConfigured(ctx, nil)
-		assert.Nil(t, result)
+		assert.False(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.NoError(t, result.Error)
 	})
 
-	t.Run("returns nil for nil authConfig", func(t *testing.T) {
+	t.Run("returns not configured for nil authConfig", func(t *testing.T) {
 		serverInfo := &ServerInfo{
 			Name:       "test-server",
 			AuthConfig: nil,
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.False(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.NoError(t, result.Error)
 	})
 
-	t.Run("returns nil for non-teleport auth type", func(t *testing.T) {
+	t.Run("returns not configured for non-teleport auth type", func(t *testing.T) {
 		serverInfo := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -347,10 +351,12 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.False(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.NoError(t, result.Error)
 	})
 
-	t.Run("returns nil for teleport type without teleport settings", func(t *testing.T) {
+	t.Run("returns error for teleport type without teleport settings", func(t *testing.T) {
 		serverInfo := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -359,10 +365,18 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.True(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.Error(t, result.Error)
+		assert.Contains(t, result.Error.Error(), "teleport settings missing")
 	})
 
-	t.Run("returns nil when no identity source is configured", func(t *testing.T) {
+	t.Run("returns error when no identity source is configured", func(t *testing.T) {
+		// Register a handler to pass the handler check
+		mockHandler := &mockTeleportClientHandler{httpClient: &http.Client{}}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
 		serverInfo := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -374,10 +388,18 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.True(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.Error(t, result.Error)
+		assert.Contains(t, result.Error.Error(), "identityDir or identitySecretName")
 	})
 
-	t.Run("returns nil when both identity sources are configured", func(t *testing.T) {
+	t.Run("returns error when both identity sources are configured", func(t *testing.T) {
+		// Register a handler to pass the handler check
+		mockHandler := &mockTeleportClientHandler{httpClient: &http.Client{}}
+		api.RegisterTeleportClient(mockHandler)
+		defer api.RegisterTeleportClient(nil)
+
 		serverInfo := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -390,10 +412,13 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.True(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.Error(t, result.Error)
+		assert.Contains(t, result.Error.Error(), "mutually exclusive")
 	})
 
-	t.Run("returns nil when teleport handler is not registered", func(t *testing.T) {
+	t.Run("returns error when teleport handler is not registered", func(t *testing.T) {
 		// Ensure no handler is registered
 		api.RegisterTeleportClient(nil)
 
@@ -408,7 +433,10 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.True(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.Error(t, result.Error)
+		assert.Contains(t, result.Error.Error(), "handler not registered")
 	})
 
 	t.Run("returns http client when handler is registered with identityDir", func(t *testing.T) {
@@ -430,7 +458,9 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Equal(t, expectedClient, result)
+		assert.True(t, result.Configured)
+		assert.Equal(t, expectedClient, result.Client)
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 1, mockHandler.getConfigCalls)
 		assert.Equal(t, "/var/run/tbot/identity", mockHandler.lastConfig.IdentityDir)
 		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
@@ -456,14 +486,16 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Equal(t, expectedClient, result)
+		assert.True(t, result.Configured)
+		assert.Equal(t, expectedClient, result.Client)
+		assert.NoError(t, result.Error)
 		assert.Equal(t, 1, mockHandler.getConfigCalls)
 		assert.Equal(t, "tbot-identity-output", mockHandler.lastConfig.IdentitySecretName)
 		assert.Equal(t, "teleport-system", mockHandler.lastConfig.IdentitySecretNamespace)
 		assert.Equal(t, "mcp-kubernetes", mockHandler.lastConfig.AppName)
 	})
 
-	t.Run("returns nil when handler returns error", func(t *testing.T) {
+	t.Run("returns error when handler returns error", func(t *testing.T) {
 		mockHandler := &mockTeleportClientHandler{
 			err: errors.New("failed to load certificates"),
 		}
@@ -481,11 +513,14 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.True(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.Error(t, result.Error)
+		assert.Contains(t, result.Error.Error(), "failed to load certificates")
 		assert.Equal(t, 1, mockHandler.getConfigCalls)
 	})
 
-	t.Run("returns nil for empty auth type", func(t *testing.T) {
+	t.Run("returns not configured for empty auth type", func(t *testing.T) {
 		serverInfo := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -496,7 +531,9 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Nil(t, result)
+		assert.False(t, result.Configured)
+		assert.Nil(t, result.Client)
+		assert.NoError(t, result.Error)
 	})
 
 	t.Run("works without AppName", func(t *testing.T) {
@@ -518,7 +555,44 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			},
 		}
 		result := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		assert.Equal(t, expectedClient, result)
+		assert.True(t, result.Configured)
+		assert.Equal(t, expectedClient, result.Client)
+		assert.NoError(t, result.Error)
 		assert.Equal(t, "", mockHandler.lastConfig.AppName)
+	})
+
+	// New test: verify that caller can distinguish between "not configured" and "error"
+	t.Run("caller can distinguish not-configured from error", func(t *testing.T) {
+		// Not configured case (type is oauth, not teleport)
+		oauthServer := &ServerInfo{
+			Name: "oauth-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+			},
+		}
+		notConfigured := getTeleportHTTPClientIfConfigured(ctx, oauthServer)
+
+		// Error case (teleport configured but handler missing)
+		api.RegisterTeleportClient(nil)
+		teleportServer := &ServerInfo{
+			Name: "teleport-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: api.AuthTypeTeleport,
+				Teleport: &api.TeleportAuth{
+					IdentityDir: "/var/run/tbot/identity",
+				},
+			},
+		}
+		errorCase := getTeleportHTTPClientIfConfigured(ctx, teleportServer)
+
+		// Not configured: caller should use default HTTP client
+		assert.False(t, notConfigured.Configured, "oauth server should not be configured for teleport")
+		assert.Nil(t, notConfigured.Client)
+		assert.NoError(t, notConfigured.Error)
+
+		// Error: caller should fail with explicit error, NOT fallback
+		assert.True(t, errorCase.Configured, "teleport server is configured")
+		assert.Nil(t, errorCase.Client)
+		assert.Error(t, errorCase.Error, "should return error when teleport configured but failed")
 	})
 }
