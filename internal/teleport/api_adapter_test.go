@@ -2,6 +2,7 @@ package teleport
 
 import (
 	"testing"
+	"time"
 )
 
 func TestNewAdapter(t *testing.T) {
@@ -21,7 +22,7 @@ func TestNewAdapterWithDefaults(t *testing.T) {
 		CertFile:      "custom.crt",
 		KeyFile:       "custom.key",
 		CAFile:        "custom-ca.crt",
-		WatchInterval: 60,
+		WatchInterval: 60 * time.Second,
 	}
 
 	adapter := NewAdapterWithDefaults(defaultConfig)
@@ -32,6 +33,10 @@ func TestNewAdapterWithDefaults(t *testing.T) {
 
 	if adapter.defaultConfig.CertFile != "custom.crt" {
 		t.Errorf("Expected CertFile to be 'custom.crt', got %s", adapter.defaultConfig.CertFile)
+	}
+
+	if adapter.defaultConfig.WatchInterval != 60*time.Second {
+		t.Errorf("Expected WatchInterval to be 60s, got %v", adapter.defaultConfig.WatchInterval)
 	}
 }
 

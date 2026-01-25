@@ -2,6 +2,7 @@ package teleport
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -393,17 +394,18 @@ func (t *appNameTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 // Close stops all providers and releases resources.
+// If multiple errors occur during cleanup, they are aggregated using errors.Join.
 func (a *Adapter) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var lastErr error
+	var errs []error
 
 	// Close filesystem-based providers
 	for dir, provider := range a.providers {
 		if err := provider.Close(); err != nil {
 			logging.Warn("TeleportAdapter", "Error closing provider for %s: %v", dir, err)
-			lastErr = err
+			errs = append(errs, fmt.Errorf("provider %s: %w", dir, err))
 		}
 	}
 
@@ -411,7 +413,7 @@ func (a *Adapter) Close() error {
 	for key, provider := range a.secretProviders {
 		if err := provider.Close(); err != nil {
 			logging.Warn("TeleportAdapter", "Error closing secret provider for %s: %v", key, err)
-			lastErr = err
+			errs = append(errs, fmt.Errorf("secret provider %s: %w", key, err))
 		}
 	}
 
@@ -419,6 +421,7 @@ func (a *Adapter) Close() error {
 	for _, tempDir := range a.tempDirs {
 		if err := os.RemoveAll(tempDir); err != nil {
 			logging.Warn("TeleportAdapter", "Error removing temp directory %s: %v", tempDir, err)
+			// Don't add temp dir cleanup errors to the error list - these are non-critical
 		}
 	}
 
@@ -427,5 +430,5 @@ func (a *Adapter) Close() error {
 	a.tempDirs = nil
 	logging.Info("TeleportAdapter", "Closed all Teleport client providers")
 
-	return lastErr
+	return errors.Join(errs...)
 }
