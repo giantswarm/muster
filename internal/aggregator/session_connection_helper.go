@@ -514,7 +514,7 @@ func EstablishSessionConnectionWithTokenExchange(
 
 	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client
 	// for both the token exchange request and the MCP server connection.
-	var teleportHTTPClient = getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+	teleportHTTPClient := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
 
 	// Perform the token exchange (using Teleport client if configured)
 	var exchangedToken string
