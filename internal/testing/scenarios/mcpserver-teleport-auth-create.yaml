@@ -1,0 +1,119 @@
+name: "mcpserver-teleport-auth-create"
+description: "Test creating MCP servers with Teleport authentication configuration"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "create", "teleport", "authentication", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-teleport-with-identity-dir"
+  description: "Create a streamable-http MCP server with Teleport auth using identity directory"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-identity-dir-server"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+  expected:
+    success: true
+
+- id: "verify-teleport-identity-dir-server"
+  description: "Verify the Teleport-configured server was created correctly"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-identity-dir-server"
+  expected:
+    success: true
+    json_path:
+      name: "teleport-identity-dir-server"
+      type: "streamable-http"
+    contains:
+      - "teleport"
+      - "identityDir"
+
+- id: "create-teleport-with-secret"
+  description: "Create a streamable-http MCP server with Teleport auth using Kubernetes secret"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-secret-server"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identitySecretName: "tbot-identity-output"
+        identitySecretNamespace: "teleport-system"
+        appName: "mcp-kubernetes"
+  expected:
+    success: true
+
+- id: "verify-teleport-secret-server"
+  description: "Verify the Teleport secret-based server was created correctly"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-secret-server"
+  expected:
+    success: true
+    json_path:
+      name: "teleport-secret-server"
+      type: "streamable-http"
+    contains:
+      - "teleport"
+      - "identitySecretName"
+
+- id: "create-teleport-without-appname"
+  description: "Create a Teleport server without appName (optional field)"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-no-appname-server"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+  expected:
+    success: true
+
+- id: "list-servers-with-teleport"
+  description: "List all MCP servers and verify Teleport servers appear"
+  tool: "core_mcpserver_list"
+  args: {}
+  expected:
+    success: true
+    contains:
+      - "teleport-identity-dir-server"
+      - "teleport-secret-server"
+      - "teleport-no-appname-server"
+
+cleanup:
+- id: "cleanup-teleport-identity-dir-server"
+  description: "Delete the Teleport identity dir server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-identity-dir-server"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-secret-server"
+  description: "Delete the Teleport secret server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-secret-server"
+  expected:
+    success: true
+
+- id: "cleanup-teleport-no-appname-server"
+  description: "Delete the Teleport no-appname server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-no-appname-server"
+  expected:
+    success: true

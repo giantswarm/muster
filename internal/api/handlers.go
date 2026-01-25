@@ -19,6 +19,7 @@ var (
 	workflowHandler            WorkflowHandler
 	eventManagerHandler        EventManagerHandler
 	reconcileManagerHandler    ReconcileManagerHandler
+	teleportClientHandler      TeleportClientHandler
 
 	// toolUpdateSubscribers stores the list of components subscribed to tool update events.
 	// Access is protected by toolUpdateMutex.
@@ -654,4 +655,53 @@ func UpdateMCPServerState(name string, state ServiceState, health HealthStatus, 
 	}
 
 	return nil
+}
+
+// RegisterTeleportClient registers the Teleport client handler implementation.
+// This handler provides HTTP clients configured with Teleport Machine ID certificates
+// for accessing MCP servers on private installations via Teleport Application Access.
+//
+// The registration is thread-safe and should be called during system initialization.
+// Only one Teleport client handler can be registered at a time; subsequent
+// registrations will replace the previous handler.
+//
+// Args:
+//   - h: TeleportClientHandler implementation that provides Teleport HTTP clients
+//
+// Thread-safe: Yes, protected by handlerMutex.
+//
+// Example:
+//
+//	adapter := teleport.NewAdapter()
+//	adapter.Register()
+func RegisterTeleportClient(h TeleportClientHandler) {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	logging.Debug("API", "Registering Teleport client handler: %v", h != nil)
+	teleportClientHandler = h
+}
+
+// GetTeleportClient returns the registered Teleport client handler.
+// This provides access to HTTP clients configured with Teleport certificates
+// for accessing private installations.
+//
+// Returns nil if no handler has been registered yet. Callers should always
+// check for nil before using the returned handler.
+//
+// Returns:
+//   - TeleportClientHandler: The registered handler, or nil if not registered
+//
+// Thread-safe: Yes, protected by handlerMutex read lock.
+//
+// Example:
+//
+//	teleportHandler := api.GetTeleportClient()
+//	if teleportHandler == nil {
+//	    return fmt.Errorf("Teleport client handler not available")
+//	}
+//	httpClient, err := teleportHandler.GetHTTPClientForIdentity("/var/run/tbot/identity")
+func GetTeleportClient() TeleportClientHandler {
+	handlerMutex.RLock()
+	defer handlerMutex.RUnlock()
+	return teleportClientHandler
 }

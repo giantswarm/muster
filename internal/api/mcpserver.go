@@ -67,7 +67,7 @@ type MCPServer struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports three distinct SSO mechanisms (see auth_tools.go for full documentation):
+// Muster supports four distinct authentication mechanisms:
 //
 //   - SSO Token Reuse: Tokens are shared between servers with the same OAuth issuer.
 //     This is the default behavior. Disable per-server with SSO: false.
@@ -78,9 +78,16 @@ type MCPServer struct {
 //   - SSO Token Exchange (RFC 8693): Muster exchanges its token for one valid on the
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
+//
+//   - Teleport Authentication: Muster uses Teleport Machine ID certificates to access
+//     private installations via Teleport Application Access. Enable with Type: "teleport"
+//     and configure Teleport settings.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
-	// Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
+	// Supported values:
+	//   - "oauth": OAuth 2.0/OIDC authentication
+	//   - "teleport": Teleport Application Access with Machine ID certificates
+	//   - "none": No authentication
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
 	// ForwardToken enables SSO via Token Forwarding.
@@ -127,6 +134,17 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `yaml:"tokenExchange,omitempty" json:"tokenExchange,omitempty"`
+
+	// Teleport configures Teleport authentication for accessing private installations.
+	// This is only used when Type is "teleport".
+	//
+	// When configured, muster uses Teleport Machine ID certificates to establish
+	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
+	//
+	// The Teleport identity files (tls.crt, tls.key, ca.crt) are typically:
+	//   - In Kubernetes: Mounted from a Secret managed by tbot
+	//   - In filesystem mode: Read directly from the tbot output directory
+	Teleport *TeleportAuth `yaml:"teleport,omitempty" json:"teleport,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

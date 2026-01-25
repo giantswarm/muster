@@ -1,0 +1,117 @@
+name: "mcpserver-teleport-auth-update"
+description: "Test updating MCP servers with Teleport authentication configuration"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "update", "teleport", "authentication", "core-api"]
+timeout: "1m"
+
+steps:
+- id: "create-initial-server"
+  description: "Create an initial streamable-http MCP server without Teleport auth"
+  tool: "core_mcpserver_create"
+  args:
+    name: "teleport-update-test"
+    type: "streamable-http"
+    url: "https://mcp-server.example.com/mcp"
+    timeout: 30
+  expected:
+    success: true
+
+- id: "verify-initial-no-teleport"
+  description: "Verify the server was created without Teleport auth"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-update-test"
+  expected:
+    success: true
+    json_path:
+      name: "teleport-update-test"
+      type: "streamable-http"
+
+- id: "update-add-teleport-auth"
+  description: "Update the server to add Teleport authentication"
+  tool: "core_mcpserver_update"
+  args:
+    name: "teleport-update-test"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identityDir: "/var/run/tbot/identity"
+        appName: "mcp-kubernetes"
+  expected:
+    success: true
+
+- id: "verify-teleport-added"
+  description: "Verify Teleport auth was added to the server"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-update-test"
+  expected:
+    success: true
+    contains:
+      - "teleport"
+      - "identityDir"
+      - "mcp-kubernetes"
+
+- id: "update-change-teleport-identity"
+  description: "Update Teleport auth from identity dir to secret"
+  tool: "core_mcpserver_update"
+  args:
+    name: "teleport-update-test"
+    type: "streamable-http"
+    url: "https://mcp-server.teleport.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "teleport"
+      teleport:
+        identitySecretName: "tbot-identity-output"
+        identitySecretNamespace: "teleport-system"
+        appName: "mcp-kubernetes"
+  expected:
+    success: true
+
+- id: "verify-teleport-identity-changed"
+  description: "Verify Teleport identity source was changed to secret"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-update-test"
+  expected:
+    success: true
+    contains:
+      - "identitySecretName"
+      - "tbot-identity-output"
+
+- id: "update-remove-teleport-auth"
+  description: "Update the server to remove Teleport auth (change to oauth)"
+  tool: "core_mcpserver_update"
+  args:
+    name: "teleport-update-test"
+    type: "streamable-http"
+    url: "https://mcp-server.example.com/mcp"
+    timeout: 30
+    auth:
+      type: "none"
+  expected:
+    success: true
+
+- id: "verify-teleport-removed"
+  description: "Verify Teleport auth was removed"
+  tool: "core_mcpserver_get"
+  args:
+    name: "teleport-update-test"
+  expected:
+    success: true
+    json_path:
+      name: "teleport-update-test"
+
+cleanup:
+- id: "cleanup-teleport-update-test"
+  description: "Delete the test server"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "teleport-update-test"
+  expected:
+    success: true

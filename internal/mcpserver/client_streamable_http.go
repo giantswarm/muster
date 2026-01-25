@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"muster/pkg/logging"
 
@@ -15,8 +16,9 @@ import (
 // It connects to remote MCP servers using HTTP with streaming support.
 type StreamableHTTPClient struct {
 	baseMCPClient
-	url     string
-	headers map[string]string
+	url        string
+	headers    map[string]string
+	httpClient *http.Client // Custom HTTP client (e.g., for Teleport TLS)
 }
 
 // NewStreamableHTTPClient creates a new StreamableHTTP-based MCP client without custom headers
@@ -38,6 +40,19 @@ func NewStreamableHTTPClientWithHeaders(url string, headers map[string]string) *
 	}
 }
 
+// NewStreamableHTTPClientWithHTTPClient creates a new StreamableHTTP-based MCP client with a custom HTTP client.
+// This is useful for Teleport authentication where the HTTP client needs custom TLS certificates.
+func NewStreamableHTTPClientWithHTTPClient(url string, headers map[string]string, httpClient *http.Client) *StreamableHTTPClient {
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+	return &StreamableHTTPClient{
+		url:        url,
+		headers:    headers,
+		httpClient: httpClient,
+	}
+}
+
 // Initialize establishes the connection and performs protocol handshake
 func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	c.mu.Lock()
@@ -54,6 +69,12 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	if len(c.headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(c.headers))
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
+	}
+
+	// If a custom HTTP client is provided (e.g., for Teleport TLS), use it
+	if c.httpClient != nil {
+		opts = append(opts, transport.WithHTTPBasicClient(c.httpClient))
+		logging.Debug("StreamableHTTPClient", "Using custom HTTP client (e.g., Teleport TLS)")
 	}
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)

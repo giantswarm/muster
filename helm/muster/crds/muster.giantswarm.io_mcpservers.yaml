@@ -95,6 +95,40 @@ spec:
                       even if a token exists for the same issuer. Use this when you want to
                       use different accounts for servers that share the same OAuth provider.
                     type: boolean
+                  teleport:
+                    description: |-
+                      Teleport configures Teleport authentication for accessing private installations.
+                      This is only used when Type is "teleport".
+
+                      When configured, muster uses Teleport Machine ID certificates to establish
+                      mutual TLS connections to MCP servers accessible via Teleport Application Access.
+                    properties:
+                      appName:
+                        description: |-
+                          AppName is the Teleport application name for routing.
+                          This is used to identify which Teleport-protected application to connect to.
+                          Example: mcp-kubernetes
+                        type: string
+                      identityDir:
+                        description: |-
+                          IdentityDir is the directory containing Teleport identity files.
+                          Used in filesystem mode when certificates are mounted directly.
+                          Example: /var/run/tbot/identity
+                        type: string
+                      identitySecretName:
+                        description: |-
+                          IdentitySecretName is the name of the Kubernetes Secret containing
+                          tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
+                          (matching tbot's application output type).
+                          Required when running in Kubernetes mode.
+                          Example: tbot-identity-output
+                        type: string
+                      identitySecretNamespace:
+                        description: |-
+                          IdentitySecretNamespace is the Kubernetes namespace where the identity
+                          secret is located. Defaults to the MCPServer's namespace if not specified.
+                        type: string
+                    type: object
                   tokenExchange:
                     description: |-
                       TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
@@ -149,9 +183,13 @@ spec:
                     default: none
                     description: |-
                       Type specifies the authentication type.
-                      Supported values: "oauth" for OAuth 2.0/OIDC authentication, "none" for no authentication
+                      Supported values:
+                        - "oauth": OAuth 2.0/OIDC authentication
+                        - "teleport": Teleport Application Access with Machine ID certificates
+                        - "none": No authentication
                     enum:
                     - oauth
+                    - teleport
                     - none
                     type: string
                 type: object
