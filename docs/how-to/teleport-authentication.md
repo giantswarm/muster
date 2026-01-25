@@ -142,9 +142,36 @@ Check that:
 
 ## Security Considerations
 
-- **Certificate Storage**: Identity files contain sensitive private keys. Use Kubernetes Secrets with appropriate RBAC.
-- **Certificate Rotation**: tbot handles certificate renewal. Muster automatically reloads updated certificates.
-- **OAuth Tokens**: User identity is still managed through OAuth. Teleport only provides network access.
+### Certificate Storage and Handling
+
+- **In-Memory Loading (Kubernetes)**: When loading certificates from Kubernetes Secrets, Muster loads them directly into memory without writing to temporary files. This eliminates the risk of private key exposure through filesystem access.
+- **Filesystem Mode**: When using `identityDir`, ensure the directory has appropriate permissions (0700) and the certificate files are readable only by the Muster process user (0600).
+- **RBAC**: Use Kubernetes RBAC to restrict access to identity secrets. Only grant `get` permissions on the specific secret to the Muster service account.
+
+### Certificate Lifecycle and Revocation
+
+- **Short-Lived Certificates**: Teleport Machine ID certificates are intentionally short-lived (typically 1 hour). This design provides revocation-like behavior - if access needs to be revoked, certificates naturally expire without requiring explicit revocation checks (CRL/OCSP).
+- **Automatic Rotation**: tbot handles certificate renewal automatically. Muster watches for file changes and reloads certificates without restart.
+- **Expiry Monitoring**: Muster tracks certificate expiration and logs warnings when certificates are expiring soon.
+
+### Namespace Restrictions
+
+For defense-in-depth, Muster restricts which namespaces identity secrets can be loaded from. By default, only the following namespaces are allowed:
+
+- `teleport-system`
+- `muster-system`
+
+This prevents misconfigured MCPServer resources from accessing secrets in unauthorized namespaces.
+
+### Input Validation
+
+- **App Name Validation**: The `appName` field is validated to contain only alphanumeric characters, hyphens, underscores, and dots. This prevents potential header injection attacks.
+- **Path Validation**: The `identityDir` field must be an absolute path and cannot contain path traversal sequences (`..`).
+- **Secret Name Validation**: Secret names are validated against Kubernetes naming conventions.
+
+### OAuth Token Separation
+
+User identity remains managed through OAuth/Dex tokens. Teleport certificates only provide network-level access to private endpoints - they do not grant any user-level permissions. Authorization decisions are still made based on OAuth tokens.
 
 ## Example: Complete Setup
 

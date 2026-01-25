@@ -95,6 +95,104 @@ func NewClientProviderWithWatching(config TeleportConfig) (*ClientProvider, erro
 	return provider, nil
 }
 
+// CertificateData holds certificate data loaded from memory.
+// This is used for in-memory certificate loading from Kubernetes secrets,
+// avoiding the need to write sensitive data to temporary files.
+type CertificateData struct {
+	// CertPEM is the client certificate in PEM format.
+	CertPEM []byte
+	// KeyPEM is the client private key in PEM format.
+	KeyPEM []byte
+	// CAPEM is the CA certificate in PEM format.
+	CAPEM []byte
+}
+
+// NewClientProviderFromMemory creates a new Teleport client provider with certificates
+// loaded directly from memory. This avoids writing sensitive private key data to disk.
+//
+// This is the preferred method for loading certificates from Kubernetes secrets,
+// as it eliminates the security risk of temporary files containing private keys.
+func NewClientProviderFromMemory(certData CertificateData) (*ClientProvider, error) {
+	provider := &ClientProvider{
+		callbacks: make([]CertReloadCallback, 0),
+		status: CertStatus{
+			CertPath: "(in-memory)",
+			KeyPath:  "(in-memory)",
+			CAPath:   "(in-memory)",
+		},
+	}
+
+	// Load certificates from memory
+	if err := provider.loadCertificatesFromMemory(certData); err != nil {
+		return nil, fmt.Errorf("failed to load certificates from memory: %w", err)
+	}
+
+	return provider, nil
+}
+
+// loadCertificatesFromMemory loads TLS certificates from in-memory PEM data.
+func (p *ClientProvider) loadCertificatesFromMemory(certData CertificateData) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.loadCertificatesFromMemoryLocked(certData)
+}
+
+// loadCertificatesFromMemoryLocked loads certificates from memory without acquiring the lock.
+// Caller must hold the write lock.
+func (p *ClientProvider) loadCertificatesFromMemoryLocked(certData CertificateData) error {
+	// Validate input
+	if len(certData.CertPEM) == 0 {
+		return fmt.Errorf("certificate PEM data is empty")
+	}
+	if len(certData.KeyPEM) == 0 {
+		return fmt.Errorf("private key PEM data is empty")
+	}
+	if len(certData.CAPEM) == 0 {
+		return fmt.Errorf("CA certificate PEM data is empty")
+	}
+
+	// Load client certificate and key from PEM data
+	cert, err := tls.X509KeyPair(certData.CertPEM, certData.KeyPEM)
+	if err != nil {
+		p.status.LastError = fmt.Errorf("failed to parse client certificate: %w", err)
+		return p.status.LastError
+	}
+
+	// Parse certificate to get expiry
+	if len(cert.Certificate) > 0 {
+		if parsed, parseErr := x509.ParseCertificate(cert.Certificate[0]); parseErr == nil {
+			p.status.ExpiresAt = &parsed.NotAfter
+		}
+	}
+
+	// Create CA certificate pool
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(certData.CAPEM) {
+		p.status.LastError = fmt.Errorf("failed to parse CA certificate")
+		return p.status.LastError
+	}
+
+	// Create TLS config
+	p.tlsConfig = &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	// Update status
+	p.status.Loaded = true
+	p.status.LastLoaded = time.Now()
+	p.status.LastError = nil
+
+	// Invalidate cached HTTP client (will be recreated on next GetHTTPClient call)
+	p.httpClient = nil
+
+	logging.Info("TeleportClient", "Loaded Teleport certificates from memory")
+
+	return nil
+}
+
 // loadCertificates loads or reloads the TLS certificates from disk.
 func (p *ClientProvider) loadCertificates() error {
 	p.mu.Lock()

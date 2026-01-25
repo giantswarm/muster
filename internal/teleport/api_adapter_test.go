@@ -1,8 +1,11 @@
 package teleport
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"muster/internal/api"
 )
 
 func TestNewAdapter(t *testing.T) {
@@ -309,5 +312,93 @@ func TestAdapter_MultipleIdentities(t *testing.T) {
 	// Different identities should have different clients
 	if client1 == client2 {
 		t.Error("Expected different HTTP clients for different identities")
+	}
+}
+
+func TestAdapter_GetHTTPClientForIdentity_PathTraversal(t *testing.T) {
+	adapter := NewAdapter()
+	defer adapter.Close()
+
+	// Path traversal should be rejected
+	_, err := adapter.GetHTTPClientForIdentity("/var/run/../etc/passwd")
+	if err == nil {
+		t.Error("Expected error for path traversal attempt")
+	}
+}
+
+func TestAdapter_GetHTTPClientForIdentity_RelativePath(t *testing.T) {
+	adapter := NewAdapter()
+	defer adapter.Close()
+
+	// Relative paths should be rejected
+	_, err := adapter.GetHTTPClientForIdentity("relative/path")
+	if err == nil {
+		t.Error("Expected error for relative path")
+	}
+}
+
+func TestAdapter_GetHTTPClientForConfig_InvalidAppName(t *testing.T) {
+	dir := t.TempDir()
+	createTestCertificates(t, dir)
+
+	adapter := NewAdapter()
+	defer adapter.Close()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		appName string
+	}{
+		{"starts with hyphen", "-invalid"},
+		{"contains newline", "app\nname"},
+		{"contains colon", "app:name"},
+		{"contains slash", "app/name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := api.TeleportClientConfig{
+				IdentityDir: dir,
+				AppName:     tt.appName,
+			}
+			_, err := adapter.GetHTTPClientForConfig(ctx, config)
+			if err == nil {
+				t.Errorf("Expected error for invalid app name: %s", tt.appName)
+			}
+		})
+	}
+}
+
+func TestAdapter_GetHTTPClientForConfig_ValidAppName(t *testing.T) {
+	dir := t.TempDir()
+	createTestCertificates(t, dir)
+
+	adapter := NewAdapter()
+	defer adapter.Close()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		appName string
+	}{
+		{"simple", "mcp-kubernetes"},
+		{"with dots", "app.name.here"},
+		{"with underscores", "app_name"},
+		{"empty", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := api.TeleportClientConfig{
+				IdentityDir: dir,
+				AppName:     tt.appName,
+			}
+			_, err := adapter.GetHTTPClientForConfig(ctx, config)
+			if err != nil {
+				t.Errorf("Unexpected error for valid app name %q: %v", tt.appName, err)
+			}
+		})
 	}
 }
