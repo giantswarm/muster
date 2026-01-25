@@ -338,6 +338,25 @@ func TestValidateTokenIssuer(t *testing.T) {
 		assert.Contains(t, err.Error(), "dex.example.com")
 	})
 
+	t.Run("error message does not leak token content", func(t *testing.T) {
+		// Security: Verify that issuer mismatch errors only contain issuer URLs,
+		// not the full token which could be sensitive
+		sensitiveToken := createTestToken("https://attacker.example.com")
+		err := validateTokenIssuer(sensitiveToken, "https://dex.example.com")
+		require.Error(t, err)
+
+		errMsg := err.Error()
+		// Error should contain issuer URLs for debugging
+		assert.Contains(t, errMsg, "attacker.example.com")
+		assert.Contains(t, errMsg, "dex.example.com")
+
+		// Error should NOT contain the full token or its parts
+		// The token has format: header.payload.signature
+		assert.NotContains(t, errMsg, sensitiveToken, "error message should not contain full token")
+		assert.NotContains(t, errMsg, "eyJhbGciOiJSUzI1NiJ9", "error message should not contain JWT header")
+		assert.NotContains(t, errMsg, ".signature", "error message should not contain signature placeholder")
+	})
+
 	t.Run("validation skipped when expected issuer is empty", func(t *testing.T) {
 		token := createTestToken("https://any.issuer.com")
 		err := validateTokenIssuer(token, "")
