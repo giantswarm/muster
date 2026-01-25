@@ -161,6 +161,13 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
 		return nil, fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
 	}
+	// Security: Enforce HTTPS for expectedIssuer when explicitly set.
+	// This is defense-in-depth: the CRD has schema validation, but we also
+	// validate in code to protect against bypasses (direct API, config files,
+	// older CRD versions without validation).
+	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
+		return nil, fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
+	}
 	if req.Config.ConnectorID == "" {
 		return nil, fmt.Errorf("connector ID is required")
 	}

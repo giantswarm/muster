@@ -155,6 +155,57 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		require.Error(t, err) // Will fail on network, but not HTTPS validation
 		assert.NotContains(t, err.Error(), "must use HTTPS")
 	})
+
+	t.Run("returns error for non-HTTPS expectedIssuer", func(t *testing.T) {
+		// Defense-in-depth: validate expectedIssuer uses HTTPS in code,
+		// even though CRD schema validation also enforces this
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ExpectedIssuer:   "http://dex.example.com", // Non-HTTPS issuer
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "expected issuer must use HTTPS")
+	})
+
+	t.Run("accepts HTTPS expectedIssuer", func(t *testing.T) {
+		// Valid HTTPS expectedIssuer should pass validation
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex-proxy.example.com/token",
+				ExpectedIssuer:   "https://dex.example.com",
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		// Should not fail on HTTPS validation (may fail on network/exchange)
+		require.Error(t, err) // Will fail on network, but not HTTPS validation
+		assert.NotContains(t, err.Error(), "must use HTTPS")
+	})
+
+	t.Run("allows empty expectedIssuer", func(t *testing.T) {
+		// Empty expectedIssuer is allowed (falls back to deriving from endpoint)
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				ExpectedIssuer:   "", // Empty is allowed
+				ConnectorID:      "local-dex",
+			},
+			SubjectToken: "test-token",
+			UserID:       "user123",
+		})
+		// Should not fail on expectedIssuer validation
+		require.Error(t, err) // Will fail on network, but not validation
+		assert.NotContains(t, err.Error(), "expected issuer")
+	})
 }
 
 func TestTokenExchanger_Cache(t *testing.T) {
