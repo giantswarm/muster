@@ -2,9 +2,13 @@ package oauth
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"muster/internal/api"
@@ -157,6 +161,13 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if !strings.HasPrefix(req.Config.DexTokenEndpoint, "https://") {
 		return nil, fmt.Errorf("dex token endpoint must use HTTPS (got: %s)", req.Config.DexTokenEndpoint)
 	}
+	// Security: Enforce HTTPS for expectedIssuer when explicitly set.
+	// This is defense-in-depth: the CRD has schema validation, but we also
+	// validate in code to protect against bypasses (direct API, config files,
+	// older CRD versions without validation).
+	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
+		return nil, fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
+	}
 	if req.Config.ConnectorID == "" {
 		return nil, fmt.Errorf("connector ID is required")
 	}
@@ -206,6 +217,18 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
+	// Validate the issuer claim of the exchanged token (defense-in-depth for proxied access)
+	expectedIssuer := GetExpectedIssuer(req.Config)
+	if expectedIssuer != "" {
+		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
+			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s: %v",
+				logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+			return nil, fmt.Errorf("issuer validation failed: %w", err)
+		}
+		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s)",
+			logging.TruncateSessionID(req.UserID), expectedIssuer)
+	}
+
 	// Cache the result
 	if resp.ExpiresIn > 0 {
 		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
@@ -251,4 +274,147 @@ func (e *TokenExchanger) Cleanup() int {
 		logging.Debug("TokenExchange", "Cleaned up %d expired cached tokens", removed)
 	}
 	return removed
+}
+
+// GetExpectedIssuer returns the expected issuer URL for token validation.
+// If ExpectedIssuer is explicitly set in the config, it is used directly.
+// Otherwise, the issuer is derived from DexTokenEndpoint (backward compatible).
+//
+// This separation is important for proxied access scenarios:
+//   - DexTokenEndpoint may go through a proxy (e.g., https://dex-cluster.proxy.example.com/token)
+//   - ExpectedIssuer is the actual Dex issuer (e.g., https://dex.cluster-b.example.com)
+func GetExpectedIssuer(config *api.TokenExchangeConfig) string {
+	if config == nil {
+		return ""
+	}
+	// Use explicit ExpectedIssuer if set
+	if config.ExpectedIssuer != "" {
+		return config.ExpectedIssuer
+	}
+	// Fall back to deriving from DexTokenEndpoint (backward compatible)
+	return deriveIssuerFromTokenEndpoint(config.DexTokenEndpoint)
+}
+
+// deriveIssuerFromTokenEndpoint derives an issuer URL from a token endpoint URL.
+// This is used for backward compatibility when ExpectedIssuer is not set.
+// It strips the /token suffix and any trailing slashes.
+//
+// Examples:
+//   - https://dex.example.com/token -> https://dex.example.com
+//   - https://dex.example.com/dex/token -> https://dex.example.com/dex
+func deriveIssuerFromTokenEndpoint(tokenEndpoint string) string {
+	if tokenEndpoint == "" {
+		return ""
+	}
+	// Parse the URL to handle it correctly
+	u, err := url.Parse(tokenEndpoint)
+	if err != nil {
+		// If parsing fails, fall back to simple string manipulation
+		issuer := strings.TrimSuffix(tokenEndpoint, "/token")
+		issuer = strings.TrimSuffix(issuer, "/")
+		return issuer
+	}
+	// Remove /token suffix from path
+	u.Path = strings.TrimSuffix(u.Path, "/token")
+	u.Path = strings.TrimSuffix(u.Path, "/")
+	return u.String()
+}
+
+// validateTokenIssuer validates that the exchanged token has the expected issuer claim.
+// This is important for security when access goes through a proxy, to ensure the token
+// was actually issued by the expected Dex instance.
+//
+// Args:
+//   - token: The JWT token to validate
+//   - expectedIssuer: The expected issuer URL
+//
+// Returns nil if validation passes, or an error describing the mismatch.
+// If the token is not a JWT (e.g., opaque token), validation is skipped.
+func validateTokenIssuer(token, expectedIssuer string) error {
+	if token == "" {
+		return fmt.Errorf("token is empty")
+	}
+	if expectedIssuer == "" {
+		// No expected issuer configured, skip validation
+		return nil
+	}
+
+	// Check if the token looks like a JWT (has 3 dot-separated parts)
+	// If not, skip issuer validation as it's an opaque token
+	if !isJWTToken(token) {
+		logging.Debug("TokenExchange", "Token is not a JWT, skipping issuer validation")
+		return nil
+	}
+
+	// Extract the issuer claim from the token
+	actualIssuer, err := extractIssuerFromToken(token)
+	if err != nil {
+		// If we can't extract the issuer, log and skip validation
+		// This handles edge cases where the token looks like a JWT but isn't
+		logging.Debug("TokenExchange", "Could not extract issuer from token: %v, skipping validation", err)
+		return nil
+	}
+
+	// Normalize both URLs for comparison (remove trailing slashes)
+	normalizedExpected := strings.TrimSuffix(expectedIssuer, "/")
+	normalizedActual := strings.TrimSuffix(actualIssuer, "/")
+
+	// Use constant-time comparison to prevent timing attacks.
+	// While timing attacks on issuer validation are unlikely to be practical,
+	// this provides consistency with other security-sensitive comparisons
+	// in the codebase (e.g., audience matching in mcp-oauth).
+	if subtle.ConstantTimeCompare([]byte(normalizedActual), []byte(normalizedExpected)) != 1 {
+		// Provide actionable guidance in the error message
+		return fmt.Errorf("token issuer mismatch: expected %q, got %q. "+
+			"Hint: If accessing Dex via a proxy (e.g., Teleport), set 'expectedIssuer' to the actual Dex issuer URL (%q)",
+			normalizedExpected, normalizedActual, normalizedActual)
+	}
+
+	return nil
+}
+
+// isJWTToken checks if a token appears to be a JWT (has 3 dot-separated parts).
+// This is a quick heuristic check, not a full JWT validation.
+func isJWTToken(token string) bool {
+	parts := strings.Split(token, ".")
+	return len(parts) == 3
+}
+
+// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token.
+// This parses the token payload without cryptographic verification.
+//
+// SECURITY NOTE:
+//   - The token is assumed to come from a trusted token exchange endpoint.
+//   - Full signature verification is the responsibility of the downstream server.
+//   - This is a defense-in-depth check for proxied access scenarios.
+func extractIssuerFromToken(token string) (string, error) {
+	// JWT format: header.payload.signature
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid JWT format: expected at least 2 parts")
+	}
+
+	// Decode the payload using RawURLEncoding (handles missing padding automatically)
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		// Try standard base64 as fallback for non-standard implementations
+		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
+		if err != nil {
+			return "", fmt.Errorf("failed to decode payload: %w", err)
+		}
+	}
+
+	// Parse the claims
+	var claims struct {
+		Iss string `json:"iss"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return "", fmt.Errorf("failed to parse claims: %w", err)
+	}
+
+	if claims.Iss == "" {
+		return "", fmt.Errorf("iss claim not found in token")
+	}
+
+	return claims.Iss, nil
 }

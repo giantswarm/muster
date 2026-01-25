@@ -97,7 +97,21 @@ status:
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
-| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding fails | Default: `true` |
+| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
+| `sso` | `boolean` | No | Enable SSO token reuse between servers with same issuer | Default: `true` |
+| `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
+
+#### TokenExchangeConfig Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `enabled` | `boolean` | No | Enable token exchange | Default: `false` |
+| `dexTokenEndpoint` | `string` | Yes* | URL to access Dex's token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
+| `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
+| `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
+| `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
+
+**Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
 
 #### Status Fields
 
@@ -214,6 +228,118 @@ When `forwardToken: true` is configured:
 Downstream servers must be configured to trust muster's client ID:
 - **mcp-kubernetes**: Set `oauth.trustedAudiences: ["muster-client"]` in Helm values
 - **inboxfewer**: Set `oauthSecurity.trustedAudiences: ["muster-client"]` in Helm values
+
+#### Cross-Cluster SSO with Token Exchange (RFC 8693)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: remote-cluster-k8s
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "remote_k8s"
+  description: "Kubernetes tools on remote cluster via token exchange"
+  url: "https://mcp-kubernetes.remote-cluster.example.com/mcp"
+  timeout: 30
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      connectorId: "local-cluster-dex"
+      scopes: "openid profile email groups"
+    fallbackToOwnAuth: false
+```
+
+When `tokenExchange.enabled: true` is configured:
+1. User authenticates to muster once via OAuth (gets token from local cluster's Dex)
+2. When calling this MCP server, muster exchanges the local token for one valid on the remote cluster
+3. The remote Dex must have an OIDC connector configured that trusts the local cluster's Dex
+4. The exchanged token is used to authenticate to the remote MCP server
+
+The remote Dex must be configured with an OIDC connector:
+```yaml
+# On remote cluster's Dex
+connectors:
+  - type: oidc
+    id: local-cluster-dex
+    name: "Local Cluster"
+    config:
+      issuer: https://dex.local-cluster.example.com
+      getUserInfo: true
+      insecureEnableGroups: true
+```
+
+#### Cross-Cluster SSO via Proxy (Teleport, VPN)
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: private-cluster-k8s
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "private_k8s"
+  description: "Kubernetes tools on private cluster accessed via Teleport"
+  url: "https://mcp-kubernetes.private-cluster.teleport.example.com/mcp"
+  timeout: 60
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      # Access URL goes through Teleport proxy
+      dexTokenEndpoint: "https://dex.private-cluster.teleport.example.com/token"
+      # Expected issuer is the actual Dex issuer (not the proxy URL)
+      expectedIssuer: "https://dex.private-cluster.internal.example.com"
+      connectorId: "management-cluster-dex"
+    fallbackToOwnAuth: true
+```
+
+When accessing Dex through a proxy (e.g., Teleport Application Access):
+- `dexTokenEndpoint`: The proxy URL used to reach Dex's token endpoint
+- `expectedIssuer`: The actual issuer URL configured in Dex (used for token validation)
+
+This is necessary because Dex's tokens contain the configured issuer URL in the `iss` claim, not the proxy URL used to access it. Muster validates that the exchanged token's issuer matches `expectedIssuer` for security.
+
+> **Warning**: When accessing Dex through a proxy, you **MUST** set `expectedIssuer` explicitly. If omitted, muster derives the expected issuer from `dexTokenEndpoint` (the proxy URL), which will cause token validation to fail because the token's `iss` claim contains the actual Dex issuer URL, not the proxy URL. This validation failure is intentional - it ensures you explicitly configure the expected issuer for proxied scenarios.
+
+#### Troubleshooting Token Exchange
+
+**Common Issues and Solutions:**
+
+| Symptom | Likely Cause | Solution |
+|---------|--------------|----------|
+| `issuer mismatch: expected "proxy-url", got "actual-issuer"` | Missing `expectedIssuer` for proxied access | Set `expectedIssuer` to the actual Dex issuer URL shown in the error |
+| `token exchange failed: connection refused` | Wrong `dexTokenEndpoint` URL | Verify the endpoint is reachable from muster's network |
+| `token exchange failed: 401 Unauthorized` | Remote Dex doesn't trust local Dex | Configure OIDC connector on remote Dex (see example above) |
+| `token exchange failed: invalid_grant` | Token expired or connector misconfigured | Check token lifetime and connector ID matches |
+
+**Debugging Steps:**
+
+1. **Verify configuration**: Check the MCPServer's token exchange config
+   ```bash
+   kubectl get mcpserver <name> -o yaml | grep -A10 tokenExchange
+   ```
+
+2. **Check muster logs**: Look for token exchange events
+   ```bash
+   kubectl logs -l app=muster | grep -i "token.*exchange"
+   ```
+
+3. **Verify remote Dex connectivity**: Test the token endpoint is reachable
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" https://<dex-endpoint>/.well-known/openid-configuration
+   ```
+
+4. **Check Kubernetes events**: Muster emits events for token exchange
+   ```bash
+   kubectl get events --field-selector involvedObject.kind=MCPServer
+   ```
+
+**Events Reference:**
+- `MCPServerTokenExchanged`: Token exchange succeeded
+- `MCPServerTokenExchangeFailed`: Token exchange failed (check message for details)
 
 ### CLI Usage
 
@@ -1072,9 +1198,11 @@ When using `forwardToken: true` for SSO:
 5. **Constant-Time Comparison**: mcp-oauth uses `subtle.ConstantTimeCompare` for audience matching
 6. **Audit Logging**: Both muster and downstream servers log when cross-client tokens are used
 
-Events emitted for token forwarding:
+Events emitted for SSO:
 - `MCPServerTokenForwarded`: Successful SSO token forwarding
 - `MCPServerTokenForwardingFailed`: Token forwarding failed
+- `MCPServerTokenExchanged`: Successful RFC 8693 token exchange
+- `MCPServerTokenExchangeFailed`: Token exchange failed
 
 ### Error Handling
 

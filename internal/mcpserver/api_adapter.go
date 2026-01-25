@@ -135,6 +135,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			info.Auth.TokenExchange = &api.TokenExchangeConfig{
 				Enabled:          server.Spec.Auth.TokenExchange.Enabled,
 				DexTokenEndpoint: server.Spec.Auth.TokenExchange.DexTokenEndpoint,
+				ExpectedIssuer:   server.Spec.Auth.TokenExchange.ExpectedIssuer,
 				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
 				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
 			}

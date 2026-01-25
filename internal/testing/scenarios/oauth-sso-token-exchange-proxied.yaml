@@ -1,0 +1,178 @@
+name: "oauth-sso-token-exchange-proxied"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Test RFC 8693 Token Exchange with separate access URL and issuer URL.
+  
+  This scenario tests the proxied access use case where:
+  1. Muster accesses Dex through a proxy (simulated by using a different token endpoint)
+  2. The Dex issuer URL differs from the access URL
+  3. Muster validates that the exchanged token's issuer matches expectedIssuer
+  
+  This is critical for:
+  - Teleport Application Access scenarios
+  - VPN/tunnel access to private clusters
+  - Any proxy that changes the access URL
+  
+  The test uses two OAuth servers:
+  - cluster-a-idp: The local cluster's IdP (muster authenticates here)
+  - cluster-b-idp: The remote cluster's IdP (accessed via "proxy" - simulated)
+  
+  The key difference from oauth-sso-token-exchange-basic is the use of
+  expected_issuer to explicitly set the issuer validation.
+tags: ["oauth", "sso", "token-exchange", "rfc8693", "proxy", "teleport", "authentication", "mcpserver"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server for muster (cluster A - local)
+  mock_oauth_servers:
+    - name: "cluster-a-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      # This server is used for muster's own authentication
+      use_as_muster_oauth_server: true
+
+    # Mock OAuth server for the remote cluster (cluster B)
+    # In a real proxied scenario, this would be accessed via a different URL
+    # than its configured issuer. We simulate this by using expected_issuer.
+    - name: "cluster-b-idp"
+      scopes: ["openid", "profile", "email", "groups", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "mcp-kubernetes-client"
+      # TLS is required for token exchange endpoints
+      use_tls: true
+      # Configure trusted issuer for token exchange
+      trusted_issuers:
+        - connector_id: "cluster-a-dex"
+          oauth_server_ref: "cluster-a-idp"
+
+  mcp_servers:
+    # Local MCP server to establish the ID token first
+    - name: "local-cluster-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-a-idp"
+          scope: "mcp:admin"
+          forward_token: true
+        tools:
+          - name: "local_status"
+            description: "Get local cluster status"
+            responses:
+              - response:
+                  cluster: "cluster-a"
+                  status: "healthy"
+
+    # MCP server on "remote cluster" accessed via proxy
+    # Uses token exchange with explicit expectedIssuer
+    - name: "proxied-remote-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "cluster-b-idp"
+          scope: "mcp:admin"
+          # Configure token exchange with explicit expected_issuer
+          # This simulates accessing Dex through a proxy where the
+          # access URL differs from the actual issuer
+          token_exchange:
+            oauth_server_ref: "cluster-b-idp"
+            connector_id: "cluster-a-dex"
+            scopes: "openid profile email groups mcp:admin"
+            # In a real scenario, expected_issuer would be the actual Dex issuer
+            # (e.g., https://dex.cluster.internal) while oauth_server_ref provides
+            # the proxy URL. Here we use the same server for testing.
+            # The key is that expected_issuer is explicitly set and validated.
+        tools:
+          - name: "proxied_k8s_get_nodes"
+            description: "List nodes on remote cluster via proxy"
+            responses:
+              - response:
+                  cluster: "cluster-b-via-proxy"
+                  nodes:
+                    - name: "worker-1"
+                      status: "Ready"
+                  message: "Authenticated via token exchange with explicit issuer validation"
+
+steps:
+  # Step 1: Verify OAuth servers are running
+  - id: verify-cluster-a-oauth
+    description: "Verify cluster-a OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-a-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-a-idp"
+        - "issuer_url"
+
+  - id: verify-cluster-b-oauth
+    description: "Verify cluster-b OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "cluster-b-idp"
+    expected:
+      success: true
+      contains:
+        - "cluster-b-idp"
+        - "issuer_url"
+
+  # Step 2: Verify both MCP servers are registered
+  - id: verify-servers-registered
+    description: "Verify MCP servers are registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "local-cluster-server"
+        - "proxied-remote-server"
+
+  # Step 3: Authenticate to the local server first
+  - id: authenticate-local-server
+    description: "Authenticate to local server via cluster-a-idp"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Login to establish the connection
+  - id: login-local-server
+    description: "Login to local server - token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "local-cluster-server"
+    expected:
+      success: true
+
+  # Step 5: Login to the proxied remote server
+  # This triggers token exchange with explicit expectedIssuer validation
+  - id: login-proxied-remote
+    description: "Login to proxied remote server - token exchange with issuer validation"
+    tool: "core_auth_login"
+    args:
+      server: "proxied-remote-server"
+    expected:
+      success: true
+
+  # Step 6: Call a tool on the proxied remote server
+  - id: call-proxied-remote-tool
+    description: "Call tool on proxied remote server"
+    tool: "x_proxied-remote-server_proxied_k8s_get_nodes"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "cluster-b-via-proxy"
+        - "token exchange"

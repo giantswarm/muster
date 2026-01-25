@@ -128,11 +128,21 @@ type TokenExchangeConfig struct {
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 
-	// DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
+	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
+	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
 	// Required when Enabled is true.
-	// Example: https://dex.cluster-b.example.com/token
+	// Example: https://dex.cluster-b.example.com/token (direct)
+	// Example: https://dex-cluster.proxy.example.com/token (via proxy)
 	// +kubebuilder:validation:Pattern=`^https://[^\s/$.?#].[^\s]*$`
 	DexTokenEndpoint string `json:"dexTokenEndpoint,omitempty" yaml:"dexTokenEndpoint,omitempty"`
+
+	// ExpectedIssuer is the expected issuer URL in the exchanged token's "iss" claim.
+	// This should match the remote Dex's configured issuer URL.
+	// When access goes through a proxy, this differs from DexTokenEndpoint.
+	// If not specified, the issuer is derived from DexTokenEndpoint (backward compatible).
+	// Example: https://dex.cluster-b.example.com
+	// +kubebuilder:validation:Pattern=`^https://[^\s/$.?#].[^\s]*$`
+	ExpectedIssuer string `json:"expectedIssuer,omitempty" yaml:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
 	// trusts the local cluster's Dex.

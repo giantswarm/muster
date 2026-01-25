@@ -150,10 +150,19 @@ type TokenExchangeConfig struct {
 	// Default: false
 	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 
-	// DexTokenEndpoint is the token endpoint of the remote cluster's Dex.
+	// DexTokenEndpoint is the URL used to connect to the remote cluster's Dex token endpoint.
+	// This may differ from the issuer URL when access goes through a proxy (e.g., Teleport).
 	// Required when Enabled is true.
-	// Example: https://dex.cluster-b.example.com/token
+	// Example: https://dex.cluster-b.example.com/token (direct)
+	// Example: https://dex-cluster.proxy.example.com/token (via proxy)
 	DexTokenEndpoint string `yaml:"dexTokenEndpoint,omitempty" json:"dexTokenEndpoint,omitempty"`
+
+	// ExpectedIssuer is the expected issuer URL in the exchanged token's "iss" claim.
+	// This should match the remote Dex's configured issuer URL.
+	// When access goes through a proxy, this differs from DexTokenEndpoint.
+	// If not specified, the issuer is derived from DexTokenEndpoint (backward compatible).
+	// Example: https://dex.cluster-b.example.com
+	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
 	// trusts the local cluster's Dex.
