@@ -137,6 +137,51 @@ status:
 
 **Usage Note**: Client credentials are required when the remote Dex's token exchange endpoint requires client authentication. The secret should be created before the MCPServer and should contain the OAuth client ID and secret registered on the remote Dex.
 
+**RBAC Requirements**: Muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. For cross-namespace access (when `namespace` differs from the MCPServer's namespace), ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing.
+
+Example RBAC configuration for secret access:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: muster-secret-reader
+  namespace: secrets-namespace
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["token-exchange-credentials"]  # Optional: restrict to specific secrets
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: muster-secret-reader
+  namespace: secrets-namespace
+subjects:
+- kind: ServiceAccount
+  name: muster
+  namespace: muster
+roleRef:
+  kind: Role
+  name: muster-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Secret Rotation Best Practices**:
+
+1. **Zero-downtime rotation**: Update the secret with new credentials while keeping old credentials valid on the remote Dex. Muster loads credentials at connection time, so new connections will use updated credentials.
+
+2. **Rotation procedure**:
+   - Register new client credentials on the remote Dex (keeping old credentials active)
+   - Update the Kubernetes secret with new credentials
+   - Verify new connections succeed with new credentials
+   - Revoke old credentials on the remote Dex
+
+3. **Monitoring**: After rotation, monitor logs for authentication failures. Muster logs token exchange attempts (with client_id, not secrets) for troubleshooting.
+
+4. **Automation**: Consider using external secrets management (e.g., External Secrets Operator, Vault) for automated rotation.
+
 #### Status Fields
 
 | Field | Type | Description |

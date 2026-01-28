@@ -89,6 +89,14 @@ func (a *CredentialsAdapter) LoadClientCredentials(
 	logging.Debug("SecretCredentials", "Loading client credentials from secret %s/%s (keys: %s, %s)",
 		namespace, secretRef.Name, clientIDKey, clientSecretKey)
 
+	// Security: Log a warning when accessing secrets across namespaces
+	// This helps operators audit cross-namespace secret access in logs
+	if secretRef.Namespace != "" && secretRef.Namespace != defaultNamespace {
+		logging.Warn("SecretCredentials", "Cross-namespace secret access: reading secret %s/%s from MCPServer in namespace %s. "+
+			"Ensure RBAC policies permit this access and review security implications.",
+			namespace, secretRef.Name, defaultNamespace)
+	}
+
 	// Load the secret from Kubernetes
 	secret := &corev1.Secret{}
 	if err := a.client.Get(ctx, client.ObjectKey{
