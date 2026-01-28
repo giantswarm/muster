@@ -71,7 +71,9 @@ jobs:
         run: make build
 
       - name: Run muster integration tests
-        run: ./muster test --parallel 50
+        # Use higher base port to avoid port exhaustion under high parallelism
+        # See: https://github.com/giantswarm/muster/issues/309
+        run: ./muster test --parallel 50 --base-port 30000
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
