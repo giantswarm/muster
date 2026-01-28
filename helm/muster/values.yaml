@@ -29,27 +29,14 @@ serviceAccount:
   name: ""
 
 # RBAC Configuration
-# Controls the ClusterRole permissions granted to the ServiceAccount
+# Muster requires access to:
+#   - Muster CRDs (MCPServer, ServiceClass, Workflow)
+#   - CRD discovery
+#   - Events (for core_events tool)
+#   - Secrets (for reading credentials: token exchange, teleport identity, OAuth)
 rbac:
   # Create RBAC resources (ClusterRole and ClusterRoleBinding)
   create: true
-
-  # RBAC profile controls the permission level
-  # Options:
-  #   - "minimal":  Muster CRDs + events access (for minimal deployment)
-  #   - "readonly": Read-only access to common K8s resources + muster CRDs
-  #   - "standard": Read + limited write (for full muster functionality)
-  #
-  # All profiles include events access for the core_events tool.
-  # Muster always needs access to its own CRDs (MCPServer, ServiceClass, Workflow)
-  # The profile controls additional Kubernetes API access.
-  profile: "standard"
-
-  # Custom RBAC rules (overrides profile when enabled)
-  # WARNING: Custom rules BYPASS ALL PROFILE SAFETY CONTROLS!
-  custom:
-    enabled: false
-    rules: []
 
 podAnnotations: {}
 podLabels: {}

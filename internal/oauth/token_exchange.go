@@ -215,14 +215,25 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s",
 		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
 
-	resp, err := e.client.Exchange(ctx, oidc.TokenExchangeRequest{
+	// Build the token exchange request with client credentials if available
+	exchangeReq := oidc.TokenExchangeRequest{
 		TokenEndpoint:      req.Config.DexTokenEndpoint,
 		SubjectToken:       req.SubjectToken,
 		SubjectTokenType:   tokenType,
 		ConnectorID:        req.Config.ConnectorID,
 		Scope:              scopes,
 		RequestedTokenType: oidc.TokenTypeAccessToken,
-	})
+		ClientID:           req.Config.ClientID,
+		ClientSecret:       req.Config.ClientSecret,
+	}
+
+	// Log whether client credentials are being used (without revealing them)
+	if req.Config.ClientID != "" {
+		logging.Debug("TokenExchange", "Using client credentials for token exchange (client_id=%s)",
+			req.Config.ClientID)
+	}
+
+	resp, err := e.client.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s: %v",
 			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
@@ -309,15 +320,26 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s (with custom client)",
 		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
 
-	// Perform the exchange with the custom client
-	resp, err := tempClient.Exchange(ctx, oidc.TokenExchangeRequest{
+	// Build the token exchange request with client credentials if available
+	exchangeReq := oidc.TokenExchangeRequest{
 		TokenEndpoint:      req.Config.DexTokenEndpoint,
 		SubjectToken:       req.SubjectToken,
 		SubjectTokenType:   tokenType,
 		ConnectorID:        req.Config.ConnectorID,
 		Scope:              scopes,
 		RequestedTokenType: oidc.TokenTypeAccessToken,
-	})
+		ClientID:           req.Config.ClientID,
+		ClientSecret:       req.Config.ClientSecret,
+	}
+
+	// Log whether client credentials are being used (without revealing them)
+	if req.Config.ClientID != "" {
+		logging.Debug("TokenExchange", "Using client credentials for token exchange (client_id=%s, with custom client)",
+			req.Config.ClientID)
+	}
+
+	// Perform the exchange with the custom client
+	resp, err := tempClient.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
 			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)

@@ -142,6 +142,44 @@ spec:
 
                       Token exchange takes precedence over ForwardToken if both are configured.
                     properties:
+                      clientCredentialsSecretRef:
+                        description: "ClientCredentialsSecretRef references a Kubernetes
+                          Secret containing\nclient credentials for authenticating
+                          with the remote Dex's token endpoint.\nThis is required
+                          when the remote Dex requires client authentication for\ntoken
+                          exchange (RFC 8693).\n\nThe secret should contain:\n  -
+                          client-id: The OAuth client ID registered on the remote
+                          Dex\n  - client-secret: The OAuth client secret for authentication\n\nExample
+                          secret:\n\n\tapiVersion: v1\n\tkind: Secret\n\tmetadata:\n\t
+                          \ name: grizzly-token-exchange-credentials\n\t  namespace:
+                          muster\n\ttype: Opaque\n\tstringData:\n\t  client-id: muster-token-exchange\n\t
+                          \ client-secret: <secret-value>"
+                        properties:
+                          clientIdKey:
+                            default: client-id
+                            description: |-
+                              ClientIDKey is the key in the secret data that contains the client ID.
+                              Defaults to "client-id" if not specified.
+                            type: string
+                          clientSecretKey:
+                            default: client-secret
+                            description: |-
+                              ClientSecretKey is the key in the secret data that contains the client secret.
+                              Defaults to "client-secret" if not specified.
+                            type: string
+                          name:
+                            description: |-
+                              Name is the name of the Kubernetes Secret.
+                              Required.
+                            type: string
+                          namespace:
+                            description: |-
+                              Namespace is the Kubernetes namespace where the secret is located.
+                              If not specified, defaults to the MCPServer's namespace.
+                            type: string
+                        required:
+                        - name
+                        type: object
                       connectorId:
                         description: |-
                           ConnectorID is the ID of the OIDC connector on the remote Dex that

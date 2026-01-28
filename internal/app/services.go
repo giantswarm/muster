@@ -189,6 +189,10 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
 	mcpServerAdapter.Register()
 
+	// Initialize and register credentials adapter for loading OAuth client credentials from secrets
+	credentialsAdapter := mcpserverPkg.NewCredentialsAdapter(musterClient)
+	credentialsAdapter.Register()
+
 	// The new adapter uses the unified client instead of the manager
 	// MCPServer operations now work through CRDs (Kubernetes) or filesystem fallback
 	// Note: Definition loading is now handled by the unified client automatically

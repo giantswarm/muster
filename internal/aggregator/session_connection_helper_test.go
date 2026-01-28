@@ -322,6 +322,225 @@ func TestDecodeJWTPayload(t *testing.T) {
 	})
 }
 
+// mockSecretCredentialsHandler implements api.SecretCredentialsHandler for testing.
+type mockSecretCredentialsHandler struct {
+	credentials *api.ClientCredentials
+	err         error
+	// Track calls for verification
+	loadCalls     int
+	lastSecretRef *api.ClientCredentialsSecretRef
+	lastDefaultNS string
+}
+
+func (m *mockSecretCredentialsHandler) LoadClientCredentials(
+	ctx context.Context,
+	secretRef *api.ClientCredentialsSecretRef,
+	defaultNamespace string,
+) (*api.ClientCredentials, error) {
+	m.loadCalls++
+	m.lastSecretRef = secretRef
+	m.lastDefaultNS = defaultNamespace
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.credentials, nil
+}
+
+func TestLoadTokenExchangeCredentials(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns error when serverInfo has nil AuthConfig", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name:       "test-server",
+			AuthConfig: nil,
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no client credentials secret reference configured")
+	})
+
+	t.Run("returns error when TokenExchange is nil", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type:          "oauth",
+				TokenExchange: nil,
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no client credentials secret reference configured")
+	})
+
+	t.Run("returns error when ClientCredentialsSecretRef is nil", func(t *testing.T) {
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:                    true,
+					DexTokenEndpoint:           "https://dex.example.com/token",
+					ConnectorID:                "local-dex",
+					ClientCredentialsSecretRef: nil,
+				},
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no client credentials secret reference configured")
+	})
+
+	t.Run("returns error when handler is not registered", func(t *testing.T) {
+		// Ensure no handler is registered
+		api.RegisterSecretCredentialsHandler(nil)
+
+		serverInfo := &ServerInfo{
+			Name: "test-server",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
+						Name: "test-credentials",
+					},
+				},
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "secret credentials handler not registered")
+	})
+
+	t.Run("returns credentials when handler succeeds", func(t *testing.T) {
+		expectedCreds := &api.ClientCredentials{
+			ClientID:     "my-client-id",
+			ClientSecret: "my-client-secret",
+		}
+		mockHandler := &mockSecretCredentialsHandler{
+			credentials: expectedCreds,
+		}
+		api.RegisterSecretCredentialsHandler(mockHandler)
+		defer api.RegisterSecretCredentialsHandler(nil)
+
+		serverInfo := &ServerInfo{
+			Name:      "test-server",
+			Namespace: "muster",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
+						Name:      "test-credentials",
+						Namespace: "secrets-ns",
+					},
+				},
+			},
+		}
+		creds, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedCreds.ClientID, creds.ClientID)
+		assert.Equal(t, expectedCreds.ClientSecret, creds.ClientSecret)
+		assert.Equal(t, 1, mockHandler.loadCalls)
+		assert.Equal(t, "test-credentials", mockHandler.lastSecretRef.Name)
+		assert.Equal(t, "secrets-ns", mockHandler.lastSecretRef.Namespace)
+		assert.Equal(t, "muster", mockHandler.lastDefaultNS)
+	})
+
+	t.Run("uses server namespace as default when GetNamespace returns value", func(t *testing.T) {
+		expectedCreds := &api.ClientCredentials{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+		}
+		mockHandler := &mockSecretCredentialsHandler{
+			credentials: expectedCreds,
+		}
+		api.RegisterSecretCredentialsHandler(mockHandler)
+		defer api.RegisterSecretCredentialsHandler(nil)
+
+		serverInfo := &ServerInfo{
+			Name:      "test-server",
+			Namespace: "my-namespace",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
+						Name: "test-credentials",
+						// No namespace specified - should use server's namespace
+					},
+				},
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.NoError(t, err)
+		assert.Equal(t, "my-namespace", mockHandler.lastDefaultNS)
+	})
+
+	t.Run("uses 'default' namespace when server namespace is empty", func(t *testing.T) {
+		expectedCreds := &api.ClientCredentials{
+			ClientID:     "client-id",
+			ClientSecret: "client-secret",
+		}
+		mockHandler := &mockSecretCredentialsHandler{
+			credentials: expectedCreds,
+		}
+		api.RegisterSecretCredentialsHandler(mockHandler)
+		defer api.RegisterSecretCredentialsHandler(nil)
+
+		serverInfo := &ServerInfo{
+			Name:      "test-server",
+			Namespace: "", // Empty namespace
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
+						Name: "test-credentials",
+					},
+				},
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.NoError(t, err)
+		assert.Equal(t, "default", mockHandler.lastDefaultNS)
+	})
+
+	t.Run("returns error when handler returns error", func(t *testing.T) {
+		mockHandler := &mockSecretCredentialsHandler{
+			err: errors.New("secret not found"),
+		}
+		api.RegisterSecretCredentialsHandler(mockHandler)
+		defer api.RegisterSecretCredentialsHandler(nil)
+
+		serverInfo := &ServerInfo{
+			Name:      "test-server",
+			Namespace: "muster",
+			AuthConfig: &api.MCPServerAuth{
+				Type: "oauth",
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://dex.example.com/token",
+					ConnectorID:      "local-dex",
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{
+						Name: "nonexistent-secret",
+					},
+				},
+			},
+		}
+		_, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "secret not found")
+	})
+}
+
 func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 	ctx := context.Background()
 

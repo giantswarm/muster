@@ -191,6 +191,50 @@ type TokenExchangeConfig struct {
 	// Scopes are the scopes to request for the exchanged token.
 	// +kubebuilder:default="openid profile email groups"
 	Scopes string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+
+	// ClientCredentialsSecretRef references a Kubernetes Secret containing
+	// client credentials for authenticating with the remote Dex's token endpoint.
+	// This is required when the remote Dex requires client authentication for
+	// token exchange (RFC 8693).
+	//
+	// The secret should contain:
+	//   - client-id: The OAuth client ID registered on the remote Dex
+	//   - client-secret: The OAuth client secret for authentication
+	//
+	// Example secret:
+	//
+	//	apiVersion: v1
+	//	kind: Secret
+	//	metadata:
+	//	  name: grizzly-token-exchange-credentials
+	//	  namespace: muster
+	//	type: Opaque
+	//	stringData:
+	//	  client-id: muster-token-exchange
+	//	  client-secret: <secret-value>
+	ClientCredentialsSecretRef *ClientCredentialsSecretRef `json:"clientCredentialsSecretRef,omitempty" yaml:"clientCredentialsSecretRef,omitempty"`
+}
+
+// ClientCredentialsSecretRef references a Kubernetes Secret containing
+// OAuth client credentials for token exchange authentication.
+type ClientCredentialsSecretRef struct {
+	// Name is the name of the Kubernetes Secret.
+	// Required.
+	Name string `json:"name" yaml:"name"`
+
+	// Namespace is the Kubernetes namespace where the secret is located.
+	// If not specified, defaults to the MCPServer's namespace.
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+
+	// ClientIDKey is the key in the secret data that contains the client ID.
+	// Defaults to "client-id" if not specified.
+	// +kubebuilder:default="client-id"
+	ClientIDKey string `json:"clientIdKey,omitempty" yaml:"clientIdKey,omitempty"`
+
+	// ClientSecretKey is the key in the secret data that contains the client secret.
+	// Defaults to "client-secret" if not specified.
+	// +kubebuilder:default="client-secret"
+	ClientSecretKey string `json:"clientSecretKey,omitempty" yaml:"clientSecretKey,omitempty"`
 }
 
 // MCPServerStateValue represents the high-level infrastructure state of an MCPServer.

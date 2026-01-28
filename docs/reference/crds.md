@@ -122,8 +122,65 @@ status:
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
 | `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
 
 **Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+
+#### ClientCredentialsSecretRef Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `name` | `string` | Yes | Name of the Kubernetes Secret | Must exist in the specified namespace |
+| `namespace` | `string` | No | Namespace of the secret | Default: same as MCPServer |
+| `clientIdKey` | `string` | No | Key in secret for client ID | Default: `client-id` |
+| `clientSecretKey` | `string` | No | Key in secret for client secret | Default: `client-secret` |
+
+**Usage Note**: Client credentials are required when the remote Dex's token exchange endpoint requires client authentication. The secret should be created before the MCPServer and should contain the OAuth client ID and secret registered on the remote Dex.
+
+**RBAC Requirements**: Muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. For cross-namespace access (when `namespace` differs from the MCPServer's namespace), ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing.
+
+Example RBAC configuration for secret access:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: muster-secret-reader
+  namespace: secrets-namespace
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["token-exchange-credentials"]  # Optional: restrict to specific secrets
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: muster-secret-reader
+  namespace: secrets-namespace
+subjects:
+- kind: ServiceAccount
+  name: muster
+  namespace: muster
+roleRef:
+  kind: Role
+  name: muster-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Secret Rotation Best Practices**:
+
+1. **Zero-downtime rotation**: Update the secret with new credentials while keeping old credentials valid on the remote Dex. Muster loads credentials at connection time, so new connections will use updated credentials.
+
+2. **Rotation procedure**:
+   - Register new client credentials on the remote Dex (keeping old credentials active)
+   - Update the Kubernetes secret with new credentials
+   - Verify new connections succeed with new credentials
+   - Revoke old credentials on the remote Dex
+
+3. **Monitoring**: After rotation, monitor logs for authentication failures. Muster logs token exchange attempts (with client_id, not secrets) for troubleshooting.
+
+4. **Automation**: Consider using external secrets management (e.g., External Secrets Operator, Vault) for automated rotation.
 
 #### Status Fields
 
@@ -281,6 +338,63 @@ connectors:
       issuer: https://dex.local-cluster.example.com
       getUserInfo: true
       insecureEnableGroups: true
+```
+
+#### Token Exchange with Client Credentials
+
+When the remote Dex requires client authentication for token exchange, you can reference a Kubernetes secret containing the client credentials:
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: remote-cluster-k8s-authenticated
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "remote_k8s"
+  description: "Kubernetes tools on remote cluster with authenticated token exchange"
+  url: "https://mcp-kubernetes.remote-cluster.example.com/mcp"
+  timeout: 30
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      connectorId: "local-cluster-dex"
+      scopes: "openid profile email groups"
+      # Reference to secret containing OAuth client credentials
+      clientCredentialsSecretRef:
+        name: remote-cluster-token-exchange-credentials
+        namespace: muster  # Optional, defaults to MCPServer namespace
+        clientIdKey: client-id      # Optional, defaults to "client-id"
+        clientSecretKey: client-secret  # Optional, defaults to "client-secret"
+    fallbackToOwnAuth: false
+```
+
+The referenced secret should be created before the MCPServer:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: remote-cluster-token-exchange-credentials
+  namespace: muster
+type: Opaque
+stringData:
+  client-id: muster-token-exchange
+  client-secret: <your-client-secret>
+```
+
+The client credentials must be registered as a static client on the remote Dex:
+
+```yaml
+# On remote cluster's Dex
+staticClients:
+  - id: muster-token-exchange
+    name: "Muster Token Exchange"
+    secret: <your-client-secret>
+    # No redirect URIs needed for token exchange
 ```
 
 #### Cross-Cluster SSO via Proxy (OAuth Token Forwarding)

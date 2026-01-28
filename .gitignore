@@ -26,3 +26,5 @@ logs
 # OS specific
 .DS_Store
 /muster
+# Stress test results
+stress-test-results/
