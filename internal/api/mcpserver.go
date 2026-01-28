@@ -191,6 +191,40 @@ type TokenExchangeConfig struct {
 	// Scopes are the scopes to request for the exchanged token.
 	// Default: "openid profile email groups"
 	Scopes string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+
+	// ClientCredentialsSecretRef references a Kubernetes Secret containing
+	// client credentials for authenticating with the remote Dex's token endpoint.
+	// This is required when the remote Dex requires client authentication for
+	// token exchange (RFC 8693).
+	ClientCredentialsSecretRef *ClientCredentialsSecretRef `yaml:"clientCredentialsSecretRef,omitempty" json:"clientCredentialsSecretRef,omitempty"`
+
+	// ClientID is the resolved client ID from the secret (populated at runtime).
+	// This field is not persisted and is populated when loading credentials.
+	ClientID string `yaml:"-" json:"-"`
+
+	// ClientSecret is the resolved client secret from the secret (populated at runtime).
+	// This field is not persisted and is populated when loading credentials.
+	ClientSecret string `yaml:"-" json:"-"`
+}
+
+// ClientCredentialsSecretRef references a Kubernetes Secret containing
+// OAuth client credentials for token exchange authentication.
+type ClientCredentialsSecretRef struct {
+	// Name is the name of the Kubernetes Secret.
+	// Required.
+	Name string `yaml:"name" json:"name"`
+
+	// Namespace is the Kubernetes namespace where the secret is located.
+	// If not specified, defaults to the MCPServer's namespace.
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+
+	// ClientIDKey is the key in the secret data that contains the client ID.
+	// Defaults to "client-id" if not specified.
+	ClientIDKey string `yaml:"clientIdKey,omitempty" json:"clientIdKey,omitempty"`
+
+	// ClientSecretKey is the key in the secret data that contains the client secret.
+	// Defaults to "client-secret" if not specified.
+	ClientSecretKey string `yaml:"clientSecretKey,omitempty" json:"clientSecretKey,omitempty"`
 }
 
 // MCPServerType defines the execution model for an MCP server.

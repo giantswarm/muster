@@ -122,8 +122,20 @@ status:
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
 | `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
 
 **Security Note**: Muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
+
+#### ClientCredentialsSecretRef Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `name` | `string` | Yes | Name of the Kubernetes Secret | Must exist in the specified namespace |
+| `namespace` | `string` | No | Namespace of the secret | Default: same as MCPServer |
+| `clientIdKey` | `string` | No | Key in secret for client ID | Default: `client-id` |
+| `clientSecretKey` | `string` | No | Key in secret for client secret | Default: `client-secret` |
+
+**Usage Note**: Client credentials are required when the remote Dex's token exchange endpoint requires client authentication. The secret should be created before the MCPServer and should contain the OAuth client ID and secret registered on the remote Dex.
 
 #### Status Fields
 
@@ -281,6 +293,63 @@ connectors:
       issuer: https://dex.local-cluster.example.com
       getUserInfo: true
       insecureEnableGroups: true
+```
+
+#### Token Exchange with Client Credentials
+
+When the remote Dex requires client authentication for token exchange, you can reference a Kubernetes secret containing the client credentials:
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: remote-cluster-k8s-authenticated
+  namespace: default
+spec:
+  type: streamable-http
+  toolPrefix: "remote_k8s"
+  description: "Kubernetes tools on remote cluster with authenticated token exchange"
+  url: "https://mcp-kubernetes.remote-cluster.example.com/mcp"
+  timeout: 30
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      connectorId: "local-cluster-dex"
+      scopes: "openid profile email groups"
+      # Reference to secret containing OAuth client credentials
+      clientCredentialsSecretRef:
+        name: remote-cluster-token-exchange-credentials
+        namespace: muster  # Optional, defaults to MCPServer namespace
+        clientIdKey: client-id      # Optional, defaults to "client-id"
+        clientSecretKey: client-secret  # Optional, defaults to "client-secret"
+    fallbackToOwnAuth: false
+```
+
+The referenced secret should be created before the MCPServer:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: remote-cluster-token-exchange-credentials
+  namespace: muster
+type: Opaque
+stringData:
+  client-id: muster-token-exchange
+  client-secret: <your-client-secret>
+```
+
+The client credentials must be registered as a static client on the remote Dex:
+
+```yaml
+# On remote cluster's Dex
+staticClients:
+  - id: muster-token-exchange
+    name: "Muster Token Exchange"
+    secret: <your-client-secret>
+    # No redirect URIs needed for token exchange
 ```
 
 #### Cross-Cluster SSO via Proxy (OAuth Token Forwarding)

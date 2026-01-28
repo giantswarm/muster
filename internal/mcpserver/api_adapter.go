@@ -139,6 +139,16 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
 				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
 			}
+			// Convert ClientCredentialsSecretRef if present
+			if server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef != nil {
+				secretRef := server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef
+				info.Auth.TokenExchange.ClientCredentialsSecretRef = &api.ClientCredentialsSecretRef{
+					Name:            secretRef.Name,
+					Namespace:       secretRef.Namespace,
+					ClientIDKey:     secretRef.ClientIDKey,
+					ClientSecretKey: secretRef.ClientSecretKey,
+				}
+			}
 		}
 		// Convert Teleport config if present
 		if server.Spec.Auth.Teleport != nil {
@@ -255,6 +265,16 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
 				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
 				Scopes:           req.Auth.TokenExchange.Scopes,
+			}
+			// Convert ClientCredentialsSecretRef if present
+			if req.Auth.TokenExchange.ClientCredentialsSecretRef != nil {
+				secretRef := req.Auth.TokenExchange.ClientCredentialsSecretRef
+				crd.Spec.Auth.TokenExchange.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{
+					Name:            secretRef.Name,
+					Namespace:       secretRef.Namespace,
+					ClientIDKey:     secretRef.ClientIDKey,
+					ClientSecretKey: secretRef.ClientSecretKey,
+				}
 			}
 		}
 
@@ -639,6 +659,16 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
 				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
 				Scopes:           req.Auth.TokenExchange.Scopes,
+			}
+			// Convert ClientCredentialsSecretRef if present
+			if req.Auth.TokenExchange.ClientCredentialsSecretRef != nil {
+				secretRef := req.Auth.TokenExchange.ClientCredentialsSecretRef
+				existing.Spec.Auth.TokenExchange.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{
+					Name:            secretRef.Name,
+					Namespace:       secretRef.Namespace,
+					ClientIDKey:     secretRef.ClientIDKey,
+					ClientSecretKey: secretRef.ClientSecretKey,
+				}
 			}
 		}
 		if req.Auth.Teleport != nil {
