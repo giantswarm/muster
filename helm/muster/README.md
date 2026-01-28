@@ -277,6 +277,20 @@ helm repo update
 helm upgrade muster giantswarm/muster
 ```
 
+### Breaking Changes
+
+#### v0.x.x: RBAC Simplification
+
+The RBAC configuration has been simplified. The following values have been **removed**:
+
+- `rbac.profile` (was: `minimal`, `readonly`, `standard`)
+- `rbac.custom.enabled`
+- `rbac.custom.rules`
+
+**Migration**: If you were using `rbac.profile: "minimal"` or `rbac.profile: "readonly"`, no action is required - the new default RBAC is already minimal (muster CRDs, events, secrets read-only). If you were using `rbac.custom`, you'll need to manage RBAC separately by setting `rbac.create: false` and creating your own ClusterRole.
+
+**Why**: The previous RBAC profiles were overly complex. Muster only needs access to its own CRDs, events (for the `core_events` tool), and secrets (for credentials). Users who need broader Kubernetes access should configure that through the MCP servers they deploy (e.g., `mcp-kubernetes`), not through Muster itself.
+
 ## Uninstallation
 
 ```bash
