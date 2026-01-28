@@ -46,22 +46,21 @@ helm install muster ./helm/muster
 | `muster.oauth.clientId` | OAuth client ID (CIMD URL) | Giant Swarm hosted |
 | `muster.oauth.callbackPath` | OAuth proxy callback endpoint path | `/oauth/proxy/callback` |
 | `rbac.create` | Create RBAC resources | `true` |
-| `rbac.profile` | RBAC profile (minimal, readonly, standard) | `standard` |
 | `crds.install` | Install CRDs with the chart | `true` |
 | `ciliumNetworkPolicy.enabled` | Enable CiliumNetworkPolicy | `false` |
 
-### RBAC Profiles
+### RBAC
 
-Muster supports three RBAC profiles:
+Muster creates a ClusterRole with the minimum permissions required:
 
-- **minimal**: Only muster CRDs (MCPServer, ServiceClass, Workflow)
-- **readonly**: Read-only K8s resources + muster CRDs  
-- **standard**: Read + write for full muster functionality
+- **Muster CRDs**: Full access to MCPServer, ServiceClass, Workflow resources
+- **CRD discovery**: Read access to CustomResourceDefinitions
+- **Events**: Read/create for the core_events tool
+- **Secrets**: Read access for credentials (token exchange, teleport identity, OAuth)
 
 ```yaml
 rbac:
-  create: true
-  profile: "standard"  # or "minimal", "readonly"
+  create: true  # Set to false to manage RBAC separately
 ```
 
 ### Resource Limits
