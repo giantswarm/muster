@@ -512,14 +512,16 @@ func EstablishSessionConnectionWithTokenExchange(
 	logging.Info("SessionConnection", "Attempting token exchange for session %s to server %s",
 		logging.TruncateSessionID(sessionID), serverInfo.Name)
 
-	// Load client credentials from secret if configured
+	// Load client credentials from secret if configured.
+	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange to populate
+	// the resolved credentials. This is safe because serverInfo is a local copy used
+	// only for this connection attempt.
 	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
 			logging.Error("SessionConnection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
 			return nil, true, fmt.Errorf("failed to load client credentials: %w", err)
 		}
-		// Populate the credentials in the config for the exchange
 		serverInfo.AuthConfig.TokenExchange.ClientID = credentials.ClientID
 		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
 		logging.Debug("SessionConnection", "Loaded client credentials for token exchange to %s (client_id=%s)",

@@ -223,6 +223,36 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secret name is required")
 	})
+
+	t.Run("falls back to 'default' namespace when both secretRef.Namespace and defaultNamespace are empty", func(t *testing.T) {
+		// Create secret in the "default" namespace
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "fallback-credentials",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"client-id":     []byte("fallback-id"),
+				"client-secret": []byte("fallback-secret"),
+			},
+		}
+
+		k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+		adapter := NewCredentialsAdapter(k8sClient)
+
+		ctx := context.Background()
+		secretRef := &api.ClientCredentialsSecretRef{
+			Name: "fallback-credentials",
+			// Namespace not specified
+		}
+
+		// Both secretRef.Namespace and defaultNamespace are empty
+		credentials, err := adapter.LoadClientCredentials(ctx, secretRef, "")
+
+		require.NoError(t, err)
+		assert.Equal(t, "fallback-id", credentials.ClientID)
+		assert.Equal(t, "fallback-secret", credentials.ClientSecret)
+	})
 }
 
 func TestCredentialsAdapter_Register(t *testing.T) {
