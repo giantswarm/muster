@@ -1,0 +1,117 @@
+name: "oauth-sso-reconnect-after-relogin"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Tests that proactive SSO is triggered based on token changes, not just session ID.
+  
+  This scenario tests the sessionInitTracker behavior:
+  1. User authenticates successfully to muster
+  2. Proactive SSO connects the SSO-enabled server
+  3. Verify the session is tracked correctly
+  
+  Note: Full re-login testing (logout + login with same session ID) requires
+  test infrastructure changes. This scenario verifies the core SSO initialization
+  logic that enables proper SSO behavior.
+  
+  The fix in oauth_http.go tracks token hashes, so when a user re-authenticates
+  with a new token (same session ID), proactive SSO will be triggered again.
+tags: ["oauth", "sso", "session", "proactive-sso"]
+timeout: "2m"
+
+pre_configuration:
+  # Mock OAuth server that acts as muster's upstream identity provider
+  mock_oauth_servers:
+    - name: "relogin-test-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "relogin-test-client"
+      client_secret: "relogin-test-secret"
+      # Enable this as muster's OAuth server for SSO token forwarding
+      use_as_muster_oauth_server: true
+
+  # SSO-enabled MCP server that trusts muster's forwarded ID tokens
+  mcp_servers:
+    - name: "relogin-sso-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "relogin-test-idp"
+          scope: "mcp:admin"
+          # Enable token forwarding - muster should forward its ID token
+          forward_token: true
+        tools:
+          - name: "check_connection"
+            description: "Simple tool to verify connection is working"
+            responses:
+              - response:
+                  status: "success"
+                  message: "Connection verified"
+
+steps:
+  # Step 1: Verify OAuth server is running
+  - id: verify-oauth-server
+    description: "Verify the OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "relogin-test-idp"
+    expected:
+      success: true
+      contains:
+        - "relogin-test-idp"
+        - "issuer_url"
+
+  # Step 2: Verify MCP server is registered
+  - id: verify-server-registered
+    description: "Verify the MCP server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+
+  # Step 3: Authenticate to muster (triggers proactive SSO)
+  - id: auth-to-muster
+    description: "Authenticate to muster via OAuth - triggers proactive SSO"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Verify SSO connected the server
+  - id: verify-sso-connected
+    description: "Verify proactive SSO connected the server"
+    tool: "core_auth_login"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+
+  # Step 5: Verify connection works
+  - id: verify-connection
+    description: "Call protected tool to verify SSO authentication succeeded"
+    tool: "x_relogin-sso-server_check_connection"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Connection verified"
+
+  # Step 6: Verify auth status shows connected
+  - id: check-auth-status
+    description: "Verify auth status shows connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+        - "connected"

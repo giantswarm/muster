@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -88,7 +90,9 @@ type OAuthHTTPServer struct {
 
 	// sessionInitTracker tracks which sessions have had their init callback called.
 	// This prevents calling the proactive SSO logic on every request.
-	sessionInitTracker sync.Map // map[string]bool
+	// The value is a hash of the ID token used for initialization. When the token
+	// changes (user re-authenticates), proactive SSO is triggered again.
+	sessionInitTracker sync.Map // map[string]string (session ID -> token hash)
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -296,8 +300,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 }
 
 // triggerSessionInitIfNeeded triggers the session initialization callback if this
-// is the first authenticated request for the session. This enables proactive SSO
-// connections to be established after muster auth login.
+// is the first authenticated request for the session, or if the user has re-authenticated
+// with a new token. This enables proactive SSO connections to be established after
+// muster auth login and re-established after logout + login.
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
 	// Get session ID from the request header directly.
 	// We can't rely on context here because clientSessionIDMiddleware runs
@@ -308,28 +313,39 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		return
 	}
 
-	// Check if we've already initialized this session
-	if _, exists := s.sessionInitTracker.LoadOrStore(sessionID, true); exists {
-		// Already initialized
-		logging.Debug("OAuth", "SSO: Session %s already initialized, skipping", logging.TruncateSessionID(sessionID))
+	// Get the ID token from context - we need this for both the hash check and SSO forwarding
+	idToken, _ := GetAccessTokenFromContext(ctx)
+	if idToken == "" {
+		logging.Debug("OAuth", "SSO: No ID token in context for session %s, skipping session init",
+			logging.TruncateSessionID(sessionID))
 		return
 	}
+
+	// Compute a hash of the ID token to detect token changes (re-authentication)
+	currentTokenHash := hashToken(idToken)
+
+	// Check if we've already initialized this session with this token
+	// If the token has changed (user re-authenticated), we need to trigger SSO again
+	if existingHash, exists := s.sessionInitTracker.Load(sessionID); exists {
+		if existingHash == currentTokenHash {
+			// Already initialized with the same token
+			logging.Debug("OAuth", "SSO: Session %s already initialized with current token, skipping",
+				logging.TruncateSessionID(sessionID))
+			return
+		}
+		// Token has changed - user re-authenticated, trigger SSO again
+		logging.Info("OAuth", "SSO: Token changed for session %s (re-authentication detected), triggering SSO",
+			logging.TruncateSessionID(sessionID))
+	}
+
+	// Store the current token hash
+	s.sessionInitTracker.Store(sessionID, currentTokenHash)
 
 	// Get the session init callback
 	callback := api.GetSessionInitCallback()
 	if callback == nil {
 		logging.Warn("OAuth", "SSO: No session init callback registered, proactive SSO disabled")
 		return
-	}
-
-	// Extract values we need to preserve for the background goroutine.
-	// We must NOT pass the original ctx to the goroutine because it will be
-	// canceled when the HTTP request completes, potentially before the callback finishes.
-	// Instead, we create a new background context and copy the necessary values.
-	idToken, _ := GetAccessTokenFromContext(ctx)
-	if idToken == "" {
-		logging.Warn("OAuth", "SSO: No ID token in context for session %s, proactive SSO will fail",
-			logging.TruncateSessionID(sessionID))
 	}
 
 	// Trigger the callback asynchronously to not block the request.
@@ -341,9 +357,7 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		// Create a background context with the ID token for SSO forwarding.
 		// This context won't be canceled when the HTTP request completes.
 		bgCtx := context.Background()
-		if idToken != "" {
-			bgCtx = ContextWithAccessToken(bgCtx, idToken)
-		}
+		bgCtx = ContextWithAccessToken(bgCtx, idToken)
 		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
 
 		callback(bgCtx, sessionID)
@@ -662,4 +676,12 @@ func truncateEmail(email string) string {
 		return email[:logEmailPrefixLength]
 	}
 	return email
+}
+
+// hashToken returns a short hash of the token for comparison purposes.
+// This is used to detect when a user has re-authenticated with a new token.
+// We use only the first 16 characters of the SHA-256 hash for efficiency.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:8]) // First 8 bytes = 16 hex chars
 }
