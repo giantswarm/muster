@@ -220,7 +220,7 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 		// for these servers because they return 401 during initial connection.
 		// See Issue #318 for details on this design decision.
 		if eh.isServerSSOBased != nil && eh.isServerSSOBased(event.Name) {
-			logging.Debug("Aggregator-EventHandler", "Skipping global registration of %s - server uses SSO token forwarding/exchange (handled at session level)", event.Name)
+			logging.Info("Aggregator-EventHandler", "Skipping global registration of %s - server uses SSO token forwarding/exchange (handled at session level)", event.Name)
 			return
 		}
 

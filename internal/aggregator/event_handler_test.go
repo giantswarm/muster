@@ -36,36 +36,45 @@ func (m *mockOrchestratorAPI) sendEvent(event api.ServiceStateChangedEvent) {
 	m.eventChan <- event
 }
 
-// mockCallbacks tracks calls to register/deregister functions
+// mockCallbacks tracks calls to register/deregister functions with proper synchronization
 type mockCallbacks struct {
 	mu            sync.Mutex
 	registers     []string
 	deregisters   []string
 	registerErr   error
 	deregisterErr error
+	// callbackChan signals when a callback has been invoked
+	callbackChan chan struct{}
 }
 
 func newMockCallbacks() *mockCallbacks {
 	return &mockCallbacks{
-		registers:   make([]string, 0),
-		deregisters: make([]string, 0),
+		registers:    make([]string, 0),
+		deregisters:  make([]string, 0),
+		callbackChan: make(chan struct{}, 100), // Buffered to prevent blocking
 	}
 }
 
 func (m *mockCallbacks) register(ctx context.Context, serverName string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.registers = append(m.registers, serverName)
-	return m.registerErr
+	err := m.registerErr
+	m.mu.Unlock()
+
+	// Signal that a callback was invoked
+	m.callbackChan <- struct{}{}
+	return err
 }
 
 func (m *mockCallbacks) deregister(serverName string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.deregisters = append(m.deregisters, serverName)
-	return m.deregisterErr
+	err := m.deregisterErr
+	m.mu.Unlock()
+
+	// Signal that a callback was invoked
+	m.callbackChan <- struct{}{}
+	return err
 }
 
 func (m *mockCallbacks) isAuthRequired(serverName string) bool {
@@ -76,6 +85,20 @@ func (m *mockCallbacks) isAuthRequired(serverName string) bool {
 func (m *mockCallbacks) isSSOBased(serverName string) bool {
 	// Default: no server is SSO-based during tests
 	return false
+}
+
+// waitForCallbacks waits for exactly n callbacks to be invoked.
+// Returns an error if the timeout is reached before all callbacks are received.
+func (m *mockCallbacks) waitForCallbacks(n int, timeout time.Duration) error {
+	for i := 0; i < n; i++ {
+		select {
+		case <-m.callbackChan:
+			// Callback received
+		case <-time.After(timeout):
+			return fmt.Errorf("timeout waiting for callback %d of %d", i+1, n)
+		}
+	}
+	return nil
 }
 
 func (m *mockCallbacks) getRegisterCount() int {
@@ -219,8 +242,10 @@ func TestEventHandler_FiltersMCPEvents(t *testing.T) {
 		Health:      "healthy",
 	})
 
-	// Give time for events to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Wait for exactly 1 callback (only the kubernetes MCP event triggers a callback)
+	if err := callbacks.waitForCallbacks(1, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Should have only 1 register call (only the kubernetes event)
 	if callbacks.getRegisterCount() != 1 {
@@ -344,8 +369,10 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 				Health:      tc.health,
 			})
 
-			// Give time for event to be processed
-			time.Sleep(100 * time.Millisecond)
+			// Wait for exactly 1 callback (every MCP event triggers either register or deregister)
+			if err := callbacks.waitForCallbacks(1, 5*time.Second); err != nil {
+				t.Fatalf("Failed waiting for callbacks: %v", err)
+			}
 
 			expectedRegisters := 0
 			if tc.expectRegister {
@@ -404,8 +431,10 @@ func TestEventHandler_HandlesErrors(t *testing.T) {
 		Health:      "healthy",
 	})
 
-	// Give time for events to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Wait for both callbacks (register + deregister)
+	if err := callbacks.waitForCallbacks(2, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Handler should still be running despite errors
 	if !handler.IsRunning() {
@@ -438,11 +467,8 @@ func TestEventHandler_HandlesChannelClose(t *testing.T) {
 	// Close the event channel
 	close(provider.eventChan)
 
-	// Give time for handler to detect channel close and stop
-	time.Sleep(100 * time.Millisecond)
-
-	// Handler should have stopped itself
-	if handler.IsRunning() {
+	// Wait for handler to stop (with timeout)
+	if err := waitForCondition(func() bool { return !handler.IsRunning() }, 5*time.Second); err != nil {
 		t.Error("Handler should have stopped when event channel was closed")
 	}
 }
@@ -462,14 +488,31 @@ func TestEventHandler_HandlesContextCancellation(t *testing.T) {
 	// Cancel the context
 	cancel()
 
-	// Give time for handler to detect cancellation and stop
-	time.Sleep(100 * time.Millisecond)
+	// Wait for handler to stop (with timeout)
+	if err := waitForCondition(func() bool { return !handler.IsRunning() }, 5*time.Second); err != nil {
+		t.Error("Handler should have stopped after context cancellation")
+	}
 
 	// Stop should complete without hanging
 	err = handler.Stop()
 	if err != nil {
 		t.Errorf("Stop failed after context cancellation: %v", err)
 	}
+}
+
+// waitForCondition polls the condition function until it returns true or timeout is reached.
+// This is used to wait for asynchronous state changes without using time.Sleep.
+func waitForCondition(condition func() bool, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return nil
+		}
+		// Use a very short sleep for polling - this is not the same as using sleep
+		// to wait for an unknown duration. We're actively polling a condition.
+		time.Sleep(1 * time.Millisecond)
+	}
+	return fmt.Errorf("condition not met within timeout")
 }
 
 // mockCallbacksWithSSO extends mockCallbacks with SSO server tracking
@@ -536,8 +579,13 @@ func TestEventHandler_SkipsRegistrationForSSOServers(t *testing.T) {
 		Health:      "healthy",
 	})
 
-	// Give time for events to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Wait for exactly 1 callback (only regular-server triggers registration)
+	// The SSO event is skipped, so we only wait for the regular-server callback.
+	// Since events are processed in order, when we receive the regular-server callback,
+	// we know the SSO event was already processed (and skipped).
+	if err := callbacks.waitForCallbacks(1, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Should have only 1 register call (only the regular-server, not the sso-server)
 	if callbacks.getRegisterCount() != 1 {
@@ -585,8 +633,10 @@ func TestEventHandler_SSOServerDeregistration(t *testing.T) {
 		Health:      "unhealthy",
 	})
 
-	// Give time for events to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Wait for 1 deregister callback
+	if err := callbacks.waitForCallbacks(1, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Should have 1 deregister call
 	if callbacks.getDeregisterCount() != 1 {
@@ -620,19 +670,28 @@ func TestEventHandler_SSOServerDeregistration(t *testing.T) {
 func TestEventHandler_Issue318_SSOTokenForwardingRegistrationFailure(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 
-	// Track whether register was called and with what error
-	registerCalled := false
-	var registerError error
+	// Track whether SSO server's register was called
+	ssoRegisterCalled := false
+	var ssoRegisterError error
+
+	// Channel to signal when a callback completes (for synchronization)
+	callbackDone := make(chan string, 10)
 
 	// Simulate the bug: registerSingleServer would fail because no MCP client exists
 	registerFunc := func(ctx context.Context, serverName string) error {
-		registerCalled = true
-		// This simulates the error that would occur without the fix
-		registerError = fmt.Errorf("no MCP client available for %s (service state inconsistent)", serverName)
-		return registerError
+		if serverName == "sso-forwarding-server" {
+			ssoRegisterCalled = true
+			// This simulates the error that would occur without the fix
+			ssoRegisterError = fmt.Errorf("no MCP client available for %s (service state inconsistent)", serverName)
+			callbackDone <- serverName
+			return ssoRegisterError
+		}
+		callbackDone <- serverName
+		return nil
 	}
 
 	deregisterFunc := func(serverName string) error {
+		callbackDone <- serverName
 		return nil
 	}
 
@@ -670,15 +729,33 @@ func TestEventHandler_Issue318_SSOTokenForwardingRegistrationFailure(t *testing.
 		Health:      "healthy",
 	})
 
-	// Give time for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Send a probe event to confirm the SSO event was processed.
+	// Since events are processed sequentially, when we receive the probe callback,
+	// we know the SSO event has already been processed (and should have been skipped).
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "probe-server",
+		ServiceType: "MCPServer",
+		OldState:    "stopped",
+		NewState:    "running",
+		Health:      "healthy",
+	})
 
-	// CRITICAL ASSERTION: The fix should prevent registerFunc from being called
+	// Wait for the probe callback
+	select {
+	case name := <-callbackDone:
+		if name != "probe-server" {
+			t.Errorf("Expected probe-server callback first, got %s", name)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for probe callback")
+	}
+
+	// CRITICAL ASSERTION: The fix should prevent registerFunc from being called for SSO server
 	// Without the fix, registerFunc would be called and would fail with
 	// "no MCP client available for sso-forwarding-server (service state inconsistent)"
-	if registerCalled {
+	if ssoRegisterCalled {
 		t.Errorf("Issue #318 regression: registerFunc should NOT have been called for SSO server, "+
-			"but it was called and would have failed with: %v", registerError)
+			"but it was called and would have failed with: %v", ssoRegisterError)
 	}
 }
 
@@ -712,8 +789,10 @@ func TestEventHandler_Issue318_NonSSOServerStillRegisters(t *testing.T) {
 		Health:      "healthy",
 	})
 
-	// Give time for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	// Wait for 1 register callback
+	if err := callbacks.waitForCallbacks(1, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Normal server should be registered
 	if callbacks.getRegisterCount() != 1 {
@@ -783,8 +862,11 @@ func TestEventHandler_Issue318_MultipleServerTypes(t *testing.T) {
 		Health:      "healthy",
 	})
 
-	// Give time for all events to be processed
-	time.Sleep(150 * time.Millisecond)
+	// Wait for 2 callbacks (only kubernetes and regular-oauth trigger registration)
+	// SSO servers are skipped, so we only expect 2 callbacks.
+	if err := callbacks.waitForCallbacks(2, 5*time.Second); err != nil {
+		t.Fatalf("Failed waiting for callbacks: %v", err)
+	}
 
 	// Only non-SSO servers should be registered globally
 	// SSO servers (sso-server-1, sso-server-2) should be skipped
