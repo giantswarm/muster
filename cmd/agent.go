@@ -222,6 +222,14 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
+	// Set persistent session ID for MCP server token persistence.
+	// This must be set early so the aggregator can associate all requests
+	// with the same session, enabling MCP server tools to be visible after
+	// authentication via `muster auth login --server <server>`.
+	if sessionID := handler.GetSessionID(); sessionID != "" {
+		client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
 	// Check if we have a valid token
 	if handler.HasValidToken(endpoint) {
 		token, err := handler.GetBearerToken(endpoint)
