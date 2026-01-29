@@ -468,6 +468,11 @@ type MCPTestClient interface {
 	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
 	// Close closes the MCP connection
 	Close() error
+	// GetSessionID returns the client's session ID (may be empty if not set)
+	GetSessionID() string
+	// ReconnectWithSession reconnects using a specific session ID and new access token.
+	// This is used to test proactive SSO re-triggering when a token changes for the same session.
+	ReconnectWithSession(ctx context.Context, endpoint, accessToken, sessionID string) error
 }
 
 // TestScenarioLoader interface defines how test scenarios are loaded

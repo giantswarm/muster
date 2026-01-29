@@ -1,13 +1,16 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"muster/internal/api"
 	"muster/internal/config"
 )
 
@@ -222,5 +225,410 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		// but we can verify the pattern works
 		require.NotNil(t, next)
 		assert.False(t, called) // Not called yet
+	})
+}
+
+// TestTriggerSessionInitIfNeeded tests the proactive SSO triggering logic.
+// This tests proactive SSO triggering for:
+// - First authentication (new session)
+// - Re-authentication (logout + login with new ID token)
+// - Token refresh (new access token, preserved ID token)
+func TestTriggerSessionInitIfNeeded(t *testing.T) {
+	// testTimeout is the maximum time to wait for async callbacks.
+	// This is used in select statements to fail fast if callbacks don't arrive.
+	const testTimeout = 5 * time.Second
+
+	t.Run("First call with token triggers callback", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		callbackDone := make(chan string, 1)
+
+		// Register callback that signals completion via channel
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackDone <- sessionID
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		// Create request with session ID and tokens in context
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set(api.ClientSessionIDHeader, "test-session-1")
+		ctx := ContextWithAccessToken(req.Context(), "id-token-A")
+		ctx = ContextWithUpstreamAccessToken(ctx, "access-token-A")
+
+		server.triggerSessionInitIfNeeded(ctx, req)
+
+		// Wait for callback with timeout
+		select {
+		case sessionID := <-callbackDone:
+			assert.Equal(t, "test-session-1", sessionID)
+		case <-time.After(testTimeout):
+			t.Fatal("Callback was not called within timeout")
+		}
+	})
+
+	t.Run("Same token same session does NOT trigger callback again", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		callbackDone := make(chan struct{}, 2)
+
+		// Register callback that signals each invocation
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackDone <- struct{}{}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		sessionID := "test-session-2"
+		idToken := "id-token-same"
+		accessToken := "access-token-same"
+
+		// First call with tokens - should trigger callback
+		req1 := httptest.NewRequest("GET", "/", nil)
+		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx1 := ContextWithAccessToken(req1.Context(), idToken)
+		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessToken)
+		server.triggerSessionInitIfNeeded(ctx1, req1)
+
+		// Wait for first callback
+		select {
+		case <-callbackDone:
+			// Expected
+		case <-time.After(testTimeout):
+			t.Fatal("First callback was not called within timeout")
+		}
+
+		// Second call with SAME tokens - should NOT trigger callback
+		req2 := httptest.NewRequest("GET", "/", nil)
+		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx2 := ContextWithAccessToken(req2.Context(), idToken)
+		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessToken)
+		server.triggerSessionInitIfNeeded(ctx2, req2)
+
+		// Verify no second callback arrives (short timeout since we're proving a negative)
+		select {
+		case <-callbackDone:
+			t.Fatal("Callback should NOT be called again with same token")
+		case <-time.After(100 * time.Millisecond):
+			// Expected - no callback for same token
+		}
+	})
+
+	t.Run("Different ID token same session DOES trigger callback (re-authentication)", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		type callbackResult struct {
+			idToken string
+		}
+		callbackDone := make(chan callbackResult, 2)
+
+		// Register callback that captures the ID token from context
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			idToken, _ := GetAccessTokenFromContext(ctx)
+			callbackDone <- callbackResult{idToken: idToken}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		sessionID := "test-session-3"
+		idTokenA := "id-token-A-reauth"
+		idTokenB := "id-token-B-reauth"
+		accessTokenA := "access-token-A-reauth"
+		accessTokenB := "access-token-B-reauth"
+
+		// First call with token A
+		req1 := httptest.NewRequest("GET", "/", nil)
+		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx1 := ContextWithAccessToken(req1.Context(), idTokenA)
+		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenA)
+		server.triggerSessionInitIfNeeded(ctx1, req1)
+
+		// Wait for first callback
+		select {
+		case result := <-callbackDone:
+			assert.Equal(t, idTokenA, result.idToken, "First callback should have ID token A")
+		case <-time.After(testTimeout):
+			t.Fatal("First callback was not called within timeout")
+		}
+
+		// Second call with DIFFERENT tokens (simulating re-authentication)
+		req2 := httptest.NewRequest("GET", "/", nil)
+		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx2 := ContextWithAccessToken(req2.Context(), idTokenB)
+		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenB)
+		server.triggerSessionInitIfNeeded(ctx2, req2)
+
+		// Wait for second callback
+		select {
+		case result := <-callbackDone:
+			assert.Equal(t, idTokenB, result.idToken, "Second callback should have ID token B")
+		case <-time.After(testTimeout):
+			t.Fatal("Second callback was not called within timeout (re-auth should trigger)")
+		}
+	})
+
+	t.Run("Token refresh (same ID token, different access token) DOES trigger callback", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		type callbackResult struct {
+			idToken string
+		}
+		callbackDone := make(chan callbackResult, 2)
+
+		// Register callback that captures the ID token from context
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			idToken, _ := GetAccessTokenFromContext(ctx)
+			callbackDone <- callbackResult{idToken: idToken}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		sessionID := "test-session-refresh"
+		// ID token stays the same (preserved during refresh per OAuth spec)
+		idToken := "id-token-preserved"
+		// Access token changes on refresh
+		accessTokenBefore := "access-token-before-refresh"
+		accessTokenAfter := "access-token-after-refresh"
+
+		// First call with original access token
+		req1 := httptest.NewRequest("GET", "/", nil)
+		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx1 := ContextWithAccessToken(req1.Context(), idToken)
+		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenBefore)
+		server.triggerSessionInitIfNeeded(ctx1, req1)
+
+		// Wait for first callback
+		select {
+		case result := <-callbackDone:
+			assert.Equal(t, idToken, result.idToken, "First callback should have the ID token")
+		case <-time.After(testTimeout):
+			t.Fatal("First callback was not called within timeout")
+		}
+
+		// Second call with SAME ID token but DIFFERENT access token (simulating server-side refresh)
+		req2 := httptest.NewRequest("GET", "/", nil)
+		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx2 := ContextWithAccessToken(req2.Context(), idToken)       // Same ID token
+		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenAfter) // Different access token
+		server.triggerSessionInitIfNeeded(ctx2, req2)
+
+		// Wait for second callback
+		select {
+		case result := <-callbackDone:
+			assert.Equal(t, idToken, result.idToken, "Second callback should have same ID token (preserved)")
+		case <-time.After(testTimeout):
+			t.Fatal("Second callback was not called within timeout (refresh should trigger)")
+		}
+	})
+
+	t.Run("No session ID does not trigger callback", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		callbackCalled := make(chan struct{}, 1)
+
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackCalled <- struct{}{}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		// Request without session ID header
+		req := httptest.NewRequest("GET", "/", nil)
+		ctx := ContextWithAccessToken(req.Context(), "some-id-token")
+		ctx = ContextWithUpstreamAccessToken(ctx, "some-access-token")
+
+		// This returns early (no goroutine launched) when session ID is missing
+		server.triggerSessionInitIfNeeded(ctx, req)
+
+		// Verify callback is not called (short timeout since code returns synchronously)
+		select {
+		case <-callbackCalled:
+			t.Fatal("Callback should not be called without session ID")
+		case <-time.After(100 * time.Millisecond):
+			// Expected - no callback
+		}
+	})
+
+	t.Run("No token in context does not trigger callback", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		callbackCalled := make(chan struct{}, 1)
+
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackCalled <- struct{}{}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		// Request with session ID but no token
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set(api.ClientSessionIDHeader, "test-session")
+
+		// This returns early (no goroutine launched) when token is missing
+		server.triggerSessionInitIfNeeded(req.Context(), req)
+
+		// Verify callback is not called (short timeout since code returns synchronously)
+		select {
+		case <-callbackCalled:
+			t.Fatal("Callback should not be called without token")
+		case <-time.After(100 * time.Millisecond):
+			// Expected - no callback
+		}
+	})
+
+	t.Run("Falls back to ID token when upstream access token not set", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+		callbackDone := make(chan struct{}, 3)
+
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackDone <- struct{}{}
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		sessionID := "test-session-fallback"
+		idTokenA := "id-token-A-fallback"
+		idTokenB := "id-token-B-fallback"
+
+		// First call with ID token only (no upstream access token) - should trigger
+		req1 := httptest.NewRequest("GET", "/", nil)
+		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx1 := ContextWithAccessToken(req1.Context(), idTokenA)
+		// Note: NOT setting ContextWithUpstreamAccessToken
+		server.triggerSessionInitIfNeeded(ctx1, req1)
+
+		select {
+		case <-callbackDone:
+			// Expected
+		case <-time.After(testTimeout):
+			t.Fatal("First callback was not called within timeout")
+		}
+
+		// Second call with SAME ID token (no upstream access token) - should NOT trigger
+		req2 := httptest.NewRequest("GET", "/", nil)
+		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx2 := ContextWithAccessToken(req2.Context(), idTokenA)
+		server.triggerSessionInitIfNeeded(ctx2, req2)
+
+		select {
+		case <-callbackDone:
+			t.Fatal("Callback should NOT be called with same ID token")
+		case <-time.After(100 * time.Millisecond):
+			// Expected - no callback for same token
+		}
+
+		// Third call with DIFFERENT ID token - should trigger
+		req3 := httptest.NewRequest("GET", "/", nil)
+		req3.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx3 := ContextWithAccessToken(req3.Context(), idTokenB)
+		server.triggerSessionInitIfNeeded(ctx3, req3)
+
+		select {
+		case <-callbackDone:
+			// Expected
+		case <-time.After(testTimeout):
+			t.Fatal("Third callback was not called within timeout (different ID token should trigger)")
+		}
+	})
+}
+
+// TestHashToken tests the token hashing function.
+func TestHashToken(t *testing.T) {
+	t.Run("Same token produces same hash", func(t *testing.T) {
+		token := "test-token-123"
+		hash1 := hashToken(token)
+		hash2 := hashToken(token)
+		assert.Equal(t, hash1, hash2)
+	})
+
+	t.Run("Different tokens produce different hashes", func(t *testing.T) {
+		hash1 := hashToken("token-A")
+		hash2 := hashToken("token-B")
+		assert.NotEqual(t, hash1, hash2)
+	})
+
+	t.Run("Hash is fixed length", func(t *testing.T) {
+		hash := hashToken("some-token")
+		// SHA-256 first 8 bytes = 16 hex chars
+		assert.Len(t, hash, 16)
+	})
+}
+
+// TestCleanupExpiredSessions tests the session tracker cleanup logic.
+func TestCleanupExpiredSessions(t *testing.T) {
+	t.Run("Removes expired sessions", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Add an expired session (last accessed more than TTL ago)
+		expiredEntry := sessionTrackerEntry{
+			tokenHash:  "expired-hash",
+			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL - time.Hour),
+		}
+		server.sessionInitTracker.Store("expired-session", expiredEntry)
+
+		// Add a fresh session (just accessed)
+		freshEntry := sessionTrackerEntry{
+			tokenHash:  "fresh-hash",
+			lastAccess: time.Now(),
+		}
+		server.sessionInitTracker.Store("fresh-session", freshEntry)
+
+		// Run cleanup
+		server.cleanupExpiredSessions()
+
+		// Verify expired session was removed
+		_, exists := server.sessionInitTracker.Load("expired-session")
+		assert.False(t, exists, "Expired session should be removed")
+
+		// Verify fresh session still exists
+		_, exists = server.sessionInitTracker.Load("fresh-session")
+		assert.True(t, exists, "Fresh session should still exist")
+	})
+
+	t.Run("Does not remove sessions within TTL", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Add a session that's just under the TTL
+		almostExpiredEntry := sessionTrackerEntry{
+			tokenHash:  "almost-expired-hash",
+			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL + time.Minute),
+		}
+		server.sessionInitTracker.Store("almost-expired-session", almostExpiredEntry)
+
+		// Run cleanup
+		server.cleanupExpiredSessions()
+
+		// Verify session still exists
+		_, exists := server.sessionInitTracker.Load("almost-expired-session")
+		assert.True(t, exists, "Session within TTL should not be removed")
+	})
+
+	t.Run("Handles empty tracker gracefully", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Run cleanup on empty tracker - should not panic
+		server.cleanupExpiredSessions()
+
+		// Count entries (should be zero)
+		count := 0
+		server.sessionInitTracker.Range(func(_, _ interface{}) bool {
+			count++
+			return true
+		})
+		assert.Equal(t, 0, count, "Empty tracker should remain empty")
+	})
+}
+
+// TestSessionTrackerCleanupGoroutine tests that the cleanup goroutine starts and stops correctly.
+func TestSessionTrackerCleanupGoroutine(t *testing.T) {
+	t.Run("Cleanup goroutine stops on channel close", func(t *testing.T) {
+		server := &OAuthHTTPServer{
+			stopCleanup: make(chan struct{}),
+		}
+
+		// Start the cleanup goroutine
+		done := make(chan struct{})
+		go func() {
+			server.runSessionTrackerCleanup()
+			close(done)
+		}()
+
+		// Stop it by closing the channel
+		close(server.stopCleanup)
+
+		// Wait for goroutine to finish
+		select {
+		case <-done:
+			// Expected - goroutine stopped
+		case <-time.After(time.Second):
+			t.Fatal("Cleanup goroutine did not stop within timeout")
+		}
 	})
 }
