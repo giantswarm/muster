@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	pkgstrings "muster/pkg/strings"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -64,20 +66,9 @@ const (
 
 // truncateString truncates a string to maxLen characters, adding "..." if truncated.
 // It also replaces newlines with spaces to ensure single-line output.
+// This is a convenience wrapper around pkgstrings.TruncateDescription.
 func truncateString(s string, maxLen int) string {
-	// Replace newlines with spaces to keep output on a single line
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\r", "")
-	// Collapse multiple spaces into one
-	for strings.Contains(s, "  ") {
-		s = strings.ReplaceAll(s, "  ", " ")
-	}
-	s = strings.TrimSpace(s)
-
-	if len(s) > maxLen {
-		return s[:maxLen-3] + "..."
-	}
-	return s
+	return pkgstrings.TruncateDescription(s, maxLen)
 }
 
 // pluralize returns a formatted string with count and properly pluralized word.
