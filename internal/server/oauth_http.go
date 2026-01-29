@@ -282,17 +282,25 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Inject the token into context for downstream use
+		// Inject the ID token into context for downstream SSO use
 		ctx = ContextWithAccessToken(ctx, idToken)
+
+		// Also inject the upstream access token for refresh detection.
+		// The access token changes on every refresh, while the ID token is preserved.
+		// By tracking the access token, we can detect both:
+		// - Re-authentication (new ID token from IdP)
+		// - Token refresh (new access token, preserved ID token)
+		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
 
 		if s.debug {
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
 		}
 
-		// Trigger session initialization callback on first request for this session.
-		// This enables proactive SSO: after muster auth login, SSO-enabled servers
-		// are automatically connected using muster's ID token.
+		// Trigger session initialization callback on first request for this session,
+		// or when the token has changed (re-authentication or refresh).
+		// This enables proactive SSO: after muster auth login or token refresh,
+		// SSO-enabled servers are automatically connected using muster's ID token.
 		s.triggerSessionInitIfNeeded(ctx, r)
 
 		next.ServeHTTP(w, r)
@@ -300,9 +308,11 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 }
 
 // triggerSessionInitIfNeeded triggers the session initialization callback if this
-// is the first authenticated request for the session, or if the user has re-authenticated
-// with a new token. This enables proactive SSO connections to be established after
-// muster auth login and re-established after logout + login.
+// is the first authenticated request for the session, or if the token has changed.
+// This enables proactive SSO connections to be established after:
+// - Initial muster authentication (first login)
+// - Re-authentication (logout + login with new ID token)
+// - Token refresh (server-side refresh gets new access token)
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
 	// Get session ID from the request header directly.
 	// We can't rely on context here because clientSessionIDMiddleware runs
@@ -313,7 +323,7 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		return
 	}
 
-	// Get the ID token from context - we need this for both the hash check and SSO forwarding
+	// Get the ID token from context - we need this for SSO forwarding
 	idToken, _ := GetAccessTokenFromContext(ctx)
 	if idToken == "" {
 		logging.Debug("OAuth", "SSO: No ID token in context for session %s, skipping session init",
@@ -321,11 +331,22 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		return
 	}
 
-	// Compute a hash of the ID token to detect token changes (re-authentication)
-	currentTokenHash := hashToken(idToken)
+	// Get the upstream access token for hash computation.
+	// We use the access token (not ID token) because:
+	// - Access token changes on every token refresh
+	// - ID token is preserved during refresh (per OAuth spec)
+	// This allows us to detect both re-authentication AND server-side token refresh.
+	upstreamAccessToken, _ := GetUpstreamAccessTokenFromContext(ctx)
+	if upstreamAccessToken == "" {
+		// Fall back to ID token if upstream access token is not available
+		upstreamAccessToken = idToken
+	}
 
-	// Check if we've already initialized this session with this token
-	// If the token has changed (user re-authenticated), we need to trigger SSO again
+	// Compute a hash of the upstream access token to detect token changes
+	currentTokenHash := hashToken(upstreamAccessToken)
+
+	// Check if we've already initialized this session with this token.
+	// If the token has changed (re-authentication or refresh), we need to trigger SSO again.
 	if existingHash, exists := s.sessionInitTracker.Load(sessionID); exists {
 		if existingHash == currentTokenHash {
 			// Already initialized with the same token
@@ -333,8 +354,8 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 				logging.TruncateSessionID(sessionID))
 			return
 		}
-		// Token has changed - user re-authenticated, trigger SSO again
-		logging.Info("OAuth", "SSO: Token changed for session %s (re-authentication detected), triggering SSO",
+		// Token has changed - could be re-authentication or server-side refresh
+		logging.Info("OAuth", "SSO: Token changed for session %s (re-auth or refresh), triggering SSO",
 			logging.TruncateSessionID(sessionID))
 	}
 

@@ -2,20 +2,22 @@ name: "oauth-sso-reconnect-after-relogin"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Tests that proactive SSO is triggered based on token changes, not just session ID.
+  Tests that SSO servers can be reconnected after logout and re-login.
   
-  This scenario tests the sessionInitTracker behavior:
-  1. User authenticates successfully to muster
-  2. Proactive SSO connects the SSO-enabled server
-  3. Verify the session is tracked correctly
+  This scenario tests the complete logout + re-login user flow:
+  1. User authenticates to muster → SSO server becomes connected
+  2. User logs out from the SSO server → session connection is cleared
+  3. User re-authenticates with SAME session ID but NEW token
+  4. User can reconnect to SSO server via OAuth flow
   
-  Note: Full re-login testing (logout + login with same session ID) requires
-  test infrastructure changes. This scenario verifies the core SSO initialization
-  logic that enables proper SSO behavior.
+  Related code paths tested:
+  - Session tracking across muster re-authentication (session ID preservation)
+  - OAuth callback flow for MCP servers (test_simulate_oauth_callback)
+  - Session-level auth status tracking (auth://status resource)
   
-  The fix in oauth_http.go tracks token hashes, so when a user re-authenticates
-  with a new token (same session ID), proactive SSO will be triggered again.
-tags: ["oauth", "sso", "session", "proactive-sso"]
+  Note: The internal token hash detection logic in oauth_http.go's triggerSessionInitIfNeeded()
+  is tested via unit tests in oauth_http_test.go (TestTriggerSessionInitIfNeeded).
+tags: ["oauth", "sso", "session", "relogin", "token-forwarding", "regression"]
 timeout: "2m"
 
 pre_configuration:
@@ -51,6 +53,10 @@ pre_configuration:
                   message: "Connection verified"
 
 steps:
+  # =========================================================================
+  # PHASE 1: Initial Authentication and SSO Connection
+  # =========================================================================
+  
   # Step 1: Verify OAuth server is running
   - id: verify-oauth-server
     description: "Verify the OAuth server is running"
@@ -73,9 +79,9 @@ steps:
       contains:
         - "relogin-sso-server"
 
-  # Step 3: Authenticate to muster (triggers proactive SSO)
-  - id: auth-to-muster
-    description: "Authenticate to muster via OAuth - triggers proactive SSO"
+  # Step 3: First authentication to muster (triggers SSO with token A)
+  - id: first-auth-to-muster
+    description: "First authentication to muster via OAuth - triggers SSO"
     tool: "test_simulate_oauth_callback"
     args:
       server: "relogin-sso-server"
@@ -85,16 +91,17 @@ steps:
         - "success"
 
   # Step 4: Verify SSO connected the server
-  - id: verify-sso-connected
-    description: "Verify proactive SSO connected the server"
+  - id: verify-sso-connected-first
+    description: "Verify SSO connected the server after first auth"
     tool: "core_auth_login"
     args:
       server: "relogin-sso-server"
     expected:
       success: true
+      # Should say already authenticated because SSO connected it
 
-  # Step 5: Verify connection works
-  - id: verify-connection
+  # Step 5: Verify protected tool works with initial connection
+  - id: verify-connection-first
     description: "Call protected tool to verify SSO authentication succeeded"
     tool: "x_relogin-sso-server_check_connection"
     args: {}
@@ -105,8 +112,8 @@ steps:
         - "Connection verified"
 
   # Step 6: Verify auth status shows connected
-  - id: check-auth-status
-    description: "Verify auth status shows connected"
+  - id: check-auth-status-connected
+    description: "Verify auth status shows connected after first auth"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -115,3 +122,91 @@ steps:
       contains:
         - "relogin-sso-server"
         - "connected"
+
+  # =========================================================================
+  # PHASE 2: Logout (Disconnect the session connection)
+  # =========================================================================
+
+  # Step 7: Logout from the SSO server
+  - id: logout-from-server
+    description: "Logout from SSO server to disconnect the session connection"
+    tool: "core_auth_logout"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+      contains:
+        - "logged out"
+
+  # Step 8: Verify server is now disconnected (requires auth)
+  - id: verify-server-disconnected
+    description: "Verify server is disconnected after logout"
+    tool: "test_read_auth_status"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+        - "auth_required"
+
+  # =========================================================================
+  # PHASE 3: Re-authentication (should reconnect the server)
+  # =========================================================================
+
+  # Step 9: Re-authenticate to muster with new token (same session ID)
+  # This simulates a user re-authenticating after logging out.
+  # Uses test_simulate_muster_reauth which:
+  # - Preserves the current session ID
+  # - Gets a new token from the OAuth server
+  # - Reconnects with the same session ID but new token
+  # The server should be reconnected via proactive SSO (the code being tested).
+  - id: reauth-to-muster
+    description: "Re-authenticate to muster with new token (same session) - triggers proactive SSO"
+    tool: "test_simulate_muster_reauth"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "session"
+
+  # Step 10: Make a real MCP request to trigger proactive SSO
+  # The proactive SSO is triggered by triggerSessionInitIfNeeded() in the OAuth middleware
+  # when the first authenticated MCP request comes in with the new token.
+  # This call to core_mcpserver_list goes through the OAuth middleware and triggers it.
+  - id: trigger-proactive-sso
+    description: "Make MCP request to trigger proactive SSO with new token"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+
+  # Step 11: Wait briefly for proactive SSO to complete (async operation)
+  # The proactive SSO runs in a goroutine, so we need a small delay.
+  - id: verify-sso-reconnected
+    description: "Verify auth status shows connected after re-authentication"
+    tool: "test_read_auth_status"
+    args:
+      server: "relogin-sso-server"
+    retry:
+      count: 5
+      delay: 500ms
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+        - "connected"
+
+  # Step 12: Verify protected tool works after re-authentication
+  - id: verify-connection-after-reauth
+    description: "Call protected tool to verify SSO reconnection succeeded"
+    tool: "x_relogin-sso-server_check_connection"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "Connection verified"

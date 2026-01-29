@@ -2,9 +2,12 @@ package testing
 
 import (
 	"context"
+	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -44,10 +47,12 @@ func AggressiveMCPClientTimeouts() MCPClientTimeouts {
 
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
-	client   client.MCPClient
-	endpoint string
-	debug    bool
-	logger   TestLogger
+	client      client.MCPClient
+	endpoint    string
+	debug       bool
+	logger      TestLogger
+	sessionID   string // Client's session ID (from X-Muster-Session-ID header)
+	accessToken string // Current access token used for authentication
 }
 
 // NewMCPTestClient creates a new MCP test client
@@ -79,26 +84,49 @@ func (c *mcpTestClient) ConnectWithAuth(ctx context.Context, endpoint, accessTok
 
 // connectWithOptions establishes connection with optional authentication.
 func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, accessToken string) error {
+	// Use existing session ID or generate a new one
+	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, c.sessionID)
+}
+
+// connectWithSessionAndToken establishes connection with specific session ID and token.
+func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint, accessToken, sessionID string) error {
 	c.endpoint = endpoint
+	c.accessToken = accessToken
+
+	// Generate session ID if not provided
+	if sessionID == "" {
+		sessionID = generateTestSessionID()
+	}
+	c.sessionID = sessionID
 
 	if c.debug {
-		if accessToken != "" {
-			c.logger.Debug("🔗 Connecting to MCP aggregator at %s (with auth)\n", endpoint)
-		} else {
-			c.logger.Debug("🔗 Connecting to MCP aggregator at %s\n", endpoint)
+		sessionInfo := ""
+		if sessionID != "" {
+			sessionInfo = fmt.Sprintf(", session=%s...", sessionID[:min(8, len(sessionID))])
 		}
+		if accessToken != "" {
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s (with auth%s)\n", endpoint, sessionInfo)
+		} else {
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s%s\n", endpoint, sessionInfo)
+		}
+	}
+
+	// Build headers map
+	headers := make(map[string]string)
+	if accessToken != "" {
+		headers["Authorization"] = "Bearer " + accessToken
+	}
+	if sessionID != "" {
+		headers[api.ClientSessionIDHeader] = sessionID
 	}
 
 	// Create streamable HTTP client for muster aggregator
 	var httpClient *client.Client
 	var err error
 
-	if accessToken != "" {
-		// Create client with Authorization header
+	if len(headers) > 0 {
 		httpClient, err = client.NewStreamableHttpClient(endpoint,
-			transport.WithHTTPHeaders(map[string]string{
-				"Authorization": "Bearer " + accessToken,
-			}),
+			transport.WithHTTPHeaders(headers),
 		)
 	} else {
 		httpClient, err = client.NewStreamableHttpClient(endpoint)
@@ -148,6 +176,17 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	}
 
 	return nil
+}
+
+// generateTestSessionID creates a unique session ID for testing.
+func generateTestSessionID() string {
+	randomBytes := make([]byte, 16)
+	if _, err := cryptoRand.Read(randomBytes); err != nil {
+		// Fallback to time-based ID
+		return fmt.Sprintf("test-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x",
+		randomBytes[0:4], randomBytes[4:6], randomBytes[6:8], randomBytes[8:10], randomBytes[10:16])
 }
 
 // CallTool executes a tool via MCP
@@ -313,4 +352,27 @@ func (c *mcpTestClient) IsConnected() bool {
 // GetEndpoint returns the current endpoint
 func (c *mcpTestClient) GetEndpoint() string {
 	return c.endpoint
+}
+
+// GetSessionID returns the client's session ID.
+func (c *mcpTestClient) GetSessionID() string {
+	return c.sessionID
+}
+
+// ReconnectWithSession closes the current connection and reconnects with a new token
+// while preserving the session ID. This is used to test proactive SSO re-triggering
+// when a user re-authenticates with a new token.
+func (c *mcpTestClient) ReconnectWithSession(ctx context.Context, endpoint, accessToken, sessionID string) error {
+	// Close existing connection
+	if err := c.Close(); err != nil {
+		return fmt.Errorf("failed to close existing connection: %w", err)
+	}
+
+	if c.debug {
+		c.logger.Debug("🔄 Reconnecting with same session ID (%s...) but new token\n",
+			sessionID[:min(8, len(sessionID))])
+	}
+
+	// Reconnect with the specified session ID and new token
+	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, sessionID)
 }

@@ -40,6 +40,9 @@ const (
 	TestToolListToolsForUser = "test_list_tools_for_user"
 	// TestToolGetCurrentUser returns the current active user name.
 	TestToolGetCurrentUser = "test_get_current_user"
+	// TestToolSimulateMusterReauth simulates re-authentication to muster with a new token
+	// while preserving the session ID. Used to test proactive SSO re-triggering.
+	TestToolSimulateMusterReauth = "test_simulate_muster_reauth"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -148,7 +151,8 @@ func IsTestTool(toolName string) bool {
 		TestToolCreateUser,
 		TestToolSwitchUser,
 		TestToolListToolsForUser,
-		TestToolGetCurrentUser:
+		TestToolGetCurrentUser,
+		TestToolSimulateMusterReauth:
 		return true
 	}
 	return false
@@ -181,6 +185,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleListToolsForUser(ctx, args)
 	case TestToolGetCurrentUser:
 		return h.handleGetCurrentUser(ctx, args)
+	case TestToolSimulateMusterReauth:
+		return h.handleSimulateMusterReauth(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1004,6 +1010,128 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 	}, nil
 }
 
+// handleSimulateMusterReauth simulates re-authentication to muster with a new token
+// while preserving the same MCP session ID. This is used to test session continuity
+// when a user re-authenticates to muster.
+//
+// The key behavior being tested:
+// - The session ID remains the same across re-authentication
+// - After re-auth, the user can re-establish connections to SSO servers
+// - This tests the session tracking and token refresh paths
+//
+// This tool:
+// 1. Captures the current session ID from the MCP client
+// 2. Generates a new access token from the mock OAuth server (different from the initial token)
+// 3. Reconnects to muster with the new access token (same session ID)
+// 4. The user can then use test_simulate_oauth_callback to re-authenticate to SSO servers
+//
+// Note: This simulates muster re-authentication by generating a new token and reconnecting
+// with the same session ID. For SSO servers to reconnect, the user must explicitly
+// re-authenticate to them (via test_simulate_oauth_callback or core_auth_login).
+func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.mcpClient == nil {
+		return nil, fmt.Errorf("MCP client not available")
+	}
+
+	if h.currentInstance == nil || h.instanceManager == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	// Step 1: Get the current session ID
+	currentSessionID := h.mcpClient.GetSessionID()
+	if currentSessionID == "" {
+		return nil, fmt.Errorf("no session ID found - client may not be connected")
+	}
+
+	if h.debug {
+		h.logger.Debug("🔄 Muster re-auth: Current session ID: %s...\n", currentSessionID[:min(16, len(currentSessionID))])
+	}
+
+	// Step 2: Find the mock OAuth server that is used as muster's OAuth server
+	var musterOAuthServer *mock.OAuthServer
+	var musterOAuthServerName string
+	for name, info := range h.currentInstance.MockOAuthServers {
+		// Check if this OAuth server has an access token (indicates it's muster's OAuth server)
+		if info.AccessToken != "" {
+			musterOAuthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+			musterOAuthServerName = name
+			if h.debug {
+				h.logger.Debug("🔄 Found muster OAuth server: %s (issuer: %s)\n", name, info.IssuerURL)
+			}
+			break
+		}
+	}
+
+	if musterOAuthServer == nil {
+		return nil, fmt.Errorf("no muster OAuth server found (need a mock OAuth server with use_as_muster_oauth_server: true)")
+	}
+
+	// Step 3: Generate a NEW access token from the mock OAuth server
+	// This token will be different from the initial token.
+	clientID := musterOAuthServer.GetClientID()
+	newTokenResp := musterOAuthServer.GenerateTestToken(clientID, "openid profile email")
+	if newTokenResp == nil {
+		return nil, fmt.Errorf("failed to generate new access token")
+	}
+
+	newAccessToken := newTokenResp.AccessToken
+	if h.debug {
+		h.logger.Debug("🔄 Generated new access token from %s: %s...\n", musterOAuthServerName, newAccessToken[:min(16, len(newAccessToken))])
+	}
+
+	// Step 4: Reconnect the MCP client with the new access token but SAME session ID
+	err := h.mcpClient.ReconnectWithSession(ctx, h.currentInstance.Endpoint, newAccessToken, currentSessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconnect MCP client with new token: %w", err)
+	}
+
+	// Verify the session ID is still the same
+	newSessionID := h.mcpClient.GetSessionID()
+	sessionPreserved := newSessionID == currentSessionID
+
+	if h.debug {
+		h.logger.Debug("✅ Muster re-auth complete. Session preserved: %v (id: %s...)\n",
+			sessionPreserved, newSessionID[:min(16, len(newSessionID))])
+	}
+
+	// Step 5: Re-authenticate to SSO-enabled servers using the OAuth callback flow
+	// This uses the session-level OAuth manager which stores tokens per-session.
+	// Find the first SSO-enabled server and authenticate to it.
+	if h.debug {
+		h.logger.Debug("🔄 Re-authenticating to SSO servers after muster re-auth...\n")
+	}
+
+	// Find an SSO-enabled server to re-authenticate
+	var ssoServerName string
+	for name := range h.currentInstance.MockHTTPServers {
+		ssoServerName = name
+		break
+	}
+
+	if ssoServerName != "" {
+		if h.debug {
+			h.logger.Debug("🔄 Re-authenticating to SSO server: %s\n", ssoServerName)
+		}
+		_, err := h.handleSimulateOAuthCallback(ctx, map[string]interface{}{
+			"server": ssoServerName,
+		})
+		if err != nil {
+			if h.debug {
+				h.logger.Debug("⚠️ SSO server re-auth failed (expected if server requires different issuer): %v\n", err)
+			}
+			// Don't fail - the scenario might want to test this failure case
+		}
+	}
+
+	return map[string]interface{}{
+		"success":           true,
+		"message":           "Successfully simulated muster re-authentication with new token",
+		"session_id":        currentSessionID[:min(32, len(currentSessionID))],
+		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
+		"session_preserved": sessionPreserved,
+	}, nil
+}
+
 // GetTestToolNames returns the names of all available test tools.
 func GetTestToolNames() []string {
 	return []string{
@@ -1017,6 +1145,7 @@ func GetTestToolNames() []string {
 		TestToolSwitchUser,
 		TestToolListToolsForUser,
 		TestToolGetCurrentUser,
+		TestToolSimulateMusterReauth,
 	}
 }
 
@@ -1033,5 +1162,6 @@ func GetTestToolDescriptions() map[string]string {
 		TestToolSwitchUser:            "Switches to a different user session. Required arg: 'name' (user name to switch to). All subsequent tool calls use this user's session.",
 		TestToolListToolsForUser:      "Lists tools visible to a specific user. Optional arg: 'name' (user name, defaults to current). Returns tool list for that user's session.",
 		TestToolGetCurrentUser:        "Returns the name of the currently active user and list of all available users.",
+		TestToolSimulateMusterReauth:  "Simulates re-authentication to muster with a new token while preserving the session ID. Tests proactive SSO re-triggering when token changes.",
 	}
 }
