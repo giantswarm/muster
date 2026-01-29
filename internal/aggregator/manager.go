@@ -136,6 +136,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		am.registerSingleServer,
 		am.deregisterSingleServer,
 		am.isServerAuthRequired,
+		am.isServerSSOBased,
 	)
 
 	// Start the event handler for automatic updates
@@ -559,6 +560,51 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 	}
 
 	return info.Status == StatusAuthRequired
+}
+
+// isServerSSOBased checks if a server is configured for SSO token forwarding or token exchange.
+// These servers are handled at the session level rather than globally, so the event handler
+// should skip global registration attempts for them.
+//
+// SSO-based servers work differently from regular OAuth servers:
+// - When the MCPServerService tries to connect, the server returns 401
+// - The service never creates an MCP client (it stops at the 401)
+// - User authentication happens at the session level via token forwarding/exchange
+// - Each user session creates its own connection with their SSO token
+//
+// This method is called by the event handler when a server becomes healthy/connected
+// to determine if global registration should be skipped.
+//
+// See Issue #318 for details on this design decision.
+func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+
+	if am.aggregatorServer == nil {
+		return false
+	}
+
+	info, exists := am.aggregatorServer.GetRegistry().GetServerInfo(serverName)
+	if !exists {
+		return false
+	}
+
+	// Check if AuthConfig has SSO token forwarding or token exchange enabled
+	if info.AuthConfig == nil {
+		return false
+	}
+
+	// ForwardToken enables SSO via token forwarding
+	if info.AuthConfig.ForwardToken {
+		return true
+	}
+
+	// TokenExchange enables SSO via RFC 8693 token exchange
+	if info.AuthConfig.TokenExchange != nil && info.AuthConfig.TokenExchange.Enabled {
+		return true
+	}
+
+	return false
 }
 
 // handleAuthCompletion is called after successful OAuth browser authentication.

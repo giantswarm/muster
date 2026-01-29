@@ -19,6 +19,7 @@ import (
 //   - Filter events to only process MCP service changes
 //   - Automatically register healthy running MCP servers
 //   - Automatically deregister unhealthy or stopped MCP servers
+//   - Skip global registration for SSO-based servers (handled at session level)
 //   - Maintain separation of concerns through callback functions
 //
 // The handler operates asynchronously and is designed to be resilient to temporary
@@ -28,6 +29,7 @@ type EventHandler struct {
 	registerFunc         func(context.Context, string) error // Callback for server registration
 	deregisterFunc       func(string) error                  // Callback for server deregistration
 	isServerAuthRequired func(string) bool                   // Callback to check if server is in auth_required state
+	isServerSSOBased     func(string) bool                   // Callback to check if server uses SSO token forwarding/exchange
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -48,6 +50,7 @@ type EventHandler struct {
 //   - registerFunc: Callback function to register a server by name
 //   - deregisterFunc: Callback function to deregister a server by name
 //   - isServerAuthRequired: Optional callback to check if server is in auth_required state
+//   - isServerSSOBased: Optional callback to check if server uses SSO token forwarding/exchange
 //
 // Returns a configured but not yet started event handler.
 func NewEventHandler(
@@ -55,12 +58,14 @@ func NewEventHandler(
 	registerFunc func(context.Context, string) error,
 	deregisterFunc func(string) error,
 	isServerAuthRequired func(string) bool,
+	isServerSSOBased func(string) bool,
 ) *EventHandler {
 	return &EventHandler{
 		orchestratorAPI:      orchestratorAPI,
 		registerFunc:         registerFunc,
 		deregisterFunc:       deregisterFunc,
 		isServerAuthRequired: isServerAuthRequired,
+		isServerSSOBased:     isServerSSOBased,
 	}
 }
 
@@ -209,6 +214,16 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	isHealthyAndActive := (event.NewState == "running" || event.NewState == "connected") && event.Health == "healthy"
 
 	if isHealthyAndActive {
+		// Skip global registration for SSO-based servers (token forwarding or token exchange).
+		// These servers are handled at the session level - each user's session creates its own
+		// connection using their SSO token. The MCPServerService never creates a global MCP client
+		// for these servers because they return 401 during initial connection.
+		// See Issue #318 for details on this design decision.
+		if eh.isServerSSOBased != nil && eh.isServerSSOBased(event.Name) {
+			logging.Info("Aggregator-EventHandler", "Skipping global registration of %s - server uses SSO token forwarding/exchange (handled at session level)", event.Name)
+			return
+		}
+
 		// Register the healthy running/connected server
 		logging.Info("Aggregator-EventHandler", "Registering healthy MCP server: %s", event.Name)
 
