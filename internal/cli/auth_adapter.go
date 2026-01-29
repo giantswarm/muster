@@ -727,6 +727,12 @@ func (a *AuthAdapter) doTokenRefresh(ctx context.Context, store *oauth.TokenStor
 		return fmt.Errorf("token refresh failed: %w", err)
 	}
 
+	// Preserve ID token if not returned (refresh responses typically don't include ID tokens)
+	// The ID token is needed for SSO forwarding to downstream MCP servers
+	if newToken.IDToken == "" && storedToken.IDToken != "" {
+		newToken.IDToken = storedToken.IDToken
+	}
+
 	// Convert to oauth2.Token for storage
 	oauth2Token := newToken.ToOAuth2Token()
 

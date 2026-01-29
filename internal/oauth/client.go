@@ -183,6 +183,12 @@ func (c *Client) RefreshToken(ctx context.Context, token *pkgoauth.Token) (*pkgo
 		newToken.RefreshToken = token.RefreshToken
 	}
 
+	// Preserve ID token if not returned (refresh responses typically don't include ID tokens)
+	// The ID token is needed for SSO forwarding to downstream MCP servers
+	if newToken.IDToken == "" && token.IDToken != "" {
+		newToken.IDToken = token.IDToken
+	}
+
 	// Log successful refresh at INFO level for operational monitoring
 	logging.Info("OAuth", "Token refresh successful (issuer=%s, expires_in=%ds, duration=%v)",
 		token.Issuer, newToken.ExpiresIn, time.Since(startTime))
