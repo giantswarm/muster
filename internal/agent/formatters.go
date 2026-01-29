@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"muster/internal/api"
+	pkgstrings "muster/pkg/strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -21,6 +22,10 @@ import (
 //   - Search and lookup utilities for cached data
 //   - Consistent error handling and fallback formatting
 type Formatters struct{}
+
+// descriptionMaxLen is the maximum length for descriptions in formatted output.
+// Uses the shared constant from pkg/strings for consistency across packages.
+const descriptionMaxLen = pkgstrings.DefaultDescriptionMaxLen
 
 // NewFormatters creates a new formatters instance.
 // The formatters instance is stateless and can be safely used concurrently.
@@ -53,7 +58,8 @@ func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Available tools (%d):", len(tools)))
 	for i, tool := range tools {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, tool.Description))
+		desc := pkgstrings.TruncateDescription(tool.Description, descriptionMaxLen)
+		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, desc))
 	}
 	return strings.Join(output, "\n")
 }
@@ -88,6 +94,7 @@ func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 		if desc == "" {
 			desc = resource.Name
 		}
+		desc = pkgstrings.TruncateDescription(desc, descriptionMaxLen)
 		output = append(output, fmt.Sprintf("  %d. %-40s - %s", i+1, resource.URI, desc))
 	}
 	return strings.Join(output, "\n")
@@ -118,7 +125,8 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Available prompts (%d):", len(prompts)))
 	for i, prompt := range prompts {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, prompt.Name, prompt.Description))
+		desc := pkgstrings.TruncateDescription(prompt.Description, descriptionMaxLen)
+		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, prompt.Name, desc))
 	}
 	return strings.Join(output, "\n")
 }

@@ -512,6 +512,22 @@ func EstablishSessionConnectionWithTokenExchange(
 	logging.Info("SessionConnection", "Attempting token exchange for session %s to server %s",
 		logging.TruncateSessionID(sessionID), serverInfo.Name)
 
+	// Load client credentials from secret if configured.
+	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange to populate
+	// the resolved credentials. This is safe because serverInfo is a local copy used
+	// only for this connection attempt.
+	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
+		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		if err != nil {
+			logging.Error("SessionConnection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
+			return nil, true, fmt.Errorf("failed to load client credentials: %w", err)
+		}
+		serverInfo.AuthConfig.TokenExchange.ClientID = credentials.ClientID
+		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
+		logging.Debug("SessionConnection", "Loaded client credentials for token exchange to %s (client_id=%s)",
+			serverInfo.Name, credentials.ClientID)
+	}
+
 	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client
 	// for both the token exchange request and the MCP server connection.
 	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
@@ -913,4 +929,35 @@ func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerIn
 
 	logging.Debug("SessionConnection", "Got Teleport HTTP client for %s", serverInfo.Name)
 	return TeleportClientResult{Configured: true, Client: httpClient}
+}
+
+// loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret
+// for token exchange authentication with remote Dex instances.
+//
+// Args:
+//   - ctx: Context for Kubernetes API calls
+//   - serverInfo: The MCP server info containing the token exchange configuration
+//
+// Returns:
+//   - *api.ClientCredentials: The loaded credentials
+//   - error: Error if credentials could not be loaded
+func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (*api.ClientCredentials, error) {
+	if serverInfo.AuthConfig == nil ||
+		serverInfo.AuthConfig.TokenExchange == nil ||
+		serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef == nil {
+		return nil, fmt.Errorf("no client credentials secret reference configured")
+	}
+
+	handler := api.GetSecretCredentialsHandler()
+	if handler == nil {
+		return nil, fmt.Errorf("secret credentials handler not registered")
+	}
+
+	// Use the server's namespace as the default for the secret
+	defaultNamespace := serverInfo.GetNamespace()
+	if defaultNamespace == "" {
+		defaultNamespace = "default"
+	}
+
+	return handler.LoadClientCredentials(ctx, serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef, defaultNamespace)
 }

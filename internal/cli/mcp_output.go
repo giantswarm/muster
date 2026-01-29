@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	pkgstrings "muster/pkg/strings"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,7 +57,8 @@ func outputYAML(data interface{}) error {
 // Different lengths are used based on the number of columns displayed.
 const (
 	// descLengthNormal is used for standard table output with fewer columns.
-	descLengthNormal = 60
+	// Uses the shared constant from pkg/strings for consistency across packages.
+	descLengthNormal = pkgstrings.DefaultDescriptionMaxLen
 	// descLengthWide is used for wide output where more columns are displayed.
 	descLengthWide = 50
 	// descLengthCompact is used when space is very limited (e.g., resources with many columns).
@@ -63,11 +66,10 @@ const (
 )
 
 // truncateString truncates a string to maxLen characters, adding "..." if truncated.
+// It also replaces newlines with spaces to ensure single-line output.
+// This is a convenience wrapper around pkgstrings.TruncateDescription.
 func truncateString(s string, maxLen int) string {
-	if len(s) > maxLen {
-		return s[:maxLen-3] + "..."
-	}
-	return s
+	return pkgstrings.TruncateDescription(s, maxLen)
 }
 
 // pluralize returns a formatted string with count and properly pluralized word.

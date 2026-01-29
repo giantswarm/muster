@@ -15,6 +15,34 @@ import (
 	"muster/pkg/logging"
 )
 
+// convertCRDSecretRefToAPI converts a CRD ClientCredentialsSecretRef to an API ClientCredentialsSecretRef.
+// Returns nil if the input is nil.
+func convertCRDSecretRefToAPI(src *musterv1alpha1.ClientCredentialsSecretRef) *api.ClientCredentialsSecretRef {
+	if src == nil {
+		return nil
+	}
+	return &api.ClientCredentialsSecretRef{
+		Name:            src.Name,
+		Namespace:       src.Namespace,
+		ClientIDKey:     src.ClientIDKey,
+		ClientSecretKey: src.ClientSecretKey,
+	}
+}
+
+// convertAPISecretRefToCRD converts an API ClientCredentialsSecretRef to a CRD ClientCredentialsSecretRef.
+// Returns nil if the input is nil.
+func convertAPISecretRefToCRD(src *api.ClientCredentialsSecretRef) *musterv1alpha1.ClientCredentialsSecretRef {
+	if src == nil {
+		return nil
+	}
+	return &musterv1alpha1.ClientCredentialsSecretRef{
+		Name:            src.Name,
+		Namespace:       src.Namespace,
+		ClientIDKey:     src.ClientIDKey,
+		ClientSecretKey: src.ClientSecretKey,
+	}
+}
+
 // Adapter provides MCP server management functionality using the unified client
 type Adapter struct {
 	client    client.MusterClient
@@ -139,6 +167,9 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 				ConnectorID:      server.Spec.Auth.TokenExchange.ConnectorID,
 				Scopes:           server.Spec.Auth.TokenExchange.Scopes,
 			}
+			info.Auth.TokenExchange.ClientCredentialsSecretRef = convertCRDSecretRefToAPI(
+				server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef,
+			)
 		}
 		// Convert Teleport config if present
 		if server.Spec.Auth.Teleport != nil {
@@ -250,11 +281,12 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		// Convert TokenExchange if present
 		if req.Auth.TokenExchange != nil {
 			crd.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:          req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint: req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
-				Scopes:           req.Auth.TokenExchange.Scopes,
+				Enabled:                    req.Auth.TokenExchange.Enabled,
+				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
+				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
+				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
+				Scopes:                     req.Auth.TokenExchange.Scopes,
+				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
 			}
 		}
 
@@ -634,11 +666,12 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		}
 		if req.Auth.TokenExchange != nil {
 			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
-				Enabled:          req.Auth.TokenExchange.Enabled,
-				DexTokenEndpoint: req.Auth.TokenExchange.DexTokenEndpoint,
-				ExpectedIssuer:   req.Auth.TokenExchange.ExpectedIssuer,
-				ConnectorID:      req.Auth.TokenExchange.ConnectorID,
-				Scopes:           req.Auth.TokenExchange.Scopes,
+				Enabled:                    req.Auth.TokenExchange.Enabled,
+				DexTokenEndpoint:           req.Auth.TokenExchange.DexTokenEndpoint,
+				ExpectedIssuer:             req.Auth.TokenExchange.ExpectedIssuer,
+				ConnectorID:                req.Auth.TokenExchange.ConnectorID,
+				Scopes:                     req.Auth.TokenExchange.Scopes,
+				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
 			}
 		}
 		if req.Auth.Teleport != nil {

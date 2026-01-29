@@ -72,28 +72,7 @@
       "properties": {
         "create": {
           "type": "boolean",
-          "description": "Create RBAC resources"
-        },
-        "profile": {
-          "type": "string",
-          "enum": ["minimal", "readonly", "standard"],
-          "description": "RBAC profile (minimal, readonly, standard)"
-        },
-        "custom": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable custom RBAC rules"
-            },
-            "rules": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              },
-              "description": "Custom RBAC rules"
-            }
-          }
+          "description": "Create RBAC resources (ClusterRole and ClusterRoleBinding)"
         }
       }
     },

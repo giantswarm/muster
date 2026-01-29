@@ -46,22 +46,21 @@ helm install muster ./helm/muster
 | `muster.oauth.clientId` | OAuth client ID (CIMD URL) | Giant Swarm hosted |
 | `muster.oauth.callbackPath` | OAuth proxy callback endpoint path | `/oauth/proxy/callback` |
 | `rbac.create` | Create RBAC resources | `true` |
-| `rbac.profile` | RBAC profile (minimal, readonly, standard) | `standard` |
 | `crds.install` | Install CRDs with the chart | `true` |
 | `ciliumNetworkPolicy.enabled` | Enable CiliumNetworkPolicy | `false` |
 
-### RBAC Profiles
+### RBAC
 
-Muster supports three RBAC profiles:
+Muster creates a ClusterRole with the minimum permissions required:
 
-- **minimal**: Only muster CRDs (MCPServer, ServiceClass, Workflow)
-- **readonly**: Read-only K8s resources + muster CRDs  
-- **standard**: Read + write for full muster functionality
+- **Muster CRDs**: Full access to MCPServer, ServiceClass, Workflow resources
+- **CRD discovery**: Read access to CustomResourceDefinitions
+- **Events**: Read/create for the core_events tool
+- **Secrets**: Read access for credentials (token exchange, teleport identity, OAuth)
 
 ```yaml
 rbac:
-  create: true
-  profile: "standard"  # or "minimal", "readonly"
+  create: true  # Set to false to manage RBAC separately
 ```
 
 ### Resource Limits
@@ -277,6 +276,20 @@ When `crds.install: true`, CRDs are installed automatically. For GitOps workflow
 helm repo update
 helm upgrade muster giantswarm/muster
 ```
+
+### Breaking Changes
+
+#### v0.x.x: RBAC Simplification
+
+The RBAC configuration has been simplified. The following values have been **removed**:
+
+- `rbac.profile` (was: `minimal`, `readonly`, `standard`)
+- `rbac.custom.enabled`
+- `rbac.custom.rules`
+
+**Migration**: If you were using `rbac.profile: "minimal"` or `rbac.profile: "readonly"`, no action is required - the new default RBAC is already minimal (muster CRDs, events, secrets read-only). If you were using `rbac.custom`, you'll need to manage RBAC separately by setting `rbac.create: false` and creating your own ClusterRole.
+
+**Why**: The previous RBAC profiles were overly complex. Muster only needs access to its own CRDs, events (for the `core_events` tool), and secrets (for credentials). Users who need broader Kubernetes access should configure that through the MCP servers they deploy (e.g., `mcp-kubernetes`), not through Muster itself.
 
 ## Uninstallation
 

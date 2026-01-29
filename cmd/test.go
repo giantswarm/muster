@@ -318,6 +318,11 @@ func runTest(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Clean up any stale muster test processes from previous runs
+	// This prevents port conflicts and resource contention
+	cleanupLogger := testing.NewStdoutLogger(testVerbose, testDebug)
+	testing.CleanupStaleMusterTestProcesses(cleanupLogger, testDebug)
+
 	// Create timeout context for normal test execution
 	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, testTimeout)
 	defer timeoutCancel()
