@@ -62,6 +62,13 @@ const (
 	// logEmailPrefixLength is the number of characters to show when logging emails.
 	// Only a prefix is logged for privacy reasons.
 	logEmailPrefixLength = 8
+
+	// DefaultSessionTrackerTTL is how long session entries are kept before cleanup.
+	// Sessions inactive for longer than this will be removed to prevent memory leaks.
+	DefaultSessionTrackerTTL = 24 * time.Hour
+
+	// DefaultSessionTrackerCleanupInterval is how often the session tracker cleanup runs.
+	DefaultSessionTrackerCleanupInterval = 1 * time.Hour
 )
 
 var (
@@ -75,6 +82,13 @@ var (
 		"https://www.googleapis.com/auth/userinfo.profile",
 	}
 )
+
+// sessionTrackerEntry holds the token hash and last access time for a session.
+// This is used to track when sessions can be cleaned up.
+type sessionTrackerEntry struct {
+	tokenHash  string
+	lastAccess time.Time
+}
 
 // OAuthHTTPServer wraps an MCP HTTP handler with OAuth 2.1 authentication.
 // It provides both OAuth server functionality (authorization, token issuance)
@@ -90,9 +104,12 @@ type OAuthHTTPServer struct {
 
 	// sessionInitTracker tracks which sessions have had their init callback called.
 	// This prevents calling the proactive SSO logic on every request.
-	// The value is a hash of the ID token used for initialization. When the token
-	// changes (user re-authenticates), proactive SSO is triggered again.
-	sessionInitTracker sync.Map // map[string]string (session ID -> token hash)
+	// The value is a sessionTrackerEntry containing the token hash and last access time.
+	// When the token changes (user re-authenticates), proactive SSO is triggered again.
+	sessionInitTracker sync.Map // map[string]sessionTrackerEntry
+
+	// stopCleanup is closed to signal the cleanup goroutine to stop.
+	stopCleanup chan struct{}
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -114,14 +131,20 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 
 	oauthHandler := oauth.NewHandler(oauthServer, oauthServer.Logger)
 
-	return &OAuthHTTPServer{
+	server := &OAuthHTTPServer{
 		config:       cfg,
 		oauthServer:  oauthServer,
 		oauthHandler: oauthHandler,
 		tokenStore:   tokenStore,
 		mcpHandler:   mcpHandler,
 		debug:        debug,
-	}, nil
+		stopCleanup:  make(chan struct{}),
+	}
+
+	// Start background cleanup goroutine for session tracker
+	go server.runSessionTrackerCleanup()
+
+	return server, nil
 }
 
 // CreateMux creates an HTTP mux that routes to both OAuth and MCP handlers.
@@ -344,12 +367,18 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 
 	// Compute a hash of the upstream access token to detect token changes
 	currentTokenHash := hashToken(upstreamAccessToken)
+	now := time.Now()
 
 	// Check if we've already initialized this session with this token.
 	// If the token has changed (re-authentication or refresh), we need to trigger SSO again.
-	if existingHash, exists := s.sessionInitTracker.Load(sessionID); exists {
-		if existingHash == currentTokenHash {
-			// Already initialized with the same token
+	if existingEntry, exists := s.sessionInitTracker.Load(sessionID); exists {
+		entry := existingEntry.(sessionTrackerEntry)
+		if entry.tokenHash == currentTokenHash {
+			// Already initialized with the same token - just update last access time
+			s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{
+				tokenHash:  currentTokenHash,
+				lastAccess: now,
+			})
 			logging.Debug("OAuth", "SSO: Session %s already initialized with current token, skipping",
 				logging.TruncateSessionID(sessionID))
 			return
@@ -359,8 +388,11 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 			logging.TruncateSessionID(sessionID))
 	}
 
-	// Store the current token hash
-	s.sessionInitTracker.Store(sessionID, currentTokenHash)
+	// Store the current token hash with timestamp
+	s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{
+		tokenHash:  currentTokenHash,
+		lastAccess: now,
+	})
 
 	// Get the session init callback
 	callback := api.GetSessionInitCallback()
@@ -402,6 +434,11 @@ func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 
 // Shutdown gracefully shuts down the server.
 func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
+	// Stop the session tracker cleanup goroutine
+	if s.stopCleanup != nil {
+		close(s.stopCleanup)
+	}
+
 	// Shutdown OAuth server (handles rate limiters, storage cleanup, etc.)
 	if s.oauthServer != nil {
 		if err := s.oauthServer.Shutdown(ctx); err != nil {
@@ -697,6 +734,46 @@ func truncateEmail(email string) string {
 		return email[:logEmailPrefixLength]
 	}
 	return email
+}
+
+// runSessionTrackerCleanup runs a background goroutine that periodically removes
+// expired session entries from the session init tracker. This prevents unbounded
+// memory growth in long-running servers.
+func (s *OAuthHTTPServer) runSessionTrackerCleanup() {
+	ticker := time.NewTicker(DefaultSessionTrackerCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCleanup:
+			logging.Debug("OAuth", "Session tracker cleanup goroutine stopped")
+			return
+		case <-ticker.C:
+			s.cleanupExpiredSessions()
+		}
+	}
+}
+
+// cleanupExpiredSessions removes session entries that haven't been accessed
+// within the TTL period.
+func (s *OAuthHTTPServer) cleanupExpiredSessions() {
+	now := time.Now()
+	expiredCount := 0
+
+	s.sessionInitTracker.Range(func(key, value interface{}) bool {
+		sessionID := key.(string)
+		entry := value.(sessionTrackerEntry)
+
+		if now.Sub(entry.lastAccess) > DefaultSessionTrackerTTL {
+			s.sessionInitTracker.Delete(sessionID)
+			expiredCount++
+		}
+		return true
+	})
+
+	if expiredCount > 0 {
+		logging.Info("OAuth", "Cleaned up %d expired session tracker entries", expiredCount)
+	}
 }
 
 // hashToken returns a short hash of the token for comparison purposes.

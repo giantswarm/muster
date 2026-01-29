@@ -540,3 +540,95 @@ func TestHashToken(t *testing.T) {
 		assert.Len(t, hash, 16)
 	})
 }
+
+// TestCleanupExpiredSessions tests the session tracker cleanup logic.
+func TestCleanupExpiredSessions(t *testing.T) {
+	t.Run("Removes expired sessions", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Add an expired session (last accessed more than TTL ago)
+		expiredEntry := sessionTrackerEntry{
+			tokenHash:  "expired-hash",
+			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL - time.Hour),
+		}
+		server.sessionInitTracker.Store("expired-session", expiredEntry)
+
+		// Add a fresh session (just accessed)
+		freshEntry := sessionTrackerEntry{
+			tokenHash:  "fresh-hash",
+			lastAccess: time.Now(),
+		}
+		server.sessionInitTracker.Store("fresh-session", freshEntry)
+
+		// Run cleanup
+		server.cleanupExpiredSessions()
+
+		// Verify expired session was removed
+		_, exists := server.sessionInitTracker.Load("expired-session")
+		assert.False(t, exists, "Expired session should be removed")
+
+		// Verify fresh session still exists
+		_, exists = server.sessionInitTracker.Load("fresh-session")
+		assert.True(t, exists, "Fresh session should still exist")
+	})
+
+	t.Run("Does not remove sessions within TTL", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Add a session that's just under the TTL
+		almostExpiredEntry := sessionTrackerEntry{
+			tokenHash:  "almost-expired-hash",
+			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL + time.Minute),
+		}
+		server.sessionInitTracker.Store("almost-expired-session", almostExpiredEntry)
+
+		// Run cleanup
+		server.cleanupExpiredSessions()
+
+		// Verify session still exists
+		_, exists := server.sessionInitTracker.Load("almost-expired-session")
+		assert.True(t, exists, "Session within TTL should not be removed")
+	})
+
+	t.Run("Handles empty tracker gracefully", func(t *testing.T) {
+		server := &OAuthHTTPServer{}
+
+		// Run cleanup on empty tracker - should not panic
+		server.cleanupExpiredSessions()
+
+		// Count entries (should be zero)
+		count := 0
+		server.sessionInitTracker.Range(func(_, _ interface{}) bool {
+			count++
+			return true
+		})
+		assert.Equal(t, 0, count, "Empty tracker should remain empty")
+	})
+}
+
+// TestSessionTrackerCleanupGoroutine tests that the cleanup goroutine starts and stops correctly.
+func TestSessionTrackerCleanupGoroutine(t *testing.T) {
+	t.Run("Cleanup goroutine stops on channel close", func(t *testing.T) {
+		server := &OAuthHTTPServer{
+			stopCleanup: make(chan struct{}),
+		}
+
+		// Start the cleanup goroutine
+		done := make(chan struct{})
+		go func() {
+			server.runSessionTrackerCleanup()
+			close(done)
+		}()
+
+		// Stop it by closing the channel
+		close(server.stopCleanup)
+
+		// Wait for goroutine to finish
+		select {
+		case <-done:
+			// Expected - goroutine stopped
+		case <-time.After(time.Second):
+			t.Fatal("Cleanup goroutine did not stop within timeout")
+		}
+	})
+}
