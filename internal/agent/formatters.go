@@ -22,6 +22,27 @@ import (
 //   - Consistent error handling and fallback formatting
 type Formatters struct{}
 
+// descriptionMaxLen is the maximum length for descriptions in formatted output.
+const descriptionMaxLen = 60
+
+// truncateDescription truncates a description to maxLen characters and ensures single-line output.
+// It replaces newlines with spaces and adds "..." if truncated.
+func truncateDescription(s string, maxLen int) string {
+	// Replace newlines with spaces to keep output on a single line
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	// Collapse multiple spaces into one
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	s = strings.TrimSpace(s)
+
+	if len(s) > maxLen {
+		return s[:maxLen-3] + "..."
+	}
+	return s
+}
+
 // NewFormatters creates a new formatters instance.
 // The formatters instance is stateless and can be safely used concurrently.
 func NewFormatters() *Formatters {
@@ -53,7 +74,8 @@ func (f *Formatters) FormatToolsList(tools []mcp.Tool) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Available tools (%d):", len(tools)))
 	for i, tool := range tools {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, tool.Description))
+		desc := truncateDescription(tool.Description, descriptionMaxLen)
+		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, tool.Name, desc))
 	}
 	return strings.Join(output, "\n")
 }
@@ -88,6 +110,7 @@ func (f *Formatters) FormatResourcesList(resources []mcp.Resource) string {
 		if desc == "" {
 			desc = resource.Name
 		}
+		desc = truncateDescription(desc, descriptionMaxLen)
 		output = append(output, fmt.Sprintf("  %d. %-40s - %s", i+1, resource.URI, desc))
 	}
 	return strings.Join(output, "\n")
@@ -118,7 +141,8 @@ func (f *Formatters) FormatPromptsList(prompts []mcp.Prompt) string {
 	var output []string
 	output = append(output, fmt.Sprintf("Available prompts (%d):", len(prompts)))
 	for i, prompt := range prompts {
-		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, prompt.Name, prompt.Description))
+		desc := truncateDescription(prompt.Description, descriptionMaxLen)
+		output = append(output, fmt.Sprintf("  %d. %-30s - %s", i+1, prompt.Name, desc))
 	}
 	return strings.Join(output, "\n")
 }

@@ -63,7 +63,17 @@ const (
 )
 
 // truncateString truncates a string to maxLen characters, adding "..." if truncated.
+// It also replaces newlines with spaces to ensure single-line output.
 func truncateString(s string, maxLen int) string {
+	// Replace newlines with spaces to keep output on a single line
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	// Collapse multiple spaces into one
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	s = strings.TrimSpace(s)
+
 	if len(s) > maxLen {
 		return s[:maxLen-3] + "..."
 	}
