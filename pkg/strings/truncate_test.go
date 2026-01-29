@@ -101,6 +101,36 @@ func TestTruncateDescription(t *testing.T) {
 			maxLen:   30,
 			expected: "This is a multiline descrip...",
 		},
+		{
+			name:     "maxLen less than MinTruncateLen clamped to 4",
+			input:    "hello",
+			maxLen:   2,
+			expected: "h...",
+		},
+		{
+			name:     "maxLen of 0 clamped to MinTruncateLen",
+			input:    "hello",
+			maxLen:   0,
+			expected: "h...",
+		},
+		{
+			name:     "negative maxLen clamped to MinTruncateLen",
+			input:    "hello",
+			maxLen:   -5,
+			expected: "h...",
+		},
+		{
+			name:     "maxLen exactly at MinTruncateLen",
+			input:    "hello",
+			maxLen:   4,
+			expected: "h...",
+		},
+		{
+			name:     "short string with small maxLen unchanged",
+			input:    "hi",
+			maxLen:   3,
+			expected: "hi",
+		},
 	}
 
 	for _, tt := range tests {

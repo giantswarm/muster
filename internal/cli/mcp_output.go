@@ -57,7 +57,8 @@ func outputYAML(data interface{}) error {
 // Different lengths are used based on the number of columns displayed.
 const (
 	// descLengthNormal is used for standard table output with fewer columns.
-	descLengthNormal = 60
+	// Uses the shared constant from pkg/strings for consistency across packages.
+	descLengthNormal = pkgstrings.DefaultDescriptionMaxLen
 	// descLengthWide is used for wide output where more columns are displayed.
 	descLengthWide = 50
 	// descLengthCompact is used when space is very limited (e.g., resources with many columns).

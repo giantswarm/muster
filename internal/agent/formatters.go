@@ -24,7 +24,8 @@ import (
 type Formatters struct{}
 
 // descriptionMaxLen is the maximum length for descriptions in formatted output.
-const descriptionMaxLen = 60
+// Uses the shared constant from pkg/strings for consistency across packages.
+const descriptionMaxLen = pkgstrings.DefaultDescriptionMaxLen
 
 // NewFormatters creates a new formatters instance.
 // The formatters instance is stateless and can be safely used concurrently.
