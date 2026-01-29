@@ -73,6 +73,11 @@ func (m *mockCallbacks) isAuthRequired(serverName string) bool {
 	return false
 }
 
+func (m *mockCallbacks) isSSOBased(serverName string) bool {
+	// Default: no server is SSO-based during tests
+	return false
+}
+
 func (m *mockCallbacks) getRegisterCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -117,7 +122,7 @@ func TestEventHandler_NewEventHandler(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
 
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	if handler == nil {
 		t.Fatal("NewEventHandler returned nil")
@@ -135,7 +140,7 @@ func TestEventHandler_NewEventHandler(t *testing.T) {
 func TestEventHandler_StartStop(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -176,7 +181,7 @@ func TestEventHandler_StartStop(t *testing.T) {
 func TestEventHandler_FiltersMCPEvents(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -319,7 +324,7 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := newMockOrchestratorAPI()
 			callbacks := newMockCallbacks()
-			handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+			handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -366,7 +371,7 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 func TestEventHandler_HandlesErrors(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	// Set errors
 	callbacks.setRegisterError(fmt.Errorf("register failed"))
@@ -420,7 +425,7 @@ func TestEventHandler_HandlesErrors(t *testing.T) {
 func TestEventHandler_HandlesChannelClose(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -445,7 +450,7 @@ func TestEventHandler_HandlesChannelClose(t *testing.T) {
 func TestEventHandler_HandlesContextCancellation(t *testing.T) {
 	provider := newMockOrchestratorAPI()
 	callbacks := newMockCallbacks()
-	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired)
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -464,5 +469,348 @@ func TestEventHandler_HandlesContextCancellation(t *testing.T) {
 	err = handler.Stop()
 	if err != nil {
 		t.Errorf("Stop failed after context cancellation: %v", err)
+	}
+}
+
+// mockCallbacksWithSSO extends mockCallbacks with SSO server tracking
+type mockCallbacksWithSSO struct {
+	*mockCallbacks
+	ssoServers map[string]bool
+	mu         sync.Mutex
+}
+
+func newMockCallbacksWithSSO() *mockCallbacksWithSSO {
+	return &mockCallbacksWithSSO{
+		mockCallbacks: newMockCallbacks(),
+		ssoServers:    make(map[string]bool),
+	}
+}
+
+func (m *mockCallbacksWithSSO) isSSOBased(serverName string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ssoServers[serverName]
+}
+
+func (m *mockCallbacksWithSSO) setServerSSO(serverName string, isSSO bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ssoServers[serverName] = isSSO
+}
+
+func TestEventHandler_SkipsRegistrationForSSOServers(t *testing.T) {
+	provider := newMockOrchestratorAPI()
+	callbacks := newMockCallbacksWithSSO()
+
+	// Mark "sso-server" as SSO-based
+	callbacks.setServerSSO("sso-server", true)
+
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := handler.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start handler: %v", err)
+	}
+	defer handler.Stop()
+
+	// Send event for SSO-based server becoming healthy
+	// This should NOT trigger registration (SSO servers are handled at session level)
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "sso-server",
+		ServiceType: "MCPServer",
+		OldState:    "waiting",
+		NewState:    "connected",
+		Health:      "healthy",
+	})
+
+	// Send event for non-SSO server becoming healthy
+	// This SHOULD trigger registration
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "regular-server",
+		ServiceType: "MCPServer",
+		OldState:    "stopped",
+		NewState:    "running",
+		Health:      "healthy",
+	})
+
+	// Give time for events to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have only 1 register call (only the regular-server, not the sso-server)
+	if callbacks.getRegisterCount() != 1 {
+		t.Errorf("Expected 1 register call, got %d", callbacks.getRegisterCount())
+	}
+
+	registered := callbacks.getRegisteredServers()
+	if len(registered) != 1 || registered[0] != "regular-server" {
+		t.Errorf("Expected ['regular-server'] to be registered, got %v", registered)
+	}
+
+	// SSO server should not be registered
+	for _, name := range registered {
+		if name == "sso-server" {
+			t.Error("SSO server should not have been registered globally")
+		}
+	}
+}
+
+func TestEventHandler_SSOServerDeregistration(t *testing.T) {
+	provider := newMockOrchestratorAPI()
+	callbacks := newMockCallbacksWithSSO()
+
+	// Mark "sso-server" as SSO-based
+	callbacks.setServerSSO("sso-server", true)
+
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := handler.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start handler: %v", err)
+	}
+	defer handler.Stop()
+
+	// SSO server that fails should still trigger deregistration
+	// (to clean up any stale state)
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "sso-server",
+		ServiceType: "MCPServer",
+		OldState:    "connected",
+		NewState:    "failed",
+		Health:      "unhealthy",
+	})
+
+	// Give time for events to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have 1 deregister call
+	if callbacks.getDeregisterCount() != 1 {
+		t.Errorf("Expected 1 deregister call, got %d", callbacks.getDeregisterCount())
+	}
+
+	deregistered := callbacks.getDeregisteredServers()
+	if len(deregistered) != 1 || deregistered[0] != "sso-server" {
+		t.Errorf("Expected ['sso-server'] to be deregistered, got %v", deregistered)
+	}
+}
+
+// TestEventHandler_Issue318_SSOTokenForwardingRegistrationFailure is a regression test
+// for GitHub issue #318: "SSO token forwarding succeeds but MCP server registration
+// fails with 'no MCP client available'"
+//
+// Bug scenario:
+//  1. MCPServerService starts and tries to connect to an MCP server with forwardToken: true
+//  2. Server returns 401 (requires authentication)
+//  3. MCPServerService stops initialization - NO MCP client is created
+//  4. Server is registered in "pending auth" state (StatusAuthRequired)
+//  5. User authenticates, SSO token forwarding succeeds at session level
+//  6. notifyMCPServerConnected() updates service state to "connected" + "healthy"
+//  7. EventHandler receives state change and tries to register the server globally
+//  8. BUG: registerSingleServer() fails with "no MCP client available" because
+//     MCPServerService never created one (it stopped at step 3)
+//
+// Fix: EventHandler now checks if the server is SSO-based (forwardToken or tokenExchange)
+// and skips global registration for such servers. SSO servers are handled at the
+// session level, not globally.
+func TestEventHandler_Issue318_SSOTokenForwardingRegistrationFailure(t *testing.T) {
+	provider := newMockOrchestratorAPI()
+
+	// Track whether register was called and with what error
+	registerCalled := false
+	var registerError error
+
+	// Simulate the bug: registerSingleServer would fail because no MCP client exists
+	registerFunc := func(ctx context.Context, serverName string) error {
+		registerCalled = true
+		// This simulates the error that would occur without the fix
+		registerError = fmt.Errorf("no MCP client available for %s (service state inconsistent)", serverName)
+		return registerError
+	}
+
+	deregisterFunc := func(serverName string) error {
+		return nil
+	}
+
+	// Server is NOT in auth_required state (it was updated to connected after SSO success)
+	isAuthRequired := func(serverName string) bool {
+		return false
+	}
+
+	// Server IS configured for SSO token forwarding
+	isSSOBased := func(serverName string) bool {
+		return serverName == "sso-forwarding-server"
+	}
+
+	handler := NewEventHandler(provider, registerFunc, deregisterFunc, isAuthRequired, isSSOBased)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := handler.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start handler: %v", err)
+	}
+	defer handler.Stop()
+
+	// Simulate the scenario from the bug:
+	// 1. Server was in "waiting" state (pending OAuth)
+	// 2. SSO token forwarding succeeded
+	// 3. notifyMCPServerConnected() updated state to "connected" + "healthy"
+	// 4. This state change event is sent to the EventHandler
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "sso-forwarding-server",
+		ServiceType: "MCPServer",
+		OldState:    "waiting", // Was waiting for OAuth
+		NewState:    "connected",
+		Health:      "healthy",
+	})
+
+	// Give time for event to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// CRITICAL ASSERTION: The fix should prevent registerFunc from being called
+	// Without the fix, registerFunc would be called and would fail with
+	// "no MCP client available for sso-forwarding-server (service state inconsistent)"
+	if registerCalled {
+		t.Errorf("Issue #318 regression: registerFunc should NOT have been called for SSO server, "+
+			"but it was called and would have failed with: %v", registerError)
+	}
+}
+
+// TestEventHandler_Issue318_NonSSOServerStillRegisters verifies that the fix for
+// issue #318 doesn't break normal (non-SSO) server registration.
+func TestEventHandler_Issue318_NonSSOServerStillRegisters(t *testing.T) {
+	provider := newMockOrchestratorAPI()
+	callbacks := newMockCallbacksWithSSO()
+
+	// Mark only "sso-server" as SSO-based, "normal-server" is not
+	callbacks.setServerSSO("sso-server", true)
+	// "normal-server" is NOT SSO-based (default)
+
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := handler.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start handler: %v", err)
+	}
+	defer handler.Stop()
+
+	// Normal server becomes healthy - should trigger registration
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "normal-server",
+		ServiceType: "MCPServer",
+		OldState:    "starting",
+		NewState:    "running",
+		Health:      "healthy",
+	})
+
+	// Give time for event to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Normal server should be registered
+	if callbacks.getRegisterCount() != 1 {
+		t.Errorf("Expected 1 register call for normal server, got %d", callbacks.getRegisterCount())
+	}
+
+	registered := callbacks.getRegisteredServers()
+	if len(registered) != 1 || registered[0] != "normal-server" {
+		t.Errorf("Expected ['normal-server'] to be registered, got %v", registered)
+	}
+}
+
+// TestEventHandler_Issue318_MultipleServerTypes tests the scenario where both
+// SSO and non-SSO servers emit state change events simultaneously.
+func TestEventHandler_Issue318_MultipleServerTypes(t *testing.T) {
+	provider := newMockOrchestratorAPI()
+	callbacks := newMockCallbacksWithSSO()
+
+	// Configure server types
+	callbacks.setServerSSO("kubernetes", false)    // Regular server
+	callbacks.setServerSSO("sso-server-1", true)   // SSO with forwardToken
+	callbacks.setServerSSO("sso-server-2", true)   // SSO with tokenExchange
+	callbacks.setServerSSO("regular-oauth", false) // OAuth but not SSO
+
+	handler := NewEventHandler(provider, callbacks.register, callbacks.deregister, callbacks.isAuthRequired, callbacks.isSSOBased)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := handler.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start handler: %v", err)
+	}
+	defer handler.Stop()
+
+	// All servers become healthy at roughly the same time
+	// (simulating system startup or reconnection scenario)
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "kubernetes",
+		ServiceType: "MCPServer",
+		OldState:    "starting",
+		NewState:    "running",
+		Health:      "healthy",
+	})
+
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "sso-server-1",
+		ServiceType: "MCPServer",
+		OldState:    "waiting",
+		NewState:    "connected",
+		Health:      "healthy",
+	})
+
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "sso-server-2",
+		ServiceType: "MCPServer",
+		OldState:    "waiting",
+		NewState:    "connected",
+		Health:      "healthy",
+	})
+
+	provider.sendEvent(api.ServiceStateChangedEvent{
+		Name:        "regular-oauth",
+		ServiceType: "MCPServer",
+		OldState:    "starting",
+		NewState:    "running",
+		Health:      "healthy",
+	})
+
+	// Give time for all events to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Only non-SSO servers should be registered globally
+	// SSO servers (sso-server-1, sso-server-2) should be skipped
+	registered := callbacks.getRegisteredServers()
+
+	if callbacks.getRegisterCount() != 2 {
+		t.Errorf("Expected 2 register calls (kubernetes, regular-oauth), got %d: %v",
+			callbacks.getRegisterCount(), registered)
+	}
+
+	// Verify correct servers were registered
+	registeredMap := make(map[string]bool)
+	for _, name := range registered {
+		registeredMap[name] = true
+	}
+
+	if !registeredMap["kubernetes"] {
+		t.Error("kubernetes server should have been registered")
+	}
+	if !registeredMap["regular-oauth"] {
+		t.Error("regular-oauth server should have been registered")
+	}
+	if registeredMap["sso-server-1"] {
+		t.Error("sso-server-1 should NOT have been registered (SSO with forwardToken)")
+	}
+	if registeredMap["sso-server-2"] {
+		t.Error("sso-server-2 should NOT have been registered (SSO with tokenExchange)")
 	}
 }
