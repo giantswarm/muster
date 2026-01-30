@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,16 +91,28 @@ var (
 // For example, if requiredAudiences contains ["dex-k8s-authenticator"], the returned
 // scopes will include "audience:server:client_id:dex-k8s-authenticator" which tells
 // Dex to issue tokens that are also valid for the Kubernetes authenticator client.
+//
+// Uses dex.FormatAudienceScopes() from mcp-oauth for security-validated formatting.
+// Invalid audiences are logged and skipped (does not fail startup).
 func buildDexScopes(requiredAudiences []string) []string {
 	scopes := make([]string, len(dexOAuthScopes))
 	copy(scopes, dexOAuthScopes)
 
-	for _, audience := range requiredAudiences {
-		audienceScope := "audience:server:client_id:" + audience
-		scopes = append(scopes, audienceScope)
+	if len(requiredAudiences) == 0 {
+		return scopes
 	}
 
-	return scopes
+	// Use mcp-oauth's security-validated audience scope formatting.
+	// This prevents scope injection attacks from malformed audience strings.
+	audienceScopes, err := dex.FormatAudienceScopes(requiredAudiences)
+	if err != nil {
+		// Log the error but don't fail startup - audiences come from MCPServer CRDs
+		// which should already be validated, but we handle errors gracefully.
+		logging.Warn("OAuth", "Failed to format audience scopes: %v (check MCPServer requiredAudiences values)", err)
+		return scopes
+	}
+
+	return append(scopes, audienceScopes...)
 }
 
 // sessionTrackerEntry holds the token hash and last access time for a session.
@@ -493,10 +506,9 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		// Build scopes including any required audiences from MCPServers
 		scopes := buildDexScopes(api.CollectRequiredAudiences())
 		for _, scope := range scopes {
-			if len(scope) > len("audience:server:client_id:") &&
-				scope[:len("audience:server:client_id:")] == "audience:server:client_id:" {
+			if strings.HasPrefix(scope, dex.AudienceScopePrefix) {
 				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-					"audience", scope[len("audience:server:client_id:"):])
+					"audience", strings.TrimPrefix(scope, dex.AudienceScopePrefix))
 			}
 		}
 

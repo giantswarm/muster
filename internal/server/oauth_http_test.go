@@ -177,7 +177,10 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 		assert.Equal(t, []string{"openid", "profile", "email", "groups", "offline_access"}, scopes)
 	})
 
-	t.Run("Invalid audiences are filtered before reaching buildDexScopes", func(t *testing.T) {
+	t.Run("Invalid audiences are filtered by CollectRequiredAudiences before reaching buildDexScopes", func(t *testing.T) {
+		// Invalid audiences (containing whitespace) are filtered at the API layer
+		// by CollectRequiredAudiences's isValidAudience check. This provides
+		// defense-in-depth: API validation + mcp-oauth library validation.
 		api.RegisterMCPServerManager(&mockMCPServerManager{
 			listMCPServersFn: func() []api.MCPServerInfo {
 				return []api.MCPServerInfo{
@@ -187,8 +190,8 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 							ForwardToken: true,
 							RequiredAudiences: []string{
 								"valid-audience",
-								"invalid audience", // space makes it invalid
-								"",                 // empty string invalid
+								"invalid audience", // space makes it invalid - filtered by API layer
+								"",                 // empty string - filtered by API layer
 								"another-valid",
 							},
 						},
@@ -201,13 +204,16 @@ func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
 		audiences := api.CollectRequiredAudiences()
 		scopes := buildDexScopes(audiences)
 
-		// Only valid audiences should be included
+		// Only valid audiences should be included (invalid ones filtered by API layer)
 		assert.Contains(t, scopes, "audience:server:client_id:another-valid")
 		assert.Contains(t, scopes, "audience:server:client_id:valid-audience")
 
 		// Invalid audiences should NOT be included
 		assert.NotContains(t, scopes, "audience:server:client_id:invalid audience")
 		assert.NotContains(t, scopes, "audience:server:client_id:")
+
+		// Base scopes still present
+		assert.Contains(t, scopes, "openid")
 	})
 }
 

@@ -16,6 +16,7 @@ import (
 	"muster/internal/server"
 	"muster/pkg/logging"
 
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -384,42 +385,6 @@ func EstablishSessionConnectionWithTokenForwarding(
 	}, false, nil
 }
 
-// appendAudienceScopes appends cross-client audience scopes to an existing scope string.
-// This is used to add requiredAudiences to token exchange requests, ensuring the
-// exchanged token contains the audiences needed by the downstream server.
-//
-// For example, if audiences contains ["dex-k8s-authenticator"], this appends
-// "audience:server:client_id:dex-k8s-authenticator" to the scopes.
-//
-// Args:
-//   - scopes: Existing space-separated scope string (may be empty)
-//   - audiences: List of audiences to add as cross-client scopes
-//
-// Returns the updated scope string with audience scopes appended.
-func appendAudienceScopes(scopes string, audiences []string) string {
-	if len(audiences) == 0 {
-		return scopes
-	}
-
-	// Build audience scopes
-	var audienceScopes []string
-	for _, audience := range audiences {
-		if audience != "" {
-			audienceScopes = append(audienceScopes, "audience:server:client_id:"+audience)
-		}
-	}
-
-	if len(audienceScopes) == 0 {
-		return scopes
-	}
-
-	// Append to existing scopes
-	if scopes == "" {
-		return strings.Join(audienceScopes, " ")
-	}
-	return scopes + " " + strings.Join(audienceScopes, " ")
-}
-
 // emitTokenForwardingEvent emits an event for token forwarding success or failure.
 func emitTokenForwardingEvent(serverName, namespace string, success bool, errorMsg string) {
 	eventManager := api.GetEventManager()
@@ -567,13 +532,22 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Append requiredAudiences as cross-client scopes for the token exchange.
 	// This ensures the exchanged token contains the audiences needed by the downstream server
 	// (e.g., for Kubernetes OIDC authentication on the remote cluster).
+	// Uses dex.AppendAudienceScopes() from mcp-oauth for security-validated formatting.
 	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
-		serverInfo.AuthConfig.TokenExchange.Scopes = appendAudienceScopes(
+		updatedScopes, err := dex.AppendAudienceScopes(
 			serverInfo.AuthConfig.TokenExchange.Scopes,
 			serverInfo.AuthConfig.RequiredAudiences,
 		)
-		logging.Debug("SessionConnection", "Added %d required audiences to token exchange scopes for %s",
-			len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
+		if err != nil {
+			// Log the error but continue without the audiences - they should already be
+			// validated at CRD admission, but handle gracefully if not.
+			logging.Warn("SessionConnection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+				serverInfo.Name, err)
+		} else {
+			serverInfo.AuthConfig.TokenExchange.Scopes = updatedScopes
+			logging.Debug("SessionConnection", "Added %d required audiences to token exchange scopes for %s",
+				len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
+		}
 	}
 
 	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client

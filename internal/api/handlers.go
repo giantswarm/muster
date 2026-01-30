@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"muster/pkg/logging"
 	"sort"
-	"strings"
 	"sync"
+
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 )
 
 // Handler registry variables store the registered implementations.
@@ -433,20 +434,6 @@ func GetMCPServerManager() MCPServerManagerHandler {
 	return mcpServerManagerHandler
 }
 
-// isValidAudience checks if an audience string is valid for use in OAuth scopes.
-// An audience is valid if it is non-empty and contains no whitespace or control characters.
-// This prevents potential parsing issues when the audience is concatenated into OAuth scopes.
-func isValidAudience(audience string) bool {
-	if audience == "" {
-		return false
-	}
-	// Reject audiences with whitespace or control characters
-	if strings.ContainsAny(audience, " \t\n\r") {
-		return false
-	}
-	return true
-}
-
 // CollectRequiredAudiences collects all unique required audiences from MCPServers
 // that have forwardToken: true configured. This is used to determine which
 // cross-client audiences to request from Dex during OAuth authentication.
@@ -487,9 +474,11 @@ func CollectRequiredAudiences() []string {
 			continue
 		}
 
-		// Collect all required audiences from this server
+		// Collect all required audiences from this server.
+		// Uses dex.ValidateAudience for security-validated input checking,
+		// preventing scope injection attacks from malformed audience strings.
 		for _, audience := range server.Auth.RequiredAudiences {
-			if isValidAudience(audience) {
+			if dex.ValidateAudience(audience) == nil {
 				audienceSet[audience] = struct{}{}
 			}
 		}
