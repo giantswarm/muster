@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"muster/pkg/logging"
+	"sort"
 	"sync"
 )
 
@@ -479,11 +480,12 @@ func CollectRequiredAudiences() []string {
 		}
 	}
 
-	// Convert set to slice
+	// Convert set to slice and sort for deterministic ordering
 	audiences := make([]string, 0, len(audienceSet))
 	for audience := range audienceSet {
 		audiences = append(audiences, audience)
 	}
+	sort.Strings(audiences)
 
 	if len(audiences) > 0 {
 		logging.Debug("API", "Collected %d required audiences from MCPServers: %v", len(audiences), audiences)

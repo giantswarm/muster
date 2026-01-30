@@ -105,7 +105,7 @@ status:
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
 
-**Note on `requiredAudiences`**: When forwarding tokens to downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here. Muster will request these audiences from the upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to all downstream servers. Example: `requiredAudiences: ["dex-k8s-authenticator"]`
+**Note on `requiredAudiences`**: When forwarding tokens to downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here. Muster will request these audiences from the upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to all downstream servers. Example: `requiredAudiences: ["dex-k8s-authenticator"]`. Note that required audiences are collected at muster startup and during user authentication - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate to obtain tokens with the new audiences.
 
 #### TeleportAuth Fields
 

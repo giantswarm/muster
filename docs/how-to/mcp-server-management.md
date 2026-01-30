@@ -284,6 +284,8 @@ spec:
 - Both muster and the downstream server must use the same identity provider (issuer)
 - For Kubernetes OIDC auth, the IdP must support cross-client authentication (`audience:server:client_id:*` scopes)
 
+**Important:** Required audiences are collected at muster startup and during user authentication. If you add or modify MCPServers with `requiredAudiences` after users have authenticated, those users must re-authenticate (`muster auth logout` followed by `muster auth login`) to obtain tokens with the new audiences.
+
 ### Token Reuse (Automatic SSO)
 
 When multiple MCP servers share the same OAuth issuer, muster automatically reuses tokens across servers. This is the default behavior and requires no additional configuration.
