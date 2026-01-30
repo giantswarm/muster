@@ -16,7 +16,7 @@ import (
 
 func TestNewTokenExchanger(t *testing.T) {
 	t.Run("creates exchanger with default options", func(t *testing.T) {
-		exchanger := NewTokenExchanger()
+		exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 		require.NotNil(t, exchanger)
 		assert.NotNil(t, exchanger.client)
 		assert.NotNil(t, exchanger.cache)
@@ -34,7 +34,7 @@ func TestNewTokenExchanger(t *testing.T) {
 }
 
 func TestTokenExchanger_Exchange_Validation(t *testing.T) {
-	exchanger := NewTokenExchanger()
+	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 
 	t.Run("returns error for nil request", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), nil)
@@ -211,7 +211,7 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 }
 
 func TestTokenExchanger_Cache(t *testing.T) {
-	exchanger := NewTokenExchanger()
+	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 
 	t.Run("cache operations work correctly", func(t *testing.T) {
 		// Cache stats should start empty
@@ -493,7 +493,7 @@ func TestExtractIssuerFromToken(t *testing.T) {
 }
 
 func TestTokenExchanger_ExchangeWithClient(t *testing.T) {
-	exchanger := NewTokenExchanger()
+	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 
 	t.Run("calls Exchange when httpClient is nil", func(t *testing.T) {
 		// When httpClient is nil, it should delegate to Exchange
@@ -643,7 +643,7 @@ func TestTokenExchanger_ExchangeWithClient(t *testing.T) {
 }
 
 func TestTokenExchanger_ExchangeWithClient_ErrorHandling(t *testing.T) {
-	exchanger := NewTokenExchanger()
+	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 
 	t.Run("network error includes endpoint in error message", func(t *testing.T) {
 		customClient := &http.Client{}
@@ -779,7 +779,7 @@ func TestTokenExchanger_ExchangeWithClient_ErrorHandling(t *testing.T) {
 }
 
 func TestTokenExchanger_CacheWithCustomClient(t *testing.T) {
-	exchanger := NewTokenExchanger()
+	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{})
 
 	t.Run("cache key is consistent between Exchange and ExchangeWithClient", func(t *testing.T) {
 		// Both methods should use the same cache key format for the same configuration

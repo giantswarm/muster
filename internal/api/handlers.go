@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"muster/pkg/logging"
 	"sort"
@@ -344,46 +343,6 @@ func GetServiceClassManager() ServiceClassManagerHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return serviceClassManagerHandler
-}
-
-// SetServiceClassManagerForTesting sets the service class manager handler for testing purposes.
-// This function bypasses normal registration and should only be used in test code
-// to provide mock implementations for unit testing.
-//
-// Args:
-//   - h: ServiceClassManagerHandler implementation for testing
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Testing: This function is intended for test use only and should not be called in production code.
-//
-// Example:
-//
-//	mockManager := &testutils.MockServiceClassManager{}
-//	api.SetServiceClassManagerForTesting(mockManager)
-//	defer api.SetServiceClassManagerForTesting(nil) // cleanup
-func SetServiceClassManagerForTesting(h ServiceClassManagerHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	serviceClassManagerHandler = h
-}
-
-// ExecuteWorkflow is a convenience function for executing workflows
-func ExecuteWorkflow(ctx context.Context, workflowName string, args map[string]interface{}) (*CallToolResult, error) {
-	handler := GetWorkflow()
-	if handler == nil {
-		return nil, fmt.Errorf("workflow handler not registered")
-	}
-	return handler.ExecuteWorkflow(ctx, workflowName, args)
-}
-
-// GetWorkflowInfo returns information about all workflows
-func GetWorkflowInfo() []Workflow {
-	handler := GetWorkflow()
-	if handler == nil {
-		return nil
-	}
-	return handler.GetWorkflows()
 }
 
 // RegisterMCPServerManager registers the MCP server manager handler implementation.

@@ -49,19 +49,6 @@ type Adapter struct {
 	namespace string
 }
 
-// NewAdapter creates a new MCP server API adapter with unified client support
-func NewAdapter() (*Adapter, error) {
-	musterClient, err := client.NewMusterClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create muster client: %w", err)
-	}
-
-	return &Adapter{
-		client:    musterClient,
-		namespace: "default", // TODO: Make configurable
-	}, nil
-}
-
 // NewAdapterWithClient creates a new adapter with a specific client (for testing)
 func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *Adapter {
 	if namespace == "" {

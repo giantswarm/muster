@@ -60,15 +60,6 @@ func NewAdapterWithClient(k8sClient client.Client) *Adapter {
 	}
 }
 
-// NewAdapterWithDefaults creates a new adapter with default configuration.
-func NewAdapterWithDefaults(defaultConfig TeleportConfig) *Adapter {
-	return &Adapter{
-		providers:       make(map[string]*ClientProvider),
-		secretProviders: make(map[string]*ClientProvider),
-		defaultConfig:   defaultConfig,
-	}
-}
-
 // Register registers the adapter with the API service locator.
 func (a *Adapter) Register() {
 	api.RegisterTeleportClient(a)

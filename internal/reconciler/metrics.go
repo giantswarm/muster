@@ -62,48 +62,6 @@ func (m *ReconcilerMetrics) getOrCreateResourceMetrics(resourceType ResourceType
 	return metrics
 }
 
-// RecordReconcileAttempt records a reconciliation attempt.
-func (m *ReconcilerMetrics) RecordReconcileAttempt(resourceType ResourceType, resourceName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	metrics := m.getOrCreateResourceMetrics(resourceType)
-	metrics.ReconcileAttempts++
-	metrics.LastReconcileAt = time.Now()
-	m.totalReconcileAttempts++
-
-	logging.Debug("ReconcilerMetrics", "Reconcile attempt for %s/%s (total: %d)",
-		resourceType, resourceName, metrics.ReconcileAttempts)
-}
-
-// RecordReconcileSuccess records a successful reconciliation.
-func (m *ReconcilerMetrics) RecordReconcileSuccess(resourceType ResourceType, resourceName string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	metrics := m.getOrCreateResourceMetrics(resourceType)
-	metrics.ReconcileSuccesses++
-	metrics.LastSuccessAt = time.Now()
-	m.totalReconcileSuccesses++
-
-	logging.Debug("ReconcilerMetrics", "Reconcile success for %s/%s (successes: %d, failures: %d)",
-		resourceType, resourceName, metrics.ReconcileSuccesses, metrics.ReconcileFailures)
-}
-
-// RecordReconcileFailure records a failed reconciliation attempt.
-func (m *ReconcilerMetrics) RecordReconcileFailure(resourceType ResourceType, resourceName string, reason string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	metrics := m.getOrCreateResourceMetrics(resourceType)
-	metrics.ReconcileFailures++
-	metrics.LastFailureAt = time.Now()
-	m.totalReconcileFailures++
-
-	logging.Warn("ReconcilerMetrics", "Reconcile failure for %s/%s: %s (failures: %d)",
-		resourceType, resourceName, reason, metrics.ReconcileFailures)
-}
-
 // RecordStatusSyncAttempt records a status sync attempt.
 func (m *ReconcilerMetrics) RecordStatusSyncAttempt(resourceType ResourceType, resourceName string) {
 	m.mu.Lock()
@@ -177,72 +135,6 @@ type ResourceTypeMetricView struct {
 	LastStatusSyncAt    time.Time    `json:"last_status_sync_at,omitempty"`
 }
 
-// GetSummary returns a summary of all reconciliation metrics.
-func (m *ReconcilerMetrics) GetSummary() ReconcilerMetricsSummary {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	summary := ReconcilerMetricsSummary{
-		TotalReconcileAttempts:   m.totalReconcileAttempts,
-		TotalReconcileSuccesses:  m.totalReconcileSuccesses,
-		TotalReconcileFailures:   m.totalReconcileFailures,
-		TotalStatusSyncAttempts:  m.totalStatusSyncAttempts,
-		TotalStatusSyncSuccesses: m.totalStatusSyncSuccesses,
-		TotalStatusSyncFailures:  m.totalStatusSyncFailures,
-	}
-
-	// Calculate failure rates
-	if m.totalStatusSyncAttempts > 0 {
-		summary.StatusSyncFailureRate = float64(m.totalStatusSyncFailures) / float64(m.totalStatusSyncAttempts)
-	}
-	if m.totalReconcileAttempts > 0 {
-		summary.ReconcileFailureRate = float64(m.totalReconcileFailures) / float64(m.totalReconcileAttempts)
-	}
-
-	for _, metrics := range m.resourceMetrics {
-		summary.PerResourceTypeMetrics = append(summary.PerResourceTypeMetrics, ResourceTypeMetricView{
-			ResourceType:        metrics.ResourceType,
-			ReconcileAttempts:   metrics.ReconcileAttempts,
-			ReconcileSuccesses:  metrics.ReconcileSuccesses,
-			ReconcileFailures:   metrics.ReconcileFailures,
-			StatusSyncAttempts:  metrics.StatusSyncAttempts,
-			StatusSyncSuccesses: metrics.StatusSyncSuccesses,
-			StatusSyncFailures:  metrics.StatusSyncFailures,
-			LastReconcileAt:     metrics.LastReconcileAt,
-			LastSuccessAt:       metrics.LastSuccessAt,
-			LastFailureAt:       metrics.LastFailureAt,
-			LastStatusSyncAt:    metrics.LastStatusSyncAt,
-		})
-	}
-
-	return summary
-}
-
-// GetResourceTypeMetrics returns metrics for a specific resource type.
-func (m *ReconcilerMetrics) GetResourceTypeMetrics(resourceType ResourceType) (ResourceTypeMetricView, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	metrics, exists := m.resourceMetrics[resourceType]
-	if !exists {
-		return ResourceTypeMetricView{}, false
-	}
-
-	return ResourceTypeMetricView{
-		ResourceType:        metrics.ResourceType,
-		ReconcileAttempts:   metrics.ReconcileAttempts,
-		ReconcileSuccesses:  metrics.ReconcileSuccesses,
-		ReconcileFailures:   metrics.ReconcileFailures,
-		StatusSyncAttempts:  metrics.StatusSyncAttempts,
-		StatusSyncSuccesses: metrics.StatusSyncSuccesses,
-		StatusSyncFailures:  metrics.StatusSyncFailures,
-		LastReconcileAt:     metrics.LastReconcileAt,
-		LastSuccessAt:       metrics.LastSuccessAt,
-		LastFailureAt:       metrics.LastFailureAt,
-		LastStatusSyncAt:    metrics.LastStatusSyncAt,
-	}, true
-}
-
 // Global metrics instance for use by reconcilers.
 // This is initialized lazily and should be accessed via GetReconcilerMetrics().
 var (
@@ -269,16 +161,4 @@ func GetReconcilerMetrics() *ReconcilerMetrics {
 		globalReconcilerMetrics = NewReconcilerMetrics()
 	}
 	return globalReconcilerMetrics
-}
-
-// ResetReconcilerMetrics resets the global metrics instance.
-// This is primarily intended for testing to ensure test isolation.
-// Each test can call this to start with a fresh metrics instance.
-//
-// WARNING: This should NOT be called in production code as it will
-// lose all accumulated metrics data.
-func ResetReconcilerMetrics() {
-	globalReconcilerMetricsMu.Lock()
-	defer globalReconcilerMetricsMu.Unlock()
-	globalReconcilerMetrics = NewReconcilerMetrics()
 }

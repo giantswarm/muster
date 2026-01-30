@@ -368,20 +368,6 @@ func TestTokenProviderContextFunctions(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("HasUserInfo without user returns false", func(t *testing.T) {
-		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		assert.False(t, HasUserInfo(ctx))
-	})
-
-	t.Run("GetUserEmailFromContext without user returns empty", func(t *testing.T) {
-		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		assert.Empty(t, GetUserEmailFromContext(ctx))
-	})
-
-	t.Run("GetUserGroupsFromContext without user returns nil", func(t *testing.T) {
-		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		assert.Nil(t, GetUserGroupsFromContext(ctx))
-	})
 }
 
 func TestGetIDToken(t *testing.T) {

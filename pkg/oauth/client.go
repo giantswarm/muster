@@ -54,29 +54,10 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 	}
 }
 
-// WithLogger sets a custom logger.
-func WithLogger(logger *slog.Logger) ClientOption {
-	return func(c *Client) {
-		c.logger = logger
-	}
-}
-
 // WithMetadataCacheTTL sets the metadata cache TTL.
 func WithMetadataCacheTTL(ttl time.Duration) ClientOption {
 	return func(c *Client) {
 		c.metadataTTL = ttl
-	}
-}
-
-// WithHTTPTimeout sets the HTTP client timeout.
-// This is useful for environments with slow network connections to identity providers.
-// The default timeout is 30 seconds.
-func WithHTTPTimeout(timeout time.Duration) ClientOption {
-	return func(c *Client) {
-		if c.httpClient == nil {
-			c.httpClient = &http.Client{}
-		}
-		c.httpClient.Timeout = timeout
 	}
 }
 

@@ -87,29 +87,6 @@ func TestNewAdapter(t *testing.T) {
 	}
 }
 
-func TestNewAdapterWithDefaults(t *testing.T) {
-	defaultConfig := TeleportConfig{
-		CertFile:      "custom.crt",
-		KeyFile:       "custom.key",
-		CAFile:        "custom-ca.crt",
-		WatchInterval: 60 * time.Second,
-	}
-
-	adapter := NewAdapterWithDefaults(defaultConfig)
-
-	if adapter == nil {
-		t.Fatal("Expected non-nil adapter")
-	}
-
-	if adapter.defaultConfig.CertFile != "custom.crt" {
-		t.Errorf("Expected CertFile to be 'custom.crt', got %s", adapter.defaultConfig.CertFile)
-	}
-
-	if adapter.defaultConfig.WatchInterval != 60*time.Second {
-		t.Errorf("Expected WatchInterval to be 60s, got %v", adapter.defaultConfig.WatchInterval)
-	}
-}
-
 func TestAdapter_GetHTTPClientForIdentity(t *testing.T) {
 	dir := t.TempDir()
 	createTestCertificates(t, dir)

@@ -248,8 +248,8 @@ Muster supports two SSO mechanisms:
 
 | Mechanism | What You Do | What Happens | Configuration |
 |-----------|-------------|--------------|---------------|
-| **Token Forwarding** | Authenticate once to muster | Muster handles auth to downstream servers automatically | `auth.forwardToken: true` |
-| **Token Reuse** | Authenticate to one server | Other servers with same login provider work automatically | Default behavior |
+| **Token Forwarding** | Authenticate once to muster | Muster forwards its ID token to downstream servers | `auth.forwardToken: true` |
+| **Token Exchange** | Authenticate once to muster | Muster exchanges its token for one valid on the remote IdP | `auth.tokenExchange` config |
 
 ### Token Forwarding (Recommended for Trusted Servers)
 
@@ -290,34 +290,31 @@ spec:
 1. **Kubernetes RBAC**: Only users with permissions to create/modify MCPServer CRDs can configure `requiredAudiences`
 2. **IdP Cross-Client Configuration**: The identity provider (e.g., Dex) must be configured to allow cross-client authentication for the specified audiences. Unauthorized audience requests will be rejected by the IdP.
 
-### Token Reuse (Automatic SSO)
+### Token Exchange (Cross-Cluster SSO)
 
-When multiple MCP servers share the same OAuth issuer, muster automatically reuses tokens across servers. This is the default behavior and requires no additional configuration.
+When clusters have separate Identity Providers, muster can use RFC 8693 Token Exchange to obtain a token valid on the remote cluster's IdP. This enables cross-cluster SSO without requiring shared trust.
 
 ```yaml
-# Both servers use the same Dex issuer - tokens are automatically reused
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: server-a
+  name: remote-cluster-mcp
 spec:
+  description: "MCP on remote cluster with Token Exchange"
   type: streamable-http
-  url: "https://server-a.example.com/mcp"
+  url: "https://mcp.remote-cluster.example.com/mcp"
   auth:
-    type: oauth
-    issuer: "https://dex.example.com"
----
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: server-b
-spec:
-  type: streamable-http
-  url: "https://server-b.example.com/mcp"
-  auth:
-    type: oauth
-    issuer: "https://dex.example.com"  # Same issuer = automatic SSO
+    tokenExchange:
+      enabled: true
+      tokenEndpoint: "https://dex.remote-cluster.example.com/token"
+      audience: "mcp-server"
 ```
+
+**How it works:**
+1. User authenticates to muster
+2. When accessing the remote server, muster exchanges its token at the remote IdP
+3. Remote IdP validates the token and issues a new one valid for that cluster
+4. Muster uses the exchanged token for downstream requests
 
 ### Checking SSO Status
 
@@ -332,7 +329,7 @@ Muster: authenticated
 
 MCP Servers:
   mcp-kubernetes  Connected [SSO: Forwarded]
-  internal-api    Connected [SSO: Shared   ]
+  remote-cluster  Connected [SSO: Exchanged]
   isolated-server Not authenticated          Run: muster auth login --server isolated-server
 ```
 

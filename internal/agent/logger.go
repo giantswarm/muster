@@ -124,36 +124,6 @@ func NewLogger(verbose, useColor, jsonRPCMode bool) *Logger {
 	}
 }
 
-// NewLoggerWithWriter creates a new logger with a custom writer destination.
-// This allows for flexible output routing while maintaining all the logging
-// configuration options.
-//
-// Args:
-//   - verbose: Enable detailed debug output and operation tracking
-//   - useColor: Use ANSI color codes (may not be appropriate for file output)
-//   - jsonRPCMode: Enable complete JSON-RPC protocol message logging
-//   - writer: Custom destination for log output
-//
-// Returns:
-//   - Configured logger instance writing to the specified writer
-//
-// Example:
-//
-//	file, err := os.Create("agent.log")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer file.Close()
-//	logger := agent.NewLoggerWithWriter(true, false, false, file)
-func NewLoggerWithWriter(verbose, useColor, jsonRPCMode bool, writer io.Writer) *Logger {
-	return &Logger{
-		verbose:     verbose,
-		useColor:    useColor,
-		jsonRPCMode: jsonRPCMode,
-		writer:      writer,
-	}
-}
-
 // Output writes user-facing output directly to stdout without timestamps.
 // This method is used for command results, formatted data, and other content
 // that should be displayed to users without logging metadata.

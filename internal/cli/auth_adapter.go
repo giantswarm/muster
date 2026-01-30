@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -844,66 +842,4 @@ func isPortInUseError(err error) bool {
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "address already in use")
-}
-
-// CheckServerWithAuth verifies server connectivity and authentication status.
-// This is an enhanced version of CheckServerRunning that returns structured status.
-func CheckServerWithAuth(ctx context.Context, endpoint string) (*ServerStatus, error) {
-	status := &ServerStatus{
-		Endpoint: endpoint,
-	}
-
-	// First check basic connectivity
-	client := &http.Client{
-		Timeout: DefaultHTTPClientTimeout,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		status.Error = err
-		return status, err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		status.Error = fmt.Errorf("muster server is not running. Start it with: muster serve")
-		return status, status.Error
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	status.Reachable = true
-
-	// Check for 401 Unauthorized
-	if resp.StatusCode == http.StatusUnauthorized {
-		status.AuthRequired = true
-
-		// Parse WWW-Authenticate header to validate OAuth configuration.
-		// We don't use the parsed challenge here (it's used by the auth flow),
-		// but parsing validates that the server has OAuth properly configured.
-		// The auth flow itself will re-parse this when Login() is called.
-		_ = pkgoauth.ParseWWWAuthenticateFromResponse(resp)
-
-		// Check if we have a valid token
-		authHandler := api.GetAuthHandler()
-		if authHandler != nil {
-			status.Authenticated = authHandler.HasValidToken(endpoint)
-		}
-
-		if !status.Authenticated {
-			status.Error = &AuthRequiredError{Endpoint: endpoint}
-		}
-
-		return status, nil
-	}
-
-	// Server responded without 401 - check for valid responses
-	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK {
-		return status, nil
-	}
-
-	status.Error = fmt.Errorf("muster server is not responding correctly (status: %d). Try restarting with: muster serve", resp.StatusCode)
-	return status, status.Error
 }

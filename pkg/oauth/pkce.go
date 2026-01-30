@@ -65,9 +65,3 @@ func GenerateState() (string, error) {
 
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
-
-// GenerateNonce generates a random nonce for OAuth/OIDC.
-// Similar to state but typically used for ID token validation.
-func GenerateNonce() (string, error) {
-	return GenerateState() // Same implementation, different semantic use
-}

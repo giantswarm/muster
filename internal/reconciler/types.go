@@ -685,18 +685,6 @@ func (t *StatusSyncFailureTracker) GetFailureCount(resourceType ResourceType, na
 	return 0
 }
 
-// GetLastError returns the last error message for a resource.
-func (t *StatusSyncFailureTracker) GetLastError(resourceType ResourceType, name string) string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	key := resourceKey(resourceType, name)
-	if info, exists := t.failures[key]; exists {
-		return info.lastError
-	}
-	return ""
-}
-
 // Global failure tracker for status sync operations.
 var (
 	globalFailureTracker     *StatusSyncFailureTracker
@@ -713,15 +701,4 @@ func GetStatusSyncFailureTracker() *StatusSyncFailureTracker {
 		globalFailureTracker = NewStatusSyncFailureTracker()
 	})
 	return globalFailureTracker
-}
-
-// ResetStatusSyncFailureTracker resets the global failure tracker.
-// This is primarily for testing. The mutex ensures thread-safety when
-// resetting the sync.Once and tracker pointer together.
-func ResetStatusSyncFailureTracker() {
-	globalFailureTrackerMu.Lock()
-	defer globalFailureTrackerMu.Unlock()
-
-	globalFailureTrackerOnce = sync.Once{}
-	globalFailureTracker = nil
 }

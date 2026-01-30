@@ -79,7 +79,6 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Status:                 string(info.Status),
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
-			TokenReuseEnabled:      true, // Token reuse is always enabled
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 

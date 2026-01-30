@@ -12,7 +12,7 @@ const (
 	AuthMsgAlreadyConnected = "Already Connected"
 
 	// AuthMsgSuccessfullyConnected indicates a successful connection was established,
-	// either through SSO token reuse or direct authentication.
+	// either through SSO (Token Forwarding/Exchange) or direct authentication.
 	AuthMsgSuccessfullyConnected = "Successfully connected"
 
 	// AuthMsgAlreadyAuthenticated is an alternative marker for existing authentication.

@@ -1610,16 +1610,6 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 	return result, nil
 }
 
-// discoverAuthorizationServer is a convenience wrapper that returns just the issuer.
-// Deprecated: Use discoverProtectedResourceMetadata for full information including scope.
-func discoverAuthorizationServer(ctx context.Context, serverURL string) (string, error) {
-	metadata, err := discoverProtectedResourceMetadata(ctx, serverURL)
-	if err != nil {
-		return "", err
-	}
-	return metadata.Issuer, nil
-}
-
 // defaultSessionID is used for stdio transport which is inherently single-user.
 // This constant is used to identify tokens stored for the default session.
 const defaultSessionID = "default-session"

@@ -576,14 +576,6 @@ func writeSchemaToFile(schema map[string]interface{}, filename string) error {
 	return nil
 }
 
-// getValueOrDefault returns the value if not empty, otherwise returns the default
-func getValueOrDefault(value, defaultValue string) string {
-	if value == "" {
-		return defaultValue
-	}
-	return value
-}
-
 // runScenarioValidation validates test scenarios against the API schema
 func runScenarioValidation(ctx context.Context, cmd *cobra.Command, args []string) error {
 	if testVerbose || testDebug {

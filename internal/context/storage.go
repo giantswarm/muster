@@ -38,14 +38,6 @@ func NewStorage() (*Storage, error) {
 	}, nil
 }
 
-// NewStorageWithPath creates a new Storage instance with a custom config path.
-// This is useful for testing or when using a non-default configuration directory.
-func NewStorageWithPath(configPath string) *Storage {
-	return &Storage{
-		configPath: configPath,
-	}
-}
-
 // getContextsFilePath returns the full path to the contexts.yaml file.
 func (s *Storage) getContextsFilePath() string {
 	return filepath.Join(s.configPath, contextsFileName)
@@ -80,15 +72,6 @@ func (s *Storage) loadLocked() (*ContextConfig, error) {
 	}
 
 	return &config, nil
-}
-
-// Save writes the contexts configuration to the file.
-// It creates the configuration directory if it doesn't exist.
-func (s *Storage) Save(config *ContextConfig) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.saveLocked(config)
 }
 
 // saveLocked performs the actual save without acquiring locks.
@@ -279,16 +262,6 @@ func (s *Storage) RenameContext(oldName, newName string) error {
 	}
 
 	return s.saveLocked(config)
-}
-
-// ListContexts returns all defined contexts.
-func (s *Storage) ListContexts() ([]Context, error) {
-	config, err := s.Load()
-	if err != nil {
-		return nil, err
-	}
-
-	return config.Contexts, nil
 }
 
 // GetContext returns the context with the given name.

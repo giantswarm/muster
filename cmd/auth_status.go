@@ -297,8 +297,8 @@ func formatMCPServerStatus(status string) string {
 // ssoLabelForwarded is the label shown for SSO via token forwarding.
 const ssoLabelForwarded = "Forwarded"
 
-// ssoLabelShared is the label shown for SSO via token reuse (shared login).
-const ssoLabelShared = "Shared"
+// ssoLabelExchanged is the label shown for SSO via token exchange.
+const ssoLabelExchanged = "Exchanged"
 
 // ssoLabelFailed is the label shown when SSO was attempted but failed.
 const ssoLabelFailed = "Failed"
@@ -308,19 +308,18 @@ const ssoLabelFailed = "Failed"
 //
 // SSO mechanisms:
 //   - "Forwarded": Muster forwards its ID token to this server
-//   - "Shared": Server shares an OAuth issuer with other servers (shared login)
+//   - "Exchanged": Muster exchanges its token for one valid on the remote IdP
 //   - "Failed": SSO was attempted but failed (token rejected)
 func getSSOType(srv pkgoauth.ServerAuthStatus) string {
 	// Show failure indicator if SSO was attempted but failed
 	if srv.SSOAttemptFailed {
 		return ssoLabelFailed
 	}
+	if srv.TokenExchangeEnabled {
+		return ssoLabelExchanged
+	}
 	if srv.TokenForwardingEnabled {
 		return ssoLabelForwarded
-	}
-	// Only show Shared if SSO is enabled and server has an issuer
-	if srv.TokenReuseEnabled && srv.Issuer != "" {
-		return ssoLabelShared
 	}
 	return ""
 }

@@ -15,11 +15,6 @@ type RedactedToken struct {
 	value string
 }
 
-// NewRedactedToken creates a new RedactedToken wrapping the given value.
-func NewRedactedToken(value string) RedactedToken {
-	return RedactedToken{value: value}
-}
-
 // Value returns the actual token value.
 // Use this method only when the token needs to be sent in an HTTP header or
 // similar authenticated request. Never log the result of this method.

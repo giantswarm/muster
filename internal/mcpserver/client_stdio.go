@@ -24,15 +24,6 @@ type StdioClient struct {
 	env     map[string]string
 }
 
-// NewStdioClient creates a new stdio-based MCP client
-func NewStdioClient(command string, args []string) *StdioClient {
-	return &StdioClient{
-		command: command,
-		args:    args,
-		env:     make(map[string]string),
-	}
-}
-
 // NewStdioClientWithEnv creates a new stdio-based MCP client with environment variables
 func NewStdioClientWithEnv(command string, args []string, env map[string]string) *StdioClient {
 	return &StdioClient{

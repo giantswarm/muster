@@ -295,11 +295,11 @@ type AuthStatusResponse struct {
 // ServerAuthStatus represents the authentication status of a single MCP server.
 // The Issuer field enables SSO detection - servers with the same issuer can share auth.
 //
-// SSO in muster has two distinct mechanisms:
-//   - SSO Token Reuse: When multiple servers share the same OAuth issuer, a token obtained
-//     for one server can be reused for others. This is the default behavior.
-//   - SSO Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
+// SSO in muster has two mechanisms:
+//   - Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
 //     ID token to the downstream server (requires forwardToken: true in MCPServer config).
+//   - Token Exchange: When TokenExchangeEnabled is true, muster exchanges its token
+//     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
@@ -318,12 +318,6 @@ type ServerAuthStatus struct {
 	// Identity Provider (e.g., Dex). This enables cross-cluster SSO when clusters have
 	// separate Dex instances. Token exchange takes precedence over token forwarding.
 	TokenExchangeEnabled bool `json:"token_exchange_enabled,omitempty"`
-
-	// TokenReuseEnabled indicates SSO via Token Reuse is enabled for this server.
-	// Token reuse allows tokens from other servers using the same OAuth issuer
-	// to be reused to authenticate to this server without re-authenticating.
-	// This is always true - token reuse is enabled for all servers.
-	TokenReuseEnabled bool `json:"token_reuse_enabled,omitempty"`
 
 	// SSOAttemptFailed indicates that SSO authentication was attempted but failed.
 	// This occurs when token forwarding is enabled but the downstream server

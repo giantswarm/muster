@@ -125,15 +125,13 @@ Since the Agent is an MCP Server (for Cursor), it can expose synthetic tools eve
 
 Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic from [004](004-oauth-proxy.md) kicks in if a request is destined for a *remote* MCP server.
 
-*   **Scenario A: Same IdP (SSO)**
-    *   If Muster Server and Remote MCP Server share the same IdP and trust the same audiences/clients, Muster *might* be able to forward the user's token directly (Downstream OAuth / Token Exchange).
-    *   However, to keep it robust and decoupled, the **Token Reuse Strategy** from [004](004-oauth-proxy.md) is preferred: Muster Server acts as a client. It checks if it has a token for this user/session for the downstream target.
+*   **Scenario A: Same IdP (Token Forwarding)**
+    *   If Muster Server and Remote MCP Server share the same IdP and trust the same audiences/clients, Muster can forward the user's token directly using Token Forwarding (`auth.forwardToken: true`).
 
-*   **Scenario B: Different IdPs**
+*   **Scenario B: Different IdPs (Token Exchange)**
     *   Muster Server validates the *incoming* token (User -> Muster).
-    *   Muster Server realizes it needs a *different* token for downstream (Muster -> Remote).
-    *   Muster Server triggers the Proxy flow: returns a specialized "Remote Auth Required" tool response (not a 401) to the Agent.
-    *   Agent displays *another* link: "Authenticate to Remote Cluster X".
+    *   Muster Server exchanges its token for one valid on the remote IdP using RFC 8693 Token Exchange.
+    *   The exchanged token is used for downstream requests.
 
 ## Implementation Steps
 
@@ -160,7 +158,7 @@ Once the Agent is authenticated and connected (Step 8), the "OAuth Proxy" logic 
 *   **Consistent UX**: Auth flows work identically whether authenticating to Muster Server or Remote MCPs - users always see auth URLs as tool results in Cursor.
 *   **Agent Complexity**: The Agent must implement the same lazy initialization pattern as Muster Server (pending auth state, synthetic tools, upgrade to connected).
 *   **Code Reuse**: The Agent can reuse much of the OAuth and lazy initialization logic from the Server implementation.
-*   **Double Auth**: Users might need to auth twice (once to Muster, once to Remote), but SSO/Token Reuse should minimize this.
+*   **SSO**: Token Forwarding and Token Exchange minimize the need for multiple authentications.
 *   **Security**: Muster is now secure by default when exposed.
 
 ---

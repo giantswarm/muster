@@ -19,14 +19,6 @@ type SSEClient struct {
 	headers map[string]string
 }
 
-// NewSSEClient creates a new SSE-based MCP client without custom headers
-func NewSSEClient(url string) *SSEClient {
-	return &SSEClient{
-		url:     url,
-		headers: make(map[string]string),
-	}
-}
-
 // NewSSEClientWithHeaders creates a new SSE-based MCP client with custom headers
 func NewSSEClientWithHeaders(url string, headers map[string]string) *SSEClient {
 	if headers == nil {

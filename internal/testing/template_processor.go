@@ -31,14 +31,6 @@ func (sc *ScenarioContext) StoreResult(name string, result interface{}) {
 	logging.Debug("TestFramework", "Stored result for variable '%s': %v", name, result)
 }
 
-// GetStoredResult retrieves a stored result by variable name
-func (sc *ScenarioContext) GetStoredResult(name string) (interface{}, bool) {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
-	result, exists := sc.storedResults[name]
-	return result, exists
-}
-
 // GetAllStoredResults returns a copy of all stored results for debugging
 func (sc *ScenarioContext) GetAllStoredResults() map[string]interface{} {
 	sc.mu.RLock()

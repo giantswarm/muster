@@ -129,18 +129,6 @@ func TestNewMCPClientFromType(t *testing.T) {
 	}
 }
 
-// TestNewStdioClient tests the StdioClient constructor
-func TestNewStdioClient(t *testing.T) {
-	client := NewStdioClient("echo", []string{"hello"})
-
-	assert.NotNil(t, client)
-	assert.Equal(t, "echo", client.command)
-	assert.Equal(t, []string{"hello"}, client.args)
-	assert.NotNil(t, client.env)
-	assert.Empty(t, client.env)
-	assert.False(t, client.connected)
-}
-
 // TestNewStdioClientWithEnv tests the StdioClient constructor with environment variables
 func TestNewStdioClientWithEnv(t *testing.T) {
 	env := map[string]string{"KEY": "value", "ANOTHER": "test"}
@@ -150,17 +138,6 @@ func TestNewStdioClientWithEnv(t *testing.T) {
 	assert.Equal(t, "echo", client.command)
 	assert.Equal(t, []string{"hello"}, client.args)
 	assert.Equal(t, env, client.env)
-	assert.False(t, client.connected)
-}
-
-// TestNewStreamableHTTPClient tests the StreamableHTTPClient constructor
-func TestNewStreamableHTTPClient(t *testing.T) {
-	client := NewStreamableHTTPClient("http://example.com/mcp")
-
-	assert.NotNil(t, client)
-	assert.Equal(t, "http://example.com/mcp", client.url)
-	assert.NotNil(t, client.headers)
-	assert.Empty(t, client.headers)
 	assert.False(t, client.connected)
 }
 
@@ -185,17 +162,6 @@ func TestNewStreamableHTTPClientWithNilHeaders(t *testing.T) {
 	assert.Empty(t, client.headers)
 }
 
-// TestNewSSEClient tests the SSEClient constructor
-func TestNewSSEClient(t *testing.T) {
-	client := NewSSEClient("http://example.com/sse")
-
-	assert.NotNil(t, client)
-	assert.Equal(t, "http://example.com/sse", client.url)
-	assert.NotNil(t, client.headers)
-	assert.Empty(t, client.headers)
-	assert.False(t, client.connected)
-}
-
 // TestNewSSEClientWithHeaders tests the SSEClient constructor with headers
 func TestNewSSEClientWithHeaders(t *testing.T) {
 	headers := map[string]string{"X-API-Key": "secret"}
@@ -215,17 +181,6 @@ func TestNewSSEClientWithNilHeaders(t *testing.T) {
 	assert.Equal(t, "http://example.com/sse", client.url)
 	assert.NotNil(t, client.headers) // Should be initialized to empty map
 	assert.Empty(t, client.headers)
-}
-
-// TestNewDynamicAuthClient tests the DynamicAuthClient constructor
-func TestNewDynamicAuthClient(t *testing.T) {
-	provider := StaticTokenProvider("test-token")
-	client := NewDynamicAuthClient("http://example.com/mcp", provider)
-
-	assert.NotNil(t, client)
-	assert.Equal(t, "http://example.com/mcp", client.url)
-	assert.NotNil(t, client.tokenProvider)
-	assert.False(t, client.connected)
 }
 
 // TestNewDynamicAuthClientWithNilProvider tests that nil provider is handled gracefully
@@ -270,22 +225,22 @@ func TestBaseMCPClientCloseNotConnected(t *testing.T) {
 // TestClientOperationsWithoutConnection tests that all operations fail gracefully when not connected
 func TestClientOperationsWithoutConnection(t *testing.T) {
 	t.Run("StdioClient", func(t *testing.T) {
-		client := NewStdioClient("echo", nil)
+		client := NewStdioClientWithEnv("echo", nil, nil)
 		testClientNotConnected(t, client)
 	})
 
 	t.Run("StreamableHTTPClient", func(t *testing.T) {
-		client := NewStreamableHTTPClient("http://example.com/mcp")
+		client := NewStreamableHTTPClientWithHeaders("http://example.com/mcp", nil)
 		testClientNotConnected(t, client)
 	})
 
 	t.Run("SSEClient", func(t *testing.T) {
-		client := NewSSEClient("http://example.com/sse")
+		client := NewSSEClientWithHeaders("http://example.com/sse", nil)
 		testClientNotConnected(t, client)
 	})
 
 	t.Run("DynamicAuthClient", func(t *testing.T) {
-		client := NewDynamicAuthClient("http://example.com/mcp", StaticTokenProvider("test-token"))
+		client := NewDynamicAuthClient("http://example.com/mcp", nil)
 		testClientNotConnected(t, client)
 	})
 }

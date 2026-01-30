@@ -455,11 +455,6 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 	return e.client.Connect(ctx)
 }
 
-// GetEndpoint returns the resolved endpoint URL.
-func (e *ToolExecutor) GetEndpoint() string {
-	return e.endpoint
-}
-
 // Close gracefully closes the connection to the aggregator server.
 // This should be called when the executor is no longer needed to free resources.
 //
@@ -510,22 +505,6 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[st
 	}
 
 	return e.formatOutput(result)
-}
-
-// ExecuteSimple executes a tool and returns the raw result as a string.
-// This method bypasses output formatting and is useful for programmatic
-// access to tool results or when custom formatting is needed.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//   - toolName: Name of the tool to execute
-//   - args: Tool args as key-value pairs
-//
-// Returns:
-//   - string: Raw tool output as string
-//   - error: Execution error, if any
-func (e *ToolExecutor) ExecuteSimple(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
-	return e.client.CallToolSimple(ctx, toolName, args)
 }
 
 // ExecuteJSON executes a tool and returns the result as parsed JSON.
@@ -768,10 +747,4 @@ func (e *ToolExecutor) GetMCPPrompt(ctx context.Context, name string) (*mcp.Prom
 // This allows callers to check the configured output format and other settings.
 func (e *ToolExecutor) GetOptions() ExecutorOptions {
 	return e.options
-}
-
-// GetFormatter returns the table formatter.
-// This allows callers to use the same formatter for consistent output.
-func (e *ToolExecutor) GetFormatter() *TableFormatter {
-	return e.formatter
 }

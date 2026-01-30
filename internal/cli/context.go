@@ -73,28 +73,3 @@ func getEndpointFromContext(contextName string) (string, error) {
 
 	return ctx.Endpoint, nil
 }
-
-// GetContextSettings returns the settings for the current or specified context.
-// Returns nil if no context is configured or the context has no settings.
-func GetContextSettings(contextName string) *musterctx.ContextSettings {
-	storage, err := musterctx.NewStorage()
-	if err != nil {
-		return nil
-	}
-
-	var ctx *musterctx.Context
-
-	if contextName != "" {
-		ctx, _ = storage.GetContext(contextName)
-	} else if envContext := os.Getenv(ContextEnvVar); envContext != "" {
-		ctx, _ = storage.GetContext(envContext)
-	} else {
-		ctx, _ = storage.GetCurrentContext()
-	}
-
-	if ctx != nil {
-		return ctx.Settings
-	}
-
-	return nil
-}

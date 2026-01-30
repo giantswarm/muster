@@ -52,22 +52,6 @@ func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().StringVar(&flags.AuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
 }
 
-// RegisterConnectionFlags registers only the connection-related flags (endpoint,
-// context, auth) without the output formatting flags. This is useful for commands
-// that don't produce formatted output but still need to connect to an aggregator.
-//
-// The registered flags are:
-//   - --config-path: Configuration directory
-//   - --endpoint: Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)
-//   - --context: Use a specific context (env: MUSTER_CONTEXT)
-//   - --auth: Authentication mode (env: MUSTER_AUTH_MODE)
-func RegisterConnectionFlags(cmd *cobra.Command, flags *CommandFlags) {
-	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
-	cmd.PersistentFlags().StringVar(&flags.Endpoint, "endpoint", GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
-	cmd.PersistentFlags().StringVar(&flags.Context, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	cmd.PersistentFlags().StringVar(&flags.AuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
-}
-
 // ToExecutorOptions converts CommandFlags to ExecutorOptions for use with NewToolExecutor.
 // This provides a convenient bridge between the flag registration and executor creation.
 // It validates the output format and returns an error for unsupported formats.

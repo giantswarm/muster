@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,52 +23,6 @@ type Server struct {
 	templateEngine *template.Engine
 	mcpServer      *server.MCPServer
 	debug          bool
-}
-
-// NewServer creates a new mock MCP server with the given configuration
-func NewServer(configName, scenarioPath string, debug bool) (*Server, error) {
-	// Load the mock server configuration
-	tools, err := loadServerConfig(configName, scenarioPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load mock server config: %w", err)
-	}
-
-	// Create the MCP server
-	mcpServer := server.NewMCPServer(
-		fmt.Sprintf("mock-%s", configName),
-		"1.0.0",
-		server.WithToolCapabilities(false),
-		server.WithResourceCapabilities(false, false),
-		server.WithPromptCapabilities(false),
-	)
-
-	mockServer := &Server{
-		name:           configName,
-		tools:          tools,
-		toolHandlers:   make(map[string]*ToolHandler),
-		templateEngine: template.New(),
-		mcpServer:      mcpServer,
-		debug:          debug,
-	}
-
-	// Initialize tool handlers and register tools
-	for _, toolConfig := range tools {
-		handler := NewToolHandler(toolConfig, mockServer.templateEngine, debug)
-		mockServer.toolHandlers[toolConfig.Name] = handler
-
-		// Register the tool with the MCP server
-		tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
-		mcpServer.AddTool(tool, mockServer.createToolHandler(toolConfig.Name))
-	}
-
-	if debug {
-		fmt.Fprintf(os.Stderr, "🔧 Mock MCP server '%s' initialized with %d tools\n", configName, len(mockServer.toolHandlers))
-		for toolName := range mockServer.toolHandlers {
-			fmt.Fprintf(os.Stderr, "  • %s\n", toolName)
-		}
-	}
-
-	return mockServer, nil
 }
 
 // NewServerFromFile creates a new mock MCP server from a configuration file
@@ -180,68 +133,4 @@ func (s *Server) Start(ctx context.Context) error {
 	// Use the proper MCP library to serve stdio
 	// This handles all the protocol details correctly
 	return server.ServeStdio(s.mcpServer)
-}
-
-// loadServerConfig loads mock server configuration from test scenarios
-func loadServerConfig(configName, scenarioPath string) ([]ToolConfig, error) {
-	var tools []ToolConfig
-
-	err := filepath.WalkDir(scenarioPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		if !strings.HasSuffix(path, ".yaml") && !strings.HasSuffix(path, ".yml") {
-			return nil
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		var scenario TestScenario
-		if err := yaml.Unmarshal(content, &scenario); err != nil {
-			return nil
-		}
-
-		if scenario.PreConfiguration != nil {
-			for _, mcpServer := range scenario.PreConfiguration.MCPServers {
-				if mcpServer.Name == configName {
-					// Check if this is a mock server (has tools in config)
-					if toolsInterface, hasMockTools := mcpServer.Config["tools"]; hasMockTools {
-						// Convert the config to tools array
-						configBytes, err := yaml.Marshal(map[string]interface{}{"tools": toolsInterface})
-						if err != nil {
-							continue
-						}
-						var configData struct {
-							Tools []ToolConfig `yaml:"tools"`
-						}
-						if err := yaml.Unmarshal(configBytes, &configData); err != nil {
-							continue
-						}
-						tools = configData.Tools
-						return filepath.SkipAll // Found it, stop searching
-					}
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return tools, fmt.Errorf("failed to search scenarios: %w", err)
-	}
-
-	if len(tools) == 0 {
-		return tools, fmt.Errorf("mock server configuration '%s' not found in scenarios", configName)
-	}
-
-	return tools, nil
 }

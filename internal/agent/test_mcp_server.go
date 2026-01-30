@@ -26,11 +26,6 @@ type TestMCPServer struct {
 	lastResult   *testing.TestSuiteResult
 }
 
-// GetStructuredReporter returns the structured reporter if available
-func (t *TestMCPServer) GetStructuredReporter() interface{} {
-	return t.testReporter
-}
-
 // NewTestMCPServer creates a new test MCP server that exposes test functionality
 func NewTestMCPServer(endpoint string, logger *Logger, configPath string, debug bool) (*TestMCPServer, error) {
 	// Create MCP server

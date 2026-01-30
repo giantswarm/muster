@@ -767,7 +767,7 @@ func WrapTestToolResult(result interface{}, err error) *TestToolResult {
 //
 // Returns the auth status as JSON, including:
 //   - Server names and their connection status ("connected", "auth_required", etc.)
-//   - SSO mechanism info (token_forwarding_enabled, token_reuse_enabled)
+//   - SSO mechanism info (token_forwarding_enabled, token_exchange_enabled)
 func (h *TestToolsHandler) handleReadAuthStatus(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not available for reading auth status")
@@ -1130,38 +1130,4 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
 		"session_preserved": sessionPreserved,
 	}, nil
-}
-
-// GetTestToolNames returns the names of all available test tools.
-func GetTestToolNames() []string {
-	return []string{
-		TestToolSimulateOAuthCallback,
-		TestToolInjectToken,
-		TestToolGetOAuthServerInfo,
-		TestToolAdvanceOAuthClock,
-		TestToolReadAuthStatus,
-		TestToolRevokeToken,
-		TestToolCreateUser,
-		TestToolSwitchUser,
-		TestToolListToolsForUser,
-		TestToolGetCurrentUser,
-		TestToolSimulateMusterReauth,
-	}
-}
-
-// GetTestToolDescriptions returns descriptions of test tools for documentation.
-func GetTestToolDescriptions() map[string]string {
-	return map[string]string{
-		TestToolSimulateOAuthCallback: "Simulates completing an OAuth flow for testing. Required arg: 'server' (name of the MCP server to authenticate to).",
-		TestToolInjectToken:           "Directly injects an access token for testing. Required args: 'server' (name of the MCP server), 'token' (access token value).",
-		TestToolGetOAuthServerInfo:    "Returns information about mock OAuth servers. Optional arg: 'server' (specific OAuth server name).",
-		TestToolAdvanceOAuthClock:     "Advances the mock OAuth server's clock for testing token expiry. Required arg: 'duration' (e.g., '5m', '1h'). Optional arg: 'server' (specific OAuth server name).",
-		TestToolReadAuthStatus:        "Reads the auth://status resource to verify authentication state. Optional arg: 'server' (specific server to check).",
-		TestToolRevokeToken:           "Revokes all tokens on the mock OAuth server. Simulates server-side token revocation. Optional arg: 'server' (specific OAuth server name).",
-		TestToolCreateUser:            "Creates a new user session for multi-user testing. Required arg: 'name' (unique user name). Creates a separate MCP connection with its own session ID.",
-		TestToolSwitchUser:            "Switches to a different user session. Required arg: 'name' (user name to switch to). All subsequent tool calls use this user's session.",
-		TestToolListToolsForUser:      "Lists tools visible to a specific user. Optional arg: 'name' (user name, defaults to current). Returns tool list for that user's session.",
-		TestToolGetCurrentUser:        "Returns the name of the currently active user and list of all available users.",
-		TestToolSimulateMusterReauth:  "Simulates re-authentication to muster with a new token while preserving the session ID. Tests proactive SSO re-triggering when token changes.",
-	}
 }

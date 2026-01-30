@@ -390,11 +390,6 @@ func (c *Client) discoverOAuthMetadata(ctx context.Context, issuerURL string) (*
 // This is hosted on GitHub Pages and serves as the client_id for OAuth.
 const DefaultAgentClientID = "https://giantswarm.github.io/muster/muster-agent.json"
 
-// buildAuthorizationURL constructs the OAuth authorization URL using the standard library.
-func (c *Client) buildAuthorizationURL(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge) (string, error) {
-	return c.buildAuthorizationURLWithOptions(metadata, redirectURI, state, pkce, nil)
-}
-
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.
 // The opts parameter allows setting prompt, login_hint, id_token_hint, and other OIDC parameters.
 func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge, opts *AuthFlowOptions) (string, error) {

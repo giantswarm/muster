@@ -134,14 +134,6 @@ func initControllerRuntimeLogger(handler slog.Handler) {
 	ctrl.SetLogger(logrLogger)
 }
 
-// InitForTUI initializes the logging system for TUI mode.
-func InitForTUI(filterLevel LogLevel) <-chan LogEntry {
-	// For TUI, Initcommon will set up the channel. The filterLevel passed here
-	// sets the minimum level for any *direct* output from defaultLogger in TUI mode,
-	// which we now set to io.Discard. The TUI itself will filter from the channel.
-	return Initcommon("tui", filterLevel, io.Discard, tuiChannelBufferSize)
-}
-
 // InitForCLI initializes the logging system for CLI mode.
 func InitForCLI(filterLevel LogLevel, output io.Writer) {
 	Initcommon("cli", filterLevel, output, 0)
@@ -220,18 +212,6 @@ func Warn(subsystem string, messageFmt string, args ...interface{}) {
 // Error logs an error message.
 func Error(subsystem string, err error, messageFmt string, args ...interface{}) {
 	logInternal(LevelError, subsystem, err, messageFmt, args...)
-}
-
-// CloseTUIChannel closes the TUI log channel. Should be called on application shutdown.
-func CloseTUIChannel() {
-	if tuiLogChannel != nil {
-		// Check if channel is already closed to prevent panic
-		// This is a bit tricky. A select with a default is one way.
-		// For simplicity, we assume it's called once correctly.
-		// If TUI is robust, it stops reading when its main loop ends.
-		close(tuiLogChannel)
-		tuiLogChannel = nil // Prevent further use
-	}
 }
 
 // TruncateSessionID returns a truncated session ID for secure logging.

@@ -5,7 +5,6 @@ import (
 	"log"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"muster/internal/api"
@@ -198,20 +197,6 @@ func convertRawExtensionToInterface(raw *runtime.RawExtension) interface{} {
 
 	// Return as-is if not quoted
 	return rawStr
-}
-
-// convertRequestToCRD converts API request to ServiceClass CRD
-func convertRequestToCRD(name, description string, args map[string]api.ArgDefinition, serviceConfig api.ServiceConfig) *musterv1alpha1.ServiceClass {
-	return &musterv1alpha1.ServiceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: musterv1alpha1.ServiceClassSpec{
-			Description:   description,
-			Args:          convertArgsRequestToCRD(args),
-			ServiceConfig: convertServiceConfigRequestToCRD(serviceConfig),
-		},
-	}
 }
 
 // convertArgsRequestToCRD converts API argument definitions to CRD argument definitions

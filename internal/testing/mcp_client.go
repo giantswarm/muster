@@ -14,37 +14,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// MCPClientTimeouts holds timeout configuration for MCP operations
-type MCPClientTimeouts struct {
-	Connect     time.Duration // Connection establishment timeout
-	CallTool    time.Duration // Individual tool call timeout
-	ListTools   time.Duration // Tool listing timeout
-	HTTPTimeout time.Duration // HTTP transport timeout
-	IdleTimeout time.Duration // HTTP idle connection timeout
-}
-
-// DefaultMCPClientTimeouts returns reasonable default timeout values
-func DefaultMCPClientTimeouts() MCPClientTimeouts {
-	return MCPClientTimeouts{
-		Connect:     30 * time.Second,
-		CallTool:    30 * time.Second,
-		ListTools:   15 * time.Second,
-		HTTPTimeout: 10 * time.Second, // Transport-level timeout
-		IdleTimeout: 90 * time.Second, // How long to keep idle connections
-	}
-}
-
-// AggressiveMCPClientTimeouts returns shorter timeouts for testing scenarios
-func AggressiveMCPClientTimeouts() MCPClientTimeouts {
-	return MCPClientTimeouts{
-		Connect:     10 * time.Second,
-		CallTool:    15 * time.Second,
-		ListTools:   8 * time.Second,
-		HTTPTimeout: 5 * time.Second, // Shorter transport timeout
-		IdleTimeout: 30 * time.Second,
-	}
-}
-
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
 	client      client.MCPClient

@@ -121,7 +121,7 @@ The `test_simulate_oauth_callback` tool bridges these by completing the full OAu
 | `oauth-mock-server-basic` | Basic mock OAuth functionality | ✅ Passing |
 | `oauth-protected-mcp-server` | Protected MCP with simulated auth | ✅ Passing |
 | `oauth-sso-detection` | SSO hint for same-issuer servers | ✅ Passing |
-| `oauth-sso-token-reuse` | Token reuse across servers | ✅ Passing |
+| `oauth-sso-shared-issuer` | SSO across servers with same issuer | ✅ Passing |
 | `oauth-token-injection` | Direct token injection testing | ✅ Passing |
 | `oauth-token-refresh-flow` | Token refresh behavior | ✅ Passing |
 
@@ -175,7 +175,7 @@ SSO works because:
 
 **`test_simulate_oauth_callback`:**
 - Testing the complete OAuth integration
-- Verifying SSO token reuse
+- Verifying SSO (Token Forwarding, Token Exchange)
 - Any scenario where muster needs to use the token
 
 ## Writing OAuth Test Scenarios
@@ -393,7 +393,7 @@ muster test --scenario oauth-full-stack --verbose
 muster test --scenario oauth-mock-server-basic --verbose
 muster test --scenario oauth-protected-mcp-server --verbose
 muster test --scenario oauth-sso-detection --verbose
-muster test --scenario oauth-sso-token-reuse --verbose
+muster test --scenario oauth-sso-shared-issuer --verbose
 muster test --scenario oauth-token-injection --verbose
 muster test --scenario oauth-token-refresh-flow --verbose
 

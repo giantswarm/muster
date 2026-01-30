@@ -305,20 +305,13 @@ To maintain backward compatibility with existing deployments:
 
 3. **Mixed mode**: Global servers work as before; only OAuth-protected servers get session-scoped visibility.
 
-### 9. SSO and Token Reuse
+### 9. SSO Mechanisms
 
-The existing SSO mechanism (ADR 004) is extended to work with session-scoped connections:
+The SSO mechanisms (ADR 004) work with session-scoped connections:
 
-```
-User authenticates with mcp-kubernetes (issuer: dex.example.com)
-└── Token stored: (sessionID=abc, issuer=dex.example.com)
+**Token Forwarding**: When muster is protected by OAuth and `forwardToken: true` is set, muster forwards its ID token to downstream servers that trust muster's client ID.
 
-User attempts to access mcp-monitoring (same issuer)
-└── Existing token found for same issuer
-└── Create new session connection with existing token
-└── Fetch tools (may differ from kubernetes based on server permissions)
-└── Add to session's tool view
-```
+**Token Exchange**: For cross-cluster SSO where clusters have separate IdPs, muster exchanges its local token for one valid on the remote cluster's IdP using RFC 8693 Token Exchange.
 
 ### 10. Diagram: Complete OAuth + Session Flow
 

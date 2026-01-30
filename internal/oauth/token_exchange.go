@@ -62,11 +62,6 @@ type TokenExchangerOptions struct {
 	HTTPClient *http.Client
 }
 
-// NewTokenExchanger creates a new TokenExchanger with default options.
-func NewTokenExchanger() *TokenExchanger {
-	return NewTokenExchangerWithOptions(TokenExchangerOptions{})
-}
-
 // NewTokenExchangerWithOptions creates a new TokenExchanger with custom options.
 func NewTokenExchangerWithOptions(opts TokenExchangerOptions) *TokenExchanger {
 	logger := opts.Logger
