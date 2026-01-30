@@ -345,24 +345,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 	}
 
-	// Check if SSO token reuse is enabled for this server (default: true).
-	// This allows operators to disable SSO for specific servers that need separate accounts
-	// even when they share the same OAuth issuer (e.g., personal vs work accounts).
-	ssoEnabled := true
-	if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.SSO != nil {
-		ssoEnabled = *serverInfo.AuthConfig.SSO
-	}
-
 	// Check if we already have a valid token for this server/issuer (SSO).
 	// This enables single sign-on: if the user authenticated to another server
 	// with the same OAuth issuer, we can reuse that token.
-	// Skip SSO token reuse if explicitly disabled for this server.
-	var token *api.OAuthToken
-	if ssoEnabled {
-		token = oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
-	} else {
-		logging.Info("AuthTools", "SSO disabled for server %s, skipping token reuse", serverName)
-	}
+	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
 
 	if token != nil {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",

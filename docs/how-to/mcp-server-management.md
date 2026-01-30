@@ -319,24 +319,6 @@ spec:
     issuer: "https://dex.example.com"  # Same issuer = automatic SSO
 ```
 
-### Disabling SSO Token Reuse
-
-In some cases, you may want to disable token reuse for a specific server (e.g., for security isolation):
-
-```yaml
-apiVersion: muster.giantswarm.io/v1alpha1
-kind: MCPServer
-metadata:
-  name: isolated-server
-spec:
-  type: streamable-http
-  url: "https://isolated.example.com/mcp"
-  auth:
-    type: oauth
-    issuer: "https://dex.example.com"
-    sso: false  # Disable token reuse for this server
-```
-
 ### Checking SSO Status
 
 Use `muster auth status` to see which servers are using SSO:
@@ -360,11 +342,6 @@ MCP Servers:
 - Verify `forwardToken: true` is set in the MCPServer spec
 - Check that the downstream server trusts muster's OAuth client ID
 - Run with `--debug` to see detailed SSO connection logs
-
-**Token reuse not working:**
-- Ensure both servers use the exact same `issuer` URL
-- Verify `sso: false` is not set on the server
-- Check that both servers require the same OAuth scopes
 
 ## Using the CLI
 

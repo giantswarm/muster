@@ -68,12 +68,6 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		usesTokenExchange := ShouldUseTokenExchange(info)
 		usesTokenForwarding := ShouldUseTokenForwarding(info)
 
-		// Check if SSO token reuse is enabled (default: true)
-		tokenReuseEnabled := true
-		if info.AuthConfig != nil && info.AuthConfig.SSO != nil {
-			tokenReuseEnabled = *info.AuthConfig.SSO
-		}
-
 		// Check if SSO was attempted but failed for this session/server
 		ssoAttemptFailed := false
 		if a.sessionRegistry != nil && (usesTokenExchange || usesTokenForwarding) {
@@ -85,7 +79,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			Status:                 string(info.Status),
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
-			TokenReuseEnabled:      tokenReuseEnabled,
+			TokenReuseEnabled:      true, // Token reuse is always enabled
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 

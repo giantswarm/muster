@@ -375,7 +375,7 @@ For the aggregator (server-side), tokens are currently in-memory and lost on res
 
 ### MCPServer Configuration for SSO
 
-Muster supports three SSO mechanisms, configured per MCPServer:
+Muster supports two SSO mechanisms, configured per MCPServer:
 
 #### 1. Token Forwarding (Recommended for Same-Cluster SSO)
 

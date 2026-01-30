@@ -101,7 +101,6 @@ status:
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
 | `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
-| `sso` | `boolean` | No | Enable SSO token reuse between servers with same issuer | Default: `true` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
 

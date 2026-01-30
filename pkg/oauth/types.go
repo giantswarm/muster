@@ -311,7 +311,6 @@ type ServerAuthStatus struct {
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)
 	// to this downstream server, rather than requiring a separate OAuth flow.
-	// This is distinct from SSO Token Reuse (see TokenReuseEnabled).
 	TokenForwardingEnabled bool `json:"token_forwarding_enabled,omitempty"`
 
 	// TokenExchangeEnabled indicates this server uses SSO via RFC 8693 Token Exchange.
@@ -321,10 +320,9 @@ type ServerAuthStatus struct {
 	TokenExchangeEnabled bool `json:"token_exchange_enabled,omitempty"`
 
 	// TokenReuseEnabled indicates SSO via Token Reuse is enabled for this server.
-	// When true (the default), tokens from other servers using the same OAuth issuer
-	// can be reused to authenticate to this server without re-authenticating.
-	// When false, the server requires its own authentication flow even if a token
-	// exists for the same issuer (e.g., for separate personal vs work accounts).
+	// Token reuse allows tokens from other servers using the same OAuth issuer
+	// to be reused to authenticate to this server without re-authenticating.
+	// This is always true - token reuse is enabled for all servers.
 	TokenReuseEnabled bool `json:"token_reuse_enabled,omitempty"`
 
 	// SSOAttemptFailed indicates that SSO authentication was attempted but failed.

@@ -157,7 +157,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			ForwardToken:      server.Spec.Auth.ForwardToken,
 			RequiredAudiences: server.Spec.Auth.RequiredAudiences,
 			FallbackToOwnAuth: server.Spec.Auth.FallbackToOwnAuth,
-			SSO:               server.Spec.Auth.SSO,
 		}
 		// Convert TokenExchange config if present
 		if server.Spec.Auth.TokenExchange != nil {
@@ -277,7 +276,6 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			ForwardToken:      req.Auth.ForwardToken,
 			RequiredAudiences: req.Auth.RequiredAudiences,
 			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
-			SSO:               req.Auth.SSO,
 		}
 
 		// Convert TokenExchange if present
@@ -356,10 +354,6 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				"fallbackToOwnAuth": map[string]interface{}{
 					"type":        "boolean",
 					"description": "Fall back to server-specific auth on failure",
-				},
-				"sso": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Enable SSO token reuse",
 				},
 				"teleport": map[string]interface{}{
 					"type":        "object",
@@ -670,7 +664,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			ForwardToken:      req.Auth.ForwardToken,
 			RequiredAudiences: req.Auth.RequiredAudiences,
 			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
-			SSO:               req.Auth.SSO,
 		}
 		if req.Auth.TokenExchange != nil {
 			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
