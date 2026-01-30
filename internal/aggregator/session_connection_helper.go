@@ -479,6 +479,11 @@ func EstablishSessionConnectionWithTokenExchange(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, bool, error) {
+	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
+	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
+		return nil, true, fmt.Errorf("invalid server configuration for token exchange")
+	}
+
 	// Get the OAuth handler for token exchange
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
@@ -533,6 +538,10 @@ func EstablishSessionConnectionWithTokenExchange(
 	// This ensures the exchanged token contains the audiences needed by the downstream server
 	// (e.g., for Kubernetes OIDC authentication on the remote cluster).
 	// Uses dex.AppendAudienceScopes() from mcp-oauth for security-validated formatting.
+	//
+	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange.Scopes to include
+	// the audience scopes. This is safe because serverInfo is a local copy used only for
+	// this connection attempt.
 	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
 		updatedScopes, err := dex.AppendAudienceScopes(
 			serverInfo.AuthConfig.TokenExchange.Scopes,
