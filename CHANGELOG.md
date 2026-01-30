@@ -17,6 +17,15 @@ All notable changes to this project will be documented in this file.
   - Triggers reconciliation to update CRD status when services start/stop/crash
 
 ### Changed
+- **BREAKING: Consolidated OAuth Configuration Naming** - OAuth configuration structure has been reorganized for clarity ([#324](https://github.com/giantswarm/muster/issues/324))
+  - **Before**: `aggregator.oauth` (client/proxy) + `aggregator.oauthServer` (server protection)
+  - **After**: `aggregator.oauth.mcpClient` (MCP client/proxy) + `aggregator.oauth.server` (server protection)
+  - Both OAuth roles now live under a single `oauth` section with explicit `mcpClient`/`server` sub-sections
+  - The `mcpClient` name makes it clear this is for authenticating TO remote MCP servers
+  - CLI flags renamed: `--oauth` → `--oauth-mcp-client`, `--oauth-public-url` → `--oauth-mcp-client-public-url`
+  - Helm values updated: `muster.oauth.*` → `muster.oauth.mcpClient.*`, `muster.oauthServer.*` → `muster.oauth.server.*`
+  - CIMD configuration moved to nested structure: `cimdPath`/`cimdScopes` → `cimd.path`/`cimd.scopes`
+  - Migration: Update configuration files and Helm values to use the new structure
 - **BREAKING: CRD Status Field Changes** - Status fields have been redesigned for session-aware tool availability
   - **MCPServerStatus**: Removed `availableTools` (session-dependent), added `lastConnected` and `restartCount`
   - **ServiceClassStatus**: Replaced `available`/`requiredTools`/`missingTools`/`toolAvailability` with `valid`/`validationErrors`/`referencedTools`
@@ -25,7 +34,7 @@ All notable changes to this project will be documented in this file.
   - Existing CRs will have stale status fields that will be updated on first reconciliation
 
 ### Fixed
-- **Helm CiliumNetworkPolicy**: Fixed incorrect values path for OAuth storage check (was `.Values.muster.oauth.storage`, should be `.Values.muster.oauthServer.storage`)
+- **Helm CiliumNetworkPolicy**: Fixed incorrect values path for OAuth storage check (now uses `.Values.muster.oauth.server.storage`)
 
 ### Added
 - **Remote MCP Server Support for Kubernetes Environments**

@@ -7,3 +7,25 @@ aggregator:
   port: 8090
   host: localhost
   # musterPrefix: "x"
+
+  # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
+  # oauth:
+  #   # MCP Client/Proxy configuration (for authenticating TO remote MCP servers)
+  #   mcpClient:
+  #     enabled: false
+  #     publicUrl: "https://muster.example.com"
+  #     callbackPath: "/oauth/proxy/callback"
+  #     cimd:
+  #       path: "/.well-known/oauth-client.json"
+  #       scopes: "openid profile email offline_access"
+  #
+  #   # Server configuration (for protecting Muster Server ITSELF)
+  #   server:
+  #     enabled: false
+  #     baseUrl: "https://muster.example.com"
+  #     provider: "dex"
+  #     dex:
+  #       issuerUrl: "https://dex.example.com"
+  #       clientId: "muster"
+  #     storage:
+  #       type: "memory"

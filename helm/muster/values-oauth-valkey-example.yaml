@@ -29,46 +29,53 @@ muster:
     port: 8090
     transport: "streamable-http"
 
-  # OAuth Server configuration (protects Muster Server itself)
-  oauthServer:
-    enabled: true
-    baseUrl: "https://muster.example.com"
-    provider: "dex"
+  # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
+  oauth:
+    # MCP Client configuration (for authenticating TO remote MCP servers)
+    # Not enabled in this example, but can be configured if needed
+    mcpClient:
+      enabled: false
 
-    dex:
-      issuerUrl: "https://dex.example.com"
-      clientId: "muster-server"
-      # clientSecret is loaded from existingSecret
+    # Server configuration (protects Muster Server itself)
+    server:
+      enabled: true
+      baseUrl: "https://muster.example.com"
+      provider: "dex"
 
-    # Disable public registration for production security
-    allowPublicClientRegistration: false
+      dex:
+        issuerUrl: "https://dex.example.com"
+        clientId: "muster-server"
+        # clientSecret is loaded from existingSecret
 
-    # Enable token encryption at rest
-    encryptionKey: true
+      # Disable public registration for production security
+      allowPublicClientRegistration: false
 
-    # Use existing secret for credentials
-    existingSecret: "muster-oauth"
+      # Enable token encryption at rest
+      encryptionKey: true
 
-    # Valkey storage configuration
-    storage:
-      type: "valkey"
-      valkey:
-        # Valkey service address (adjust for your deployment)
-        url: "valkey.default.svc:6379"
-        
-        # Enable TLS for production
-        tls:
-          enabled: true
-        
-        # Key prefix to avoid conflicts with other applications
-        keyPrefix: "muster:"
-        
-        # Database number (0-15)
-        db: 0
-        
-        # Password is loaded from existingSecret
-        # Note: Uses the same secret as OAuth credentials
-        # The secret key is "valkey-password"
+      # Use existing secret for credentials
+      existingSecret: "muster-oauth"
+
+      # Valkey storage configuration
+      storage:
+        type: "valkey"
+        valkey:
+          # Valkey service address (adjust for your deployment)
+          url: "valkey.default.svc:6379"
+          
+          # Enable TLS for production
+          tls:
+            enabled: true
+          
+          # Key prefix to avoid conflicts with other applications
+          keyPrefix: "muster:"
+          
+          # Database number (0-15)
+          db: 0
+          
+          # Password is loaded from existingSecret
+          # Note: Uses the same secret as OAuth credentials
+          # The secret key is "valkey-password"
 
 # Enable autoscaling for production
 autoscaling:

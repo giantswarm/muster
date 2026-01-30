@@ -6,15 +6,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
+func TestOAuthMCPClientConfig_GetEffectiveClientID(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   OAuthConfig
+		config   OAuthMCPClientConfig
 		expected string
 	}{
 		{
 			name: "explicit clientId is returned as-is",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				ClientID:  "https://external.example.com/oauth-client.json",
 				PublicURL: "https://muster.example.com",
 			},
@@ -22,7 +22,7 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 		},
 		{
 			name: "auto-derived from publicUrl when clientId is empty",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				ClientID:  "",
 				PublicURL: "https://muster.example.com",
 			},
@@ -30,16 +30,18 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 		},
 		{
 			name: "auto-derived with custom CIMD path",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				ClientID:  "",
 				PublicURL: "https://muster.example.com",
-				CIMDPath:  "/oauth/client.json",
+				CIMD: OAuthCIMDConfig{
+					Path: "/oauth/client.json",
+				},
 			},
 			expected: "https://muster.example.com/oauth/client.json",
 		},
 		{
 			name: "trailing slash in publicUrl is handled",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				ClientID:  "",
 				PublicURL: "https://muster.example.com/",
 			},
@@ -47,7 +49,7 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 		},
 		{
 			name: "returns empty when both clientId and publicUrl are empty",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				ClientID:  "",
 				PublicURL: "",
 			},
@@ -65,15 +67,15 @@ func TestOAuthConfig_GetEffectiveClientID(t *testing.T) {
 	}
 }
 
-func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
+func TestOAuthMCPClientConfig_ShouldServeCIMD(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   OAuthConfig
+		config   OAuthMCPClientConfig
 		expected bool
 	}{
 		{
 			name: "true when enabled, publicUrl set, clientId empty",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				Enabled:   true,
 				PublicURL: "https://muster.example.com",
 				ClientID:  "",
@@ -82,7 +84,7 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 		},
 		{
 			name: "true when clientId matches auto-derived value",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				Enabled:   true,
 				PublicURL: "https://muster.example.com",
 				ClientID:  "https://muster.example.com/.well-known/oauth-client.json",
@@ -91,7 +93,7 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 		},
 		{
 			name: "false when OAuth is disabled",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				Enabled:   false,
 				PublicURL: "https://muster.example.com",
 				ClientID:  "",
@@ -100,7 +102,7 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 		},
 		{
 			name: "false when publicUrl is empty",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				Enabled:   true,
 				PublicURL: "",
 				ClientID:  "",
@@ -109,7 +111,7 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 		},
 		{
 			name: "false when clientId is external",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				Enabled:   true,
 				PublicURL: "https://muster.example.com",
 				ClientID:  "https://external.example.com/oauth-client.json",
@@ -128,23 +130,27 @@ func TestOAuthConfig_ShouldServeCIMD(t *testing.T) {
 	}
 }
 
-func TestOAuthConfig_GetCIMDPath(t *testing.T) {
+func TestOAuthMCPClientConfig_GetCIMDPath(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   OAuthConfig
+		config   OAuthMCPClientConfig
 		expected string
 	}{
 		{
 			name: "returns configured path",
-			config: OAuthConfig{
-				CIMDPath: "/oauth/client.json",
+			config: OAuthMCPClientConfig{
+				CIMD: OAuthCIMDConfig{
+					Path: "/oauth/client.json",
+				},
 			},
 			expected: "/oauth/client.json",
 		},
 		{
 			name: "returns default when not configured",
-			config: OAuthConfig{
-				CIMDPath: "",
+			config: OAuthMCPClientConfig{
+				CIMD: OAuthCIMDConfig{
+					Path: "",
+				},
 			},
 			expected: DefaultOAuthCIMDPath,
 		},
@@ -160,15 +166,15 @@ func TestOAuthConfig_GetCIMDPath(t *testing.T) {
 	}
 }
 
-func TestOAuthConfig_GetRedirectURI(t *testing.T) {
+func TestOAuthMCPClientConfig_GetRedirectURI(t *testing.T) {
 	tests := []struct {
 		name     string
-		config   OAuthConfig
+		config   OAuthMCPClientConfig
 		expected string
 	}{
 		{
 			name: "constructs redirect URI correctly",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				PublicURL:    "https://muster.example.com",
 				CallbackPath: "/oauth/callback",
 			},
@@ -176,7 +182,7 @@ func TestOAuthConfig_GetRedirectURI(t *testing.T) {
 		},
 		{
 			name: "handles trailing slash in publicUrl",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				PublicURL:    "https://muster.example.com/",
 				CallbackPath: "/oauth/callback",
 			},
@@ -184,7 +190,7 @@ func TestOAuthConfig_GetRedirectURI(t *testing.T) {
 		},
 		{
 			name: "uses default proxy callback path when not set",
-			config: OAuthConfig{
+			config: OAuthMCPClientConfig{
 				PublicURL:    "https://muster.example.com",
 				CallbackPath: "",
 			},

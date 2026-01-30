@@ -60,9 +60,9 @@ spec:
             - port: "443"
               protocol: TCP
 
-    {{- if .Values.muster.oauthServer.enabled }}
-    {{- if .Values.muster.oauthServer.storage }}
-    {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
+    {{- if .Values.muster.oauth.server.enabled }}
+    {{- if .Values.muster.oauth.server.storage }}
+    {{- if eq .Values.muster.oauth.server.storage.type "valkey" }}
     # Allow egress to Valkey for OAuth token storage
     - toEndpoints:
         - matchLabels:

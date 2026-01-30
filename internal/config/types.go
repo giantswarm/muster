@@ -57,20 +57,39 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
-	// OAuth Proxy configuration for remote MCP server authentication (client role)
+	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
+	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
+	// - oauth.server: muster as OAuth resource server for protecting ITSELF
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
-
-	// OAuthServer configuration for protecting the Muster Server itself (resource server role)
-	OAuthServer OAuthServerConfig `yaml:"oauthServer,omitempty"`
 }
 
-// OAuthConfig defines the OAuth proxy configuration for remote MCP server authentication.
+// OAuthConfig consolidates all OAuth-related configuration with explicit mcpClient/server roles.
+// This structure clearly separates the two distinct OAuth roles that muster can play:
+//   - MCPClient: when muster authenticates TO remote MCP servers on behalf of users
+//   - Server: when muster protects ITSELF and requires clients to authenticate
+type OAuthConfig struct {
+	// MCPClient configuration for remote MCP server authentication (muster as OAuth proxy).
+	// When enabled, muster acts as an OAuth client proxy, handling authentication
+	// flows on behalf of users without exposing tokens to the Muster Agent.
+	MCPClient OAuthMCPClientConfig `yaml:"mcpClient,omitempty"`
+
+	// Server configuration for protecting the Muster Server itself.
+	// When enabled, muster acts as an OAuth Resource Server, requiring valid
+	// access tokens from clients (e.g., Muster Agent) to access protected endpoints.
+	Server OAuthServerConfig `yaml:"server,omitempty"`
+}
+
+// OAuthMCPClientConfig defines the OAuth client/proxy configuration for remote MCP server authentication.
 // When enabled, the Muster Server acts as an OAuth client proxy, handling authentication
 // flows on behalf of users without exposing tokens to the Muster Agent.
-type OAuthConfig struct {
+type OAuthMCPClientConfig struct {
+	// Enabled controls whether OAuth MCP client/proxy functionality is active.
+	// When false, remote MCP servers requiring auth will return errors.
+	Enabled bool `yaml:"enabled,omitempty"`
+
 	// PublicURL is the publicly accessible URL of the Muster Server.
 	// This is used to construct OAuth callback URLs (e.g., https://muster.example.com).
-	// Required when OAuth is enabled.
+	// Required when OAuth MCP client is enabled.
 	PublicURL string `yaml:"publicUrl,omitempty"`
 
 	// ClientID is the OAuth client identifier.
@@ -84,38 +103,41 @@ type OAuthConfig struct {
 	// NOTE: This MUST be different from the OAuth server callback (/oauth/callback) to avoid conflicts.
 	CallbackPath string `yaml:"callbackPath,omitempty"`
 
-	// CIMDPath is the path for serving the Client ID Metadata Document (default: "/.well-known/oauth-client.json").
-	// Muster will serve the CIMD at this path when OAuth is enabled and PublicURL is set.
-	CIMDPath string `yaml:"cimdPath,omitempty"`
-
-	// CIMDScopes is the OAuth scopes to advertise in the self-hosted CIMD.
-	// This determines what API scopes downstream MCP servers can use when muster
-	// forwards tokens via SSO. Default: "openid profile email offline_access".
-	// Operators can add additional scopes (e.g., Google API scopes) as needed.
-	// Format: space-separated list of scope strings.
-	CIMDScopes string `yaml:"cimdScopes,omitempty"`
+	// CIMD contains Client ID Metadata Document configuration.
+	// Muster can serve its own CIMD when acting as an OAuth client for MCP servers.
+	CIMD OAuthCIMDConfig `yaml:"cimd,omitempty"`
 
 	// CAFile is the path to a CA certificate file for verifying TLS connections to OAuth servers.
 	// This is useful when connecting to OAuth servers with self-signed certificates.
 	CAFile string `yaml:"caFile,omitempty"`
+}
 
-	// Enabled controls whether OAuth proxy functionality is active.
-	// When false, remote MCP servers requiring auth will return errors.
-	Enabled bool `yaml:"enabled,omitempty"`
+// OAuthCIMDConfig contains Client ID Metadata Document configuration.
+type OAuthCIMDConfig struct {
+	// Path is the path for serving the Client ID Metadata Document (default: "/.well-known/oauth-client.json").
+	// Muster will serve the CIMD at this path when OAuth MCP client is enabled and PublicURL is set.
+	Path string `yaml:"path,omitempty"`
+
+	// Scopes is the OAuth scopes to advertise in the self-hosted CIMD.
+	// This determines what API scopes downstream MCP servers can use when muster
+	// forwards tokens via SSO. Default: "openid profile email offline_access".
+	// Operators can add additional scopes (e.g., Google API scopes) as needed.
+	// Format: space-separated list of scope strings.
+	Scopes string `yaml:"scopes,omitempty"`
 }
 
 // GetEffectiveClientID returns the effective OAuth client ID.
 // If ClientID is explicitly set, it is returned as-is.
 // If ClientID is empty but PublicURL is set, returns the self-hosted CIMD URL.
 // Otherwise, returns empty string (OAuth proxy requires publicUrl to function).
-func (c *OAuthConfig) GetEffectiveClientID() string {
+func (c *OAuthMCPClientConfig) GetEffectiveClientID() string {
 	if c.ClientID != "" {
 		return c.ClientID
 	}
 
 	// Auto-derive from PublicURL if set
 	if c.PublicURL != "" {
-		cimdPath := c.CIMDPath
+		cimdPath := c.CIMD.Path
 		if cimdPath == "" {
 			cimdPath = DefaultOAuthCIMDPath
 		}
@@ -127,9 +149,9 @@ func (c *OAuthConfig) GetEffectiveClientID() string {
 }
 
 // ShouldServeCIMD returns true if muster should serve its own CIMD.
-// This is the case when OAuth is enabled, PublicURL is set, and ClientID
+// This is the case when OAuth MCP client is enabled, PublicURL is set, and ClientID
 // is either empty or matches the auto-derived CIMD URL.
-func (c *OAuthConfig) ShouldServeCIMD() bool {
+func (c *OAuthMCPClientConfig) ShouldServeCIMD() bool {
 	if !c.Enabled || c.PublicURL == "" {
 		return false
 	}
@@ -140,7 +162,7 @@ func (c *OAuthConfig) ShouldServeCIMD() bool {
 	}
 
 	// If ClientID matches what we would auto-generate, serve our own CIMD
-	cimdPath := c.CIMDPath
+	cimdPath := c.CIMD.Path
 	if cimdPath == "" {
 		cimdPath = DefaultOAuthCIMDPath
 	}
@@ -149,25 +171,25 @@ func (c *OAuthConfig) ShouldServeCIMD() bool {
 }
 
 // GetCIMDPath returns the path for serving the CIMD.
-func (c *OAuthConfig) GetCIMDPath() string {
-	if c.CIMDPath != "" {
-		return c.CIMDPath
+func (c *OAuthMCPClientConfig) GetCIMDPath() string {
+	if c.CIMD.Path != "" {
+		return c.CIMD.Path
 	}
 	return DefaultOAuthCIMDPath
 }
 
 // GetCIMDScopes returns the OAuth scopes to advertise in the CIMD.
 // If not set, returns the default scopes: "openid profile email offline_access".
-func (c *OAuthConfig) GetCIMDScopes() string {
-	if c.CIMDScopes != "" {
-		return c.CIMDScopes
+func (c *OAuthMCPClientConfig) GetCIMDScopes() string {
+	if c.CIMD.Scopes != "" {
+		return c.CIMD.Scopes
 	}
 	return DefaultOAuthCIMDScopes
 }
 
 // GetRedirectURI returns the full redirect URI for OAuth proxy callbacks.
 // This is where remote MCP server IdPs will redirect after authentication.
-func (c *OAuthConfig) GetRedirectURI() string {
+func (c *OAuthMCPClientConfig) GetRedirectURI() string {
 	callbackPath := c.CallbackPath
 	if callbackPath == "" {
 		callbackPath = DefaultOAuthProxyCallbackPath

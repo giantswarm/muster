@@ -214,175 +214,179 @@ muster:
   # Enable debug logging
   debug: false
 
-  # OAuth Proxy configuration for remote MCP server authentication
-  # When enabled, Muster Server acts as an OAuth client proxy,
-  # handling authentication flows on behalf of users without exposing
-  # sensitive tokens to the Muster Agent.
-  #
-  # SECURITY NOTES:
-  # - Tokens are stored in-memory only and are lost on pod restart
-  # - Each MCP connection gets a unique session ID for token isolation
-  # - TLS is required for production deployments to protect OAuth flows
+  # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
+  # This structure clearly separates the two distinct OAuth roles:
+  #   - oauth.mcpClient: muster authenticating TO remote MCP servers (proxy role)
+  #   - oauth.server: muster protecting ITSELF (resource server role)
   oauth:
-    # Enable OAuth proxy functionality
-    enabled: false
-
-    # Publicly accessible URL of the Muster Server
-    # This is used to construct OAuth callback URLs and auto-generate the CIMD.
-    # Example: "https://muster.example.com"
-    # Required when OAuth is enabled. Must be HTTPS for production.
-    publicUrl: ""
-
-    # OAuth client identifier (Client ID Metadata Document URL)
+    # MCP Client/Proxy configuration for remote MCP server authentication
+    # When enabled, Muster Server acts as an OAuth client proxy,
+    # handling authentication flows on behalf of users without exposing
+    # sensitive tokens to the Muster Agent.
     #
-    # Leave empty (default) to use self-hosted CIMD:
-    # - Muster auto-derives clientId as {publicUrl}/.well-known/oauth-client.json
-    # - Muster serves the CIMD at that path with the correct redirect_uri
-    # - No external static file hosting required
-    #
-    # Set to a URL only if you need to use an externally hosted CIMD file.
-    clientId: ""
+    # SECURITY NOTES:
+    # - Tokens are stored in-memory only and are lost on pod restart
+    # - Each MCP connection gets a unique session ID for token isolation
+    # - TLS is required for production deployments to protect OAuth flows
+    mcpClient:
+      # Enable OAuth MCP client/proxy functionality
+      enabled: false
 
-    # Path for the OAuth proxy callback endpoint (for authenticating with remote MCP servers)
-    # NOTE: This is different from /oauth/callback which is used by the OAuth server
-    callbackPath: "/oauth/proxy/callback"
+      # Publicly accessible URL of the Muster Server
+      # This is used to construct OAuth callback URLs and auto-generate the CIMD.
+      # Example: "https://muster.example.com"
+      # Required when OAuth MCP client is enabled. Must be HTTPS for production.
+      publicUrl: ""
 
-    # Path for serving the Client ID Metadata Document (CIMD)
-    # Only used when clientId is empty (self-hosted CIMD mode)
-    cimdPath: "/.well-known/oauth-client.json"
-
-    # OAuth scopes to advertise in the self-hosted CIMD.
-    # These scopes determine what APIs downstream MCP servers can access when
-    # muster forwards tokens via SSO. Default: "openid profile email offline_access"
-    # Format: space-separated list of scope strings.
-    # Example with Google API scopes for Gmail, Calendar, Drive:
-    # cimdScopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
-
-  # OAuth Server configuration for protecting the Muster Server itself (ADR 005)
-  # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
-  # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.
-  #
-  # This is DIFFERENT from the oauth section above:
-  # - oauth: Muster acts as OAuth Client to authenticate to REMOTE MCP servers
-  # - oauthServer: Muster acts as OAuth Resource Server to protect ITSELF
-  #
-  # SECURITY NOTES:
-  # - Required for production when Muster is publicly exposed
-  # - TLS is REQUIRED (HTTPS) for all non-localhost deployments
-  # - Use Valkey storage for high availability (multiple replicas)
-  oauthServer:
-    # Enable OAuth server protection
-    enabled: false
-
-    # Base URL of the Muster Server (used as OAuth issuer)
-    # Example: "https://muster.example.com"
-    # Required when OAuth server is enabled.
-    baseUrl: ""
-
-    # OAuth provider: "dex" or "google"
-    provider: "dex"
-
-    # Dex OIDC provider configuration (used when provider is "dex")
-    dex:
-      # Dex OIDC issuer URL
-      issuerUrl: ""
-      # OAuth client ID registered in Dex
+      # OAuth client identifier (Client ID Metadata Document URL)
+      #
+      # Leave empty (default) to use self-hosted CIMD:
+      # - Muster auto-derives clientId as {publicUrl}/.well-known/oauth-client.json
+      # - Muster serves the CIMD at that path with the correct redirect_uri
+      # - No external static file hosting required
+      #
+      # Set to a URL only if you need to use an externally hosted CIMD file.
       clientId: ""
-      # OAuth client secret (use secret reference in production via existingSecret)
-      clientSecret: ""
-      # Optional connector ID to bypass Dex connector selection
-      connectorId: ""
-      # Path to CA certificate file for Dex TLS verification (for private CAs)
-      caFile: ""
 
-    # Google OAuth provider configuration (used when provider is "google")
-    google:
-      clientId: ""
-      clientSecret: ""
+      # Path for the OAuth proxy callback endpoint (for authenticating with remote MCP servers)
+      # NOTE: This is different from /oauth/callback which is used by the OAuth server
+      callbackPath: "/oauth/proxy/callback"
 
-    # Use an existing secret for OAuth credentials
-    # The secret should contain keys: dex-client-secret, registration-token,
-    # oauth-encryption-key (optional), valkey-password (if using Valkey)
+      # Client ID Metadata Document (CIMD) configuration
+      # Only used when clientId is empty (self-hosted CIMD mode)
+      cimd:
+        # Path for serving the CIMD
+        path: "/.well-known/oauth-client.json"
+
+        # OAuth scopes to advertise in the self-hosted CIMD.
+        # These scopes determine what APIs downstream MCP servers can access when
+        # muster forwards tokens via SSO. Default: "openid profile email offline_access"
+        # Format: space-separated list of scope strings.
+        # Example with Google API scopes for Gmail, Calendar, Drive:
+        # scopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
+        scopes: ""
+
+    # Server configuration for protecting the Muster Server itself (ADR 005)
+    # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
+    # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.
     #
-    # Example secret creation:
-    #   kubectl create secret generic muster-oauth \
-    #     --from-literal=dex-client-secret=<your-dex-client-secret> \
-    #     --from-literal=registration-token=$(openssl rand -hex 32) \
-    #     --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \
-    #     --from-literal=valkey-password=<your-valkey-password>
-    existingSecret: ""
+    # SECURITY NOTES:
+    # - Required for production when Muster is publicly exposed
+    # - TLS is REQUIRED (HTTPS) for all non-localhost deployments
+    # - Use Valkey storage for high availability (multiple replicas)
+    server:
+      # Enable OAuth server protection
+      enabled: false
 
-    # Token storage configuration
-    # In-memory storage is default but NOT recommended for production
-    # Use Valkey for production deployments to enable:
-    #   - Session persistence across pod restarts
-    #   - Horizontal scaling with shared session state
-    #   - Rolling updates without user session loss
-    storage:
-      # Storage backend type: "memory" or "valkey"
-      # Default: "memory" (NOT recommended for production)
-      type: "memory"
+      # Base URL of the Muster Server (used as OAuth issuer)
+      # Example: "https://muster.example.com"
+      # Required when OAuth server is enabled.
+      baseUrl: ""
 
-      # Valkey (Redis-compatible) storage configuration
-      # Required when storage.type is "valkey"
-      valkey:
-        # Valkey server URL (e.g., "valkey.namespace.svc:6379")
-        # Required when using Valkey storage
-        url: ""
+      # OAuth provider: "dex" or "google"
+      provider: "dex"
 
-        # Valkey password for authentication (optional)
-        # Should be set via existingSecret for production security
-        password: ""
+      # Dex OIDC provider configuration (used when provider is "dex")
+      dex:
+        # Dex OIDC issuer URL
+        issuerUrl: ""
+        # OAuth client ID registered in Dex
+        clientId: ""
+        # OAuth client secret (use secret reference in production via existingSecret)
+        clientSecret: ""
+        # Optional connector ID to bypass Dex connector selection
+        connectorId: ""
+        # Path to CA certificate file for Dex TLS verification (for private CAs)
+        caFile: ""
 
-        # Enable TLS for Valkey connections
-        # Recommended for production
-        tls:
-          enabled: false
+      # Google OAuth provider configuration (used when provider is "google")
+      google:
+        clientId: ""
+        clientSecret: ""
 
-        # Key prefix for all Valkey keys
-        # Useful for multi-tenant deployments sharing a Valkey instance
-        keyPrefix: "muster:"
+      # Use an existing secret for OAuth credentials
+      # The secret should contain keys: dex-client-secret, registration-token,
+      # oauth-encryption-key (optional), valkey-password (if using Valkey)
+      #
+      # Example secret creation:
+      #   kubectl create secret generic muster-oauth \
+      #     --from-literal=dex-client-secret=<your-dex-client-secret> \
+      #     --from-literal=registration-token=$(openssl rand -hex 32) \
+      #     --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \
+      #     --from-literal=valkey-password=<your-valkey-password>
+      existingSecret: ""
 
-        # Valkey database number (0-15)
-        db: 0
+      # Token storage configuration
+      # In-memory storage is default but NOT recommended for production
+      # Use Valkey for production deployments to enable:
+      #   - Session persistence across pod restarts
+      #   - Horizontal scaling with shared session state
+      #   - Rolling updates without user session loss
+      storage:
+        # Storage backend type: "memory" or "valkey"
+        # Default: "memory" (NOT recommended for production)
+        type: "memory"
 
-        # Use an existing secret for Valkey password
-        # The secret should contain key: valkey-password
-        existingSecret: ""
+        # Valkey (Redis-compatible) storage configuration
+        # Required when storage.type is "valkey"
+        valkey:
+          # Valkey server URL (e.g., "valkey.namespace.svc:6379")
+          # Required when using Valkey storage
+          url: ""
 
-        # Key in the secret containing the Valkey password
-        secretKeyPassword: "valkey-password"
+          # Valkey password for authentication (optional)
+          # Should be set via existingSecret for production security
+          password: ""
 
-    # Registration token for dynamic client registration
-    # Required if allowPublicClientRegistration is false
-    # Should be set via existingSecret for production security
-    registrationToken: ""
+          # Enable TLS for Valkey connections
+          # Recommended for production
+          tls:
+            enabled: false
 
-    # Allow unauthenticated dynamic client registration
-    # WARNING: Can lead to DoS attacks. Default: false
-    allowPublicClientRegistration: false
+          # Key prefix for all Valkey keys
+          # Useful for multi-tenant deployments sharing a Valkey instance
+          keyPrefix: "muster:"
 
-    # Enable token encryption at rest
-    # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
-    encryptionKey: false
+          # Valkey database number (0-15)
+          db: 0
 
-    # Encryption key value (32 bytes, base64-encoded)
-    # Only used if encryptionKey is true and existingSecret is not set
-    # SECURITY: Use existingSecret for production deployments
-    encryptionKeyValue: ""
+          # Use an existing secret for Valkey password
+          # The secret should contain key: valkey-password
+          existingSecret: ""
 
-    # URI schemes allowed for unauthenticated client registration
-    # Enables Cursor/VSCode without registration tokens
-    # Example: ["cursor", "vscode"]
-    trustedPublicRegistrationSchemes: []
+          # Key in the secret containing the Valkey password
+          secretKeyPassword: "valkey-password"
 
-    # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
-    enableCIMD: true
+      # Registration token for dynamic client registration
+      # Required if allowPublicClientRegistration is false
+      # Should be set via existingSecret for production security
+      registrationToken: ""
 
-    # Allow localhost/loopback redirect URIs for native apps (RFC 8252)
-    # Required for muster agent and other native OAuth clients
-    # Default: true
-    allowLocalhostRedirectURIs: true
+      # Allow unauthenticated dynamic client registration
+      # WARNING: Can lead to DoS attacks. Default: false
+      allowPublicClientRegistration: false
+
+      # Enable token encryption at rest
+      # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
+      encryptionKey: false
+
+      # Encryption key value (32 bytes, base64-encoded)
+      # Only used if encryptionKey is true and existingSecret is not set
+      # SECURITY: Use existingSecret for production deployments
+      encryptionKeyValue: ""
+
+      # URI schemes allowed for unauthenticated client registration
+      # Enables Cursor/VSCode without registration tokens
+      # Example: ["cursor", "vscode"]
+      trustedPublicRegistrationSchemes: []
+
+      # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
+      enableCIMD: true
+
+      # Allow localhost/loopback redirect URIs for native apps (RFC 8252)
+      # Required for muster agent and other native OAuth clients
+      # Default: true
+      allowLocalhostRedirectURIs: true
 
 # CRD installation
 crds:
