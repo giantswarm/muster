@@ -61,6 +61,8 @@ spec:
   auth:
     type: oauth|none          # Authentication type
     forwardToken: true        # Forward muster's ID token for SSO
+    requiredAudiences:        # Audiences needed in forwarded token (e.g., for Kubernetes OIDC)
+      - "dex-k8s-authenticator"
     fallbackToOwnAuth: true   # Fallback to separate OAuth if forwarding fails
 
 # Status is managed automatically by muster (via reconciliation)
@@ -97,10 +99,20 @@ status:
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | No | Authentication type | Must be `oauth`, `teleport`, or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
+| `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
 | `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
 | `sso` | `boolean` | No | Enable SSO token reuse between servers with same issuer | Default: `true` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
+
+**Note on `requiredAudiences`**: When using SSO (token forwarding or token exchange) with downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here.
+
+- **Token Forwarding** (`forwardToken: true`): Muster requests these audiences from its upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to downstream servers. Required audiences are collected at muster startup - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate.
+- **Token Exchange** (`tokenExchange.enabled: true`): The audiences are appended as cross-client scopes to the token exchange request to the remote IdP. This ensures the exchanged token contains the audiences needed by the downstream server on the remote cluster.
+
+Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
+
+**Security**: Access control for `requiredAudiences` relies on two layers: (1) Kubernetes RBAC controls who can create/modify MCPServer CRDs, and (2) the IdP's cross-client configuration determines which audiences are allowed. Audience values must not contain whitespace characters and are validated before use.
 
 #### TeleportAuth Fields
 

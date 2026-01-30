@@ -141,6 +141,10 @@ func TestShouldUseTokenForwarding(t *testing.T) {
 	})
 }
 
+// Note: appendAudienceScopes tests have been moved to mcp-oauth library.
+// The local function was replaced with dex.AppendAudienceScopes() which has
+// comprehensive tests in the mcp-oauth providers/dex package.
+
 func TestIsIDTokenExpired(t *testing.T) {
 	t.Run("empty token is expired", func(t *testing.T) {
 		assert.True(t, isIDTokenExpired(""))

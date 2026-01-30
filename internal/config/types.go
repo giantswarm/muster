@@ -275,11 +275,6 @@ type DexConfig struct {
 	// CAFile is the path to a CA certificate file for Dex TLS verification.
 	// Use this when Dex uses a private/internal CA.
 	CAFile string `yaml:"caFile,omitempty"`
-
-	// KubernetesAuthenticatorClientID is the client ID of the Kubernetes authenticator
-	// in Dex (typically "dex-k8s-authenticator"). When set, requests tokens with this
-	// audience via Dex cross-client authentication.
-	KubernetesAuthenticatorClientID string `yaml:"kubernetesAuthenticatorClientId,omitempty"`
 }
 
 // GoogleConfig holds configuration for the Google OAuth provider.

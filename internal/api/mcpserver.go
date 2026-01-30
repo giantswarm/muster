@@ -104,6 +104,24 @@ type MCPServerAuth struct {
 	//   - You want users to authenticate once to muster for all downstream access
 	ForwardToken bool `yaml:"forwardToken,omitempty" json:"forwardToken,omitempty"`
 
+	// RequiredAudiences specifies additional audience(s) that the SSO token should contain.
+	// This is used with both Token Forwarding and Token Exchange SSO methods.
+	//
+	// When the downstream server requires tokens with specific audiences (e.g., Kubernetes
+	// OIDC authentication), specify them here:
+	//   requiredAudiences:
+	//     - "dex-k8s-authenticator"
+	//
+	// For Token Forwarding (forwardToken: true):
+	//   - At session initialization, muster collects all requiredAudiences from MCPServers
+	//   - These are requested from muster's IdP using cross-client scopes
+	//   - The resulting multi-audience ID token is forwarded to downstream servers
+	//
+	// For Token Exchange (tokenExchange.enabled: true):
+	//   - The audiences are appended as cross-client scopes to the token exchange request
+	//   - The remote IdP issues a token containing the requested audiences
+	RequiredAudiences []string `yaml:"requiredAudiences,omitempty" json:"requiredAudiences,omitempty"`
+
 	// FallbackToOwnAuth enables graceful degradation when token forwarding or exchange fails.
 	// When true and ForwardToken or TokenExchange is enabled but fails (e.g., downstream returns 401),
 	// muster will trigger a separate OAuth flow for this server.

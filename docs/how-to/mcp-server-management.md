@@ -259,25 +259,36 @@ When Token Forwarding is enabled, muster forwards its ID token to the downstream
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
-  name: internal-api
+  name: mcp-kubernetes
 spec:
-  description: "Internal API with SSO"
-  toolPrefix: "api"
+  description: "Kubernetes MCP with SSO"
+  toolPrefix: "k8s"
   type: streamable-http
-  url: "https://internal-api.example.com/mcp"
+  url: "https://mcp-kubernetes.example.com/mcp"
   auth:
     forwardToken: true  # Enable SSO via token forwarding
+    # Specify audiences required by downstream server (e.g., for Kubernetes OIDC)
+    requiredAudiences:
+      - "dex-k8s-authenticator"
 ```
 
 **How it works:**
 1. User runs `muster auth login` to authenticate to muster
-2. On first MCP request, muster proactively connects to all SSO-enabled servers
-3. User can immediately access SSO servers without additional authentication
-4. The CLI shows the SSO type for each server: `mcp-kubernetes  Connected [SSO: Forwarded]`
+2. Muster requests tokens with all `requiredAudiences` from the IdP via cross-client scopes
+3. On first MCP request, muster proactively connects to all SSO-enabled servers using the multi-audience token
+4. User can immediately access SSO servers without additional authentication
+5. The CLI shows the SSO type for each server: `mcp-kubernetes  Connected [SSO: Forwarded]`
 
 **Requirements:**
 - The downstream MCP server must trust muster's OAuth client ID
 - Both muster and the downstream server must use the same identity provider (issuer)
+- For Kubernetes OIDC auth, the IdP must support cross-client authentication (`audience:server:client_id:*` scopes)
+
+**Important:** Required audiences are collected at muster startup and during user authentication. If you add or modify MCPServers with `requiredAudiences` after users have authenticated, those users must re-authenticate (`muster auth logout` followed by `muster auth login`) to obtain tokens with the new audiences.
+
+**Security Note:** Access control for `requiredAudiences` is enforced at two levels:
+1. **Kubernetes RBAC**: Only users with permissions to create/modify MCPServer CRDs can configure `requiredAudiences`
+2. **IdP Cross-Client Configuration**: The identity provider (e.g., Dex) must be configured to allow cross-client authentication for the specified audiences. Unauthorized audience requests will be rejected by the IdP.
 
 ### Token Reuse (Automatic SSO)
 

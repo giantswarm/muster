@@ -155,6 +155,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.Auth = &api.MCPServerAuth{
 			Type:              server.Spec.Auth.Type,
 			ForwardToken:      server.Spec.Auth.ForwardToken,
+			RequiredAudiences: server.Spec.Auth.RequiredAudiences,
 			FallbackToOwnAuth: server.Spec.Auth.FallbackToOwnAuth,
 			SSO:               server.Spec.Auth.SSO,
 		}
@@ -274,6 +275,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		crd.Spec.Auth = &musterv1alpha1.MCPServerAuth{
 			Type:              req.Auth.Type,
 			ForwardToken:      req.Auth.ForwardToken,
+			RequiredAudiences: req.Auth.RequiredAudiences,
 			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
 			SSO:               req.Auth.SSO,
 		}
@@ -345,6 +347,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				"forwardToken": map[string]interface{}{
 					"type":        "boolean",
 					"description": "Enable SSO token forwarding (oauth only)",
+				},
+				"requiredAudiences": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
 				},
 				"fallbackToOwnAuth": map[string]interface{}{
 					"type":        "boolean",
@@ -661,6 +668,7 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		existing.Spec.Auth = &musterv1alpha1.MCPServerAuth{
 			Type:              req.Auth.Type,
 			ForwardToken:      req.Auth.ForwardToken,
+			RequiredAudiences: req.Auth.RequiredAudiences,
 			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
 			SSO:               req.Auth.SSO,
 		}

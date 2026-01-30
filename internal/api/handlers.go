@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"muster/pkg/logging"
+	"sort"
 	"sync"
+
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 )
 
 // Handler registry variables store the registered implementations.
@@ -429,6 +432,70 @@ func GetMCPServerManager() MCPServerManagerHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return mcpServerManagerHandler
+}
+
+// CollectRequiredAudiences collects all unique required audiences from MCPServers
+// that have forwardToken: true configured. This is used to determine which
+// cross-client audiences to request from Dex during OAuth authentication.
+//
+// When users authenticate to muster, the OAuth flow requests tokens with these
+// audiences, allowing the tokens to be forwarded to downstream MCPServers
+// that require specific audience claims (e.g., Kubernetes OIDC authentication).
+//
+// Returns:
+//   - []string: Unique list of required audiences from all SSO-enabled MCPServers
+//
+// If no MCPServer manager is registered, returns an empty slice.
+//
+// Thread-safe: Yes, uses registered MCPServerManager which is thread-safe.
+//
+// Example:
+//
+//	audiences := api.CollectRequiredAudiences()
+//	// Returns: ["dex-k8s-authenticator", "another-audience"]
+func CollectRequiredAudiences() []string {
+	manager := GetMCPServerManager()
+	if manager == nil {
+		logging.Debug("API", "MCPServer manager not available, cannot collect required audiences")
+		return nil
+	}
+
+	servers := manager.ListMCPServers()
+	if len(servers) == 0 {
+		return nil
+	}
+
+	// Use a map to deduplicate audiences
+	audienceSet := make(map[string]struct{})
+
+	for _, server := range servers {
+		// Only consider servers with forwardToken: true
+		if server.Auth == nil || !server.Auth.ForwardToken {
+			continue
+		}
+
+		// Collect all required audiences from this server.
+		// Uses dex.ValidateAudience for security-validated input checking,
+		// preventing scope injection attacks from malformed audience strings.
+		for _, audience := range server.Auth.RequiredAudiences {
+			if dex.ValidateAudience(audience) == nil {
+				audienceSet[audience] = struct{}{}
+			}
+		}
+	}
+
+	// Convert set to slice and sort for deterministic ordering
+	audiences := make([]string, 0, len(audienceSet))
+	for audience := range audienceSet {
+		audiences = append(audiences, audience)
+	}
+	sort.Strings(audiences)
+
+	if len(audiences) > 0 {
+		logging.Debug("API", "Collected %d required audiences from MCPServers: %v", len(audiences), audiences)
+	}
+
+	return audiences
 }
 
 // SubscribeToToolUpdates allows components to subscribe to tool availability change events.

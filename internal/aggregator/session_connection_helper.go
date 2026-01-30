@@ -16,6 +16,7 @@ import (
 	"muster/internal/server"
 	"muster/pkg/logging"
 
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -526,6 +527,27 @@ func EstablishSessionConnectionWithTokenExchange(
 		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
 		logging.Debug("SessionConnection", "Loaded client credentials for token exchange to %s (client_id=%s)",
 			serverInfo.Name, credentials.ClientID)
+	}
+
+	// Append requiredAudiences as cross-client scopes for the token exchange.
+	// This ensures the exchanged token contains the audiences needed by the downstream server
+	// (e.g., for Kubernetes OIDC authentication on the remote cluster).
+	// Uses dex.AppendAudienceScopes() from mcp-oauth for security-validated formatting.
+	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
+		updatedScopes, err := dex.AppendAudienceScopes(
+			serverInfo.AuthConfig.TokenExchange.Scopes,
+			serverInfo.AuthConfig.RequiredAudiences,
+		)
+		if err != nil {
+			// Log the error but continue without the audiences - they should already be
+			// validated at CRD admission, but handle gracefully if not.
+			logging.Warn("SessionConnection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+				serverInfo.Name, err)
+		} else {
+			serverInfo.AuthConfig.TokenExchange.Scopes = updatedScopes
+			logging.Debug("SessionConnection", "Added %d required audiences to token exchange scopes for %s",
+				len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
+		}
 	}
 
 	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client

@@ -45,9 +45,6 @@ data:
           {{- if .Values.muster.oauthServer.dex.connectorId }}
           connectorId: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
           {{- end }}
-          {{- if .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId }}
-          kubernetesAuthenticatorClientId: {{ .Values.muster.oauthServer.dex.kubernetesAuthenticatorClientId | quote }}
-          {{- end }}
         {{- else if eq .Values.muster.oauthServer.provider "google" }}
         google:
           clientId: {{ .Values.muster.oauthServer.google.clientId | quote }}

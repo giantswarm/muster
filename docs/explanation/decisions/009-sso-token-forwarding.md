@@ -394,14 +394,19 @@ spec:
     type: oauth
     # Forward Muster's ID token instead of requiring separate auth
     forwardToken: true
+    # Required audiences for the forwarded token
+    # For Kubernetes OIDC auth, typically needs "dex-k8s-authenticator"
+    requiredAudiences:
+      - "dex-k8s-authenticator"
     # Fallback: if token forwarding fails, offer separate auth
     fallbackToOwnAuth: true
 ```
 
 When `forwardToken: true`:
-1. Muster injects the user's ID token into requests to this server
-2. The server validates the token with its multi-audience configuration
-3. No separate authentication flow is required
+1. Muster requests tokens with the specified `requiredAudiences` from Dex via cross-client scopes
+2. Muster injects the user's multi-audience ID token into requests to this server
+3. The server validates the token with its audience configuration
+4. No separate authentication flow is required
 
 #### 2. Token Exchange (Recommended for Cross-Cluster SSO)
 
