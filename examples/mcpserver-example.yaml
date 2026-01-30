@@ -79,4 +79,30 @@ spec:
   headers:
     Authorization: "Bearer your-token-here"
   toolPrefix: "remote_"
-  description: "Remote MCP server with SSE transport" 
+  description: "Remote MCP server with SSE transport"
+
+---
+# Kubernetes MCP server with SSO via token forwarding
+# This example demonstrates using requiredAudiences for Kubernetes OIDC authentication
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: mcp-kubernetes
+  namespace: default
+spec:
+  type: streamable-http
+  url: "https://mcp-kubernetes.example.com/mcp"
+  timeout: 30
+  toolPrefix: "k8s"
+  description: "Kubernetes MCP server with SSO authentication"
+  auth:
+    type: oauth
+    # Forward muster's ID token to the downstream server
+    forwardToken: true
+    # Request additional audiences for Kubernetes OIDC authentication
+    # This causes muster to request "audience:server:client_id:dex-k8s-authenticator"
+    # from Dex, resulting in an ID token that Kubernetes will accept
+    requiredAudiences:
+      - "dex-k8s-authenticator"
+    # If token forwarding fails (e.g., audience mismatch), trigger separate auth
+    fallbackToOwnAuth: true

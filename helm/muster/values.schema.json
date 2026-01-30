@@ -432,10 +432,6 @@
                 "caFile": {
                   "type": "string",
                   "description": "Path to CA certificate file for Dex TLS verification"
-                },
-                "kubernetesAuthenticatorClientId": {
-                  "type": "string",
-                  "description": "Client ID of Kubernetes authenticator in Dex"
                 }
               }
             },

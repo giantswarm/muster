@@ -294,9 +294,6 @@ muster:
       connectorId: ""
       # Path to CA certificate file for Dex TLS verification (for private CAs)
       caFile: ""
-      # Client ID of Kubernetes authenticator in Dex (for cross-client tokens)
-      # This enables ID tokens to be used with Kubernetes OIDC authentication
-      kubernetesAuthenticatorClientId: ""
 
     # Google OAuth provider configuration (used when provider is "google")
     google:

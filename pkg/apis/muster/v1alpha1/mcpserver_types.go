@@ -82,6 +82,19 @@ type MCPServerAuth struct {
 	// +kubebuilder:default=false
 	ForwardToken bool `json:"forwardToken,omitempty" yaml:"forwardToken,omitempty"`
 
+	// RequiredAudiences specifies additional audience(s) that the forwarded ID token
+	// should contain. When ForwardToken is true, muster will request these audiences
+	// from the upstream IdP (e.g., Dex) using cross-client scopes.
+	//
+	// This is used when the downstream server requires tokens with specific audiences,
+	// for example when forwarding tokens to Kubernetes for OIDC authentication:
+	//   requiredAudiences:
+	//     - "dex-k8s-authenticator"
+	//
+	// At user authentication, muster collects all requiredAudiences from MCPServers
+	// with forwardToken: true and requests them all from the IdP.
+	RequiredAudiences []string `json:"requiredAudiences,omitempty" yaml:"requiredAudiences,omitempty"`
+
 	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
 	// When true and token forwarding fails (e.g., 401 response despite forwarded token),
 	// muster will trigger a separate OAuth flow for this server.

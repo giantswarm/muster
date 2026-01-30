@@ -61,6 +61,8 @@ spec:
   auth:
     type: oauth|none          # Authentication type
     forwardToken: true        # Forward muster's ID token for SSO
+    requiredAudiences:        # Audiences needed in forwarded token (e.g., for Kubernetes OIDC)
+      - "dex-k8s-authenticator"
     fallbackToOwnAuth: true   # Fallback to separate OAuth if forwarding fails
 
 # Status is managed automatically by muster (via reconciliation)
@@ -97,10 +99,13 @@ status:
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | No | Authentication type | Must be `oauth`, `teleport`, or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
+| `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for token forwarding | Only used when `forwardToken: true` |
 | `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
 | `sso` | `boolean` | No | Enable SSO token reuse between servers with same issuer | Default: `true` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
+
+**Note on `requiredAudiences`**: When forwarding tokens to downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here. Muster will request these audiences from the upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to all downstream servers. Example: `requiredAudiences: ["dex-k8s-authenticator"]`
 
 #### TeleportAuth Fields
 

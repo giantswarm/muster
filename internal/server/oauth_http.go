@@ -474,12 +474,15 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		scopes := make([]string, len(dexOAuthScopes))
 		copy(scopes, dexOAuthScopes)
 
-		// Add cross-client audience if configured
-		if cfg.Dex.KubernetesAuthenticatorClientID != "" {
-			audienceScope := "audience:server:client_id:" + cfg.Dex.KubernetesAuthenticatorClientID
+		// Collect required audiences from MCPServers with forwardToken: true
+		// This enables SSO token forwarding to downstream servers that require
+		// specific audience claims (e.g., Kubernetes OIDC authentication).
+		requiredAudiences := api.CollectRequiredAudiences()
+		for _, audience := range requiredAudiences {
+			audienceScope := "audience:server:client_id:" + audience
 			scopes = append(scopes, audienceScope)
-			logger.Info("Requesting cross-client audience for Kubernetes API authentication",
-				"kubernetesAuthenticatorClientID", cfg.Dex.KubernetesAuthenticatorClientID)
+			logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
+				"audience", audience)
 		}
 
 		dexConfig := &dex.Config{

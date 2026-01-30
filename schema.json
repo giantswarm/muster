@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2026-01-25T23:07:25+01:00",
+  "generated_at": "2026-01-30T09:03:47+01:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
@@ -125,6 +125,13 @@
                 "forwardToken": {
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "sso": {
                   "description": "Enable SSO token reuse",
@@ -278,6 +285,13 @@
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
                 },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "sso": {
                   "description": "Enable SSO token reuse",
                   "type": "boolean"
@@ -388,6 +402,13 @@
                 "forwardToken": {
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 "sso": {
                   "description": "Enable SSO token reuse",
