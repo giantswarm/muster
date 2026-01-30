@@ -661,16 +661,6 @@ func (gsi *GenericServiceInstance) buildEventMessageWithName(serviceName string,
 	}
 }
 
-// buildEventMessage builds the event message for a given reason and context.
-// Thread-safe: acquires read lock to get the service name.
-func (gsi *GenericServiceInstance) buildEventMessage(reason string, operation string, toolName string, err error, duration time.Duration, stepCount int) string {
-	gsi.mu.RLock()
-	serviceName := gsi.name
-	gsi.mu.RUnlock()
-
-	return gsi.buildEventMessageWithName(serviceName, reason, operation, toolName, err, duration, stepCount)
-}
-
 // buildTemplateContext creates the template context for tool argument substitution
 func (gsi *GenericServiceInstance) buildTemplateContext() map[string]interface{} {
 	// Build context with args nested under "args" key for template usage

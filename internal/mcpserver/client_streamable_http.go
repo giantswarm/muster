@@ -21,14 +21,6 @@ type StreamableHTTPClient struct {
 	httpClient *http.Client // Custom HTTP client (e.g., for Teleport TLS)
 }
 
-// NewStreamableHTTPClient creates a new StreamableHTTP-based MCP client without custom headers
-func NewStreamableHTTPClient(url string) *StreamableHTTPClient {
-	return &StreamableHTTPClient{
-		url:     url,
-		headers: make(map[string]string),
-	}
-}
-
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
 func NewStreamableHTTPClientWithHeaders(url string, headers map[string]string) *StreamableHTTPClient {
 	if headers == nil {

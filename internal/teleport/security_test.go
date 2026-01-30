@@ -123,36 +123,6 @@ func TestValidateNamespace(t *testing.T) {
 	})
 }
 
-func TestValidateNamespaceWithOwner(t *testing.T) {
-	// Save original and restore after test
-	original := AllowedNamespaces
-	defer func() { AllowedNamespaces = original }()
-
-	AllowedNamespaces = []string{"teleport-system"}
-
-	tests := []struct {
-		name           string
-		namespace      string
-		ownerNamespace string
-		wantError      bool
-	}{
-		{"owner namespace always allowed", "my-namespace", "my-namespace", false},
-		{"allowed list namespace", "teleport-system", "other", false},
-		{"not in list and not owner", "unauthorized", "my-namespace", true},
-		{"empty namespace", "", "my-namespace", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateNamespaceWithOwner(tt.namespace, tt.ownerNamespace)
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateNamespaceWithOwner(%q, %q) error = %v, wantError %v",
-					tt.namespace, tt.ownerNamespace, err, tt.wantError)
-			}
-		})
-	}
-}
-
 func TestValidateSecretName(t *testing.T) {
 	tests := []struct {
 		name      string

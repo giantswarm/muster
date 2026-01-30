@@ -106,21 +106,6 @@ func ValidateNamespace(namespace string) error {
 	return fmt.Errorf("namespace %q is not in the allowed list for Teleport identity secrets", namespace)
 }
 
-// ValidateNamespaceWithOwner validates a namespace, also allowing the owner's namespace.
-// This enables MCPServers to access secrets in their own namespace without explicit allowlist entry.
-func ValidateNamespaceWithOwner(namespace, ownerNamespace string) error {
-	if namespace == "" {
-		return fmt.Errorf("namespace cannot be empty")
-	}
-
-	// Always allow owner's namespace
-	if namespace == ownerNamespace {
-		return nil
-	}
-
-	return ValidateNamespace(namespace)
-}
-
 // SecretNamePattern defines the valid pattern for Kubernetes secret names.
 var secretNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*$`)
 

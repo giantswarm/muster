@@ -102,15 +102,6 @@ type MCPServerAuth struct {
 	// +kubebuilder:default=true
 	FallbackToOwnAuth bool `json:"fallbackToOwnAuth,omitempty" yaml:"fallbackToOwnAuth,omitempty"`
 
-	// SSO controls Single Sign-On token reuse for this server.
-	// When true (default), tokens from other servers using the same OAuth issuer
-	// can be reused to authenticate to this server without re-authenticating.
-	// When false, this server always requires its own authentication flow,
-	// even if a token exists for the same issuer. Use this when you want to
-	// use different accounts for servers that share the same OAuth provider.
-	// +kubebuilder:default=true
-	SSO *bool `json:"sso,omitempty" yaml:"sso,omitempty"`
-
 	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
 	// When configured, muster exchanges its local token for a token valid on the
 	// remote cluster's Identity Provider (e.g., Dex).

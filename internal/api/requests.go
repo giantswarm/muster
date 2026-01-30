@@ -460,44 +460,6 @@ func validateRequest(request interface{}) error {
 	return nil
 }
 
-// ValidateStrictArgs ensures no unknown args are present in the request.
-// This function provides strict arg validation by checking the provided arguments
-// against a list of allowed field names.
-//
-// Args:
-//   - args: The arguments to validate
-//   - allowedFields: List of arg names that are allowed
-//
-// Returns:
-//   - error: Error listing unknown args if any are found
-//
-// Example:
-//
-//	allowed := []string{"name", "type", "description"}
-//	err := ValidateStrictArgs(args, allowed)
-//	if err != nil {
-//	    return fmt.Errorf("arg validation failed: %w", err)
-//	}
-func ValidateStrictArgs(args map[string]interface{}, allowedFields []string) error {
-	allowedMap := make(map[string]bool)
-	for _, field := range allowedFields {
-		allowedMap[field] = true
-	}
-
-	var unknownFields []string
-	for field := range args {
-		if !allowedMap[field] {
-			unknownFields = append(unknownFields, field)
-		}
-	}
-
-	if len(unknownFields) > 0 {
-		return fmt.Errorf("unknown args: %v. Allowed args: %v", unknownFields, allowedFields)
-	}
-
-	return nil
-}
-
 // validateStrictArgs ensures no unknown args are present by comparing
 // against the JSON tags of the target struct. This provides automatic validation
 // based on the struct definition without requiring manual field lists.

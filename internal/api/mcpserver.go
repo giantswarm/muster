@@ -67,10 +67,7 @@ type MCPServer struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports four distinct authentication mechanisms:
-//
-//   - SSO Token Reuse: Tokens are shared between servers with the same OAuth issuer.
-//     This is the default behavior. Disable per-server with SSO: false.
+// Muster supports three distinct authentication mechanisms:
 //
 //   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
 //     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
@@ -94,9 +91,6 @@ type MCPServerAuth struct {
 	// When true, muster forwards its own ID token (obtained when user authenticated
 	// TO muster) to this downstream server. The downstream server must be configured
 	// to trust muster's OAuth client ID in its TrustedAudiences configuration.
-	//
-	// This is different from SSO Token Reuse (controlled by the SSO field below),
-	// which shares tokens between servers that happen to use the same OAuth issuer.
 	//
 	// Use ForwardToken when:
 	//   - Muster itself is OAuth-protected (oauth_server enabled)
@@ -127,19 +121,6 @@ type MCPServerAuth struct {
 	// muster will trigger a separate OAuth flow for this server.
 	// When false, token forwarding/exchange failures result in an error requiring intervention.
 	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
-
-	// SSO controls SSO via Token Reuse for this server.
-	// When true (default), tokens from other servers using the same OAuth issuer
-	// can be reused to authenticate to this server without re-authenticating.
-	// When false, this server always requires its own authentication flow,
-	// even if a token exists for the same issuer.
-	//
-	// Use SSO: false when you need different accounts for servers that share
-	// the same OAuth provider (e.g., personal vs work GitHub accounts).
-	//
-	// This is different from ForwardToken (Token Forwarding), which forwards
-	// muster's identity rather than sharing tokens between peer servers.
-	SSO *bool `yaml:"sso,omitempty" json:"sso,omitempty"`
 
 	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
 	// When configured, muster exchanges its local token for a token valid on the

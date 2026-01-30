@@ -95,8 +95,7 @@
 //
 // # SSO Support
 //
-// The package supports Single Sign-On (SSO) through token reuse. When a user
-// authenticates with an Identity Provider, the token is stored indexed by
-// (SessionID, Issuer, Scope). Subsequent requests to different MCP servers
-// sharing the same IdP configuration can reuse the existing token.
+// The package supports Single Sign-On (SSO) through Token Forwarding and Token Exchange.
+// When a user authenticates with muster, the token can be forwarded to downstream servers
+// (Token Forwarding) or exchanged for a token valid on a remote IdP (Token Exchange).
 package oauth

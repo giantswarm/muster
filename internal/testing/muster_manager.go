@@ -153,11 +153,6 @@ type musterInstanceManager struct {
 	protectedMCPServers map[string]map[string]*mock.ProtectedMCPServer // instanceID -> serverName -> server
 }
 
-// NewMusterInstanceManager creates a new muster instance manager
-func NewMusterInstanceManager(debug bool, basePort int) (MusterInstanceManager, error) {
-	return NewMusterInstanceManagerWithLogger(debug, basePort, NewStdoutLogger(false, debug))
-}
-
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
 func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLogger) (MusterInstanceManager, error) {
 	return NewMusterInstanceManagerWithConfig(debug, basePort, logger, false)
@@ -631,50 +626,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 }
 
-// extractExpectedTools extracts expected tool names from the configuration during instance creation
-func (m *musterInstanceManager) extractExpectedTools(config *MusterPreConfiguration) []string {
-	if config == nil {
-		return []string{}
-	}
-
-	var expectedTools []string
-
-	// Extract tools from MCP server configurations
-	for _, mcpServer := range config.MCPServers {
-		// For OAuth-protected servers, no tools are exposed until authenticated (per ADR-008)
-		// Users must use core_auth_login to authenticate, which is always available as a core tool
-		oauthConfig := m.extractOAuthConfig(mcpServer.Config)
-		if oauthConfig != nil && oauthConfig.Required {
-			// Per ADR-008: No synthetic auth tools are exposed
-			// The core_auth_login tool is always available as part of core tools
-			if m.debug {
-				m.logger.Debug("🔐 OAuth-protected server %s: no tools until authenticated (use core_auth_login)\n", mcpServer.Name)
-			}
-			continue
-		}
-
-		if tools, hasTools := mcpServer.Config["tools"]; hasTools {
-			if toolsList, ok := tools.([]interface{}); ok {
-				for _, tool := range toolsList {
-					if toolMap, ok := tool.(map[string]interface{}); ok {
-						if name, ok := toolMap["name"].(string); ok {
-							// For MCP server tools, expect them to be available with x_<server-name>_<tool-name> prefix
-							prefixedName := fmt.Sprintf("x_%s_%s", mcpServer.Name, name)
-							expectedTools = append(expectedTools, prefixedName)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if m.debug && len(expectedTools) > 0 {
-		m.logger.Debug("🎯 Extracted expected tools from configuration: %v\n", expectedTools)
-	}
-
-	return expectedTools
-}
-
 // extractExpectedToolsFromInstance gets the expected tools stored in the instance
 func (m *musterInstanceManager) extractExpectedToolsFromInstance(instance *MusterInstance) []string {
 	return instance.ExpectedTools
@@ -893,13 +844,6 @@ func (m *musterInstanceManager) isInMusterSource(dir string) bool {
 	return true
 }
 
-// generateConfigFiles generates configuration files for the muster instance.
-// This is a wrapper for generateConfigFilesWithMocks with no mock HTTP servers.
-// Note: instanceID is empty since this is used for simple configs without mocks.
-func (m *musterInstanceManager) generateConfigFiles(configPath string, config *MusterPreConfiguration, port int) error {
-	return m.generateConfigFilesWithMocks(configPath, config, port, nil, "")
-}
-
 // writeYAMLFile writes data to a YAML file
 func (m *musterInstanceManager) writeYAMLFile(filename string, data interface{}) error {
 	yamlData, err := yaml.Marshal(data)
@@ -943,110 +887,6 @@ func sanitizeFileName(name string) string {
 	}
 
 	return sanitized
-}
-
-// startMockHTTPServers starts mock HTTP servers for URL-based mock MCP servers.
-// It returns a map of server name -> MockHTTPServerInfo with endpoint information.
-func (m *musterInstanceManager) startMockHTTPServers(ctx context.Context, instanceID, configPath string, config *MusterPreConfiguration) (map[string]*MockHTTPServerInfo, error) {
-	result := make(map[string]*MockHTTPServerInfo)
-
-	if config == nil || len(config.MCPServers) == 0 {
-		return result, nil
-	}
-
-	// Create mocks directory for mock configurations
-	mocksDir := filepath.Join(configPath, "mocks")
-	if err := os.MkdirAll(mocksDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create mocks directory: %w", err)
-	}
-
-	// Initialize the mock servers map for this instance
-	m.mu.Lock()
-	if m.mockHTTPServers[instanceID] == nil {
-		m.mockHTTPServers[instanceID] = make(map[string]*mock.HTTPServer)
-	}
-	m.mu.Unlock()
-
-	for _, mcpServer := range config.MCPServers {
-		// Check if this is a mock server that needs HTTP transport
-		serverType, _ := mcpServer.Config["type"].(string)
-		_, hasMockTools := mcpServer.Config["tools"]
-
-		// Only start HTTP mock servers for URL-based types with mock tools
-		if !hasMockTools {
-			continue
-		}
-
-		// Determine if this should be an HTTP-based mock server
-		var transportType mock.HTTPTransportType
-		switch serverType {
-		case "sse":
-			transportType = mock.HTTPTransportSSE
-		case "streamable-http":
-			transportType = mock.HTTPTransportStreamableHTTP
-		default:
-			// Default to stdio handling (existing behavior), skip HTTP server startup
-			continue
-		}
-
-		if m.debug {
-			m.logger.Debug("🌐 Starting mock HTTP server for %s (transport: %s)\n", mcpServer.Name, serverType)
-		}
-
-		// Write mock config file
-		mockConfigFile := filepath.Join(mocksDir, mcpServer.Name+".yaml")
-		mockConfig := map[string]interface{}{
-			"tools": mcpServer.Config["tools"],
-		}
-
-		yamlData, err := yaml.Marshal(mockConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal mock config for %s: %w", mcpServer.Name, err)
-		}
-
-		if err := os.WriteFile(mockConfigFile, yamlData, 0644); err != nil {
-			return nil, fmt.Errorf("failed to write mock config for %s: %w", mcpServer.Name, err)
-		}
-
-		// Create and start the mock HTTP server
-		httpServer, err := mock.NewHTTPServerFromConfig(mockConfigFile, transportType, m.debug)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create mock HTTP server for %s: %w", mcpServer.Name, err)
-		}
-
-		port, err := httpServer.Start(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to start mock HTTP server for %s: %w", mcpServer.Name, err)
-		}
-
-		// Wait for server to be ready
-		readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		if err := httpServer.WaitForReady(readyCtx); err != nil {
-			cancel()
-			httpServer.Stop(ctx)
-			return nil, fmt.Errorf("mock HTTP server %s not ready: %w", mcpServer.Name, err)
-		}
-		cancel()
-
-		// Track the server
-		m.mu.Lock()
-		m.mockHTTPServers[instanceID][mcpServer.Name] = httpServer
-		m.mu.Unlock()
-
-		// Store server info
-		result[mcpServer.Name] = &MockHTTPServerInfo{
-			Name:      mcpServer.Name,
-			Port:      port,
-			Transport: serverType,
-			Endpoint:  httpServer.Endpoint(),
-		}
-
-		if m.debug {
-			m.logger.Debug("✅ Mock HTTP server %s started on port %d (endpoint: %s)\n", mcpServer.Name, port, httpServer.Endpoint())
-		}
-	}
-
-	return result, nil
 }
 
 // stopMockHTTPServers stops all mock HTTP servers for a given instance

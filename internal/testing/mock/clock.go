@@ -70,21 +70,3 @@ func (m *MockClock) Add(d time.Duration) {
 // production code or parallel tests. Prefer passing Clock instances explicitly
 // via configuration (e.g., OAuthServerConfig.Clock) for thread-safe testing.
 var defaultClock Clock = RealClock{}
-
-// SetDefaultClock sets the default clock used by the package.
-// WARNING: This modifies global state. Only use in test setup, not in parallel tests.
-// Prefer using OAuthServerConfig.Clock for thread-safe clock injection.
-func SetDefaultClock(c Clock) {
-	defaultClock = c
-}
-
-// ResetDefaultClock resets the default clock to use real time.
-// WARNING: This modifies global state. Call this in test teardown (e.g., defer).
-func ResetDefaultClock() {
-	defaultClock = RealClock{}
-}
-
-// GetDefaultClock returns the current default clock.
-func GetDefaultClock() Clock {
-	return defaultClock
-}

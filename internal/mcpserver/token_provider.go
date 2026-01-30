@@ -29,14 +29,6 @@ func (f TokenProviderFunc) GetAccessToken(ctx context.Context) string {
 	return f(ctx)
 }
 
-// StaticTokenProvider returns a TokenProvider that always returns the same token.
-// This is useful for testing or when token refresh is not needed.
-func StaticTokenProvider(token string) TokenProvider {
-	return TokenProviderFunc(func(_ context.Context) string {
-		return token
-	})
-}
-
 // tokenProviderToHeaderFunc converts a TokenProvider to the mcp-go HTTPHeaderFunc format.
 // This adapter allows using our TokenProvider interface with the mcp-go library's
 // dynamic header injection capabilities.

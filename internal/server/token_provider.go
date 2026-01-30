@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 
-	mcpoauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 )
@@ -55,42 +54,6 @@ func ContextWithUpstreamAccessToken(ctx context.Context, accessToken string) con
 func GetUpstreamAccessTokenFromContext(ctx context.Context) (string, bool) {
 	token, ok := ctx.Value(upstreamAccessTokenKey).(string)
 	return token, ok && token != ""
-}
-
-// UserInfoFromContext retrieves the authenticated user's info from the context.
-// This is a wrapper around the mcp-oauth library's UserInfoFromContext function.
-// The user info is set by the OAuth ValidateToken middleware after successful
-// JWT validation.
-//
-// Returns the UserInfo pointer and true if present, or nil and false if not available.
-func UserInfoFromContext(ctx context.Context) (*UserInfo, bool) {
-	return mcpoauth.UserInfoFromContext(ctx)
-}
-
-// HasUserInfo checks if the context contains authenticated user information.
-func HasUserInfo(ctx context.Context) bool {
-	user, ok := UserInfoFromContext(ctx)
-	return ok && user != nil
-}
-
-// GetUserEmailFromContext extracts just the email address from the context.
-// Returns empty string if no user info is available.
-func GetUserEmailFromContext(ctx context.Context) string {
-	user, ok := UserInfoFromContext(ctx)
-	if !ok || user == nil {
-		return ""
-	}
-	return user.Email
-}
-
-// GetUserGroupsFromContext extracts the user's group memberships from the context.
-// Returns nil if no user info is available.
-func GetUserGroupsFromContext(ctx context.Context) []string {
-	user, ok := UserInfoFromContext(ctx)
-	if !ok || user == nil {
-		return nil
-	}
-	return user.Groups
 }
 
 // GetIDToken extracts the ID token from an OAuth2 token.

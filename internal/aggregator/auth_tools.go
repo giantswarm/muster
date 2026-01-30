@@ -2,25 +2,8 @@
 //
 // # SSO Authentication Mechanisms
 //
-// Muster supports two distinct Single Sign-On (SSO) mechanisms for authenticating
-// to downstream MCP servers. Understanding the difference is important for both
-// configuration and troubleshooting:
-//
-// ## SSO Token Reuse (default behavior)
-//
-// When multiple MCP servers share the same OAuth issuer (Identity Provider), a token
-// obtained by authenticating to one server can be reused for other servers with the
-// same issuer. This is the default behavior and requires no special configuration.
-//
-// Flow:
-//  1. User authenticates to server-a (issuer: https://idp.example.com)
-//  2. Token is stored keyed by (sessionID, issuer)
-//  3. User calls core_auth_login for server-b (same issuer)
-//  4. GetTokenByIssuer() finds existing token
-//  5. Connection established without re-authentication
-//
-// Configuration: Enabled by default. Disable per-server with `auth.sso: false`
-// when you need separate accounts for servers sharing an issuer.
+// Muster supports two Single Sign-On (SSO) mechanisms for authenticating
+// to downstream MCP servers:
 //
 // ## SSO Token Forwarding (explicit opt-in)
 //
@@ -38,9 +21,20 @@
 // Configuration: Requires `auth.forwardToken: true` in MCPServer spec.
 // Optional: `auth.fallbackToOwnAuth: true` for graceful degradation.
 //
-// The key difference: Token Reuse shares tokens between servers that happen to use
-// the same IdP, while Token Forwarding specifically forwards muster's identity to
-// downstream servers that trust muster as an intermediary.
+// ## SSO Token Exchange (RFC 8693)
+//
+// When clusters have separate Identity Providers, muster can exchange its local
+// token for one valid on the remote cluster's IdP (e.g., Dex). This enables
+// cross-cluster SSO without requiring shared trust.
+//
+// Flow:
+//  1. User authenticates TO muster via OAuth
+//  2. User accesses server with tokenExchange configuration
+//  3. Muster exchanges its token at the remote IdP's token endpoint
+//  4. Remote IdP issues a new token valid for the remote cluster
+//  5. Muster uses the exchanged token for downstream requests
+//
+// Configuration: Requires `auth.tokenExchange` configuration in MCPServer spec.
 package aggregator
 
 import (
@@ -345,24 +339,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}
 	}
 
-	// Check if SSO token reuse is enabled for this server (default: true).
-	// This allows operators to disable SSO for specific servers that need separate accounts
-	// even when they share the same OAuth issuer (e.g., personal vs work accounts).
-	ssoEnabled := true
-	if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.SSO != nil {
-		ssoEnabled = *serverInfo.AuthConfig.SSO
-	}
-
 	// Check if we already have a valid token for this server/issuer (SSO).
 	// This enables single sign-on: if the user authenticated to another server
 	// with the same OAuth issuer, we can reuse that token.
-	// Skip SSO token reuse if explicitly disabled for this server.
-	var token *api.OAuthToken
-	if ssoEnabled {
-		token = oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
-	} else {
-		logging.Info("AuthTools", "SSO disabled for server %s, skipping token reuse", serverName)
-	}
+	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
 
 	if token != nil {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",

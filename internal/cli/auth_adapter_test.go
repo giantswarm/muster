@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"muster/internal/agent/oauth"
-	"muster/internal/api"
 )
 
 func TestNewAuthAdapter(t *testing.T) {
@@ -32,24 +31,6 @@ func TestNewAuthAdapter(t *testing.T) {
 			t.Error("expected tokenStorageDir to be set")
 		}
 	})
-}
-
-func TestAuthAdapter_Register(t *testing.T) {
-	// Cleanup
-	defer api.SetAuthHandlerForTesting(nil)
-
-	adapter, err := NewAuthAdapter()
-	if err != nil {
-		t.Fatalf("failed to create adapter: %v", err)
-	}
-	defer adapter.Close()
-
-	adapter.Register()
-
-	handler := api.GetAuthHandler()
-	if handler == nil {
-		t.Error("expected handler to be registered")
-	}
 }
 
 func TestAuthAdapter_HasValidToken(t *testing.T) {
@@ -187,104 +168,6 @@ func TestNormalizeEndpoint(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCheckServerWithAuth(t *testing.T) {
-	t.Run("server not reachable", func(t *testing.T) {
-		ctx := context.Background()
-		status, err := CheckServerWithAuth(ctx, "http://localhost:59999/nonexistent")
-
-		if status == nil {
-			t.Fatal("expected non-nil status")
-		}
-		if status.Reachable {
-			t.Error("expected Reachable to be false")
-		}
-		if status.Error == nil && err == nil {
-			t.Error("expected an error")
-		}
-	})
-
-	t.Run("server returns OK", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		ctx := context.Background()
-		status, err := CheckServerWithAuth(ctx, server.URL)
-
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if status == nil {
-			t.Fatal("expected non-nil status")
-		}
-		if !status.Reachable {
-			t.Error("expected Reachable to be true")
-		}
-		if status.AuthRequired {
-			t.Error("expected AuthRequired to be false")
-		}
-	})
-
-	t.Run("server returns 401", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="https://auth.example.com"`)
-			w.WriteHeader(http.StatusUnauthorized)
-		}))
-		defer server.Close()
-
-		ctx := context.Background()
-		status, _ := CheckServerWithAuth(ctx, server.URL)
-
-		if status == nil {
-			t.Fatal("expected non-nil status")
-		}
-		if !status.Reachable {
-			t.Error("expected Reachable to be true")
-		}
-		if !status.AuthRequired {
-			t.Error("expected AuthRequired to be true")
-		}
-	})
-
-	t.Run("server returns 202 Accepted", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusAccepted)
-		}))
-		defer server.Close()
-
-		ctx := context.Background()
-		status, err := CheckServerWithAuth(ctx, server.URL)
-
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if status == nil {
-			t.Fatal("expected non-nil status")
-		}
-		if !status.Reachable {
-			t.Error("expected Reachable to be true")
-		}
-	})
-
-	t.Run("server returns 500", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer server.Close()
-
-		ctx := context.Background()
-		status, _ := CheckServerWithAuth(ctx, server.URL)
-
-		if status == nil {
-			t.Fatal("expected non-nil status")
-		}
-		if status.Error == nil {
-			t.Error("expected an error for 500 response")
-		}
-	})
 }
 
 func TestListTokenFiles(t *testing.T) {

@@ -153,16 +153,6 @@ func (p *PendingAuthMCPServer) GetMCPServer() *server.MCPServer {
 	return p.mcpServer
 }
 
-// GetAuthManager returns the auth manager.
-func (p *PendingAuthMCPServer) GetAuthManager() *oauth.AuthManager {
-	return p.authManager
-}
-
-// GetAuthURL returns the current auth URL if an auth flow is in progress.
-func (p *PendingAuthMCPServer) GetAuthURL() string {
-	return p.authURL
-}
-
 // IsAuthComplete returns true if authentication has completed successfully.
 func (p *PendingAuthMCPServer) IsAuthComplete() bool {
 	return p.authManager.GetState() == oauth.AuthStateAuthenticated

@@ -58,11 +58,6 @@ func (p *authPoller) Start(ctx context.Context) {
 	}
 }
 
-// Stop stops the auth poller.
-func (p *authPoller) Stop() {
-	close(p.stopCh)
-}
-
 // pollAuthStatus fetches the auth://status resource and updates the cache.
 func (p *authPoller) pollAuthStatus(ctx context.Context) {
 	resource, err := p.client.GetResource(ctx, AuthStatusResourceURI)
@@ -120,11 +115,4 @@ func (p *authPoller) GetAuthRequired() []pkgoauth.AuthRequiredInfo {
 	result := make([]pkgoauth.AuthRequiredInfo, len(p.cache))
 	copy(result, p.cache)
 	return result
-}
-
-// HasAuthRequired returns true if any servers require authentication.
-func (p *authPoller) HasAuthRequired() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return len(p.cache) > 0
 }

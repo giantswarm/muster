@@ -135,25 +135,3 @@ func GetAuthHandler() AuthHandler {
 	defer handlerMutex.RUnlock()
 	return authHandler
 }
-
-// SetAuthHandlerForTesting sets the auth handler for testing purposes.
-// This function bypasses normal registration and should only be used in test code
-// to provide mock implementations for unit testing.
-//
-// Args:
-//   - h: AuthHandler implementation for testing
-//
-// Thread-safe: Yes, protected by handlerMutex.
-//
-// Testing: This function is intended for test use only and should not be called in production code.
-//
-// Example:
-//
-//	mockHandler := &testutils.MockAuthHandler{}
-//	api.SetAuthHandlerForTesting(mockHandler)
-//	defer api.SetAuthHandlerForTesting(nil) // cleanup
-func SetAuthHandlerForTesting(h AuthHandler) {
-	handlerMutex.Lock()
-	defer handlerMutex.Unlock()
-	authHandler = h
-}

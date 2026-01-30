@@ -337,9 +337,8 @@ func getAuthStatusFromClient(ctx context.Context, client *agent.Client) (*pkgoau
 }
 
 // isAlreadyConnectedResponse checks if the auth tool result indicates the server is already connected.
-// This happens in two cases:
-// 1. The user has an existing session connection to THIS specific server
-// 2. SSO token reuse succeeded - a token from another server with the same issuer was used
+// This happens when the user has an existing session connection to the server,
+// or when SSO via Token Forwarding or Token Exchange succeeded.
 //
 // In both cases, the server returns a success message without an auth URL,
 // which we should handle gracefully instead of treating as an error.

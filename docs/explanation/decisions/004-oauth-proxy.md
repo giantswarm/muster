@@ -86,23 +86,18 @@ Muster serves its own **Client ID Metadata Document (CIMD)** dynamically, elimin
     ```
 *   **No External Hosting Required**: Each deployment automatically gets the correct redirect URI without needing to maintain external CIMD files.
 
-### 5. Single Sign-On (SSO) and Token Reuse
+### 5. Single Sign-On (SSO) Mechanisms
 
-To support SSO across multiple MCP servers that share the same Authenticator (IdP), we will implement a Token Reuse Strategy.
+Muster supports two SSO mechanisms for downstream MCP servers:
 
-*   **Browser-Based SSO (Default)**: Since authentication happens in the browser, users will benefit from the existing session with the IdP (e.g., Dex/Google). If they authenticate with Server A, subsequent authentication requests for Server B (using the same IdP) will result in an immediate redirect back to Muster without a login prompt.
-*   **Token Reuse Strategy**:
-    *   Muster Server will inspect the `WWW-Authenticate` header from `401 Unauthorized` responses.
-    *   It will extract the `realm` (Issuer URL) and `scope`.
-    *   Tokens in the store will be indexed by `(SessionID, Issuer, Scope)` in addition to `ServerID`.
-    *   Before triggering the auth flow, Muster will check if a valid token already exists for the requested `Issuer` and `Scope`.
-    *   If a match is found, Muster will retry the request with the existing token, effectively enabling transparent SSO for servers sharing the same configuration.
+*   **Token Forwarding**: When muster itself is protected by OAuth, it can forward its ID token to downstream servers that trust muster's OAuth client ID. Configure with `auth.forwardToken: true` in MCPServer spec.
+*   **Token Exchange (RFC 8693)**: For cross-cluster SSO where clusters have separate IdPs, muster can exchange its local token for one valid on the remote cluster's IdP. Configure with `auth.tokenExchange` in MCPServer spec.
 
 ## Consequences
 
 *   **Public Reachability**: `muster server` requires a public URL (Ingress) to receive OAuth callbacks.
 *   **Stateful Server**: The server needs to manage user sessions and tokens. For HA, a distributed store (e.g., Redis/Valkey) might be needed in the future, but in-memory is sufficient for the initial MVP (single replica).
-*   **User Experience**: The user must manually click a link and then retry the action in Cursor. This is a limitation of the decoupled architecture but provides high security (token never leaves the server boundary). With SSO/Token Reuse, subsequent auths become transparent or one-click.
+*   **User Experience**: The user must manually click a link and then retry the action in Cursor. This is a limitation of the decoupled architecture but provides high security (token never leaves the server boundary). With SSO via Token Forwarding or Token Exchange, subsequent auths become transparent.
 
 ## Implementation Steps
 
@@ -112,7 +107,6 @@ To support SSO across multiple MCP servers that share the same Authenticator (Id
     *   Implement `/.well-known/oauth-client.json` handler for self-hosted CIMD.
     *   Add Session/Token Store (In-Memory).
     *   Update `aggregator` to intercept 401s and trigger flow.
-    *   **New**: Implement logic to parse `WWW-Authenticate` headers and lookup reusable tokens.
 2.  **Muster Agent**:
     *   Update `agent` to handle "Auth Required" responses and format them for Cursor.
 3.  **Configuration**:

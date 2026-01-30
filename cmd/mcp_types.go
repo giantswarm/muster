@@ -11,10 +11,3 @@ var mcpPrimitiveTypes = map[string]string{
 	"prompt":    "prompt",
 	"prompts":   "prompt",
 }
-
-// IsMCPPrimitiveType checks if a resource type is an MCP primitive.
-// Returns the canonical type name and true if it's an MCP primitive.
-func IsMCPPrimitiveType(resourceType string) (string, bool) {
-	mcpType, ok := mcpPrimitiveTypes[resourceType]
-	return mcpType, ok
-}

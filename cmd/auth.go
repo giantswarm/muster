@@ -323,22 +323,22 @@ func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, s
 	}
 
 	// Provide appropriate message based on authentication mechanism
-	if serverInfo.TokenForwardingEnabled {
+	if serverInfo.TokenExchangeEnabled {
+		authPrint(`Server '%s' uses SSO via Token Exchange.
+
+This server uses RFC 8693 Token Exchange. Muster exchanges its token
+for one valid on the remote cluster's Identity Provider.
+
+To disconnect, log out from muster:
+  muster auth logout
+`, serverName)
+	} else if serverInfo.TokenForwardingEnabled {
 		authPrint(`Server '%s' uses SSO via Token Forwarding.
 
 This server automatically receives your muster ID token. You authenticated
 once to muster, and that identity is forwarded to this server.
 
 To disconnect, log out from muster:
-  muster auth logout
-`, serverName)
-	} else if serverInfo.Issuer != "" {
-		authPrint(`Server '%s' uses SSO via Token Reuse.
-
-This server shares an OAuth issuer with other servers. Your token for this
-issuer is reused across all servers that trust the same identity provider.
-
-To disconnect:
   muster auth logout
 `, serverName)
 	} else {

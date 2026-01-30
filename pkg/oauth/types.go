@@ -295,11 +295,11 @@ type AuthStatusResponse struct {
 // ServerAuthStatus represents the authentication status of a single MCP server.
 // The Issuer field enables SSO detection - servers with the same issuer can share auth.
 //
-// SSO in muster has two distinct mechanisms:
-//   - SSO Token Reuse: When multiple servers share the same OAuth issuer, a token obtained
-//     for one server can be reused for others. This is the default behavior.
-//   - SSO Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
+// SSO in muster has two mechanisms:
+//   - Token Forwarding: When TokenForwardingEnabled is true, muster forwards its own
 //     ID token to the downstream server (requires forwardToken: true in MCPServer config).
+//   - Token Exchange: When TokenExchangeEnabled is true, muster exchanges its token
+//     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
@@ -311,7 +311,6 @@ type ServerAuthStatus struct {
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)
 	// to this downstream server, rather than requiring a separate OAuth flow.
-	// This is distinct from SSO Token Reuse (see TokenReuseEnabled).
 	TokenForwardingEnabled bool `json:"token_forwarding_enabled,omitempty"`
 
 	// TokenExchangeEnabled indicates this server uses SSO via RFC 8693 Token Exchange.
@@ -319,13 +318,6 @@ type ServerAuthStatus struct {
 	// Identity Provider (e.g., Dex). This enables cross-cluster SSO when clusters have
 	// separate Dex instances. Token exchange takes precedence over token forwarding.
 	TokenExchangeEnabled bool `json:"token_exchange_enabled,omitempty"`
-
-	// TokenReuseEnabled indicates SSO via Token Reuse is enabled for this server.
-	// When true (the default), tokens from other servers using the same OAuth issuer
-	// can be reused to authenticate to this server without re-authenticating.
-	// When false, the server requires its own authentication flow even if a token
-	// exists for the same issuer (e.g., for separate personal vs work accounts).
-	TokenReuseEnabled bool `json:"token_reuse_enabled,omitempty"`
 
 	// SSOAttemptFailed indicates that SSO authentication was attempted but failed.
 	// This occurs when token forwarding is enabled but the downstream server

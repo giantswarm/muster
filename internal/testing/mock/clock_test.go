@@ -88,32 +88,6 @@ func TestMockClock_ZeroTime(t *testing.T) {
 	}
 }
 
-func TestDefaultClock(t *testing.T) {
-	// Reset to ensure clean state
-	ResetDefaultClock()
-
-	// Default should be RealClock
-	_, ok := GetDefaultClock().(RealClock)
-	if !ok {
-		t.Error("Expected default clock to be RealClock")
-	}
-
-	// Set a mock clock
-	mockClock := NewMockClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	SetDefaultClock(mockClock)
-
-	if GetDefaultClock() != mockClock {
-		t.Error("Expected default clock to be the mock clock we set")
-	}
-
-	// Reset back to real clock
-	ResetDefaultClock()
-	_, ok = GetDefaultClock().(RealClock)
-	if !ok {
-		t.Error("Expected default clock to be RealClock after reset")
-	}
-}
-
 func TestMockClock_TokenExpiryScenario(t *testing.T) {
 	// Simulate a token expiry scenario
 	issuedAt := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)

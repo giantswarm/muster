@@ -52,66 +52,6 @@ type ConnectionError struct {
 	Reason error
 }
 
-// Error returns a user-friendly error message with actionable guidance.
-func (e *ConnectionError) Error() string {
-	switch e.Type {
-	case ConnectionErrorTLS:
-		return fmt.Sprintf(`TLS certificate verification failed for %s
-
-The server's TLS certificate could not be verified: %v
-
-Possible causes:
-  - Self-signed or untrusted certificate
-  - Certificate hostname mismatch
-  - Expired certificate
-
-To troubleshoot:
-  - Verify the server URL is correct
-  - Check if the server uses a trusted certificate
-  - Contact the server administrator`, e.Endpoint, e.Reason)
-	case ConnectionErrorNetwork:
-		return fmt.Sprintf(`Connection failed to %s
-
-The server could not be reached: %v
-
-Possible causes:
-  - Server is not running
-  - Firewall blocking the connection
-  - Incorrect server URL`, e.Endpoint, e.Reason)
-	case ConnectionErrorTimeout:
-		return fmt.Sprintf(`Connection timed out to %s
-
-The server did not respond within the expected time.
-
-Possible causes:
-  - Server is overloaded
-  - Network latency issues
-  - Firewall blocking the connection`, e.Endpoint)
-	case ConnectionErrorDNS:
-		return fmt.Sprintf(`DNS resolution failed for %s
-
-Could not resolve the server hostname: %v
-
-Possible causes:
-  - Incorrect server URL
-  - DNS server issues
-  - Network configuration problems`, e.Endpoint, e.Reason)
-	default:
-		return fmt.Sprintf(`Connection failed to %s: %v`, e.Endpoint, e.Reason)
-	}
-}
-
-// Unwrap returns the underlying error.
-func (e *ConnectionError) Unwrap() error {
-	return e.Reason
-}
-
-// Is allows errors.Is() to work with wrapped errors.
-func (e *ConnectionError) Is(target error) bool {
-	_, ok := target.(*ConnectionError)
-	return ok
-}
-
 // ClassifyConnectionError analyzes an error and returns a ConnectionError with the appropriate type.
 // If the error is nil, returns nil.
 func ClassifyConnectionError(err error, endpoint string) *ConnectionError {
@@ -339,10 +279,4 @@ type ServerStatus struct {
 
 	// Error holds any error that occurred during the check.
 	Error error
-}
-
-// IsReady returns true if the server is reachable and either doesn't require
-// auth or we're authenticated.
-func (s *ServerStatus) IsReady() bool {
-	return s.Reachable && (!s.AuthRequired || s.Authenticated)
 }

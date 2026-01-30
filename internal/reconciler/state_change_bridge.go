@@ -127,13 +127,6 @@ func (b *StateChangeBridge) Stop() error {
 	return nil
 }
 
-// IsRunning returns whether the bridge is currently active.
-func (b *StateChangeBridge) IsRunning() bool {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.running
-}
-
 // processEvents processes orchestrator events in a background goroutine.
 func (b *StateChangeBridge) processEvents(eventChan <-chan api.ServiceStateChangedEvent) {
 	defer b.wg.Done()

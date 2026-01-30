@@ -1,8 +1,8 @@
-name: "oauth-sso-token-reuse"
+name: "oauth-sso-shared-issuer"
 category: "behavioral"
 concept: "mcpserver"
-description: "Verify SSO token reuse - authenticating to one server works for other servers with same issuer"
-tags: ["oauth", "sso", "token-reuse", "adr-008"]
+description: "Verify SSO with shared issuer - authenticating to one server works for other servers with same issuer"
+tags: ["oauth", "sso", "shared-issuer", "adr-008"]
 timeout: "2m"
 
 pre_configuration:

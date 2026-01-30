@@ -81,11 +81,6 @@ func pluralize(count int, singular string) string {
 	return fmt.Sprintf("%d %ss", count, singular)
 }
 
-// FormatMCPTools formats and displays MCP tools in the specified format.
-func FormatMCPTools(tools []MCPTool, format OutputFormat) error {
-	return FormatMCPToolsWithOptions(tools, format, false)
-}
-
 // FormatMCPToolsWithOptions formats and displays MCP tools with additional options.
 func FormatMCPToolsWithOptions(tools []MCPTool, format OutputFormat, noHeaders bool) error {
 	if len(tools) == 0 {
@@ -183,11 +178,6 @@ func countToolArgs(tool MCPTool) string {
 	return fmt.Sprintf("%d", count)
 }
 
-// FormatMCPResources formats and displays MCP resources in the specified format.
-func FormatMCPResources(resources []MCPResource, format OutputFormat) error {
-	return FormatMCPResourcesWithOptions(resources, format, false)
-}
-
 // FormatMCPResourcesWithOptions formats and displays MCP resources with additional options.
 func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat, noHeaders bool) error {
 	if len(resources) == 0 {
@@ -266,11 +256,6 @@ func FormatMCPResourcesWithOptions(resources []MCPResource, format OutputFormat,
 		fmt.Printf("\n%s\n", pluralize(len(resources), "resource"))
 	}
 	return nil
-}
-
-// FormatMCPPrompts formats and displays MCP prompts in the specified format.
-func FormatMCPPrompts(prompts []MCPPrompt, format OutputFormat) error {
-	return FormatMCPPromptsWithOptions(prompts, format, false)
 }
 
 // FormatMCPPromptsWithOptions formats and displays MCP prompts with additional options.

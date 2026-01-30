@@ -3,7 +3,6 @@ package oauth
 
 import (
 	_ "embed"
-	"encoding/json"
 )
 
 //go:embed valid_token.json
@@ -43,51 +42,4 @@ type MetadataFixture struct {
 	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
 	SubjectTypesSupported             []string `json:"subject_types_supported"`
 	IDTokenSigningAlgValuesSupported  []string `json:"id_token_signing_alg_values_supported"`
-}
-
-// LoadValidToken returns the valid token fixture.
-func LoadValidToken() (*TokenFixture, error) {
-	var token TokenFixture
-	if err := json.Unmarshal(validTokenData, &token); err != nil {
-		return nil, err
-	}
-	return &token, nil
-}
-
-// LoadExpiredToken returns the expired token fixture.
-func LoadExpiredToken() (*TokenFixture, error) {
-	var token TokenFixture
-	if err := json.Unmarshal(expiredTokenData, &token); err != nil {
-		return nil, err
-	}
-	return &token, nil
-}
-
-// LoadMetadata returns the OAuth metadata fixture.
-func LoadMetadata() (*MetadataFixture, error) {
-	var metadata MetadataFixture
-	if err := json.Unmarshal(metadataData, &metadata); err != nil {
-		return nil, err
-	}
-	return &metadata, nil
-}
-
-// LoadWWWAuthenticateExamples returns the WWW-Authenticate header examples.
-func LoadWWWAuthenticateExamples() string {
-	return string(wwwAuthenticateData)
-}
-
-// ValidTokenJSON returns the raw valid token JSON.
-func ValidTokenJSON() []byte {
-	return validTokenData
-}
-
-// ExpiredTokenJSON returns the raw expired token JSON.
-func ExpiredTokenJSON() []byte {
-	return expiredTokenData
-}
-
-// MetadataJSON returns the raw metadata JSON.
-func MetadataJSON() []byte {
-	return metadataData
 }

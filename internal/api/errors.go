@@ -48,16 +48,6 @@ func (e *NotFoundError) Error() string {
 //
 // Example:
 //
-//	result, err := GetResource("nonexistent")
-//	if api.IsNotFound(err) {
-//	    // Handle not found case
-//	    return nil, fmt.Errorf("resource does not exist")
-//	}
-func IsNotFound(err error) bool {
-	var notFoundErr *NotFoundError
-	return errors.As(err, &notFoundErr)
-}
-
 // NewNotFoundError creates a new NotFoundError with the specified resource type and name.
 // This is the standard way to create not found errors throughout the API.
 //
@@ -75,29 +65,6 @@ func NewNotFoundError(resourceType, resourceName string) *NotFoundError {
 	return &NotFoundError{
 		ResourceType: resourceType,
 		ResourceName: resourceName,
-	}
-}
-
-// NewNotFoundErrorWithMessage creates a new NotFoundError with a custom message.
-// This is used when the default error format doesn't provide sufficient context.
-//
-// Args:
-//   - resourceType: The category of resource
-//   - resourceName: The specific identifier of the resource
-//   - message: Custom error message to use instead of the default format
-//
-// Returns:
-//   - *NotFoundError: A new NotFoundError instance with custom message
-//
-// Example:
-//
-//	return api.NewNotFoundErrorWithMessage("service", "database",
-//	    "database service is not available in this environment")
-func NewNotFoundErrorWithMessage(resourceType, resourceName, message string) *NotFoundError {
-	return &NotFoundError{
-		ResourceType: resourceType,
-		ResourceName: resourceName,
-		Message:      message,
 	}
 }
 
@@ -215,30 +182,6 @@ var (
 	// Deprecated: Use NewWorkflowNotFoundError(name) instead for better error context.
 	ErrWorkflowNotFound = errors.New("workflow not found")
 )
-
-// HandleError creates an appropriate CallToolResult based on the error type.
-// This function provides standardized error response formatting for API operations.
-//
-// All errors (including NotFoundError) are treated as error conditions for
-// compatibility with the test framework and consistent API behavior.
-//
-// Args:
-//   - err: The error to handle and format
-//
-// Returns:
-//   - *CallToolResult: A CallToolResult with error information and IsError set to true
-//
-// Example:
-//
-//	if err != nil {
-//	    return api.HandleError(err)
-//	}
-func HandleError(err error) *CallToolResult {
-	return &CallToolResult{
-		Content: []interface{}{fmt.Sprintf("Failed to get resource: %v", err)},
-		IsError: true, // All failures are treated as errors for test framework compatibility
-	}
-}
 
 // HandleErrorWithPrefix creates an appropriate CallToolResult with a custom prefix.
 // This function is similar to HandleError but allows customizing the error message prefix
