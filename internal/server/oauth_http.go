@@ -83,6 +83,25 @@ var (
 	}
 )
 
+// buildDexScopes constructs the OAuth scopes to request from Dex.
+// It starts with the base dexOAuthScopes and appends cross-client audience scopes
+// for any required audiences from MCPServers with forwardToken: true.
+//
+// For example, if requiredAudiences contains ["dex-k8s-authenticator"], the returned
+// scopes will include "audience:server:client_id:dex-k8s-authenticator" which tells
+// Dex to issue tokens that are also valid for the Kubernetes authenticator client.
+func buildDexScopes(requiredAudiences []string) []string {
+	scopes := make([]string, len(dexOAuthScopes))
+	copy(scopes, dexOAuthScopes)
+
+	for _, audience := range requiredAudiences {
+		audienceScope := "audience:server:client_id:" + audience
+		scopes = append(scopes, audienceScope)
+	}
+
+	return scopes
+}
+
 // sessionTrackerEntry holds the token hash and last access time for a session.
 // This is used to track when sessions can be cleaned up.
 type sessionTrackerEntry struct {
@@ -471,18 +490,14 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 
 	switch cfg.Provider {
 	case OAuthProviderDex:
-		scopes := make([]string, len(dexOAuthScopes))
-		copy(scopes, dexOAuthScopes)
-
-		// Collect required audiences from MCPServers with forwardToken: true
-		// This enables SSO token forwarding to downstream servers that require
-		// specific audience claims (e.g., Kubernetes OIDC authentication).
-		requiredAudiences := api.CollectRequiredAudiences()
-		for _, audience := range requiredAudiences {
-			audienceScope := "audience:server:client_id:" + audience
-			scopes = append(scopes, audienceScope)
-			logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
-				"audience", audience)
+		// Build scopes including any required audiences from MCPServers
+		scopes := buildDexScopes(api.CollectRequiredAudiences())
+		for _, scope := range scopes {
+			if len(scope) > len("audience:server:client_id:") &&
+				scope[:len("audience:server:client_id:")] == "audience:server:client_id:" {
+				logger.Info("Requesting cross-client audience from MCPServer requiredAudiences",
+					"audience", scope[len("audience:server:client_id:"):])
+			}
 		}
 
 		dexConfig := &dex.Config{

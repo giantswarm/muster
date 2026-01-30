@@ -14,6 +14,203 @@ import (
 	"muster/internal/config"
 )
 
+// mockMCPServerManager implements api.MCPServerManagerHandler for testing.
+type mockMCPServerManager struct {
+	listMCPServersFn func() []api.MCPServerInfo
+	getMCPServerFn   func(name string) (*api.MCPServerInfo, error)
+	getToolsFn       func() []api.ToolMetadata
+	executeToolFn    func(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error)
+}
+
+func (m *mockMCPServerManager) ListMCPServers() []api.MCPServerInfo {
+	if m.listMCPServersFn != nil {
+		return m.listMCPServersFn()
+	}
+	return nil
+}
+
+func (m *mockMCPServerManager) GetMCPServer(name string) (*api.MCPServerInfo, error) {
+	if m.getMCPServerFn != nil {
+		return m.getMCPServerFn(name)
+	}
+	return nil, nil
+}
+
+func (m *mockMCPServerManager) GetTools() []api.ToolMetadata {
+	if m.getToolsFn != nil {
+		return m.getToolsFn()
+	}
+	return nil
+}
+
+func (m *mockMCPServerManager) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
+	if m.executeToolFn != nil {
+		return m.executeToolFn(ctx, toolName, args)
+	}
+	return nil, nil
+}
+
+func TestBuildDexScopes(t *testing.T) {
+	tests := []struct {
+		name              string
+		requiredAudiences []string
+		expectedScopes    []string
+	}{
+		{
+			name:              "no required audiences returns base scopes only",
+			requiredAudiences: nil,
+			expectedScopes:    []string{"openid", "profile", "email", "groups", "offline_access"},
+		},
+		{
+			name:              "empty required audiences returns base scopes only",
+			requiredAudiences: []string{},
+			expectedScopes:    []string{"openid", "profile", "email", "groups", "offline_access"},
+		},
+		{
+			name:              "single required audience adds cross-client scope",
+			requiredAudiences: []string{"dex-k8s-authenticator"},
+			expectedScopes: []string{
+				"openid", "profile", "email", "groups", "offline_access",
+				"audience:server:client_id:dex-k8s-authenticator",
+			},
+		},
+		{
+			name:              "multiple required audiences adds multiple cross-client scopes",
+			requiredAudiences: []string{"audience-a", "audience-b"},
+			expectedScopes: []string{
+				"openid", "profile", "email", "groups", "offline_access",
+				"audience:server:client_id:audience-a",
+				"audience:server:client_id:audience-b",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildDexScopes(tt.requiredAudiences)
+			assert.Equal(t, tt.expectedScopes, result)
+		})
+	}
+}
+
+func TestBuildDexScopesDoesNotModifyBaseScopes(t *testing.T) {
+	// Verify that calling buildDexScopes doesn't modify the global dexOAuthScopes
+	originalLen := len(dexOAuthScopes)
+
+	// Call with audiences
+	_ = buildDexScopes([]string{"test-audience"})
+
+	// Verify base scopes unchanged
+	assert.Equal(t, originalLen, len(dexOAuthScopes), "dexOAuthScopes should not be modified")
+	assert.Equal(t, []string{"openid", "profile", "email", "groups", "offline_access"}, dexOAuthScopes)
+}
+
+// TestCollectRequiredAudiencesIntegrationWithBuildDexScopes tests the full integration
+// between MCPServer requiredAudiences configuration and OAuth scope building.
+func TestCollectRequiredAudiencesIntegrationWithBuildDexScopes(t *testing.T) {
+	// This test verifies that when MCPServers with requiredAudiences are registered,
+	// the CollectRequiredAudiences function returns them, and buildDexScopes
+	// correctly formats them as cross-client scopes for Dex.
+
+	t.Run("MCPServers with requiredAudiences are included in Dex scopes", func(t *testing.T) {
+		// Register a mock MCPServer manager with servers that have requiredAudiences
+		api.RegisterMCPServerManager(&mockMCPServerManager{
+			listMCPServersFn: func() []api.MCPServerInfo {
+				return []api.MCPServerInfo{
+					{
+						Name: "kubernetes-mcp",
+						Auth: &api.MCPServerAuth{
+							ForwardToken:      true,
+							RequiredAudiences: []string{"dex-k8s-authenticator"},
+						},
+					},
+					{
+						Name: "another-mcp",
+						Auth: &api.MCPServerAuth{
+							ForwardToken:      true,
+							RequiredAudiences: []string{"another-client"},
+						},
+					},
+				}
+			},
+		})
+		defer api.RegisterMCPServerManager(nil)
+
+		// Collect audiences (simulates what createOAuthServer does)
+		audiences := api.CollectRequiredAudiences()
+
+		// Build Dex scopes (simulates what createOAuthServer does)
+		scopes := buildDexScopes(audiences)
+
+		// Verify the cross-client scopes are present
+		assert.Contains(t, scopes, "audience:server:client_id:another-client")
+		assert.Contains(t, scopes, "audience:server:client_id:dex-k8s-authenticator")
+
+		// Verify base scopes are still present
+		assert.Contains(t, scopes, "openid")
+		assert.Contains(t, scopes, "profile")
+		assert.Contains(t, scopes, "email")
+		assert.Contains(t, scopes, "groups")
+		assert.Contains(t, scopes, "offline_access")
+	})
+
+	t.Run("MCPServers without forwardToken do not add scopes", func(t *testing.T) {
+		api.RegisterMCPServerManager(&mockMCPServerManager{
+			listMCPServersFn: func() []api.MCPServerInfo {
+				return []api.MCPServerInfo{
+					{
+						Name: "regular-mcp",
+						Auth: &api.MCPServerAuth{
+							ForwardToken:      false, // Not forwarding tokens
+							RequiredAudiences: []string{"should-be-ignored"},
+						},
+					},
+				}
+			},
+		})
+		defer api.RegisterMCPServerManager(nil)
+
+		audiences := api.CollectRequiredAudiences()
+		scopes := buildDexScopes(audiences)
+
+		// Should only have base scopes, no cross-client scopes
+		assert.Equal(t, []string{"openid", "profile", "email", "groups", "offline_access"}, scopes)
+	})
+
+	t.Run("Invalid audiences are filtered before reaching buildDexScopes", func(t *testing.T) {
+		api.RegisterMCPServerManager(&mockMCPServerManager{
+			listMCPServersFn: func() []api.MCPServerInfo {
+				return []api.MCPServerInfo{
+					{
+						Name: "mcp-with-invalid-audiences",
+						Auth: &api.MCPServerAuth{
+							ForwardToken: true,
+							RequiredAudiences: []string{
+								"valid-audience",
+								"invalid audience", // space makes it invalid
+								"",                 // empty string invalid
+								"another-valid",
+							},
+						},
+					},
+				}
+			},
+		})
+		defer api.RegisterMCPServerManager(nil)
+
+		audiences := api.CollectRequiredAudiences()
+		scopes := buildDexScopes(audiences)
+
+		// Only valid audiences should be included
+		assert.Contains(t, scopes, "audience:server:client_id:another-valid")
+		assert.Contains(t, scopes, "audience:server:client_id:valid-audience")
+
+		// Invalid audiences should NOT be included
+		assert.NotContains(t, scopes, "audience:server:client_id:invalid audience")
+		assert.NotContains(t, scopes, "audience:server:client_id:")
+	})
+}
+
 func TestNewOAuthHTTPServer_DisabledReturnsError(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		Enabled: false,
