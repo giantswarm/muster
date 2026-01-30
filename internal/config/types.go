@@ -57,21 +57,21 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
-	// OAuth contains all OAuth-related configuration with explicit client/server roles.
-	// - oauth.client: muster as OAuth client/proxy for authenticating TO remote MCP servers
+	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
+	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
 }
 
-// OAuthConfig consolidates all OAuth-related configuration with explicit client/server roles.
+// OAuthConfig consolidates all OAuth-related configuration with explicit mcpClient/server roles.
 // This structure clearly separates the two distinct OAuth roles that muster can play:
-//   - Client: when muster authenticates TO remote MCP servers on behalf of users
+//   - MCPClient: when muster authenticates TO remote MCP servers on behalf of users
 //   - Server: when muster protects ITSELF and requires clients to authenticate
 type OAuthConfig struct {
-	// Client configuration for remote MCP server authentication (muster as OAuth proxy).
+	// MCPClient configuration for remote MCP server authentication (muster as OAuth proxy).
 	// When enabled, muster acts as an OAuth client proxy, handling authentication
 	// flows on behalf of users without exposing tokens to the Muster Agent.
-	Client OAuthClientConfig `yaml:"client,omitempty"`
+	MCPClient OAuthMCPClientConfig `yaml:"mcpClient,omitempty"`
 
 	// Server configuration for protecting the Muster Server itself.
 	// When enabled, muster acts as an OAuth Resource Server, requiring valid
@@ -79,17 +79,17 @@ type OAuthConfig struct {
 	Server OAuthServerConfig `yaml:"server,omitempty"`
 }
 
-// OAuthClientConfig defines the OAuth client/proxy configuration for remote MCP server authentication.
+// OAuthMCPClientConfig defines the OAuth client/proxy configuration for remote MCP server authentication.
 // When enabled, the Muster Server acts as an OAuth client proxy, handling authentication
 // flows on behalf of users without exposing tokens to the Muster Agent.
-type OAuthClientConfig struct {
-	// Enabled controls whether OAuth client/proxy functionality is active.
+type OAuthMCPClientConfig struct {
+	// Enabled controls whether OAuth MCP client/proxy functionality is active.
 	// When false, remote MCP servers requiring auth will return errors.
 	Enabled bool `yaml:"enabled,omitempty"`
 
 	// PublicURL is the publicly accessible URL of the Muster Server.
 	// This is used to construct OAuth callback URLs (e.g., https://muster.example.com).
-	// Required when OAuth client is enabled.
+	// Required when OAuth MCP client is enabled.
 	PublicURL string `yaml:"publicUrl,omitempty"`
 
 	// ClientID is the OAuth client identifier.
@@ -104,7 +104,7 @@ type OAuthClientConfig struct {
 	CallbackPath string `yaml:"callbackPath,omitempty"`
 
 	// CIMD contains Client ID Metadata Document configuration.
-	// Muster can serve its own CIMD when acting as an OAuth client.
+	// Muster can serve its own CIMD when acting as an OAuth client for MCP servers.
 	CIMD OAuthCIMDConfig `yaml:"cimd,omitempty"`
 
 	// CAFile is the path to a CA certificate file for verifying TLS connections to OAuth servers.
@@ -115,7 +115,7 @@ type OAuthClientConfig struct {
 // OAuthCIMDConfig contains Client ID Metadata Document configuration.
 type OAuthCIMDConfig struct {
 	// Path is the path for serving the Client ID Metadata Document (default: "/.well-known/oauth-client.json").
-	// Muster will serve the CIMD at this path when OAuth client is enabled and PublicURL is set.
+	// Muster will serve the CIMD at this path when OAuth MCP client is enabled and PublicURL is set.
 	Path string `yaml:"path,omitempty"`
 
 	// Scopes is the OAuth scopes to advertise in the self-hosted CIMD.
@@ -130,7 +130,7 @@ type OAuthCIMDConfig struct {
 // If ClientID is explicitly set, it is returned as-is.
 // If ClientID is empty but PublicURL is set, returns the self-hosted CIMD URL.
 // Otherwise, returns empty string (OAuth proxy requires publicUrl to function).
-func (c *OAuthClientConfig) GetEffectiveClientID() string {
+func (c *OAuthMCPClientConfig) GetEffectiveClientID() string {
 	if c.ClientID != "" {
 		return c.ClientID
 	}
@@ -149,9 +149,9 @@ func (c *OAuthClientConfig) GetEffectiveClientID() string {
 }
 
 // ShouldServeCIMD returns true if muster should serve its own CIMD.
-// This is the case when OAuth client is enabled, PublicURL is set, and ClientID
+// This is the case when OAuth MCP client is enabled, PublicURL is set, and ClientID
 // is either empty or matches the auto-derived CIMD URL.
-func (c *OAuthClientConfig) ShouldServeCIMD() bool {
+func (c *OAuthMCPClientConfig) ShouldServeCIMD() bool {
 	if !c.Enabled || c.PublicURL == "" {
 		return false
 	}
@@ -171,7 +171,7 @@ func (c *OAuthClientConfig) ShouldServeCIMD() bool {
 }
 
 // GetCIMDPath returns the path for serving the CIMD.
-func (c *OAuthClientConfig) GetCIMDPath() string {
+func (c *OAuthMCPClientConfig) GetCIMDPath() string {
 	if c.CIMD.Path != "" {
 		return c.CIMD.Path
 	}
@@ -180,7 +180,7 @@ func (c *OAuthClientConfig) GetCIMDPath() string {
 
 // GetCIMDScopes returns the OAuth scopes to advertise in the CIMD.
 // If not set, returns the default scopes: "openid profile email offline_access".
-func (c *OAuthClientConfig) GetCIMDScopes() string {
+func (c *OAuthMCPClientConfig) GetCIMDScopes() string {
 	if c.CIMD.Scopes != "" {
 		return c.CIMD.Scopes
 	}
@@ -189,7 +189,7 @@ func (c *OAuthClientConfig) GetCIMDScopes() string {
 
 // GetRedirectURI returns the full redirect URI for OAuth proxy callbacks.
 // This is where remote MCP server IdPs will redirect after authentication.
-func (c *OAuthClientConfig) GetRedirectURI() string {
+func (c *OAuthMCPClientConfig) GetRedirectURI() string {
 	callbackPath := c.CallbackPath
 	if callbackPath == "" {
 		callbackPath = DefaultOAuthProxyCallbackPath

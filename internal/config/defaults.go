@@ -35,7 +35,7 @@ func GetDefaultConfigWithRoles() MusterConfig {
 			Host:      "localhost",
 			Transport: MCPTransportStreamableHTTP,
 			OAuth: OAuthConfig{
-				Client: OAuthClientConfig{
+				MCPClient: OAuthMCPClientConfig{
 					Enabled:      false, // Disabled by default, requires explicit enablement
 					CallbackPath: DefaultOAuthProxyCallbackPath,
 					CIMD: OAuthCIMDConfig{

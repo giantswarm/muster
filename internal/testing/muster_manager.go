@@ -919,7 +919,7 @@ func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanc
 
 // configureOAuthForInstance configures OAuth proxy and server settings for a test instance.
 // This is extracted from generateConfigFilesWithMocks for readability.
-// Uses the consolidated OAuth config structure: oauth.client + oauth.server
+// Uses the consolidated OAuth config structure: oauth.mcpClient + oauth.server
 func (m *musterInstanceManager) configureOAuthForInstance(
 	aggregatorConfig map[string]interface{},
 	config *MusterPreConfiguration,
@@ -927,14 +927,14 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	instanceID string,
 	musterConfigPath string,
 ) {
-	// Build OAuth client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
-	oauthClientConfig := map[string]interface{}{
+	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
+	oauthMCPClientConfig := map[string]interface{}{
 		"enabled":      true,
 		"publicUrl":    fmt.Sprintf("http://localhost:%d", port),
 		"callbackPath": "/oauth/proxy/callback",
 	}
 	if m.debug {
-		m.logger.Debug("🔐 Enabled OAuth client/proxy for test instance (publicUrl: http://localhost:%d)\n", port)
+		m.logger.Debug("🔐 Enabled OAuth MCP client/proxy for test instance (publicUrl: http://localhost:%d)\n", port)
 	}
 
 	// Collect CA certificates from ALL TLS-enabled OAuth servers.
@@ -942,22 +942,22 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	// remote OAuth servers (e.g., cluster-b-idp) that use self-signed certs.
 	combinedCAFile := m.collectAndWriteCACertificates(instanceID, musterConfigPath, config)
 	if combinedCAFile != "" {
-		oauthClientConfig["caFile"] = combinedCAFile
+		oauthMCPClientConfig["caFile"] = combinedCAFile
 		if m.debug {
 			m.logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
 		}
 	}
 
-	// Build the consolidated OAuth config with client and server sub-sections
+	// Build the consolidated OAuth config with mcpClient and server sub-sections
 	oauthConfig := map[string]interface{}{
-		"client": oauthClientConfig,
+		"mcpClient": oauthMCPClientConfig,
 	}
 
 	// Check if any mock OAuth server should be used as muster's OAuth server
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
 		if oauthCfg.UseAsMusterOAuthServer {
-			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthClientConfig)
+			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig)
 			if oauthServerConfig != nil {
 				oauthConfig["server"] = oauthServerConfig
 			}

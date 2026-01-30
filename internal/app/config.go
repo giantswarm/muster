@@ -43,10 +43,10 @@ type Config struct {
 	// This field is populated during application bootstrap after configuration loading.
 	MusterConfig *config.MusterConfig
 
-	// OAuth Client/Proxy settings (ADR 004 - for authenticating TO remote MCP servers)
-	OAuthClientEnabled   bool   // Enable OAuth client/proxy for remote MCP server authentication
-	OAuthClientPublicURL string // Publicly accessible URL of the Muster Server
-	OAuthClientID        string // OAuth client identifier (CIMD URL)
+	// OAuth MCP Client/Proxy settings (ADR 004 - for authenticating TO remote MCP servers)
+	OAuthMCPClientEnabled   bool   // Enable OAuth MCP client/proxy for remote MCP server authentication
+	OAuthMCPClientPublicURL string // Publicly accessible URL of the Muster Server
+	OAuthMCPClientID        string // OAuth client identifier (CIMD URL)
 
 	// OAuth Server settings (ADR 005 - for protecting the Muster Server ITSELF)
 	OAuthServerEnabled bool   // Enable OAuth 2.1 protection for Muster Server
@@ -81,19 +81,19 @@ func NewConfig(debug, silent, yolo bool, configPath string) *Config {
 	}
 }
 
-// WithOAuthClient adds OAuth client/proxy configuration to the Config.
-// This method enables OAuth client/proxy functionality for authenticating TO remote MCP servers.
+// WithOAuthMCPClient adds OAuth MCP client/proxy configuration to the Config.
+// This method enables OAuth MCP client/proxy functionality for authenticating TO remote MCP servers.
 //
 // Args:
-//   - enabled: whether OAuth client/proxy is enabled
+//   - enabled: whether OAuth MCP client/proxy is enabled
 //   - publicURL: the publicly accessible URL of the Muster Server
 //   - clientID: the OAuth client identifier (CIMD URL)
 //
 // Returns the modified Config for method chaining.
-func (c *Config) WithOAuthClient(enabled bool, publicURL, clientID string) *Config {
-	c.OAuthClientEnabled = enabled
-	c.OAuthClientPublicURL = publicURL
-	c.OAuthClientID = clientID
+func (c *Config) WithOAuthMCPClient(enabled bool, publicURL, clientID string) *Config {
+	c.OAuthMCPClientEnabled = enabled
+	c.OAuthMCPClientPublicURL = publicURL
+	c.OAuthMCPClientID = clientID
 	return c
 }
 

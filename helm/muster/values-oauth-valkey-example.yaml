@@ -29,11 +29,11 @@ muster:
     port: 8090
     transport: "streamable-http"
 
-  # OAuth configuration - consolidated with explicit client/server sub-sections
+  # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
   oauth:
-    # Client configuration (for authenticating TO remote MCP servers)
+    # MCP Client configuration (for authenticating TO remote MCP servers)
     # Not enabled in this example, but can be configured if needed
-    client:
+    mcpClient:
       enabled: false
 
     # Server configuration (protects Muster Server itself)

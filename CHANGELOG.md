@@ -19,10 +19,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **BREAKING: Consolidated OAuth Configuration Naming** - OAuth configuration structure has been reorganized for clarity ([#324](https://github.com/giantswarm/muster/issues/324))
   - **Before**: `aggregator.oauth` (client/proxy) + `aggregator.oauthServer` (server protection)
-  - **After**: `aggregator.oauth.client` (client/proxy) + `aggregator.oauth.server` (server protection)
-  - Both OAuth roles now live under a single `oauth` section with explicit `client`/`server` sub-sections
-  - CLI flags renamed: `--oauth` → `--oauth-client`, `--oauth-public-url` → `--oauth-client-public-url`
-  - Helm values updated: `muster.oauth.*` → `muster.oauth.client.*`, `muster.oauthServer.*` → `muster.oauth.server.*`
+  - **After**: `aggregator.oauth.mcpClient` (MCP client/proxy) + `aggregator.oauth.server` (server protection)
+  - Both OAuth roles now live under a single `oauth` section with explicit `mcpClient`/`server` sub-sections
+  - The `mcpClient` name makes it clear this is for authenticating TO remote MCP servers
+  - CLI flags renamed: `--oauth` → `--oauth-mcp-client`, `--oauth-public-url` → `--oauth-mcp-client-public-url`
+  - Helm values updated: `muster.oauth.*` → `muster.oauth.mcpClient.*`, `muster.oauthServer.*` → `muster.oauth.server.*`
   - CIMD configuration moved to nested structure: `cimdPath`/`cimdScopes` → `cimd.path`/`cimd.scopes`
   - Migration: Update configuration files and Helm values to use the new structure
 - **BREAKING: CRD Status Field Changes** - Status fields have been redesigned for session-aware tool availability

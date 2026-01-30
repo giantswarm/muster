@@ -46,11 +46,11 @@ spec:
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}
-            {{- if .Values.muster.oauth.client.enabled }}
-            - --oauth-client
-            - --oauth-client-public-url={{ .Values.muster.oauth.client.publicUrl }}
-            {{- if .Values.muster.oauth.client.clientId }}
-            - --oauth-client-id={{ .Values.muster.oauth.client.clientId }}
+            {{- if .Values.muster.oauth.mcpClient.enabled }}
+            - --oauth-mcp-client
+            - --oauth-mcp-client-public-url={{ .Values.muster.oauth.mcpClient.publicUrl }}
+            {{- if .Values.muster.oauth.mcpClient.clientId }}
+            - --oauth-mcp-client-id={{ .Values.muster.oauth.mcpClient.clientId }}
             {{- end }}
             {{- end }}
             {{- if .Values.muster.oauth.server.enabled }}

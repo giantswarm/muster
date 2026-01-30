@@ -20,12 +20,12 @@ import (
 type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
 
 // Manager coordinates OAuth flows for remote MCP server authentication.
-// It manages the OAuth client, HTTP handlers, and integrates with the aggregator.
+// It manages the OAuth MCP client, HTTP handlers, and integrates with the aggregator.
 type Manager struct {
 	mu sync.RWMutex
 
-	// Configuration (OAuth client/proxy configuration)
-	config config.OAuthClientConfig
+	// Configuration (OAuth MCP client/proxy configuration for authenticating TO remote MCP servers)
+	config config.OAuthMCPClientConfig
 
 	// Core components
 	client         *Client
@@ -47,9 +47,9 @@ type AuthServerConfig struct {
 }
 
 // NewManager creates a new OAuth manager with the given configuration.
-// The cfg parameter contains the OAuth client/proxy configuration for
+// The cfg parameter contains the OAuth MCP client/proxy configuration for
 // authenticating TO remote MCP servers.
-func NewManager(cfg config.OAuthClientConfig) *Manager {
+func NewManager(cfg config.OAuthMCPClientConfig) *Manager {
 	if !cfg.Enabled {
 		logging.Info("OAuth", "OAuth proxy is disabled")
 		return nil

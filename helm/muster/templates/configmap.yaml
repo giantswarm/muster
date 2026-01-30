@@ -11,18 +11,18 @@ data:
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
       oauth:
-        {{- if .Values.muster.oauth.client.enabled }}
-        client:
+        {{- if .Values.muster.oauth.mcpClient.enabled }}
+        mcpClient:
           enabled: true
-          publicUrl: {{ .Values.muster.oauth.client.publicUrl | quote }}
-          {{- if .Values.muster.oauth.client.clientId }}
-          clientId: {{ .Values.muster.oauth.client.clientId | quote }}
+          publicUrl: {{ .Values.muster.oauth.mcpClient.publicUrl | quote }}
+          {{- if .Values.muster.oauth.mcpClient.clientId }}
+          clientId: {{ .Values.muster.oauth.mcpClient.clientId | quote }}
           {{- end }}
-          callbackPath: {{ .Values.muster.oauth.client.callbackPath | default "/oauth/proxy/callback" | quote }}
+          callbackPath: {{ .Values.muster.oauth.mcpClient.callbackPath | default "/oauth/proxy/callback" | quote }}
           cimd:
-            path: {{ .Values.muster.oauth.client.cimd.path | default "/.well-known/oauth-client.json" | quote }}
-            {{- if .Values.muster.oauth.client.cimd.scopes }}
-            scopes: {{ .Values.muster.oauth.client.cimd.scopes | quote }}
+            path: {{ .Values.muster.oauth.mcpClient.cimd.path | default "/.well-known/oauth-client.json" | quote }}
+            {{- if .Values.muster.oauth.mcpClient.cimd.scopes }}
+            scopes: {{ .Values.muster.oauth.mcpClient.cimd.scopes | quote }}
             {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}

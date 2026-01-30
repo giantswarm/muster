@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewManager_Disabled(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled: false,
 	}
 
@@ -20,7 +20,7 @@ func TestNewManager_Disabled(t *testing.T) {
 }
 
 func TestNewManager_Enabled(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "https://external.example.com/oauth-client.json",
@@ -46,7 +46,7 @@ func TestManager_IsEnabled_NilManager(t *testing.T) {
 }
 
 func TestManager_GetCallbackPath(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -74,7 +74,7 @@ func TestManager_GetCallbackPath_NilManager(t *testing.T) {
 }
 
 func TestManager_GetHTTPHandler(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -102,7 +102,7 @@ func TestManager_GetHTTPHandler_NilManager(t *testing.T) {
 }
 
 func TestManager_RegisterServer(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -162,7 +162,7 @@ func TestManager_GetServerConfig_NilManager(t *testing.T) {
 }
 
 func TestManager_GetToken_NoServerConfig(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -205,7 +205,7 @@ func TestManager_Stop_NilManager(t *testing.T) {
 }
 
 func TestManager_Stop(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -222,7 +222,7 @@ func TestManager_Stop(t *testing.T) {
 }
 
 func TestManager_GetToken_WithToken(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -265,7 +265,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 }
 
 func TestManager_GetTokenByIssuer(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -303,7 +303,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 }
 
 func TestManager_ClearTokenByIssuer(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -352,7 +352,7 @@ func TestManager_ClearTokenByIssuer_NilManager(t *testing.T) {
 }
 
 func TestManager_GetCIMDPath(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
@@ -383,7 +383,7 @@ func TestManager_GetCIMDPath_NilManager(t *testing.T) {
 }
 
 func TestManager_ShouldServeCIMD(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty means self-host
@@ -409,7 +409,7 @@ func TestManager_ShouldServeCIMD_NilManager(t *testing.T) {
 }
 
 func TestManager_GetCIMDHandler(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
@@ -455,7 +455,7 @@ func TestManager_HandleCallback_NilManager(t *testing.T) {
 }
 
 func TestManager_HandleCallback_InvalidState(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -476,7 +476,7 @@ func TestManager_HandleCallback_InvalidState(t *testing.T) {
 }
 
 func TestManager_CreateAuthChallenge(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -514,7 +514,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 }
 
 func TestNewManager_SelfHostedCIMD(t *testing.T) {
-	cfg := config.OAuthClientConfig{
+	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty - should auto-derive and self-host

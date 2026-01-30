@@ -8,10 +8,10 @@ aggregator:
   host: localhost
   # musterPrefix: "x"
 
-  # OAuth configuration - consolidated with explicit client/server sub-sections
+  # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
   # oauth:
-  #   # Client/Proxy configuration (for authenticating TO remote MCP servers)
-  #   client:
+  #   # MCP Client/Proxy configuration (for authenticating TO remote MCP servers)
+  #   mcpClient:
   #     enabled: false
   #     publicUrl: "https://muster.example.com"
   #     callbackPath: "/oauth/proxy/callback"

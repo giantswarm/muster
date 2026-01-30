@@ -69,16 +69,16 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 	// Create the aggregator server with the provided configuration
 	manager.aggregatorServer = NewAggregatorServer(config, errorCallback)
 
-	// Initialize OAuth manager if enabled (OAuth client/proxy for authenticating TO remote MCP servers)
+	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
-		oauthClientConfig := configPkg.OAuthClientConfig{
+		oauthMCPClientConfig := configPkg.OAuthMCPClientConfig{
 			Enabled:      config.OAuth.Enabled,
 			PublicURL:    config.OAuth.PublicURL,
 			ClientID:     config.OAuth.ClientID,
 			CallbackPath: config.OAuth.CallbackPath,
 			CAFile:       config.OAuth.CAFile,
 		}
-		manager.oauthManager = oauth.NewManager(oauthClientConfig)
+		manager.oauthManager = oauth.NewManager(oauthMCPClientConfig)
 
 		if manager.oauthManager != nil {
 			// Register OAuth handler with the API layer
