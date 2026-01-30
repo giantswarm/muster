@@ -286,6 +286,10 @@ spec:
 
 **Important:** Required audiences are collected at muster startup and during user authentication. If you add or modify MCPServers with `requiredAudiences` after users have authenticated, those users must re-authenticate (`muster auth logout` followed by `muster auth login`) to obtain tokens with the new audiences.
 
+**Security Note:** Access control for `requiredAudiences` is enforced at two levels:
+1. **Kubernetes RBAC**: Only users with permissions to create/modify MCPServer CRDs can configure `requiredAudiences`
+2. **IdP Cross-Client Configuration**: The identity provider (e.g., Dex) must be configured to allow cross-client authentication for the specified audiences. Unauthorized audience requests will be rejected by the IdP.
+
 ### Token Reuse (Automatic SSO)
 
 When multiple MCP servers share the same OAuth issuer, muster automatically reuses tokens across servers. This is the default behavior and requires no additional configuration.

@@ -107,6 +107,8 @@ status:
 
 **Note on `requiredAudiences`**: When forwarding tokens to downstream servers that require specific audience claims (e.g., Kubernetes OIDC authentication), specify the required audiences here. Muster will request these audiences from the upstream IdP (e.g., Dex) using cross-client scopes (`audience:server:client_id:<audience>`). The resulting multi-audience token is forwarded to all downstream servers. Example: `requiredAudiences: ["dex-k8s-authenticator"]`. Note that required audiences are collected at muster startup and during user authentication - if you add MCPServers with new audiences after users have authenticated, they must re-authenticate to obtain tokens with the new audiences.
 
+**Security**: Access control for `requiredAudiences` relies on two layers: (1) Kubernetes RBAC controls who can create/modify MCPServer CRDs, and (2) the IdP's cross-client configuration determines which audiences are allowed. Audience values must not contain whitespace characters and are validated before use.
+
 #### TeleportAuth Fields
 
 | Field | Type | Required | Description | Constraints |

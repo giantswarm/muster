@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"muster/pkg/logging"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -432,6 +433,20 @@ func GetMCPServerManager() MCPServerManagerHandler {
 	return mcpServerManagerHandler
 }
 
+// isValidAudience checks if an audience string is valid for use in OAuth scopes.
+// An audience is valid if it is non-empty and contains no whitespace or control characters.
+// This prevents potential parsing issues when the audience is concatenated into OAuth scopes.
+func isValidAudience(audience string) bool {
+	if audience == "" {
+		return false
+	}
+	// Reject audiences with whitespace or control characters
+	if strings.ContainsAny(audience, " \t\n\r") {
+		return false
+	}
+	return true
+}
+
 // CollectRequiredAudiences collects all unique required audiences from MCPServers
 // that have forwardToken: true configured. This is used to determine which
 // cross-client audiences to request from Dex during OAuth authentication.
@@ -474,7 +489,7 @@ func CollectRequiredAudiences() []string {
 
 		// Collect all required audiences from this server
 		for _, audience := range server.Auth.RequiredAudiences {
-			if audience != "" {
+			if isValidAudience(audience) {
 				audienceSet[audience] = struct{}{}
 			}
 		}

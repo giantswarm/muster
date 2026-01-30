@@ -217,3 +217,109 @@ func TestCollectRequiredAudiences(t *testing.T) {
 	mcpServerManagerHandler = nil
 	handlerMutex.Unlock()
 }
+
+func TestIsValidAudience(t *testing.T) {
+	tests := []struct {
+		name     string
+		audience string
+		expected bool
+	}{
+		{
+			name:     "valid audience",
+			audience: "dex-k8s-authenticator",
+			expected: true,
+		},
+		{
+			name:     "valid audience with hyphen and numbers",
+			audience: "my-client-123",
+			expected: true,
+		},
+		{
+			name:     "empty string is invalid",
+			audience: "",
+			expected: false,
+		},
+		{
+			name:     "audience with space is invalid",
+			audience: "invalid audience",
+			expected: false,
+		},
+		{
+			name:     "audience with tab is invalid",
+			audience: "invalid\taudience",
+			expected: false,
+		},
+		{
+			name:     "audience with newline is invalid",
+			audience: "invalid\naudience",
+			expected: false,
+		},
+		{
+			name:     "audience with carriage return is invalid",
+			audience: "invalid\raudience",
+			expected: false,
+		},
+		{
+			name:     "audience with leading space is invalid",
+			audience: " leading-space",
+			expected: false,
+		},
+		{
+			name:     "audience with trailing space is invalid",
+			audience: "trailing-space ",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidAudience(tt.audience)
+			if result != tt.expected {
+				t.Errorf("isValidAudience(%q) = %v, expected %v", tt.audience, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCollectRequiredAudiencesWithInvalidAudiences(t *testing.T) {
+	// Test that audiences with whitespace are filtered out
+	RegisterMCPServerManager(&mockMCPServerManager{
+		listMCPServersFn: func() []MCPServerInfo {
+			return []MCPServerInfo{
+				{
+					Name: "server1",
+					Auth: &MCPServerAuth{
+						ForwardToken: true,
+						RequiredAudiences: []string{
+							"valid-audience",
+							"invalid audience",  // contains space
+							"another\taudience", // contains tab
+							"valid-audience-2",
+							"newline\naudience", // contains newline
+						},
+					},
+				},
+			}
+		},
+	})
+
+	result := CollectRequiredAudiences()
+
+	// Only valid audiences should be included
+	expected := []string{"valid-audience", "valid-audience-2"}
+	if len(result) != len(expected) {
+		t.Errorf("expected %d audiences, got %d: %v", len(expected), len(result), result)
+		return
+	}
+
+	for i, audience := range result {
+		if audience != expected[i] {
+			t.Errorf("at index %d: expected %q, got %q", i, expected[i], audience)
+		}
+	}
+
+	// Cleanup
+	handlerMutex.Lock()
+	mcpServerManagerHandler = nil
+	handlerMutex.Unlock()
+}
