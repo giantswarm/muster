@@ -10,68 +10,70 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
-      {{- if .Values.muster.oauth.enabled }}
       oauth:
-        enabled: true
-        publicUrl: {{ .Values.muster.oauth.publicUrl | quote }}
-        {{- if .Values.muster.oauth.clientId }}
-        clientId: {{ .Values.muster.oauth.clientId | quote }}
-        {{- end }}
-        callbackPath: {{ .Values.muster.oauth.callbackPath | default "/oauth/proxy/callback" | quote }}
-        cimdPath: {{ .Values.muster.oauth.cimdPath | default "/.well-known/oauth-client.json" | quote }}
-        {{- if .Values.muster.oauth.cimdScopes }}
-        cimdScopes: {{ .Values.muster.oauth.cimdScopes | quote }}
-        {{- end }}
-      {{- end }}
-      {{- if .Values.muster.oauthServer.enabled }}
-      {{- $secretsPath := "/etc/muster/secrets" }}
-      oauthServer:
-        enabled: true
-        baseUrl: {{ .Values.muster.oauthServer.baseUrl | quote }}
-        provider: {{ .Values.muster.oauthServer.provider | default "dex" | quote }}
-        {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
-        {{- /* Only reference registration token file if it will exist in the secret */}}
-        {{- if or .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.registrationToken }}
-        registrationTokenFile: {{ printf "%s/registration-token" $secretsPath | quote }}
-        {{- end }}
-        {{- if .Values.muster.oauthServer.encryptionKey }}
-        encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
-        {{- end }}
-        {{- if eq (.Values.muster.oauthServer.provider | default "dex") "dex" }}
-        dex:
-          issuerUrl: {{ .Values.muster.oauthServer.dex.issuerUrl | quote }}
-          clientId: {{ .Values.muster.oauthServer.dex.clientId | quote }}
-          clientSecretFile: {{ printf "%s/dex-client-secret" $secretsPath | quote }}
-          {{- if .Values.muster.oauthServer.dex.connectorId }}
-          connectorId: {{ .Values.muster.oauthServer.dex.connectorId | quote }}
+        {{- if .Values.muster.oauth.client.enabled }}
+        client:
+          enabled: true
+          publicUrl: {{ .Values.muster.oauth.client.publicUrl | quote }}
+          {{- if .Values.muster.oauth.client.clientId }}
+          clientId: {{ .Values.muster.oauth.client.clientId | quote }}
           {{- end }}
-        {{- else if eq .Values.muster.oauthServer.provider "google" }}
-        google:
-          clientId: {{ .Values.muster.oauthServer.google.clientId | quote }}
-          clientSecretFile: {{ printf "%s/google-client-secret" $secretsPath | quote }}
+          callbackPath: {{ .Values.muster.oauth.client.callbackPath | default "/oauth/proxy/callback" | quote }}
+          cimd:
+            path: {{ .Values.muster.oauth.client.cimd.path | default "/.well-known/oauth-client.json" | quote }}
+            {{- if .Values.muster.oauth.client.cimd.scopes }}
+            scopes: {{ .Values.muster.oauth.client.cimd.scopes | quote }}
+            {{- end }}
         {{- end }}
-        storage:
-          type: {{ .Values.muster.oauthServer.storage.type | default "memory" | quote }}
-          {{- if eq .Values.muster.oauthServer.storage.type "valkey" }}
-          valkey:
-            url: {{ .Values.muster.oauthServer.storage.valkey.url | quote }}
-            {{- /* Only reference password file if Valkey password is configured */}}
-            {{- if or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.storage.valkey.password }}
-            passwordFile: {{ printf "%s/valkey-password" $secretsPath | quote }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.storage.valkey.keyPrefix }}
-            keyPrefix: {{ .Values.muster.oauthServer.storage.valkey.keyPrefix | quote }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.storage.valkey.db }}
-            db: {{ .Values.muster.oauthServer.storage.valkey.db }}
-            {{- end }}
-            {{- if .Values.muster.oauthServer.storage.valkey.tls.enabled }}
-            tlsEnabled: true
-            {{- end }}
+        {{- if .Values.muster.oauth.server.enabled }}
+        {{- $secretsPath := "/etc/muster/secrets" }}
+        server:
+          enabled: true
+          baseUrl: {{ .Values.muster.oauth.server.baseUrl | quote }}
+          provider: {{ .Values.muster.oauth.server.provider | default "dex" | quote }}
+          {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
+          {{- /* Only reference registration token file if it will exist in the secret */}}
+          {{- if or .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.registrationToken }}
+          registrationTokenFile: {{ printf "%s/registration-token" $secretsPath | quote }}
           {{- end }}
-        {{- if .Values.muster.oauthServer.allowLocalhostRedirectURIs }}
-        allowLocalhostRedirectURIs: true
+          {{- if .Values.muster.oauth.server.encryptionKey }}
+          encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
+          {{- end }}
+          {{- if eq (.Values.muster.oauth.server.provider | default "dex") "dex" }}
+          dex:
+            issuerUrl: {{ .Values.muster.oauth.server.dex.issuerUrl | quote }}
+            clientId: {{ .Values.muster.oauth.server.dex.clientId | quote }}
+            clientSecretFile: {{ printf "%s/dex-client-secret" $secretsPath | quote }}
+            {{- if .Values.muster.oauth.server.dex.connectorId }}
+            connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
+            {{- end }}
+          {{- else if eq .Values.muster.oauth.server.provider "google" }}
+          google:
+            clientId: {{ .Values.muster.oauth.server.google.clientId | quote }}
+            clientSecretFile: {{ printf "%s/google-client-secret" $secretsPath | quote }}
+          {{- end }}
+          storage:
+            type: {{ .Values.muster.oauth.server.storage.type | default "memory" | quote }}
+            {{- if eq .Values.muster.oauth.server.storage.type "valkey" }}
+            valkey:
+              url: {{ .Values.muster.oauth.server.storage.valkey.url | quote }}
+              {{- /* Only reference password file if Valkey password is configured */}}
+              {{- if or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password }}
+              passwordFile: {{ printf "%s/valkey-password" $secretsPath | quote }}
+              {{- end }}
+              {{- if .Values.muster.oauth.server.storage.valkey.keyPrefix }}
+              keyPrefix: {{ .Values.muster.oauth.server.storage.valkey.keyPrefix | quote }}
+              {{- end }}
+              {{- if .Values.muster.oauth.server.storage.valkey.db }}
+              db: {{ .Values.muster.oauth.server.storage.valkey.db }}
+              {{- end }}
+              {{- if .Values.muster.oauth.server.storage.valkey.tls.enabled }}
+              tlsEnabled: true
+              {{- end }}
+            {{- end }}
+          {{- if .Values.muster.oauth.server.allowLocalhostRedirectURIs }}
+          allowLocalhostRedirectURIs: true
+          {{- end }}
         {{- end }}
-      {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true

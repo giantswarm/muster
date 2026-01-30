@@ -208,28 +208,28 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
-		// Merge OAuth proxy config: CLI flags override config file, but use config file as fallback
-		oauthEnabled := cfg.OAuthEnabled || cfg.MusterConfig.Aggregator.OAuth.Enabled
-		oauthPublicURL := cfg.OAuthPublicURL
+		// Merge OAuth client/proxy config: CLI flags override config file, but use config file as fallback
+		oauthClientEnabled := cfg.OAuthClientEnabled || cfg.MusterConfig.Aggregator.OAuth.Client.Enabled
+		oauthPublicURL := cfg.OAuthClientPublicURL
 		if oauthPublicURL == "" {
-			oauthPublicURL = cfg.MusterConfig.Aggregator.OAuth.PublicURL
+			oauthPublicURL = cfg.MusterConfig.Aggregator.OAuth.Client.PublicURL
 		}
 
-		// Build a merged OAuthConfig for GetEffectiveClientID()
-		mergedOAuthConfig := config.OAuthConfig{
-			Enabled:      oauthEnabled,
+		// Build a merged OAuthClientConfig for GetEffectiveClientID()
+		mergedOAuthClientConfig := config.OAuthClientConfig{
+			Enabled:      oauthClientEnabled,
 			PublicURL:    oauthPublicURL,
 			ClientID:     cfg.OAuthClientID, // CLI flag value (empty if not specified)
-			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.CallbackPath,
-			CIMDPath:     cfg.MusterConfig.Aggregator.OAuth.CIMDPath,
-			CAFile:       cfg.MusterConfig.Aggregator.OAuth.CAFile,
+			CallbackPath: cfg.MusterConfig.Aggregator.OAuth.Client.CallbackPath,
+			CIMD:         cfg.MusterConfig.Aggregator.OAuth.Client.CIMD,
+			CAFile:       cfg.MusterConfig.Aggregator.OAuth.Client.CAFile,
 		}
 		// If CLI flag didn't set ClientID, check config file
-		if mergedOAuthConfig.ClientID == "" {
-			mergedOAuthConfig.ClientID = cfg.MusterConfig.Aggregator.OAuth.ClientID
+		if mergedOAuthClientConfig.ClientID == "" {
+			mergedOAuthClientConfig.ClientID = cfg.MusterConfig.Aggregator.OAuth.Client.ClientID
 		}
 		// Use GetEffectiveClientID() to auto-derive from PublicURL if still empty
-		effectiveClientID := mergedOAuthConfig.GetEffectiveClientID()
+		effectiveClientID := mergedOAuthClientConfig.GetEffectiveClientID()
 
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
@@ -242,15 +242,15 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth: aggregator.OAuthProxyConfig{
-				Enabled:      oauthEnabled,
+				Enabled:      oauthClientEnabled,
 				PublicURL:    oauthPublicURL,
 				ClientID:     effectiveClientID,
-				CallbackPath: mergedOAuthConfig.CallbackPath,
-				CAFile:       mergedOAuthConfig.CAFile,
+				CallbackPath: mergedOAuthClientConfig.CallbackPath,
+				CAFile:       mergedOAuthClientConfig.CAFile,
 			},
 			OAuthServer: aggregator.OAuthServerConfig{
 				// CLI flag overrides config file if enabled
-				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuthServer.Enabled,
+				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,
 				Config:  mergeOAuthServerConfig(cfg),
 			},
 		}
@@ -396,7 +396,7 @@ func createMusterClientWithConfig(configPath string, debug bool, musterConfig co
 // mergeOAuthServerConfig merges OAuth server configuration from CLI flags and config file.
 // CLI flags override config file settings where specified.
 func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
-	serverCfg := cfg.MusterConfig.Aggregator.OAuthServer
+	serverCfg := cfg.MusterConfig.Aggregator.OAuth.Server
 
 	// Override base URL from CLI if provided
 	if cfg.OAuthServerBaseURL != "" {

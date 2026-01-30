@@ -214,63 +214,67 @@ muster:
   # Enable debug logging
   debug: false
 
-  # OAuth Proxy configuration for remote MCP server authentication
-  # When enabled, Muster Server acts as an OAuth client proxy,
-  # handling authentication flows on behalf of users without exposing
-  # sensitive tokens to the Muster Agent.
-  #
-  # SECURITY NOTES:
-  # - Tokens are stored in-memory only and are lost on pod restart
-  # - Each MCP connection gets a unique session ID for token isolation
-  # - TLS is required for production deployments to protect OAuth flows
+  # OAuth configuration - consolidated with explicit client/server sub-sections
+  # This structure clearly separates the two distinct OAuth roles:
+  #   - oauth.client: muster authenticating TO remote MCP servers (proxy role)
+  #   - oauth.server: muster protecting ITSELF (resource server role)
   oauth:
-    # Enable OAuth proxy functionality
-    enabled: false
-
-    # Publicly accessible URL of the Muster Server
-    # This is used to construct OAuth callback URLs and auto-generate the CIMD.
-    # Example: "https://muster.example.com"
-    # Required when OAuth is enabled. Must be HTTPS for production.
-    publicUrl: ""
-
-    # OAuth client identifier (Client ID Metadata Document URL)
+    # Client/Proxy configuration for remote MCP server authentication
+    # When enabled, Muster Server acts as an OAuth client proxy,
+    # handling authentication flows on behalf of users without exposing
+    # sensitive tokens to the Muster Agent.
     #
-    # Leave empty (default) to use self-hosted CIMD:
-    # - Muster auto-derives clientId as {publicUrl}/.well-known/oauth-client.json
-    # - Muster serves the CIMD at that path with the correct redirect_uri
-    # - No external static file hosting required
+    # SECURITY NOTES:
+    # - Tokens are stored in-memory only and are lost on pod restart
+    # - Each MCP connection gets a unique session ID for token isolation
+    # - TLS is required for production deployments to protect OAuth flows
+    client:
+      # Enable OAuth client/proxy functionality
+      enabled: false
+
+      # Publicly accessible URL of the Muster Server
+      # This is used to construct OAuth callback URLs and auto-generate the CIMD.
+      # Example: "https://muster.example.com"
+      # Required when OAuth client is enabled. Must be HTTPS for production.
+      publicUrl: ""
+
+      # OAuth client identifier (Client ID Metadata Document URL)
+      #
+      # Leave empty (default) to use self-hosted CIMD:
+      # - Muster auto-derives clientId as {publicUrl}/.well-known/oauth-client.json
+      # - Muster serves the CIMD at that path with the correct redirect_uri
+      # - No external static file hosting required
+      #
+      # Set to a URL only if you need to use an externally hosted CIMD file.
+      clientId: ""
+
+      # Path for the OAuth proxy callback endpoint (for authenticating with remote MCP servers)
+      # NOTE: This is different from /oauth/callback which is used by the OAuth server
+      callbackPath: "/oauth/proxy/callback"
+
+      # Client ID Metadata Document (CIMD) configuration
+      # Only used when clientId is empty (self-hosted CIMD mode)
+      cimd:
+        # Path for serving the CIMD
+        path: "/.well-known/oauth-client.json"
+
+        # OAuth scopes to advertise in the self-hosted CIMD.
+        # These scopes determine what APIs downstream MCP servers can access when
+        # muster forwards tokens via SSO. Default: "openid profile email offline_access"
+        # Format: space-separated list of scope strings.
+        # Example with Google API scopes for Gmail, Calendar, Drive:
+        # scopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
+        scopes: ""
+
+    # Server configuration for protecting the Muster Server itself (ADR 005)
+    # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
+    # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.
     #
-    # Set to a URL only if you need to use an externally hosted CIMD file.
-    clientId: ""
-
-    # Path for the OAuth proxy callback endpoint (for authenticating with remote MCP servers)
-    # NOTE: This is different from /oauth/callback which is used by the OAuth server
-    callbackPath: "/oauth/proxy/callback"
-
-    # Path for serving the Client ID Metadata Document (CIMD)
-    # Only used when clientId is empty (self-hosted CIMD mode)
-    cimdPath: "/.well-known/oauth-client.json"
-
-    # OAuth scopes to advertise in the self-hosted CIMD.
-    # These scopes determine what APIs downstream MCP servers can access when
-    # muster forwards tokens via SSO. Default: "openid profile email offline_access"
-    # Format: space-separated list of scope strings.
-    # Example with Google API scopes for Gmail, Calendar, Drive:
-    # cimdScopes: "openid profile email offline_access https://mail.google.com/ https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive"
-
-  # OAuth Server configuration for protecting the Muster Server itself (ADR 005)
-  # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
-  # valid access tokens from clients (e.g., Muster Agent) to access protected endpoints.
-  #
-  # This is DIFFERENT from the oauth section above:
-  # - oauth: Muster acts as OAuth Client to authenticate to REMOTE MCP servers
-  # - oauthServer: Muster acts as OAuth Resource Server to protect ITSELF
-  #
-  # SECURITY NOTES:
-  # - Required for production when Muster is publicly exposed
-  # - TLS is REQUIRED (HTTPS) for all non-localhost deployments
-  # - Use Valkey storage for high availability (multiple replicas)
-  oauthServer:
+    # SECURITY NOTES:
+    # - Required for production when Muster is publicly exposed
+    # - TLS is REQUIRED (HTTPS) for all non-localhost deployments
+    # - Use Valkey storage for high availability (multiple replicas)
+    server:
     # Enable OAuth server protection
     enabled: false
 

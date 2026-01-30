@@ -69,7 +69,7 @@ type secretMapping struct {
 // This is the recommended way to handle secrets in production, keeping them out of
 // config files and environment variables (per MCP OAuth security recommendations).
 func resolveSecretFiles(config *MusterConfig) error {
-	oauthServer := &config.Aggregator.OAuthServer
+	oauthServer := &config.Aggregator.OAuth.Server
 
 	secrets := []secretMapping{
 		{oauthServer.Dex.ClientSecretFile, &oauthServer.Dex.ClientSecret, "Dex client secret"},

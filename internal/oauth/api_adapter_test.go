@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewAdapter(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -28,7 +28,7 @@ func TestNewAdapter(t *testing.T) {
 }
 
 func TestAdapter_IsEnabled(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -48,7 +48,7 @@ func TestAdapter_IsEnabled(t *testing.T) {
 }
 
 func TestAdapter_GetToken(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -71,7 +71,7 @@ func TestAdapter_GetToken(t *testing.T) {
 }
 
 func TestAdapter_GetTokenByIssuer(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -94,7 +94,7 @@ func TestAdapter_GetTokenByIssuer(t *testing.T) {
 }
 
 func TestAdapter_ClearTokenByIssuer(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -139,7 +139,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 }
 
 func TestAdapter_GetHTTPHandler(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -160,7 +160,7 @@ func TestAdapter_GetHTTPHandler(t *testing.T) {
 }
 
 func TestAdapter_GetCallbackPath(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -181,12 +181,14 @@ func TestAdapter_GetCallbackPath(t *testing.T) {
 }
 
 func TestAdapter_GetCIMDPath(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
 		CallbackPath: "/oauth/proxy/callback",
-		CIMDPath:     "/.well-known/oauth-client.json",
+		CIMD: config.OAuthCIMDConfig{
+			Path: "/.well-known/oauth-client.json",
+		},
 	}
 
 	manager := NewManager(cfg)
@@ -203,7 +205,7 @@ func TestAdapter_GetCIMDPath(t *testing.T) {
 }
 
 func TestAdapter_ShouldServeCIMD(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "", // Empty means self-host
@@ -223,7 +225,7 @@ func TestAdapter_ShouldServeCIMD(t *testing.T) {
 }
 
 func TestAdapter_GetCIMDHandler(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "",
@@ -244,7 +246,7 @@ func TestAdapter_GetCIMDHandler(t *testing.T) {
 }
 
 func TestAdapter_RegisterServer(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",
@@ -270,7 +272,7 @@ func TestAdapter_RegisterServer(t *testing.T) {
 }
 
 func TestAdapter_Stop(t *testing.T) {
-	cfg := config.OAuthConfig{
+	cfg := config.OAuthClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "client-id",

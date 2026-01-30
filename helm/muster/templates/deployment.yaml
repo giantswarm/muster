@@ -46,16 +46,16 @@ spec:
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}
-            {{- if .Values.muster.oauth.enabled }}
-            - --oauth
-            - --oauth-public-url={{ .Values.muster.oauth.publicUrl }}
-            {{- if .Values.muster.oauth.clientId }}
-            - --oauth-client-id={{ .Values.muster.oauth.clientId }}
+            {{- if .Values.muster.oauth.client.enabled }}
+            - --oauth-client
+            - --oauth-client-public-url={{ .Values.muster.oauth.client.publicUrl }}
+            {{- if .Values.muster.oauth.client.clientId }}
+            - --oauth-client-id={{ .Values.muster.oauth.client.clientId }}
             {{- end }}
             {{- end }}
-            {{- if .Values.muster.oauthServer.enabled }}
+            {{- if .Values.muster.oauth.server.enabled }}
             - --oauth-server
-            - --oauth-server-base-url={{ .Values.muster.oauthServer.baseUrl }}
+            - --oauth-server-base-url={{ .Values.muster.oauth.server.baseUrl }}
             {{- end }}
           ports:
             - name: http
@@ -99,7 +99,7 @@ spec:
             - name: config
               mountPath: /etc/muster
               readOnly: true
-            {{- if .Values.muster.oauthServer.enabled }}
+            {{- if .Values.muster.oauth.server.enabled }}
             - name: oauth-secrets
               mountPath: /etc/muster/secrets
               readOnly: true
@@ -113,19 +113,19 @@ spec:
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
-        {{- if .Values.muster.oauthServer.enabled }}
+        {{- if .Values.muster.oauth.server.enabled }}
         - name: oauth-secrets
           projected:
             sources:
               # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
               - secret:
-                  name: {{ .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-              {{- if and (eq .Values.muster.oauthServer.storage.type "valkey") (or .Values.muster.oauthServer.storage.valkey.existingSecret .Values.muster.oauthServer.existingSecret .Values.muster.oauthServer.storage.valkey.password) }}
+                  name: {{ .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
+              {{- if and (eq .Values.muster.oauth.server.storage.type "valkey") (or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password) }}
               # Valkey password (mounted as valkey-password)
               - secret:
-                  name: {{ .Values.muster.oauthServer.storage.valkey.existingSecret | default .Values.muster.oauthServer.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
+                  name: {{ .Values.muster.oauth.server.storage.valkey.existingSecret | default .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
                   items:
-                    - key: {{ .Values.muster.oauthServer.storage.valkey.secretKeyPassword | default "valkey-password" }}
+                    - key: {{ .Values.muster.oauth.server.storage.valkey.secretKeyPassword | default "valkey-password" }}
                       path: valkey-password
               {{- end }}
         {{- end }}

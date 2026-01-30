@@ -24,8 +24,8 @@ type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, acc
 type Manager struct {
 	mu sync.RWMutex
 
-	// Configuration
-	config config.OAuthConfig
+	// Configuration (OAuth client/proxy configuration)
+	config config.OAuthClientConfig
 
 	// Core components
 	client         *Client
@@ -47,7 +47,9 @@ type AuthServerConfig struct {
 }
 
 // NewManager creates a new OAuth manager with the given configuration.
-func NewManager(cfg config.OAuthConfig) *Manager {
+// The cfg parameter contains the OAuth client/proxy configuration for
+// authenticating TO remote MCP servers.
+func NewManager(cfg config.OAuthClientConfig) *Manager {
 	if !cfg.Enabled {
 		logging.Info("OAuth", "OAuth proxy is disabled")
 		return nil
