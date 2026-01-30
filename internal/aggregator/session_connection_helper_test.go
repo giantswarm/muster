@@ -141,6 +141,65 @@ func TestShouldUseTokenForwarding(t *testing.T) {
 	})
 }
 
+func TestAppendAudienceScopes(t *testing.T) {
+	tests := []struct {
+		name      string
+		scopes    string
+		audiences []string
+		expected  string
+	}{
+		{
+			name:      "empty scopes and empty audiences returns empty",
+			scopes:    "",
+			audiences: nil,
+			expected:  "",
+		},
+		{
+			name:      "empty scopes with audiences returns audience scopes only",
+			scopes:    "",
+			audiences: []string{"dex-k8s-authenticator"},
+			expected:  "audience:server:client_id:dex-k8s-authenticator",
+		},
+		{
+			name:      "existing scopes with no audiences returns unchanged",
+			scopes:    "openid profile email groups",
+			audiences: nil,
+			expected:  "openid profile email groups",
+		},
+		{
+			name:      "existing scopes with audiences appends audience scopes",
+			scopes:    "openid profile email groups",
+			audiences: []string{"dex-k8s-authenticator"},
+			expected:  "openid profile email groups audience:server:client_id:dex-k8s-authenticator",
+		},
+		{
+			name:      "multiple audiences are all appended",
+			scopes:    "openid profile",
+			audiences: []string{"audience-a", "audience-b"},
+			expected:  "openid profile audience:server:client_id:audience-a audience:server:client_id:audience-b",
+		},
+		{
+			name:      "empty string audiences are filtered",
+			scopes:    "openid",
+			audiences: []string{"valid", "", "another"},
+			expected:  "openid audience:server:client_id:valid audience:server:client_id:another",
+		},
+		{
+			name:      "all empty audiences returns unchanged scopes",
+			scopes:    "openid profile",
+			audiences: []string{"", ""},
+			expected:  "openid profile",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := appendAudienceScopes(tt.scopes, tt.audiences)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestIsIDTokenExpired(t *testing.T) {
 	t.Run("empty token is expired", func(t *testing.T) {
 		assert.True(t, isIDTokenExpired(""))
