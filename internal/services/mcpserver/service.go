@@ -35,6 +35,13 @@ const (
 	BackoffMultiplier = 2.0
 )
 
+// RestartGracePeriod is the pause between stop and start during a restart.
+// This allows time for:
+// - Subprocess cleanup and port release for stdio servers
+// - Connection draining for remote HTTP/SSE servers
+// - Upstream load balancers to detect the disconnect
+const RestartGracePeriod = 200 * time.Millisecond
+
 // Service implements the Service interface for MCP server management
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
@@ -213,7 +220,9 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Restart restarts the MCP server service
+// Restart restarts the MCP server service.
+// This method performs a graceful restart by stopping the service first (if running),
+// waiting a brief grace period, and then starting it again.
 func (s *Service) Restart(ctx context.Context) error {
 	s.LogInfo("Restarting MCP server service")
 
@@ -230,8 +239,8 @@ func (s *Service) Restart(ctx context.Context) error {
 		}
 	}
 
-	// Wait a moment between stop and start
-	time.Sleep(200 * time.Millisecond)
+	// Grace period between stop and start (see RestartGracePeriod constant for rationale)
+	time.Sleep(RestartGracePeriod)
 
 	if err := s.Start(ctx); err != nil {
 		// Generate recovery failed event
@@ -620,6 +629,7 @@ func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, erro
 // - Network unreachable (routing issues)
 // - DNS resolution failures
 // - Timeouts
+// - HTTP 5xx server errors (500-511)
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
@@ -665,6 +675,30 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	}
 
 	for _, pattern := range transientPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// HTTP 5xx errors are transient server errors that may resolve with retry.
+	// Check numeric status codes 500-511 (covers all standard 5xx codes)
+	for code := 500; code <= 511; code++ {
+		if strings.Contains(errStr, fmt.Sprintf("status %d", code)) {
+			return true
+		}
+	}
+
+	// Also check common descriptive error messages for 5xx responses
+	http5xxDescriptive := []string{
+		"internal server error",
+		"bad gateway",
+		"service unavailable",
+		"gateway timeout",
+		"http version not supported",
+		"variant also negotiates",
+	}
+
+	for _, pattern := range http5xxDescriptive {
 		if strings.Contains(errStr, pattern) {
 			return true
 		}

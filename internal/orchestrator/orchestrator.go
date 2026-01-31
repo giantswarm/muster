@@ -81,6 +81,14 @@ type ServiceInstanceEvent struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// RetryInterval is the interval at which the orchestrator checks for failed servers to retry.
+const RetryInterval = 30 * time.Second
+
+// MaxConcurrentRetries limits the number of MCPServers that can be retried simultaneously.
+// This prevents a "thundering herd" scenario where many failed servers retry at once,
+// potentially overwhelming the system or upstream services.
+const MaxConcurrentRetries = 5
+
 // Orchestrator manages services using the unified service registry architecture.
 // It serves as the single source of truth for all active services, both static and dynamic.
 type Orchestrator struct {
@@ -104,6 +112,9 @@ type Orchestrator struct {
 	// Context for cancellation
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+
+	// WaitGroup for tracking in-flight retry goroutines
+	retryWg sync.WaitGroup
 
 	mu sync.RWMutex
 }
@@ -157,6 +168,9 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		logging.Error("Orchestrator", err, "Failed to process ServiceClass requirements")
 		// Don't fail the orchestrator start if ServiceClass processing fails
 	}
+
+	// Start the background retry loop for failed MCPServers
+	go o.retryFailedMCPServers()
 
 	logging.Info("Orchestrator", "Started orchestrator with unified service management (static: %d, dynamic: %d)",
 		len(staticServices), len(o.instances))
@@ -683,6 +697,113 @@ func (o *Orchestrator) Stop() error {
 	wg.Wait()
 
 	return nil
+}
+
+// retryFailedMCPServers runs a periodic background task that attempts to reconnect
+// MCPServers that have failed due to transient connectivity issues.
+// It respects the exponential backoff calculated by the service.
+func (o *Orchestrator) retryFailedMCPServers() {
+	ticker := time.NewTicker(RetryInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-o.ctx.Done():
+			logging.Debug("Orchestrator", "Stopping failed MCPServer retry loop, waiting for in-flight retries")
+			o.retryWg.Wait()
+			logging.Debug("Orchestrator", "All in-flight retries completed")
+			return
+		case <-ticker.C:
+			o.attemptReconnectFailedServers()
+		}
+	}
+}
+
+// attemptReconnectFailedServers checks all MCPServer services for failed/unreachable
+// ones and attempts to reconnect them if their backoff period has expired.
+// It limits concurrent retries to MaxConcurrentRetries to prevent thundering herd.
+func (o *Orchestrator) attemptReconnectFailedServers() {
+	mcpServers := o.registry.GetByType(services.TypeMCPServer)
+
+	// Collect eligible services first to respect MaxConcurrentRetries limit
+	var eligibleServices []services.Service
+	for _, svc := range mcpServers {
+		if o.shouldAttemptRetry(svc) {
+			eligibleServices = append(eligibleServices, svc)
+		}
+	}
+
+	// Limit concurrent retries to prevent thundering herd
+	retryCount := len(eligibleServices)
+	if retryCount > MaxConcurrentRetries {
+		logging.Info("Orchestrator", "Limiting retry batch from %d to %d services (MaxConcurrentRetries)", retryCount, MaxConcurrentRetries)
+		eligibleServices = eligibleServices[:MaxConcurrentRetries]
+	}
+
+	for _, svc := range eligibleServices {
+		logging.Info("Orchestrator", "Attempting to reconnect failed MCPServer: %s (backoff expired)", svc.GetName())
+
+		o.retryWg.Add(1)
+		go func(service services.Service) {
+			defer o.retryWg.Done()
+
+			// Check context before attempting restart
+			if o.ctx.Err() != nil {
+				logging.Debug("Orchestrator", "Context cancelled, skipping retry for %s", service.GetName())
+				return
+			}
+
+			if err := service.Restart(o.ctx); err != nil {
+				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
+			} else {
+				logging.Info("Orchestrator", "Successfully reconnected MCPServer: %s", service.GetName())
+			}
+		}(svc)
+	}
+}
+
+// shouldAttemptRetry checks if a service should be retried based on its state and backoff timing.
+// Returns true if the service is in a failed/unreachable state and its backoff period has expired.
+func (o *Orchestrator) shouldAttemptRetry(svc services.Service) bool {
+	state := svc.GetState()
+
+	// Only retry services in Failed or Unreachable state
+	if state != services.StateFailed && state != services.StateUnreachable {
+		return false
+	}
+
+	// Check if the service has retry metadata (MCPServer services implement ServiceDataProvider)
+	dataProvider, ok := svc.(services.ServiceDataProvider)
+	if !ok {
+		return false
+	}
+
+	serviceData := dataProvider.GetServiceData()
+	if serviceData == nil {
+		return false
+	}
+
+	// Check if nextRetryAfter is set and has passed
+	nextRetryRaw, hasRetry := serviceData["nextRetryAfter"]
+	if !hasRetry {
+		// No backoff set - skip automatic retry for configuration errors or non-transient errors
+		logging.Debug("Orchestrator", "No retry backoff set for %s, skipping automatic retry", svc.GetName())
+		return false
+	}
+
+	nextRetry, ok := nextRetryRaw.(time.Time)
+	if !ok {
+		logging.Debug("Orchestrator", "Invalid nextRetryAfter type for %s, skipping", svc.GetName())
+		return false
+	}
+
+	// Check if backoff period has expired
+	if time.Now().Before(nextRetry) {
+		logging.Debug("Orchestrator", "Backoff not expired for %s (retry after %v)", svc.GetName(), nextRetry)
+		return false
+	}
+
+	return true
 }
 
 // StartService starts a specific service by name.

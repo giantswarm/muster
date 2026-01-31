@@ -381,6 +381,52 @@ func TestIsTransientConnectivityError(t *testing.T) {
 		"random application error":  "some random error that is not connectivity related",
 	}
 
+	// Add HTTP 5xx error tests - comprehensive coverage of server errors
+	http5xxTests := []struct {
+		name     string
+		errMsg   string
+		expected bool
+	}{
+		// Core 5xx status codes
+		{"status 500", "request failed with status 500: Internal Server Error", true},
+		{"status 501", "request failed with status 501: Not Implemented", true},
+		{"status 502", "request failed with status 502: Bad Gateway", true},
+		{"status 503", "request failed with status 503: Service Temporarily Unavailable", true},
+		{"status 504", "request failed with status 504: Gateway Timeout", true},
+		{"status 505", "request failed with status 505: HTTP Version Not Supported", true},
+		{"status 506", "request failed with status 506: Variant Also Negotiates", true},
+		{"status 507", "request failed with status 507: Insufficient Storage", true},
+		{"status 508", "request failed with status 508: Loop Detected", true},
+		{"status 509", "request failed with status 509: Bandwidth Limit Exceeded", true},
+		// Descriptive patterns for 505/506
+		{"http version not supported", "HTTP Version Not Supported by server", true},
+		{"variant also negotiates", "Variant Also Negotiates error from proxy", true},
+		// Descriptive error messages
+		{"internal server error", "HTTP 500 Internal Server Error from upstream", true},
+		{"bad gateway", "502 Bad Gateway - upstream server unavailable", true},
+		{"service unavailable", "Service Unavailable: try again later", true},
+		{"gateway timeout", "Gateway Timeout waiting for response", true},
+		// Mixed case (lowercased during check)
+		{"mixed case service unavailable", "Service UNAVAILABLE", true},
+		{"mixed case bad gateway", "BAD GATEWAY error", true},
+		// Wrapped errors
+		{"wrapped 503", "connection error: status 503 from server", true},
+		// 4xx errors should NOT be transient
+		{"status 400", "request failed with status 400: Bad Request", false},
+		{"status 401", "request failed with status 401: Unauthorized", false},
+		{"status 403", "request failed with status 403: Forbidden", false},
+		{"status 404", "request failed with status 404: Not Found", false},
+		{"status 429", "request failed with status 429: Too Many Requests", false},
+	}
+
+	for _, tt := range http5xxTests {
+		t.Run("http5xx/"+tt.name, func(t *testing.T) {
+			testErr := errors.New(tt.errMsg)
+			result := svc.isTransientConnectivityError(testErr)
+			assert.Equal(t, tt.expected, result, "isTransientConnectivityError(%q) = %v, want %v", tt.errMsg, result, tt.expected)
+		})
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var testErr error
