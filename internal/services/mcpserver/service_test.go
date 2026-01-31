@@ -393,9 +393,14 @@ func TestIsTransientConnectivityError(t *testing.T) {
 		{"status 502", "request failed with status 502: Bad Gateway", true},
 		{"status 503", "request failed with status 503: Service Temporarily Unavailable", true},
 		{"status 504", "request failed with status 504: Gateway Timeout", true},
+		{"status 505", "request failed with status 505: HTTP Version Not Supported", true},
+		{"status 506", "request failed with status 506: Variant Also Negotiates", true},
 		{"status 507", "request failed with status 507: Insufficient Storage", true},
 		{"status 508", "request failed with status 508: Loop Detected", true},
 		{"status 509", "request failed with status 509: Bandwidth Limit Exceeded", true},
+		// Descriptive patterns for 505/506
+		{"http version not supported", "HTTP Version Not Supported by server", true},
+		{"variant also negotiates", "Variant Also Negotiates error from proxy", true},
 		// Descriptive error messages
 		{"internal server error", "HTTP 500 Internal Server Error from upstream", true},
 		{"bad gateway", "502 Bad Gateway - upstream server unavailable", true},

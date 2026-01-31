@@ -84,6 +84,11 @@ type ServiceInstanceEvent struct {
 // RetryInterval is the interval at which the orchestrator checks for failed servers to retry.
 const RetryInterval = 30 * time.Second
 
+// MaxConcurrentRetries limits the number of MCPServers that can be retried simultaneously.
+// This prevents a "thundering herd" scenario where many failed servers retry at once,
+// potentially overwhelming the system or upstream services.
+const MaxConcurrentRetries = 5
+
 // Orchestrator manages services using the unified service registry architecture.
 // It serves as the single source of truth for all active services, both static and dynamic.
 type Orchestrator struct {
@@ -716,14 +721,26 @@ func (o *Orchestrator) retryFailedMCPServers() {
 
 // attemptReconnectFailedServers checks all MCPServer services for failed/unreachable
 // ones and attempts to reconnect them if their backoff period has expired.
+// It limits concurrent retries to MaxConcurrentRetries to prevent thundering herd.
 func (o *Orchestrator) attemptReconnectFailedServers() {
 	mcpServers := o.registry.GetByType(services.TypeMCPServer)
 
+	// Collect eligible services first to respect MaxConcurrentRetries limit
+	var eligibleServices []services.Service
 	for _, svc := range mcpServers {
-		if !o.shouldAttemptRetry(svc) {
-			continue
+		if o.shouldAttemptRetry(svc) {
+			eligibleServices = append(eligibleServices, svc)
 		}
+	}
 
+	// Limit concurrent retries to prevent thundering herd
+	retryCount := len(eligibleServices)
+	if retryCount > MaxConcurrentRetries {
+		logging.Info("Orchestrator", "Limiting retry batch from %d to %d services (MaxConcurrentRetries)", retryCount, MaxConcurrentRetries)
+		eligibleServices = eligibleServices[:MaxConcurrentRetries]
+	}
+
+	for _, svc := range eligibleServices {
 		logging.Info("Orchestrator", "Attempting to reconnect failed MCPServer: %s (backoff expired)", svc.GetName())
 
 		o.retryWg.Add(1)

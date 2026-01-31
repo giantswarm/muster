@@ -213,7 +213,9 @@ func (s *Service) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Restart restarts the MCP server service
+// Restart restarts the MCP server service.
+// This method performs a graceful restart by stopping the service first (if running),
+// waiting a brief grace period, and then starting it again.
 func (s *Service) Restart(ctx context.Context) error {
 	s.LogInfo("Restarting MCP server service")
 
@@ -230,7 +232,11 @@ func (s *Service) Restart(ctx context.Context) error {
 		}
 	}
 
-	// Wait a moment between stop and start
+	// Grace period between stop and start to allow:
+	// - Subprocess cleanup and port release for stdio servers
+	// - Connection draining for remote HTTP/SSE servers
+	// - Upstream load balancers to detect the disconnect
+	// This is a deliberate pause, not a race condition workaround.
 	time.Sleep(200 * time.Millisecond)
 
 	if err := s.Start(ctx); err != nil {
@@ -677,11 +683,13 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// - Descriptive patterns catch human-readable error messages
 	http5xxPatterns := []string{
 		"status 500", "status 501", "status 502", "status 503", "status 504",
-		"status 507", "status 508", "status 509",
+		"status 505", "status 506", "status 507", "status 508", "status 509",
 		"internal server error",
 		"bad gateway",
 		"service unavailable",
 		"gateway timeout",
+		"http version not supported",
+		"variant also negotiates",
 	}
 
 	for _, pattern := range http5xxPatterns {
