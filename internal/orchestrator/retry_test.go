@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -22,6 +23,11 @@ type mockService struct {
 	restartErr   error
 	restartMu    sync.Mutex
 }
+
+// Compile-time interface verification
+var _ services.Service = (*mockService)(nil)
+var _ services.Service = (*mockServiceWithData)(nil)
+var _ services.ServiceDataProvider = (*mockServiceWithData)(nil)
 
 func (m *mockService) Start(ctx context.Context) error                              { return nil }
 func (m *mockService) Stop(ctx context.Context) error                               { return nil }
@@ -313,15 +319,17 @@ func TestRetryFailedMCPServers_Shutdown(t *testing.T) {
 			ctx:      ctx,
 		}
 
-		// Start the retry loop
+		// Start the retry loop with proper synchronization
+		started := make(chan struct{})
 		done := make(chan struct{})
 		go func() {
+			close(started) // Signal that goroutine is running
 			o.retryFailedMCPServers()
 			close(done)
 		}()
 
-		// Give the loop time to start
-		time.Sleep(10 * time.Millisecond)
+		// Wait for goroutine to start (no time.Sleep needed)
+		<-started
 
 		// Cancel the context
 		cancel()
@@ -333,5 +341,40 @@ func TestRetryFailedMCPServers_Shutdown(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("retryFailedMCPServers did not exit after context cancellation")
 		}
+	})
+}
+
+func TestAttemptReconnectFailedServers_RestartError(t *testing.T) {
+	t.Run("handles restart errors gracefully", func(t *testing.T) {
+		registry := services.NewRegistry()
+
+		// Create a service that returns an error on restart
+		errorService := &mockServiceWithData{
+			mockService: mockService{
+				name:       "error-server",
+				state:      services.StateFailed,
+				restartErr: errors.New("connection refused"),
+			},
+			serviceData: map[string]interface{}{
+				"nextRetryAfter": time.Now().Add(-1 * time.Minute),
+			},
+		}
+		require.NoError(t, registry.Register(errorService))
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		o := &Orchestrator{
+			registry: registry,
+			ctx:      ctx,
+		}
+
+		o.attemptReconnectFailedServers()
+		o.retryWg.Wait()
+
+		// Service should have been attempted (even though it failed)
+		assert.Equal(t, 1, errorService.GetRestartCount())
+		// State should remain failed (mock doesn't change state)
+		assert.Equal(t, services.StateFailed, errorService.GetState())
 	})
 }

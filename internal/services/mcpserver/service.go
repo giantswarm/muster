@@ -35,6 +35,13 @@ const (
 	BackoffMultiplier = 2.0
 )
 
+// RestartGracePeriod is the pause between stop and start during a restart.
+// This allows time for:
+// - Subprocess cleanup and port release for stdio servers
+// - Connection draining for remote HTTP/SSE servers
+// - Upstream load balancers to detect the disconnect
+const RestartGracePeriod = 200 * time.Millisecond
+
 // Service implements the Service interface for MCP server management
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
@@ -232,12 +239,8 @@ func (s *Service) Restart(ctx context.Context) error {
 		}
 	}
 
-	// Grace period between stop and start to allow:
-	// - Subprocess cleanup and port release for stdio servers
-	// - Connection draining for remote HTTP/SSE servers
-	// - Upstream load balancers to detect the disconnect
-	// This is a deliberate pause, not a race condition workaround.
-	time.Sleep(200 * time.Millisecond)
+	// Grace period between stop and start (see RestartGracePeriod constant for rationale)
+	time.Sleep(RestartGracePeriod)
 
 	if err := s.Start(ctx); err != nil {
 		// Generate recovery failed event
@@ -626,7 +629,7 @@ func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, erro
 // - Network unreachable (routing issues)
 // - DNS resolution failures
 // - Timeouts
-// - HTTP 5xx server errors (500-504, 507-509)
+// - HTTP 5xx server errors (500-511)
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
@@ -678,12 +681,15 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	}
 
 	// HTTP 5xx errors are transient server errors that may resolve with retry.
-	// Patterns are ordered from most specific to catch common error formats:
-	// - "status 5xx" catches structured HTTP client errors
-	// - Descriptive patterns catch human-readable error messages
-	http5xxPatterns := []string{
-		"status 500", "status 501", "status 502", "status 503", "status 504",
-		"status 505", "status 506", "status 507", "status 508", "status 509",
+	// Check numeric status codes 500-511 (covers all standard 5xx codes)
+	for code := 500; code <= 511; code++ {
+		if strings.Contains(errStr, fmt.Sprintf("status %d", code)) {
+			return true
+		}
+	}
+
+	// Also check common descriptive error messages for 5xx responses
+	http5xxDescriptive := []string{
 		"internal server error",
 		"bad gateway",
 		"service unavailable",
@@ -692,7 +698,7 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 		"variant also negotiates",
 	}
 
-	for _, pattern := range http5xxPatterns {
+	for _, pattern := range http5xxDescriptive {
 		if strings.Contains(errStr, pattern) {
 			return true
 		}
