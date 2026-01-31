@@ -620,6 +620,7 @@ func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, erro
 // - Network unreachable (routing issues)
 // - DNS resolution failures
 // - Timeouts
+// - HTTP 5xx server errors (500-504, 507-509)
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
@@ -665,6 +666,25 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	}
 
 	for _, pattern := range transientPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// HTTP 5xx errors are transient server errors that may resolve with retry.
+	// Patterns are ordered from most specific to catch common error formats:
+	// - "status 5xx" catches structured HTTP client errors
+	// - Descriptive patterns catch human-readable error messages
+	http5xxPatterns := []string{
+		"status 500", "status 501", "status 502", "status 503", "status 504",
+		"status 507", "status 508", "status 509",
+		"internal server error",
+		"bad gateway",
+		"service unavailable",
+		"gateway timeout",
+	}
+
+	for _, pattern := range http5xxPatterns {
 		if strings.Contains(errStr, pattern) {
 			return true
 		}
