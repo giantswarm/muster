@@ -58,28 +58,25 @@ muster auth login --no-silent
 
 1. Muster probes the endpoint to check if OAuth is required
 2. If required, discovers OAuth metadata (issuer, authorization endpoint)
-3. **Silent re-authentication** (if previous session exists):
-   - Opens browser with OIDC `prompt=none` parameter
-   - If IdP session is still valid, completes without user interaction
-   - If IdP session expired, falls back to interactive login
-4. Opens your browser to the authorization page (if interactive)
-5. Waits for you to complete authentication
-6. Stores the token securely for future use
+3. Opens your browser to the authorization page
+4. Waits for you to complete authentication
+5. Stores the token securely for future use
 
-**Silent Re-Authentication:**
+**Silent Re-Authentication (Optional):**
 
-When you have a previous session (stored token), muster attempts silent re-authentication using the OIDC `prompt=none` parameter. This provides a seamless experience similar to `tsh kube login`:
+Silent re-authentication is **disabled by default** because Dex (the default IdP) does not support OIDC `prompt=none`. When silent auth fails, it causes two browser tabs to open.
 
-- The browser opens briefly but redirects quickly if your IdP session is valid
-- No user interaction is required for re-authentication
-- Falls back gracefully to interactive login when the IdP session expires
+If your IdP supports `prompt=none`, you can enable silent re-authentication with the `--silent` flag:
 
-**Note:** You will see a browser window open briefly even during silent re-authentication. This is expected behavior - OIDC requires the browser to complete the redirect flow. The window typically closes within a few seconds.
+```bash
+muster auth login --silent
+```
 
-To disable silent re-authentication:
+When enabled, silent re-authentication provides a seamless experience:
 
-- **Per command:** Use `--no-silent` flag
-- **Permanently:** Set `auth.silent_refresh: false` in config (see [Configuration](../configuration.md#auth-configuration))
+- Opens browser with OIDC `prompt=none` parameter
+- If IdP session is still valid, completes without user interaction
+- If IdP session expired, falls back to interactive login
 
 ### muster auth logout
 
@@ -418,22 +415,14 @@ This is expected when your IdP session has expired. The IdP returns `login_requi
 
 **Symptom:** Browser opens twice during login
 
-This happens when silent auth fails and muster retries with interactive auth. This is normal behavior - the first attempt is silent, the second is interactive.
+This happens when silent auth is enabled via `--silent` but fails (e.g., IdP session expired), causing muster to retry with interactive auth. Silent auth is disabled by default to prevent this.
 
-**Symptom:** Silent re-auth never works, always requires clicking in browser
+If you're using `--silent` and experience this issue, your IdP may not support `prompt=none`. See the [Known Limitations](#silent-re-auth-known-limitations) section below.
 
-This may be due to your Identity Provider not supporting `prompt=none`. See the [Known Limitations](#silent-re-auth-known-limitations) section below.
-
-**Disable silent auth if problematic:**
+**Solution:** Simply don't use the `--silent` flag:
 
 ```bash
-# For a single command
-muster auth login --no-silent
-
-# Permanently in config
-# ~/.config/muster/config.yaml
-auth:
-  silent_refresh: false
+muster auth login  # Uses interactive auth (default)
 ```
 
 ### Silent Re-Auth Known Limitations

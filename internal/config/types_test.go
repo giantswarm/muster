@@ -2,8 +2,6 @@ package config
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestOAuthMCPClientConfig_GetEffectiveClientID(t *testing.T) {
@@ -208,21 +206,5 @@ func TestOAuthMCPClientConfig_GetRedirectURI(t *testing.T) {
 	}
 }
 
-func TestAuthConfig_IsSilentRefreshEnabled(t *testing.T) {
-	t.Run("returns true when SilentRefresh is nil (default)", func(t *testing.T) {
-		cfg := AuthConfig{}
-		assert.True(t, cfg.IsSilentRefreshEnabled())
-	})
-
-	t.Run("returns true when SilentRefresh is explicitly true", func(t *testing.T) {
-		silentRefresh := true
-		cfg := AuthConfig{SilentRefresh: &silentRefresh}
-		assert.True(t, cfg.IsSilentRefreshEnabled())
-	})
-
-	t.Run("returns false when SilentRefresh is explicitly false", func(t *testing.T) {
-		silentRefresh := false
-		cfg := AuthConfig{SilentRefresh: &silentRefresh}
-		assert.False(t, cfg.IsSilentRefreshEnabled())
-	})
-}
+// TestAuthConfig_IsSilentRefreshEnabled removed - AuthConfig is deprecated.
+// CLI authentication settings are now controlled via command-line flags only.

@@ -83,43 +83,30 @@ The aggregator manages the unified MCP interface and tool aggregation.
 
 ### Auth Configuration
 
-The auth configuration controls CLI authentication behavior.
+#### Silent Re-Authentication (CLI Flag)
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `silent_refresh` | `bool` | `true` | Enable silent re-authentication using OIDC `prompt=none` |
+Silent re-authentication is controlled via CLI flags only, not configuration file.
 
-#### Silent Re-Authentication
+By default, muster uses interactive authentication. If your IdP supports OIDC `prompt=none` (note: Dex does not), you can enable silent re-authentication with the `--silent` flag:
 
-When `silent_refresh` is enabled (the default), `muster auth login` attempts silent re-authentication before showing the login page:
+```bash
+muster auth login --silent     # Attempt silent re-auth before interactive
+muster agent --silent          # Enable silent auth for agent
+```
+
+When `--silent` is used:
 
 1. If you have a previous session, muster opens the browser with OIDC `prompt=none`
 2. If your IdP session is still valid, authentication completes without user interaction
 3. If the IdP session has expired, muster falls back to interactive login
 
-This provides a seamless experience similar to `tsh kube login` where the browser opens briefly but no interaction is needed if you have an existing IdP session.
+**Note:** Silent auth is disabled by default because Dex (the default IdP) does not support `prompt=none`. When silent auth fails with Dex, it causes two browser tabs to open.
 
-**Note:** You will see a browser window open briefly even during silent auth. This is expected - OIDC requires the browser to complete the redirect. The window typically closes within a few seconds if your IdP session is valid.
-
-**Security:** Silent re-authentication maintains full security:
+**Security:** When enabled, silent re-authentication maintains full security:
 - PKCE is enforced on every flow
 - State parameter prevents CSRF attacks
 - The IdP validates the session, not muster
 - Any failure falls back to interactive authentication
-
-To disable silent re-authentication globally:
-
-```yaml
-# ~/.config/muster/config.yaml
-auth:
-  silent_refresh: false  # Always use interactive login
-```
-
-You can also use the `--no-silent` flag to skip silent auth for a single command:
-
-```bash
-muster auth login --no-silent
-```
 
 ### Example Configurations
 
