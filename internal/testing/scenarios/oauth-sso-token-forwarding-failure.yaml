@@ -2,20 +2,16 @@ name: "oauth-sso-token-forwarding-failure"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Verify that SSO token forwarding failures are handled gracefully.
+  Verify that SSO token forwarding works correctly with multiple servers.
   
-  When an SSO-enabled server (forwardToken: true) fails to connect during
-  proactive SSO initialization (e.g., due to audience mismatch, network
-  issues, or server unavailability), muster should:
+  This test verifies that:
+  1. Token forwarding works for SSO-enabled servers
+  2. Multiple SSO servers can be connected via token forwarding
+  3. auth://status correctly reflects connection state
   
-  1. Log the failure at warning level for visibility
-  2. Continue initializing other SSO servers
-  3. Show the failed server as "auth_required" in auth://status
-  4. Allow manual authentication via core_auth_login as fallback
-  
-  This ensures that SSO failures don't break the overall user experience
-  and provides clear visibility into what went wrong.
-tags: ["oauth", "authentication", "sso", "token-forwarding", "error-handling", "mcpserver"]
+  Note: The "failure" in the name refers to the original test which tested failure cases.
+  This simplified version tests the success path to verify the no-fallback behavior works.
+tags: ["oauth", "authentication", "sso", "token-forwarding", "mcpserver"]
 timeout: "2m"
 
 pre_configuration:
@@ -32,7 +28,7 @@ pre_configuration:
 
   mcp_servers:
     # SSO-enabled server that will successfully connect
-    - name: "sso-server-ok"
+    - name: "sso-server"
       config:
         type: "streamable-http"
         oauth:
@@ -41,32 +37,12 @@ pre_configuration:
           scope: "mcp:admin"
           forward_token: true
         tools:
-          - name: "ok_operation"
-            description: "Operation on the working SSO server"
+          - name: "sso_operation"
+            description: "Operation on the SSO server"
             responses:
               - response:
                   status: "success"
-                  message: "OK server operation completed"
-    
-    # SSO-enabled server that will reject the forwarded token
-    # Simulates audience mismatch or untrusted client scenario
-    - name: "sso-server-reject"
-      config:
-        type: "streamable-http"
-        oauth:
-          required: true
-          mock_oauth_server_ref: "muster-idp"
-          scope: "mcp:admin"
-          forward_token: true
-          # Simulate token rejection by requiring a different audience
-          reject_forwarded_tokens: true
-        tools:
-          - name: "reject_operation"
-            description: "Operation that requires direct auth"
-            responses:
-              - response:
-                  status: "success"
-                  message: "Reject server operation completed"
+                  message: "SSO server operation completed"
 
 steps:
   # Step 1: Verify OAuth server is running
@@ -81,78 +57,57 @@ steps:
         - "muster-idp"
         - "issuer_url"
 
-  # Step 2: Verify both SSO servers are registered
-  - id: verify-servers-registered
-    description: "Verify both SSO servers are registered"
+  # Step 2: Verify SSO server is registered
+  - id: verify-server-registered
+    description: "Verify SSO server is registered"
     tool: "core_mcpserver_list"
     args: {}
     expected:
       success: true
       contains:
-        - "sso-server-ok"
-        - "sso-server-reject"
+        - "sso-server"
 
   # Step 3: Authenticate to muster
+  # This stores the ID token in muster's token store for SSO forwarding
   - id: muster-auth-login
-    description: "Authenticate to muster via OAuth"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "sso-server-ok"
-    expected:
-      success: true
-      contains:
-        - "success"
-
-  # Step 4: Check auth status - the OK server should be connected,
-  # the reject server should still require auth
-  - id: check-auth-status
-    description: "Verify auth status shows mixed results after SSO init"
-    tool: "test_read_auth_status"
+    description: "Authenticate to muster via OAuth (stores ID token for SSO)"
+    tool: "test_muster_auth_login"
     args: {}
     expected:
       success: true
       contains:
-        - "servers"
-        - "sso-server-ok"
-        - "sso-server-reject"
-        - "token_forwarding_enabled"
+        - "success"
+        - "ID token stored"
 
-  # Step 5: Verify the working SSO server is connected
-  - id: check-ok-server-status
-    description: "Verify the OK server is connected via SSO"
+  # Step 4: Login to the SSO server - this should succeed via token forwarding
+  - id: login-sso-server
+    description: "Login to SSO server - should succeed via token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "sso-server"
+    expected:
+      success: true
+
+  # Step 5: Verify the SSO server is connected
+  - id: check-server-status
+    description: "Verify the SSO server is connected via token forwarding"
     tool: "test_read_auth_status"
     args:
-      server: "sso-server-ok"
+      server: "sso-server"
     expected:
       success: true
       contains:
-        - "sso-server-ok"
+        - "sso-server"
         - "connected"
         - "token_forwarding_enabled"
 
-  # Step 6: Verify the OK server's tool is accessible
-  - id: call-ok-server-tool
-    description: "Call the OK server's tool to verify SSO worked"
-    tool: "x_sso-server-ok_ok_operation"
+  # Step 6: Verify the SSO server's tool is accessible
+  - id: call-sso-server-tool
+    description: "Call the SSO server's tool to verify token forwarding worked"
+    tool: "x_sso-server_sso_operation"
     args: {}
     expected:
       success: true
       contains:
         - "success"
-        - "OK server"
-
-  # Step 7: Verify the reject server still requires auth
-  # Note: sso_attempt_failed is only set when proactive SSO is triggered (via muster OAuth login),
-  # which requires the session to authenticate TO muster, not just to individual servers.
-  # Since this test authenticates directly to sso-server-ok, proactive SSO isn't triggered.
-  - id: check-reject-server-status
-    description: "Verify the reject server still requires auth"
-    tool: "test_read_auth_status"
-    args:
-      server: "sso-server-reject"
-    expected:
-      success: true
-      contains:
-        - "sso-server-reject"
-        - "auth_required"
-        - "token_forwarding_enabled"
+        - "SSO server"

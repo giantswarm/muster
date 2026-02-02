@@ -85,23 +85,6 @@ func getEndpointFromConfig() (string, error) {
 	return cli.GetAggregatorEndpoint(&cfg), nil
 }
 
-// getEndpointFromLoadedConfig returns the aggregator endpoint using an already-loaded config.
-// It respects the precedence: --endpoint > --context > MUSTER_CONTEXT > current-context > config.
-// Use this when config has already been loaded to avoid redundant file reads.
-func getEndpointFromLoadedConfig(cfg *config.MusterConfig) (string, error) {
-	// Try to resolve endpoint from context first
-	endpoint, err := cli.ResolveEndpoint(authEndpoint, authContext)
-	if err != nil {
-		return "", err
-	}
-	if endpoint != "" {
-		return endpoint, nil
-	}
-
-	// Fall back to config-based resolution using provided config
-	return cli.GetAggregatorEndpoint(cfg), nil
-}
-
 // createConnectedClient creates and connects an authenticated client to the aggregator.
 // The caller is responsible for calling client.Close() when done.
 func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {

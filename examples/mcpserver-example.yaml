@@ -104,5 +104,3 @@ spec:
     # from Dex, resulting in an ID token that Kubernetes will accept
     requiredAudiences:
       - "dex-k8s-authenticator"
-    # If token forwarding fails (e.g., audience mismatch), trigger separate auth
-    fallbackToOwnAuth: true

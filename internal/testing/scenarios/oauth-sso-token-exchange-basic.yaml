@@ -130,17 +130,17 @@ steps:
         - "local-cluster-server"
         - "remote-mcp-kubernetes"
 
-  # Step 3: Authenticate to the LOCAL server first (using cluster-a-idp)
-  # This establishes the ID token from cluster-a-idp in muster's session
-  - id: authenticate-local-server
-    description: "Authenticate to local server via cluster-a-idp (establishes ID token)"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "local-cluster-server"
+  # Step 3: Authenticate to muster (simulates `muster auth login`)
+  # This stores the ID token from cluster-a-idp in muster's token store for SSO
+  - id: muster-auth-login
+    description: "Authenticate to muster via cluster-a-idp (stores ID token)"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
   # Step 4: Login to the local server to complete the SSO connection
   - id: login-local-server

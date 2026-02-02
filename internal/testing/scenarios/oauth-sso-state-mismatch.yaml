@@ -79,15 +79,16 @@ steps:
         - "state-test-server"
 
   # Step 3: Authenticate to muster (simulates `muster auth login`)
-  - id: authenticate
-    description: "Authenticate to muster via OAuth"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "state-test-server"
+  # This stores the ID token in muster's token store for SSO forwarding
+  - id: muster-auth-login
+    description: "Authenticate to muster via OAuth (stores ID token in token store)"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
   # Step 4: Establish session connection to trigger proactive SSO
   - id: establish-connection

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"muster/internal/api"
-	"muster/internal/config"
 	pkgoauth "muster/pkg/oauth"
 
 	"github.com/spf13/cobra"
@@ -13,9 +12,9 @@ import (
 
 // Login-specific flags
 var (
-	loginAll      bool
-	loginServer   string
-	loginNoSilent bool
+	loginAll    bool
+	loginServer string
+	loginSilent bool
 )
 
 // authLoginCmd represents the auth login command
@@ -27,17 +26,12 @@ var authLoginCmd = &cobra.Command{
 This command initiates an OAuth browser-based authentication flow to obtain
 access tokens for connecting to OAuth-protected muster aggregators.
 
-By default, if you have a previous session, muster attempts silent re-authentication
-using OIDC prompt=none. This allows seamless token refresh when the user already has
-a valid session at the Identity Provider (IdP). If silent auth fails, muster falls
-back to interactive authentication.
-
 Examples:
   muster auth login                    # Login to configured aggregator
   muster auth login --endpoint <url>   # Login to specific endpoint
   muster auth login --server <name>    # Login to specific MCP server
   muster auth login --all              # Login to aggregator + all pending MCP servers
-  muster auth login --no-silent        # Skip silent re-auth, always show login page`,
+  muster auth login --silent           # Attempt silent re-auth (requires IdP support)`,
 	RunE: runAuthLogin,
 }
 
@@ -45,30 +39,16 @@ func init() {
 	// Login-specific flags (only on login subcommand)
 	authLoginCmd.Flags().BoolVar(&loginAll, "all", false, "Login to aggregator and all pending MCP servers")
 	authLoginCmd.Flags().StringVar(&loginServer, "server", "", "MCP server name (managed by aggregator) to authenticate to")
-	authLoginCmd.Flags().BoolVar(&loginNoSilent, "no-silent", false, "Skip silent re-authentication, always use interactive login")
+	authLoginCmd.Flags().BoolVar(&loginSilent, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	// Load config once for both auth settings and endpoint resolution
-	cfg, err := config.LoadConfig(authConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Determine the effective noSilent value:
-	// 1. If --no-silent flag was explicitly set, use it
-	// 2. Otherwise, use the config value (inverted: silent_refresh: false means noSilent: true)
-	noSilent := loginNoSilent
-	if !cmd.Flags().Changed("no-silent") {
-		// Flag not explicitly set - use config value
-		noSilent = !cfg.Auth.IsSilentRefreshEnabled()
-	}
-
-	// Create handler with options based on flags and config
+	// Silent refresh is disabled by default (Dex doesn't support prompt=none)
+	// Use --silent flag to opt-in if your IdP supports it
 	handler, err := ensureAuthHandlerWithOptions(AuthHandlerOptions{
-		NoSilentRefresh: noSilent,
+		NoSilentRefresh: !loginSilent,
 	})
 	if err != nil {
 		return err
@@ -79,8 +59,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	if authEndpoint != "" {
 		endpoint = authEndpoint
 	} else {
-		// Use configured aggregator endpoint (reuse loaded config)
-		endpoint, err = getEndpointFromLoadedConfig(&cfg)
+		endpoint, err = getEndpointFromConfig()
 		if err != nil {
 			return err
 		}
@@ -163,12 +142,19 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 		return nil
 	}
 
-	// Find all servers requiring authentication
+	// Find all servers requiring authentication, excluding SSO servers
+	// SSO servers (token forwarding/exchange) are handled automatically by proactive SSO
+	// and don't need separate browser-based OAuth authentication
 	var pendingServers []pkgoauth.ServerAuthStatus
 	for _, srv := range authStatus.Servers {
-		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
-			pendingServers = append(pendingServers, srv)
+		if srv.Status != pkgoauth.ServerStatusAuthRequired || srv.AuthTool == "" {
+			continue
 		}
+		// Skip SSO-enabled servers unless SSO explicitly failed
+		if (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) && !srv.SSOAttemptFailed {
+			continue
+		}
+		pendingServers = append(pendingServers, srv)
 	}
 
 	if len(pendingServers) == 0 {

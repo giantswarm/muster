@@ -308,6 +308,11 @@ type MockOAuthServerInfo struct {
 	// (UseAsMusterOAuthServer=true), allowing the test framework to authenticate
 	// with muster without implementing the full OAuth browser flow.
 	AccessToken string
+	// IDToken is the ID token from the OAuth response.
+	// This is used for SSO token forwarding tests.
+	IDToken string
+	// UseAsMusterOAuthServer indicates this OAuth server is used as muster's OAuth server.
+	UseAsMusterOAuthServer bool
 }
 
 // InstanceLogs contains the captured logs from an muster instance

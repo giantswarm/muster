@@ -35,6 +35,7 @@ var (
 	agentConfigPath     string
 	agentDisableAutoSSO bool
 	agentAuthMode       string
+	agentSilentAuth     bool
 )
 
 // agentCmd represents the agent command
@@ -93,6 +94,7 @@ func init() {
 	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
 	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after Muster auth")
 	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: auto (default), prompt, or none (env: MUSTER_AUTH_MODE)")
+	agentCmd.Flags().BoolVar(&agentSilentAuth, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 
 	// Mark flags as mutually exclusive
 	agentCmd.MarkFlagsMutuallyExclusive("repl", "mcp-server")
@@ -209,7 +211,11 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 	handler := api.GetAuthHandler()
 	if handler == nil {
 		// No auth handler - create and register one
-		adapter, err := cli.NewAuthAdapter()
+		// Silent refresh is disabled by default (Dex doesn't support prompt=none)
+		// Use --silent flag to opt-in if your IdP supports it
+		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
+			NoSilentRefresh: !agentSilentAuth,
+		})
 		if err != nil {
 			logger.Info("Warning: Could not initialize auth adapter: %v", err)
 			return nil

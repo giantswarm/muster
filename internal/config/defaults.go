@@ -21,10 +21,6 @@ const (
 
 	// DefaultOAuthStorageType is the default storage type for OAuth tokens.
 	DefaultOAuthStorageType = "memory"
-
-	// DefaultAuthSilentRefresh is the default value for silent re-authentication.
-	// When true, the CLI attempts OIDC prompt=none when a previous session exists.
-	DefaultAuthSilentRefresh = true
 )
 
 // GetDefaultConfigWithRoles returns default configuration

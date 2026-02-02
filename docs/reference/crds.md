@@ -63,7 +63,6 @@ spec:
     forwardToken: true        # Forward muster's ID token for SSO
     requiredAudiences:        # Audiences needed in forwarded token (e.g., for Kubernetes OIDC)
       - "dex-k8s-authenticator"
-    fallbackToOwnAuth: true   # Fallback to separate OAuth if forwarding fails
 
 # Status is managed automatically by muster (via reconciliation)
 status:
@@ -100,7 +99,6 @@ status:
 | `type` | `string` | No | Authentication type | Must be `oauth`, `teleport`, or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken` or `tokenExchange` |
-| `fallbackToOwnAuth` | `boolean` | No | Fallback to separate OAuth flow if forwarding/exchange fails | Default: `true` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `teleport` | `TeleportAuth` | No | Teleport authentication settings (when `type: teleport`) | See below |
 
@@ -296,14 +294,12 @@ spec:
   auth:
     type: oauth
     forwardToken: true           # Forward muster's ID token for SSO
-    fallbackToOwnAuth: true      # If forwarding fails, trigger separate auth
 ```
 
 When `forwardToken: true` is configured:
 1. User authenticates to muster once via OAuth
 2. When calling this MCP server, muster forwards the user's ID token
 3. The downstream server validates the token (must configure `TrustedAudiences`)
-4. If forwarding fails and `fallbackToOwnAuth: true`, a separate OAuth flow is triggered
 
 Downstream servers must be configured to trust muster's client ID:
 - **mcp-kubernetes**: Set `oauth.trustedAudiences: ["muster-client"]` in Helm values
@@ -329,7 +325,6 @@ spec:
       dexTokenEndpoint: "https://dex.remote-cluster.example.com/token"
       connectorId: "local-cluster-dex"
       scopes: "openid profile email groups"
-    fallbackToOwnAuth: false
 ```
 
 When `tokenExchange.enabled: true` is configured:
@@ -380,7 +375,6 @@ spec:
         namespace: muster  # Optional, defaults to MCPServer namespace
         clientIdKey: client-id      # Optional, defaults to "client-id"
         clientSecretKey: client-secret  # Optional, defaults to "client-secret"
-    fallbackToOwnAuth: false
 ```
 
 The referenced secret should be created before the MCPServer:
@@ -430,7 +424,6 @@ spec:
       # Expected issuer is the actual Dex issuer (not the proxy URL)
       expectedIssuer: "https://dex.private-cluster.internal.example.com"
       connectorId: "management-cluster-dex"
-    fallbackToOwnAuth: true
 ```
 
 When accessing Dex through a proxy (e.g., VPN, HTTP proxy):
@@ -473,7 +466,6 @@ spec:
       expectedIssuer: "https://dex.private-cluster.internal.example.com"
       connectorId: "management-cluster-dex"
       scopes: "openid profile email groups"
-    fallbackToOwnAuth: false
 ```
 
 This configuration combines:

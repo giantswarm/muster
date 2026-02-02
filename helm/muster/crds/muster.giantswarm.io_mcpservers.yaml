@@ -69,14 +69,6 @@ spec:
                   Auth configures authentication behavior for this MCP server.
                   This is only relevant for remote servers (streamable-http or sse).
                 properties:
-                  fallbackToOwnAuth:
-                    default: true
-                    description: |-
-                      FallbackToOwnAuth enables fallback to server-specific OAuth flow.
-                      When true and token forwarding fails (e.g., 401 response despite forwarded token),
-                      muster will trigger a separate OAuth flow for this server.
-                      When false, token forwarding failures result in an error.
-                    type: boolean
                   forwardToken:
                     default: false
                     description: |-

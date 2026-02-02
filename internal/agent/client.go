@@ -1311,11 +1311,14 @@ type authStatusResponse struct {
 }
 
 type authServerStatus struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	Issuer   string `json:"issuer,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"`
+	Name                   string `json:"name"`
+	Status                 string `json:"status"`
+	Issuer                 string `json:"issuer,omitempty"`
+	Scope                  string `json:"scope,omitempty"`
+	AuthTool               string `json:"auth_tool,omitempty"`
+	TokenForwardingEnabled bool   `json:"token_forwarding_enabled,omitempty"`
+	TokenExchangeEnabled   bool   `json:"token_exchange_enabled,omitempty"`
+	SSOAttemptFailed       bool   `json:"sso_attempt_failed,omitempty"`
 }
 
 // AuthRequiredInfo contains information about a server requiring authentication.
@@ -1364,17 +1367,27 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 		return []AuthRequiredInfo{}
 	}
 
-	// Build the auth required list
+	// Build the auth required list, excluding SSO servers that should be handled
+	// automatically via token forwarding or token exchange (unless SSO failed)
 	var authRequired []AuthRequiredInfo
 	for _, srv := range status.Servers {
-		if srv.Status == "auth_required" {
-			authRequired = append(authRequired, AuthRequiredInfo{
-				Server:   srv.Name,
-				Issuer:   srv.Issuer,
-				Scope:    srv.Scope,
-				AuthTool: srv.AuthTool,
-			})
+		if srv.Status != "auth_required" {
+			continue
 		}
+
+		// Skip SSO-enabled servers unless SSO explicitly failed
+		// These servers use token forwarding or token exchange and don't need
+		// separate browser-based OAuth authentication
+		if (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) && !srv.SSOAttemptFailed {
+			continue
+		}
+
+		authRequired = append(authRequired, AuthRequiredInfo{
+			Server:   srv.Name,
+			Issuer:   srv.Issuer,
+			Scope:    srv.Scope,
+			AuthTool: srv.AuthTool,
+		})
 	}
 
 	return authRequired

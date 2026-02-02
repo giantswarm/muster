@@ -449,6 +449,12 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 
 	s.mu.Lock()
 	s.issuedTokens[accessToken] = token
+	// Also store the ID token for SSO token forwarding validation.
+	// When muster forwards the ID token to downstream MCP servers, those servers
+	// need to be able to validate it against this OAuth server.
+	if idToken != "" {
+		s.issuedTokens[idToken] = token
+	}
 	delete(s.authCodes, code)
 	s.mu.Unlock()
 
@@ -506,6 +512,10 @@ func (s *OAuthServer) GenerateTestToken(clientID, scope string) *TokenResponse {
 	}
 
 	s.issuedTokens[accessToken] = token
+	// Also store the ID token for SSO token forwarding validation.
+	if idToken != "" {
+		s.issuedTokens[idToken] = token
+	}
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Generated test token for client %s (scope: %s)\n", clientID, scope)
@@ -753,6 +763,12 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 
 	s.mu.Lock()
 	s.issuedTokens[accessToken] = token
+	// Also store the ID token for SSO token forwarding validation.
+	// When muster forwards the ID token to downstream MCP servers, those servers
+	// need to be able to validate it against this OAuth server.
+	if idToken != "" {
+		s.issuedTokens[idToken] = token
+	}
 	s.mu.Unlock()
 
 	response := TokenResponse{
@@ -1162,6 +1178,11 @@ func (s *OAuthServer) WaitForReady(ctx context.Context) error {
 // GetClientID returns the configured client ID
 func (s *OAuthServer) GetClientID() string {
 	return s.config.ClientID
+}
+
+// GetScopes returns the accepted scopes for this OAuth server
+func (s *OAuthServer) GetScopes() []string {
+	return s.config.AcceptedScopes
 }
 
 // GetClock returns the clock used by this server

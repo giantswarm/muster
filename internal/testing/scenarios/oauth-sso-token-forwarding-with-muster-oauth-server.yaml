@@ -72,17 +72,17 @@ steps:
       contains:
         - "sso-protected-server"
 
-  # Step 3: Simulate OAuth callback to muster (user authenticates to muster via shared-idp)
-  # This stores the ID token that will be forwarded
-  - id: authenticate-to-muster
-    description: "Authenticate to muster via shared-idp OAuth (stores ID token for forwarding)"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "sso-protected-server"
+  # Step 3: Authenticate to muster itself (simulates `muster auth login`)
+  # This stores the ID token in muster's token store for SSO forwarding
+  - id: muster-auth-login
+    description: "Authenticate to muster via shared-idp OAuth (stores ID token in token store)"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
   # Step 4: Call core_auth_login - this should forward muster's ID token
   # The key test: getMusterIssuer should return the issuer from oauthServer.baseUrl

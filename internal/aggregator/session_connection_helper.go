@@ -245,7 +245,6 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Forwards it to the downstream MCP server
 //  3. If successful, establishes the session connection
-//  4. If forwarding fails and fallbackToOwnAuth is true, returns an error indicating fallback is needed
 //
 // Args:
 //   - ctx: Context for the operation
@@ -256,7 +255,6 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 //
 // Returns:
 //   - *SessionConnectionResult: The connection result if successful
-//   - needsFallback: true if token forwarding failed and fallback is configured
 //   - error: The error if connection failed
 func EstablishSessionConnectionWithTokenForwarding(
 	ctx context.Context,
@@ -264,7 +262,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	sessionID string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
-) (*SessionConnectionResult, bool, error) {
+) (*SessionConnectionResult, error) {
 	// Try to get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
@@ -274,9 +272,9 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// This is the primary SSO use case.
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for session %s, fallback to regular auth",
+		logging.Debug("SessionConnection", "No ID token available for session %s",
 			logging.TruncateSessionID(sessionID))
-		return nil, true, fmt.Errorf("no ID token available for forwarding")
+		return nil, fmt.Errorf("no ID token available for forwarding")
 	}
 
 	// Validate ID token is not expired before forwarding
@@ -284,7 +282,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	if isIDTokenExpired(idToken) {
 		logging.Warn("SessionConnection", "ID token expired for session %s, cannot forward to %s",
 			logging.TruncateSessionID(sessionID), serverInfo.Name)
-		return nil, true, fmt.Errorf("ID token has expired, needs refresh before forwarding")
+		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
 	}
 
 	logging.Info("SessionConnection", "Attempting ID token forwarding for session %s to server %s",
@@ -307,11 +305,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
-		// Check if fallback is configured
-		if serverInfo.AuthConfig != nil && serverInfo.AuthConfig.FallbackToOwnAuth {
-			return nil, true, fmt.Errorf("ID token forwarding failed: %w", err)
-		}
-		return nil, false, fmt.Errorf("ID token forwarding failed and fallback disabled: %w", err)
+		return nil, fmt.Errorf("ID token forwarding failed: %w", err)
 	}
 
 	// Token forwarding succeeded - emit success event
@@ -323,7 +317,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		client.Close()
-		return nil, true, fmt.Errorf("failed to list tools after token forwarding: %w", err)
+		return nil, fmt.Errorf("failed to list tools after token forwarding: %w", err)
 	}
 
 	// Fetch resources and prompts (optional - some servers may not support them)
@@ -382,7 +376,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
-	}, false, nil
+	}, nil
 }
 
 // emitTokenForwardingEvent emits an event for token forwarding success or failure.
@@ -459,7 +453,6 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  2. Extracts the user ID (sub claim) from the token
 //  3. Exchanges it for a token valid on the remote cluster's Dex
 //  4. If successful, establishes the session connection with the exchanged token
-//  5. If exchange fails and fallbackToOwnAuth is true, returns an error indicating fallback is needed
 //
 // Args:
 //   - ctx: Context for the operation
@@ -470,7 +463,6 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //
 // Returns:
 //   - *SessionConnectionResult: The connection result if successful
-//   - needsFallback: true if token exchange failed and fallback is configured
 //   - error: The error if connection failed
 func EstablishSessionConnectionWithTokenExchange(
 	ctx context.Context,
@@ -478,16 +470,16 @@ func EstablishSessionConnectionWithTokenExchange(
 	sessionID string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
-) (*SessionConnectionResult, bool, error) {
+) (*SessionConnectionResult, error) {
 	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
-		return nil, true, fmt.Errorf("invalid server configuration for token exchange")
+		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
 	// Get the OAuth handler for token exchange
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, true, fmt.Errorf("OAuth handler not available for token exchange")
+		return nil, fmt.Errorf("OAuth handler not available for token exchange")
 	}
 
 	// Get ID token from multiple sources (in priority order):
@@ -495,16 +487,16 @@ func EstablishSessionConnectionWithTokenExchange(
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for session %s, fallback to regular auth",
+		logging.Debug("SessionConnection", "No ID token available for session %s",
 			logging.TruncateSessionID(sessionID))
-		return nil, true, fmt.Errorf("no ID token available for token exchange")
+		return nil, fmt.Errorf("no ID token available for token exchange")
 	}
 
 	// Validate ID token is not expired before exchanging
 	if isIDTokenExpired(idToken) {
 		logging.Warn("SessionConnection", "ID token expired for session %s, cannot exchange for %s",
 			logging.TruncateSessionID(sessionID), serverInfo.Name)
-		return nil, true, fmt.Errorf("ID token has expired, needs refresh before exchange")
+		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
 	}
 
 	// Extract user ID from the token for cache key generation
@@ -512,7 +504,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	if userID == "" {
 		logging.Warn("SessionConnection", "Failed to extract user ID from token for session %s",
 			logging.TruncateSessionID(sessionID))
-		return nil, true, fmt.Errorf("failed to extract user ID from token")
+		return nil, fmt.Errorf("failed to extract user ID from token")
 	}
 
 	logging.Info("SessionConnection", "Attempting token exchange for session %s to server %s",
@@ -526,7 +518,7 @@ func EstablishSessionConnectionWithTokenExchange(
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
 			logging.Error("SessionConnection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
-			return nil, true, fmt.Errorf("failed to load client credentials: %w", err)
+			return nil, fmt.Errorf("failed to load client credentials: %w", err)
 		}
 		serverInfo.AuthConfig.TokenExchange.ClientID = credentials.ClientID
 		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
@@ -568,8 +560,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	if teleportResult.Configured && teleportResult.Error != nil {
 		logging.Error("SessionConnection", teleportResult.Error, "Teleport required for %s but failed",
 			serverInfo.Name)
-		// Teleport failures should not trigger fallback - the server explicitly requires Teleport
-		return nil, false, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
+		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
 	}
 
 	// Perform the token exchange (using Teleport client if configured)
@@ -610,11 +601,7 @@ func EstablishSessionConnectionWithTokenExchange(
 			Error:     err.Error(),
 		})
 
-		// Check if fallback is configured
-		if serverInfo.AuthConfig.FallbackToOwnAuth {
-			return nil, true, fmt.Errorf("token exchange failed: %w", err)
-		}
-		return nil, false, fmt.Errorf("token exchange failed and fallback disabled: %w", err)
+		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
 	// Token exchange succeeded - emit success event and audit log
@@ -652,18 +639,14 @@ func EstablishSessionConnectionWithTokenExchange(
 		logging.Warn("SessionConnection", "Connection with exchanged token failed for session %s to server %s: %v",
 			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
 
-		// Check if fallback is configured
-		if serverInfo.AuthConfig.FallbackToOwnAuth {
-			return nil, true, fmt.Errorf("connection with exchanged token failed: %w", err)
-		}
-		return nil, false, fmt.Errorf("connection with exchanged token failed and fallback disabled: %w", err)
+		return nil, fmt.Errorf("connection with exchanged token failed: %w", err)
 	}
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		client.Close()
-		return nil, true, fmt.Errorf("failed to list tools after token exchange: %w", err)
+		return nil, fmt.Errorf("failed to list tools after token exchange: %w", err)
 	}
 
 	// Fetch resources and prompts (optional - some servers may not support them)
@@ -720,7 +703,7 @@ func EstablishSessionConnectionWithTokenExchange(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
-	}, false, nil
+	}, nil
 }
 
 // emitTokenExchangeEvent emits an event for token exchange success or failure.

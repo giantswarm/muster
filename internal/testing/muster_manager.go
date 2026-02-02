@@ -1061,14 +1061,13 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	return map[string]interface{}{
-		"enabled":  true,
-		"baseUrl":  fmt.Sprintf("http://localhost:%d", port),
-		"provider": "dex", // Mock server acts like Dex
-		"dex":      dexConfig,
-		"storage": map[string]interface{}{
-			"type": "memory",
-		},
-		"allowLocalhostRedirectURIs": true,
+		"enabled":                       true,
+		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
+		"provider":                      "dex", // Mock server acts like Dex
+		"dex":                           dexConfig,
+		"storage":                       map[string]interface{}{"type": "memory"},
+		"allowLocalhostRedirectURIs":    true,
+		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
 	}
 }
 
@@ -1220,11 +1219,6 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 								m.logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
 									mcpServer.Name, tokenExchange["connector_id"])
 							}
-						}
-
-						// If oauth.fallback_to_own_auth is specified, add auth.fallbackToOwnAuth
-						if fallback, hasFallback := oauthConfig["fallback_to_own_auth"].(bool); hasFallback {
-							authConfig["fallbackToOwnAuth"] = fallback
 						}
 
 						if len(authConfig) > 0 {

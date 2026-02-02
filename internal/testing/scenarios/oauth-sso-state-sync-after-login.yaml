@@ -89,15 +89,16 @@ steps:
         - "sync-test-server"
 
   # Step 4: Authenticate to muster (simulates `muster auth login`)
-  - id: authenticate-to-muster
-    description: "Authenticate to muster via OAuth (stores ID token for forwarding)"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "sync-test-server"
+  # This stores the ID token in muster's token store for SSO forwarding
+  - id: muster-auth-login
+    description: "Authenticate to muster via OAuth (stores ID token in token store)"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
   # Step 5: Trigger SSO token forwarding via core_auth_login
   # This should forward muster's ID token to the downstream server

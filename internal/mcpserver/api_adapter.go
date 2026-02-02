@@ -143,7 +143,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			Type:              server.Spec.Auth.Type,
 			ForwardToken:      server.Spec.Auth.ForwardToken,
 			RequiredAudiences: server.Spec.Auth.RequiredAudiences,
-			FallbackToOwnAuth: server.Spec.Auth.FallbackToOwnAuth,
 		}
 		// Convert TokenExchange config if present
 		if server.Spec.Auth.TokenExchange != nil {
@@ -262,7 +261,6 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Type:              req.Auth.Type,
 			ForwardToken:      req.Auth.ForwardToken,
 			RequiredAudiences: req.Auth.RequiredAudiences,
-			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
 		}
 
 		// Convert TokenExchange if present
@@ -337,10 +335,6 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
 					"description": "Additional audiences to request from IdP for token forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
-				},
-				"fallbackToOwnAuth": map[string]interface{}{
-					"type":        "boolean",
-					"description": "Fall back to server-specific auth on failure",
 				},
 				"teleport": map[string]interface{}{
 					"type":        "object",
@@ -650,7 +644,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 			Type:              req.Auth.Type,
 			ForwardToken:      req.Auth.ForwardToken,
 			RequiredAudiences: req.Auth.RequiredAudiences,
-			FallbackToOwnAuth: req.Auth.FallbackToOwnAuth,
 		}
 		if req.Auth.TokenExchange != nil {
 			existing.Spec.Auth.TokenExchange = &musterv1alpha1.TokenExchangeConfig{
