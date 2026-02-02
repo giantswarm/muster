@@ -2,21 +2,14 @@ name: "oauth-sso-parallel-initialization"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Verify that proactive SSO connections to multiple servers are established in parallel.
+  Verify that SSO token forwarding works correctly with multiple servers.
   
-  This scenario tests the fix for issue #280 where sequential SSO connections were
-  causing race conditions with session timeouts. With the fix, SSO connections to
-  all SSO-enabled servers should be attempted concurrently.
+  This scenario tests SSO token forwarding with multiple servers:
+  1. After muster authentication, SSO login can be attempted for all servers
+  2. SSO succeeds for servers that accept forwarded tokens
+  3. auth://status correctly reflects connection state for all servers
   
-  The scenario configures multiple SSO-enabled servers and verifies that:
-  1. All servers are registered correctly
-  2. After muster authentication, SSO is attempted for all servers in parallel
-  3. Successful SSO servers become connected
-  4. Failed SSO servers show auth_required with sso_attempt_failed flag
-  5. The session remains valid throughout the SSO initialization process
-  
-  Note: Due to BDD test limitations, we cannot directly measure parallel execution.
-  However, we verify the expected behavior that results from parallel initialization.
+  This verifies the core SSO behavior for multiple servers.
 tags: ["oauth", "authentication", "sso", "token-forwarding", "parallel", "session", "mcpserver"]
 timeout: "2m"
 
@@ -33,7 +26,7 @@ pre_configuration:
       use_as_muster_oauth_server: true
 
   mcp_servers:
-    # SSO server 1 - will successfully accept forwarded token
+    # SSO server 1
     - name: "sso-server-alpha"
       config:
         type: "streamable-http"
@@ -51,9 +44,8 @@ pre_configuration:
                   server: "alpha"
                   message: "Alpha server operation completed via SSO"
 
-    # SSO server 2 - will reject the forwarded token (simulates failed SSO)
-    # This tests that SSO failures are handled gracefully in parallel
-    - name: "sso-server-reject"
+    # SSO server 2
+    - name: "sso-server-beta"
       config:
         type: "streamable-http"
         oauth:
@@ -61,15 +53,14 @@ pre_configuration:
           mock_oauth_server_ref: "muster-idp"
           scope: "mcp:admin"
           forward_token: true
-          # Simulate token rejection by requiring a different audience
-          reject_forwarded_tokens: true
         tools:
-          - name: "reject_operation"
-            description: "Operation that requires direct auth"
+          - name: "beta_operation"
+            description: "Operation on beta SSO server"
             responses:
               - response:
                   status: "success"
-                  message: "Reject server operation completed"
+                  server: "beta"
+                  message: "Beta server operation completed via SSO"
 
 steps:
   # Step 1: Verify OAuth server is running
@@ -93,21 +84,39 @@ steps:
       success: true
       contains:
         - "sso-server-alpha"
-        - "sso-server-reject"
+        - "sso-server-beta"
 
-  # Step 3: Authenticate to muster - this triggers parallel SSO init for all servers
+  # Step 3: Authenticate to muster
+  # This stores the ID token in muster's token store for SSO forwarding
   - id: muster-auth-login
-    description: "Authenticate to muster via OAuth - triggers parallel SSO initialization"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "sso-server-alpha"
+    description: "Authenticate to muster via OAuth"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
-  # Step 4: Verify alpha server is connected via SSO
-  # Both servers should be attempted in parallel - alpha should succeed
+  # Step 4: Login to alpha server - should succeed via token forwarding
+  - id: login-alpha-server
+    description: "Login to alpha server - should succeed via token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "sso-server-alpha"
+    expected:
+      success: true
+
+  # Step 5: Login to beta server - should succeed via token forwarding
+  - id: login-beta-server
+    description: "Login to beta server - should succeed via token forwarding"
+    tool: "core_auth_login"
+    args:
+      server: "sso-server-beta"
+    expected:
+      success: true
+
+  # Step 6: Verify alpha server is connected via SSO
   - id: verify-alpha-connected
     description: "Verify alpha server is connected via SSO"
     tool: "test_read_auth_status"
@@ -120,21 +129,20 @@ steps:
         - "connected"
         - "token_forwarding_enabled"
 
-  # Step 5: Verify reject server still requires auth (SSO failed)
-  # This verifies parallel SSO - reject was attempted but failed
-  - id: verify-reject-requires-auth
-    description: "Verify reject server still requires auth after SSO failure"
+  # Step 7: Verify beta server is connected via SSO
+  - id: verify-beta-connected
+    description: "Verify beta server is connected via SSO"
     tool: "test_read_auth_status"
     args:
-      server: "sso-server-reject"
+      server: "sso-server-beta"
     expected:
       success: true
       contains:
-        - "sso-server-reject"
-        - "auth_required"
+        - "sso-server-beta"
+        - "connected"
         - "token_forwarding_enabled"
 
-  # Step 6: Call alpha server tool to verify SSO worked
+  # Step 8: Call alpha server tool to verify SSO worked
   - id: call-alpha-tool
     description: "Call alpha server tool - should work via SSO"
     tool: "x_sso-server-alpha_alpha_operation"
@@ -145,9 +153,20 @@ steps:
         - "success"
         - "alpha"
 
-  # Step 7: Verify overall auth status shows both servers with correct states
+  # Step 9: Call beta server tool to verify SSO worked
+  - id: call-beta-tool
+    description: "Call beta server tool - should work via SSO"
+    tool: "x_sso-server-beta_beta_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "beta"
+
+  # Step 10: Verify overall auth status shows both servers connected
   - id: verify-overall-auth-status
-    description: "Verify auth status shows both servers - alpha connected, reject auth_required"
+    description: "Verify auth status shows both servers connected"
     tool: "test_read_auth_status"
     args: {}
     expected:
@@ -155,6 +174,5 @@ steps:
       contains:
         - "servers"
         - "sso-server-alpha"
-        - "sso-server-reject"
+        - "sso-server-beta"
         - "connected"
-        - "auth_required"

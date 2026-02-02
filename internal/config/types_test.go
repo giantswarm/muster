@@ -205,6 +205,3 @@ func TestOAuthMCPClientConfig_GetRedirectURI(t *testing.T) {
 		})
 	}
 }
-
-// TestAuthConfig_IsSilentRefreshEnabled removed - AuthConfig is deprecated.
-// CLI authentication settings are now controlled via command-line flags only.

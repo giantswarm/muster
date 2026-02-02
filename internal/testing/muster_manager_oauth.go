@@ -106,8 +106,10 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			tokenResp := oauthServer.GenerateTestToken(oauthCfg.ClientID, "openid profile email")
 			if tokenResp != nil {
 				info.AccessToken = tokenResp.AccessToken
+				info.IDToken = tokenResp.IDToken
+				info.UseAsMusterOAuthServer = true
 				if m.debug {
-					m.logger.Debug("🔑 Generated test access token for muster authentication\n")
+					m.logger.Debug("🔑 Generated test access token and ID token for muster authentication\n")
 				}
 			}
 		}

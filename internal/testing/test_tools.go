@@ -43,6 +43,9 @@ const (
 	// TestToolSimulateMusterReauth simulates re-authentication to muster with a new token
 	// while preserving the session ID. Used to test proactive SSO re-triggering.
 	TestToolSimulateMusterReauth = "test_simulate_muster_reauth"
+	// TestToolMusterAuthLogin simulates `muster auth login` by completing the OAuth
+	// callback to muster's token store. This is required for SSO token forwarding tests.
+	TestToolMusterAuthLogin = "test_muster_auth_login"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -152,7 +155,8 @@ func IsTestTool(toolName string) bool {
 		TestToolSwitchUser,
 		TestToolListToolsForUser,
 		TestToolGetCurrentUser,
-		TestToolSimulateMusterReauth:
+		TestToolSimulateMusterReauth,
+		TestToolMusterAuthLogin:
 		return true
 	}
 	return false
@@ -187,6 +191,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleGetCurrentUser(ctx, args)
 	case TestToolSimulateMusterReauth:
 		return h.handleSimulateMusterReauth(ctx, args)
+	case TestToolMusterAuthLogin:
+		return h.handleMusterAuthLogin(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1068,8 +1074,12 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 
 	// Step 3: Generate a NEW access token from the mock OAuth server
 	// This token will be different from the initial token.
+	// Use all accepted scopes from the OAuth server to ensure downstream MCP servers
+	// can validate tokens with their required scopes (e.g., mcp:admin)
 	clientID := musterOAuthServer.GetClientID()
-	newTokenResp := musterOAuthServer.GenerateTestToken(clientID, "openid profile email")
+	scopes := musterOAuthServer.GetScopes()
+	scope := strings.Join(scopes, " ")
+	newTokenResp := musterOAuthServer.GenerateTestToken(clientID, scope)
 	if newTokenResp == nil {
 		return nil, fmt.Errorf("failed to generate new access token")
 	}
@@ -1130,4 +1140,261 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
 		"session_preserved": sessionPreserved,
 	}, nil
+}
+
+// handleMusterAuthLogin simulates `muster auth login` by completing the OAuth
+// callback to muster itself. This stores the ID token in muster's token store,
+// which is required for SSO token forwarding to work.
+//
+// This tool:
+// 1. Finds the mock OAuth server configured as muster's OAuth server (use_as_muster_oauth_server: true)
+// 2. Calls muster's /oauth/authorize to start the OAuth flow and get redirected to Dex
+// 3. Generates an auth code on the mock Dex server
+// 4. Calls muster's /oauth/callback endpoint with the auth code
+// 5. Muster exchanges the code with Dex and stores the token
+//
+// After this, SSO token forwarding will work because the ID token is available.
+func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	if h.currentInstance == nil || h.instanceManager == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	// Find the mock OAuth server configured as muster's OAuth server
+	var musterOAuthServerName string
+	var musterOAuthServerInfo *MockOAuthServerInfo
+	for name, info := range h.currentInstance.MockOAuthServers {
+		if info.UseAsMusterOAuthServer {
+			musterOAuthServerName = name
+			musterOAuthServerInfo = info
+			break
+		}
+	}
+
+	if musterOAuthServerInfo == nil {
+		return nil, fmt.Errorf("no muster OAuth server found (need a mock OAuth server with use_as_muster_oauth_server: true)")
+	}
+
+	musterOAuthServer := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, musterOAuthServerName)
+	if musterOAuthServer == nil {
+		return nil, fmt.Errorf("mock OAuth server %s not running", musterOAuthServerName)
+	}
+
+	if h.debug {
+		h.logger.Debug("🔐 Simulating muster auth login using OAuth server %s (issuer: %s)\n",
+			musterOAuthServerName, musterOAuthServerInfo.IssuerURL)
+	}
+
+	// Extract base URL from the endpoint (remove /mcp or /sse suffix)
+	baseURL := h.currentInstance.Endpoint
+	if strings.HasSuffix(baseURL, "/mcp") {
+		baseURL = baseURL[:len(baseURL)-4]
+	} else if strings.HasSuffix(baseURL, "/sse") {
+		baseURL = baseURL[:len(baseURL)-4]
+	}
+
+	// Get the client ID from the mock OAuth server config - this is the client muster uses to talk to Dex
+	dexClientID := musterOAuthServer.GetClientID()
+
+	// Client ID and redirect URI for muster's OAuth server
+	musterClientID := baseURL + "/.well-known/oauth-client.json" // Self-hosted CIMD client ID
+	musterRedirectURI := baseURL + "/oauth/callback"
+
+	// Use all accepted scopes from the mock OAuth server to ensure downstream MCP servers
+	// can validate tokens with their required scopes (e.g., mcp:admin)
+	scopes := musterOAuthServer.GetScopes()
+	scope := strings.Join(scopes, " ")
+
+	// Step 0: Register the client with muster's OAuth server via Dynamic Client Registration
+	// This is required before we can start the authorization flow
+	registerURL := baseURL + "/oauth/register"
+	registerPayload := map[string]interface{}{
+		"client_name":                "muster-test-client",
+		"redirect_uris":              []string{musterRedirectURI},
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
+		"token_endpoint_auth_method": "none", // Public client
+		"application_type":           "web",
+		"client_uri":                 musterClientID,
+	}
+
+	registerBody, err := json.Marshal(registerPayload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal registration payload: %w", err)
+	}
+
+	registerReq, err := http.NewRequestWithContext(ctx, http.MethodPost, registerURL, strings.NewReader(string(registerBody)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create registration request: %w", err)
+	}
+	registerReq.Header.Set("Content-Type", "application/json")
+
+	registerClient := &http.Client{Timeout: 30 * time.Second}
+	registerResp, err := registerClient.Do(registerReq)
+	if err != nil {
+		return nil, fmt.Errorf("client registration request failed: %w", err)
+	}
+	defer registerResp.Body.Close()
+
+	// Read the registration response to get the assigned client_id
+	var registrationResult struct {
+		ClientID string `json:"client_id"`
+	}
+	if err := json.NewDecoder(registerResp.Body).Decode(&registrationResult); err != nil {
+		// If we can't decode, try to read the raw body for debugging
+		registerResp.Body.Close()
+		return nil, fmt.Errorf("failed to decode registration response (status: %d): %w", registerResp.StatusCode, err)
+	}
+
+	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("client registration failed with status: %d", registerResp.StatusCode)
+	}
+
+	// Use the registered client ID (muster may assign its own)
+	registeredClientID := registrationResult.ClientID
+	if registeredClientID == "" {
+		registeredClientID = musterClientID // Fall back to what we sent
+	}
+
+	if h.debug {
+		h.logger.Debug("🔐 Registered client with ID: %s\n", registeredClientID)
+	}
+
+	// Step 1: Call muster's /oauth/authorize endpoint
+	// This starts the OAuth flow and redirects to the upstream Dex
+	// State must be at least 32 characters for security
+	musterState := fmt.Sprintf("muster-auth-test-%d-%d", time.Now().UnixNano(), time.Now().Unix())
+
+	// Generate PKCE code verifier and challenge (required by OAuth 2.1)
+	pkce, err := pkgoauth.GeneratePKCE()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate PKCE: %w", err)
+	}
+
+	authorizeURL := fmt.Sprintf("%s/oauth/authorize?response_type=code&client_id=%s&redirect_uri=%s&scope=%s&state=%s&code_challenge=%s&code_challenge_method=%s",
+		baseURL,
+		url.QueryEscape(registeredClientID),
+		url.QueryEscape(musterRedirectURI),
+		url.QueryEscape(scope),
+		url.QueryEscape(musterState),
+		url.QueryEscape(pkce.CodeChallenge),
+		url.QueryEscape(pkce.CodeChallengeMethod),
+	)
+
+	if h.debug {
+		h.logger.Debug("🔐 Calling muster authorize: %s\n", authorizeURL)
+	}
+
+	// Create HTTP client that follows redirects to get to Dex's authorize endpoint
+	var dexAuthURL string
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Capture the Dex authorize URL
+			if strings.Contains(req.URL.Path, "/authorize") {
+				dexAuthURL = req.URL.String()
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authorizeURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create authorize request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("authorize request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// If we didn't capture the Dex auth URL during redirects, check the Location header
+	if dexAuthURL == "" {
+		dexAuthURL = resp.Header.Get("Location")
+	}
+
+	if dexAuthURL == "" {
+		// Read the response body for more details
+		bodyBytes := make([]byte, 4096)
+		n, _ := resp.Body.Read(bodyBytes)
+		bodyStr := string(bodyBytes[:n])
+		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, bodyStr)
+	}
+
+	if h.debug {
+		h.logger.Debug("🔐 Got Dex auth URL: %s\n", dexAuthURL)
+	}
+
+	// Step 2: Parse the Dex auth URL to extract the state and redirect_uri
+	parsedDexURL, err := url.Parse(dexAuthURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Dex auth URL: %w", err)
+	}
+
+	dexState := parsedDexURL.Query().Get("state")
+	dexRedirectURI := parsedDexURL.Query().Get("redirect_uri")
+	dexScope := parsedDexURL.Query().Get("scope")
+	codeChallenge := parsedDexURL.Query().Get("code_challenge")
+	codeChallengeMethod := parsedDexURL.Query().Get("code_challenge_method")
+
+	if dexState == "" {
+		return nil, fmt.Errorf("no state in Dex auth URL")
+	}
+
+	if h.debug {
+		h.logger.Debug("🔐 Dex state=%s..., redirect_uri=%s\n", dexState[:min(16, len(dexState))], dexRedirectURI)
+	}
+
+	// Step 3: Generate an auth code on the mock Dex server
+	authCode := musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+
+	if h.debug {
+		h.logger.Debug("🔐 Generated Dex auth code: %s...\n", authCode[:min(16, len(authCode))])
+	}
+
+	// Step 4: Call the Dex callback (which redirects to muster's callback)
+	dexCallbackURL := fmt.Sprintf("%s?code=%s&state=%s", dexRedirectURI, url.QueryEscape(authCode), url.QueryEscape(dexState))
+
+	if h.debug {
+		h.logger.Debug("🔐 Calling Dex callback: %s\n", dexCallbackURL)
+	}
+
+	callbackClient := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	callbackReq, err := http.NewRequestWithContext(ctx, http.MethodGet, dexCallbackURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create callback request: %w", err)
+	}
+
+	callbackResp, err := callbackClient.Do(callbackReq)
+	if err != nil {
+		return nil, fmt.Errorf("callback request failed: %w", err)
+	}
+	defer callbackResp.Body.Close()
+
+	if h.debug {
+		h.logger.Debug("🔐 Callback response status: %d\n", callbackResp.StatusCode)
+	}
+
+	// Check for success (200 OK or redirect to success page)
+	if callbackResp.StatusCode >= 200 && callbackResp.StatusCode < 400 {
+		if h.debug {
+			h.logger.Debug("🔐 Muster auth login succeeded - ID token stored in muster's token store\n")
+		}
+
+		return map[string]interface{}{
+			"success":      true,
+			"message":      "Muster auth login completed - ID token stored for SSO forwarding",
+			"oauth_server": musterOAuthServerName,
+			"issuer_url":   musterOAuthServerInfo.IssuerURL,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("muster callback returned error status: %d", callbackResp.StatusCode)
 }

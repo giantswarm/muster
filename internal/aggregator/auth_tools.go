@@ -19,7 +19,6 @@
 //  5. Downstream server validates token, trusts muster's client ID
 //
 // Configuration: Requires `auth.forwardToken: true` in MCPServer spec.
-// Optional: `auth.fallbackToOwnAuth: true` for graceful degradation.
 //
 // ## SSO Token Exchange (RFC 8693)
 //
@@ -208,28 +207,15 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	if ShouldUseTokenExchange(serverInfo) {
 		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
 
-		result, needsFallback, err := p.tryTokenExchange(ctx, sessionID, serverInfo)
-		if err == nil {
-			// Token exchange succeeded
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
-			}
-			if p.aggregator.authRateLimiter != nil {
-				p.aggregator.authRateLimiter.Reset(sessionID)
-			}
-			return result, nil
-		}
-
-		logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
-
-		if !needsFallback {
-			// Fallback is disabled - fail the login
+		result, err := p.tryTokenExchange(ctx, sessionID, serverInfo)
+		if err != nil {
+			logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
 				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_exchange_failed")
 			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
-					"RFC 8693 token exchange failed for '%s' and fallback is disabled.\n\n"+
+					"RFC 8693 token exchange failed for '%s'.\n\n"+
 						"Error: %v\n\n"+
 						"Please check that the remote Dex is configured with an OIDC connector for your cluster.",
 					serverName, err,
@@ -238,35 +224,29 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			}, nil
 		}
 
-		logging.Info("AuthTools", "Falling back to separate OAuth flow for server %s", serverName)
+		// Token exchange succeeded
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+		}
+		if p.aggregator.authRateLimiter != nil {
+			p.aggregator.authRateLimiter.Reset(sessionID)
+		}
+		return result, nil
 	} else if ShouldUseTokenForwarding(serverInfo) {
 		// Check if token forwarding is enabled for this server
 		logging.Info("AuthTools", "Token forwarding is enabled for server %s, attempting SSO", serverName)
 
 		// Get the muster issuer from the OAuth server configuration
 		// For token forwarding, we use the same issuer that muster authenticated the user with
-		result, needsFallback, err := p.tryTokenForwarding(ctx, sessionID, serverInfo)
-		if err == nil {
-			// Token forwarding succeeded
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
-			}
-			if p.aggregator.authRateLimiter != nil {
-				p.aggregator.authRateLimiter.Reset(sessionID)
-			}
-			return result, nil
-		}
-
-		logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
-
-		if !needsFallback {
-			// Fallback is disabled - fail the login
+		result, err := p.tryTokenForwarding(ctx, sessionID, serverInfo)
+		if err != nil {
+			logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
 				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_forwarding_failed")
 			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
-					"SSO token forwarding failed for '%s' and fallback is disabled.\n\n"+
+					"SSO token forwarding failed for '%s'.\n\n"+
 						"Error: %v\n\n"+
 						"Please check that the downstream server is configured to trust muster's client ID in its TrustedAudiences.",
 					serverName, err,
@@ -275,7 +255,14 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			}, nil
 		}
 
-		logging.Info("AuthTools", "Falling back to separate OAuth flow for server %s", serverName)
+		// Token forwarding succeeded
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+		}
+		if p.aggregator.authRateLimiter != nil {
+			p.aggregator.authRateLimiter.Reset(sessionID)
+		}
+		return result, nil
 	}
 
 	// Get the auth info for this server
@@ -498,25 +485,24 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, s
 //
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
-//   - needsFallback: true if token exchange failed and fallback should be tried
 //   - error: The error if token exchange failed
-func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, bool, error) {
+func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	// Get the muster issuer from the configuration
 	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, session %s",
 			logging.TruncateSessionID(sessionID))
-		return nil, true, fmt.Errorf("cannot determine muster issuer for token exchange")
+		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
 	}
 
-	result, needsFallback, err := EstablishSessionConnectionWithTokenExchange(
+	result, err := EstablishSessionConnectionWithTokenExchange(
 		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
 	)
 	if err != nil {
-		return nil, needsFallback, err
+		return nil, err
 	}
 
-	return result.FormatAsAPIResult(), false, nil
+	return result.FormatAsAPIResult(), nil
 }
 
 // tryTokenForwarding attempts to establish a connection using ID token forwarding.
@@ -524,26 +510,25 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID strin
 //
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
-//   - needsFallback: true if token forwarding failed and fallback should be tried
 //   - error: The error if token forwarding failed
-func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, bool, error) {
+func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	// Get the muster issuer from the configuration
 	// We need to find what issuer muster used to authenticate the user
 	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, session %s",
 			logging.TruncateSessionID(sessionID))
-		return nil, true, fmt.Errorf("cannot determine muster issuer for token forwarding")
+		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
 	}
 
-	result, needsFallback, err := EstablishSessionConnectionWithTokenForwarding(
+	result, err := EstablishSessionConnectionWithTokenForwarding(
 		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
 	)
 	if err != nil {
-		return nil, needsFallback, err
+		return nil, err
 	}
 
-	return result.FormatAsAPIResult(), false, nil
+	return result.FormatAsAPIResult(), nil
 }
 
 // getMusterIssuer determines the OAuth issuer that muster used to authenticate the user.

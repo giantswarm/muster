@@ -7,6 +7,7 @@ timeout: "2m"
 
 pre_configuration:
   # Mock OAuth server for muster authentication
+  # This is configured as muster's OAuth server for SSO token forwarding
   mock_oauth_servers:
     - name: "muster-idp"
       scopes: ["openid", "profile", "mcp:admin"]
@@ -14,6 +15,9 @@ pre_configuration:
       pkce_required: false
       token_lifetime: "1h"
       client_id: "muster-client"
+      client_secret: "muster-secret"
+      # Enable this as muster's OAuth server for SSO token forwarding
+      use_as_muster_oauth_server: true
 
   # MCP server configured for SSO token forwarding
   # This server trusts muster's ID tokens
@@ -58,16 +62,17 @@ steps:
       contains:
         - "sso-downstream"
 
-  # Step 3: Authenticate to muster first (get ID token from muster-idp)
-  - id: authenticate-muster
-    description: "Authenticate to muster via OAuth (get ID token)"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "sso-downstream"
+  # Step 3: Authenticate to muster itself (simulates `muster auth login`)
+  # This stores the ID token in muster's token store for SSO forwarding
+  - id: muster-auth-login
+    description: "Authenticate to muster via OAuth (stores ID token in token store)"
+    tool: "test_muster_auth_login"
+    args: {}
     expected:
       success: true
       contains:
         - "success"
+        - "ID token stored"
 
   # Step 4: Call core_auth_login - this should forward the ID token
   - id: login-with-sso

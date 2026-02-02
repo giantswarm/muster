@@ -116,12 +116,6 @@ type MCPServerAuth struct {
 	//   - The remote IdP issues a token containing the requested audiences
 	RequiredAudiences []string `yaml:"requiredAudiences,omitempty" json:"requiredAudiences,omitempty"`
 
-	// FallbackToOwnAuth enables graceful degradation when token forwarding or exchange fails.
-	// When true and ForwardToken or TokenExchange is enabled but fails (e.g., downstream returns 401),
-	// muster will trigger a separate OAuth flow for this server.
-	// When false, token forwarding/exchange failures result in an error requiring intervention.
-	FallbackToOwnAuth bool `yaml:"fallbackToOwnAuth,omitempty" json:"fallbackToOwnAuth,omitempty"`
-
 	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
 	// When configured, muster exchanges its local token for a token valid on the
 	// remote cluster's Identity Provider (e.g., Dex).

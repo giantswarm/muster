@@ -398,8 +398,6 @@ spec:
     # For Kubernetes OIDC auth, typically needs "dex-k8s-authenticator"
     requiredAudiences:
       - "dex-k8s-authenticator"
-    # Fallback: if token forwarding fails, offer separate auth
-    fallbackToOwnAuth: true
 ```
 
 When `forwardToken: true`:
@@ -432,8 +430,6 @@ spec:
       connectorId: cluster-a-dex
       # Optional: scopes to request (defaults to "openid profile email groups")
       scopes: "openid profile email groups"
-    # Fallback: if token exchange fails, offer separate auth
-    fallbackToOwnAuth: true
 ```
 
 When `tokenExchange.enabled: true`:
@@ -457,11 +453,6 @@ connectors:
 ```
 
 Token exchange takes precedence over token forwarding if both are configured.
-
-When `fallbackToOwnAuth: true`:
-1. If token forwarding or exchange fails (wrong audience, expired, etc.)
-2. Muster triggers a separate OAuth flow for this specific server
-3. Provides graceful degradation for misconfigured deployments
 
 ### SSO Detection
 
@@ -489,7 +480,7 @@ func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 **SSO Precedence Order:**
 1. Token Exchange (if `tokenExchange.enabled: true` with required fields)
 2. Token Forwarding (if `forwardToken: true`)
-3. Server-specific OAuth flow (fallback)
+3. Server-specific OAuth flow (for servers without SSO configuration)
 
 Setting `forwardToken: true` or `tokenExchange.enabled: true` implicitly enables OAuth-based authentication since these SSO mechanisms only make sense in an OAuth context.
 
@@ -598,16 +589,12 @@ Required changes to token validation:
      auth:
        type: oauth
        forwardToken: true    # Forward Muster's ID token
-       fallbackToOwnAuth: true  # If forwarding fails, trigger separate auth
    ```
 
 2. Modify OAuth proxy (`internal/oauth/manager.go`) to:
    - Check if `forwardToken` is enabled for the target server
    - Extract the user's ID token from the session store
    - Inject it as `Authorization: Bearer <id_token>` when calling the downstream server
-
-3. Handle fallback gracefully:
-   - If downstream returns 401 despite forwarded token, clear cached auth and trigger normal flow
 
 ### Phase 3: mcp-kubernetes Changes (giantswarm/mcp-kubernetes)
 

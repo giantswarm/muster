@@ -95,13 +95,6 @@ type MCPServerAuth struct {
 	// with forwardToken: true and requests them all from the IdP.
 	RequiredAudiences []string `json:"requiredAudiences,omitempty" yaml:"requiredAudiences,omitempty"`
 
-	// FallbackToOwnAuth enables fallback to server-specific OAuth flow.
-	// When true and token forwarding fails (e.g., 401 response despite forwarded token),
-	// muster will trigger a separate OAuth flow for this server.
-	// When false, token forwarding failures result in an error.
-	// +kubebuilder:default=true
-	FallbackToOwnAuth bool `json:"fallbackToOwnAuth,omitempty" yaml:"fallbackToOwnAuth,omitempty"`
-
 	// TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
 	// When configured, muster exchanges its local token for a token valid on the
 	// remote cluster's Identity Provider (e.g., Dex).
