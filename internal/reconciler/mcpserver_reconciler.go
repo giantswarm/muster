@@ -490,26 +490,14 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 	}
 
 	// Timeout change requires restart
-	if timeout, ok := serviceData["timeout"].(int); ok {
-		if timeout != desired.Timeout {
-			logging.Debug("MCPServerReconciler", "Config change detected: timeout changed from %d to %d", timeout, desired.Timeout)
-			return true
-		}
-	} else if desired.Timeout != 0 {
-		// No existing timeout but desired has one
-		logging.Debug("MCPServerReconciler", "Config change detected: timeout added: %d", desired.Timeout)
+	if changed, existing := intFieldChanged(serviceData, "timeout", desired.Timeout); changed {
+		logging.Debug("MCPServerReconciler", "Config change detected: timeout changed from %d to %d", existing, desired.Timeout)
 		return true
 	}
 
 	// ToolPrefix change requires restart
-	if toolPrefix, ok := serviceData["toolPrefix"].(string); ok {
-		if toolPrefix != desired.ToolPrefix {
-			logging.Debug("MCPServerReconciler", "Config change detected: toolPrefix changed from %q to %q", toolPrefix, desired.ToolPrefix)
-			return true
-		}
-	} else if desired.ToolPrefix != "" {
-		// No existing toolPrefix but desired has one
-		logging.Debug("MCPServerReconciler", "Config change detected: toolPrefix added: %q", desired.ToolPrefix)
+	if changed, existing := stringFieldChanged(serviceData, "toolPrefix", desired.ToolPrefix); changed {
+		logging.Debug("MCPServerReconciler", "Config change detected: toolPrefix changed from %q to %q", existing, desired.ToolPrefix)
 		return true
 	}
 
@@ -619,4 +607,38 @@ func toStringMap(v interface{}) map[string]string {
 	}
 
 	return nil
+}
+
+// stringFieldChanged checks if a string field has changed between existing and desired values.
+// It handles the case where the existing field may not exist in serviceData.
+// Returns (changed, existingValue, desiredValue) for logging purposes.
+func stringFieldChanged(serviceData map[string]interface{}, key string, desired string) (changed bool, existing string) {
+	if existingVal, ok := serviceData[key].(string); ok {
+		if existingVal != desired {
+			return true, existingVal
+		}
+		return false, existingVal
+	}
+	// Field doesn't exist in serviceData - changed if desired is non-empty
+	if desired != "" {
+		return true, ""
+	}
+	return false, ""
+}
+
+// intFieldChanged checks if an int field has changed between existing and desired values.
+// It handles the case where the existing field may not exist in serviceData.
+// Returns (changed, existingValue, desiredValue) for logging purposes.
+func intFieldChanged(serviceData map[string]interface{}, key string, desired int) (changed bool, existing int) {
+	if existingVal, ok := serviceData[key].(int); ok {
+		if existingVal != desired {
+			return true, existingVal
+		}
+		return false, existingVal
+	}
+	// Field doesn't exist in serviceData - changed if desired is non-zero
+	if desired != 0 {
+		return true, 0
+	}
+	return false, 0
 }
