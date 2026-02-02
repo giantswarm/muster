@@ -499,6 +499,46 @@ func TestMCPServerReconciler_NeedsRestart(t *testing.T) {
 			expectChange: true,
 		},
 		{
+			// Test map[string]interface{} handling (common from JSON unmarshaling)
+			name: "env changed with map[string]interface{} from JSON",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "new-value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+				// Simulate JSON unmarshaling which produces map[string]interface{}
+				"env": map[string]interface{}{"KEY": "old-value"},
+			},
+			expectChange: true,
+		},
+		{
+			// Test map[string]interface{} with matching values (no change)
+			name: "env no change with map[string]interface{} from JSON",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "same-value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+				// Simulate JSON unmarshaling which produces map[string]interface{}
+				"env": map[string]interface{}{"KEY": "same-value"},
+			},
+			expectChange: false,
+		},
+		{
 			name: "headers changed",
 			desired: &api.MCPServerInfo{
 				Name:      "test",

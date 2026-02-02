@@ -568,10 +568,12 @@ func authConfigChanged(existing interface{}, desired *api.MCPServerAuth) (change
 // mapsEqual compares two maps for equality.
 // It handles the case where serviceData contains interface{} values and
 // treats nil and empty maps as equivalent.
+//
+// Note: This correctly handles nil maps since len(nil) == 0 in Go.
 func mapsEqual(existing interface{}, desired map[string]string) bool {
 	existingMap := toStringMap(existing)
 
-	// Treat nil and empty as equivalent
+	// Treat nil and empty as equivalent (len(nil) == 0 in Go)
 	if len(existingMap) == 0 && len(desired) == 0 {
 		return true
 	}
@@ -611,7 +613,7 @@ func toStringMap(v interface{}) map[string]string {
 
 // stringFieldChanged checks if a string field has changed between existing and desired values.
 // It handles the case where the existing field may not exist in serviceData.
-// Returns (changed, existingValue, desiredValue) for logging purposes.
+// Returns (changed, existingValue) for logging purposes.
 func stringFieldChanged(serviceData map[string]interface{}, key string, desired string) (changed bool, existing string) {
 	if existingVal, ok := serviceData[key].(string); ok {
 		if existingVal != desired {
@@ -628,7 +630,7 @@ func stringFieldChanged(serviceData map[string]interface{}, key string, desired 
 
 // intFieldChanged checks if an int field has changed between existing and desired values.
 // It handles the case where the existing field may not exist in serviceData.
-// Returns (changed, existingValue, desiredValue) for logging purposes.
+// Returns (changed, existingValue) for logging purposes.
 func intFieldChanged(serviceData map[string]interface{}, key string, desired int) (changed bool, existing int) {
 	if existingVal, ok := serviceData[key].(int); ok {
 		if existingVal != desired {
