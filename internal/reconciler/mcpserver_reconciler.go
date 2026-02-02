@@ -364,6 +364,7 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 			Env:         info.Env,
 			Headers:     info.Headers,
 			Timeout:     info.Timeout,
+			Auth:        info.Auth,
 		}
 		if err := configurableService.UpdateConfiguration(newConfig); err != nil {
 			return ReconcileResult{
