@@ -426,22 +426,35 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 	// Compare key fields
 	// URL change requires restart
 	if url, ok := serviceData["url"].(string); ok && url != desired.URL {
+		logging.Debug("MCPServerReconciler", "Config change detected: url changed")
 		return true
 	}
 
 	// Command change requires restart
 	if cmd, ok := serviceData["command"].(string); ok && cmd != desired.Command {
+		logging.Debug("MCPServerReconciler", "Config change detected: command changed")
 		return true
 	}
 
 	// Type change requires restart
-	if typ, ok := serviceData["type"].(string); ok && typ != desired.Type {
-		return true
+	// Handle both string and api.MCPServerType since the type in serviceData
+	// may be stored as the concrete MCPServerType type
+	if typ, ok := serviceData["type"].(string); ok {
+		if typ != desired.Type {
+			logging.Debug("MCPServerReconciler", "Config change detected: type changed")
+			return true
+		}
+	} else if typ, ok := serviceData["type"].(api.MCPServerType); ok {
+		if string(typ) != desired.Type {
+			logging.Debug("MCPServerReconciler", "Config change detected: type changed")
+			return true
+		}
 	}
 
 	// Check if AutoStart changed from false to true
 	if autoStart, ok := serviceData["autoStart"].(bool); ok {
 		if !autoStart && desired.AutoStart {
+			logging.Debug("MCPServerReconciler", "Config change detected: autoStart changed from false to true")
 			return true
 		}
 	}
@@ -452,12 +465,204 @@ func (r *MCPServerReconciler) needsRestart(desired *api.MCPServerInfo, actual ap
 		if !ok {
 			// Type mismatch or nil, needs restart if desired has args
 			if len(desired.Args) > 0 {
+				logging.Debug("MCPServerReconciler", "Config change detected: args added")
 				return true
 			}
 		} else if !slices.Equal(existingArgs, desired.Args) {
+			logging.Debug("MCPServerReconciler", "Config change detected: args changed")
 			return true
 		}
 	}
 
+	// Env change requires restart
+	if !mapsEqual(serviceData["env"], desired.Env) {
+		logging.Debug("MCPServerReconciler", "Config change detected: env changed")
+		return true
+	}
+
+	// Headers change requires restart
+	if !mapsEqual(serviceData["headers"], desired.Headers) {
+		logging.Debug("MCPServerReconciler", "Config change detected: headers changed")
+		return true
+	}
+
+	// Timeout change requires restart
+	if timeout, ok := serviceData["timeout"].(int); ok {
+		if timeout != desired.Timeout {
+			logging.Debug("MCPServerReconciler", "Config change detected: timeout changed")
+			return true
+		}
+	} else if desired.Timeout != 0 {
+		// No existing timeout but desired has one
+		logging.Debug("MCPServerReconciler", "Config change detected: timeout added")
+		return true
+	}
+
+	// ToolPrefix change requires restart
+	if toolPrefix, ok := serviceData["toolPrefix"].(string); ok {
+		if toolPrefix != desired.ToolPrefix {
+			logging.Debug("MCPServerReconciler", "Config change detected: toolPrefix changed")
+			return true
+		}
+	} else if desired.ToolPrefix != "" {
+		// No existing toolPrefix but desired has one
+		logging.Debug("MCPServerReconciler", "Config change detected: toolPrefix added")
+		return true
+	}
+
+	// Description change does NOT require restart (metadata only)
+	// But we log it for debugging purposes
+	if desc, ok := serviceData["description"].(string); ok {
+		if desc != desired.Description {
+			logging.Debug("MCPServerReconciler", "Description changed (no restart needed)")
+		}
+	}
+
+	// Auth change requires restart - authentication config affects server connectivity
+	if !authConfigEqual(serviceData["auth"], desired.Auth) {
+		logging.Debug("MCPServerReconciler", "Config change detected: auth changed")
+		return true
+	}
+
 	return false
+}
+
+// authConfigEqual compares auth configurations for equality.
+// It handles the case where existing auth comes from serviceData as interface{}.
+func authConfigEqual(existing interface{}, desired *api.MCPServerAuth) bool {
+	// Both nil means equal
+	if existing == nil && desired == nil {
+		return true
+	}
+	// One nil, one not means not equal
+	if existing == nil || desired == nil {
+		return false
+	}
+
+	// Try to cast existing to *api.MCPServerAuth
+	existingAuth, ok := existing.(*api.MCPServerAuth)
+	if !ok {
+		// If we can't cast, assume they're different (safer to restart)
+		return false
+	}
+
+	// Compare Type
+	if existingAuth.Type != desired.Type {
+		return false
+	}
+
+	// Compare ForwardToken
+	if existingAuth.ForwardToken != desired.ForwardToken {
+		return false
+	}
+
+	// Compare RequiredAudiences
+	if !slices.Equal(existingAuth.RequiredAudiences, desired.RequiredAudiences) {
+		return false
+	}
+
+	// Compare TokenExchange
+	if !tokenExchangeEqual(existingAuth.TokenExchange, desired.TokenExchange) {
+		return false
+	}
+
+	// Compare Teleport
+	if !teleportAuthEqual(existingAuth.Teleport, desired.Teleport) {
+		return false
+	}
+
+	return true
+}
+
+// tokenExchangeEqual compares TokenExchangeConfig for equality.
+func tokenExchangeEqual(existing, desired *api.TokenExchangeConfig) bool {
+	if existing == nil && desired == nil {
+		return true
+	}
+	if existing == nil || desired == nil {
+		return false
+	}
+
+	if existing.Enabled != desired.Enabled {
+		return false
+	}
+	if existing.DexTokenEndpoint != desired.DexTokenEndpoint {
+		return false
+	}
+	if existing.ExpectedIssuer != desired.ExpectedIssuer {
+		return false
+	}
+	if existing.ConnectorID != desired.ConnectorID {
+		return false
+	}
+	if existing.Scopes != desired.Scopes {
+		return false
+	}
+	// Note: We don't compare ClientCredentialsSecretRef as secret refs
+	// don't change the auth behavior, only where credentials come from
+	return true
+}
+
+// teleportAuthEqual compares TeleportAuth for equality.
+func teleportAuthEqual(existing, desired *api.TeleportAuth) bool {
+	if existing == nil && desired == nil {
+		return true
+	}
+	if existing == nil || desired == nil {
+		return false
+	}
+
+	if existing.IdentityDir != desired.IdentityDir {
+		return false
+	}
+	if existing.IdentitySecretName != desired.IdentitySecretName {
+		return false
+	}
+	if existing.IdentitySecretNamespace != desired.IdentitySecretNamespace {
+		return false
+	}
+	if existing.AppName != desired.AppName {
+		return false
+	}
+	return true
+}
+
+// mapsEqual compares two maps for equality.
+// It handles the case where serviceData contains interface{} values.
+func mapsEqual(existing interface{}, desired map[string]string) bool {
+	if existing == nil && len(desired) == 0 {
+		return true
+	}
+	if existing == nil {
+		return false
+	}
+
+	existingMap, ok := existing.(map[string]string)
+	if !ok {
+		// Try map[string]interface{} which is common from JSON unmarshaling
+		if existingIface, ok := existing.(map[string]interface{}); ok {
+			if len(existingIface) != len(desired) {
+				return false
+			}
+			for k, v := range desired {
+				if ev, exists := existingIface[k]; !exists {
+					return false
+				} else if evStr, ok := ev.(string); !ok || evStr != v {
+					return false
+				}
+			}
+			return true
+		}
+		return false
+	}
+
+	if len(existingMap) != len(desired) {
+		return false
+	}
+	for k, v := range desired {
+		if ev, exists := existingMap[k]; !exists || ev != v {
+			return false
+		}
+	}
+	return true
 }

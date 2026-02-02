@@ -319,17 +319,23 @@ func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 // GetServiceData implements ServiceDataProvider
 func (s *Service) GetServiceData() map[string]interface{} {
 	data := map[string]interface{}{
-		"name":      s.definition.Name,
-		"type":      s.definition.Type,
-		"state":     s.GetState(),
-		"health":    s.GetHealth(),
-		"autoStart": s.definition.AutoStart,
-		"command":   s.definition.Command,
-		"args":      s.definition.Args,
-		"url":       s.definition.URL,
-		"env":       s.definition.Env,
-		"headers":   s.definition.Headers,
-		"timeout":   s.definition.Timeout,
+		"name":        s.definition.Name,
+		"type":        s.definition.Type,
+		"state":       s.GetState(),
+		"health":      s.GetHealth(),
+		"autoStart":   s.definition.AutoStart,
+		"command":     s.definition.Command,
+		"args":        s.definition.Args,
+		"url":         s.definition.URL,
+		"env":         s.definition.Env,
+		"headers":     s.definition.Headers,
+		"timeout":     s.definition.Timeout,
+		"description": s.definition.Description,
+	}
+
+	// Add auth configuration if present
+	if s.definition.Auth != nil {
+		data["auth"] = s.definition.Auth
 	}
 
 	if s.GetLastError() != nil {
