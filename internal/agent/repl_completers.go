@@ -38,7 +38,11 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 		// Capture tool for closure by taking address of slice element
 		tool := &toolCache[i]
 		// PcItem for the tool name, with PcItemDynamic as a child for parameter completion
-		toolCompleter[i] = readline.PcItem(tool.Name, readline.PcItemDynamic(r.createToolParamCompleter(tool)))
+		// The nested PcItemDynamic(noTrailingSpace) prevents readline from adding a trailing space
+		// after "param=" completions, allowing the user to immediately type the value
+		toolCompleter[i] = readline.PcItem(tool.Name,
+			readline.PcItemDynamic(r.createToolParamCompleter(tool),
+				readline.PcItemDynamic(noTrailingSpace)))
 	}
 
 	resourceCompleter := make([]readline.PrefixCompleterInterface, len(resources))
@@ -52,7 +56,10 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 		// Capture prompt for closure by taking address of slice element
 		prompt := &promptCache[i]
 		// PcItem for the prompt name, with PcItemDynamic as a child for argument completion
-		promptCompleter[i] = readline.PcItem(prompt.Name, readline.PcItemDynamic(r.createPromptArgCompleter(prompt)))
+		// The nested PcItemDynamic(noTrailingSpace) prevents readline from adding a trailing space
+		promptCompleter[i] = readline.PcItem(prompt.Name,
+			readline.PcItemDynamic(r.createPromptArgCompleter(prompt),
+				readline.PcItemDynamic(noTrailingSpace)))
 	}
 
 	workflowCompleter := make([]readline.PrefixCompleterInterface, len(workflows))
@@ -199,6 +206,13 @@ func (r *REPL) createPromptArgCompleter(prompt *mcp.Prompt) readline.DynamicComp
 
 		return completions
 	}
+}
+
+// noTrailingSpace is a dynamic completion function that returns empty completions.
+// When used as a child of a parameter completer, it signals to readline that more input
+// is expected, preventing the addition of a trailing space after "param=" completions.
+func noTrailingSpace(_ string) []string {
+	return []string{}
 }
 
 // filterInput filters input characters for readline
