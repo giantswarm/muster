@@ -14,7 +14,22 @@ import (
 
 // NoSpaceDynamicCompleter is a custom completer that doesn't add trailing spaces
 // for completions ending with special characters like "=".
-// This is needed because readline's built-in PcItemDynamic always adds a trailing space.
+//
+// WHY THIS EXISTS (Complexity Justification):
+// The readline library's built-in PcItemDynamic always appends a trailing space
+// after completions. This is problematic for key=value completions where we want:
+//
+//	call tool_name param=|  (cursor immediately after =)
+//
+// Instead of:
+//
+//	call tool_name param= |  (unwanted space before cursor)
+//
+// The doNoSpaceInternal function duplicates readline's prefix completion logic
+// because readline doesn't expose a way to customize the trailing space behavior.
+// We checked readline's API and configuration options - this workaround is necessary.
+//
+// If readline adds this feature in the future, this code can be simplified.
 type NoSpaceDynamicCompleter struct {
 	Callback func(string) []string
 	Children []readline.PrefixCompleterInterface

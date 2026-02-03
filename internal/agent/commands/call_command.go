@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -45,9 +44,9 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 			if err := json.Unmarshal([]byte(trimmed), &toolArgs); err != nil {
 				// Provide helpful error message with position info
 				if syntaxErr, ok := err.(*json.SyntaxError); ok {
-					c.output.Error("Invalid JSON at position %d: %s", syntaxErr.Offset, syntaxErr.Error())
+					c.output.Error("Invalid JSON at position %d: %v", syntaxErr.Offset, syntaxErr)
 				} else {
-					c.output.Error("Invalid JSON: %s", err.Error())
+					c.output.Error("Invalid JSON: %v", err)
 				}
 				c.output.OutputLine("Hint: Did you mean to use key=value syntax instead?")
 				c.output.OutputLine("")
@@ -123,49 +122,17 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 	return nil
 }
 
-// parseKeyValueArgs parses arguments in key=value format into a map
+// parseKeyValueArgs parses arguments in key=value format into a map.
+// Delegates to the shared parseKeyValueArgsToInterfaceMap helper.
 func (c *CallCommand) parseKeyValueArgs(args []string) map[string]interface{} {
-	params := make(map[string]interface{})
-
-	for _, arg := range args {
-		if strings.Contains(arg, "=") {
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) == 2 {
-				key := parts[0]
-				value := parts[1]
-
-				// Strip surrounding quotes from string values (common shell habit)
-				if len(value) >= 2 {
-					if (value[0] == '"' && value[len(value)-1] == '"') ||
-						(value[0] == '\'' && value[len(value)-1] == '\'') {
-						value = value[1 : len(value)-1]
-					}
-				}
-
-				// Try to parse as JSON for complex types (arrays, objects, numbers, booleans)
-				var jsonValue interface{}
-				if err := json.Unmarshal([]byte(value), &jsonValue); err == nil {
-					params[key] = jsonValue
-				} else {
-					// Use as string if not valid JSON
-					params[key] = value
-				}
-			}
-		}
-	}
-
-	return params
+	return parseKeyValueArgsToInterfaceMap(args, c.output)
 }
 
-// findTool looks up a tool by name from the cache
+// findTool looks up a tool by name from the cache.
+// Delegates to the shared findToolByName helper.
 func (c *CallCommand) findTool(name string) *mcp.Tool {
 	tools := c.client.GetToolCache()
-	for _, tool := range tools {
-		if tool.Name == name {
-			return &tool
-		}
-	}
-	return nil
+	return findToolByName(tools, name)
 }
 
 // getRequiredParams returns the list of required parameter names for a tool
@@ -176,22 +143,10 @@ func (c *CallCommand) getRequiredParams(tool *mcp.Tool) []string {
 	return tool.InputSchema.Required
 }
 
-// getToolParams returns all parameter names for a tool
+// getToolParams returns all parameter names for a tool.
+// Delegates to the shared getToolParamNames helper.
 func (c *CallCommand) getToolParams(tool *mcp.Tool) []string {
-	if tool == nil {
-		return nil
-	}
-
-	if len(tool.InputSchema.Properties) == 0 {
-		return nil
-	}
-
-	var params []string
-	for name := range tool.InputSchema.Properties {
-		params = append(params, name)
-	}
-	sort.Strings(params)
-	return params
+	return getToolParamNames(tool)
 }
 
 // showArgumentHelp displays helpful information about a tool's parameters
@@ -232,17 +187,9 @@ func (c *CallCommand) showArgumentHelp(toolName string, tool *mcp.Tool) {
 			continue
 		}
 
-		// Get type
-		paramType := "string"
-		if t, ok := propMap["type"].(string); ok {
-			paramType = t
-		}
-
-		// Get description
-		description := ""
-		if d, ok := propMap["description"].(string); ok {
-			description = d
-		}
+		// Get type and description using shared helper
+		paramType := getStringFromMap(propMap, "type", "string")
+		description := getStringFromMap(propMap, "description", "")
 
 		// Use asterisk marker for required params (easier to scan visually)
 		marker := " "

@@ -32,8 +32,7 @@ func (p *PromptCommand) Execute(ctx context.Context, args []string) error {
 	promptName := parsed[0]
 
 	// Find the prompt to get its schema for better error messages
-	prompts := p.client.GetPromptCache()
-	prompt := p.getFormatters().FindPrompt(prompts, promptName)
+	prompt := p.findPrompt(promptName)
 
 	// Parse arguments - support both JSON and key=value syntax
 	var promptArgs map[string]string
@@ -47,9 +46,9 @@ func (p *PromptCommand) Execute(ctx context.Context, args []string) error {
 			if err := json.Unmarshal([]byte(trimmed), &genericArgs); err != nil {
 				// Provide helpful error message with position info
 				if syntaxErr, ok := err.(*json.SyntaxError); ok {
-					p.output.Error("Invalid JSON at position %d: %s", syntaxErr.Offset, syntaxErr.Error())
+					p.output.Error("Invalid JSON at position %d: %v", syntaxErr.Offset, syntaxErr)
 				} else {
-					p.output.Error("Invalid JSON: %s", err.Error())
+					p.output.Error("Invalid JSON: %v", err)
 				}
 				p.output.OutputLine("Hint: Did you mean to use key=value syntax instead?")
 				p.output.OutputLine("")
@@ -113,31 +112,10 @@ func (p *PromptCommand) Execute(ctx context.Context, args []string) error {
 	return nil
 }
 
-// parseKeyValueArgs parses arguments in key=value format into a string map
+// parseKeyValueArgs parses arguments in key=value format into a string map.
+// Delegates to the shared parseKeyValueArgsToStringMap helper.
 func (p *PromptCommand) parseKeyValueArgs(args []string) map[string]string {
-	params := make(map[string]string)
-
-	for _, arg := range args {
-		if strings.Contains(arg, "=") {
-			parts := strings.SplitN(arg, "=", 2)
-			if len(parts) == 2 {
-				key := parts[0]
-				value := parts[1]
-
-				// Strip surrounding quotes from string values (common shell habit)
-				if len(value) >= 2 {
-					if (value[0] == '"' && value[len(value)-1] == '"') ||
-						(value[0] == '\'' && value[len(value)-1] == '\'') {
-						value = value[1 : len(value)-1]
-					}
-				}
-
-				params[key] = value
-			}
-		}
-	}
-
-	return params
+	return parseKeyValueArgsToStringMap(args, p.output)
 }
 
 // showArgumentHelp displays helpful information about a prompt's arguments
@@ -216,33 +194,17 @@ func (p *PromptCommand) showArgumentHelp(promptName string, prompt *mcp.Prompt) 
 	p.output.OutputLine("  prompt %s {\"arg\": \"value\"}", promptName)
 }
 
-// findPrompt looks up a prompt by name from the cache
+// findPrompt looks up a prompt by name from the cache.
+// Delegates to the shared findPromptByName helper.
 func (p *PromptCommand) findPrompt(name string) *mcp.Prompt {
 	prompts := p.client.GetPromptCache()
-	for _, prompt := range prompts {
-		if prompt.Name == name {
-			return &prompt
-		}
-	}
-	return nil
+	return findPromptByName(prompts, name)
 }
 
-// getPromptArgNames returns all argument names for a prompt
+// getPromptArgNames returns all argument names for a prompt.
+// Delegates to the shared getPromptArgNames helper.
 func (p *PromptCommand) getPromptArgNames(prompt *mcp.Prompt) []string {
-	if prompt == nil {
-		return nil
-	}
-
-	if len(prompt.Arguments) == 0 {
-		return nil
-	}
-
-	var args []string
-	for _, arg := range prompt.Arguments {
-		args = append(args, arg.Name)
-	}
-	sort.Strings(args)
-	return args
+	return getPromptArgNames(prompt)
 }
 
 // Usage returns the usage string
