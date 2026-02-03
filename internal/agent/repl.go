@@ -23,6 +23,9 @@ const promptPrefix = "𝗺"
 // promptChevron is the guillemet separator used in the prompt.
 const promptChevron = "»"
 
+// promptAuthRequired is the indicator shown when servers require authentication.
+const promptAuthRequired = "[auth required]"
+
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
 // with features like tab completion, command history, and real-time notifications.
@@ -48,6 +51,7 @@ type REPL struct {
 	wg               sync.WaitGroup
 	commandRegistry  *commands.Registry
 	currentContext   string // Current muster context name for prompt display
+	authRequired     bool   // Whether any servers require authentication
 	mu               sync.RWMutex
 }
 
@@ -105,18 +109,32 @@ func loadCurrentContext() string {
 	return name
 }
 
-// buildPrompt creates the REPL prompt with the current context.
-// Format: m context » or m » if no context is set.
+// buildPrompt creates the REPL prompt with the current context and auth status.
+// Format examples:
+//   - "𝗺 »" - no context set, no auth required
+//   - "𝗺 mycontext »" - context set, no auth required
+//   - "𝗺 [auth required] »" - no context, auth required
+//   - "𝗺 mycontext [auth required] »" - context set, auth required
 func (r *REPL) buildPrompt() string {
 	r.mu.RLock()
 	ctx := r.currentContext
+	authReq := r.authRequired
 	r.mu.RUnlock()
 
-	if ctx == "" {
-		return fmt.Sprintf("%s %s ", promptPrefix, promptChevron)
+	var parts []string
+	parts = append(parts, promptPrefix)
+
+	if ctx != "" {
+		parts = append(parts, ctx)
 	}
 
-	return fmt.Sprintf("%s %s %s ", promptPrefix, ctx, promptChevron)
+	if authReq {
+		parts = append(parts, promptAuthRequired)
+	}
+
+	parts = append(parts, promptChevron)
+
+	return strings.Join(parts, " ") + " "
 }
 
 // updatePrompt refreshes the readline prompt with the current context.
@@ -135,6 +153,20 @@ func (r *REPL) setCurrentContext(name string) {
 	r.mu.Unlock()
 
 	r.updatePrompt()
+}
+
+// checkAuthRequired checks if any servers require authentication and updates the prompt.
+func (r *REPL) checkAuthRequired() {
+	authRequired := len(r.client.GetAuthRequired()) > 0
+
+	r.mu.Lock()
+	changed := r.authRequired != authRequired
+	r.authRequired = authRequired
+	r.mu.Unlock()
+
+	if changed {
+		r.updatePrompt()
+	}
 }
 
 // registerCommands registers all available commands with the command registry.
@@ -316,6 +348,9 @@ func (r *REPL) Run(ctx context.Context) error {
 	defer rl.Close()
 	r.rl = rl
 
+	// Check initial auth status for prompt display
+	r.checkAuthRequired()
+
 	// Start notification listener in background for transports that support notifications
 	if r.client.SupportsNotifications() {
 		r.wg.Add(1)
@@ -426,13 +461,17 @@ func (r *REPL) notificationListener(ctx context.Context) {
 				r.logger.Error("Failed to handle notification: %v", err)
 			}
 
-			// Update completer if items changed to reflect new capabilities
+			// Update completer and auth status if items changed
 			switch notification.Method {
 			case "notifications/tools/list_changed",
 				"notifications/resources/list_changed",
 				"notifications/prompts/list_changed":
 				if r.rl != nil {
 					r.rl.Config.AutoComplete = r.createCompleter()
+				}
+				// Resources changed - auth status may have updated
+				if notification.Method == "notifications/resources/list_changed" {
+					r.checkAuthRequired()
 				}
 			}
 

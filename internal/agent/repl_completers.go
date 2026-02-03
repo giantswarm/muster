@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	musterctx "muster/internal/context"
+	"muster/internal/agent/commands"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -270,18 +270,23 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 	)
 }
 
-// createContextCompleter creates completers for available context names
+// createContextCompleter creates completers for available context names.
+// It retrieves the context command from the registry and uses its GetContextNames method
+// to avoid duplicating the storage access logic.
 func (r *REPL) createContextCompleter() []readline.PrefixCompleterInterface {
-	storage, err := musterctx.NewStorage()
-	if err != nil {
+	// Get the context command from the registry to access its GetContextNames method
+	cmd, exists := r.commandRegistry.Get("context")
+	if !exists {
 		return nil
 	}
 
-	names, err := storage.GetContextNames()
-	if err != nil {
+	// Type assert to ContextCommand to access the GetContextNames method
+	ctxCmd, ok := cmd.(*commands.ContextCommand)
+	if !ok {
 		return nil
 	}
 
+	names := ctxCmd.GetContextNames()
 	completers := make([]readline.PrefixCompleterInterface, len(names))
 	for i, name := range names {
 		completers[i] = readline.PcItem(name)
