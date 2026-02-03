@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"sort"
@@ -10,6 +11,138 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// NoSpaceDynamicCompleter is a custom completer that doesn't add trailing spaces
+// for completions ending with special characters like "=".
+// This is needed because readline's built-in PcItemDynamic always adds a trailing space.
+type NoSpaceDynamicCompleter struct {
+	Callback func(string) []string
+	Children []readline.PrefixCompleterInterface
+}
+
+// GetName returns an empty name since this is a dynamic completer
+func (n *NoSpaceDynamicCompleter) GetName() []rune {
+	return nil
+}
+
+// GetChildren returns the child completers
+func (n *NoSpaceDynamicCompleter) GetChildren() []readline.PrefixCompleterInterface {
+	return n.Children
+}
+
+// SetChildren sets the child completers
+func (n *NoSpaceDynamicCompleter) SetChildren(children []readline.PrefixCompleterInterface) {
+	n.Children = children
+}
+
+// IsDynamic returns true since this is a dynamic completer
+func (n *NoSpaceDynamicCompleter) IsDynamic() bool {
+	return true
+}
+
+// GetDynamicNames returns completions WITHOUT trailing spaces for items ending with "="
+func (n *NoSpaceDynamicCompleter) GetDynamicNames(line []rune) [][]rune {
+	var names [][]rune
+	for _, name := range n.Callback(string(line)) {
+		// Don't add trailing space for completions ending with "="
+		// This allows users to immediately type the value
+		if strings.HasSuffix(name, "=") {
+			names = append(names, []rune(name))
+		} else {
+			names = append(names, []rune(name+" "))
+		}
+	}
+	return names
+}
+
+// Print implements the PrefixCompleterInterface
+func (n *NoSpaceDynamicCompleter) Print(prefix string, level int, buf *bytes.Buffer) {
+	// Dynamic completers don't print static names
+}
+
+// Do implements the AutoCompleter interface
+func (n *NoSpaceDynamicCompleter) Do(line []rune, pos int) ([][]rune, int) {
+	return doNoSpaceInternal(n, line, pos, line)
+}
+
+// doNoSpaceInternal handles the completion logic
+func doNoSpaceInternal(p readline.PrefixCompleterInterface, line []rune, pos int, origLine []rune) ([][]rune, int) {
+	// Trim leading spaces
+	trimmed := line[:pos]
+	for len(trimmed) > 0 && trimmed[0] == ' ' {
+		trimmed = trimmed[1:]
+	}
+
+	var newLine [][]rune
+	var offset int
+	var lineCompleter readline.PrefixCompleterInterface
+	goNext := false
+
+	for _, child := range p.GetChildren() {
+		var childNames [][]rune
+
+		if dynChild, ok := child.(interface {
+			IsDynamic() bool
+			GetDynamicNames([]rune) [][]rune
+		}); ok && dynChild.IsDynamic() {
+			childNames = dynChild.GetDynamicNames(origLine)
+		} else {
+			childNames = [][]rune{child.GetName()}
+		}
+
+		for _, childName := range childNames {
+			if len(trimmed) >= len(childName) {
+				if hasPrefix(trimmed, childName) {
+					if len(trimmed) == len(childName) {
+						newLine = append(newLine, []rune{' '})
+					} else {
+						newLine = append(newLine, childName)
+					}
+					offset = len(childName)
+					lineCompleter = child
+					goNext = true
+				}
+			} else {
+				if hasPrefix(childName, trimmed) {
+					newLine = append(newLine, childName[len(trimmed):])
+					offset = len(trimmed)
+					lineCompleter = child
+				}
+			}
+		}
+	}
+
+	if len(newLine) != 1 {
+		return newLine, offset
+	}
+
+	tmpLine := make([]rune, 0, len(trimmed))
+	for i := offset; i < len(trimmed); i++ {
+		if trimmed[i] == ' ' {
+			continue
+		}
+		tmpLine = append(tmpLine, trimmed[i:]...)
+		return doNoSpaceInternal(lineCompleter, tmpLine, len(tmpLine), origLine)
+	}
+
+	if goNext {
+		return doNoSpaceInternal(lineCompleter, nil, 0, origLine)
+	}
+	return newLine, offset
+}
+
+// hasPrefix checks if s starts with prefix
+func hasPrefix(s, prefix []rune) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i, r := range prefix {
+		if s[i] != r {
+			return false
+		}
+	}
+	return true
+}
 
 // createCompleter creates the tab completion configuration using the command registry
 func (r *REPL) createCompleter() *readline.PrefixCompleter {
@@ -37,12 +170,10 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 	for i := range toolCache {
 		// Capture tool for closure by taking address of slice element
 		tool := &toolCache[i]
-		// PcItem for the tool name, with PcItemDynamic as a child for parameter completion
-		// The nested PcItemDynamic(noTrailingSpace) prevents readline from adding a trailing space
-		// after "param=" completions, allowing the user to immediately type the value
+		// PcItem for the tool name, with NoSpaceDynamicCompleter for parameter completion
+		// NoSpaceDynamicCompleter doesn't add trailing space for "param=" completions
 		toolCompleter[i] = readline.PcItem(tool.Name,
-			readline.PcItemDynamic(r.createToolParamCompleter(tool),
-				readline.PcItemDynamic(noTrailingSpace)))
+			&NoSpaceDynamicCompleter{Callback: r.createToolParamCompleter(tool)})
 	}
 
 	resourceCompleter := make([]readline.PrefixCompleterInterface, len(resources))
@@ -55,11 +186,10 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 	for i := range promptCache {
 		// Capture prompt for closure by taking address of slice element
 		prompt := &promptCache[i]
-		// PcItem for the prompt name, with PcItemDynamic as a child for argument completion
-		// The nested PcItemDynamic(noTrailingSpace) prevents readline from adding a trailing space
+		// PcItem for the prompt name, with NoSpaceDynamicCompleter for argument completion
+		// NoSpaceDynamicCompleter doesn't add trailing space for "arg=" completions
 		promptCompleter[i] = readline.PcItem(prompt.Name,
-			readline.PcItemDynamic(r.createPromptArgCompleter(prompt),
-				readline.PcItemDynamic(noTrailingSpace)))
+			&NoSpaceDynamicCompleter{Callback: r.createPromptArgCompleter(prompt)})
 	}
 
 	workflowCompleter := make([]readline.PrefixCompleterInterface, len(workflows))
@@ -206,13 +336,6 @@ func (r *REPL) createPromptArgCompleter(prompt *mcp.Prompt) readline.DynamicComp
 
 		return completions
 	}
-}
-
-// noTrailingSpace is a dynamic completion function that returns empty completions.
-// When used as a child of a parameter completer, it signals to readline that more input
-// is expected, preventing the addition of a trailing space after "param=" completions.
-func noTrailingSpace(_ string) []string {
-	return []string{}
 }
 
 // filterInput filters input characters for readline
