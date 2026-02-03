@@ -244,13 +244,11 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 //   - Failed: Process crashed or cannot be started
 //
 // For remote (streamable-http, sse) servers:
-//   - Connected: TCP connection established (may still require auth)
+//   - Connected: TCP connection established and authenticated
+//   - Auth Required: Server is reachable but requires authentication (401 response)
 //   - Connecting: Attempting to establish connection
 //   - Disconnected: Not connected
 //   - Failed: Endpoint unreachable
-//
-// Note: auth_required means the server IS reachable (returned 401), so that's Connected state.
-// Per-user authentication state is tracked in the Session Registry, not in CRD State.
 func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType string) musterv1alpha1.MCPServerStateValue {
 	isRemote := serverType == "streamable-http" || serverType == "sse"
 

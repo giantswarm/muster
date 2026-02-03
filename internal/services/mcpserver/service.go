@@ -103,8 +103,8 @@ func (s *Service) Start(ctx context.Context) error {
 		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
 			// Auth errors should not count as connectivity failures
 			// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
-			// This maps to CRD state "Connected" per issue #337 - a 401 response proves
-			// the server is reachable at the network level.
+			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
+			// the server is reachable at the network level, but authentication is needed.
 			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
 			s.LogInfo("MCP server requires authentication")
 			// Generate auth required event
