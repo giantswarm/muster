@@ -361,11 +361,11 @@ func (b *TableBuilder) formatTimestampPlain(timestamp string) string {
 // formatSessionAuthPlain formats per-user authentication status as plain text.
 // This shows the user's auth status for OAuth-protected servers.
 //
-// Possible values:
-//   - authenticated: User has successfully authenticated
-//   - auth_required: Server requires authentication, user has not authenticated
-//   - token_expired: User's token has expired, re-authentication needed
-//   - unknown: Auth status cannot be determined
+// Possible values per issue #337:
+//   - authenticated: User has successfully authenticated → "Authenticated"
+//   - auth_required: Server requires authentication, user has not authenticated → "Pending Auth"
+//   - token_expired: User's token has expired, re-authentication needed → "Expired"
+//   - unknown: Auth status cannot be determined → "-"
 func (b *TableBuilder) formatSessionAuthPlain(auth string) string {
 	if auth == "" {
 		return "-"
@@ -373,9 +373,9 @@ func (b *TableBuilder) formatSessionAuthPlain(auth string) string {
 
 	switch strings.ToLower(auth) {
 	case "authenticated":
-		return "OK"
+		return "Authenticated"
 	case "auth_required":
-		return "Required"
+		return "Pending Auth"
 	case "token_expired":
 		return "Expired"
 	case "unknown":

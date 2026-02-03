@@ -102,11 +102,10 @@ func (s *Service) Start(ctx context.Context) error {
 		// where the server exists but needs OAuth before it can connect
 		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
 			// Auth errors should not count as connectivity failures
-			// Use StateWaiting instead of StateStopped to prevent the event handler
-			// from deregistering the server before the orchestrator can register
-			// the pending auth. StateWaiting is semantically correct - the server
-			// is waiting for authentication.
-			s.UpdateState(services.StateWaiting, services.HealthUnknown, nil)
+			// Use StateAuthRequired to indicate the server IS reachable but needs authentication.
+			// This maps to CRD state "Auth Required" per issue #337 - a 401 response proves
+			// the server is reachable at the network level, but authentication is needed.
+			s.UpdateState(services.StateAuthRequired, services.HealthUnknown, nil)
 			s.LogInfo("MCP server requires authentication")
 			// Generate auth required event
 			s.generateEvent(events.ReasonMCPServerAuthRequired, events.EventData{

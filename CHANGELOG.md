@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **MCPServer CRD State Exposes Auth Required** - The MCPServer CRD now shows `Auth Required` state when a remote server returns 401 Unauthorized ([#337](https://github.com/giantswarm/muster/issues/337))
+  - **Before**: 401 response mapped to `Connected` (hiding auth requirement)
+  - **After**: 401 response shows as `Auth Required` in CRD state
+  - This gives operators clear visibility into which servers need authentication
+  - CLI output updated: `muster list mcpserver` now shows `Auth Required` state
+  - SESSION column values updated: `OK` → `Authenticated`, `Required` → `Pending Auth`
+  - Column header renamed: `AUTH` → `SESSION` to match `muster auth status` output
+
 ### Added
 - **Reconciliation Framework** - Automatic synchronization between resource definitions (CRDs/YAML) and running services
   - Supports both Kubernetes mode (using controller-runtime informers) and filesystem mode (using fsnotify)

@@ -409,12 +409,13 @@ spec:
                   This is independent of user session state (authentication, connection status).
 
                   For stdio servers: Running, Starting, Stopped, Failed
-                  For remote servers: Connected, Connecting, Disconnected, Failed
+                  For remote servers: Connected, Auth Required, Connecting, Disconnected, Failed
                 enum:
                 - Running
                 - Starting
                 - Stopped
                 - Connected
+                - Auth Required
                 - Connecting
                 - Disconnected
                 - Failed
