@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file.
   - **WorkflowStatus**: Replaced `available`/`requiredTools`/`missingTools`/`stepValidation` with `valid`/`validationErrors`/`referencedTools`/`stepCount`
   - Tool availability is now computed per-session at runtime, not stored in CRs
   - Existing CRs will have stale status fields that will be updated on first reconciliation
+- Added Chart annotations to support OCI repositories.
 
 ### Fixed
 - **Helm CiliumNetworkPolicy**: Fixed incorrect values path for OAuth storage check (now uses `.Values.muster.oauth.server.storage`)

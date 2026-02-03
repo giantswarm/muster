@@ -18,4 +18,5 @@ maintainers:
   - name: Giant Swarm
     email: team-planeteers@giantswarm.io
 annotations:
-  application.giantswarm.io/team: team-planeteers
+  io.giantswarm.application.audience: all
+  io.giantswarm.application.team: planeteers
