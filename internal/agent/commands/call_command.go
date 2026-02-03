@@ -3,6 +3,9 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -28,17 +31,37 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 
 	toolName := parsed[0]
 
-	// Parse arguments (default to empty JSON object if not provided)
+	// Find the tool to get its schema for better error messages
+	tool := c.findTool(toolName)
+
+	// Parse arguments - support both JSON and key=value syntax
 	var toolArgs map[string]interface{}
 	if len(parsed) > 1 {
 		argsStr := c.joinArgsFrom(parsed, 1)
-		if err := json.Unmarshal([]byte(argsStr), &toolArgs); err != nil {
-			c.output.Error("Arguments must be valid JSON")
-			c.output.OutputLine("Example: %s %s {\"param1\": \"value1\", \"param2\": 123}", "call", toolName)
-			return nil
+
+		// Check if arguments look like JSON (starts with {)
+		trimmed := strings.TrimSpace(argsStr)
+		if strings.HasPrefix(trimmed, "{") {
+			if err := json.Unmarshal([]byte(trimmed), &toolArgs); err != nil {
+				c.output.Error("Invalid JSON arguments")
+				c.showArgumentHelp(toolName, tool)
+				return nil
+			}
+		} else {
+			// Parse key=value syntax
+			toolArgs = c.parseKeyValueArgs(parsed[1:])
 		}
 	} else {
 		toolArgs = make(map[string]interface{})
+	}
+
+	// If no arguments provided, show the tool schema to help the user
+	if len(parsed) == 1 && tool != nil {
+		requiredParams := c.getRequiredParams(tool)
+		if len(requiredParams) > 0 {
+			c.showArgumentHelp(toolName, tool)
+			return nil
+		}
 	}
 
 	// Show what we're doing
@@ -90,19 +113,185 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 	return nil
 }
 
+// parseKeyValueArgs parses arguments in key=value format into a map
+func (c *CallCommand) parseKeyValueArgs(args []string) map[string]interface{} {
+	params := make(map[string]interface{})
+
+	for _, arg := range args {
+		if strings.Contains(arg, "=") {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				key := parts[0]
+				value := parts[1]
+
+				// Try to parse as JSON for complex types (arrays, objects, numbers, booleans)
+				var jsonValue interface{}
+				if err := json.Unmarshal([]byte(value), &jsonValue); err == nil {
+					params[key] = jsonValue
+				} else {
+					// Use as string if not valid JSON
+					params[key] = value
+				}
+			}
+		}
+	}
+
+	return params
+}
+
+// findTool looks up a tool by name from the cache
+func (c *CallCommand) findTool(name string) *mcp.Tool {
+	tools := c.client.GetToolCache()
+	for _, tool := range tools {
+		if tool.Name == name {
+			return &tool
+		}
+	}
+	return nil
+}
+
+// getRequiredParams returns the list of required parameter names for a tool
+func (c *CallCommand) getRequiredParams(tool *mcp.Tool) []string {
+	if tool == nil {
+		return nil
+	}
+	return tool.InputSchema.Required
+}
+
+// getToolParams returns all parameter names for a tool
+func (c *CallCommand) getToolParams(tool *mcp.Tool) []string {
+	if tool == nil {
+		return nil
+	}
+
+	if len(tool.InputSchema.Properties) == 0 {
+		return nil
+	}
+
+	var params []string
+	for name := range tool.InputSchema.Properties {
+		params = append(params, name)
+	}
+	sort.Strings(params)
+	return params
+}
+
+// showArgumentHelp displays helpful information about a tool's parameters
+func (c *CallCommand) showArgumentHelp(toolName string, tool *mcp.Tool) {
+	if tool == nil {
+		c.output.Error("Tool not found: %s", toolName)
+		c.output.OutputLine("Use 'list tools' to see available tools")
+		return
+	}
+
+	c.output.OutputLine("Tool: %s", toolName)
+	if tool.Description != "" {
+		c.output.OutputLine("Description: %s", tool.Description)
+	}
+	c.output.OutputLine("")
+
+	if len(tool.InputSchema.Properties) == 0 {
+		c.output.OutputLine("This tool has no parameters.")
+		c.output.OutputLine("")
+		c.output.OutputLine("Usage: call %s", toolName)
+		return
+	}
+
+	// Create a set of required params for quick lookup
+	requiredSet := make(map[string]bool)
+	for _, req := range tool.InputSchema.Required {
+		requiredSet[req] = true
+	}
+
+	// Get sorted parameter names
+	params := c.getToolParams(tool)
+
+	c.output.OutputLine("Parameters:")
+	for _, paramName := range params {
+		propData := tool.InputSchema.Properties[paramName]
+		propMap, ok := propData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get type
+		paramType := "string"
+		if t, ok := propMap["type"].(string); ok {
+			paramType = t
+		}
+
+		// Get description
+		description := ""
+		if d, ok := propMap["description"].(string); ok {
+			description = d
+		}
+
+		// Check if required
+		required := ""
+		if requiredSet[paramName] {
+			required = " (required)"
+		}
+
+		c.output.OutputLine("  %s (%s)%s", paramName, paramType, required)
+		if description != "" {
+			c.output.OutputLine("    %s", description)
+		}
+	}
+
+	c.output.OutputLine("")
+	c.output.OutputLine("Usage examples:")
+
+	// Build example with key=value syntax
+	var exampleParts []string
+	for _, paramName := range params {
+		if requiredSet[paramName] {
+			exampleParts = append(exampleParts, fmt.Sprintf("%s=<value>", paramName))
+		}
+	}
+	if len(exampleParts) > 0 {
+		c.output.OutputLine("  call %s %s", toolName, strings.Join(exampleParts, " "))
+	} else {
+		c.output.OutputLine("  call %s", toolName)
+	}
+
+	// Also show JSON syntax
+	c.output.OutputLine("  call %s {\"param\": \"value\"}", toolName)
+}
+
 // Usage returns the usage string
 func (c *CallCommand) Usage() string {
-	return "call <tool-name> [json-arguments]"
+	return "call <tool-name> [param1=value1 param2=value2 ...] or call <tool-name> {\"json\": \"args\"}"
 }
 
 // Description returns the command description
 func (c *CallCommand) Description() string {
-	return "Execute a tool with JSON arguments"
+	return "Execute a tool with key=value or JSON arguments"
 }
 
 // Completions returns possible completions
 func (c *CallCommand) Completions(input string) []string {
-	return c.getToolCompletions()
+	parts := strings.Fields(input)
+
+	if len(parts) <= 1 {
+		// Complete tool names
+		return c.getToolCompletions()
+	}
+
+	// Complete parameter names for the specified tool
+	toolName := parts[1]
+	tool := c.findTool(toolName)
+	if tool == nil {
+		return c.getToolCompletions()
+	}
+
+	params := c.getToolParams(tool)
+
+	// Format as param= for easy completion
+	var completions []string
+	for _, param := range params {
+		completions = append(completions, param+"=")
+	}
+	return completions
 }
 
 // Aliases returns command aliases
