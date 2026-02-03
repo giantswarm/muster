@@ -13,7 +13,7 @@
     "code"
   ],
   "token_endpoint_auth_method": "none",
-  "scope": "openid profile email offline_access",
+  "scope": "openid profile email groups offline_access",
   "software_id": "giantswarm-muster-agent",
   "software_version": "1.0.0"
 }
