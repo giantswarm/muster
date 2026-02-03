@@ -333,9 +333,10 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"description": s.definition.Description,
 	}
 
-	// Always include auth for consistent comparison in reconciler
-	// (nil auth is a valid state that should be comparable)
-	data["auth"] = s.definition.Auth
+	// Include auth if configured (nil is handled as "no auth" in reconciler comparison)
+	if s.definition.Auth != nil {
+		data["auth"] = s.definition.Auth
+	}
 
 	if s.GetLastError() != nil {
 		data["error"] = s.GetLastError().Error()
