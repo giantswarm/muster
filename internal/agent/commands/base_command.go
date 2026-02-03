@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -152,7 +154,7 @@ func (b *BaseCommand) joinArgsFrom(args []string, index int) string {
 //   - Error if target is not in validTargets, nil if valid
 func (b *BaseCommand) validateTarget(target string, validTargets []string) error {
 	for _, valid := range validTargets {
-		if strings.ToLower(target) == strings.ToLower(valid) {
+		if strings.EqualFold(target, valid) {
 			return nil
 		}
 	}
@@ -225,4 +227,175 @@ func (b *BaseCommand) getPromptCompletions() []string {
 //   - FormatterInterface for consistent output formatting
 func (b *BaseCommand) getFormatters() FormatterInterface {
 	return b.client.GetFormatters().(FormatterInterface)
+}
+
+// stripQuotes removes surrounding single or double quotes from a string.
+// This handles the common shell habit of quoting values.
+//
+// Args:
+//   - s: String that may have surrounding quotes
+//
+// Returns:
+//   - String with quotes removed if present
+func stripQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') ||
+			(s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
+}
+
+// parseKeyValueArgsToStringMap parses arguments in key=value format into a string map.
+// This is the core parsing logic shared by commands that accept key=value arguments.
+// Arguments without '=' are logged as debug messages and skipped.
+//
+// Args:
+//   - args: Slice of "key=value" formatted strings
+//   - output: Optional logger for debug messages (can be nil)
+//
+// Returns:
+//   - Map of key to string value
+func parseKeyValueArgsToStringMap(args []string, output OutputLogger) map[string]string {
+	params := make(map[string]string)
+
+	for _, arg := range args {
+		if !strings.Contains(arg, "=") {
+			if output != nil {
+				output.Debug("Ignoring argument without '=': %s", arg)
+			}
+			continue
+		}
+
+		parts := strings.SplitN(arg, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := stripQuotes(parts[1])
+			params[key] = value
+		}
+	}
+
+	return params
+}
+
+// parseKeyValueArgsToInterfaceMap parses arguments in key=value format into an interface map.
+// This extends parseKeyValueArgsToStringMap by attempting to parse values as JSON
+// for proper type coercion (arrays, objects, numbers, booleans).
+//
+// Args:
+//   - args: Slice of "key=value" formatted strings
+//   - output: Optional logger for debug messages (can be nil)
+//
+// Returns:
+//   - Map of key to interface{} value (with JSON type coercion)
+func parseKeyValueArgsToInterfaceMap(args []string, output OutputLogger) map[string]interface{} {
+	stringMap := parseKeyValueArgsToStringMap(args, output)
+	params := make(map[string]interface{})
+
+	for key, value := range stringMap {
+		// Try to parse as JSON for complex types (arrays, objects, numbers, booleans)
+		var jsonValue interface{}
+		if err := json.Unmarshal([]byte(value), &jsonValue); err == nil {
+			params[key] = jsonValue
+		} else {
+			// Use as string if not valid JSON
+			params[key] = value
+		}
+	}
+
+	return params
+}
+
+// getStringFromMap safely extracts a string value from a map with a default fallback.
+// This is useful for extracting typed values from JSON schema property maps.
+//
+// Args:
+//   - m: Map to extract from
+//   - key: Key to look up
+//   - defaultVal: Value to return if key is missing or not a string
+//
+// Returns:
+//   - String value or default
+func getStringFromMap(m map[string]interface{}, key, defaultVal string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return defaultVal
+}
+
+// findToolByName looks up a tool by name from the cache.
+// Uses index-based iteration for safe pointer handling across Go versions.
+//
+// Args:
+//   - tools: Slice of tools to search
+//   - name: Tool name to find
+//
+// Returns:
+//   - Pointer to tool if found, nil otherwise
+func findToolByName(tools []mcp.Tool, name string) *mcp.Tool {
+	for i := range tools {
+		if tools[i].Name == name {
+			return &tools[i]
+		}
+	}
+	return nil
+}
+
+// findPromptByName looks up a prompt by name from the cache.
+// Uses index-based iteration for safe pointer handling across Go versions.
+//
+// Args:
+//   - prompts: Slice of prompts to search
+//   - name: Prompt name to find
+//
+// Returns:
+//   - Pointer to prompt if found, nil otherwise
+func findPromptByName(prompts []mcp.Prompt, name string) *mcp.Prompt {
+	for i := range prompts {
+		if prompts[i].Name == name {
+			return &prompts[i]
+		}
+	}
+	return nil
+}
+
+// getToolParamNames returns all parameter names for a tool, sorted alphabetically.
+//
+// Args:
+//   - tool: Tool to get parameters for
+//
+// Returns:
+//   - Sorted slice of parameter names, or nil if tool is nil or has no properties
+func getToolParamNames(tool *mcp.Tool) []string {
+	if tool == nil || len(tool.InputSchema.Properties) == 0 {
+		return nil
+	}
+
+	var params []string
+	for name := range tool.InputSchema.Properties {
+		params = append(params, name)
+	}
+	sort.Strings(params)
+	return params
+}
+
+// getPromptArgNames returns all argument names for a prompt, sorted alphabetically.
+//
+// Args:
+//   - prompt: Prompt to get arguments for
+//
+// Returns:
+//   - Sorted slice of argument names, or nil if prompt is nil or has no arguments
+func getPromptArgNames(prompt *mcp.Prompt) []string {
+	if prompt == nil || len(prompt.Arguments) == 0 {
+		return nil
+	}
+
+	var args []string
+	for _, arg := range prompt.Arguments {
+		args = append(args, arg.Name)
+	}
+	sort.Strings(args)
+	return args
 }
