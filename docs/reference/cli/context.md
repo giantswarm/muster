@@ -271,8 +271,34 @@ muster context use prod<TAB>
 # Completes to: muster context use production
 ```
 
+## REPL Context Switching
+
+When using `muster agent --repl`, you can also switch contexts interactively without leaving the REPL:
+
+```bash
+𝗺 local » context list
+Available contexts:
+* local
+  staging
+  production
+
+𝗺 local » context use staging
+Switched to context "staging"
+Endpoint: https://muster-staging.example.com/mcp
+
+Reconnecting to new endpoint: https://muster-staging.example.com/mcp
+Connected to https://muster-staging.example.com/mcp
+
+𝗺 staging » 
+```
+
+The REPL automatically reconnects to the new endpoint when you switch contexts. The current context is displayed in the prompt, along with an `[auth required]` indicator if any servers need authentication.
+
+Use `ctx` as a shorthand alias for `context`.
+
 ## See Also
 
+- [muster agent](agent.md) - Interactive REPL mode with context switching
 - [muster auth](auth.md) - Authentication management
 - [muster list](list.md) - List resources
 - [muster get](get.md) - Get resource details

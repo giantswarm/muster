@@ -165,6 +165,22 @@ When using `--repl` mode, the following commands are available:
 - `describe prompt <name>` - Show prompt details
 - `prompt <name> {json}` - Execute prompt with arguments
 
+### Context Management
+
+- `context` - Show current context
+- `context list`, `context ls` - List all available contexts
+- `context use <name>`, `context switch <name>` - Switch to a different context
+- `ctx` - Alias for `context` command
+
+When switching contexts, the REPL automatically reconnects to the new endpoint. The current context is displayed in the prompt:
+
+```
+𝗺 production » list tools
+𝗺 staging [auth required] » call my_tool
+```
+
+Long context names are truncated to 20 characters with "..." suffix.
+
 ### Session Control
 
 - `notifications <on|off>` - Toggle notification display

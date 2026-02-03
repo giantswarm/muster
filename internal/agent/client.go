@@ -982,6 +982,67 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Reconnect closes the current connection and reconnects to a new endpoint.
+// This method is used when switching contexts to connect to a different
+// muster aggregator without restarting the REPL.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//   - newEndpoint: The new MCP server endpoint URL to connect to
+//
+// The method performs:
+//   - Closes the existing connection
+//   - Updates the endpoint
+//   - Creates a new connection
+//   - Reinitializes the session and reloads all cached data
+//
+// Example:
+//
+//	if err := client.Reconnect(ctx, "https://new-server.example.com/mcp"); err != nil {
+//	    return fmt.Errorf("reconnection failed: %w", err)
+//	}
+func (c *Client) Reconnect(ctx context.Context, newEndpoint string) error {
+	// Close existing connection
+	if c.client != nil {
+		c.client.Close()
+		c.client = nil
+	}
+
+	// Update endpoint
+	c.mu.Lock()
+	c.endpoint = newEndpoint
+	// Clear caches for fresh start
+	c.toolCache = []mcp.Tool{}
+	c.resourceCache = []mcp.Resource{}
+	c.promptCache = []mcp.Prompt{}
+	c.serverInfo = nil
+	c.mu.Unlock()
+
+	// Create and connect new client
+	mcpClient, err := c.createAndConnectClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect to new endpoint: %w", err)
+	}
+
+	c.client = mcpClient
+
+	// Initialize session and load data
+	if err := c.InitializeAndLoadData(ctx); err != nil {
+		c.client.Close()
+		c.client = nil
+		return fmt.Errorf("failed to initialize new connection: %w", err)
+	}
+
+	return nil
+}
+
+// GetEndpoint returns the current endpoint URL.
+func (c *Client) GetEndpoint() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.endpoint
+}
+
 // NotificationHandler defines a function type for handling MCP notifications.
 // It receives JSON-RPC notifications from the MCP server and can be used
 // to implement custom notification processing logic.

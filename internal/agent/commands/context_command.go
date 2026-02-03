@@ -61,13 +61,18 @@ func (d *defaultStorageProvider) SetCurrentContext(name string) error {
 	return storage.SetCurrentContext(name)
 }
 
+// ReconnectFunc is the function signature for reconnecting to a new endpoint.
+type ReconnectFunc func(ctx context.Context, endpoint string) error
+
 // ContextCommand handles context listing and switching in the REPL.
 // This command allows users to view available contexts, see the current
 // context, and switch between contexts without leaving the REPL.
+// When switching contexts, it automatically reconnects to the new endpoint.
 type ContextCommand struct {
 	*BaseCommand
 	storage         StorageProvider
 	onContextChange func(contextName string) // Callback when context changes
+	onReconnect     ReconnectFunc            // Callback to reconnect to new endpoint
 }
 
 // NewContextCommand creates a new context command.
@@ -76,25 +81,17 @@ type ContextCommand struct {
 //   - client: MCP client interface for operations
 //   - output: Logger interface for user-facing output
 //   - transport: Transport interface for capability checking
-//   - onContextChange: Callback function called when context is switched
+//   - onContextChange: Callback function called when context is switched (updates prompt)
+//   - onReconnect: Callback function to reconnect to the new endpoint
 //
 // Returns:
 //   - Configured context command instance
-func NewContextCommand(client ClientInterface, output OutputLogger, transport TransportInterface, onContextChange func(string)) *ContextCommand {
+func NewContextCommand(client ClientInterface, output OutputLogger, transport TransportInterface, onContextChange func(string), onReconnect ReconnectFunc) *ContextCommand {
 	return &ContextCommand{
 		BaseCommand:     NewBaseCommand(client, output, transport),
 		storage:         &defaultStorageProvider{},
 		onContextChange: onContextChange,
-	}
-}
-
-// NewContextCommandWithStorage creates a new context command with a custom storage provider.
-// This is primarily used for testing.
-func NewContextCommandWithStorage(client ClientInterface, output OutputLogger, transport TransportInterface, onContextChange func(string), storage StorageProvider) *ContextCommand {
-	return &ContextCommand{
-		BaseCommand:     NewBaseCommand(client, output, transport),
-		storage:         storage,
-		onContextChange: onContextChange,
+		onReconnect:     onReconnect,
 	}
 }
 
@@ -171,8 +168,8 @@ func (c *ContextCommand) listContexts(_ context.Context) error {
 	return nil
 }
 
-// switchContext switches to a different context.
-func (c *ContextCommand) switchContext(_ context.Context, name string) error {
+// switchContext switches to a different context and reconnects to the new endpoint.
+func (c *ContextCommand) switchContext(ctx context.Context, name string) error {
 	// Check if context exists
 	ctxConfig, err := c.storage.GetContext(name)
 	if err != nil {
@@ -187,19 +184,27 @@ func (c *ContextCommand) switchContext(_ context.Context, name string) error {
 		return fmt.Errorf("context %q not found. No contexts configured", name)
 	}
 
-	// Set as current context
+	// Set as current context in storage
 	if err := c.storage.SetCurrentContext(name); err != nil {
 		return fmt.Errorf("failed to switch context: %w", err)
 	}
 
 	c.output.Success("Switched to context %q", name)
 	c.output.OutputLine("Endpoint: %s", ctxConfig.Endpoint)
-	c.output.OutputLine("")
-	c.output.OutputLine("Prompt updated. Restart REPL to connect to the new endpoint.")
 
-	// Notify callback of context change
+	// Notify callback of context change (updates prompt)
 	if c.onContextChange != nil {
 		c.onContextChange(name)
+	}
+
+	// Attempt to reconnect to the new endpoint
+	if c.onReconnect != nil {
+		c.output.OutputLine("")
+		if err := c.onReconnect(ctx, ctxConfig.Endpoint); err != nil {
+			c.output.Error("Failed to reconnect: %v", err)
+			c.output.OutputLine("You may need to restart the REPL to connect to the new endpoint.")
+			return nil // Don't fail the command, context was switched successfully
+		}
 	}
 
 	return nil

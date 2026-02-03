@@ -26,6 +26,10 @@ const promptChevron = "»"
 // promptAuthRequired is the indicator shown when servers require authentication.
 const promptAuthRequired = "[auth required]"
 
+// maxContextNameLength is the maximum length for context names in the prompt.
+// Longer names are truncated with an ellipsis.
+const maxContextNameLength = 20
+
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
 // with features like tab completion, command history, and real-time notifications.
@@ -115,6 +119,8 @@ func loadCurrentContext() string {
 //   - "𝗺 mycontext »" - context set, no auth required
 //   - "𝗺 [auth required] »" - no context, auth required
 //   - "𝗺 mycontext [auth required] »" - context set, auth required
+//
+// Long context names are truncated to maxContextNameLength characters with "...".
 func (r *REPL) buildPrompt() string {
 	r.mu.RLock()
 	ctx := r.currentContext
@@ -125,7 +131,7 @@ func (r *REPL) buildPrompt() string {
 	parts = append(parts, promptPrefix)
 
 	if ctx != "" {
-		parts = append(parts, ctx)
+		parts = append(parts, truncateContextName(ctx))
 	}
 
 	if authReq {
@@ -135,6 +141,15 @@ func (r *REPL) buildPrompt() string {
 	parts = append(parts, promptChevron)
 
 	return strings.Join(parts, " ") + " "
+}
+
+// truncateContextName truncates long context names to fit in the prompt.
+// Names longer than maxContextNameLength are truncated with "..." suffix.
+func truncateContextName(name string) string {
+	if len(name) <= maxContextNameLength {
+		return name
+	}
+	return name[:maxContextNameLength-3] + "..."
 }
 
 // updatePrompt refreshes the readline prompt with the current context.
@@ -153,6 +168,33 @@ func (r *REPL) setCurrentContext(name string) {
 	r.mu.Unlock()
 
 	r.updatePrompt()
+}
+
+// reconnectToEndpoint reconnects the client to a new endpoint.
+// This is called when switching to a context with a different endpoint.
+// Returns nil if the endpoint hasn't changed.
+func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) error {
+	currentEndpoint := r.client.GetEndpoint()
+	if currentEndpoint == newEndpoint {
+		return nil // Same endpoint, no reconnection needed
+	}
+
+	r.logger.Info("Reconnecting to new endpoint: %s", newEndpoint)
+
+	if err := r.client.Reconnect(ctx, newEndpoint); err != nil {
+		return fmt.Errorf("failed to reconnect: %w", err)
+	}
+
+	// Refresh the tab completer with new tools/resources/prompts
+	if r.rl != nil {
+		r.rl.Config.AutoComplete = r.createCompleter()
+	}
+
+	// Check auth status for the new endpoint
+	r.checkAuthRequired()
+
+	r.logger.Success("Connected to %s", newEndpoint)
+	return nil
 }
 
 // checkAuthRequired checks if any servers require authentication and updates the prompt.
@@ -203,7 +245,7 @@ func (r *REPL) registerCommands() {
 	r.commandRegistry.Register("filter", commands.NewFilterCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("notifications", commands.NewNotificationsCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("workflow", commands.NewWorkflowCommand(r.client, r.logger, transport))
-	r.commandRegistry.Register("context", commands.NewContextCommand(r.client, r.logger, transport, r.setCurrentContext))
+	r.commandRegistry.Register("context", commands.NewContextCommand(r.client, r.logger, transport, r.setCurrentContext, r.reconnectToEndpoint))
 	r.commandRegistry.Register("exit", commands.NewExitCommand(r.client, r.logger, transport))
 }
 

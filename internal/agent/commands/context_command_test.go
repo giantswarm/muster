@@ -77,10 +77,22 @@ func (m *mockOutputForContext) Success(format string, args ...interface{}) {
 }
 func (m *mockOutputForContext) SetVerbose(verbose bool) {}
 
+// newContextCommandWithStorage creates a new context command with a custom storage provider.
+// This is used for testing with mock storage.
+func newContextCommandWithStorage(client ClientInterface, output OutputLogger, transport TransportInterface, onContextChange func(string), onReconnect ReconnectFunc, storage StorageProvider) *ContextCommand {
+	cmd := &ContextCommand{
+		BaseCommand:     NewBaseCommand(client, output, transport),
+		storage:         storage,
+		onContextChange: onContextChange,
+		onReconnect:     onReconnect,
+	}
+	return cmd
+}
+
 func TestContextCommand_ShowCurrent_NoContext(t *testing.T) {
 	storage := &mockStorageProvider{currentContextName: ""}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{})
 
@@ -91,7 +103,7 @@ func TestContextCommand_ShowCurrent_NoContext(t *testing.T) {
 func TestContextCommand_ShowCurrent_WithContext(t *testing.T) {
 	storage := &mockStorageProvider{currentContextName: "production"}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{})
 
@@ -104,7 +116,7 @@ func TestContextCommand_ListContexts_Empty(t *testing.T) {
 		config: &musterctx.ContextConfig{Contexts: []musterctx.Context{}},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"list"})
 
@@ -123,7 +135,7 @@ func TestContextCommand_ListContexts_WithContexts(t *testing.T) {
 		},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"list"})
 
@@ -140,7 +152,7 @@ func TestContextCommand_ListContexts_LsAlias(t *testing.T) {
 		},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"ls"})
 
@@ -158,7 +170,7 @@ func TestContextCommand_SwitchContext_Success(t *testing.T) {
 	}
 	output := &mockOutputForContext{}
 	callback := func(name string) { callbackCalled = name }
-	cmd := NewContextCommandWithStorage(nil, output, nil, callback, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, callback, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"use", "production"})
 
@@ -174,7 +186,7 @@ func TestContextCommand_SwitchContext_NotFound(t *testing.T) {
 		contextNames:     []string{"dev", "staging"},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"use", "production"})
 
@@ -192,7 +204,7 @@ func TestContextCommand_SwitchContext_DirectName(t *testing.T) {
 		},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"dev"})
 
@@ -208,7 +220,7 @@ func TestContextCommand_SwitchContext_SwitchAlias(t *testing.T) {
 		},
 	}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"switch", "staging"})
 
@@ -219,7 +231,7 @@ func TestContextCommand_SwitchContext_SwitchAlias(t *testing.T) {
 func TestContextCommand_SwitchContext_MissingName(t *testing.T) {
 	storage := &mockStorageProvider{}
 	output := &mockOutputForContext{}
-	cmd := NewContextCommandWithStorage(nil, output, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
 
 	err := cmd.Execute(context.Background(), []string{"use"})
 
@@ -228,7 +240,7 @@ func TestContextCommand_SwitchContext_MissingName(t *testing.T) {
 }
 
 func TestContextCommand_Usage(t *testing.T) {
-	cmd := NewContextCommand(nil, nil, nil, nil)
+	cmd := NewContextCommand(nil, nil, nil, nil, nil)
 	usage := cmd.Usage()
 
 	assert.Contains(t, usage, "context")
@@ -237,14 +249,14 @@ func TestContextCommand_Usage(t *testing.T) {
 }
 
 func TestContextCommand_Description(t *testing.T) {
-	cmd := NewContextCommand(nil, nil, nil, nil)
+	cmd := NewContextCommand(nil, nil, nil, nil, nil)
 	desc := cmd.Description()
 
 	assert.Contains(t, desc, "context")
 }
 
 func TestContextCommand_Aliases(t *testing.T) {
-	cmd := NewContextCommand(nil, nil, nil, nil)
+	cmd := NewContextCommand(nil, nil, nil, nil, nil)
 	aliases := cmd.Aliases()
 
 	assert.Contains(t, aliases, "ctx")
@@ -252,7 +264,7 @@ func TestContextCommand_Aliases(t *testing.T) {
 
 func TestContextCommand_Completions_Subcommands(t *testing.T) {
 	storage := &mockStorageProvider{}
-	cmd := NewContextCommandWithStorage(nil, nil, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, nil, nil, nil, nil, storage)
 
 	completions := cmd.Completions("")
 
@@ -266,7 +278,7 @@ func TestContextCommand_Completions_ContextNames(t *testing.T) {
 	storage := &mockStorageProvider{
 		contextNames: []string{"dev", "staging", "prod"},
 	}
-	cmd := NewContextCommandWithStorage(nil, nil, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, nil, nil, nil, nil, storage)
 
 	// Note: "use prod" has 2 parts when split by Fields, triggering context name completion
 	completions := cmd.Completions("use prod")
@@ -280,7 +292,7 @@ func TestContextCommand_GetContextNames(t *testing.T) {
 	storage := &mockStorageProvider{
 		contextNames: []string{"alpha", "beta"},
 	}
-	cmd := NewContextCommandWithStorage(nil, nil, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, nil, nil, nil, nil, storage)
 
 	names := cmd.GetContextNames()
 
@@ -291,9 +303,33 @@ func TestContextCommand_GetContextNames_Error(t *testing.T) {
 	storage := &mockStorageProvider{
 		contextNamesErr: assert.AnError,
 	}
-	cmd := NewContextCommandWithStorage(nil, nil, nil, nil, storage)
+	cmd := newContextCommandWithStorage(nil, nil, nil, nil, nil, storage)
 
 	names := cmd.GetContextNames()
 
 	assert.Nil(t, names)
+}
+
+func TestContextCommand_SwitchContext_WithReconnect(t *testing.T) {
+	var reconnectCalled bool
+	var reconnectEndpoint string
+	storage := &mockStorageProvider{
+		getContextResult: &musterctx.Context{
+			Name:     "production",
+			Endpoint: "https://muster.example.com",
+		},
+	}
+	output := &mockOutputForContext{}
+	reconnect := func(_ context.Context, endpoint string) error {
+		reconnectCalled = true
+		reconnectEndpoint = endpoint
+		return nil
+	}
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, reconnect, storage)
+
+	err := cmd.Execute(context.Background(), []string{"use", "production"})
+
+	require.NoError(t, err)
+	assert.True(t, reconnectCalled)
+	assert.Equal(t, "https://muster.example.com", reconnectEndpoint)
 }
