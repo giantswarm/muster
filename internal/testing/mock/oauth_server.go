@@ -40,13 +40,14 @@ const jwtHeader = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
 
 // idTokenClaims represents the claims in an ID token.
 type idTokenClaims struct {
-	Iss   string `json:"iss"`             // Issuer
-	Sub   string `json:"sub"`             // Subject (user ID)
-	Aud   string `json:"aud"`             // Audience (client ID)
-	Exp   int64  `json:"exp"`             // Expiration time
-	Iat   int64  `json:"iat"`             // Issued at
-	Email string `json:"email,omitempty"` // User email
-	Name  string `json:"name,omitempty"`  // User name
+	Iss    string   `json:"iss"`              // Issuer
+	Sub    string   `json:"sub"`              // Subject (user ID)
+	Aud    string   `json:"aud"`              // Audience (client ID)
+	Exp    int64    `json:"exp"`              // Expiration time
+	Iat    int64    `json:"iat"`              // Issued at
+	Email  string   `json:"email,omitempty"`  // User email
+	Name   string   `json:"name,omitempty"`   // User name
+	Groups []string `json:"groups,omitempty"` // User groups for RBAC
 }
 
 // OAuthServerConfig configures the mock OAuth server behavior
@@ -1015,6 +1016,11 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) st
 		Name:  "Test User",
 	}
 
+	// Include groups claim if the "groups" scope was requested
+	if hasScope(scope, "groups") {
+		claims.Groups = []string{"test-group", "developers"}
+	}
+
 	claimsJSON, err := json.Marshal(claims)
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal ID token claims: %w", err))
@@ -1119,6 +1125,17 @@ func generateOpaqueToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// hasScope checks if a specific scope is present in a space-separated scope string.
+// This performs exact matching to avoid false positives (e.g., "no-groups" matching "groups").
+func hasScope(scopeString, target string) bool {
+	for _, s := range strings.Split(scopeString, " ") {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
 // generateIDToken generates a mock JWT ID token for testing.
 //
 // SECURITY WARNING: This generates UNSIGNED tokens (alg: none) for TESTING ONLY.
@@ -1138,6 +1155,11 @@ func (s *OAuthServer) generateIDToken(clientID, scope string) string {
 		Iat:   now.Unix(),
 		Email: "test@example.com",
 		Name:  "Test User",
+	}
+
+	// Include groups claim if the "groups" scope was requested
+	if hasScope(scope, "groups") {
+		claims.Groups = []string{"test-group", "developers"}
 	}
 
 	claimsJSON, err := json.Marshal(claims)
