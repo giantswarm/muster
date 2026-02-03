@@ -141,7 +141,7 @@ func (c *ContextCommand) showCurrent(_ context.Context) error {
 	return nil
 }
 
-// listContexts displays all available contexts.
+// listContexts displays all available contexts with their endpoints.
 func (c *ContextCommand) listContexts(_ context.Context) error {
 	config, err := c.storage.Load()
 	if err != nil {
@@ -156,13 +156,23 @@ func (c *ContextCommand) listContexts(_ context.Context) error {
 		return nil
 	}
 
+	// Calculate max name length for alignment
+	maxNameLen := 0
+	for _, ctx := range config.Contexts {
+		if len(ctx.Name) > maxNameLen {
+			maxNameLen = len(ctx.Name)
+		}
+	}
+
 	c.output.OutputLine("Available contexts:")
 	for _, ctx := range config.Contexts {
 		marker := "  "
 		if ctx.Name == config.CurrentContext {
 			marker = "* "
 		}
-		c.output.OutputLine("%s%s", marker, ctx.Name)
+		// Pad name for alignment and show endpoint
+		padding := strings.Repeat(" ", maxNameLen-len(ctx.Name))
+		c.output.OutputLine("%s%s%s  %s", marker, ctx.Name, padding, ctx.Endpoint)
 	}
 
 	return nil
@@ -179,7 +189,7 @@ func (c *ContextCommand) switchContext(ctx context.Context, name string) error {
 		// List available contexts for helpful error
 		names, _ := c.storage.GetContextNames()
 		if len(names) > 0 {
-			return fmt.Errorf("context %q not found. Available contexts: %s", name, strings.Join(names, ", "))
+			return fmt.Errorf("context %q not found. Available: %s", name, strings.Join(names, ", "))
 		}
 		return fmt.Errorf("context %q not found. No contexts configured", name)
 	}
@@ -189,8 +199,8 @@ func (c *ContextCommand) switchContext(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to switch context: %w", err)
 	}
 
-	c.output.Success("Switched to context %q", name)
-	c.output.OutputLine("Endpoint: %s", ctxConfig.Endpoint)
+	// Consolidated output: context name and endpoint on one line
+	c.output.Success("Switched to %s (%s)", name, ctxConfig.Endpoint)
 
 	// Notify callback of context change (updates prompt)
 	if c.onContextChange != nil {
@@ -199,10 +209,9 @@ func (c *ContextCommand) switchContext(ctx context.Context, name string) error {
 
 	// Attempt to reconnect to the new endpoint
 	if c.onReconnect != nil {
-		c.output.OutputLine("")
 		if err := c.onReconnect(ctx, ctxConfig.Endpoint); err != nil {
 			c.output.Error("Failed to reconnect: %v", err)
-			c.output.OutputLine("You may need to restart the REPL to connect to the new endpoint.")
+			c.output.OutputLine("Run 'muster agent --repl' to restart with the new endpoint.")
 			return nil // Don't fail the command, context was switched successfully
 		}
 	}

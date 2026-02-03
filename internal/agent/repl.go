@@ -17,18 +17,28 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// promptPrefix uses a mathematical bold "m" (𝗺) for muster branding in the REPL prompt.
-const promptPrefix = "𝗺"
+// promptPrefixUnicode uses a mathematical bold "m" (𝗺) for muster branding in the REPL prompt.
+// Used when terminal supports unicode (most modern terminals).
+const promptPrefixUnicode = "𝗺"
 
-// promptChevron is the guillemet separator used in the prompt.
-const promptChevron = "»"
+// promptPrefixASCII is the fallback prefix for terminals without unicode support.
+const promptPrefixASCII = "m"
 
-// promptAuthRequired is the indicator shown when servers require authentication.
-const promptAuthRequired = "[auth required]"
+// promptChevronUnicode is the guillemet separator used in the prompt.
+const promptChevronUnicode = "»"
+
+// promptChevronASCII is the fallback chevron for terminals without unicode support.
+const promptChevronASCII = ">"
+
+// promptStateAuthRequired is the indicator shown when servers require authentication.
+const promptStateAuthRequired = "[auth required]"
+
+// promptStateConnected is shown when successfully connected and authenticated.
+const promptStateConnected = "[connected]"
 
 // maxContextNameLength is the maximum length for context names in the prompt.
-// Longer names are truncated with an ellipsis.
-const maxContextNameLength = 20
+// Longer names are truncated with smart ellipsis to preserve distinguishing suffix.
+const maxContextNameLength = 28
 
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
@@ -56,6 +66,7 @@ type REPL struct {
 	commandRegistry  *commands.Registry
 	currentContext   string // Current muster context name for prompt display
 	authRequired     bool   // Whether any servers require authentication
+	useUnicode       bool   // Whether to use unicode characters in prompt
 	mu               sync.RWMutex
 }
 
@@ -82,13 +93,19 @@ type REPL struct {
 //	    log.Fatal(err)
 //	}
 func NewREPL(client *Client, logger *Logger) *REPL {
+	ctxName, ctxErr := loadCurrentContextWithError()
+	if ctxErr != nil {
+		logger.Debug("Failed to load current context: %v", ctxErr)
+	}
+
 	repl := &REPL{
 		client:           client,
 		logger:           logger,
 		notificationChan: make(chan mcp.JSONRPCNotification, 10),
 		stopChan:         make(chan struct{}),
 		commandRegistry:  commands.NewRegistry(),
-		currentContext:   loadCurrentContext(),
+		currentContext:   ctxName,
+		useUnicode:       detectUnicodeSupport(),
 	}
 
 	// Register all commands
@@ -97,59 +114,113 @@ func NewREPL(client *Client, logger *Logger) *REPL {
 	return repl
 }
 
-// loadCurrentContext retrieves the current context name from storage.
-// Returns an empty string if no context is set or on error.
-func loadCurrentContext() string {
+// loadCurrentContextWithError retrieves the current context name from storage.
+// Returns the context name and any error encountered.
+func loadCurrentContextWithError() (string, error) {
 	storage, err := musterctx.NewStorage()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to initialize context storage: %w", err)
 	}
 
 	name, err := storage.GetCurrentContextName()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to get current context: %w", err)
 	}
 
-	return name
+	return name, nil
 }
 
-// buildPrompt creates the REPL prompt with the current context and auth status.
+// detectUnicodeSupport checks if the terminal likely supports unicode characters.
+// Returns true for most modern terminals, false for dumb terminals or when uncertain.
+func detectUnicodeSupport() bool {
+	term := os.Getenv("TERM")
+	lang := os.Getenv("LANG")
+	lcAll := os.Getenv("LC_ALL")
+
+	// Dumb terminals or no terminal don't support unicode
+	if term == "" || term == "dumb" {
+		return false
+	}
+
+	// Check for UTF-8 in locale settings
+	for _, v := range []string{lang, lcAll} {
+		if strings.Contains(strings.ToLower(v), "utf-8") || strings.Contains(strings.ToLower(v), "utf8") {
+			return true
+		}
+	}
+
+	// Common terminals that support unicode
+	unicodeTerminals := []string{"xterm", "screen", "tmux", "alacritty", "kitty", "iterm", "vt100"}
+	termLower := strings.ToLower(term)
+	for _, ut := range unicodeTerminals {
+		if strings.Contains(termLower, ut) {
+			return true
+		}
+	}
+
+	// Default to true for most modern environments
+	return true
+}
+
+// buildPrompt creates the REPL prompt with the current context and connection status.
 // Format examples:
-//   - "𝗺 »" - no context set, no auth required
-//   - "𝗺 mycontext »" - context set, no auth required
+//   - "𝗺 »" - no context set
+//   - "𝗺 mycontext [connected] »" - context set, connected
 //   - "𝗺 [auth required] »" - no context, auth required
 //   - "𝗺 mycontext [auth required] »" - context set, auth required
 //
-// Long context names are truncated to maxContextNameLength characters with "...".
+// Long context names are truncated to maxContextNameLength characters with smart ellipsis.
+// Falls back to ASCII characters if terminal doesn't support unicode.
 func (r *REPL) buildPrompt() string {
 	r.mu.RLock()
 	ctx := r.currentContext
 	authReq := r.authRequired
+	useUnicode := r.useUnicode
 	r.mu.RUnlock()
 
+	// Select prefix and chevron based on unicode support
+	prefix := promptPrefixASCII
+	chevron := promptChevronASCII
+	if useUnicode {
+		prefix = promptPrefixUnicode
+		chevron = promptChevronUnicode
+	}
+
 	var parts []string
-	parts = append(parts, promptPrefix)
+	parts = append(parts, prefix)
 
 	if ctx != "" {
 		parts = append(parts, truncateContextName(ctx))
 	}
 
+	// Show connection state
 	if authReq {
-		parts = append(parts, promptAuthRequired)
+		parts = append(parts, promptStateAuthRequired)
+	} else if ctx != "" {
+		parts = append(parts, promptStateConnected)
 	}
 
-	parts = append(parts, promptChevron)
+	parts = append(parts, chevron)
 
 	return strings.Join(parts, " ") + " "
 }
 
 // truncateContextName truncates long context names to fit in the prompt.
-// Names longer than maxContextNameLength are truncated with "..." suffix.
+// Uses smart truncation that preserves both the start and end of the name,
+// replacing the middle with "..." to keep distinguishing prefixes and suffixes.
+// Example: "production-us-east-1-cluster" becomes "production-...cluster"
 func truncateContextName(name string) string {
 	if len(name) <= maxContextNameLength {
 		return name
 	}
-	return name[:maxContextNameLength-3] + "..."
+
+	// Keep more of the start (60%) and less of the end (40%) after ellipsis
+	ellipsis := "..."
+	available := maxContextNameLength - len(ellipsis)
+	startLen := (available * 3) / 5 // 60% of available space
+	endLen := available - startLen  // 40% of available space
+
+	return name[:startLen] + ellipsis + name[len(name)-endLen:]
 }
 
 // updatePrompt refreshes the readline prompt with the current context.
@@ -176,10 +247,12 @@ func (r *REPL) setCurrentContext(name string) {
 func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) error {
 	currentEndpoint := r.client.GetEndpoint()
 	if currentEndpoint == newEndpoint {
+		r.logger.Debug("Same endpoint, skipping reconnection")
 		return nil // Same endpoint, no reconnection needed
 	}
 
-	r.logger.Info("Reconnecting to new endpoint: %s", newEndpoint)
+	// Show connecting indicator
+	r.logger.Output("Connecting...")
 
 	if err := r.client.Reconnect(ctx, newEndpoint); err != nil {
 		return fmt.Errorf("failed to reconnect: %w", err)
@@ -193,13 +266,15 @@ func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) erro
 	// Check auth status for the new endpoint
 	r.checkAuthRequired()
 
-	r.logger.Success("Connected to %s", newEndpoint)
+	r.logger.Success("Connected")
 	return nil
 }
 
 // checkAuthRequired checks if any servers require authentication and updates the prompt.
+// Prints an actionable hint when auth status changes to requiring authentication.
 func (r *REPL) checkAuthRequired() {
-	authRequired := len(r.client.GetAuthRequired()) > 0
+	authInfos := r.client.GetAuthRequired()
+	authRequired := len(authInfos) > 0
 
 	r.mu.Lock()
 	changed := r.authRequired != authRequired
@@ -208,6 +283,16 @@ func (r *REPL) checkAuthRequired() {
 
 	if changed {
 		r.updatePrompt()
+
+		// Print actionable hint when auth becomes required
+		if authRequired {
+			serverNames := make([]string, 0, len(authInfos))
+			for _, info := range authInfos {
+				serverNames = append(serverNames, info.Server)
+			}
+			r.logger.Info("Authentication required for: %s", strings.Join(serverNames, ", "))
+			r.logger.Info("Run 'auth login' to authenticate")
+		}
 	}
 }
 

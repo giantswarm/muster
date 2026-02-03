@@ -177,7 +177,7 @@ func TestContextCommand_SwitchContext_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "production", storage.setCurrentCalled)
 	assert.Equal(t, "production", callbackCalled)
-	assert.Contains(t, output.lines[0], "Switched to context")
+	assert.Contains(t, output.lines[0], "Switched to")
 }
 
 func TestContextCommand_SwitchContext_NotFound(t *testing.T) {
@@ -192,7 +192,7 @@ func TestContextCommand_SwitchContext_NotFound(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
-	assert.Contains(t, err.Error(), "Available contexts: dev, staging")
+	assert.Contains(t, err.Error(), "Available: dev, staging")
 }
 
 func TestContextCommand_SwitchContext_DirectName(t *testing.T) {
