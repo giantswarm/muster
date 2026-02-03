@@ -463,6 +463,308 @@ func TestMCPServerReconciler_NeedsRestart(t *testing.T) {
 			serviceData:  nil,
 			expectChange: true,
 		},
+		{
+			name: "env changed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "new-value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+				"env":       map[string]string{"KEY": "old-value"},
+			},
+			expectChange: true,
+		},
+		{
+			name: "env added",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"NEW_KEY": "value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+			},
+			expectChange: true,
+		},
+		{
+			// Test map[string]interface{} handling (common from JSON unmarshaling)
+			name: "env changed with map[string]interface{} from JSON",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "new-value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+				// Simulate JSON unmarshaling which produces map[string]interface{}
+				"env": map[string]interface{}{"KEY": "old-value"},
+			},
+			expectChange: true,
+		},
+		{
+			// Test map[string]interface{} with matching values (no change)
+			name: "env no change with map[string]interface{} from JSON",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "stdio",
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "same-value"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+				// Simulate JSON unmarshaling which produces map[string]interface{}
+				"env": map[string]interface{}{"KEY": "same-value"},
+			},
+			expectChange: false,
+		},
+		{
+			name: "headers changed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Headers:   map[string]string{"Authorization": "Bearer new-token"},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"headers":   map[string]string{"Authorization": "Bearer old-token"},
+			},
+			expectChange: true,
+		},
+		{
+			name: "timeout changed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Timeout:   60,
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"timeout":   30,
+			},
+			expectChange: true,
+		},
+		{
+			name: "timeout added",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Timeout:   60,
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+			},
+			expectChange: true,
+		},
+		{
+			name: "toolPrefix changed",
+			desired: &api.MCPServerInfo{
+				Name:       "test",
+				Type:       "stdio",
+				Command:    "cmd",
+				AutoStart:  true,
+				ToolPrefix: "new_prefix",
+			},
+			serviceData: map[string]interface{}{
+				"url":        "",
+				"command":    "cmd",
+				"type":       "stdio",
+				"autoStart":  true,
+				"toolPrefix": "old_prefix",
+			},
+			expectChange: true,
+		},
+		{
+			name: "toolPrefix added",
+			desired: &api.MCPServerInfo{
+				Name:       "test",
+				Type:       "stdio",
+				Command:    "cmd",
+				AutoStart:  true,
+				ToolPrefix: "my_prefix",
+			},
+			serviceData: map[string]interface{}{
+				"url":       "",
+				"command":   "cmd",
+				"type":      "stdio",
+				"autoStart": true,
+			},
+			expectChange: true,
+		},
+		{
+			name: "no change with all fields",
+			desired: &api.MCPServerInfo{
+				Name:       "test",
+				Type:       "streamable-http",
+				URL:        "http://example.com",
+				AutoStart:  true,
+				Headers:    map[string]string{"Authorization": "Bearer token"},
+				Env:        map[string]string{"KEY": "value"},
+				Timeout:    30,
+				ToolPrefix: "prefix",
+			},
+			serviceData: map[string]interface{}{
+				"url":        "http://example.com",
+				"command":    "",
+				"type":       "streamable-http",
+				"autoStart":  true,
+				"headers":    map[string]string{"Authorization": "Bearer token"},
+				"env":        map[string]string{"KEY": "value"},
+				"timeout":    30,
+				"toolPrefix": "prefix",
+			},
+			expectChange: false,
+		},
+		{
+			name: "auth added",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+			},
+			expectChange: true,
+		},
+		{
+			name: "auth removed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth:      nil,
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"auth": &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChange: true,
+		},
+		{
+			name: "auth type changed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "teleport",
+					Teleport: &api.TeleportAuth{
+						AppName: "my-app",
+					},
+				},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"auth": &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChange: true,
+		},
+		{
+			name: "auth forwardToken changed",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: false,
+				},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"auth": &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChange: true,
+		},
+		{
+			name: "auth no change",
+			desired: &api.MCPServerInfo{
+				Name:      "test",
+				Type:      "streamable-http",
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			serviceData: map[string]interface{}{
+				"url":       "http://example.com",
+				"command":   "",
+				"type":      "streamable-http",
+				"autoStart": true,
+				"auth": &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChange: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -238,6 +238,7 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		Env:         mcpServerInfo.Env,
 		Headers:     mcpServerInfo.Headers,
 		Timeout:     mcpServerInfo.Timeout,
+		Auth:        mcpServerInfo.Auth,
 	}
 
 	// Create MCPServer service using the service package
