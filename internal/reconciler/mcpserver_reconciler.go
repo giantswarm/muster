@@ -264,10 +264,12 @@ func (r *MCPServerReconciler) determineState(state api.ServiceState, serverType 
 
 	case api.StateAuthRequired:
 		// auth_required means the server IS reachable (it returned a 401 response)
-		// This is infrastructure Connected state - the auth status is per-user session state
+		// Per issue #337, expose this as "Auth Required" to give users clear feedback
+		// that the server is reachable but needs authentication
 		if isRemote {
-			return musterv1alpha1.MCPServerStateConnected
+			return musterv1alpha1.MCPServerStateAuthRequired
 		}
+		// For stdio servers, auth_required is unlikely but treat as running
 		return musterv1alpha1.MCPServerStateRunning
 
 	case api.StateStarting, api.StateWaiting, api.StateRetrying:

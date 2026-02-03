@@ -68,18 +68,19 @@ muster list serviceclass
 muster list mcpserver
 
 # Example output (when authenticated):
-# NAME         STATE       SESSION         TYPE
-# kubernetes   Connected   Authenticated   streamable-http
-# prometheus   Connected   Pending Auth    streamable-http
-# github       Failed      -               stdio
+# NAME         STATE          SESSION         TYPE
+# kubernetes   Connected      Authenticated   streamable-http
+# prometheus   Auth Required  Pending Auth    streamable-http
+# github       Failed         -               stdio
 
 # Use wide output for more details:
 muster list mcpserver -o wide
 ```
 
 The output shows:
-- **STATE**: Infrastructure state (network reachability from CRD status)
-  - `Connected`: Server is reachable (may still require auth)
+- **STATE**: Infrastructure state from CRD status
+  - `Connected`: Server is reachable and authenticated
+  - `Auth Required`: Server is reachable but needs authentication (returned 401)
   - `Connecting`: Attempting to connect
   - `Failed`: Server cannot be reached
   - `Running`/`Stopped`: For stdio (local) servers

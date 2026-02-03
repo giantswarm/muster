@@ -246,7 +246,8 @@ type ClientCredentialsSecretRef struct {
 //   - Failed: Process crashed or cannot be started
 //
 // For remote (streamable-http, sse) servers:
-//   - Connected: TCP connection established (may still require auth)
+//   - Connected: TCP connection established and authenticated
+//   - AuthRequired: Server is reachable but requires authentication (returned 401)
 //   - Connecting: Attempting to establish connection
 //   - Disconnected: Not connected (initial state or connection closed)
 //   - Failed: Endpoint unreachable (network error, DNS failure, etc.)
@@ -266,9 +267,15 @@ const (
 
 	// Remote server states (streamable-http, sse)
 
-	// MCPServerStateConnected indicates a remote server is reachable.
-	// TCP connection can be established (ignoring 401/403 auth responses).
+	// MCPServerStateConnected indicates a remote server is reachable and authenticated.
+	// The server responded successfully (not 401/403).
 	MCPServerStateConnected MCPServerStateValue = "Connected"
+
+	// MCPServerStateAuthRequired indicates a remote server is reachable but requires authentication.
+	// The server returned a 401 Unauthorized response, indicating it IS reachable at the
+	// network level but needs OAuth authentication before it can be used.
+	// Users should run `muster auth login --server <name>` to authenticate.
+	MCPServerStateAuthRequired MCPServerStateValue = "Auth Required"
 
 	// MCPServerStateConnecting indicates a connection attempt is in progress.
 	MCPServerStateConnecting MCPServerStateValue = "Connecting"
@@ -303,8 +310,8 @@ type MCPServerStatus struct {
 	// This is independent of user session state (authentication, connection status).
 	//
 	// For stdio servers: Running, Starting, Stopped, Failed
-	// For remote servers: Connected, Connecting, Disconnected, Failed
-	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Connecting;Disconnected;Failed
+	// For remote servers: Connected, Auth Required, Connecting, Disconnected, Failed
+	// +kubebuilder:validation:Enum=Running;Starting;Stopped;Connected;Auth Required;Connecting;Disconnected;Failed
 	State MCPServerStateValue `json:"state,omitempty" yaml:"state,omitempty"`
 
 	// LastError contains any error message from the most recent server operation.
