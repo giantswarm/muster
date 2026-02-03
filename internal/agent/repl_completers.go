@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/chzyer/readline"
@@ -13,29 +15,30 @@ import (
 func (r *REPL) createCompleter() *readline.PrefixCompleter {
 	// Get lists for completion
 	r.client.mu.RLock()
-	tools := make([]string, len(r.client.toolCache))
-	for i, tool := range r.client.toolCache {
-		tools[i] = tool.Name
-	}
+	// Copy tool cache for dynamic completers
+	toolCache := make([]mcp.Tool, len(r.client.toolCache))
+	copy(toolCache, r.client.toolCache)
 
 	resources := make([]string, len(r.client.resourceCache))
 	for i, resource := range r.client.resourceCache {
 		resources[i] = resource.URI
 	}
 
-	prompts := make([]string, len(r.client.promptCache))
-	for i, prompt := range r.client.promptCache {
-		prompts[i] = prompt.Name
-	}
+	// Copy prompt cache for dynamic completers
+	promptCache := make([]mcp.Prompt, len(r.client.promptCache))
+	copy(promptCache, r.client.promptCache)
 	r.client.mu.RUnlock()
 
 	// Get workflow names dynamically
 	workflows := r.getWorkflowNames()
 
-	// Create dynamic completers for items
-	toolCompleter := make([]readline.PrefixCompleterInterface, len(tools))
-	for i, tool := range tools {
-		toolCompleter[i] = readline.PcItem(tool)
+	// Create dynamic completers for tools - each tool gets its own dynamic completer for parameters
+	toolCompleter := make([]readline.PrefixCompleterInterface, len(toolCache))
+	for i := range toolCache {
+		// Capture tool for closure by taking address of slice element
+		tool := &toolCache[i]
+		// PcItem for the tool name, with PcItemDynamic as a child for parameter completion
+		toolCompleter[i] = readline.PcItem(tool.Name, readline.PcItemDynamic(r.createToolParamCompleter(tool)))
 	}
 
 	resourceCompleter := make([]readline.PrefixCompleterInterface, len(resources))
@@ -43,9 +46,13 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 		resourceCompleter[i] = readline.PcItem(resource)
 	}
 
-	promptCompleter := make([]readline.PrefixCompleterInterface, len(prompts))
-	for i, prompt := range prompts {
-		promptCompleter[i] = readline.PcItem(prompt)
+	// Create dynamic completers for prompts - each prompt gets its own dynamic completer for arguments
+	promptCompleter := make([]readline.PrefixCompleterInterface, len(promptCache))
+	for i := range promptCache {
+		// Capture prompt for closure by taking address of slice element
+		prompt := &promptCache[i]
+		// PcItem for the prompt name, with PcItemDynamic as a child for argument completion
+		promptCompleter[i] = readline.PcItem(prompt.Name, readline.PcItemDynamic(r.createPromptArgCompleter(prompt)))
 	}
 
 	workflowCompleter := make([]readline.PrefixCompleterInterface, len(workflows))
@@ -138,6 +145,60 @@ func (r *REPL) getWorkflowNames() []string {
 	}
 
 	return names
+}
+
+// createToolParamCompleter returns a dynamic completion function for a specific tool's parameters
+func (r *REPL) createToolParamCompleter(tool *mcp.Tool) readline.DynamicCompleteFunc {
+	return func(line string) []string {
+		if tool == nil || len(tool.InputSchema.Properties) == 0 {
+			return []string{}
+		}
+
+		// Get parameter names
+		var params []string
+		for name := range tool.InputSchema.Properties {
+			params = append(params, name)
+		}
+		sort.Strings(params)
+
+		// Filter out parameters that have already been specified
+		var completions []string
+		for _, param := range params {
+			// Check if this param is already in the line
+			if !strings.Contains(line, param+"=") {
+				completions = append(completions, param+"=")
+			}
+		}
+
+		return completions
+	}
+}
+
+// createPromptArgCompleter returns a dynamic completion function for a specific prompt's arguments
+func (r *REPL) createPromptArgCompleter(prompt *mcp.Prompt) readline.DynamicCompleteFunc {
+	return func(line string) []string {
+		if prompt == nil || len(prompt.Arguments) == 0 {
+			return []string{}
+		}
+
+		// Get argument names
+		var args []string
+		for _, arg := range prompt.Arguments {
+			args = append(args, arg.Name)
+		}
+		sort.Strings(args)
+
+		// Filter out arguments that have already been specified
+		var completions []string
+		for _, arg := range args {
+			// Check if this arg is already in the line
+			if !strings.Contains(line, arg+"=") {
+				completions = append(completions, arg+"=")
+			}
+		}
+
+		return completions
+	}
 }
 
 // filterInput filters input characters for readline
