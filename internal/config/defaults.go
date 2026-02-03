@@ -14,7 +14,9 @@ const (
 	// DefaultOAuthCIMDScopes contains the default OAuth scopes for the CIMD.
 	// Operators can customize this via Helm values (muster.oauth.cimdScopes) to add
 	// additional scopes needed by downstream MCP servers (e.g., Google API scopes).
-	DefaultOAuthCIMDScopes = "openid profile email offline_access"
+	// The "groups" scope is included by default to ensure group claims are available
+	// in ID tokens for RBAC decisions in downstream services like mcp-kubernetes.
+	DefaultOAuthCIMDScopes = "openid profile email groups offline_access"
 
 	// DefaultOAuthServerProvider is the default OAuth provider for server protection.
 	DefaultOAuthServerProvider = "dex"

@@ -401,7 +401,7 @@ func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redir
 			AuthURL:  metadata.AuthorizationEndpoint,
 			TokenURL: metadata.TokenEndpoint,
 		},
-		Scopes: []string{"openid", "profile", "email", "offline_access"},
+		Scopes: []string{"openid", "profile", "email", "groups", "offline_access"},
 	}
 
 	// Build auth code options
@@ -440,7 +440,7 @@ func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) 
 			TokenURL:  flow.Metadata.TokenEndpoint,
 			AuthStyle: oauth2.AuthStyleInParams, // Use form params, not basic auth
 		},
-		Scopes: []string{"openid", "profile", "email", "offline_access"},
+		Scopes: []string{"openid", "profile", "email", "groups", "offline_access"},
 	}
 
 	// Use a custom HTTP context to inject our configured client
