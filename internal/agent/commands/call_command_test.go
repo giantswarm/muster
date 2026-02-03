@@ -181,6 +181,21 @@ func TestCallCommand_ParseKeyValueArgs(t *testing.T) {
 			args:     []string{`items=["a","b","c"]`},
 			expected: map[string]interface{}{"items": []interface{}{"a", "b", "c"}},
 		},
+		{
+			name:     "quoted string value with double quotes",
+			args:     []string{`name="John Doe"`},
+			expected: map[string]interface{}{"name": "John Doe"},
+		},
+		{
+			name:     "quoted string value with single quotes",
+			args:     []string{`name='Jane Doe'`},
+			expected: map[string]interface{}{"name": "Jane Doe"},
+		},
+		{
+			name:     "JSON map value",
+			args:     []string{`config={"key":"value","nested":{"a":1}}`},
+			expected: map[string]interface{}{"config": map[string]interface{}{"key": "value", "nested": map[string]interface{}{"a": float64(1)}}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -378,13 +393,87 @@ func TestCallCommand_Execute_ShowsHelpForRequiredParams(t *testing.T) {
 
 	// Should show tool info, not execute
 	foundParameters := false
+	foundRequiredMarker := false
 	for _, msg := range output.messages {
 		if msg == "Parameters:" {
 			foundParameters = true
-			break
+		}
+		if msg == "  * = required parameter" {
+			foundRequiredMarker = true
 		}
 	}
 	assert.True(t, foundParameters, "Should show parameter help when required params missing")
+	assert.True(t, foundRequiredMarker, "Should show required parameter legend")
+}
+
+func TestCallCommand_Execute_ShowsHintForInvalidJSON(t *testing.T) {
+	tools := []mcp.Tool{
+		{
+			Name:        "test_tool",
+			Description: "Test tool",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"param1": map[string]interface{}{"type": "string"},
+				},
+			},
+		},
+	}
+
+	client := &mockClientForCall{tools: tools}
+	output := &mockOutput{}
+	transport := &mockTransport{}
+	cmd := NewCallCommand(client, output, transport)
+
+	// Execute with invalid JSON syntax
+	err := cmd.Execute(context.Background(), []string{"test_tool", `{"param1": "value1",}`})
+	assert.NoError(t, err)
+
+	// Should show error and hint
+	foundHint := false
+	for _, msg := range output.messages {
+		if msg == "Hint: Did you mean to use key=value syntax instead?" {
+			foundHint = true
+			break
+		}
+	}
+	assert.True(t, foundHint, "Should show hint about key=value syntax")
+}
+
+func TestCallCommand_Execute_ShowsNoOutputMessage(t *testing.T) {
+	tools := []mcp.Tool{
+		{
+			Name: "empty_tool",
+			InputSchema: mcp.ToolInputSchema{
+				Type:       "object",
+				Properties: map[string]interface{}{},
+			},
+		},
+	}
+
+	client := &mockClientForCall{
+		tools: tools,
+		callToolResult: &mcp.CallToolResult{
+			Content: []mcp.Content{}, // Empty result
+		},
+	}
+	output := &mockOutput{}
+	transport := &mockTransport{}
+	cmd := NewCallCommand(client, output, transport)
+
+	// Execute tool that returns no content
+	err := cmd.Execute(context.Background(), []string{"empty_tool"})
+	assert.NoError(t, err)
+
+	// Should show "no output returned" message
+	foundNoOutput := false
+	for _, msg := range output.messages {
+		if msg == "  (no output returned)" {
+			foundNoOutput = true
+			break
+		}
+	}
+	assert.True(t, foundNoOutput, "Should show no output message when result is empty")
 }
 
 func TestCallCommand_Completions(t *testing.T) {
@@ -437,8 +526,8 @@ func TestCallCommand_Usage(t *testing.T) {
 	cmd := NewCallCommand(client, output, transport)
 
 	usage := cmd.Usage()
-	assert.Contains(t, usage, "param1=value1")
-	assert.Contains(t, usage, "json")
+	assert.Contains(t, usage, "key=value")
+	assert.Contains(t, usage, "JSON")
 }
 
 func TestCallCommand_Aliases(t *testing.T) {

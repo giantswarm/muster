@@ -43,7 +43,14 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 		trimmed := strings.TrimSpace(argsStr)
 		if strings.HasPrefix(trimmed, "{") {
 			if err := json.Unmarshal([]byte(trimmed), &toolArgs); err != nil {
-				c.output.Error("Invalid JSON arguments")
+				// Provide helpful error message with position info
+				if syntaxErr, ok := err.(*json.SyntaxError); ok {
+					c.output.Error("Invalid JSON at position %d: %s", syntaxErr.Offset, syntaxErr.Error())
+				} else {
+					c.output.Error("Invalid JSON: %s", err.Error())
+				}
+				c.output.OutputLine("Hint: Did you mean to use key=value syntax instead?")
+				c.output.OutputLine("")
 				c.showArgumentHelp(toolName, tool)
 				return nil
 			}
@@ -87,6 +94,9 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 
 	// Display results
 	c.output.OutputLine("Result:")
+	if len(result.Content) == 0 {
+		c.output.OutputLine("  (no output returned)")
+	}
 	for _, content := range result.Content {
 		switch v := content.(type) {
 		case mcp.TextContent:
@@ -123,6 +133,14 @@ func (c *CallCommand) parseKeyValueArgs(args []string) map[string]interface{} {
 			if len(parts) == 2 {
 				key := parts[0]
 				value := parts[1]
+
+				// Strip surrounding quotes from string values (common shell habit)
+				if len(value) >= 2 {
+					if (value[0] == '"' && value[len(value)-1] == '"') ||
+						(value[0] == '\'' && value[len(value)-1] == '\'') {
+						value = value[1 : len(value)-1]
+					}
+				}
 
 				// Try to parse as JSON for complex types (arrays, objects, numbers, booleans)
 				var jsonValue interface{}
@@ -226,17 +244,19 @@ func (c *CallCommand) showArgumentHelp(toolName string, tool *mcp.Tool) {
 			description = d
 		}
 
-		// Check if required
-		required := ""
+		// Use asterisk marker for required params (easier to scan visually)
+		marker := " "
 		if requiredSet[paramName] {
-			required = " (required)"
+			marker = "*"
 		}
 
-		c.output.OutputLine("  %s (%s)%s", paramName, paramType, required)
+		c.output.OutputLine("  %s %s (%s)", marker, paramName, paramType)
 		if description != "" {
-			c.output.OutputLine("    %s", description)
+			c.output.OutputLine("      %s", description)
 		}
 	}
+	c.output.OutputLine("")
+	c.output.OutputLine("  * = required parameter")
 
 	c.output.OutputLine("")
 	c.output.OutputLine("Usage examples:")
@@ -260,7 +280,7 @@ func (c *CallCommand) showArgumentHelp(toolName string, tool *mcp.Tool) {
 
 // Usage returns the usage string
 func (c *CallCommand) Usage() string {
-	return "call <tool-name> [param1=value1 param2=value2 ...] or call <tool-name> {\"json\": \"args\"}"
+	return "call <tool> [params...] - supports key=value or JSON syntax"
 }
 
 // Description returns the command description
