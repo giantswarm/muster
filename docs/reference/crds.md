@@ -195,12 +195,48 @@ roleRef:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `state` | `string` | Current operational state: `unknown`, `starting`, `running`, `stopping`, `stopped`, `failed` |
+| `state` | `string` | Current infrastructure state (see table below) |
 | `health` | `string` | Health status: `unknown`, `healthy`, `unhealthy`, `checking` |
 | `lastError` | `string` | Error message from the most recent operation |
 | `lastConnected` | `*metav1.Time` | When the server was last successfully connected |
 | `restartCount` | `int` | Number of times the server has been restarted |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
+
+##### CRD State vs Session State
+
+The MCPServer CRD status reflects **infrastructure state** (network reachability), not per-user authentication state. This distinction is important for understanding server status:
+
+| CRD State | Meaning | Server Response |
+|-----------|---------|-----------------|
+| `Connected` | Server is reachable at network level | 200 OK or 401 Unauthorized |
+| `Connecting` | Attempting to establish connection | Connection in progress |
+| `Disconnected` | Not connected (intentionally) | N/A |
+| `Failed` | Server cannot be reached | Connection refused, DNS failure, timeout |
+| `Running` | Process is running (stdio servers) | N/A |
+| `Starting` | Process is starting (stdio servers) | N/A |
+| `Stopped` | Process is stopped (stdio servers) | N/A |
+
+**Key point**: A 401 Unauthorized response indicates the server IS reachable (at the network level), so the CRD state is `Connected`, not `Failed`. Authentication status is tracked separately per-user in the session registry.
+
+##### Session State in CLI
+
+The `muster list mcpserver` command shows both infrastructure state and session-specific authentication state:
+
+```
+NAME          STATE       SESSION         TYPE
+server-a      Connected   Authenticated   streamable-http
+server-b      Connected   Pending Auth    streamable-http
+server-c      Failed      -               streamable-http
+```
+
+- **STATE**: Infrastructure state from CRD (reachability)
+- **SESSION**: Per-user authentication state (only shown when authenticated)
+  - `Authenticated`: User has successfully authenticated to this server
+  - `Pending Auth`: Server requires authentication, user has not authenticated
+  - `Expired`: User's token has expired
+  - `-`: No session state (server unreachable or no auth required)
+
+This aligns with the output from `muster auth status`, which shows per-server session state.
 
 > **Note**: Available tools are computed per-session at runtime based on user authentication. See [ADR 007](../explanation/decisions/007-crd-status-reconciliation.md) for details on session-scoped tool visibility.
 

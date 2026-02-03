@@ -346,16 +346,16 @@ func TestGetColumnDisplayName(t *testing.T) {
 		expected     string
 	}{
 		{
-			name:         "mcpServers sessionAuth becomes auth",
+			name:         "mcpServers sessionAuth becomes session",
 			resourceType: "mcpServers",
 			column:       "sessionAuth",
-			expected:     "auth",
+			expected:     "session",
 		},
 		{
-			name:         "mcpServer sessionAuth becomes auth",
+			name:         "mcpServer sessionAuth becomes session",
 			resourceType: "mcpServer",
 			column:       "sessionAuth",
-			expected:     "auth",
+			expected:     "session",
 		},
 		{
 			name:         "unknown column returns original",
@@ -389,7 +389,8 @@ func TestGetDisplayHeaders(t *testing.T) {
 	columns := []string{"name", "state", "type", "sessionAuth"}
 	headers := getDisplayHeaders("mcpServers", columns)
 
-	assert.Equal(t, []string{"name", "state", "type", "auth"}, headers)
+	// Per issue #337, sessionAuth column header is "session" to match muster auth status
+	assert.Equal(t, []string{"name", "state", "type", "session"}, headers)
 }
 
 func TestTableFormatter_optimizeColumns_MCPServers_SessionAuth(t *testing.T) {

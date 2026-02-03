@@ -12,10 +12,10 @@ import (
 // This allows consistent presentation of column names across CLI output.
 var columnDisplayNames = map[string]map[string]string{
 	"mcpServers": {
-		"sessionAuth": "auth", // Session auth status shown as "AUTH"
+		"sessionAuth": "session", // Session auth status shown as "SESSION" per issue #337
 	},
 	"mcpServer": {
-		"sessionAuth": "auth",
+		"sessionAuth": "session",
 	},
 }
 

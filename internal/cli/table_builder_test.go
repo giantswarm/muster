@@ -212,18 +212,19 @@ func TestTableBuilder_FormatCellValuePlain_State(t *testing.T) {
 func TestTableBuilder_FormatSessionAuthPlain(t *testing.T) {
 	builder := &TableBuilder{}
 
+	// Per issue #337, session auth status should display user-friendly values
 	tests := []struct {
 		name     string
 		auth     string
 		expected string
 	}{
 		{"empty", "", "-"},
-		{"authenticated", "authenticated", "OK"},
-		{"auth_required", "auth_required", "Required"},
+		{"authenticated", "authenticated", "Authenticated"},
+		{"auth_required", "auth_required", "Pending Auth"},
 		{"token_expired", "token_expired", "Expired"},
 		{"unknown", "unknown", "-"},
-		{"case insensitive - AUTHENTICATED", "AUTHENTICATED", "OK"},
-		{"case insensitive - Auth_Required", "Auth_Required", "Required"},
+		{"case insensitive - AUTHENTICATED", "AUTHENTICATED", "Authenticated"},
+		{"case insensitive - Auth_Required", "Auth_Required", "Pending Auth"},
 		{"custom value", "custom_status", "custom_status"},
 	}
 
@@ -264,11 +265,12 @@ func TestTableBuilder_FormatCellValuePlain_SessionAuth(t *testing.T) {
 	builder := &TableBuilder{}
 
 	// Test that sessionauth column triggers formatSessionAuthPlain
+	// Per issue #337, values should be user-friendly
 	result := builder.FormatCellValuePlain("sessionAuth", "authenticated", nil)
-	assert.Equal(t, "OK", result)
+	assert.Equal(t, "Authenticated", result)
 
 	result = builder.FormatCellValuePlain("sessionAuth", "auth_required", nil)
-	assert.Equal(t, "Required", result)
+	assert.Equal(t, "Pending Auth", result)
 
 	result = builder.FormatCellValuePlain("sessionAuth", "", nil)
 	assert.Equal(t, "-", result)

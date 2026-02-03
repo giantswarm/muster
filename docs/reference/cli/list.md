@@ -67,12 +67,27 @@ muster list serviceclass
 # List all MCP server configurations
 muster list mcpserver
 
-# Example output:
-# NAME         TYPE          STATUS    AUTOSTART
-# kubernetes   local         Running   true
-# prometheus   local         Running   true
-# github       local         Stopped   false
+# Example output (when authenticated):
+# NAME         STATE       SESSION         TYPE
+# kubernetes   Connected   Authenticated   streamable-http
+# prometheus   Connected   Pending Auth    streamable-http
+# github       Failed      -               stdio
+
+# Use wide output for more details:
+muster list mcpserver -o wide
 ```
+
+The output shows:
+- **STATE**: Infrastructure state (network reachability from CRD status)
+  - `Connected`: Server is reachable (may still require auth)
+  - `Connecting`: Attempting to connect
+  - `Failed`: Server cannot be reached
+  - `Running`/`Stopped`: For stdio (local) servers
+- **SESSION**: Per-user authentication state (only shown when logged in)
+  - `Authenticated`: Successfully authenticated to this server
+  - `Pending Auth`: Server requires authentication
+  - `Expired`: Token has expired
+  - `-`: No session state available
 
 ### Listing Workflows
 ```bash
