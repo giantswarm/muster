@@ -31,7 +31,8 @@ const promptChevronUnicode = "»"
 const promptChevronASCII = ">"
 
 // promptStateAuthRequired is the indicator shown when servers require authentication.
-const promptStateAuthRequired = "[auth required]"
+// This is the most important status indicator as it requires user action.
+const promptStateAuthRequired = "[AUTH REQUIRED]"
 
 // promptStateConnected is shown when successfully connected and authenticated.
 const promptStateConnected = "[connected]"
@@ -150,7 +151,8 @@ func detectUnicodeSupport() bool {
 	}
 
 	// Common terminals that support unicode
-	unicodeTerminals := []string{"xterm", "screen", "tmux", "alacritty", "kitty", "iterm", "vt100"}
+	// Note: vt100 is intentionally excluded as it's a legacy terminal without unicode support
+	unicodeTerminals := []string{"xterm", "screen", "tmux", "alacritty", "kitty", "iterm"}
 	termLower := strings.ToLower(term)
 	for _, ut := range unicodeTerminals {
 		if strings.Contains(termLower, ut) {
@@ -164,10 +166,13 @@ func detectUnicodeSupport() bool {
 
 // buildPrompt creates the REPL prompt with the current context and connection status.
 // Format examples:
-//   - "𝗺 »" - no context set
+//   - "𝗺 [connected] »" - no context set, connected
 //   - "𝗺 mycontext [connected] »" - context set, connected
-//   - "𝗺 [auth required] »" - no context, auth required
-//   - "𝗺 mycontext [auth required] »" - context set, auth required
+//   - "𝗺 [AUTH REQUIRED] »" - no context, auth required
+//   - "𝗺 mycontext [AUTH REQUIRED] »" - context set, auth required
+//
+// The AUTH REQUIRED status is displayed prominently in uppercase to draw attention
+// since it requires user action (run 'auth login').
 //
 // Long context names are truncated to maxContextNameLength characters with smart ellipsis.
 // Falls back to ASCII characters if terminal doesn't support unicode.
@@ -193,10 +198,10 @@ func (r *REPL) buildPrompt() string {
 		parts = append(parts, truncateContextName(ctx))
 	}
 
-	// Show connection state
+	// Always show connection state - AUTH REQUIRED takes priority as it needs user action
 	if authReq {
 		parts = append(parts, promptStateAuthRequired)
-	} else if ctx != "" {
+	} else {
 		parts = append(parts, promptStateConnected)
 	}
 

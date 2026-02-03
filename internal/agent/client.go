@@ -1002,34 +1002,44 @@ func (c *Client) Close() error {
 //	    return fmt.Errorf("reconnection failed: %w", err)
 //	}
 func (c *Client) Reconnect(ctx context.Context, newEndpoint string) error {
+	// Use mutex to protect c.client access during reconnection.
+	// This prevents race conditions if other goroutines try to use the client
+	// while we're reconnecting.
+	c.mu.Lock()
+
 	// Close existing connection
 	if c.client != nil {
 		c.client.Close()
 		c.client = nil
 	}
 
-	// Update endpoint
-	c.mu.Lock()
+	// Update endpoint and clear caches for fresh start
 	c.endpoint = newEndpoint
-	// Clear caches for fresh start
 	c.toolCache = []mcp.Tool{}
 	c.resourceCache = []mcp.Resource{}
 	c.promptCache = []mcp.Prompt{}
 	c.serverInfo = nil
+
 	c.mu.Unlock()
 
-	// Create and connect new client
+	// Create and connect new client (outside lock to avoid holding lock during I/O)
 	mcpClient, err := c.createAndConnectClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to new endpoint: %w", err)
 	}
 
+	c.mu.Lock()
 	c.client = mcpClient
+	c.mu.Unlock()
 
 	// Initialize session and load data
 	if err := c.InitializeAndLoadData(ctx); err != nil {
-		c.client.Close()
-		c.client = nil
+		c.mu.Lock()
+		if c.client != nil {
+			c.client.Close()
+			c.client = nil
+		}
+		c.mu.Unlock()
 		return fmt.Errorf("failed to initialize new connection: %w", err)
 	}
 

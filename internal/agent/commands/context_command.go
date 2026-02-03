@@ -19,10 +19,27 @@ type StorageProvider interface {
 }
 
 // defaultStorageProvider wraps musterctx.Storage to implement StorageProvider.
-type defaultStorageProvider struct{}
+// It lazily initializes storage on first use to avoid unnecessary file system access.
+type defaultStorageProvider struct {
+	storage *musterctx.Storage
+}
+
+// getStorage returns the cached storage instance, creating it on first access.
+// This avoids repeated NewStorage() calls which would read the config file each time.
+func (d *defaultStorageProvider) getStorage() (*musterctx.Storage, error) {
+	if d.storage != nil {
+		return d.storage, nil
+	}
+	storage, err := musterctx.NewStorage()
+	if err != nil {
+		return nil, err
+	}
+	d.storage = storage
+	return d.storage, nil
+}
 
 func (d *defaultStorageProvider) GetCurrentContextName() (string, error) {
-	storage, err := musterctx.NewStorage()
+	storage, err := d.getStorage()
 	if err != nil {
 		return "", err
 	}
@@ -30,7 +47,7 @@ func (d *defaultStorageProvider) GetCurrentContextName() (string, error) {
 }
 
 func (d *defaultStorageProvider) Load() (*musterctx.ContextConfig, error) {
-	storage, err := musterctx.NewStorage()
+	storage, err := d.getStorage()
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +55,7 @@ func (d *defaultStorageProvider) Load() (*musterctx.ContextConfig, error) {
 }
 
 func (d *defaultStorageProvider) GetContext(name string) (*musterctx.Context, error) {
-	storage, err := musterctx.NewStorage()
+	storage, err := d.getStorage()
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +63,7 @@ func (d *defaultStorageProvider) GetContext(name string) (*musterctx.Context, er
 }
 
 func (d *defaultStorageProvider) GetContextNames() ([]string, error) {
-	storage, err := musterctx.NewStorage()
+	storage, err := d.getStorage()
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +71,7 @@ func (d *defaultStorageProvider) GetContextNames() ([]string, error) {
 }
 
 func (d *defaultStorageProvider) SetCurrentContext(name string) error {
-	storage, err := musterctx.NewStorage()
+	storage, err := d.getStorage()
 	if err != nil {
 		return err
 	}
@@ -95,6 +112,9 @@ func NewContextCommand(client ClientInterface, output OutputLogger, transport Tr
 	}
 }
 
+// knownSubcommands lists all valid subcommands for typo detection.
+var knownSubcommands = []string{"list", "ls", "use", "switch"}
+
 // Execute runs the context command with the given arguments.
 // Subcommands:
 //   - (no args): Show current context
@@ -117,9 +137,70 @@ func (c *ContextCommand) Execute(ctx context.Context, args []string) error {
 		}
 		return c.switchContext(ctx, args[1])
 	default:
+		// Check if this looks like a typo of a known subcommand
+		if suggestion := c.findSimilarSubcommand(subCmd); suggestion != "" {
+			return fmt.Errorf("unknown subcommand %q - did you mean %q? Use 'context use %s' to switch to a context named %q",
+				subCmd, suggestion, subCmd, subCmd)
+		}
 		// Treat single argument as context name to switch to
 		return c.switchContext(ctx, args[0])
 	}
+}
+
+// findSimilarSubcommand checks if the input looks like a typo of a known subcommand.
+// Returns the likely intended subcommand if found, empty string otherwise.
+func (c *ContextCommand) findSimilarSubcommand(input string) string {
+	// Check for common typos using Levenshtein-like simple heuristics
+	for _, cmd := range knownSubcommands {
+		// Check if only 1-2 characters differ (simple edit distance check)
+		if len(input) == len(cmd) && countDifferentChars(input, cmd) <= 2 {
+			return cmd
+		}
+		// Check for missing/extra character
+		if abs(len(input)-len(cmd)) == 1 && hasCommonPrefix(input, cmd, 2) {
+			return cmd
+		}
+	}
+	return ""
+}
+
+// countDifferentChars counts how many characters differ between two strings of equal length.
+func countDifferentChars(a, b string) int {
+	diff := 0
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			diff++
+		}
+	}
+	return diff
+}
+
+// hasCommonPrefix checks if two strings share at least n common prefix characters.
+func hasCommonPrefix(a, b string, n int) bool {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	if minLen < n {
+		return false
+	}
+	common := 0
+	for i := 0; i < minLen; i++ {
+		if a[i] == b[i] {
+			common++
+		} else {
+			break
+		}
+	}
+	return common >= n
+}
+
+// abs returns the absolute value of an integer.
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // showCurrent displays the current context name.

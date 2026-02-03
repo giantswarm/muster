@@ -292,7 +292,9 @@ Connected
 
 The REPL automatically reconnects to the new endpoint when you switch contexts. The prompt shows:
 - **Context name** - Current active context
-- **Connection status** - `[connected]` when authenticated, `[auth required]` when authentication is needed
+- **Connection status** - `[connected]` when authenticated, `[AUTH REQUIRED]` when authentication is needed
+
+The `[AUTH REQUIRED]` status is displayed prominently in uppercase because it requires user action.
 
 When auth is required, you'll see a helpful hint:
 ```

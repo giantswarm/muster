@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	musterctx "muster/internal/context"
@@ -61,19 +62,20 @@ func (m *mockStorageProvider) SetCurrentContext(name string) error {
 }
 
 // mockOutputForContext captures output for testing.
+// It stores the formatted output (with args applied) for assertions.
 type mockOutputForContext struct {
 	lines []string
 }
 
 func (m *mockOutputForContext) Output(format string, args ...interface{}) {}
 func (m *mockOutputForContext) OutputLine(format string, args ...interface{}) {
-	m.lines = append(m.lines, format)
+	m.lines = append(m.lines, fmt.Sprintf(format, args...))
 }
 func (m *mockOutputForContext) Info(format string, args ...interface{})  {}
 func (m *mockOutputForContext) Debug(format string, args ...interface{}) {}
 func (m *mockOutputForContext) Error(format string, args ...interface{}) {}
 func (m *mockOutputForContext) Success(format string, args ...interface{}) {
-	m.lines = append(m.lines, format)
+	m.lines = append(m.lines, fmt.Sprintf(format, args...))
 }
 func (m *mockOutputForContext) SetVerbose(verbose bool) {}
 
@@ -108,7 +110,7 @@ func TestContextCommand_ShowCurrent_WithContext(t *testing.T) {
 	err := cmd.Execute(context.Background(), []string{})
 
 	require.NoError(t, err)
-	assert.Contains(t, output.lines[0], "Current context: %s")
+	assert.Equal(t, "Current context: production", output.lines[0])
 }
 
 func TestContextCommand_ListContexts_Empty(t *testing.T) {
@@ -332,4 +334,60 @@ func TestContextCommand_SwitchContext_WithReconnect(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, reconnectCalled)
 	assert.Equal(t, "https://muster.example.com", reconnectEndpoint)
+}
+
+func TestContextCommand_TypoDetection_List(t *testing.T) {
+	storage := &mockStorageProvider{}
+	output := &mockOutputForContext{}
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
+
+	// "lsit" is a typo of "list"
+	err := cmd.Execute(context.Background(), []string{"lsit"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did you mean")
+	assert.Contains(t, err.Error(), "list")
+}
+
+func TestContextCommand_TypoDetection_Switch(t *testing.T) {
+	storage := &mockStorageProvider{}
+	output := &mockOutputForContext{}
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
+
+	// "swtich" is a typo of "switch"
+	err := cmd.Execute(context.Background(), []string{"swtich"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did you mean")
+	assert.Contains(t, err.Error(), "switch")
+}
+
+func TestContextCommand_TypoDetection_Use(t *testing.T) {
+	storage := &mockStorageProvider{}
+	output := &mockOutputForContext{}
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
+
+	// "ues" is a typo of "use"
+	err := cmd.Execute(context.Background(), []string{"ues"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did you mean")
+	assert.Contains(t, err.Error(), "use")
+}
+
+func TestContextCommand_NoTypoDetection_ValidContextName(t *testing.T) {
+	// A valid context name that doesn't look like a typo should try to switch
+	storage := &mockStorageProvider{
+		getContextResult: &musterctx.Context{
+			Name:     "mycontext",
+			Endpoint: "http://localhost:8090",
+		},
+	}
+	output := &mockOutputForContext{}
+	cmd := newContextCommandWithStorage(nil, output, nil, nil, nil, storage)
+
+	err := cmd.Execute(context.Background(), []string{"mycontext"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "mycontext", storage.setCurrentCalled)
 }

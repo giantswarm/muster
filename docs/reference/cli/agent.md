@@ -176,12 +176,12 @@ When switching contexts, the REPL automatically reconnects to the new endpoint. 
 
 ```
 𝗺 production [connected] » list tools
-𝗺 staging [auth required] » call my_tool
+𝗺 staging [AUTH REQUIRED] » call my_tool
 ```
 
 **Prompt indicators:**
 - `[connected]` - Successfully connected and authenticated
-- `[auth required]` - One or more servers need authentication (run `auth login`)
+- `[AUTH REQUIRED]` - One or more servers need authentication (run `auth login`) - displayed prominently in uppercase
 
 Long context names are truncated using smart ellipsis that preserves both the start and end of the name (e.g., `production-...cluster`).
 
