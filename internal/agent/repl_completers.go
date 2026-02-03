@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	musterctx "muster/internal/context"
+
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -219,6 +221,9 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 		commandCompleters[i] = readline.PcItem(name)
 	}
 
+	// Get context names for completion
+	contextCompleter := r.createContextCompleter()
+
 	return readline.NewPrefixCompleter(
 		// Commands with their specific completions
 		readline.PcItem("help", commandCompleters...),
@@ -250,7 +255,39 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 			readline.PcItem("on"),
 			readline.PcItem("off"),
 		),
+		readline.PcItem("context",
+			readline.PcItem("list"),
+			readline.PcItem("ls"),
+			readline.PcItem("use", contextCompleter...),
+			readline.PcItem("switch", contextCompleter...),
+		),
+		readline.PcItem("ctx",
+			readline.PcItem("list"),
+			readline.PcItem("ls"),
+			readline.PcItem("use", contextCompleter...),
+			readline.PcItem("switch", contextCompleter...),
+		),
 	)
+}
+
+// createContextCompleter creates completers for available context names
+func (r *REPL) createContextCompleter() []readline.PrefixCompleterInterface {
+	storage, err := musterctx.NewStorage()
+	if err != nil {
+		return nil
+	}
+
+	names, err := storage.GetContextNames()
+	if err != nil {
+		return nil
+	}
+
+	completers := make([]readline.PrefixCompleterInterface, len(names))
+	for i, name := range names {
+		completers[i] = readline.PcItem(name)
+	}
+
+	return completers
 }
 
 // getWorkflowNames fetches workflow names for tab completion

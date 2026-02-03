@@ -11,10 +11,17 @@ import (
 	"time"
 
 	"muster/internal/agent/commands"
+	musterctx "muster/internal/context"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// promptPrefix uses a mathematical bold "m" (𝗺) for muster branding in the REPL prompt.
+const promptPrefix = "𝗺"
+
+// promptChevron is the guillemet separator used in the prompt.
+const promptChevron = "»"
 
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
@@ -31,6 +38,7 @@ import (
 //   - Real-time notification display (SSE transport)
 //   - Graceful error handling and recovery
 //   - Transport-aware feature adaptation
+//   - Stylish prompt with current context display
 type REPL struct {
 	client           *Client
 	logger           *Logger
@@ -39,6 +47,8 @@ type REPL struct {
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
 	commandRegistry  *commands.Registry
+	currentContext   string // Current muster context name for prompt display
+	mu               sync.RWMutex
 }
 
 // NewREPL creates a new REPL instance with the specified client and logger.
@@ -54,6 +64,7 @@ type REPL struct {
 //   - Notification channel for real-time updates
 //   - Command registry with alias support
 //   - Transport adapter for command execution
+//   - Current context detection for stylish prompt display
 //
 // Example:
 //
@@ -69,12 +80,61 @@ func NewREPL(client *Client, logger *Logger) *REPL {
 		notificationChan: make(chan mcp.JSONRPCNotification, 10),
 		stopChan:         make(chan struct{}),
 		commandRegistry:  commands.NewRegistry(),
+		currentContext:   loadCurrentContext(),
 	}
 
 	// Register all commands
 	repl.registerCommands()
 
 	return repl
+}
+
+// loadCurrentContext retrieves the current context name from storage.
+// Returns an empty string if no context is set or on error.
+func loadCurrentContext() string {
+	storage, err := musterctx.NewStorage()
+	if err != nil {
+		return ""
+	}
+
+	name, err := storage.GetCurrentContextName()
+	if err != nil {
+		return ""
+	}
+
+	return name
+}
+
+// buildPrompt creates the REPL prompt with the current context.
+// Format: m context » or m » if no context is set.
+func (r *REPL) buildPrompt() string {
+	r.mu.RLock()
+	ctx := r.currentContext
+	r.mu.RUnlock()
+
+	if ctx == "" {
+		return fmt.Sprintf("%s %s ", promptPrefix, promptChevron)
+	}
+
+	return fmt.Sprintf("%s %s %s ", promptPrefix, ctx, promptChevron)
+}
+
+// updatePrompt refreshes the readline prompt with the current context.
+// This should be called when the context changes.
+func (r *REPL) updatePrompt() {
+	if r.rl != nil {
+		r.rl.SetPrompt(r.buildPrompt())
+	}
+}
+
+// setCurrentContext updates the current context and refreshes the prompt.
+// This is called by the context command when switching contexts.
+func (r *REPL) setCurrentContext(name string) {
+	r.mu.Lock()
+	r.currentContext = name
+	r.mu.Unlock()
+
+	r.updatePrompt()
 }
 
 // registerCommands registers all available commands with the command registry.
@@ -92,6 +152,7 @@ func NewREPL(client *Client, logger *Logger) *REPL {
 //   - filter: Advanced pattern-based tool filtering
 //   - notifications: Toggle and manage real-time updates
 //   - workflow: Execute workflows with parameters
+//   - context: List and switch between muster contexts
 //   - exit: Graceful session termination
 //
 // Each command is provided with access to the client, logger, and transport
@@ -110,6 +171,7 @@ func (r *REPL) registerCommands() {
 	r.commandRegistry.Register("filter", commands.NewFilterCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("notifications", commands.NewNotificationsCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("workflow", commands.NewWorkflowCommand(r.client, r.logger, transport))
+	r.commandRegistry.Register("context", commands.NewContextCommand(r.client, r.logger, transport, r.setCurrentContext))
 	r.commandRegistry.Register("exit", commands.NewExitCommand(r.client, r.logger, transport))
 }
 
@@ -237,7 +299,7 @@ func (r *REPL) Run(ctx context.Context) error {
 	historyFile := filepath.Join(os.TempDir(), ".muster_agent_history")
 
 	config := &readline.Config{
-		Prompt:          "MCP> ",
+		Prompt:          r.buildPrompt(),
 		HistoryFile:     historyFile,
 		AutoComplete:    completer,
 		InterruptPrompt: "^C",
