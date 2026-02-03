@@ -19,6 +19,11 @@ import (
 // ErrAuthRequired is returned when OAuth authentication is required.
 var ErrAuthRequired = errors.New("authentication required")
 
+// agentOAuthScopes are the OAuth scopes requested for agent CLI authentication.
+// The "groups" scope is included to ensure group claims are available in ID tokens
+// for RBAC decisions in downstream services like mcp-kubernetes.
+var agentOAuthScopes = []string{"openid", "profile", "email", "groups", "offline_access"}
+
 // DefaultHTTPTimeout is the default timeout for HTTP requests.
 const DefaultHTTPTimeout = 30 * time.Second
 
@@ -401,7 +406,7 @@ func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redir
 			AuthURL:  metadata.AuthorizationEndpoint,
 			TokenURL: metadata.TokenEndpoint,
 		},
-		Scopes: []string{"openid", "profile", "email", "groups", "offline_access"},
+		Scopes: agentOAuthScopes,
 	}
 
 	// Build auth code options
@@ -440,7 +445,7 @@ func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) 
 			TokenURL:  flow.Metadata.TokenEndpoint,
 			AuthStyle: oauth2.AuthStyleInParams, // Use form params, not basic auth
 		},
-		Scopes: []string{"openid", "profile", "email", "groups", "offline_access"},
+		Scopes: agentOAuthScopes,
 	}
 
 	// Use a custom HTTP context to inject our configured client

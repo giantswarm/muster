@@ -1017,7 +1017,7 @@ func (s *OAuthServer) generateIDTokenWithSub(clientID, scope, subject string) st
 	}
 
 	// Include groups claim if the "groups" scope was requested
-	if strings.Contains(scope, "groups") {
+	if hasScope(scope, "groups") {
 		claims.Groups = []string{"test-group", "developers"}
 	}
 
@@ -1125,6 +1125,17 @@ func generateOpaqueToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// hasScope checks if a specific scope is present in a space-separated scope string.
+// This performs exact matching to avoid false positives (e.g., "no-groups" matching "groups").
+func hasScope(scopeString, target string) bool {
+	for _, s := range strings.Split(scopeString, " ") {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
 // generateIDToken generates a mock JWT ID token for testing.
 //
 // SECURITY WARNING: This generates UNSIGNED tokens (alg: none) for TESTING ONLY.
@@ -1147,7 +1158,7 @@ func (s *OAuthServer) generateIDToken(clientID, scope string) string {
 	}
 
 	// Include groups claim if the "groups" scope was requested
-	if strings.Contains(scope, "groups") {
+	if hasScope(scope, "groups") {
 		claims.Groups = []string{"test-group", "developers"}
 	}
 
