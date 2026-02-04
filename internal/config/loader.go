@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"gopkg.in/yaml.v3"
 )

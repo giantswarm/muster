@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/agent/oauth"
 )
 
 func TestNewAuthAdapter(t *testing.T) {

@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"muster/pkg/logging"
 	"time"
+
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 func TestHandler_HandleCallback_MissingParams(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Storage provides generic storage functionality for dynamic entities

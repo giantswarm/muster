@@ -3,7 +3,7 @@ package mcpserver
 import (
 	"fmt"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.

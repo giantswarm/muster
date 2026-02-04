@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"muster/internal/cli"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
 )

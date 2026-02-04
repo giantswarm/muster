@@ -8,7 +8,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // CertWatcherConfig holds configuration for the certificate watcher.

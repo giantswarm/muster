@@ -45,7 +45,7 @@ alwaysApply: true
   Any other package that needs to use the service **MUST** retrieve the handler from the `api` package. It **MUST NOT** import the service package directly.
   ```go
   // in another_package/logic.go
-  import "muster/internal/api"
+  import "github.com/giantswarm/muster/internal/api"
 
   func DoWork(ctx context.Context) {
       handler := api.GetMyService()

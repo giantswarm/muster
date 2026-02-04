@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // Use API package types instead of duplicating them

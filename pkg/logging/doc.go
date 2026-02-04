@@ -26,7 +26,7 @@
 //
 // ## Initialization
 //
-//	import "muster/pkg/logging"
+//	import "github.com/giantswarm/muster/pkg/logging"
 //
 //	// Initialize with Info level logging to stdout
 //	logging.InitForCLI(logging.LevelInfo, os.Stdout)

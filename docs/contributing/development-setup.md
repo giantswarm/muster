@@ -160,7 +160,7 @@ func (a *Adapter) Register() {
 **3. Consume via API:**
 ```go
 // in another package
-import "muster/internal/api"
+import "github.com/giantswarm/muster/internal/api"
 
 func useService(ctx context.Context) {
     handler := api.GetMyService()

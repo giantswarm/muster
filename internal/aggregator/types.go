@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/mcpserver"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/mcpserver"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

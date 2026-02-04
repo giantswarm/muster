@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // mockStateUpdaterService is a mock service that implements StateUpdater

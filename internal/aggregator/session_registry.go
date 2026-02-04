@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/oauth"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/oauth"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

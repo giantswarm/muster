@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 // AuthState represents the current authentication state of the agent.

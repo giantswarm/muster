@@ -2,9 +2,10 @@ package api
 
 import (
 	"fmt"
-	"muster/pkg/logging"
 	"sort"
 	"sync"
+
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 )

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

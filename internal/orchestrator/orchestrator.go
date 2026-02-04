@@ -7,13 +7,14 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/config"
-	mcpserverPkg "muster/internal/mcpserver"
-	"muster/internal/services"
-	"muster/internal/services/mcpserver"
-	"muster/internal/template"
-	"muster/pkg/logging"
+	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/internal/services/mcpserver"
+	"github.com/giantswarm/muster/internal/template"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // StopReason tracks why a service was stopped.

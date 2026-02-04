@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
-	"muster/internal/config"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Application represents the main application structure that bootstraps and runs muster.

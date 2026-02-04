@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"muster/internal/template"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/template"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ScenarioContext holds the execution context for a test scenario

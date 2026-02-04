@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"muster/internal/cli"
+	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

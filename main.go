@@ -1,6 +1,6 @@
 package main
 
-import "muster/cmd"
+import "github.com/giantswarm/muster/cmd"
 
 // Version can be set during build with -ldflags
 var version = "dev"

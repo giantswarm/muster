@@ -3,9 +3,9 @@ package aggregator
 import (
 	"context"
 
-	"muster/internal/api"
-	"muster/internal/mcpserver"
-	"muster/internal/oauth"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/mcpserver"
+	"github.com/giantswarm/muster/internal/oauth"
 )
 
 // SessionTokenProvider provides OAuth access tokens for session connections.

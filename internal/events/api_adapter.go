@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/cli"
-	"muster/internal/client"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/internal/client"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Adapter implements the EventManagerHandler interface using the unified MusterClient.

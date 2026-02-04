@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"muster/internal/api"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 )
 
 // mockMCPServerManager implements api.MCPServerManagerHandler for testing.

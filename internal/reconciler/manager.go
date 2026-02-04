@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Manager coordinates all reconciliation activities.

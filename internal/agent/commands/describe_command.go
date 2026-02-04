@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/metatools"
+	"github.com/giantswarm/muster/internal/metatools"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

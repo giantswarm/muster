@@ -7,8 +7,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // convertCRDToServiceClass converts a ServiceClass CRD to api.ServiceClass

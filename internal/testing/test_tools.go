@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/testing/mock"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

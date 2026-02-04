@@ -322,7 +322,7 @@ type EventObserver interface {
 **Never import service packages directly:**
 ```go
 // ❌ WRONG - Direct import
-import "muster/internal/services"
+import "github.com/giantswarm/muster/internal/services"
 
 func (w *Workflow) startService() {
     services.GetRegistry().StartService("prometheus")
@@ -340,10 +340,10 @@ func (w *Workflow) startService() {
 ```go
 // ❌ WRONG - services importing workflow
 // internal/services/manager.go
-import "muster/internal/workflow"
+import "github.com/giantswarm/muster/internal/workflow"
 
 // internal/workflow/executor.go  
-import "muster/internal/services"
+import "github.com/giantswarm/muster/internal/services"
 ```
 
 #### Synchronous Blocking Operations

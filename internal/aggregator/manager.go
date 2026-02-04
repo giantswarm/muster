@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	configPkg "muster/internal/config"
-	"muster/internal/mcpserver"
-	"muster/internal/oauth"
-	"muster/pkg/logging"
+	configPkg "github.com/giantswarm/muster/internal/config"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/mcpserver"
+	"github.com/giantswarm/muster/internal/oauth"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // This file contains aggregator manager logic that coordinates between

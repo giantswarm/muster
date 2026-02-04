@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"muster/internal/metatools"
-	pkgstrings "muster/pkg/strings"
+	"github.com/giantswarm/muster/internal/metatools"
+	pkgstrings "github.com/giantswarm/muster/pkg/strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

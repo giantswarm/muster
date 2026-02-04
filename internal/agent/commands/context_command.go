@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	musterctx "muster/internal/context"
+	musterctx "github.com/giantswarm/muster/internal/context"
 )
 
 // StorageProvider abstracts context storage operations for testability.

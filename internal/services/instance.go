@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/template"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/template"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ToolCaller represents the interface for calling aggregator tools

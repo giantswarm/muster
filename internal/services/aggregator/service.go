@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/aggregator"
-	"muster/internal/api"
-	"muster/internal/services"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/aggregator"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AggregatorService implements the Service interface for the MCP aggregator

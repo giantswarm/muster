@@ -40,9 +40,10 @@ import (
 	"context"
 	"fmt"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthToolProvider provides core authentication tools for the aggregator.
