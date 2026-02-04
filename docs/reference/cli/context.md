@@ -302,6 +302,26 @@ Authentication required for: server1, server2
 Run 'auth login' to authenticate
 ```
 
+### Automatic Re-Authentication
+
+When switching to a context that requires authentication (or has an expired token), the REPL automatically detects the 401 error and initiates the OAuth login flow:
+
+```bash
+𝗺 local [connected] » context use production
+Switched to production (https://muster.example.com/mcp)
+Connecting...
+Authentication required for new endpoint
+Starting OAuth login flow...
+A browser window will open for authentication.
+Authentication successful
+Retrying connection...
+Connected
+
+𝗺 production [connected] »
+```
+
+This eliminates the need to restart the REPL when switching to an authenticated endpoint.
+
 Use `ctx` as a shorthand alias for `context`.
 
 ## See Also

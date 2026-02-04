@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"muster/internal/agent/commands"
+	"muster/internal/api"
 	musterctx "muster/internal/context"
 
 	"github.com/chzyer/readline"
@@ -249,6 +251,9 @@ func (r *REPL) setCurrentContext(name string) {
 // reconnectToEndpoint reconnects the client to a new endpoint.
 // This is called when switching to a context with a different endpoint.
 // Returns nil if the endpoint hasn't changed.
+//
+// If authentication fails (401), this method will automatically attempt to
+// re-authenticate using the auth handler, then retry the connection.
 func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) error {
 	currentEndpoint := r.client.GetEndpoint()
 	if currentEndpoint == newEndpoint {
@@ -259,8 +264,25 @@ func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) erro
 	// Show connecting indicator
 	r.logger.Output("Connecting...")
 
-	if err := r.client.Reconnect(ctx, newEndpoint); err != nil {
-		return fmt.Errorf("failed to reconnect: %w", err)
+	err := r.client.Reconnect(ctx, newEndpoint)
+	if err != nil {
+		// Check if this is an authentication error
+		if isAuthError(err) {
+			r.logger.Info("Authentication required for new endpoint")
+
+			// Attempt to re-authenticate
+			if authErr := r.authenticateForEndpoint(ctx, newEndpoint); authErr != nil {
+				return fmt.Errorf("authentication failed: %w", authErr)
+			}
+
+			// Retry connection after authentication
+			r.logger.Output("Retrying connection...")
+			if retryErr := r.client.Reconnect(ctx, newEndpoint); retryErr != nil {
+				return fmt.Errorf("failed to reconnect after authentication: %w", retryErr)
+			}
+		} else {
+			return fmt.Errorf("failed to reconnect: %w", err)
+		}
 	}
 
 	// Refresh the tab completer with new tools/resources/prompts
@@ -273,6 +295,82 @@ func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) erro
 
 	r.logger.Success("Connected")
 	return nil
+}
+
+// isAuthError checks if an error is related to authentication (401 Unauthorized).
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "401") ||
+		strings.Contains(errStr, "Unauthorized") ||
+		strings.Contains(errStr, "invalid_token") ||
+		strings.Contains(errStr, "Missing Authorization header")
+}
+
+// authenticateForEndpoint triggers OAuth authentication for the given endpoint.
+// This is used when switching contexts to an endpoint that requires authentication.
+func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) error {
+	// Only authenticate for remote endpoints
+	if !isRemoteEndpoint(endpoint) {
+		return nil
+	}
+
+	// Get auth handler from the API layer
+	// The handler should already be registered by cmd/agent.go before the REPL starts
+	handler := api.GetAuthHandler()
+	if handler == nil {
+		return fmt.Errorf("authentication handler not available - try restarting with 'muster agent --repl'")
+	}
+
+	// Check if we already have a valid token
+	if handler.HasValidToken(endpoint) {
+		token, err := handler.GetBearerToken(endpoint)
+		if err == nil {
+			r.client.SetAuthorizationHeader(token)
+			r.logger.Info("Using existing authentication token")
+			return nil
+		}
+		// Token retrieval failed, continue to login
+	}
+
+	// Set session ID for MCP server token persistence
+	if sessionID := handler.GetSessionID(); sessionID != "" {
+		r.client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
+	// Initiate OAuth login
+	r.logger.Info("Starting OAuth login flow...")
+	r.logger.Info("A browser window will open for authentication.")
+
+	if err := handler.Login(ctx, endpoint); err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+
+	// Get the token and set it on the client
+	token, err := handler.GetBearerToken(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get authentication token: %w", err)
+	}
+	r.client.SetAuthorizationHeader(token)
+	r.logger.Success("Authentication successful")
+
+	return nil
+}
+
+// isRemoteEndpoint checks if an endpoint URL points to a remote server.
+// It properly parses the URL and checks only the hostname, avoiding false positives
+// when "localhost" appears in the path or query string.
+func isRemoteEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		// If we can't parse the URL, assume it's remote for safety
+		return true
+	}
+
+	host := strings.ToLower(u.Hostname())
+	return host != "localhost" && host != "127.0.0.1" && host != "::1"
 }
 
 // checkAuthRequired checks if any servers require authentication and updates the prompt.
