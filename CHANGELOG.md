@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+> **Note:** The Server-Side Meta-Tools Migration below is a **breaking change** that will be released as part of the next major version. External integrations should prepare for this change.
+
+### Breaking Changes
+
+#### Server-Side Meta-Tools Migration
+
+Meta-tools (`list_tools`, `call_tool`, `describe_tool`, etc.) have moved from the agent to the aggregator server. This is a fundamental architectural change.
+
+**What Changed:**
+
+| Component | Before | After |
+|-----------|--------|-------|
+| **Agent** | Exposed 11 meta-tools + bridged to aggregator | Transport bridge only (OAuth shim + stdio↔HTTP) |
+| **Aggregator** | Exposed 36+ core tools directly | Exposes ONLY meta-tools - no direct tool access |
+| **Tool Access** | Direct tool calls to aggregator | All tool calls go through `call_tool` meta-tool |
+
+**What Continues Working (Transparent Migration):**
+- CLI commands (`muster list`, `muster get`, etc.) - client wraps calls automatically
+- Agent REPL (`muster agent --repl`) - uses same client with transparent wrapping
+- BDD test scenarios - test client wraps calls automatically
+- MCP native protocol methods (`tools/list`, `resources/list`) - not affected
+
+**What Breaks (Requires Update):**
+- External integrations calling tools directly via HTTP
+- Custom clients connecting directly to aggregator
+
+**Migration for External Clients:**
+
+```json
+// Before: Direct tool call
+{"method": "tools/call", "params": {"name": "core_service_list", "arguments": {}}}
+
+// After: Wrap through call_tool
+{"method": "tools/call", "params": {
+  "name": "call_tool",
+  "arguments": {"name": "core_service_list", "arguments": {}}
+}}
+```
+
+**Benefits:**
+- OAuth-capable clients can connect directly to server without agent
+- Simpler agent architecture (~200 lines vs ~700 lines)
+- Consistent tool visibility across all clients
+- Centralized meta-tool logic
+
+See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for design details.
+
+**Known External Integrations Affected:**
+- Any HTTP clients calling the aggregator directly
+- Custom MCP clients not using `muster agent`
+- CI/CD pipelines with direct tool calls
+
+**Recommended Migration Timeline:**
+1. Review your integration code for direct tool calls
+2. Update to wrap calls through `call_tool` meta-tool
+3. Test with the new Muster version before deploying
+
 ### Changed
 - **MCPServer CRD State Exposes Auth Required** - The MCPServer CRD now shows `Auth Required` state when a remote server returns 401 Unauthorized ([#337](https://github.com/giantswarm/muster/issues/337))
   - **Before**: 401 response mapped to `Connected` (hiding auth requirement)

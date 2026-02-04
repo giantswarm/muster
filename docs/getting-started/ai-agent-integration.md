@@ -15,23 +15,23 @@ This **advanced guide** walks you through setting up Muster with separate server
 
 **For simple IDE integration, use `muster standalone` instead.**
 
-## Understanding Muster's Two-Layer Architecture
+## Understanding Muster's Architecture
 
-**Critical Concept**: Before setting up AI integration, understand that Muster operates in two distinct layers:
+**Critical Concept**: Before setting up AI integration, understand Muster's meta-tools interface:
 
-### Layer 1: Aggregator Server (`muster serve`)
+### Aggregator Server (`muster serve`)
 
-- **Contains**: 36 core tools (`core_service_list`, etc.) + external MCP tools
+- **Exposes**: 11 meta-tools (`list_tools`, `call_tool`, etc.) as the only interface
+- **Contains**: 36 core tools + external MCP tools (accessed via `call_tool`)
 - **Purpose**: Business logic, tool execution, service management
-- **Direct access**: Internal to Muster or via direct MCP connection
 
-### Layer 2: Agent (`muster agent --mcp-server`)
+### Agent (`muster agent --mcp-server`)
 
-- **Contains**: 11 meta-tools (`list_tools`, `call_tool`, etc.)
-- **Purpose**: Bridge between AI agents and aggregator
-- **AI agent access**: This is what your IDE connects to
+- **Role**: Transport bridge (stdio ↔ HTTP/SSE) + OAuth handling
+- **Purpose**: Enable non-OAuth MCP clients to connect to authenticated servers
+- **Note**: OAuth-capable clients can connect directly to the server
 
-**Your AI agent uses meta-tools to access aggregator functionality.**
+**Your AI agent uses meta-tools from the server to access all functionality.**
 
 ## Before we start
 
@@ -166,31 +166,34 @@ For other tools that support MCP, use the same configuration pattern:
 
 ## What your AI agent can do
 
-Once configured, your AI agent will have access to **11 meta-tools** that provide access to all Muster functionality:
+Once configured, your AI agent will have access to **11 meta-tools** from the server that provide access to all Muster functionality:
 
-### Agent Meta-Tools (What AI Agents Use)
+### Server Meta-Tools (What AI Agents See)
 
-**Tool Discovery & Management:**
+**Tool Discovery:**
 
-- `list_tools` - Discover all available tools from the aggregator
+- `list_tools` - Discover all available tools
 - `describe_tool` - Get detailed information about any tool
 - `filter_tools` - Filter tools by name patterns or descriptions
 - `list_core_tools` - List built-in Muster tools specifically
 
 **Tool Execution:**
 
-- `call_tool` - Execute any tool from the aggregator with arguments
+- `call_tool` - Execute any tool by name
 
-**Resource & Prompt Access:**
+**Resource Access:**
 
 - `list_resources` - List available resources
 - `get_resource` - Retrieve resource content
 - `describe_resource` - Get resource details
+
+**Prompt Access:**
+
 - `list_prompts` - List available prompts
 - `get_prompt` - Execute prompt templates
 - `describe_prompt` - Get prompt details
 
-### Aggregator Tools (Accessed via call_tool)
+### Actual Tools (Accessed via `call_tool`)
 
 When your AI agent uses `call_tool`, it can execute any of the **36+ aggregator tools**:
 
@@ -424,7 +427,7 @@ For self-hosted Muster deployments, ensure your IdP trusts this client ID.
 
 ## Next steps
 
-1. **Explore meta-tools**: Use `muster agent --repl` to try all 11 meta-tools
+1. **Explore meta-tools**: Use `muster agent --repl` to try all 11 server meta-tools
 2. **Create ServiceClasses**: Define templates in `.muster/serviceclasses/`
 3. **Build workflows**: Automate processes in `.muster/workflows/`
 4. **Add MCP servers**: Integrate external tools in `.muster/mcpservers/`
@@ -442,21 +445,21 @@ Based on your `.muster` setup, you can try:
 Remember these patterns when working with AI agents:
 
 ```bash
-# ✅ Correct: How AI agents work with Muster
-list tools                                     # Discover tools
-call core_service_list {}  # Execute tools
-filter tools workflow_*             # Filter tools
+# ✅ Correct: How AI agents work with Muster (via server meta-tools)
+list_tools()                                        # Discover tools
+call_tool(name="core_service_list", arguments={})   # Execute tools
+filter_tools(pattern="workflow_*")                  # Filter tools
 
-# ❌ Wrong: AI agents can't do this
-core_service_list()                             # Doesn't exist at agent layer
-workflow_auth-workflow()                        # Must use call_tool
+# ❌ Wrong: These tools don't exist at the MCP interface level
+core_service_list()                                 # Must use call_tool
+workflow_auth-workflow()                            # Must use call_tool
 ```
 
-This two-layer architecture enables:
+This architecture enables:
 
 - **Unified access** to all tool types (core, workflow, external)
 - **Dynamic discovery** of available capabilities
-- **Consistent interface** regardless of underlying tool source
-- **Transparent routing** to appropriate tool handlers
+- **Session-scoped visibility** based on authentication state
+- **OAuth-capable clients** can connect directly to the server
 
 For comprehensive examples, see the test scenarios in `internal/testing/scenarios/`.

@@ -15,6 +15,13 @@
 - **Mock Tools**: Use `x_<mockserver-name>_<tool-name>` pattern for mock MCP server tools
 - **Core Tools**: Continue to use direct names like `core_serviceclass_create`
 
+### Meta-Tools Wrapping (Architecture Change)
+The test framework transparently wraps all tool calls through the `call_tool` meta-tool:
+- **Server exposes only meta-tools**: The aggregator exposes `list_tools`, `call_tool`, etc.
+- **All tool calls go through `call_tool`**: The test client wraps `core_service_list` as `call_tool(name="core_service_list", ...)`
+- **Automatic response unwrapping**: The test framework extracts the actual tool result from the wrapped response
+- **Test scenarios unchanged**: Scenarios reference tools by name (e.g., `core_service_list`), wrapping is internal
+
 ### Essential Mock Integration
 - **Tests Core Functionality**: Mock MCP servers are essential for testing muster's core MCP server management and tool aggregation capabilities
 - **Enables Concept Testing**: Other muster concepts (workflows, serviceclasses, capabilities, services) depend on MCP server tools being available

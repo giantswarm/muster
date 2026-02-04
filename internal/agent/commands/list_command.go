@@ -7,6 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	"muster/internal/metatools"
+	pkgstrings "muster/pkg/strings"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -31,30 +34,22 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	target := strings.ToLower(args[0])
 	switch target {
 	case "tool", "tools":
-		if err := l.client.RefreshToolCache(ctx); err != nil {
-			l.output.Error("Failed to refresh tool cache: %v", err)
-			// Continue with the cached tools if refresh fails
-		}
-		return l.listTools()
+		return l.listTools(ctx)
 	case "resource", "resources":
 		if err := l.client.RefreshResourceCache(ctx); err != nil {
 			l.output.Error("Failed to refresh resource cache: %v", err)
-			// Continue with the cached tools if refresh fails
+			// Continue with the cached resources if refresh fails
 		}
 		return l.listResources()
 	case "prompt", "prompts":
 		if err := l.client.RefreshPromptCache(ctx); err != nil {
 			l.output.Error("Failed to refresh prompt cache: %v", err)
-			// Continue with the cached tools if refresh fails
+			// Continue with the cached prompts if refresh fails
 		}
 		return l.listPrompts()
 	case "workflow", "workflows":
 		return l.listWorkflows(ctx)
 	case "core-tool", "core-tools":
-		if err := l.client.RefreshToolCache(ctx); err != nil {
-			l.output.Error("Failed to refresh tool cache: %v", err)
-			// Continue with the cached tools if refresh fails
-		}
 		return l.listCoreTools(ctx)
 	default:
 		return l.validateTarget(target, []string{
@@ -67,10 +62,69 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	}
 }
 
-// listTools lists all available tools
-func (l *ListCommand) listTools() error {
-	tools := l.client.GetToolCache()
-	l.output.OutputLine(l.getFormatters().FormatToolsList(tools))
+// listTools lists all available tools by calling the list_tools meta-tool.
+// This returns the actual tools (core_*, x_*, workflow_*) rather than the
+// meta-tools exposed by the MCP native tools/list protocol.
+func (l *ListCommand) listTools(ctx context.Context) error {
+	// Call the list_tools meta-tool to get actual tools
+	result, err := l.client.CallTool(ctx, metatools.ToolListTools, map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	if result.IsError {
+		l.output.Error("Error listing tools:")
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				l.output.OutputLine("  %s", textContent.Text)
+			}
+		}
+		return nil
+	}
+
+	// Parse the JSON response from list_tools
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			var response metatools.ListToolsResponse
+
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				l.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			if len(response.Tools) == 0 {
+				l.output.OutputLine("No tools available")
+				return nil
+			}
+
+			// Sort tools alphabetically by name
+			sort.Slice(response.Tools, func(i, j int) bool {
+				return response.Tools[i].Name < response.Tools[j].Name
+			})
+
+			l.output.OutputLine("Available tools (%d):", len(response.Tools))
+			l.output.OutputLine("")
+
+			for i, tool := range response.Tools {
+				desc := pkgstrings.TruncateDescription(tool.Description, pkgstrings.DefaultDescriptionMaxLen)
+				l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, desc)
+			}
+
+			// Show servers requiring auth if any
+			if len(response.ServersRequiringAuth) > 0 {
+				l.output.OutputLine("")
+				l.output.OutputLine("Servers requiring authentication:")
+				for _, server := range response.ServersRequiringAuth {
+					l.output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
+				}
+			}
+
+			return nil
+		}
+	}
+
+	l.output.OutputLine("No tools available")
 	return nil
 }
 
@@ -88,42 +142,61 @@ func (l *ListCommand) listPrompts() error {
 	return nil
 }
 
-// listCoreTools lists muster core tools by filtering tools that start with "core_"
+// listCoreTools lists muster core tools by calling the list_core_tools meta-tool.
+// This returns only the core_* tools which are muster's built-in functionality.
 func (l *ListCommand) listCoreTools(ctx context.Context) error {
 	l.output.Info("Fetching core muster tools...")
 
-	// Get all tools from cache
-	tools := l.client.GetToolCache()
+	// Call the list_core_tools meta-tool
+	result, err := l.client.CallTool(ctx, metatools.ToolListCoreTools, map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("failed to list core tools: %w", err)
+	}
 
-	if len(tools) == 0 {
-		l.output.OutputLine("No tools available")
+	if result.IsError {
+		l.output.Error("Error listing core tools:")
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				l.output.OutputLine("  %s", textContent.Text)
+			}
+		}
 		return nil
 	}
 
-	// Filter tools that start with "core" (case-insensitive)
-	var coreTools []mcp.Tool
-	pattern := "core"
+	// Parse the JSON response from list_core_tools (uses FilterToolsResponse format)
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			var response metatools.FilterToolsResponse
 
-	for _, tool := range tools {
-		toolName := strings.ToLower(tool.Name)
-		if strings.HasPrefix(toolName, pattern) {
-			coreTools = append(coreTools, tool)
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				l.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			if len(response.Tools) == 0 {
+				l.output.OutputLine("No core tools found (searched %d total tools)", response.TotalTools)
+				return nil
+			}
+
+			// Sort tools alphabetically by name
+			sort.Slice(response.Tools, func(i, j int) bool {
+				return response.Tools[i].Name < response.Tools[j].Name
+			})
+
+			l.output.OutputLine("Core muster tools (%d found out of %d total):", response.FilteredCount, response.TotalTools)
+			l.output.OutputLine("")
+
+			for i, tool := range response.Tools {
+				desc := pkgstrings.TruncateDescription(tool.Description, pkgstrings.DefaultDescriptionMaxLen)
+				l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, desc)
+			}
+
+			return nil
 		}
 	}
 
-	if len(coreTools) == 0 {
-		l.output.OutputLine("No core tools found (searched %d total tools)", len(tools))
-		return nil
-	}
-
-	l.output.OutputLine("Core muster tools (%d found out of %d total):", len(coreTools), len(tools))
-	l.output.OutputLine("")
-
-	// Display each core tool
-	for i, tool := range coreTools {
-		l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, tool.Description)
-	}
-
+	l.output.OutputLine("No core tools found")
 	return nil
 }
 
@@ -141,7 +214,7 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 	if result.IsError {
 		l.output.Error("Error fetching workflows:")
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				l.output.OutputLine("  %s", textContent.Text)
 			}
 		}
@@ -158,7 +231,7 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 	var workflows []map[string]interface{}
 
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var jsonResult interface{}
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonResult); err == nil {
 				if resultMap, ok := jsonResult.(map[string]interface{}); ok {
@@ -199,16 +272,17 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 		available, _ := workflow["available"].(bool)
 
 		// Get availability indicator
-		availabilityIcon := "✅"
+		availabilityIndicator := "[available]"
 		if !available {
-			availabilityIcon = "❌"
+			availabilityIndicator = "[unavailable]"
 		}
 
 		// Format the basic info
 		if description != "" {
-			l.output.OutputLine("  %d. %s %-20s - %s", i+1, availabilityIcon, name, description)
+			desc := pkgstrings.TruncateDescription(description, pkgstrings.DefaultDescriptionMaxLen)
+			l.output.OutputLine("  %d. %-20s %s - %s", i+1, name, availabilityIndicator, desc)
 		} else {
-			l.output.OutputLine("  %d. %s %-20s", i+1, availabilityIcon, name)
+			l.output.OutputLine("  %d. %-20s %s", i+1, name, availabilityIndicator)
 		}
 
 		// Get workflow details to show parameters
@@ -243,7 +317,7 @@ func (l *ListCommand) getWorkflowParameters(ctx context.Context, workflowName st
 
 	// Try to parse JSON from the first text content
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var jsonResult interface{}
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonResult); err == nil {
 				if resultMap, ok := jsonResult.(map[string]interface{}); ok {

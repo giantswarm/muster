@@ -18,12 +18,12 @@ Get Muster working with your AI agent in 2 minutes using the easiest setup metho
 
 ## Understanding Muster's Architecture
 
-**Important:** Muster has two layers, and understanding this is key to using it effectively:
+**Important:** Muster provides a unified meta-tools interface:
 
-1. **Aggregator Server (`muster serve`)**: Provides 36 core tools (`core_service_list`, etc.) + external tools
-2. **Agent (`muster agent --mcp-server`)**: Provides 11 meta-tools to access the aggregator (`list_tools`, `call_tool`, etc.)
+1. **Aggregator Server (`muster serve`)**: Exposes meta-tools (`list_tools`, `call_tool`, etc.) as the only interface
+2. **Agent (`muster agent --mcp-server`)**: Thin transport bridge for non-OAuth MCP clients (handles OAuth + stdio↔HTTP bridging)
 
-**Your AI agent connects to the Agent layer and uses meta-tools to access the underlying functionality.**
+**Your AI agent uses meta-tools to discover and execute all tools.** The server exposes 11 meta-tools that provide access to 36+ core tools, workflow tools, and external MCP server tools.
 
 ## Prerequisites
 - Cursor, VSCode with MCP extension, or Claude Desktop
@@ -95,19 +95,23 @@ What tools are available through Muster?
 ```
 
 ### Expected Response
-Your AI agent should list the **11 agent meta-tools** it actually has access to:
+Your AI agent should list the **11 meta-tools** exposed by the server:
 
-**Tool Discovery & Execution:**
-- `list_tools` - Discover all available tools from the aggregator
+**Tool Discovery:**
+- `list_tools` - Discover all available tools
 - `describe_tool` - Get detailed information about any tool
-- `call_tool` - Execute any tool from the aggregator
 - `filter_tools` - Filter tools by name patterns or descriptions
 - `list_core_tools` - List built-in Muster tools specifically
 
-**Resource & Prompt Access:**
+**Tool Execution:**
+- `call_tool` - Execute any tool by name (this is how you access all 36+ core tools)
+
+**Resource Access:**
 - `list_resources` - List available resources
 - `get_resource` - Retrieve resource content
 - `describe_resource` - Get resource details
+
+**Prompt Access:**
 - `list_prompts` - List available prompts  
 - `get_prompt` - Execute prompt templates
 - `describe_prompt` - Get prompt details
@@ -151,9 +155,9 @@ Your agent will:
 ## What You've Accomplished
 
 ✅ **Muster is connected** to your AI agent  
-✅ **Meta-tool access** - your agent can use the 11 agent tools to access everything  
+✅ **Meta-tool access** - your agent can use the 11 server meta-tools  
 ✅ **Tool discovery** - your agent can find and explore all available tools  
-✅ **Tool execution** - your agent can execute any aggregator tool via `call_tool`  
+✅ **Tool execution** - your agent can execute any tool via `call_tool`  
 ✅ **Resource access** - your agent can access resources and prompts
 
 ## Alternative: Advanced Separate Mode
@@ -182,14 +186,15 @@ muster serve
 
 ## Key Concepts to Remember
 
-### The Two-Layer Architecture
-1. **`muster serve`** (Aggregator): Has the actual tools and business logic
-2. **`muster agent --mcp-server`** (Agent): Provides meta-tools to access the aggregator
+### The Architecture
+1. **`muster serve`** (Server): Exposes meta-tools and hosts all business logic
+2. **`muster agent --mcp-server`** (Agent): Transport bridge for non-OAuth clients (optional)
 
 ### How AI Agents Work with Muster
-- AI agents **never** directly call `core_service_list`
-- AI agents **always** call `call_tool(name="core_service_list", arguments={})`
+- The server exposes only meta-tools (`list_tools`, `call_tool`, etc.)
+- AI agents use `call_tool(name="core_service_list", arguments={})` to execute tools
 - This pattern works for all tools: core, workflows, and external MCP tools
+- OAuth-capable clients can connect directly to the server
 
 ### Common Usage Patterns
 ```bash

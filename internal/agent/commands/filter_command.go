@@ -2,7 +2,11 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+
+	"muster/internal/metatools"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -21,11 +25,6 @@ func NewFilterCommand(client ClientInterface, output OutputLogger, transport Tra
 
 // Execute filters tools based on patterns
 func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
-	if err := f.client.RefreshToolCache(ctx); err != nil {
-		f.output.Error("Failed to refresh tool cache: %v", err)
-		// Continue with the cached tools if refresh fails
-	}
-
 	parsed, err := f.parseArgs(args, 1, f.Usage())
 	if err != nil {
 		return err
@@ -53,152 +52,101 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		detailed = strings.ToLower(parsed[4]) == "true"
 	}
 
-	return f.filterTools(pattern, descriptionFilter, caseSensitive, detailed)
+	return f.filterTools(ctx, pattern, descriptionFilter, caseSensitive, detailed)
 }
 
-// filterTools filters tools by pattern and description
-func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
-	tools := f.client.GetToolCache()
-	if len(tools) == 0 {
-		f.output.OutputLine("No tools available to filter")
-		return nil
+// filterTools filters tools by calling the filter_tools meta-tool.
+// This returns actual tools (core_*, x_*, workflow_*) rather than meta-tools.
+func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
+	// Build args for the filter_tools meta-tool
+	toolArgs := map[string]interface{}{
+		"case_sensitive": caseSensitive,
+		"include_schema": detailed,
+	}
+	if pattern != "" {
+		toolArgs["pattern"] = pattern
+	}
+	if descriptionFilter != "" {
+		toolArgs["description_filter"] = descriptionFilter
 	}
 
-	var filteredTools []mcp.Tool
-
-	for _, tool := range tools {
-		nameMatch := pattern == "" || f.matchesPattern(tool.Name, pattern, caseSensitive)
-		descMatch := descriptionFilter == "" || f.containsDescription(tool.Description, descriptionFilter, caseSensitive)
-
-		if nameMatch && descMatch {
-			filteredTools = append(filteredTools, tool)
-		}
+	// Call the filter_tools meta-tool
+	result, err := f.client.CallTool(ctx, metatools.ToolFilterTools, toolArgs)
+	if err != nil {
+		return fmt.Errorf("failed to filter tools: %w", err)
 	}
 
-	// Show filter details if in verbose mode
-	if pattern != "" || descriptionFilter != "" {
-		f.output.Info("Filtering tools with:")
-		if pattern != "" {
-			f.output.Info("  Pattern: %s", pattern)
-		}
-		if descriptionFilter != "" {
-			f.output.Info("  Description filter: %s", descriptionFilter)
-		}
-		f.output.Info("  Case sensitive: %t", caseSensitive)
-		f.output.Info("Results: %d of %d tools match", len(filteredTools), len(tools))
-	}
-
-	if len(filteredTools) == 0 {
-		f.output.OutputLine("No tools match the specified filters.")
-		return nil
-	}
-
-	// Display matching tools - brief mode by default for better CLI UX
-	if detailed {
-		// Detailed mode - show full specifications (optional)
-		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
-		f.output.OutputLine(strings.Repeat("=", 60))
-
-		for i, tool := range filteredTools {
-			f.output.OutputLine("\n%d. %s", i+1, f.getFormatters().FormatToolDetail(tool))
-			if i < len(filteredTools)-1 {
-				f.output.OutputLine(strings.Repeat("-", 40))
+	if result.IsError {
+		f.output.Error("Error filtering tools:")
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				f.output.OutputLine("  %s", textContent.Text)
 			}
 		}
-	} else {
-		// Brief mode - show simple list (default for good CLI UX)
-		f.output.OutputLine("\nMatching tools:")
-		for i, tool := range filteredTools {
-			f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+		return nil
+	}
+
+	// Parse the JSON response from filter_tools
+	for _, content := range result.Content {
+		if textContent, ok := mcp.AsTextContent(content); ok {
+			var response metatools.FilterToolsResponse
+
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				f.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			// Show filter details
+			if pattern != "" || descriptionFilter != "" {
+				f.output.Info("Filtering tools with:")
+				if pattern != "" {
+					f.output.Info("  Pattern: %s", pattern)
+				}
+				if descriptionFilter != "" {
+					f.output.Info("  Description filter: %s", descriptionFilter)
+				}
+				f.output.Info("  Case sensitive: %t", caseSensitive)
+				f.output.Info("Results: %d of %d tools match", response.FilteredCount, response.TotalTools)
+			}
+
+			if len(response.Tools) == 0 {
+				f.output.OutputLine("No tools match the specified filters.")
+				return nil
+			}
+
+			// Display matching tools - brief mode by default for better CLI UX
+			if detailed {
+				// Detailed mode - show full specifications (optional)
+				f.output.OutputLine("\nFiltered Tools with Full Specifications:")
+				f.output.OutputLine(strings.Repeat("=", 60))
+
+				for i, tool := range response.Tools {
+					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
+					f.output.OutputLine("   Description: %s", tool.Description)
+					if tool.InputSchema != nil {
+						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "  ", "  "); err == nil {
+							f.output.OutputLine("   Schema: %s", string(schemaJSON))
+						}
+					}
+					if i < len(response.Tools)-1 {
+						f.output.OutputLine(strings.Repeat("-", 40))
+					}
+				}
+			} else {
+				// Brief mode - show simple list (default for good CLI UX)
+				f.output.OutputLine("\nMatching tools:")
+				for i, tool := range response.Tools {
+					f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+				}
+			}
+
+			return nil
 		}
 	}
 
+	f.output.OutputLine("No tools available to filter")
 	return nil
-}
-
-// matchesPattern checks if a name matches a pattern (supports wildcards)
-func (f *FilterCommand) matchesPattern(name, pattern string, caseSensitive bool) bool {
-	if !caseSensitive {
-		name = strings.ToLower(name)
-		pattern = strings.ToLower(pattern)
-	}
-
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return true // empty pattern should match everything
-	}
-	if name == "" {
-		return pattern == ""
-	}
-
-	// If no wildcards are present in the pattern, perform a simple substring search.
-	// This makes the command more user-friendly for simple searches.
-	if !strings.ContainsAny(pattern, "*?") {
-		return strings.Contains(name, pattern)
-	}
-
-	// For patterns with wildcards, use the original matchWildcard logic
-	return f.matchWildcard(name, pattern)
-}
-
-// matchWildcard implements proper sequential wildcard pattern matching
-func (f *FilterCommand) matchWildcard(text, pattern string) bool {
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return text == ""
-	}
-	if text == "" {
-		return pattern == ""
-	}
-
-	// If no wildcards, do substring matching (like the original behavior)
-	if !strings.Contains(pattern, "*") {
-		return strings.Contains(text, pattern)
-	}
-
-	// Split pattern by wildcards
-	parts := strings.Split(pattern, "*")
-	textPos := 0
-
-	for i, part := range parts {
-		// Skip empty parts between consecutive wildcards
-		if part == "" {
-			continue
-		}
-
-		if i == 0 && !strings.HasPrefix(pattern, "*") {
-			// First part must match from the beginning (no leading wildcard)
-			if !strings.HasPrefix(text[textPos:], part) {
-				return false
-			}
-			textPos += len(part)
-		} else {
-			// All other parts must exist in sequence
-			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
-			idx := strings.Index(text[textPos:], part)
-			if idx == -1 {
-				return false
-			}
-			textPos += idx + len(part)
-		}
-	}
-
-	return true
-}
-
-// containsDescription checks if description contains the filter text
-func (f *FilterCommand) containsDescription(description, filter string, caseSensitive bool) bool {
-	if !caseSensitive {
-		description = strings.ToLower(description)
-		filter = strings.ToLower(filter)
-	}
-	return strings.Contains(description, filter)
 }
 
 // Usage returns the usage string
