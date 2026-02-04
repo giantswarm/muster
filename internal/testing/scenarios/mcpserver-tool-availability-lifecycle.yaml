@@ -77,7 +77,8 @@ steps:
       message: "Test after stop"
     expected:
       success: false
-      contains: ["tool not found"]
+      # Error message changed as part of server-side meta-tools migration (Issue #343)
+      contains: ["server not found"]
 
   # Phase 3: Start the MCP server and verify service state changes
   - id: "start-mcpserver-service"

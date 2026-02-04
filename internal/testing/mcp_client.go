@@ -158,7 +158,9 @@ func generateTestSessionID() string {
 		randomBytes[0:4], randomBytes[4:6], randomBytes[6:8], randomBytes[8:10], randomBytes[10:16])
 }
 
-// CallTool executes a tool via MCP
+// CallTool executes a tool via MCP using the call_tool meta-tool.
+// This implements the server-side meta-tools pattern (Issue #343) where all tool
+// calls are routed through the call_tool meta-tool for centralized execution.
 func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs map[string]interface{}) (interface{}, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("MCP client not connected")
@@ -176,19 +178,26 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Create the request using the pattern from the existing codebase
+	// Wrap the tool call through the call_tool meta-tool
+	// This is the server-side meta-tools pattern (Issue #343)
+	metaToolArgs := map[string]interface{}{
+		"name":      toolName,
+		"arguments": toolArgs,
+	}
+
+	// Create the request for the call_tool meta-tool
 	request := mcp.CallToolRequest{
 		Params: struct {
 			Name      string    `json:"name"`
 			Arguments any       `json:"arguments,omitempty"`
 			Meta      *mcp.Meta `json:"_meta,omitempty"`
 		}{
-			Name:      toolName,
-			Arguments: toolArgs,
+			Name:      "call_tool",
+			Arguments: metaToolArgs,
 		},
 	}
 
-	// Make the tool call
+	// Make the tool call through call_tool meta-tool
 	result, err := c.client.CallTool(callCtx, request)
 	if err != nil {
 		if c.debug {
@@ -197,13 +206,83 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 		return nil, fmt.Errorf("tool call %s failed: %w", toolName, err)
 	}
 
+	// Unwrap the nested response from call_tool
+	// The call_tool meta-tool returns a JSON string containing the wrapped result
+	unwrappedResult, err := c.unwrapMetaToolResponse(result, toolName)
+	if err != nil {
+		if c.debug {
+			c.logger.Debug("❌ Failed to unwrap meta-tool response: %v\n", err)
+		}
+		return nil, fmt.Errorf("tool call %s failed: failed to unwrap response: %w", toolName, err)
+	}
+
 	if c.debug {
-		resultJSON, _ := json.MarshalIndent(result, "", "  ")
+		resultJSON, _ := json.MarshalIndent(unwrappedResult, "", "  ")
 		c.logger.Debug("✅ Tool call result: %s\n", string(resultJSON))
 	}
 
-	// Return the result as interface{} to match the interface signature
-	return result, nil
+	// Return the unwrapped result
+	return unwrappedResult, nil
+}
+
+// unwrapMetaToolResponse extracts the actual tool result from a call_tool meta-tool response.
+// The call_tool meta-tool wraps tool results in a JSON structure for proper serialization.
+func (c *mcpTestClient) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName string) (*mcp.CallToolResult, error) {
+	if result == nil {
+		return nil, fmt.Errorf("nil result from call_tool")
+	}
+
+	// Check if the meta-tool call itself failed
+	if result.IsError {
+		// Extract error message from content
+		var errorMsgs []string
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				errorMsgs = append(errorMsgs, textContent.Text)
+			}
+		}
+		return nil, fmt.Errorf("meta-tool error: %s", fmt.Sprintf("%v", errorMsgs))
+	}
+
+	// The call_tool meta-tool returns a single text content containing the wrapped result as JSON
+	if len(result.Content) == 0 {
+		return nil, fmt.Errorf("empty content from call_tool")
+	}
+
+	// Get the JSON string from the first text content
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return nil, fmt.Errorf("unexpected content type from call_tool")
+	}
+
+	// Parse the wrapped result
+	var wrappedResult struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+		} `json:"content"`
+	}
+
+	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
+		return nil, fmt.Errorf("failed to parse wrapped result: %w", err)
+	}
+
+	// Reconstruct the CallToolResult from the wrapped structure
+	unwrapped := &mcp.CallToolResult{
+		IsError: wrappedResult.IsError,
+	}
+
+	for _, item := range wrappedResult.Content {
+		if item.Type == "text" {
+			unwrapped.Content = append(unwrapped.Content, mcp.TextContent{
+				Type: "text",
+				Text: item.Text,
+			})
+		}
+	}
+
+	return unwrapped, nil
 }
 
 // ListTools returns available MCP tools

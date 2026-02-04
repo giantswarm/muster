@@ -7,181 +7,174 @@ import (
 	"strings"
 
 	"muster/internal/api"
+	"muster/internal/metatools"
 	"muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// createToolsFromProviders creates MCP tools from all registered tool providers in the system.
+// createToolsFromProviders creates MCP tools to be exposed to clients.
 //
-// This method discovers and integrates tools from various muster components that implement
-// the ToolProvider interface, including:
-//   - Workflow manager (for workflow execution and management)
-//   - Service manager (for service lifecycle operations)
-//   - Config manager (for configuration management)
-//   - ServiceClass manager (for service class operations)
-//   - MCP server manager (for MCP server management)
+// IMPORTANT: As of the server-side meta-tools migration (Issue #343), this method
+// ONLY exposes meta-tools (list_tools, call_tool, describe_tool, etc.) to MCP clients.
+// All other tools (workflow, service, config, etc.) are accessed ONLY through the
+// call_tool meta-tool, which delegates to callCoreToolDirectly() for execution.
 //
-// Each provider's tools are integrated with appropriate prefixing to avoid naming conflicts
-// and ensure consistent tool naming across the aggregator.
+// This architecture provides:
+//   - Centralized tool execution through a single call_tool endpoint
+//   - Session-scoped tool visibility (tools are filtered per session)
+//   - Simplified agent implementation (agents only see meta-tools)
+//   - Consistent error handling and response formatting
 //
-// Returns a slice of MCP server tools ready to be registered with the aggregator server.
+// For internal tool execution (used by call_tool), see callCoreToolDirectly().
+//
+// Returns a slice of MCP server tools (meta-tools only) ready to be registered.
 func (a *AggregatorServer) createToolsFromProviders() []mcpserver.ServerTool {
 	var tools []mcpserver.ServerTool
 
-	// Integrate workflow management tools
-	if workflowHandler := api.GetWorkflow(); workflowHandler != nil {
-		if provider, ok := workflowHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
+	// Register ONLY meta-tools from the metatools provider
+	// All other tools are accessed through call_tool meta-tool
+	metaToolsHandler := api.GetMetaTools()
+	if metaToolsHandler == nil {
+		logging.Warn("Aggregator", "Meta-tools handler not available, creating temporary provider")
+		// If the adapter isn't registered yet, create a temporary provider for tool definitions
+		tempProvider := metatools.NewProvider()
+		tools = a.createMetaToolsFromProvider(tempProvider)
+	} else {
+		// Use the registered adapter which also implements ToolProvider
+		if provider, ok := metaToolsHandler.(api.ToolProvider); ok {
+			tools = a.createMetaToolsFromProvider(provider)
+		} else {
+			logging.Warn("Aggregator", "Meta-tools handler does not implement ToolProvider")
 		}
 	}
 
-	// Integrate service management tools
-	if serviceManagerHandler := api.GetServiceManager(); serviceManagerHandler != nil {
-		if provider, ok := serviceManagerHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
+	return tools
+}
 
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
+// createMetaToolsFromProvider creates MCP tools from a meta-tools provider.
+// This helper extracts tool definitions and creates handlers for meta-tools.
+func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider) []mcpserver.ServerTool {
+	var tools []mcpserver.ServerTool
 
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate configuration management tools
-	if configHandler := api.GetConfig(); configHandler != nil {
-		if provider, ok := configHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate service class management tools
-	if serviceClassHandler := api.GetServiceClassManager(); serviceClassHandler != nil {
-		if provider, ok := serviceClassHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate MCP server management tools
-	if mcpServerManagerHandler := api.GetMCPServerManager(); mcpServerManagerHandler != nil {
-		if provider, ok := mcpServerManagerHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate event management tools
-	if eventManagerHandler := api.GetEventManager(); eventManagerHandler != nil {
-		if provider, ok := eventManagerHandler.(api.ToolProvider); ok {
-			for _, toolMeta := range provider.GetTools() {
-				// Apply intelligent prefixing based on tool type and purpose
-				mcpToolName := a.prefixToolName(toolMeta.Name)
-				a.toolManager.setActive(mcpToolName, true)
-
-				tool := mcpserver.ServerTool{
-					Tool: mcp.Tool{
-						Name:        mcpToolName,
-						Description: toolMeta.Description,
-						InputSchema: convertToMCPSchema(toolMeta.Args),
-					},
-					Handler: a.createToolHandler(provider, toolMeta.Name),
-				}
-
-				tools = append(tools, tool)
-			}
-		}
-	}
-
-	// Integrate authentication tools (core_auth_login, core_auth_logout)
-	// These are always available and allow users to authenticate to OAuth-protected MCP servers
-	authProvider := NewAuthToolProvider(a)
-	for _, toolMeta := range authProvider.GetTools() {
-		mcpToolName := a.prefixToolName(toolMeta.Name)
-		a.toolManager.setActive(mcpToolName, true)
+	for _, toolMeta := range provider.GetTools() {
+		// Meta-tools don't get prefixed - they use their original names
+		toolName := toolMeta.Name
+		a.toolManager.setActive(toolName, true)
 
 		tool := mcpserver.ServerTool{
 			Tool: mcp.Tool{
-				Name:        mcpToolName,
+				Name:        toolName,
 				Description: toolMeta.Description,
 				InputSchema: convertToMCPSchema(toolMeta.Args),
 			},
-			Handler: a.createAuthToolHandler(authProvider, toolMeta.Name),
+			Handler: a.createMetaToolHandler(provider, toolMeta.Name),
 		}
 
 		tools = append(tools, tool)
 	}
 
+	logging.Debug("Aggregator", "Created %d meta-tools from provider", len(tools))
 	return tools
+}
+
+// createMetaToolHandler creates an MCP handler for a meta-tool.
+// Meta-tools are executed directly through the provider without name prefixing.
+func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Extract arguments from MCP request format
+		args := make(map[string]interface{})
+		if req.Params.Arguments != nil {
+			if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
+				args = argsMap
+			}
+		}
+
+		// Execute the meta-tool through the provider
+		result, err := provider.ExecuteTool(ctx, toolName, args)
+		if err != nil {
+			logging.Error("AggregatorMetaToolHandler", err, "Meta-tool execution failed for %s with args %+v", toolName, args)
+			return mcp.NewToolResultError(fmt.Sprintf("Meta-tool execution failed: %v", err)), nil
+		}
+
+		// Convert API result to MCP result format
+		return convertToMCPResult(result), nil
+	}
+}
+
+// getCoreToolNames returns a list of all core tool names (for internal use).
+// This is used by callCoreToolDirectly() and IsToolAvailable() to check
+// which tools are available for internal execution.
+//
+// Note: These tools are NOT exposed directly to MCP clients. They are only
+// accessible through the call_tool meta-tool.
+func (a *AggregatorServer) getCoreToolNames() []string {
+	var toolNames []string
+
+	// Collect tool names from all providers (without creating handlers)
+	if workflowHandler := api.GetWorkflow(); workflowHandler != nil {
+		if provider, ok := workflowHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	if serviceManagerHandler := api.GetServiceManager(); serviceManagerHandler != nil {
+		if provider, ok := serviceManagerHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	if configHandler := api.GetConfig(); configHandler != nil {
+		if provider, ok := configHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	if serviceClassHandler := api.GetServiceClassManager(); serviceClassHandler != nil {
+		if provider, ok := serviceClassHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	if mcpServerManagerHandler := api.GetMCPServerManager(); mcpServerManagerHandler != nil {
+		if provider, ok := mcpServerManagerHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	if eventManagerHandler := api.GetEventManager(); eventManagerHandler != nil {
+		if provider, ok := eventManagerHandler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				mcpToolName := a.prefixToolName(toolMeta.Name)
+				toolNames = append(toolNames, mcpToolName)
+			}
+		}
+	}
+
+	// Add auth tools
+	authProvider := NewAuthToolProvider(a)
+	for _, toolMeta := range authProvider.GetTools() {
+		mcpToolName := a.prefixToolName(toolMeta.Name)
+		toolNames = append(toolNames, mcpToolName)
+	}
+
+	return toolNames
 }
 
 // prefixToolName applies intelligent prefixing to tool names based on their purpose and patterns.

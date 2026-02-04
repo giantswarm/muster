@@ -9,6 +9,7 @@ import (
 	"muster/internal/config"
 	"muster/internal/events"
 	mcpserverPkg "muster/internal/mcpserver"
+	"muster/internal/metatools"
 	"muster/internal/orchestrator"
 	"muster/internal/reconciler"
 	"muster/internal/serviceclass"
@@ -276,6 +277,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Create aggregator API adapter
 		aggAdapter := aggregatorService.NewAPIAdapter(aggService)
 		aggAdapter.Register()
+
+		// Step 4b: Initialize meta-tools for server-side tool management (Issue #343)
+		// The metatools adapter provides the MetaToolsHandler interface that the
+		// metatools package uses. The aggregator is registered as the data provider
+		// which gives the adapter access to list/call tools, resources, and prompts.
+		metaToolsAdapter := metatools.NewAdapter()
+		metaToolsAdapter.Register()
+		logging.Info("Services", "Registered meta-tools adapter")
 	}
 
 	// Step 5: Initialize reconciliation manager for automatic change detection
