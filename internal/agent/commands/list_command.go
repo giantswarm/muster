@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	pkgstrings "muster/pkg/strings"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -115,7 +117,8 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 			l.output.OutputLine("")
 
 			for i, tool := range response.Tools {
-				l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+				desc := pkgstrings.TruncateDescription(tool.Description, pkgstrings.DefaultDescriptionMaxLen)
+				l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, desc)
 			}
 
 			// Show servers requiring auth if any
@@ -203,7 +206,8 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 			l.output.OutputLine("")
 
 			for i, tool := range response.Tools {
-				l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, tool.Description)
+				desc := pkgstrings.TruncateDescription(tool.Description, pkgstrings.DefaultDescriptionMaxLen)
+				l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, desc)
 			}
 
 			return nil
@@ -293,7 +297,8 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 
 		// Format the basic info
 		if description != "" {
-			l.output.OutputLine("  %d. %s %-20s - %s", i+1, availabilityIcon, name, description)
+			desc := pkgstrings.TruncateDescription(description, pkgstrings.DefaultDescriptionMaxLen)
+			l.output.OutputLine("  %d. %s %-20s - %s", i+1, availabilityIcon, name, desc)
 		} else {
 			l.output.OutputLine("  %d. %s %-20s", i+1, availabilityIcon, name)
 		}
