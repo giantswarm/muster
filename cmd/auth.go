@@ -7,9 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"muster/internal/api"
-	"muster/internal/config"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/spf13/cobra"
 )

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/config"
 )
 
 func TestInitializeServices(t *testing.T) {

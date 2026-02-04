@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ReconcilerMetrics tracks reconciliation-related metrics for monitoring and alerting.

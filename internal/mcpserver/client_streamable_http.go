@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"

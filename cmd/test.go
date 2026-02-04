@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"muster/internal/agent"
-	"muster/internal/cli"
-	"muster/internal/config"
-	"muster/internal/testing"
-	"muster/internal/testing/mock"
+	"github.com/giantswarm/muster/internal/agent"
+	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/testing"
+	"github.com/giantswarm/muster/internal/testing/mock"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/spf13/cobra"

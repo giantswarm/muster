@@ -8,7 +8,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 //go:embed templates/*.html

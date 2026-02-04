@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"golang.org/x/oauth2"
 )

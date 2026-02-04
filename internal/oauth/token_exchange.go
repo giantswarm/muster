@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"strings"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
 )

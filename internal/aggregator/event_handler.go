@@ -2,10 +2,11 @@ package aggregator
 
 import (
 	"context"
-	"muster/internal/api"
-	"muster/internal/events"
-	"muster/pkg/logging"
 	"sync"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // EventHandler manages automatic MCP server registration based on service lifecycle events.

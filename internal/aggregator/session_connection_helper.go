@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/events"
-	internalmcp "muster/internal/mcpserver"
-	"muster/internal/oauth"
-	"muster/internal/server"
-	"muster/pkg/logging"
+	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/internal/oauth"
+	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"

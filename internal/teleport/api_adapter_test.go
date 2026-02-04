@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // testCertTemplate defines parameters for creating test certificates.

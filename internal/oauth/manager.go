@@ -10,10 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/config"
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthCompletionCallback is called after successful OAuth authentication.

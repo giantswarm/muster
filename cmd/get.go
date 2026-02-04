@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"muster/internal/cli"
+	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
 )

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"muster/internal/mcpserver"
+	"github.com/giantswarm/muster/internal/mcpserver"
 )
 
 func TestFormatOAuthAuthenticationError_WithAuthRequiredError(t *testing.T) {

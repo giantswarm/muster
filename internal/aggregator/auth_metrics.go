@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthMetrics tracks authentication-related metrics for monitoring and alerting.

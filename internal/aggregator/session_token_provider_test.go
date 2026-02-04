@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/stretchr/testify/assert"
 )

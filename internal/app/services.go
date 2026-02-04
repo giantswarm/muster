@@ -3,21 +3,22 @@ package app
 import (
 	"fmt"
 
-	"muster/internal/aggregator"
-	"muster/internal/api"
-	"muster/internal/client"
-	"muster/internal/config"
-	"muster/internal/events"
-	mcpserverPkg "muster/internal/mcpserver"
-	"muster/internal/metatools"
-	"muster/internal/orchestrator"
-	"muster/internal/reconciler"
-	"muster/internal/serviceclass"
-	"muster/internal/services"
-	aggregatorService "muster/internal/services/aggregator"
-	"muster/internal/teleport"
-	"muster/internal/workflow"
-	"muster/pkg/logging"
+	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
+	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
+
+	"github.com/giantswarm/muster/internal/aggregator"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/client"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/internal/metatools"
+	"github.com/giantswarm/muster/internal/orchestrator"
+	"github.com/giantswarm/muster/internal/reconciler"
+	"github.com/giantswarm/muster/internal/serviceclass"
+	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/internal/teleport"
+	"github.com/giantswarm/muster/internal/workflow"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Services holds all initialized services and APIs used by the application.

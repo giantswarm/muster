@@ -10,11 +10,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"muster/internal/api"
-	"muster/internal/client"
-	"muster/internal/events"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
-	"muster/pkg/logging"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/client"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Adapter provides ServiceClass management functionality using the unified client

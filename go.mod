@@ -1,4 +1,4 @@
-module muster
+module github.com/giantswarm/muster
 
 go 1.25.0
 

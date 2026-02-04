@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/events"
-	"muster/internal/mcpserver"
-	"muster/internal/services"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/internal/mcpserver"
+	"github.com/giantswarm/muster/internal/services"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // DefaultRemoteTimeout is the default connection timeout in seconds for remote MCP servers.

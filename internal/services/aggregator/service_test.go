@@ -1,8 +1,9 @@
 package aggregator
 
 import (
-	"muster/internal/aggregator"
 	"testing"
+
+	"github.com/giantswarm/muster/internal/aggregator"
 
 	"github.com/stretchr/testify/assert"
 )

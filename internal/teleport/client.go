@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ClientProvider implements HTTPClientProvider and provides HTTP clients

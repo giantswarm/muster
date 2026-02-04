@@ -48,7 +48,7 @@
 //
 // ## CLI Mode Initialization
 //
-//	import "muster/pkg/logging"
+//	import "github.com/giantswarm/muster/pkg/logging"
 //
 //	// Initialize for CLI with Info level logging to stdout
 //	logging.InitForCLI(logging.LevelInfo, os.Stdout)
@@ -61,7 +61,7 @@
 //
 // ## TUI Mode Initialization
 //
-//	import "muster/pkg/logging"
+//	import "github.com/giantswarm/muster/pkg/logging"
 //
 //	// Initialize for TUI with Debug level
 //	logChannel := logging.InitForTUI(logging.LevelDebug)

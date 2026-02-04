@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // =============================================================================

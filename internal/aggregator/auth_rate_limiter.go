@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthRateLimiter provides per-session rate limiting for authentication operations.

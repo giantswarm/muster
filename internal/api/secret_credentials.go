@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ClientCredentials contains OAuth client credentials loaded from a secret.

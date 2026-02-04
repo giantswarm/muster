@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/agent/commands"
+	"github.com/giantswarm/muster/internal/agent/commands"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"

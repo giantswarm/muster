@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"muster/internal/testing"
+	"github.com/giantswarm/muster/internal/testing"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"

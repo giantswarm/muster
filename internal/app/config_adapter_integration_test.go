@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"

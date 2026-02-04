@@ -16,10 +16,11 @@ import (
 
 	mcpoauth "github.com/giantswarm/mcp-oauth"
 
-	"muster/internal/agent/oauth"
-	"muster/internal/api"
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // CallbackPortEnvVar is the environment variable for configuring the OAuth callback port.

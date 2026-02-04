@@ -9,11 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/client"
-	"muster/internal/events"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
-	"muster/pkg/logging"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/client"
+	"github.com/giantswarm/muster/internal/events"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"

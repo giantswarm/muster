@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"

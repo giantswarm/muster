@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/api"
-	"muster/internal/template"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/template"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

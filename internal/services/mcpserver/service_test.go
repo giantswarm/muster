@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/services"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/services"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
