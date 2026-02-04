@@ -2,7 +2,7 @@ module muster
 
 go 1.25.0
 
-toolchain go1.25.6
+toolchain go1.25.7
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
