@@ -1029,6 +1029,19 @@ cleanup:
       success: true
 ```
 
+## Meta-Tools Wrapping
+
+The test framework transparently wraps all tool calls through the `call_tool` meta-tool. Test scenarios continue to reference tools by their simple names (e.g., `core_service_list`), and the test client handles the wrapping internally.
+
+**What this means for test authors:**
+- Write scenarios using direct tool names: `tool: core_serviceclass_create`
+- The framework automatically wraps this as: `call_tool(name="core_serviceclass_create", arguments={...})`
+- Response unwrapping is also handled automatically
+
+This architecture matches how AI agents interact with Muster in production - they also use meta-tools to access all functionality.
+
+---
+
 ## Summary
 
 The muster MCP testing framework provides a powerful, standardized way to execute comprehensive tests through AI-powered workflows. Key takeaways:

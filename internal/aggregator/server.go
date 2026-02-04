@@ -1747,10 +1747,30 @@ func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (st
 // This is used by the metatools package to provide session-scoped tool visibility.
 //
 // The method extracts the session ID from the context and returns tools
-// appropriate for that session's authentication state.
+// appropriate for that session's authentication state. This includes:
+//   - MCP server tools (prefixed with x_<server>_)
+//   - Core muster tools (prefixed with core_) from internal providers
+//
+// The core tools are collected from workflow, service, config, serviceclass,
+// mcpserver, events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
-	return a.GetToolsForSession(sessionID)
+
+	// Get session-specific MCP server tools (handles OAuth auth state)
+	mcpServerTools := a.GetToolsForSession(sessionID)
+
+	// Get core muster tools (workflow, service, config, etc.)
+	coreTools := a.getAllCoreToolsAsMCPTools()
+
+	// Combine both sets of tools
+	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreTools))
+	allTools = append(allTools, mcpServerTools...)
+	allTools = append(allTools, coreTools...)
+
+	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for session %s",
+		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateSessionID(sessionID))
+
+	return allTools
 }
 
 // ListResourcesForContext returns all available resources for the current session context.

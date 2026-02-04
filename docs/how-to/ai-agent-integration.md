@@ -2,6 +2,8 @@
 
 Advanced integration patterns for using Muster with AI agents effectively.
 
+> **Architecture Note:** Muster uses a meta-tools interface where the server exposes only 11 meta-tools (`list_tools`, `call_tool`, etc.). All actual tool execution goes through `call_tool(name="...", arguments={...})`. See [Architecture](../explanation/architecture.md) for details.
+
 ## Quick Navigation
 
 ### Setup and Configuration
