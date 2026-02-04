@@ -174,13 +174,13 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 //
 // This function is used by ListToolsForContext to include core tools in the
 // tool listings returned by the list_tools meta-tool. The core tools include:
-//   - workflow_* tools (workflow management and execution)
-//   - service_* tools (service lifecycle management)
-//   - config_* tools (configuration management)
-//   - serviceclass_* tools (service class management)
-//   - mcpserver_* tools (MCP server management)
-//   - events tool (event management)
-//   - auth_* tools (authentication operations)
+//   - core_workflow_* tools (workflow management and execution)
+//   - core_service_* tools (service lifecycle management)
+//   - core_config_* tools (configuration management)
+//   - core_serviceclass_* tools (service class management)
+//   - core_mcpserver_* tools (MCP server management)
+//   - core_events tool (event management)
+//   - core_auth_* tools (authentication operations)
 //
 // Each tool is prefixed with "core_" to distinguish it from MCP server tools
 // which are prefixed with "x_<server>_".
@@ -188,96 +188,71 @@ func convertToMCPSchema(params []api.ArgMetadata) mcp.ToolInputSchema {
 // Returns a slice of MCP tools representing all available core tools.
 func (a *AggregatorServer) getAllCoreToolsAsMCPTools() []mcp.Tool {
 	var tools []mcp.Tool
+	const corePrefix = "core_"
 
 	// Helper to add tools from a provider
-	addToolsFromProvider := func(provider api.ToolProvider, prefix string) {
-		if provider == nil {
+	addToolsFromProvider := func(handler interface{}) {
+		if handler == nil {
 			return
 		}
-		for _, toolMeta := range provider.GetTools() {
-			toolName := prefix + toolMeta.Name
-			tools = append(tools, mcp.Tool{
-				Name:        toolName,
-				Description: toolMeta.Description,
-				InputSchema: convertToMCPSchema(toolMeta.Args),
-			})
+		if provider, ok := handler.(api.ToolProvider); ok {
+			for _, toolMeta := range provider.GetTools() {
+				tools = append(tools, mcp.Tool{
+					Name:        corePrefix + toolMeta.Name,
+					Description: toolMeta.Description,
+					InputSchema: convertToMCPSchema(toolMeta.Args),
+				})
+			}
 		}
 	}
 
-	// Collect tools from all core providers
-	// Workflow tools
-	if handler := api.GetWorkflow(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
+	// Collect tools from all core providers using table-driven approach
+	providers := []interface{}{
+		api.GetWorkflow(),
+		api.GetServiceManager(),
+		api.GetConfig(),
+		api.GetServiceClassManager(),
+		api.GetMCPServerManager(),
+		api.GetEventManager(),
 	}
 
-	// Service tools
-	if handler := api.GetServiceManager(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
-	}
-
-	// Config tools
-	if handler := api.GetConfig(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
-	}
-
-	// ServiceClass tools
-	if handler := api.GetServiceClassManager(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
-	}
-
-	// MCPServer tools
-	if handler := api.GetMCPServerManager(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
-	}
-
-	// Event tools
-	if handler := api.GetEventManager(); handler != nil {
-		if provider, ok := handler.(api.ToolProvider); ok {
-			addToolsFromProvider(provider, "core_")
-		}
+	for _, provider := range providers {
+		addToolsFromProvider(provider)
 	}
 
 	// Auth tools - these are defined locally in the aggregator package
-	// Add auth_login and auth_logout tools directly since AuthToolProvider
-	// doesn't implement GetTools()
-	tools = append(tools, mcp.Tool{
-		Name:        "core_auth_login",
-		Description: "Authenticate to an OAuth-protected MCP server",
-		InputSchema: mcp.ToolInputSchema{
-			Type: "object",
-			Properties: map[string]interface{}{
-				"server": map[string]interface{}{
-					"type":        "string",
-					"description": "Name of the MCP server to authenticate to",
+	// since AuthToolProvider doesn't implement the ToolProvider interface
+	authTools := []mcp.Tool{
+		{
+			Name:        corePrefix + "auth_login",
+			Description: "Authenticate to an OAuth-protected MCP server",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"server": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the MCP server to authenticate to",
+					},
 				},
+				Required: []string{"server"},
 			},
-			Required: []string{"server"},
 		},
-	})
-	tools = append(tools, mcp.Tool{
-		Name:        "core_auth_logout",
-		Description: "Log out from an OAuth-protected MCP server",
-		InputSchema: mcp.ToolInputSchema{
-			Type: "object",
-			Properties: map[string]interface{}{
-				"server": map[string]interface{}{
-					"type":        "string",
-					"description": "Name of the MCP server to log out from",
+		{
+			Name:        corePrefix + "auth_logout",
+			Description: "Log out from an OAuth-protected MCP server",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]interface{}{
+					"server": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the MCP server to log out from",
+					},
 				},
+				Required: []string{"server"},
 			},
-			Required: []string{"server"},
 		},
-	})
+	}
+	tools = append(tools, authTools...)
 
 	logging.Debug("Aggregator", "Collected %d core tools from providers", len(tools))
 	return tools

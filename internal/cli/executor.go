@@ -11,6 +11,7 @@ import (
 	"muster/internal/agent"
 	"muster/internal/api"
 	"muster/internal/config"
+	"muster/internal/metatools"
 
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -650,9 +651,9 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 //   - error: Connection or retrieval error, if any
 func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
 	// Call the list_tools meta-tool to get actual tools
-	result, err := e.client.CallTool(ctx, "list_tools", map[string]interface{}{})
+	result, err := e.client.CallTool(ctx, metatools.ToolListTools, map[string]interface{}{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to call list_tools: %w", err)
+		return nil, fmt.Errorf("failed to call %s: %w", metatools.ToolListTools, err)
 	}
 
 	if result.IsError {
@@ -662,22 +663,16 @@ func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
 				errorMsgs = append(errorMsgs, textContent.Text)
 			}
 		}
-		return nil, fmt.Errorf("list_tools failed: %s", strings.Join(errorMsgs, "; "))
+		return nil, fmt.Errorf("%s failed: %s", metatools.ToolListTools, strings.Join(errorMsgs, "; "))
 	}
 
 	// Parse the JSON response from list_tools
-	// Format: {"tools": [{"name": "...", "description": "..."}, ...], "servers_requiring_auth": [...]}
 	for _, content := range result.Content {
 		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response struct {
-				Tools []struct {
-					Name        string `json:"name"`
-					Description string `json:"description"`
-				} `json:"tools"`
-			}
+			var response metatools.ListToolsResponse
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
-				return nil, fmt.Errorf("failed to parse list_tools response: %w", err)
+				return nil, fmt.Errorf("failed to parse %s response: %w", metatools.ToolListTools, err)
 			}
 
 			// Convert to mcp.Tool format
@@ -693,7 +688,7 @@ func (e *ToolExecutor) ListMCPTools(ctx context.Context) ([]mcp.Tool, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no content in list_tools response")
+	return nil, fmt.Errorf("no content in %s response", metatools.ToolListTools)
 }
 
 // ListMCPResources returns all MCP resources using native protocol.
@@ -737,21 +732,25 @@ func (e *ToolExecutor) ListMCPPrompts(ctx context.Context) ([]mcp.Prompt, error)
 //   - error: Connection or retrieval error, if any
 func (e *ToolExecutor) GetMCPTool(ctx context.Context, name string) (*mcp.Tool, error) {
 	// Call the describe_tool meta-tool to get tool details
-	result, err := e.client.CallTool(ctx, "describe_tool", map[string]interface{}{
+	result, err := e.client.CallTool(ctx, metatools.ToolDescribeTool, map[string]interface{}{
 		"name": name,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to call describe_tool: %w", err)
+		return nil, fmt.Errorf("failed to call %s: %w", metatools.ToolDescribeTool, err)
 	}
 
 	if result.IsError {
-		var errorMsgs []string
+		// Tool not found - extract error message for context
 		for _, content := range result.Content {
 			if textContent, ok := mcp.AsTextContent(content); ok {
-				errorMsgs = append(errorMsgs, textContent.Text)
+				// Check if this is a "not found" error (return nil, nil)
+				if strings.Contains(textContent.Text, "not found") {
+					return nil, nil
+				}
+				// Otherwise return the actual error
+				return nil, fmt.Errorf("%s: %s", metatools.ToolDescribeTool, textContent.Text)
 			}
 		}
-		// Tool not found returns an error result
 		return nil, nil
 	}
 
@@ -765,7 +764,7 @@ func (e *ToolExecutor) GetMCPTool(ctx context.Context, name string) (*mcp.Tool, 
 			}
 
 			if err := json.Unmarshal([]byte(textContent.Text), &toolInfo); err != nil {
-				return nil, fmt.Errorf("failed to parse describe_tool response: %w", err)
+				return nil, fmt.Errorf("failed to parse %s response: %w", metatools.ToolDescribeTool, err)
 			}
 
 			return &mcp.Tool{

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"muster/internal/metatools"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -47,7 +49,7 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 // This works with actual tools (core_*, x_*, workflow_*) rather than meta-tools.
 func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 	// Call the describe_tool meta-tool
-	result, err := d.client.CallTool(ctx, "describe_tool", map[string]interface{}{
+	result, err := d.client.CallTool(ctx, metatools.ToolDescribeTool, map[string]interface{}{
 		"name": name,
 	})
 	if err != nil {
@@ -66,11 +68,7 @@ func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 	// Parse and display the JSON response from describe_tool
 	for _, content := range result.Content {
 		if textContent, ok := mcp.AsTextContent(content); ok {
-			var toolInfo struct {
-				Name        string      `json:"name"`
-				Description string      `json:"description"`
-				InputSchema interface{} `json:"inputSchema"`
-			}
+			var toolInfo metatools.DescribeToolResponse
 
 			if err := json.Unmarshal([]byte(textContent.Text), &toolInfo); err != nil {
 				// Not JSON, just output the raw text

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"muster/internal/metatools"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -69,7 +71,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 	}
 
 	// Call the filter_tools meta-tool
-	result, err := f.client.CallTool(ctx, "filter_tools", toolArgs)
+	result, err := f.client.CallTool(ctx, metatools.ToolFilterTools, toolArgs)
 	if err != nil {
 		return fmt.Errorf("failed to filter tools: %w", err)
 	}
@@ -85,24 +87,9 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 	}
 
 	// Parse the JSON response from filter_tools
-	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
 	for _, content := range result.Content {
 		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response struct {
-				Filters struct {
-					Pattern           string `json:"pattern"`
-					DescriptionFilter string `json:"description_filter"`
-					CaseSensitive     bool   `json:"case_sensitive"`
-					IncludeSchema     bool   `json:"include_schema"`
-				} `json:"filters"`
-				TotalTools    int `json:"total_tools"`
-				FilteredCount int `json:"filtered_count"`
-				Tools         []struct {
-					Name        string      `json:"name"`
-					Description string      `json:"description"`
-					InputSchema interface{} `json:"inputSchema,omitempty"`
-				} `json:"tools"`
-			}
+			var response metatools.FilterToolsResponse
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
@@ -138,7 +125,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
 					f.output.OutputLine("   Description: %s", tool.Description)
 					if tool.InputSchema != nil {
-						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "   ", "  "); err == nil {
+						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "  ", "  "); err == nil {
 							f.output.OutputLine("   Schema: %s", string(schemaJSON))
 						}
 					}

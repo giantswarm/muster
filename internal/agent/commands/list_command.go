@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"muster/internal/metatools"
 	pkgstrings "muster/pkg/strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -66,7 +67,7 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 // meta-tools exposed by the MCP native tools/list protocol.
 func (l *ListCommand) listTools(ctx context.Context) error {
 	// Call the list_tools meta-tool to get actual tools
-	result, err := l.client.CallTool(ctx, "list_tools", map[string]interface{}{})
+	result, err := l.client.CallTool(ctx, metatools.ToolListTools, map[string]interface{}{})
 	if err != nil {
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
@@ -82,20 +83,9 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 	}
 
 	// Parse the JSON response from list_tools
-	// Format: {"tools": [{"name": "...", "description": "..."}, ...], "servers_requiring_auth": [...]}
 	for _, content := range result.Content {
 		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response struct {
-				Tools []struct {
-					Name        string `json:"name"`
-					Description string `json:"description"`
-				} `json:"tools"`
-				ServersRequiringAuth []struct {
-					Name     string `json:"name"`
-					Status   string `json:"status"`
-					AuthTool string `json:"auth_tool"`
-				} `json:"servers_requiring_auth"`
-			}
+			var response metatools.ListToolsResponse
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
@@ -158,7 +148,7 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 	l.output.Info("Fetching core muster tools...")
 
 	// Call the list_core_tools meta-tool
-	result, err := l.client.CallTool(ctx, "list_core_tools", map[string]interface{}{})
+	result, err := l.client.CallTool(ctx, metatools.ToolListCoreTools, map[string]interface{}{})
 	if err != nil {
 		return fmt.Errorf("failed to list core tools: %w", err)
 	}
@@ -173,18 +163,10 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 		return nil
 	}
 
-	// Parse the JSON response from list_core_tools
-	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
+	// Parse the JSON response from list_core_tools (uses FilterToolsResponse format)
 	for _, content := range result.Content {
 		if textContent, ok := mcp.AsTextContent(content); ok {
-			var response struct {
-				TotalTools    int `json:"total_tools"`
-				FilteredCount int `json:"filtered_count"`
-				Tools         []struct {
-					Name        string `json:"name"`
-					Description string `json:"description"`
-				} `json:"tools"`
-			}
+			var response metatools.FilterToolsResponse
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
@@ -290,17 +272,17 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 		available, _ := workflow["available"].(bool)
 
 		// Get availability indicator
-		availabilityIcon := "✅"
+		availabilityIndicator := "[available]"
 		if !available {
-			availabilityIcon = "❌"
+			availabilityIndicator = "[unavailable]"
 		}
 
 		// Format the basic info
 		if description != "" {
 			desc := pkgstrings.TruncateDescription(description, pkgstrings.DefaultDescriptionMaxLen)
-			l.output.OutputLine("  %d. %s %-20s - %s", i+1, availabilityIcon, name, desc)
+			l.output.OutputLine("  %d. %-20s %s - %s", i+1, name, availabilityIndicator, desc)
 		} else {
-			l.output.OutputLine("  %d. %s %-20s", i+1, availabilityIcon, name)
+			l.output.OutputLine("  %d. %-20s %s", i+1, name, availabilityIndicator)
 		}
 
 		// Get workflow details to show parameters
