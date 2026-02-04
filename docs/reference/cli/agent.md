@@ -10,9 +10,11 @@ muster agent [OPTIONS]
 
 ## Description
 
-The `agent` command connects to the Muster aggregator as an MCP client, providing multiple ways to interact with tools, resources, and workflows. It supports three distinct operation modes and is essential for debugging, testing, and AI assistant integration.
+The `agent` command connects to the Muster aggregator server, providing multiple ways to interact with tools, resources, and workflows. In MCP server mode, it acts as a **transport bridge** that forwards MCP messages between stdio (for AI assistants) and HTTP/SSE (to the server), handling OAuth authentication when needed.
 
 **Prerequisites**: The aggregator server must be running (`muster serve`) before using this command.
+
+**Architecture Note**: The server exposes meta-tools (`list_tools`, `call_tool`, etc.) as its only interface. The agent does not process these meta-tools locally - it forwards all MCP messages to the server. OAuth-capable MCP clients can connect directly to the server, bypassing the agent.
 
 ## Operation Modes
 
@@ -39,12 +41,18 @@ muster agent --repl
 ```
 
 ### 3. MCP Server Mode (`--mcp-server`)
-Runs as an MCP server exposing all functionality as tools for AI assistant integration.
+Runs as an MCP transport bridge for AI assistant integration.
 
 ```bash
 muster agent --mcp-server
-# Runs as stdio MCP server for AI assistants
+# Runs as stdio MCP server, bridging to the aggregator via HTTP/SSE
 ```
+
+**Transport Bridge Role:**
+- Bridges stdio ↔ HTTP/SSE transport protocols
+- Handles OAuth authentication when the server requires it
+- Forwards all MCP protocol messages to the aggregator server
+- The server exposes meta-tools (`list_tools`, `call_tool`, etc.) - the agent does not process them locally
 
 ## Options
 
@@ -329,14 +337,13 @@ Add to `claude_desktop_config.json`:
 
 ## MCP Server Tools
 
-When running in `--mcp-server` mode, the following tools are exposed:
+When running in `--mcp-server` mode, the agent bridges to the aggregator server which exposes the following meta-tools:
 
 | Tool Name | Description | Arguments |
 |-----------|-------------|-----------|
 | `list_tools` | List all available tools | `{}` |
 | `list_resources` | List all available resources | `{}` |
 | `list_prompts` | List all available prompts | `{}` |
-| `list_workflows` | List workflows with parameters | `{}` |
 | `list_core_tools` | List built-in Muster tools | `{}` |
 | `describe_tool` | Get detailed tool information | `{"name": "tool_name"}` |
 | `describe_resource` | Get resource details | `{"uri": "resource_uri"}` |
@@ -345,6 +352,8 @@ When running in `--mcp-server` mode, the following tools are exposed:
 | `get_resource` | Retrieve resource content | `{"uri": "resource_uri"}` |
 | `get_prompt` | Execute prompt with arguments | `{"name": "prompt_name", "arguments": {}}` |
 | `filter_tools` | Filter tools by criteria | `{"pattern": "...", "description": "..."}` |
+
+**Note**: These meta-tools are exposed by the aggregator server, not by the agent. The agent forwards all MCP messages to the server transparently. All actual tools (core_*, workflow_*, x_*) are accessed via the `call_tool` meta-tool.
 
 ## Error Handling
 

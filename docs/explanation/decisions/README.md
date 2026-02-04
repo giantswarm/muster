@@ -17,3 +17,5 @@ Each ADR follows this structure:
 - [ADR-006: Session-Scoped Tool Visibility](006-session-scoped-tool-visibility.md)
 - [ADR-007: CRD Status Reconciliation](007-crd-status-reconciliation.md)
 - [ADR-008: Unified Authentication Architecture](008-unified-authentication.md)
+- [ADR-009: SSO Token Forwarding](009-sso-token-forwarding.md)
+- [ADR-010: Server-Side Meta-Tools Migration](010-server-side-meta-tools.md)

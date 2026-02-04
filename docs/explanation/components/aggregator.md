@@ -2,26 +2,78 @@
 
 ## Overview
 
-The MCP Aggregator (`internal/aggregator`) is the core component responsible for unifying tools from multiple sources into a single, coherent interface for AI agents. It provides a unified MCP protocol interface that aggregates:
+The MCP Aggregator (`internal/aggregator`) is the core component responsible for unifying tools from multiple sources into a single, coherent interface for AI agents. It provides a unified MCP protocol interface that exposes:
 
-- **36 Core Built-in Tools** across 5 functional categories
-- **Dynamic Workflow Tools** generated from workflow definitions  
-- **External Tools** from configured MCP servers
+- **11 Meta-Tools** as the primary interface (`list_tools`, `call_tool`, etc.)
+- **36 Core Built-in Tools** across 5 functional categories (accessed via `call_tool`)
+- **Dynamic Workflow Tools** generated from workflow definitions (accessed via `call_tool`)
+- **External Tools** from configured MCP servers (accessed via `call_tool`)
 
 The aggregator acts as an intelligent proxy that discovers, registers, filters, and routes tool calls to the appropriate underlying sources while providing consistent tool discovery and execution patterns.
+
+**Key Architectural Note**: MCP clients see only the meta-tools. All actual tools (core_*, workflow_*, x_*) are accessed through the `call_tool` meta-tool. This design enables session-scoped tool visibility and unified authentication handling.
+
+## Meta-Tools Interface
+
+The aggregator exposes **only meta-tools** as its MCP interface. This is the primary way clients interact with Muster.
+
+### Tool Discovery Meta-Tools
+| Meta-Tool | Description |
+|-----------|-------------|
+| `list_tools` | List all available tools for the current session |
+| `describe_tool` | Get detailed schema for a specific tool |
+| `filter_tools` | Search tools by pattern |
+| `list_core_tools` | List only Muster core tools |
+
+### Tool Execution Meta-Tool
+| Meta-Tool | Description |
+|-----------|-------------|
+| `call_tool` | Execute any tool by name with arguments |
+
+### Resource Meta-Tools
+| Meta-Tool | Description |
+|-----------|-------------|
+| `list_resources` | List available MCP resources |
+| `describe_resource` | Get resource metadata |
+| `get_resource` | Read resource contents |
+
+### Prompt Meta-Tools
+| Meta-Tool | Description |
+|-----------|-------------|
+| `list_prompts` | List available prompts |
+| `describe_prompt` | Get prompt details |
+| `get_prompt` | Execute a prompt |
+
+### Tool Execution Flow
+
+All tool calls go through the `call_tool` meta-tool:
+
+```
+MCP Client → call_tool(name="core_workflow_list", args={})
+           → Aggregator.CallToolInternal()
+           → callCoreToolDirectly() or forward to backend MCP server
+           → Result wrapped in structured JSON response
+```
+
+### Session-Scoped Visibility
+
+The `list_tools` response includes:
+1. **Available tools**: Tools from connected/authenticated servers
+2. **Servers requiring auth**: Information about OAuth-protected servers that need authentication
 
 ## Architecture
 
 ### Core Responsibilities
 
-1. **Core Tool Management**: Provide 36 built-in tools across 5 categories (config, mcpserver, service, serviceclass, workflow)
-2. **Dynamic Tool Generation**: Generate workflow execution tools (workflow_*) from workflow definitions
-3. **MCP Server Discovery**: Automatically discover and connect to configured external MCP servers
-4. **Tool Aggregation**: Collect and register tools from all sources into a unified registry
-5. **Unified Interface**: Provide a single MCP protocol interface to AI agents
-6. **Tool Filtering**: Apply denylists and access controls to tool availability
-7. **Request Routing**: Route tool calls to appropriate handlers (core, workflow engine, or external servers)
-8. **Context Management**: Intelligent tool discovery to prevent context pollution
+1. **Meta-Tools Interface**: Expose meta-tools (`list_tools`, `call_tool`, etc.) as the only MCP interface
+2. **Core Tool Management**: Provide 36 built-in tools across 5 categories (config, mcpserver, service, serviceclass, workflow)
+3. **Dynamic Tool Generation**: Generate workflow execution tools (workflow_*) from workflow definitions
+4. **MCP Server Discovery**: Automatically discover and connect to configured external MCP servers
+5. **Tool Aggregation**: Collect and register tools from all sources into a unified registry
+6. **Session-Scoped Visibility**: Manage tool visibility based on authentication state
+7. **Tool Filtering**: Apply denylists and access controls to tool availability
+8. **Request Routing**: Route tool calls to appropriate handlers (core, workflow engine, or external servers)
+9. **Response Wrapping**: Wrap tool responses in structured JSON for consistent handling
 
 ### Component Structure
 

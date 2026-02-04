@@ -14,9 +14,10 @@ graph TB
     end
     
     subgraph "Muster System"
-        MusterAgent[muster agent<br/>--mcp-server<br/>Meta-Tool Interface]
+        MusterAgent[muster agent<br/>--mcp-server<br/>OAuth Shim + Transport Bridge]
         
         subgraph "Aggregator Server (muster serve)"
+            MetaTools[Meta-Tools Interface<br/>list_tools, call_tool, etc.]
             API[Central API<br/>Service Locator]
             
             subgraph "Core Services"
@@ -39,7 +40,8 @@ graph TB
     end
     
     Agent <-->|MCP Protocol| MusterAgent
-    MusterAgent <-->|Internal MCP| API
+    MusterAgent <-->|HTTP/SSE + OAuth| MetaTools
+    MetaTools <--> API
     API <--> CoreTools
     API <--> Aggregator
     API <--> ServiceMgr
@@ -59,108 +61,118 @@ graph TB
 
 ## Two-Layer Architecture: Server vs Agent
 
-**This is the most important architectural concept to understand:** Muster operates in two distinct layers with different tool sets.
+**This is the most important architectural concept to understand:** Muster operates in two distinct layers, but the tool interface has been unified on the server side.
 
 ### Layer 1: Aggregator Server (`muster serve`)
 
-The aggregator server provides **direct access** to all functionality:
+The aggregator server provides the **meta-tools interface** as the primary way to access all functionality:
 
-**Tools Available at Aggregator Layer:**
+**Meta-Tools (What MCP Clients See):**
+- `list_tools` - Discover available tools from aggregator
+- `describe_tool` - Get detailed tool information
+- `call_tool` - Execute any tool by name
+- `filter_tools` - Filter tools by name/description patterns
+- `list_core_tools` - List built-in Muster tools specifically
+- `list_resources` / `get_resource` / `describe_resource` - Resource operations
+- `list_prompts` / `get_prompt` / `describe_prompt` - Prompt operations
+
+**Actual Tools (Accessed via `call_tool`):**
 - **36 Core Tools**: `core_service_list`, `core_workflow_create`, `core_config_get`, etc.
 - **Dynamic Workflow Tools**: `workflow_connect-monitoring`, `workflow_auth-workflow`, etc.
 - **External MCP Tools**: `x_kubernetes_*`, `x_teleport_*`, etc. (from configured MCP servers)
 
 **Purpose**: 
+- Exposes meta-tools as the only MCP interface
 - Hosts the actual business logic and tool implementations
 - Aggregates external MCP servers
 - Manages service lifecycles and workflows
-- Provides unified tool registry
+- Provides session-scoped tool visibility
 
-**Access**: Internal to Muster system or via direct MCP connection
+**Access**: Via HTTP/SSE (directly or through agent)
 
 ### Layer 2: Agent (`muster agent --mcp-server`)
 
-The agent provides **meta-tools** for accessing the aggregator:
+The agent is a **thin transport bridge** for non-OAuth MCP clients:
 
-**Tools Available at Agent Layer:**
-- `list_tools` - Discover available tools from aggregator
-- `describe_tool` - Get detailed tool information
-- `call_tool` - Execute any aggregator tool
-- `filter_tools` - Filter tools by name/description patterns
-- `get_resource` - Retrieve resource content
-- `get_prompt` - Execute prompt templates
-- `list_resources` - List available resources
-- `list_prompts` - List available prompts
-- `list_core_tools` - List built-in Muster tools specifically
-- `describe_resource` - Get resource details
-- `describe_prompt` - Get prompt details
+**Role:**
+- Bridges stdio ↔ HTTP/SSE transport protocols
+- Handles OAuth authentication when server requires it
+- Forwards all MCP messages to the server
+- Does NOT process meta-tools locally - they come from the server
 
 **Purpose**:
-- Bridge between AI agents and aggregator
-- Provide tool discovery and execution interface
-- Handle MCP protocol for AI assistant integration
-- Abstract aggregator complexity from clients
+- Enable non-OAuth MCP clients (like Cursor) to connect to authenticated servers
+- Provide browser-based OAuth flow when needed
+- Pure message forwarding with no tool logic
 
-**Access**: Connected to by AI agents (Cursor, VSCode, Claude)
+**Access**: Connected to by AI agents that cannot handle OAuth directly (Cursor, VSCode)
+
+**Note**: OAuth-capable MCP clients can connect directly to the server, bypassing the agent entirely.
 
 ### Key Architectural Flow
 
 ```mermaid
 sequenceDiagram
     participant AI as AI Agent
-    participant Agent as muster agent<br/>--mcp-server
-    participant Agg as muster serve<br/>(Aggregator)
+    participant Agent as muster agent<br/>(OAuth Shim)
+    participant Server as muster serve<br/>(Meta-Tools)
     participant Core as Core Tools
     participant Ext as External MCP
 
-    AI->>Agent: "What tools are available?"
-    Agent->>Agg: list_tools (meta-tool)
-    Agg->>Core: Get core tools (36)
-    Agg->>Ext: Get external tools
-    Agg->>Agent: Combined tool list
+    AI->>Agent: MCP: tools/list
+    Agent->>Server: Forward: tools/list
+    Server->>AI: Meta-tools only (list_tools, call_tool, etc.)
+
+    AI->>Agent: call_tool("list_tools", {})
+    Agent->>Server: Forward: call_tool
+    Server->>Core: Get core tools (36)
+    Server->>Ext: Get external tools
+    Server->>Agent: Combined tool list (JSON)
     Agent->>AI: Available tools
 
     AI->>Agent: call_tool("core_service_list", {})
-    Agent->>Agg: core_service_list (actual tool)
-    Agg->>Core: Execute core_service_list
-    Core->>Agg: Service list result
-    Agg->>Agent: Tool result
+    Agent->>Server: Forward: call_tool
+    Server->>Core: Execute core_service_list
+    Core->>Server: Service list result
+    Server->>Agent: Wrapped result (JSON)
     Agent->>AI: Service list
 ```
 
 **Critical Understanding:**
-- AI agents **never** directly call `core_service_list` - they call `call_tool` with `"core_service_list"` as an argument
-- The agent acts as a proxy, translating meta-tool calls into actual tool executions
-- This separation enables unified access to all tool types (core, workflow, external) through a consistent interface
+- The **server** exposes only meta-tools (`list_tools`, `call_tool`, etc.)
+- AI agents use `call_tool(name="core_service_list", arguments={})` to execute any tool
+- The **agent** is a pure transport bridge - it forwards messages without processing them
+- The server handles tool resolution, execution, and response wrapping
+- This architecture enables OAuth-capable clients to connect directly to the server
 
 ## Tool Architecture
 
 Now that we understand the two layers, here's how tools are organized:
 
-### **Agent Layer Tools (11 meta-tools)**
-What AI agents actually see and use:
+### **Server Meta-Tools (11 tools)**
+What MCP clients see when they connect to the server (directly or via agent):
 
 ```mermaid
 graph LR
-    subgraph "Agent Meta-Tools (11 tools)"
+    subgraph "Server Meta-Tools (11 tools)"
         Discovery[Tool Discovery<br/>list_tools<br/>describe_tool<br/>filter_tools<br/>list_core_tools]
         Execution[Tool Execution<br/>call_tool]
         Resources[Resource Access<br/>list_resources<br/>get_resource<br/>describe_resource]
         Prompts[Prompt Access<br/>list_prompts<br/>get_prompt<br/>describe_prompt]
     end
     
-    Agent[AI Agent] --> Discovery
-    Agent --> Execution
-    Agent --> Resources
-    Agent --> Prompts
+    Client[MCP Client] --> Discovery
+    Client --> Execution
+    Client --> Resources
+    Client --> Prompts
 ```
 
-### **Aggregator Layer Tools (Accessed via call_tool)**
-What the aggregator actually executes:
+### **Actual Tools (Accessed via `call_tool`)**
+What the aggregator actually executes when called through `call_tool`:
 
 ```mermaid
 graph LR
-    subgraph "Aggregator Tools (Dynamic Count)"
+    subgraph "Actual Tools (Dynamic Count)"
         Config[Configuration Tools<br/>5 tools<br/>core_config_*]
         MCPServ[MCP Server Tools<br/>6 tools<br/>core_mcpserver_*]
         Service[Service Tools<br/>9 tools<br/>core_service_*]
@@ -170,7 +182,7 @@ graph LR
         External[External MCP Tools<br/>Variable<br/>x_kubernetes_*, etc.]
     end
     
-    CallTool[call_tool<br/>Meta-Tool] --> Config
+    CallTool[call_tool<br/>Server Meta-Tool] --> Config
     CallTool --> MCPServ
     CallTool --> Service
     CallTool --> SvcClass
@@ -179,54 +191,55 @@ graph LR
     CallTool --> External
 ```
 
-### **Usage Pattern for AI Agents**
+### **Usage Pattern for MCP Clients**
 
-When an AI agent wants to list services:
+When an MCP client (AI agent) wants to list services:
 
 ```bash
-# What the AI agent actually calls:
+# What the client actually calls via the server's meta-tools:
 call_tool(name="core_service_list", arguments={})
 
-# NOT directly:
-core_service_list()  # This doesn't exist at the agent layer
+# The server's call_tool meta-tool:
+# 1. Resolves "core_service_list" to the internal handler
+# 2. Executes the tool
+# 3. Wraps the result in a structured JSON response
 ```
 
-When an AI agent wants to discover tools:
+When an MCP client wants to discover tools:
 
 ```bash
-# What the AI agent calls:
-list_tools()           # Returns all available tools
-filter_tools(pattern="core_service_*")  # Filter for service tools
-describe_tool(name="core_service_create")  # Get tool details
+# Use meta-tools for discovery:
+list_tools()                                    # Returns all available tools
+filter_tools(pattern="core_service_*")          # Filter for service tools
+describe_tool(name="core_service_create")       # Get tool details
+
+# Then execute with call_tool:
+call_tool(name="core_service_create", arguments={...})
 ```
 
 ### **Tool Integration Pattern**
-All tool types integrate seamlessly through the agent layer:
+All tool types integrate seamlessly through the server's meta-tools:
 
 ```mermaid
 sequenceDiagram
-    participant Agent as AI Agent
-    participant AgentLayer as Agent Layer
-    participant AggLayer as Aggregator Layer
+    participant Client as MCP Client
+    participant Server as Server (Meta-Tools)
     participant Core as Core Tools
     participant WF as Workflow Engine
     participant Ext as External MCP
 
-    Agent->>AgentLayer: list_tools()
-    AgentLayer->>AggLayer: Internal: list all tools
-    AggLayer->>Core: Get core tools (36)
-    AggLayer->>WF: Get workflow tools (dynamic)
-    AggLayer->>Ext: Get external tools (variable)
-    AggLayer->>AgentLayer: Unified tool list
-    AgentLayer->>Agent: Combined tools as JSON
+    Client->>Server: call_tool("list_tools", {})
+    Server->>Core: Get core tools (36)
+    Server->>WF: Get workflow tools (dynamic)
+    Server->>Ext: Get external tools (variable)
+    Server->>Client: Unified tool list as JSON
 
-    Agent->>AgentLayer: call_tool("workflow_connect-monitoring", {...})
-    AgentLayer->>AggLayer: Execute workflow_connect-monitoring
-    AggLayer->>WF: Execute workflow
+    Client->>Server: call_tool("workflow_connect-monitoring", {...})
+    Server->>WF: Execute workflow
     WF->>Core: call core_service_create
     WF->>Ext: call x_teleport_kube_login
-    WF->>AgentLayer: Workflow result
-    AgentLayer->>Agent: JSON result
+    WF->>Server: Workflow result
+    Server->>Client: Wrapped result as JSON
 ```
 
 ### **Configuration Integration**
@@ -452,11 +465,13 @@ func (a *Adapter) Register() {
 
 All requests follow a consistent flow through the system:
 
-1. **Entry**: Request received by `muster agent` MCP server
-2. **Routing**: API layer routes to appropriate service handler
-3. **Processing**: Service processes request through business logic
-4. **Integration**: Service may call other services via API layer
-5. **Response**: Result returned through API layer to client
+1. **Entry**: Request received by `muster serve` meta-tools interface (directly or via agent)
+2. **Meta-Tool Processing**: Meta-tool handler (e.g., `call_tool`) processes the request
+3. **Tool Resolution**: Actual tool is resolved from the aggregator registry
+4. **Routing**: API layer routes to appropriate service handler
+5. **Processing**: Service processes request through business logic
+6. **Integration**: Service may call other services via API layer
+7. **Response**: Result wrapped and returned through meta-tool layer to client
 
 ### Event Handling Pattern
 
