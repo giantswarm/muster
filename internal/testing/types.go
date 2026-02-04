@@ -196,6 +196,10 @@ type MusterInstance struct {
 	ExpectedTools []string
 	// ExpectedServiceClasses contains the list of ServiceClasses expected to be available
 	ExpectedServiceClasses []string
+	// ExpectedMCPServers contains the list of MCP server names expected to be registered.
+	// This includes OAuth-protected servers which may be in "auth_required" state.
+	// Used by WaitForReady to ensure servers are registered before tests run.
+	ExpectedMCPServers []string
 	// MockHTTPServers contains references to mock HTTP servers started for this instance
 	MockHTTPServers map[string]*MockHTTPServerInfo
 	// MockOAuthServers contains references to mock OAuth servers started for this instance
@@ -327,12 +331,15 @@ type InstanceLogs struct {
 
 // MusterInstanceManager manages muster serve instances for testing
 type MusterInstanceManager interface {
-	// CreateInstance creates a new muster serve instance with the given configuration
-	CreateInstance(ctx context.Context, scenarioName string, config *MusterPreConfiguration) (*MusterInstance, error)
-	// DestroyInstance stops and cleans up an muster serve instance
-	DestroyInstance(ctx context.Context, instance *MusterInstance) error
-	// WaitForReady waits for an instance to be ready to accept connections
-	WaitForReady(ctx context.Context, instance *MusterInstance) error
+	// CreateInstance creates a new muster serve instance with the given configuration.
+	// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+	CreateInstance(ctx context.Context, scenarioName string, config *MusterPreConfiguration, logger TestLogger) (*MusterInstance, error)
+	// DestroyInstance stops and cleans up an muster serve instance.
+	// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+	DestroyInstance(ctx context.Context, instance *MusterInstance, logger TestLogger) error
+	// WaitForReady waits for an instance to be ready to accept connections.
+	// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+	WaitForReady(ctx context.Context, instance *MusterInstance, logger TestLogger) error
 }
 
 // TestStep defines a single step within a test scenario

@@ -257,6 +257,14 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Report scenario start
 	r.reporter.ReportScenarioStart(scenario)
 
+	// Create a prefixed logger for this scenario when running in parallel with verbose/debug
+	// This helps distinguish which log messages belong to which scenario
+	logger := r.logger
+	if config.Parallel > 1 && (r.debug || logger.IsVerboseEnabled()) {
+		prefix := GenerateScenarioPrefix(scenario.Name)
+		logger = NewPrefixedLogger(r.logger, prefix)
+	}
+
 	// Create scenario context for template variable support
 	scenarioContext := NewScenarioContext()
 
@@ -273,10 +281,10 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	var err error
 
 	if r.debug {
-		r.logger.Debug("🏗️  Creating muster instance for scenario: %s\n", scenario.Name)
+		logger.Debug("🏗️  Creating muster instance for scenario: %s\n", scenario.Name)
 	}
 
-	instance, err = r.instanceManager.CreateInstance(scenarioCtx, scenario.Name, scenario.PreConfiguration)
+	instance, err = r.instanceManager.CreateInstance(scenarioCtx, scenario.Name, scenario.PreConfiguration, logger)
 	if err != nil {
 		result.Result = ResultError
 		result.Error = fmt.Sprintf("failed to create muster instance: %v", err)
@@ -289,7 +297,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	}
 
 	if r.debug {
-		r.logger.Debug("✅ Created muster instance %s (port: %d)\n", instance.ID, instance.Port)
+		logger.Debug("✅ Created muster instance %s (port: %d)\n", instance.ID, instance.Port)
 	}
 
 	// Ensure cleanup of instance
@@ -298,9 +306,9 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			if err := r.instanceManager.DestroyInstance(cleanupCtx, instance); err != nil {
+			if err := r.instanceManager.DestroyInstance(cleanupCtx, instance, logger); err != nil {
 				if r.debug {
-					r.logger.Debug("⚠️  Failed to destroy muster instance %s: %v\n", instance.ID, err)
+					logger.Debug("⚠️  Failed to destroy muster instance %s: %v\n", instance.ID, err)
 				}
 			} else {
 				// Final log storage - may have been updated during destruction
@@ -308,14 +316,14 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 					result.InstanceLogs = instance.Logs
 				}
 				if r.debug {
-					r.logger.Debug("✅ Cleanup complete for muster instance %s\n", instance.ID)
+					logger.Debug("✅ Cleanup complete for muster instance %s\n", instance.ID)
 				}
 			}
 		}
 	}()
 
 	// Wait for instance to be ready
-	if err := r.instanceManager.WaitForReady(scenarioCtx, instance); err != nil {
+	if err := r.instanceManager.WaitForReady(scenarioCtx, instance, logger); err != nil {
 		result.Result = ResultError
 		result.Error = fmt.Sprintf("muster instance not ready: %v", err)
 		result.EndTime = time.Now()
@@ -328,14 +336,14 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Create isolated MCP client for this scenario
 	// This ensures each parallel scenario has its own client and context
-	scenarioClient := NewMCPTestClientWithLogger(r.debug, r.logger)
+	scenarioClient := NewMCPTestClientWithLogger(r.debug, logger)
 
 	// Connect the isolated MCP client to this specific instance
 	// Use authenticated connection if muster's OAuth server is enabled
 	var connectErr error
 	if instance.MusterOAuthAccessToken != "" {
 		if r.debug {
-			r.logger.Debug("🔐 Connecting with OAuth token (muster OAuth server enabled)\n")
+			logger.Debug("🔐 Connecting with OAuth token (muster OAuth server enabled)\n")
 		}
 		connectErr = scenarioClient.ConnectWithAuth(scenarioCtx, instance.Endpoint, instance.MusterOAuthAccessToken)
 	} else {
@@ -355,7 +363,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Ensure isolated MCP client is closed properly
 	defer func() {
 		if r.debug {
-			r.logger.Debug("🔌 Closing isolated MCP client connection to %s\n", instance.Endpoint)
+			logger.Debug("🔌 Closing isolated MCP client connection to %s\n", instance.Endpoint)
 		}
 
 		// Close with timeout to avoid hanging
@@ -371,11 +379,11 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 		select {
 		case <-done:
 			if r.debug {
-				r.logger.Debug("✅ Isolated MCP client closed successfully\n")
+				logger.Debug("✅ Isolated MCP client closed successfully\n")
 			}
 		case <-closeCtx.Done():
 			if r.debug {
-				r.logger.Debug("⏰ Isolated MCP client close timeout - connection may have been reset\n")
+				logger.Debug("⏰ Isolated MCP client close timeout - connection may have been reset\n")
 			}
 		}
 
@@ -384,11 +392,11 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	}()
 
 	if r.debug {
-		r.logger.Debug("✅ Connected isolated MCP client to muster instance %s at %s\n", instance.ID, instance.Endpoint)
+		logger.Debug("✅ Connected isolated MCP client to muster instance %s at %s\n", instance.ID, instance.Endpoint)
 	}
 
 	// Create test tools handler for this scenario
-	testToolsHandler := NewTestToolsHandler(r.instanceManager, instance, r.debug, r.logger)
+	testToolsHandler := NewTestToolsHandler(r.instanceManager, instance, r.debug, logger)
 
 	// Pass the MCP client to the test tools handler so it can call authenticate tools
 	testToolsHandler.SetMCPClient(scenarioClient)
@@ -402,7 +410,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 	// Execute steps using the isolated client
 	for _, step := range scenario.Steps {
-		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler)
+		stepResult := r.runStepWithTestTools(scenarioCtx, step, config, scenarioClient, scenarioContext, testToolsHandler, logger)
 		result.StepResults = append(result.StepResults, stepResult)
 
 		// Report step result
@@ -419,7 +427,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// Execute cleanup steps regardless of main scenario outcome using the isolated client
 	if len(scenario.Cleanup) > 0 {
 		for _, cleanupStep := range scenario.Cleanup {
-			stepResult := r.runStepWithTestTools(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext, testToolsHandler)
+			stepResult := r.runStepWithTestTools(scenarioCtx, cleanupStep, config, scenarioClient, scenarioContext, testToolsHandler, logger)
 			result.StepResults = append(result.StepResults, stepResult)
 			r.reporter.ReportStepResult(stepResult)
 
@@ -446,7 +454,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 }
 
 // runStep executes a single test step using the specified MCP client with template variable support
-func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext) TestStepResult {
+func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext, logger TestLogger) TestStepResult {
 	result := TestStepResult{
 		Step:      step,
 		StartTime: time.Now(),
@@ -477,7 +485,7 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 		}
 
 		if r.debug {
-			r.logger.Debug("🔧 Step %s: Template resolution completed\n", step.ID)
+			logger.Debug("🔧 Step %s: Template resolution completed\n", step.ID)
 		}
 	}
 
@@ -490,7 +498,7 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
 	// Validate expectations (always check, even with errors - they might be expected)
-	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs) {
+	if !r.validateExpectationsWithClient(stepCtx, step.Expected, response, err, client, step.Tool, resolvedArgs, logger) {
 		if err != nil {
 			result.Result = ResultError
 			result.Error = fmt.Sprintf("tool call failed: %v", err)
@@ -506,10 +514,10 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 
 	// Store result in scenario context automatically for template variables
 	if scenarioContext != nil {
-		storableResult := r.extractStorableResult(response)
+		storableResult := r.extractStorableResult(response, logger)
 		scenarioContext.StoreResult(step.ID, storableResult)
 		if r.debug {
-			r.logger.Debug("🔗 Stored result from step %s for template variables: %v\n", step.ID, storableResult)
+			logger.Debug("🔗 Stored result from step %s for template variables: %v\n", step.ID, storableResult)
 		}
 	}
 
@@ -524,7 +532,7 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 // - If step.AsUser is set, temporarily switch to that user before executing
 // - Test tools that manage users (create, switch) update the handler's current user
 // - Regular tool calls use the current user's MCP client
-func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler) TestStepResult {
+func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, config TestConfiguration, client MCPTestClient, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler, logger TestLogger) TestStepResult {
 	// Handle as_user field - switch to specified user before executing
 	if step.AsUser != "" && testToolsHandler != nil {
 		previousUser := testToolsHandler.GetCurrentUserName()
@@ -533,7 +541,7 @@ func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, co
 			if testToolsHandler.HasUser(step.AsUser) {
 				testToolsHandler.SwitchToUser(step.AsUser)
 				if r.debug {
-					r.logger.Debug("👤 Step '%s': temporarily switching to user '%s' (was '%s')\n",
+					logger.Debug("👤 Step '%s': temporarily switching to user '%s' (was '%s')\n",
 						step.ID, step.AsUser, previousUser)
 				}
 				// Use the new user's client for this step
@@ -553,7 +561,7 @@ func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, co
 
 	// Check if this is a test tool that should be handled locally
 	if IsTestTool(step.Tool) {
-		return r.runTestToolStep(ctx, step, config, scenarioContext, testToolsHandler)
+		return r.runTestToolStep(ctx, step, config, scenarioContext, testToolsHandler, logger)
 	}
 
 	// For regular tools, use the current user's client from the handler
@@ -562,11 +570,11 @@ func (r *testRunner) runStepWithTestTools(ctx context.Context, step TestStep, co
 	}
 
 	// Delegate to the standard runStep for regular tools
-	return r.runStep(ctx, step, config, client, scenarioContext)
+	return r.runStep(ctx, step, config, client, scenarioContext, logger)
 }
 
 // runTestToolStep executes a test helper tool locally in the test runner.
-func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config TestConfiguration, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler) TestStepResult {
+func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config TestConfiguration, scenarioContext *ScenarioContext, testToolsHandler *TestToolsHandler, logger TestLogger) TestStepResult {
 	result := TestStepResult{
 		Step:      step,
 		StartTime: time.Now(),
@@ -574,7 +582,7 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	}
 
 	if r.debug {
-		r.logger.Debug("🧪 Executing test tool: %s\n", step.Tool)
+		logger.Debug("🧪 Executing test tool: %s\n", step.Tool)
 	}
 
 	// Apply step timeout if specified
@@ -611,7 +619,7 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
 	// Validate expectations
-	if !r.validateTestToolExpectations(step.Expected, response, err) {
+	if !r.validateTestToolExpectations(step.Expected, response, err, logger) {
 		if err != nil {
 			result.Result = ResultError
 			result.Error = fmt.Sprintf("test tool failed: %v", err)
@@ -629,7 +637,7 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 	if scenarioContext != nil {
 		scenarioContext.StoreResult(step.ID, response)
 		if r.debug {
-			r.logger.Debug("🔗 Stored test tool result from step %s\n", step.ID)
+			logger.Debug("🔗 Stored test tool result from step %s\n", step.ID)
 		}
 	}
 
@@ -637,7 +645,7 @@ func (r *testRunner) runTestToolStep(ctx context.Context, step TestStep, config 
 }
 
 // validateTestToolExpectations validates expectations for test tool results.
-func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error) bool {
+func (r *testRunner) validateTestToolExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
 	// Determine if there's an error - either from Go error or from response isError field
 	hasError := err != nil
 	var responseMap map[string]interface{}
@@ -662,9 +670,9 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 	if expected.Success && hasError {
 		if r.debug {
 			if err != nil {
-				r.logger.Debug("❌ Expected test tool success but got error: %v\n", err)
+				logger.Debug("❌ Expected test tool success but got error: %v\n", err)
 			} else {
-				r.logger.Debug("❌ Expected test tool success but response indicates error\n")
+				logger.Debug("❌ Expected test tool success but response indicates error\n")
 			}
 		}
 		return false
@@ -672,7 +680,7 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 
 	if !expected.Success && !hasError {
 		if r.debug {
-			r.logger.Debug("❌ Expected test tool failure but got success\n")
+			logger.Debug("❌ Expected test tool failure but got success\n")
 		}
 		return false
 	}
@@ -686,7 +694,7 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 			for _, expectedText := range expected.ErrorContains {
 				if !containsText(responseStr, expectedText) {
 					if r.debug {
-						r.logger.Debug("❌ Test tool error response does not contain expected text '%s'\n", expectedText)
+						logger.Debug("❌ Test tool error response does not contain expected text '%s'\n", expectedText)
 					}
 					return false
 				}
@@ -698,7 +706,7 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 			if success, exists := responseMap["success"]; exists {
 				if successBool, ok := success.(bool); ok && !successBool {
 					if r.debug {
-						r.logger.Debug("❌ Test tool response indicates failure (success=false)\n")
+						logger.Debug("❌ Test tool response indicates failure (success=false)\n")
 					}
 					return false
 				}
@@ -709,7 +717,7 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 		for _, expectedText := range expected.Contains {
 			if !containsText(responseStr, expectedText) {
 				if r.debug {
-					r.logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
+					logger.Debug("❌ Test tool response does not contain expected text '%s'\n", expectedText)
 				}
 				return false
 			}
@@ -720,11 +728,11 @@ func (r *testRunner) validateTestToolExpectations(expected TestExpectation, resp
 }
 
 // validateExpectationsWithClient checks if the step response meets the expected criteria with state waiting support
-func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expected TestExpectation, response interface{}, err error, client MCPTestClient, stepTool string, stepArgs map[string]interface{}) bool {
+func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expected TestExpectation, response interface{}, err error, client MCPTestClient, stepTool string, stepArgs map[string]interface{}, logger TestLogger) bool {
 	// Handle state waiting if configured
 	if expected.WaitForState > 0 {
 		if r.debug {
-			r.logger.Debug("⏳ State waiting configured - polling for expected state\n")
+			logger.Debug("⏳ State waiting configured - polling for expected state\n")
 		}
 
 		// Use the configured timeout
@@ -739,7 +747,7 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 		defer pollTicker.Stop()
 
 		if r.debug {
-			r.logger.Debug("🔄 Starting state polling: tool=%s, timeout=%v, interval=%v\n", stepTool, timeout, pollInterval)
+			logger.Debug("🔄 Starting state polling: tool=%s, timeout=%v, interval=%v\n", stepTool, timeout, pollInterval)
 		}
 
 		// Poll for expected state
@@ -747,7 +755,7 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 			select {
 			case <-waitCtx.Done():
 				if r.debug {
-					r.logger.Debug("⏰ State waiting timeout reached\n")
+					logger.Debug("⏰ State waiting timeout reached\n")
 				}
 				return false // Timeout reached without achieving expected state
 
@@ -756,19 +764,19 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 				response, err := client.CallTool(waitCtx, stepTool, stepArgs)
 
 				if r.debug {
-					r.logger.Debug("📊 Status poll result: error=%v\n", err)
+					logger.Debug("📊 Status poll result: error=%v\n", err)
 				}
 
 				// Check if the status call succeeded and meets JSON path expectations
 				if err == nil {
-					if r.validateExpectations(expected, response, nil) {
+					if r.validateExpectations(expected, response, nil, logger) {
 						if r.debug {
-							r.logger.Debug("✅ Expected state achieved!\n")
+							logger.Debug("✅ Expected state achieved!\n")
 						}
 						return true
 					} else {
 						if r.debug {
-							r.logger.Debug("🔄 State not yet achieved, continuing to poll...\n")
+							logger.Debug("🔄 State not yet achieved, continuing to poll...\n")
 						}
 					}
 				}
@@ -777,11 +785,11 @@ func (r *testRunner) validateExpectationsWithClient(ctx context.Context, expecte
 	}
 
 	// Continue with normal validation using original response and error
-	return r.validateExpectations(expected, response, err)
+	return r.validateExpectations(expected, response, err, logger)
 }
 
 // validateExpectations checks if the step response meets the expected criteria
-func (r *testRunner) validateExpectations(expected TestExpectation, response interface{}, err error) bool {
+func (r *testRunner) validateExpectations(expected TestExpectation, response interface{}, err error, logger TestLogger) bool {
 	// Check if response indicates an error (for MCP responses)
 	isResponseError := false
 	if response != nil {
@@ -796,9 +804,9 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 	if expected.Success && (err != nil || isResponseError) {
 		if r.debug {
 			if err != nil {
-				r.logger.Debug("❌ Expected success but got error: %v\n", err)
+				logger.Debug("❌ Expected success but got error: %v\n", err)
 			} else {
-				r.logger.Debug("❌ Expected success but response indicates error\n")
+				logger.Debug("❌ Expected success but response indicates error\n")
 			}
 		}
 		return false
@@ -806,7 +814,7 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 
 	if !expected.Success && err == nil && !isResponseError {
 		if r.debug {
-			r.logger.Debug("❌ Expected failure but got success (no error and no response error flag)\n")
+			logger.Debug("❌ Expected failure but got success (no error and no response error flag)\n")
 		}
 		return false
 	}
@@ -836,7 +844,7 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 
 		if errorText == "" {
 			if r.debug {
-				r.logger.Debug("❌ Expected error containing text but got no error text (err=%v, isResponseError=%v)", err, isResponseError)
+				logger.Debug("❌ Expected error containing text but got no error text (err=%v, isResponseError=%v)", err, isResponseError)
 			}
 			return false
 		}
@@ -844,14 +852,14 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 		for _, expectedText := range expected.ErrorContains {
 			if !containsText(errorText, expectedText) {
 				if r.debug {
-					r.logger.Debug("❌ Error text '%s' does not contain expected text '%s'", errorText, expectedText)
+					logger.Debug("❌ Error text '%s' does not contain expected text '%s'", errorText, expectedText)
 				}
 				return false
 			}
 		}
 
 		if r.debug {
-			r.logger.Debug("✅ Error expectations met: found all expected text in '%s'", errorText)
+			logger.Debug("✅ Error expectations met: found all expected text in '%s'", errorText)
 		}
 	}
 
@@ -875,7 +883,7 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 		for _, expectedText := range expected.Contains {
 			if !containsText(responseStr, expectedText) {
 				if r.debug {
-					r.logger.Debug("❌ Response does not contain expected text '%s'\n", expectedText)
+					logger.Debug("❌ Response does not contain expected text '%s'\n", expectedText)
 				}
 				return false
 			}
@@ -885,7 +893,7 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 		for _, unexpectedText := range expected.NotContains {
 			if containsText(responseStr, unexpectedText) {
 				if r.debug {
-					r.logger.Debug("❌ Response contains unexpected text '%s'\n", unexpectedText)
+					logger.Debug("❌ Response contains unexpected text '%s'\n", unexpectedText)
 				}
 				return false
 			}
@@ -901,10 +909,10 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 				responseMap = respMap
 			} else {
 				// Try to extract JSON from MCP CallToolResult structure
-				responseMap = r.extractJSONFromMCPResponse(response)
+				responseMap = r.extractJSONFromMCPResponse(response, logger)
 				if responseMap == nil {
 					if r.debug {
-						r.logger.Debug("❌ JSON path validation failed: could not extract JSON from response type %T\n", response)
+						logger.Debug("❌ JSON path validation failed: could not extract JSON from response type %T\n", response)
 					}
 					return false
 				}
@@ -916,7 +924,7 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 				actualValue, exists := r.resolveJSONPath(responseMap, jsonPath)
 				if !exists {
 					if r.debug {
-						r.logger.Debug("❌ JSON path '%s' not found in response\n", jsonPath)
+						logger.Debug("❌ JSON path '%s' not found in response\n", jsonPath)
 					}
 					return false
 				}
@@ -924,20 +932,20 @@ func (r *testRunner) validateExpectations(expected TestExpectation, response int
 				// Enhanced value comparison with partial matching support
 				if !r.compareValuesEnhanced(actualValue, expectedValue) {
 					if r.debug {
-						r.logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
+						logger.Debug("❌ JSON path '%s': expected %v, got %v\n", jsonPath, expectedValue, actualValue)
 					}
 					return false
 				}
 
 				if r.debug {
-					r.logger.Debug("✅ JSON path '%s': expected %v, got %v ✓\n", jsonPath, expectedValue, actualValue)
+					logger.Debug("✅ JSON path '%s': expected %v, got %v ✓\n", jsonPath, expectedValue, actualValue)
 				}
 			}
 		}
 	}
 
 	if r.debug {
-		r.logger.Debug("✅ All expectations met for step\n")
+		logger.Debug("✅ All expectations met for step\n")
 	}
 
 	return true
@@ -986,7 +994,7 @@ func toLower(s string) string {
 }
 
 // extractJSONFromMCPResponse attempts to extract JSON from MCP CallToolResult
-func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string]interface{} {
+func (r *testRunner) extractJSONFromMCPResponse(response interface{}, logger TestLogger) map[string]interface{} {
 	// Handle MCP CallToolResult structure properly
 	if mcpResult, ok := response.(*mcp.CallToolResult); ok {
 		// Extract text content from MCP result
@@ -996,13 +1004,13 @@ func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string
 				var result map[string]interface{}
 				if err := json.Unmarshal([]byte(textContent.Text), &result); err == nil {
 					if r.debug {
-						r.logger.Debug("🔍 Successfully extracted JSON from MCP response: %+v\n", result)
+						logger.Debug("🔍 Successfully extracted JSON from MCP response: %+v\n", result)
 					}
 					return result
 				} else {
 					if r.debug {
-						r.logger.Debug("🔍 Failed to parse MCP text content as JSON: %v\n", err)
-						r.logger.Debug("🔍 Text content was: %s\n", textContent.Text)
+						logger.Debug("🔍 Failed to parse MCP text content as JSON: %v\n", err)
+						logger.Debug("🔍 Text content was: %s\n", textContent.Text)
 					}
 				}
 			}
@@ -1015,7 +1023,7 @@ func (r *testRunner) extractJSONFromMCPResponse(response interface{}) map[string
 	}
 
 	if r.debug {
-		r.logger.Debug("🔍 Could not extract JSON from response type %T\n", response)
+		logger.Debug("🔍 Could not extract JSON from response type %T\n", response)
 	}
 	return nil
 }
@@ -1035,7 +1043,7 @@ func (r *testRunner) updateCounters(suiteResult *TestSuiteResult, scenarioResult
 }
 
 // extractStorableResult extracts a storable result from a response
-func (r *testRunner) extractStorableResult(response interface{}) interface{} {
+func (r *testRunner) extractStorableResult(response interface{}, logger TestLogger) interface{} {
 	// Handle different response types
 	switch resp := response.(type) {
 	case *mcp.CallToolResult:
@@ -1059,14 +1067,14 @@ func (r *testRunner) extractStorableResult(response interface{}) interface{} {
 		if err := json.Unmarshal([]byte(combinedText), &jsonResult); err == nil {
 			// Successfully parsed as JSON, return the structured data
 			if r.debug {
-				r.logger.Debug("🔍 Extracted JSON result for template variables: %v\n", jsonResult)
+				logger.Debug("🔍 Extracted JSON result for template variables: %v\n", jsonResult)
 			}
 			return jsonResult
 		}
 
 		// If not JSON, return as string
 		if r.debug {
-			r.logger.Debug("🔍 Extracted text result for template variables: %s\n", combinedText)
+			logger.Debug("🔍 Extracted text result for template variables: %s\n", combinedText)
 		}
 		return combinedText
 	default:
