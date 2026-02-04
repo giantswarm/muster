@@ -26,9 +26,9 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
 
-	"muster/internal/api"
-	"muster/internal/config"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 const (

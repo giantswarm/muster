@@ -1,9 +1,10 @@
 package main
 
 import (
-	"muster/cmd"
 	"os"
 	"testing"
+
+	"github.com/giantswarm/muster/cmd"
 )
 
 func TestMain(m *testing.M) {

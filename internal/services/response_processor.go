@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ExtractFromResponse extracts a value from response using a JSON path

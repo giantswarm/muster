@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 )
 
 // TestNewKubernetesDetector tests the creation of a KubernetesDetector.

@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // softwareVersion is the version string reported in the Client ID Metadata Document.

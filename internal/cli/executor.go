@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/agent"
-	"muster/internal/api"
-	"muster/internal/config"
-	"muster/internal/metatools"
+	"github.com/giantswarm/muster/internal/agent"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/metatools"
 
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"

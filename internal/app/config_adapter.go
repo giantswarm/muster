@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"muster/internal/api"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 
 	"gopkg.in/yaml.v3"
 )

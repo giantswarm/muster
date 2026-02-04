@@ -7,9 +7,10 @@ import (
 
 	"k8s.io/client-go/util/retry"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
-	"muster/pkg/logging"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // ServiceClassManager is an interface for accessing ServiceClass definitions.

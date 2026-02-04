@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"muster/internal/app"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/app"
+	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/spf13/cobra"
 )

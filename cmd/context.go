@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	musterctx "muster/internal/context"
+	musterctx "github.com/giantswarm/muster/internal/context"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"

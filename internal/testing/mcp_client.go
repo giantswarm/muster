@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"

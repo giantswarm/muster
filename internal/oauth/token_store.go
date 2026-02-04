@@ -4,8 +4,9 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // tokenExpiryMargin is the margin added when checking token expiration.

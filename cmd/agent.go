@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"muster/internal/agent"
-	"muster/internal/agent/oauth"
-	"muster/internal/api"
-	"muster/internal/cli"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/agent"
+	"github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/spf13/cobra"
 )

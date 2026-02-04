@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/template"
+	"github.com/giantswarm/muster/internal/template"
 
 	"github.com/mark3labs/mcp-go/server"
 )

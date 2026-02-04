@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // =============================================================================

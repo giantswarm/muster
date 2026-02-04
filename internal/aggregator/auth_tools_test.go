@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"muster/internal/api"
-	"muster/internal/config"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
 )
 
 // issuerMockOAuthHandler implements api.OAuthHandler for testing getMusterIssuer

@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"muster/internal/config"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/config"
 )
 
 func TestNewManager_Disabled(t *testing.T) {

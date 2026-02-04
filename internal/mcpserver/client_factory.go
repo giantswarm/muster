@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // MCPClientConfig contains configuration for creating an MCP client.

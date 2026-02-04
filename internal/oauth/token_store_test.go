@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 func TestTokenStore_StoreAndGet(t *testing.T) {

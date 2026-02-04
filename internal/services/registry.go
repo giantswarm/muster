@@ -2,8 +2,9 @@ package services
 
 import (
 	"fmt"
-	"muster/internal/api"
 	"sync"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // registry is a simple implementation of ServiceRegistry

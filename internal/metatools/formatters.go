@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

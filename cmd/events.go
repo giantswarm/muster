@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/cli"
+	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/spf13/cobra"
 )

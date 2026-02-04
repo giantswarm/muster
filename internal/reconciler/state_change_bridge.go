@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // StateChangeBridge bridges service state changes from the orchestrator to the

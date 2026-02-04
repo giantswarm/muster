@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // StateStore provides thread-safe storage for OAuth state parameters.

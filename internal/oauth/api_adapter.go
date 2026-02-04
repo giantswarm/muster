@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"muster/internal/api"
-	"muster/pkg/logging"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Adapter implements api.OAuthHandler by wrapping the OAuth Manager.

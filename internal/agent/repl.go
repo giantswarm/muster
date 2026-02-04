@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/agent/commands"
-	"muster/internal/api"
-	musterctx "muster/internal/context"
+	musterctx "github.com/giantswarm/muster/internal/context"
+
+	"github.com/giantswarm/muster/internal/agent/commands"
+	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"

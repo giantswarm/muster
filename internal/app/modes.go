@@ -6,8 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	serv "muster/internal/services"
-	"muster/pkg/logging"
+	serv "github.com/giantswarm/muster/internal/services"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // run executes the application in non-interactive command line mode.

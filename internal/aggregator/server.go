@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/api"
-	"muster/internal/config"
-	"muster/internal/server"
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"

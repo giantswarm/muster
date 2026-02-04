@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sync"
 
-	"muster/pkg/logging"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthCompletionCallback is called after successful OAuth authentication.

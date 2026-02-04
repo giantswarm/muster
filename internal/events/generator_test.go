@@ -11,8 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // mockMusterClient implements a mock MusterClient for testing

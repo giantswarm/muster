@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/agent/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

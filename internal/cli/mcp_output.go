@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	pkgstrings "muster/pkg/strings"
+	pkgstrings "github.com/giantswarm/muster/pkg/strings"
 
 	"gopkg.in/yaml.v3"
 )

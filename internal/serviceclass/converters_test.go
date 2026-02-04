@@ -7,8 +7,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 func TestConvertCRDToServiceClass(t *testing.T) {

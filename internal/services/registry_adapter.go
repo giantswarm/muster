@@ -1,7 +1,7 @@
 package services
 
 import (
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // RegistryAdapter adapts the ServiceRegistry to implement api.ServiceRegistryHandler

@@ -8,9 +8,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"muster/internal/api"
-	musterv1alpha1 "muster/pkg/apis/muster/v1alpha1"
-	"muster/pkg/logging"
+	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // MusterClient is a unified interface that abstracts both Kubernetes and filesystem clients.

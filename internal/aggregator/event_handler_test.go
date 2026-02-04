@@ -3,10 +3,11 @@ package aggregator
 import (
 	"context"
 	"fmt"
-	"muster/internal/api"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // mockOrchestratorAPI implements api.OrchestratorAPI for testing

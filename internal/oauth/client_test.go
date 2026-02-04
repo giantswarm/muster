@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 func TestClient_GetRedirectURI(t *testing.T) {

@@ -1,7 +1,7 @@
 package metatools
 
 import (
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // Provider implements the api.ToolProvider interface for meta-tools.

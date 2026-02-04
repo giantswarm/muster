@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"muster/internal/agent"
-	"muster/internal/agent/oauth"
-	"muster/internal/api"
-	"muster/internal/cli"
-	"muster/internal/config"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/agent"
+	"github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/cli"
+	"github.com/giantswarm/muster/internal/config"
 
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/mark3labs/mcp-go/mcp"

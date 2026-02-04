@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/api"
-	pkgstrings "muster/pkg/strings"
+	pkgstrings "github.com/giantswarm/muster/pkg/strings"
+
+	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )

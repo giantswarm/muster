@@ -3,7 +3,7 @@ package serviceclass
 import (
 	"testing"
 
-	"muster/internal/api"
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TestAdapterCreation tests basic adapter creation

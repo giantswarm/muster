@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"muster/internal/api"
-	"muster/internal/cli"
-	pkgoauth "muster/pkg/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/cli"
 
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/spf13/cobra"

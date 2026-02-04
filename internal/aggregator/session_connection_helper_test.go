@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"muster/internal/api"
-	"muster/internal/server"
+	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/server"
 
 	"github.com/stretchr/testify/assert"
 )
