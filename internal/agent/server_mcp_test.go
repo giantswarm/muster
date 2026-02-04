@@ -14,9 +14,16 @@ import (
 )
 
 // MockMCPGoClient is a mock implementation of the mcp-go MCPClient for testing
+// the transport bridge pattern. It simulates server responses to meta-tool calls.
 type MockMCPGoClient struct {
 	mcp_client.MCPClient
 	tools []mcp.Tool
+	// callToolResponses maps tool names to their mock responses
+	callToolResponses map[string]*mcp.CallToolResult
+	// lastCallToolRequest captures the last CallTool request for verification
+	lastCallToolRequest mcp.CallToolRequest
+	// callToolError can be set to simulate errors
+	callToolError error
 }
 
 func (m *MockMCPGoClient) ListTools(ctx context.Context, req mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
@@ -24,155 +31,108 @@ func (m *MockMCPGoClient) ListTools(ctx context.Context, req mcp.ListToolsReques
 		Tools: m.tools,
 	}, nil
 }
+
 func (m *MockMCPGoClient) Initialize(ctx context.Context, req mcp.InitializeRequest) (*mcp.InitializeResult, error) {
 	return &mcp.InitializeResult{}, nil
 }
+
 func (m *MockMCPGoClient) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return &mcp.CallToolResult{}, nil
+	m.lastCallToolRequest = req
+
+	if m.callToolError != nil {
+		return nil, m.callToolError
+	}
+
+	toolName := req.Params.Name
+	if response, ok := m.callToolResponses[toolName]; ok {
+		return response, nil
+	}
+
+	// Default response
+	return mcp.NewToolResultText("default mock response"), nil
 }
+
 func (m *MockMCPGoClient) ListResources(ctx context.Context, req mcp.ListResourcesRequest) (*mcp.ListResourcesResult, error) {
 	return &mcp.ListResourcesResult{}, nil
 }
+
 func (m *MockMCPGoClient) ReadResource(ctx context.Context, req mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	return &mcp.ReadResourceResult{}, nil
 }
+
 func (m *MockMCPGoClient) ListPrompts(ctx context.Context, req mcp.ListPromptsRequest) (*mcp.ListPromptsResult, error) {
 	return &mcp.ListPromptsResult{}, nil
 }
+
 func (m *MockMCPGoClient) GetPrompt(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	return &mcp.GetPromptResult{}, nil
 }
+
 func (m *MockMCPGoClient) OnNotification(handler func(notification mcp.JSONRPCNotification)) {}
 func (m *MockMCPGoClient) Close() error                                                      { return nil }
 
-// MockClient is a mock implementation of the agent Client for testing
-type MockClient struct {
-	toolCache     []mcp.Tool
-	resourceCache []mcp.Resource
-	promptCache   []mcp.Prompt
-	mu            sync.RWMutex
-}
-
-func (m *MockClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	// Simple mock implementation
-	if name == "test_tool" {
-		return mcp.NewToolResultText("Test tool executed"), nil
-	}
-	return nil, fmt.Errorf("tool not found: %s", name)
-}
-
-func (m *MockClient) GetResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
-	// Simple mock implementation
-	if uri == "test://resource" {
-		return &mcp.ReadResourceResult{
-			Contents: []mcp.ResourceContents{
-				mcp.TextResourceContents{
-					URI:      uri,
-					MIMEType: "text/plain",
-					Text:     "Test resource content",
-				},
-			},
-		}, nil
-	}
-	return nil, fmt.Errorf("resource not found: %s", uri)
-}
-
-func (m *MockClient) GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error) {
-	// Simple mock implementation
-	if name == "test_prompt" {
-		return &mcp.GetPromptResult{
-			Messages: []mcp.PromptMessage{
-				{
-					Role:    mcp.RoleUser,
-					Content: mcp.TextContent{Text: "Test prompt message"},
-				},
-			},
-		}, nil
-	}
-	return nil, fmt.Errorf("prompt not found: %s", name)
-}
-
-func TestMCPServerListTools(t *testing.T) {
-	// Create mock client with test data
-	testTools := []mcp.Tool{
-		{
-			Name:        "test_tool_1",
-			Description: "Test tool 1 description",
-		},
-		{
-			Name:        "test_tool_2",
-			Description: "Test tool 2 description",
+// TestForwardToServerMetaTool tests that the transport bridge correctly forwards
+// meta-tool calls to the server and returns the results.
+func TestForwardToServerMetaTool(t *testing.T) {
+	// Create mock client with test responses
+	mockMCPClient := &MockMCPGoClient{
+		callToolResponses: map[string]*mcp.CallToolResult{
+			"list_tools": mcp.NewToolResultText(`[{"name":"tool1","description":"Tool 1"},{"name":"tool2","description":"Tool 2"}]`),
 		},
 	}
 
-	// Create MCP server with mock client
+	// Create agent client with mock MCP client
+	client := &Client{
+		client:     mockMCPClient,
+		mu:         sync.RWMutex{},
+		formatters: NewFormatters(),
+	}
+
+	// Create MCP server
 	server := &MCPServer{
-		client: &Client{
-			toolCache: testTools,
-			mu:        sync.RWMutex{},
-			client: &MockMCPGoClient{
-				tools: testTools,
-			},
-			formatters: NewFormatters(),
-		},
+		client: client,
 		logger: NewLogger(false, false, false),
 	}
 
-	// Test list tools handler
-	result, err := server.handleListTools(context.Background(), mcp.CallToolRequest{})
+	// Test the forwarding handler
+	handler := server.forwardToServerMetaTool("list_tools")
+	result, err := handler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
 
-	// Verify result
-	assert.False(t, result.IsError)
-	assert.Len(t, result.Content, 1)
+	// Verify the call was forwarded to the server
+	assert.Equal(t, "list_tools", mockMCPClient.lastCallToolRequest.Params.Name)
 
-	// Parse JSON result
+	// Verify result was returned
+	assert.False(t, result.IsError)
+	require.Len(t, result.Content, 1)
+
 	textContent, ok := mcp.AsTextContent(result.Content[0])
 	require.True(t, ok)
-
-	var tools []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-	err = json.Unmarshal([]byte(textContent.Text), &tools)
-	require.NoError(t, err)
-
-	assert.Len(t, tools, 2)
-	assert.Equal(t, "test_tool_1", tools[0].Name)
-	assert.Equal(t, "test_tool_2", tools[1].Name)
+	assert.Contains(t, textContent.Text, "tool1")
+	assert.Contains(t, textContent.Text, "tool2")
 }
 
-func TestMCPServerDescribeTool(t *testing.T) {
-	// Create mock client with test data
-	mockClient := &MockClient{
-		toolCache: []mcp.Tool{
-			{
-				Name:        "test_tool",
-				Description: "Test tool description",
-				InputSchema: mcp.ToolInputSchema{
-					Type: "object",
-					Properties: map[string]interface{}{
-						"param1": map[string]interface{}{
-							"type":        "string",
-							"description": "Arg 1",
-						},
-					},
-				},
-			},
+// TestForwardToServerMetaToolWithArguments tests that arguments are correctly
+// forwarded to the server meta-tool.
+func TestForwardToServerMetaToolWithArguments(t *testing.T) {
+	mockMCPClient := &MockMCPGoClient{
+		callToolResponses: map[string]*mcp.CallToolResult{
+			"describe_tool": mcp.NewToolResultText(`{"name":"test_tool","description":"Test tool"}`),
 		},
 	}
 
-	// Create MCP server with mock client
+	client := &Client{
+		client:     mockMCPClient,
+		mu:         sync.RWMutex{},
+		formatters: NewFormatters(),
+	}
+
 	server := &MCPServer{
-		client: &Client{
-			toolCache:  mockClient.toolCache,
-			mu:         sync.RWMutex{},
-			formatters: NewFormatters(),
-		},
+		client: client,
 		logger: NewLogger(false, false, false),
 	}
 
-	// Test describe tool handler
+	// Create request with arguments
 	req := mcp.CallToolRequest{
 		Params: struct {
 			Name      string    `json:"name"`
@@ -185,99 +145,135 @@ func TestMCPServerDescribeTool(t *testing.T) {
 		},
 	}
 
-	result, err := server.handleDescribeTool(context.Background(), req)
+	handler := server.forwardToServerMetaTool("describe_tool")
+	result, err := handler(context.Background(), req)
 	require.NoError(t, err)
+
+	// Verify the call was forwarded with arguments
+	assert.Equal(t, "describe_tool", mockMCPClient.lastCallToolRequest.Params.Name)
+
+	args, ok := mockMCPClient.lastCallToolRequest.Params.Arguments.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "test_tool", args["name"])
 
 	// Verify result
 	assert.False(t, result.IsError)
-	assert.Len(t, result.Content, 1)
-
-	// Parse JSON result
-	textContent, ok := mcp.AsTextContent(result.Content[0])
-	require.True(t, ok)
-
-	var toolInfo map[string]interface{}
-	err = json.Unmarshal([]byte(textContent.Text), &toolInfo)
-	require.NoError(t, err)
-
-	assert.Equal(t, "test_tool", toolInfo["name"])
-	assert.Equal(t, "Test tool description", toolInfo["description"])
-	assert.NotNil(t, toolInfo["inputSchema"])
 }
 
-// TestMCPServerHandlers tests the basic functionality of MCP server handlers
-func TestMCPServerHandlers(t *testing.T) {
-	// Create MCP server with minimal setup
-	testTools := []mcp.Tool{
-		{
-			Name:        "test_tool",
-			Description: "Test tool",
-		},
+// TestForwardToServerMetaToolError tests error handling in the transport bridge.
+func TestForwardToServerMetaToolError(t *testing.T) {
+	mockMCPClient := &MockMCPGoClient{
+		callToolError: fmt.Errorf("connection failed"),
 	}
+
+	client := &Client{
+		client:     mockMCPClient,
+		mu:         sync.RWMutex{},
+		formatters: NewFormatters(),
+	}
+
 	server := &MCPServer{
-		client: &Client{
-			toolCache: testTools,
-			resourceCache: []mcp.Resource{
-				{
-					URI:      "test://resource",
-					Name:     "Test Resource",
-					MIMEType: "text/plain",
-				},
-			},
-			promptCache: []mcp.Prompt{
-				{
-					Name:        "test_prompt",
-					Description: "Test prompt",
-				},
-			},
-			mu: sync.RWMutex{},
-			client: &MockMCPGoClient{
-				tools: testTools,
-			},
-			formatters: NewFormatters(),
-		},
+		client: client,
 		logger: NewLogger(false, false, false),
 	}
 
-	// Test empty caches
-	t.Run("EmptyToolCache", func(t *testing.T) {
-		emptyServer := &MCPServer{
-			client: &Client{
-				toolCache: []mcp.Tool{},
-				mu:        sync.RWMutex{},
-				client: &MockMCPGoClient{
-					tools: []mcp.Tool{},
-				},
-				formatters: NewFormatters(),
+	handler := server.forwardToServerMetaTool("list_tools")
+	result, err := handler(context.Background(), mcp.CallToolRequest{})
+	require.NoError(t, err) // Handler returns error in result, not as error
+
+	// Verify error result
+	assert.True(t, result.IsError)
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	require.True(t, ok)
+	assert.Contains(t, textContent.Text, "failed")
+}
+
+// TestForwardToServerMetaToolCallTool tests the special case of the call_tool
+// meta-tool which wraps nested tool calls.
+func TestForwardToServerMetaToolCallTool(t *testing.T) {
+	// Mock response for a wrapped tool call
+	wrappedResult, _ := json.Marshal(map[string]interface{}{
+		"isError": false,
+		"content": []interface{}{
+			map[string]interface{}{
+				"type": "text",
+				"text": "Tool executed successfully",
 			},
-			logger: NewLogger(false, false, false),
-		}
-
-		result, err := emptyServer.handleListTools(context.Background(), mcp.CallToolRequest{})
-		require.NoError(t, err)
-		assert.False(t, result.IsError)
-
-		textContent, ok := mcp.AsTextContent(result.Content[0])
-		require.True(t, ok)
-		assert.Equal(t, "No tools available", textContent.Text)
+		},
 	})
 
-	// Test tool not found
-	t.Run("ToolNotFound", func(t *testing.T) {
-		req := mcp.CallToolRequest{
-			Params: struct {
-				Name      string    `json:"name"`
-				Arguments any       `json:"arguments,omitempty"`
-				Meta      *mcp.Meta `json:"_meta,omitempty"`
-			}{
-				Arguments: map[string]interface{}{
-					"name": "nonexistent_tool",
+	mockMCPClient := &MockMCPGoClient{
+		callToolResponses: map[string]*mcp.CallToolResult{
+			"call_tool": mcp.NewToolResultText(string(wrappedResult)),
+		},
+	}
+
+	client := &Client{
+		client:     mockMCPClient,
+		mu:         sync.RWMutex{},
+		formatters: NewFormatters(),
+	}
+
+	server := &MCPServer{
+		client: client,
+		logger: NewLogger(false, false, false),
+	}
+
+	// Create request to call a nested tool
+	req := mcp.CallToolRequest{
+		Params: struct {
+			Name      string    `json:"name"`
+			Arguments any       `json:"arguments,omitempty"`
+			Meta      *mcp.Meta `json:"_meta,omitempty"`
+		}{
+			Arguments: map[string]interface{}{
+				"name": "core_service_list",
+				"arguments": map[string]interface{}{
+					"namespace": "default",
 				},
 			},
-		}
+		},
+	}
 
-		result, err := server.handleDescribeTool(context.Background(), req)
-		require.NoError(t, err)
-		assert.True(t, result.IsError)
-	})
+	handler := server.forwardToServerMetaTool("call_tool")
+	result, err := handler(context.Background(), req)
+	require.NoError(t, err)
+
+	// Verify the call_tool was forwarded to server
+	assert.Equal(t, "call_tool", mockMCPClient.lastCallToolRequest.Params.Name)
+
+	// Verify nested args were forwarded
+	args, ok := mockMCPClient.lastCallToolRequest.Params.Arguments.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "core_service_list", args["name"])
+	nestedArgs, ok := args["arguments"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "default", nestedArgs["namespace"])
+
+	// Verify result
+	assert.False(t, result.IsError)
+}
+
+// TestMCPServerRegistersTools tests that NewMCPServer correctly registers
+// all meta-tools as transport bridge handlers.
+func TestMCPServerRegistersTools(t *testing.T) {
+	mockMCPClient := &MockMCPGoClient{
+		callToolResponses: map[string]*mcp.CallToolResult{
+			"list_tools": mcp.NewToolResultText(`[]`),
+		},
+	}
+
+	client := &Client{
+		client:     mockMCPClient,
+		mu:         sync.RWMutex{},
+		formatters: NewFormatters(),
+	}
+
+	server, err := NewMCPServer(client, NewLogger(false, false, false), false)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+
+	// The server should have registered tools
+	// We verify by checking the mcpServer is not nil
+	assert.NotNil(t, server.mcpServer)
 }

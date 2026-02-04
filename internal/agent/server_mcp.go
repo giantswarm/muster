@@ -293,116 +293,53 @@ func (m *MCPServer) checkAndHandleTokenExpiration(ctx context.Context, err error
 	return nil
 }
 
-// registerTools registers all MCP tools
+// registerTools registers all MCP meta-tools.
+//
+// IMPORTANT: This is a transport bridge implementation (Issue #344).
+// All meta-tool handlers forward directly to the server's meta-tools.
+// The server (aggregator) is the source of truth for all tool logic.
+//
+// Handler flow:
+//  1. Extract arguments from MCP request
+//  2. Forward to server via client.CallTool(ctx, "<meta-tool-name>", args)
+//  3. Handle OAuth errors for re-authentication
+//  4. Apply auth status wrapper (ADR-008)
+//  5. Return result to AI client
 func (m *MCPServer) registerTools() {
-	// List tools
-	listToolsTool := mcp.NewTool("list_tools",
-		mcp.WithDescription("List all available tools from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listToolsTool, m.handleListTools)
+	// Delegate to shared implementation to avoid duplication with server_upgrade.go
+	registerAgentTools(m)
+}
 
-	// List resources
-	listResourcesTool := mcp.NewTool("list_resources",
-		mcp.WithDescription("List all available resources from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listResourcesTool, m.handleListResources)
+// forwardToServerMetaTool creates a handler that forwards the call to a server meta-tool.
+// This implements the transport bridge pattern (Issue #344) where the agent acts as a
+// thin proxy between the AI client (stdio) and the server (HTTP).
+//
+// The handler:
+//  1. Extracts arguments from the MCP request
+//  2. Forwards to the server by calling the corresponding meta-tool
+//  3. Handles OAuth token expiration with re-authentication flow
+//  4. Wraps the result with auth status (ADR-008)
+func (m *MCPServer) forwardToServerMetaTool(metaToolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Extract arguments from MCP request
+		args := make(map[string]interface{})
+		if request.Params.Arguments != nil {
+			if argsMap, ok := request.Params.Arguments.(map[string]interface{}); ok {
+				args = argsMap
+			}
+		}
 
-	// List prompts
-	listPromptsTool := mcp.NewTool("list_prompts",
-		mcp.WithDescription("List all available prompts from connected MCP servers"),
-	)
-	m.mcpServer.AddTool(listPromptsTool, m.handleListPrompts)
+		// Forward to server's meta-tool
+		result, err := m.client.CallTool(ctx, metaToolName, args)
+		if err != nil {
+			// Handle OAuth token expiration
+			if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
+				return tokenResult, nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("Meta-tool execution failed: %v", err)), nil
+		}
 
-	// Describe tool
-	describeToolTool := mcp.NewTool("describe_tool",
-		mcp.WithDescription("Get detailed information about a specific tool"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the tool to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describeToolTool, m.handleDescribeTool)
-
-	// Describe resource
-	describeResourceTool := mcp.NewTool("describe_resource",
-		mcp.WithDescription("Get detailed information about a specific resource"),
-		mcp.WithString("uri",
-			mcp.Required(),
-			mcp.Description("URI of the resource to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describeResourceTool, m.handleDescribeResource)
-
-	// Describe prompt
-	describePromptTool := mcp.NewTool("describe_prompt",
-		mcp.WithDescription("Get detailed information about a specific prompt"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the prompt to describe"),
-		),
-	)
-	m.mcpServer.AddTool(describePromptTool, m.handleDescribePrompt)
-
-	// Call tool
-	callToolTool := mcp.NewTool("call_tool",
-		mcp.WithDescription("Execute a tool with the given arguments"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the tool to call"),
-		),
-		mcp.WithObject("arguments",
-			mcp.Description("Arguments to pass to the tool (as JSON object)"),
-		),
-	)
-	m.mcpServer.AddTool(callToolTool, m.handleCallTool)
-
-	// Get resource
-	getResourceTool := mcp.NewTool("get_resource",
-		mcp.WithDescription("Retrieve the contents of a resource"),
-		mcp.WithString("uri",
-			mcp.Required(),
-			mcp.Description("URI of the resource to retrieve"),
-		),
-	)
-	m.mcpServer.AddTool(getResourceTool, m.handleGetResource)
-
-	// Get prompt
-	getPromptTool := mcp.NewTool("get_prompt",
-		mcp.WithDescription("Get a prompt with the given arguments"),
-		mcp.WithString("name",
-			mcp.Required(),
-			mcp.Description("Name of the prompt to get"),
-		),
-		mcp.WithObject("arguments",
-			mcp.Description("Arguments to pass to the prompt (as JSON object with string values)"),
-		),
-	)
-	m.mcpServer.AddTool(getPromptTool, m.handleGetPrompt)
-
-	// List core tools
-	listCoreToolsTool := mcp.NewTool("list_core_tools",
-		mcp.WithDescription("List core muster tools (built-in functionality separate from external MCP servers)"),
-		mcp.WithBoolean("include_schema",
-			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
-		),
-	)
-	m.mcpServer.AddTool(listCoreToolsTool, m.handleListCoreTools)
-
-	// Filter tools
-	filterToolsTool := mcp.NewTool("filter_tools",
-		mcp.WithDescription("Filter available tools based on name patterns or descriptions with full specifications"),
-		mcp.WithString("pattern",
-			mcp.Description("Pattern to match against tool names (supports wildcards like *)"),
-		),
-		mcp.WithString("description_filter",
-			mcp.Description("Filter by description content (case-insensitive substring match)"),
-		),
-		mcp.WithBoolean("case_sensitive",
-			mcp.Description("Whether pattern matching should be case-sensitive (default: false)"),
-		),
-		mcp.WithBoolean("include_schema",
-			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
-		),
-	)
-	m.mcpServer.AddTool(filterToolsTool, m.handleFilterTools)
+		// Wrap result with auth status (ADR-008)
+		return m.wrapToolResultWithAuth(result), nil
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -652,9 +653,65 @@ func (c *Client) listPrompts(ctx context.Context, initial bool) error {
 	return nil
 }
 
+// metaToolNames is the list of meta-tools that should NOT be wrapped through call_tool.
+// These are the discovery and execution tools exposed directly by the aggregator.
+var metaToolNames = map[string]bool{
+	"call_tool":         true,
+	"list_tools":        true,
+	"describe_tool":     true,
+	"filter_tools":      true,
+	"list_core_tools":   true,
+	"list_resources":    true,
+	"describe_resource": true,
+	"get_resource":      true,
+	"list_prompts":      true,
+	"describe_prompt":   true,
+	"get_prompt":        true,
+}
+
+// callToolFunc is a function type for direct tool execution.
+// Used by wrapAndCallTool to abstract over callToolDirect and callToolDirectWithTimeout.
+type callToolFunc func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)
+
+// wrapAndCallTool handles the meta-tool wrapping logic for both CallTool and CallToolWithTimeout.
+// Meta-tools are called directly, while all other tools are wrapped through the call_tool meta-tool.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//   - name: The tool name to execute
+//   - args: Tool arguments
+//   - callFn: The underlying function to execute the tool call
+//
+// Returns:
+//   - CallToolResult: The tool execution result (unwrapped if it was wrapped)
+//   - error: Any execution or communication errors
+func (c *Client) wrapAndCallTool(ctx context.Context, name string, args map[string]interface{}, callFn callToolFunc) (*mcp.CallToolResult, error) {
+	// Meta-tools are called directly without wrapping
+	if metaToolNames[name] {
+		return callFn(ctx, name, args)
+	}
+
+	// All other tools are wrapped through call_tool meta-tool
+	wrappedArgs := map[string]interface{}{
+		"name":      name,
+		"arguments": args,
+	}
+
+	result, err := callFn(ctx, "call_tool", wrappedArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unwrap the nested response from call_tool
+	return c.unwrapMetaToolResponse(result, name)
+}
+
 // CallTool executes a tool on the MCP server with the provided arguments.
-// This is the core method for tool execution, handling request construction,
-// timeout management, and error propagation.
+// This method transparently wraps all non-meta-tool calls through the call_tool
+// meta-tool, implementing the server-side meta-tools pattern (Issue #343).
+//
+// Meta-tools (list_tools, call_tool, describe_tool, etc.) are called directly.
+// All other tools (core_*, workflow_*, x_*) are wrapped through call_tool.
 //
 // Args:
 //   - ctx: Context for cancellation and timeout control
@@ -678,6 +735,21 @@ func (c *Client) listPrompts(ctx context.Context, initial bool) error {
 //	    return fmt.Errorf("tool execution failed: %w", err)
 //	}
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	return c.wrapAndCallTool(ctx, name, args, c.callToolDirect)
+}
+
+// callToolDirect executes a tool directly without wrapping through call_tool.
+// This is used for meta-tools themselves and internally by CallTool.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//   - name: The exact name of the tool to execute
+//   - args: Tool arguments as a map of arg names to values
+//
+// Returns:
+//   - CallToolResult: Complete tool execution result including content and metadata
+//   - error: Any execution or communication errors
+func (c *Client) callToolDirect(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	// Ensure client is connected before attempting tool execution
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")
@@ -706,6 +778,73 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
 	}
 
 	return result, nil
+}
+
+// unwrapMetaToolResponse extracts the actual tool result from a call_tool meta-tool response.
+// The call_tool meta-tool wraps tool results in a JSON structure for proper serialization.
+//
+// Args:
+//   - result: The raw result from the call_tool meta-tool
+//   - toolName: The name of the tool that was called (for error messages)
+//
+// Returns:
+//   - CallToolResult: The unwrapped tool result
+//   - error: Any parsing errors
+func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName string) (*mcp.CallToolResult, error) {
+	if result == nil {
+		return nil, fmt.Errorf("nil result from call_tool for %s", toolName)
+	}
+
+	// Check if the meta-tool call itself failed
+	if result.IsError {
+		var errorMsgs []string
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				errorMsgs = append(errorMsgs, textContent.Text)
+			}
+		}
+		return nil, fmt.Errorf("meta-tool error for %s: %s", toolName, strings.Join(errorMsgs, "; "))
+	}
+
+	// The call_tool meta-tool returns a single text content containing the wrapped result as JSON
+	if len(result.Content) == 0 {
+		return nil, fmt.Errorf("empty content from call_tool for %s", toolName)
+	}
+
+	// Get the JSON string from the first text content
+	textContent, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return nil, fmt.Errorf("unexpected content type from call_tool for %s", toolName)
+	}
+
+	// Parse the wrapped result structure
+	// The call_tool meta-tool returns: {"isError": bool, "content": [...]}
+	var wrappedResult struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+		} `json:"content"`
+	}
+
+	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
+		// If it's not a wrapped response, return the result as-is
+		// This handles cases where the server returns plain text
+		return result, nil
+	}
+
+	// Reconstruct the CallToolResult from the wrapped structure
+	unwrapped := &mcp.CallToolResult{
+		IsError: wrappedResult.IsError,
+	}
+
+	for _, item := range wrappedResult.Content {
+		if item.Type == "text" {
+			unwrapped.Content = append(unwrapped.Content, mcp.NewTextContent(item.Text))
+		}
+	}
+
+	return unwrapped, nil
 }
 
 // CallToolSimple executes a tool and returns the first text content as a string.
@@ -1201,8 +1340,18 @@ func (c *Client) SetTimeoutForComplexOperations() {
 	c.SetTimeout(120 * time.Second) // 2 minutes for complex operations
 }
 
-// CallToolWithTimeout executes a tool with a custom timeout
+// CallToolWithTimeout executes a tool with a custom timeout.
+// Like CallTool, this method transparently wraps non-meta-tool calls through call_tool.
 func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
+	// Create a closure that captures the timeout for use with wrapAndCallTool
+	callFn := func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+		return c.callToolDirectWithTimeout(ctx, name, args, timeout)
+	}
+	return c.wrapAndCallTool(ctx, name, args, callFn)
+}
+
+// callToolDirectWithTimeout executes a tool directly with a custom timeout.
+func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
 	// Ensure client is connected before attempting tool execution
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")
