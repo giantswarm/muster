@@ -293,25 +293,36 @@ func (m *MCPServer) checkAndHandleTokenExpiration(ctx context.Context, err error
 	return nil
 }
 
-// registerTools registers all MCP tools
+// registerTools registers all MCP meta-tools.
+//
+// IMPORTANT: This is a transport bridge implementation (Issue #344).
+// All meta-tool handlers forward directly to the server's meta-tools.
+// The server (aggregator) is the source of truth for all tool logic.
+//
+// Handler flow:
+//  1. Extract arguments from MCP request
+//  2. Forward to server via client.CallTool(ctx, "<meta-tool-name>", args)
+//  3. Handle OAuth errors for re-authentication
+//  4. Apply auth status wrapper (ADR-008)
+//  5. Return result to AI client
 func (m *MCPServer) registerTools() {
 	// List tools
 	listToolsTool := mcp.NewTool("list_tools",
 		mcp.WithDescription("List all available tools from connected MCP servers"),
 	)
-	m.mcpServer.AddTool(listToolsTool, m.handleListTools)
+	m.mcpServer.AddTool(listToolsTool, m.forwardToServerMetaTool("list_tools"))
 
 	// List resources
 	listResourcesTool := mcp.NewTool("list_resources",
 		mcp.WithDescription("List all available resources from connected MCP servers"),
 	)
-	m.mcpServer.AddTool(listResourcesTool, m.handleListResources)
+	m.mcpServer.AddTool(listResourcesTool, m.forwardToServerMetaTool("list_resources"))
 
 	// List prompts
 	listPromptsTool := mcp.NewTool("list_prompts",
 		mcp.WithDescription("List all available prompts from connected MCP servers"),
 	)
-	m.mcpServer.AddTool(listPromptsTool, m.handleListPrompts)
+	m.mcpServer.AddTool(listPromptsTool, m.forwardToServerMetaTool("list_prompts"))
 
 	// Describe tool
 	describeToolTool := mcp.NewTool("describe_tool",
@@ -321,7 +332,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Name of the tool to describe"),
 		),
 	)
-	m.mcpServer.AddTool(describeToolTool, m.handleDescribeTool)
+	m.mcpServer.AddTool(describeToolTool, m.forwardToServerMetaTool("describe_tool"))
 
 	// Describe resource
 	describeResourceTool := mcp.NewTool("describe_resource",
@@ -331,7 +342,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("URI of the resource to describe"),
 		),
 	)
-	m.mcpServer.AddTool(describeResourceTool, m.handleDescribeResource)
+	m.mcpServer.AddTool(describeResourceTool, m.forwardToServerMetaTool("describe_resource"))
 
 	// Describe prompt
 	describePromptTool := mcp.NewTool("describe_prompt",
@@ -341,7 +352,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Name of the prompt to describe"),
 		),
 	)
-	m.mcpServer.AddTool(describePromptTool, m.handleDescribePrompt)
+	m.mcpServer.AddTool(describePromptTool, m.forwardToServerMetaTool("describe_prompt"))
 
 	// Call tool
 	callToolTool := mcp.NewTool("call_tool",
@@ -354,7 +365,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Arguments to pass to the tool (as JSON object)"),
 		),
 	)
-	m.mcpServer.AddTool(callToolTool, m.handleCallTool)
+	m.mcpServer.AddTool(callToolTool, m.forwardToServerMetaTool("call_tool"))
 
 	// Get resource
 	getResourceTool := mcp.NewTool("get_resource",
@@ -364,7 +375,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("URI of the resource to retrieve"),
 		),
 	)
-	m.mcpServer.AddTool(getResourceTool, m.handleGetResource)
+	m.mcpServer.AddTool(getResourceTool, m.forwardToServerMetaTool("get_resource"))
 
 	// Get prompt
 	getPromptTool := mcp.NewTool("get_prompt",
@@ -377,7 +388,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Arguments to pass to the prompt (as JSON object with string values)"),
 		),
 	)
-	m.mcpServer.AddTool(getPromptTool, m.handleGetPrompt)
+	m.mcpServer.AddTool(getPromptTool, m.forwardToServerMetaTool("get_prompt"))
 
 	// List core tools
 	listCoreToolsTool := mcp.NewTool("list_core_tools",
@@ -386,7 +397,7 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
 		),
 	)
-	m.mcpServer.AddTool(listCoreToolsTool, m.handleListCoreTools)
+	m.mcpServer.AddTool(listCoreToolsTool, m.forwardToServerMetaTool("list_core_tools"))
 
 	// Filter tools
 	filterToolsTool := mcp.NewTool("filter_tools",
@@ -404,5 +415,39 @@ func (m *MCPServer) registerTools() {
 			mcp.Description("Whether to include full tool specifications with input schemas (default: true)"),
 		),
 	)
-	m.mcpServer.AddTool(filterToolsTool, m.handleFilterTools)
+	m.mcpServer.AddTool(filterToolsTool, m.forwardToServerMetaTool("filter_tools"))
+}
+
+// forwardToServerMetaTool creates a handler that forwards the call to a server meta-tool.
+// This implements the transport bridge pattern (Issue #344) where the agent acts as a
+// thin proxy between the AI client (stdio) and the server (HTTP).
+//
+// The handler:
+//  1. Extracts arguments from the MCP request
+//  2. Forwards to the server by calling the corresponding meta-tool
+//  3. Handles OAuth token expiration with re-authentication flow
+//  4. Wraps the result with auth status (ADR-008)
+func (m *MCPServer) forwardToServerMetaTool(metaToolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Extract arguments from MCP request
+		args := make(map[string]interface{})
+		if request.Params.Arguments != nil {
+			if argsMap, ok := request.Params.Arguments.(map[string]interface{}); ok {
+				args = argsMap
+			}
+		}
+
+		// Forward to server's meta-tool
+		result, err := m.client.CallTool(ctx, metaToolName, args)
+		if err != nil {
+			// Handle OAuth token expiration
+			if tokenResult := m.checkAndHandleTokenExpiration(ctx, err); tokenResult != nil {
+				return tokenResult, nil
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("Meta-tool execution failed: %v", err)), nil
+		}
+
+		// Wrap result with auth status (ADR-008)
+		return m.wrapToolResultWithAuth(result), nil
+	}
 }
