@@ -157,7 +157,7 @@ func (c *ContextCommand) findSimilarSubcommand(input string) string {
 			return cmd
 		}
 		// Check for missing/extra character
-		if abs(len(input)-len(cmd)) == 1 && hasCommonPrefix(input, cmd, 2) {
+		if absDiff(len(input), len(cmd)) == 1 && hasCommonPrefix(input, cmd, 2) {
 			return cmd
 		}
 	}
@@ -195,12 +195,14 @@ func hasCommonPrefix(a, b string, n int) bool {
 	return common >= n
 }
 
-// abs returns the absolute value of an integer.
-func abs(x int) int {
-	if x < 0 {
-		return -x
+// absDiff returns the absolute difference between two integers.
+// Using a specialized function instead of a generic abs() to avoid
+// importing math package for a simple integer operation.
+func absDiff(a, b int) int {
+	if a > b {
+		return a - b
 	}
-	return x
+	return b - a
 }
 
 // showCurrent displays the current context name.

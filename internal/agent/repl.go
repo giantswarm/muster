@@ -32,16 +32,27 @@ const promptChevronUnicode = "»"
 // promptChevronASCII is the fallback chevron for terminals without unicode support.
 const promptChevronASCII = ">"
 
-// promptStateAuthRequired is the indicator shown when servers require authentication.
-// This is the most important status indicator as it requires user action.
-const promptStateAuthRequired = "[AUTH REQUIRED]"
+// Connection state indicators for the REPL prompt.
+// These are exported for use by external tools that need to interpret REPL output.
+const (
+	// StateAuthRequired is the indicator shown when servers require authentication.
+	// This is displayed prominently in uppercase because it requires user action
+	// (running 'auth login'). This state takes priority over StateConnected.
+	StateAuthRequired = "[AUTH REQUIRED]"
 
-// promptStateConnected is shown when successfully connected and authenticated.
-const promptStateConnected = "[connected]"
+	// StateConnected is shown when successfully connected and authenticated.
+	// All servers are accessible and no authentication is pending.
+	StateConnected = "[connected]"
+)
 
 // maxContextNameLength is the maximum length for context names in the prompt.
 // Longer names are truncated with smart ellipsis to preserve distinguishing suffix.
 const maxContextNameLength = 28
+
+// commandExecutionTimeout is the timeout for individual REPL command execution.
+// Set to 5 minutes to allow for long-running tool calls while still providing
+// a safety net against hung operations.
+const commandExecutionTimeout = 5 * time.Minute
 
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
@@ -202,9 +213,9 @@ func (r *REPL) buildPrompt() string {
 
 	// Always show connection state - AUTH REQUIRED takes priority as it needs user action
 	if authReq {
-		parts = append(parts, promptStateAuthRequired)
+		parts = append(parts, StateAuthRequired)
 	} else {
-		parts = append(parts, promptStateConnected)
+		parts = append(parts, StateConnected)
 	}
 
 	parts = append(parts, chevron)
@@ -507,7 +518,7 @@ func (r *REPL) executeCommand(input string) error {
 	// Create a separate context for command execution with a reasonable timeout
 	// This prevents tool calls from being canceled by agent lifecycle events
 	// but still allows for reasonable timeouts and manual cancellation
-	commandCtx, commandCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	commandCtx, commandCancel := context.WithTimeout(context.Background(), commandExecutionTimeout)
 	defer commandCancel()
 
 	// Execute the command with timeout protection

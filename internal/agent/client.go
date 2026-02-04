@@ -1412,7 +1412,10 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 
 	resource, err := c.GetResource(ctx, "auth://status")
 	if err != nil {
-		// Silently return empty list - auth status is best-effort
+		// Log at debug level for troubleshooting - auth status is best-effort
+		if c.logger != nil {
+			c.logger.Debug("Failed to fetch auth://status: %v", err)
+		}
 		return []AuthRequiredInfo{}
 	}
 
