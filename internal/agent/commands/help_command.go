@@ -63,6 +63,7 @@ func (h *HelpCommand) showGeneralHelp() {
 	h.output.OutputLine("  prompt <name> [params...]    - Get a prompt (supports key=value or JSON)")
 	h.output.OutputLine("  workflow <name> [param=val]  - Execute a workflow with optional parameters")
 	h.output.OutputLine("  notifications <on|off>       - Enable/disable notification display")
+	h.output.OutputLine("  context, ctx [list|use <name>] - List or switch muster contexts")
 	h.output.OutputLine("  exit, quit                   - Exit the REPL")
 	h.output.OutputLine("")
 	h.output.OutputLine("Keyboard shortcuts:")

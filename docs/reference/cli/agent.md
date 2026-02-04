@@ -165,6 +165,44 @@ When using `--repl` mode, the following commands are available:
 - `describe prompt <name>` - Show prompt details
 - `prompt <name> {json}` - Execute prompt with arguments
 
+### Context Management
+
+- `context` - Show current context
+- `context list`, `context ls` - List all available contexts with endpoints
+- `context use <name>` - Switch to a different context (preferred)
+- `ctx` - Alias for `context` command
+
+When switching contexts, the REPL automatically reconnects to the new endpoint. If the new endpoint requires authentication (or the token has expired), the REPL will automatically initiate the OAuth login flow and retry the connection after successful authentication.
+
+The current context is displayed in the prompt:
+
+```
+𝗺 production » list tools
+𝗺 staging [AUTH REQUIRED] » call my_tool
+```
+
+**Prompt indicators:**
+- `[AUTH REQUIRED]` - One or more servers need authentication (run `auth login`) - displayed prominently in uppercase
+
+**Auto-reconnect with re-authentication:**
+```
+𝗺 local » context use production
+Switched to production (https://muster.example.com/mcp)
+Connecting...
+Authentication required for new endpoint
+Starting OAuth login flow...
+A browser window will open for authentication.
+Authentication successful
+Retrying connection...
+Connected
+
+𝗺 production »
+```
+
+Long context names are truncated using smart ellipsis that preserves both the start and end of the name (e.g., `production-...cluster`).
+
+**Terminal compatibility:** The prompt uses unicode characters (𝗺 ») by default. Falls back to ASCII (`m >`) on terminals without unicode support.
+
 ### Session Control
 
 - `notifications <on|off>` - Toggle notification display

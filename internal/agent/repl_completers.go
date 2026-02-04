@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"muster/internal/agent/commands"
+
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -219,6 +221,9 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 		commandCompleters[i] = readline.PcItem(name)
 	}
 
+	// Get context names for completion
+	contextCompleter := r.createContextCompleter()
+
 	return readline.NewPrefixCompleter(
 		// Commands with their specific completions
 		readline.PcItem("help", commandCompleters...),
@@ -250,7 +255,44 @@ func (r *REPL) createCompleter() *readline.PrefixCompleter {
 			readline.PcItem("on"),
 			readline.PcItem("off"),
 		),
+		readline.PcItem("context",
+			readline.PcItem("list"),
+			readline.PcItem("ls"),
+			readline.PcItem("use", contextCompleter...),
+			readline.PcItem("switch", contextCompleter...),
+		),
+		readline.PcItem("ctx",
+			readline.PcItem("list"),
+			readline.PcItem("ls"),
+			readline.PcItem("use", contextCompleter...),
+			readline.PcItem("switch", contextCompleter...),
+		),
 	)
+}
+
+// createContextCompleter creates completers for available context names.
+// It retrieves the context command from the registry and uses its GetContextNames method
+// to avoid duplicating the storage access logic.
+func (r *REPL) createContextCompleter() []readline.PrefixCompleterInterface {
+	// Get the context command from the registry to access its GetContextNames method
+	cmd, exists := r.commandRegistry.Get("context")
+	if !exists {
+		return nil
+	}
+
+	// Type assert to ContextCommand to access the GetContextNames method
+	ctxCmd, ok := cmd.(*commands.ContextCommand)
+	if !ok {
+		return nil
+	}
+
+	names := ctxCmd.GetContextNames()
+	completers := make([]readline.PrefixCompleterInterface, len(names))
+	for i, name := range names {
+		completers[i] = readline.PcItem(name)
+	}
+
+	return completers
 }
 
 // getWorkflowNames fetches workflow names for tab completion

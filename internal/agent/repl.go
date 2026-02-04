@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,39 @@ import (
 	"time"
 
 	"muster/internal/agent/commands"
+	"muster/internal/api"
+	musterctx "muster/internal/context"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// promptPrefixUnicode uses a mathematical bold "m" (𝗺) for muster branding in the REPL prompt.
+// Used when terminal supports unicode (most modern terminals).
+const promptPrefixUnicode = "𝗺"
+
+// promptPrefixASCII is the fallback prefix for terminals without unicode support.
+const promptPrefixASCII = "m"
+
+// promptChevronUnicode is the guillemet separator used in the prompt.
+const promptChevronUnicode = "»"
+
+// promptChevronASCII is the fallback chevron for terminals without unicode support.
+const promptChevronASCII = ">"
+
+// StateAuthRequired is the indicator shown in the REPL prompt when servers require authentication.
+// This is displayed prominently in uppercase because it requires user action (running 'auth login').
+// Exported for use by external tools that need to interpret REPL output.
+const StateAuthRequired = "[AUTH REQUIRED]"
+
+// maxContextNameLength is the maximum length for context names in the prompt.
+// Longer names are truncated with smart ellipsis to preserve distinguishing suffix.
+const maxContextNameLength = 28
+
+// commandExecutionTimeout is the timeout for individual REPL command execution.
+// Set to 5 minutes to allow for long-running tool calls while still providing
+// a safety net against hung operations.
+const commandExecutionTimeout = 5 * time.Minute
 
 // REPL represents an interactive Read-Eval-Print Loop for MCP interaction.
 // It provides a command-line interface for exploring and testing MCP capabilities
@@ -31,6 +61,7 @@ import (
 //   - Real-time notification display (SSE transport)
 //   - Graceful error handling and recovery
 //   - Transport-aware feature adaptation
+//   - Stylish prompt with current context display
 type REPL struct {
 	client           *Client
 	logger           *Logger
@@ -39,6 +70,10 @@ type REPL struct {
 	stopChan         chan struct{}
 	wg               sync.WaitGroup
 	commandRegistry  *commands.Registry
+	currentContext   string // Current muster context name for prompt display
+	authRequired     bool   // Whether any servers require authentication
+	useUnicode       bool   // Whether to use unicode characters in prompt
+	mu               sync.RWMutex
 }
 
 // NewREPL creates a new REPL instance with the specified client and logger.
@@ -54,6 +89,7 @@ type REPL struct {
 //   - Notification channel for real-time updates
 //   - Command registry with alias support
 //   - Transport adapter for command execution
+//   - Current context detection for stylish prompt display
 //
 // Example:
 //
@@ -63,18 +99,306 @@ type REPL struct {
 //	    log.Fatal(err)
 //	}
 func NewREPL(client *Client, logger *Logger) *REPL {
+	ctxName, ctxErr := loadCurrentContextWithError()
+	if ctxErr != nil {
+		logger.Debug("Failed to load current context: %v", ctxErr)
+	}
+
 	repl := &REPL{
 		client:           client,
 		logger:           logger,
 		notificationChan: make(chan mcp.JSONRPCNotification, 10),
 		stopChan:         make(chan struct{}),
 		commandRegistry:  commands.NewRegistry(),
+		currentContext:   ctxName,
+		useUnicode:       detectUnicodeSupport(),
 	}
 
 	// Register all commands
 	repl.registerCommands()
 
 	return repl
+}
+
+// loadCurrentContextWithError retrieves the current context name from storage.
+// Returns the context name and any error encountered.
+func loadCurrentContextWithError() (string, error) {
+	storage, err := musterctx.NewStorage()
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize context storage: %w", err)
+	}
+
+	name, err := storage.GetCurrentContextName()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current context: %w", err)
+	}
+
+	return name, nil
+}
+
+// detectUnicodeSupport checks if the terminal likely supports unicode characters.
+// Returns true for most modern terminals, false for dumb terminals or when uncertain.
+func detectUnicodeSupport() bool {
+	term := os.Getenv("TERM")
+	lang := os.Getenv("LANG")
+	lcAll := os.Getenv("LC_ALL")
+
+	// Dumb terminals or no terminal don't support unicode
+	if term == "" || term == "dumb" {
+		return false
+	}
+
+	// Check for UTF-8 in locale settings
+	for _, v := range []string{lang, lcAll} {
+		if strings.Contains(strings.ToLower(v), "utf-8") || strings.Contains(strings.ToLower(v), "utf8") {
+			return true
+		}
+	}
+
+	// Common terminals that support unicode
+	// Note: vt100 is intentionally excluded as it's a legacy terminal without unicode support
+	unicodeTerminals := []string{"xterm", "screen", "tmux", "alacritty", "kitty", "iterm"}
+	termLower := strings.ToLower(term)
+	for _, ut := range unicodeTerminals {
+		if strings.Contains(termLower, ut) {
+			return true
+		}
+	}
+
+	// Default to true for most modern environments
+	return true
+}
+
+// buildPrompt creates the REPL prompt with the current context.
+// Format examples:
+//   - "𝗺 »" - no context set
+//   - "𝗺 mycontext »" - context set
+//   - "𝗺 [AUTH REQUIRED] »" - no context, auth required
+//   - "𝗺 mycontext [AUTH REQUIRED] »" - context set, auth required
+//
+// The AUTH REQUIRED status is displayed prominently in uppercase to draw attention
+// since it requires user action (run 'auth login'). No status is shown when connected
+// normally to keep the prompt clean.
+//
+// Long context names are truncated to maxContextNameLength characters with smart ellipsis.
+// Falls back to ASCII characters if terminal doesn't support unicode.
+func (r *REPL) buildPrompt() string {
+	r.mu.RLock()
+	ctx := r.currentContext
+	authReq := r.authRequired
+	useUnicode := r.useUnicode
+	r.mu.RUnlock()
+
+	// Select prefix and chevron based on unicode support
+	prefix := promptPrefixASCII
+	chevron := promptChevronASCII
+	if useUnicode {
+		prefix = promptPrefixUnicode
+		chevron = promptChevronUnicode
+	}
+
+	var parts []string
+	parts = append(parts, prefix)
+
+	if ctx != "" {
+		parts = append(parts, truncateContextName(ctx))
+	}
+
+	// Only show AUTH REQUIRED when authentication is needed
+	if authReq {
+		parts = append(parts, StateAuthRequired)
+	}
+
+	parts = append(parts, chevron)
+
+	return strings.Join(parts, " ") + " "
+}
+
+// truncateContextName truncates long context names to fit in the prompt.
+// Uses smart truncation that preserves both the start and end of the name,
+// replacing the middle with "..." to keep distinguishing prefixes and suffixes.
+// Example: "production-us-east-1-cluster" becomes "production-...cluster"
+func truncateContextName(name string) string {
+	if len(name) <= maxContextNameLength {
+		return name
+	}
+
+	// Keep more of the start (60%) and less of the end (40%) after ellipsis
+	ellipsis := "..."
+	available := maxContextNameLength - len(ellipsis)
+	startLen := (available * 3) / 5 // 60% of available space
+	endLen := available - startLen  // 40% of available space
+
+	return name[:startLen] + ellipsis + name[len(name)-endLen:]
+}
+
+// updatePrompt refreshes the readline prompt with the current context.
+// This should be called when the context changes.
+func (r *REPL) updatePrompt() {
+	if r.rl != nil {
+		r.rl.SetPrompt(r.buildPrompt())
+	}
+}
+
+// setCurrentContext updates the current context and refreshes the prompt.
+// This is called by the context command when switching contexts.
+func (r *REPL) setCurrentContext(name string) {
+	r.mu.Lock()
+	r.currentContext = name
+	r.mu.Unlock()
+
+	r.updatePrompt()
+}
+
+// reconnectToEndpoint reconnects the client to a new endpoint.
+// This is called when switching to a context with a different endpoint.
+// Returns nil if the endpoint hasn't changed.
+//
+// If authentication fails (401), this method will automatically attempt to
+// re-authenticate using the auth handler, then retry the connection.
+func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) error {
+	currentEndpoint := r.client.GetEndpoint()
+	if currentEndpoint == newEndpoint {
+		r.logger.Debug("Same endpoint, skipping reconnection")
+		return nil // Same endpoint, no reconnection needed
+	}
+
+	// Show connecting indicator
+	r.logger.Output("Connecting...")
+
+	err := r.client.Reconnect(ctx, newEndpoint)
+	if err != nil {
+		// Check if this is an authentication error
+		if isAuthError(err) {
+			r.logger.Info("Authentication required for new endpoint")
+
+			// Attempt to re-authenticate
+			if authErr := r.authenticateForEndpoint(ctx, newEndpoint); authErr != nil {
+				return fmt.Errorf("authentication failed: %w", authErr)
+			}
+
+			// Retry connection after authentication
+			r.logger.Output("Retrying connection...")
+			if retryErr := r.client.Reconnect(ctx, newEndpoint); retryErr != nil {
+				return fmt.Errorf("failed to reconnect after authentication: %w", retryErr)
+			}
+		} else {
+			return fmt.Errorf("failed to reconnect: %w", err)
+		}
+	}
+
+	// Refresh the tab completer with new tools/resources/prompts
+	if r.rl != nil {
+		r.rl.Config.AutoComplete = r.createCompleter()
+	}
+
+	// Check auth status for the new endpoint
+	r.checkAuthRequired()
+
+	r.logger.Success("Connected")
+	return nil
+}
+
+// isAuthError checks if an error is related to authentication (401 Unauthorized).
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "401") ||
+		strings.Contains(errStr, "Unauthorized") ||
+		strings.Contains(errStr, "invalid_token") ||
+		strings.Contains(errStr, "Missing Authorization header")
+}
+
+// authenticateForEndpoint triggers OAuth authentication for the given endpoint.
+// This is used when switching contexts to an endpoint that requires authentication.
+func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) error {
+	// Only authenticate for remote endpoints
+	if !isRemoteEndpoint(endpoint) {
+		return nil
+	}
+
+	// Get auth handler from the API layer
+	// The handler should already be registered by cmd/agent.go before the REPL starts
+	handler := api.GetAuthHandler()
+	if handler == nil {
+		return fmt.Errorf("authentication handler not available - try restarting with 'muster agent --repl'")
+	}
+
+	// Check if we already have a valid token
+	if handler.HasValidToken(endpoint) {
+		token, err := handler.GetBearerToken(endpoint)
+		if err == nil {
+			r.client.SetAuthorizationHeader(token)
+			r.logger.Info("Using existing authentication token")
+			return nil
+		}
+		// Token retrieval failed, continue to login
+	}
+
+	// Set session ID for MCP server token persistence
+	if sessionID := handler.GetSessionID(); sessionID != "" {
+		r.client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
+	// Initiate OAuth login
+	r.logger.Info("Starting OAuth login flow...")
+	r.logger.Info("A browser window will open for authentication.")
+
+	if err := handler.Login(ctx, endpoint); err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+
+	// Get the token and set it on the client
+	token, err := handler.GetBearerToken(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to get authentication token: %w", err)
+	}
+	r.client.SetAuthorizationHeader(token)
+	r.logger.Success("Authentication successful")
+
+	return nil
+}
+
+// isRemoteEndpoint checks if an endpoint URL points to a remote server.
+// It properly parses the URL and checks only the hostname, avoiding false positives
+// when "localhost" appears in the path or query string.
+func isRemoteEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		// If we can't parse the URL, assume it's remote for safety
+		return true
+	}
+
+	host := strings.ToLower(u.Hostname())
+	return host != "localhost" && host != "127.0.0.1" && host != "::1"
+}
+
+// checkAuthRequired checks if any servers require authentication and updates the prompt.
+// Prints an actionable hint when auth status changes to requiring authentication.
+func (r *REPL) checkAuthRequired() {
+	authInfos := r.client.GetAuthRequired()
+	authRequired := len(authInfos) > 0
+
+	r.mu.Lock()
+	changed := r.authRequired != authRequired
+	r.authRequired = authRequired
+	r.mu.Unlock()
+
+	if changed {
+		r.updatePrompt()
+
+		// Print actionable hint when auth becomes required
+		if authRequired {
+			serverNames := make([]string, 0, len(authInfos))
+			for _, info := range authInfos {
+				serverNames = append(serverNames, info.Server)
+			}
+			r.logger.Info("Authentication required for: %s", strings.Join(serverNames, ", "))
+			r.logger.Info("Run 'auth login' to authenticate")
+		}
+	}
 }
 
 // registerCommands registers all available commands with the command registry.
@@ -92,6 +416,7 @@ func NewREPL(client *Client, logger *Logger) *REPL {
 //   - filter: Advanced pattern-based tool filtering
 //   - notifications: Toggle and manage real-time updates
 //   - workflow: Execute workflows with parameters
+//   - context: List and switch between muster contexts
 //   - exit: Graceful session termination
 //
 // Each command is provided with access to the client, logger, and transport
@@ -110,6 +435,7 @@ func (r *REPL) registerCommands() {
 	r.commandRegistry.Register("filter", commands.NewFilterCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("notifications", commands.NewNotificationsCommand(r.client, r.logger, transport))
 	r.commandRegistry.Register("workflow", commands.NewWorkflowCommand(r.client, r.logger, transport))
+	r.commandRegistry.Register("context", commands.NewContextCommand(r.client, r.logger, transport, r.setCurrentContext, r.reconnectToEndpoint))
 	r.commandRegistry.Register("exit", commands.NewExitCommand(r.client, r.logger, transport))
 }
 
@@ -183,7 +509,7 @@ func (r *REPL) executeCommand(input string) error {
 	// Create a separate context for command execution with a reasonable timeout
 	// This prevents tool calls from being canceled by agent lifecycle events
 	// but still allows for reasonable timeouts and manual cancellation
-	commandCtx, commandCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	commandCtx, commandCancel := context.WithTimeout(context.Background(), commandExecutionTimeout)
 	defer commandCancel()
 
 	// Execute the command with timeout protection
@@ -237,7 +563,7 @@ func (r *REPL) Run(ctx context.Context) error {
 	historyFile := filepath.Join(os.TempDir(), ".muster_agent_history")
 
 	config := &readline.Config{
-		Prompt:          "MCP> ",
+		Prompt:          r.buildPrompt(),
 		HistoryFile:     historyFile,
 		AutoComplete:    completer,
 		InterruptPrompt: "^C",
@@ -253,6 +579,9 @@ func (r *REPL) Run(ctx context.Context) error {
 	}
 	defer rl.Close()
 	r.rl = rl
+
+	// Check initial auth status for prompt display
+	r.checkAuthRequired()
 
 	// Start notification listener in background for transports that support notifications
 	if r.client.SupportsNotifications() {
@@ -364,13 +693,17 @@ func (r *REPL) notificationListener(ctx context.Context) {
 				r.logger.Error("Failed to handle notification: %v", err)
 			}
 
-			// Update completer if items changed to reflect new capabilities
+			// Update completer and auth status if items changed
 			switch notification.Method {
 			case "notifications/tools/list_changed",
 				"notifications/resources/list_changed",
 				"notifications/prompts/list_changed":
 				if r.rl != nil {
 					r.rl.Config.AutoComplete = r.createCompleter()
+				}
+				// Resources changed - auth status may have updated
+				if notification.Method == "notifications/resources/list_changed" {
+					r.checkAuthRequired()
 				}
 			}
 

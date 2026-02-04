@@ -982,6 +982,77 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Reconnect closes the current connection and reconnects to a new endpoint.
+// This method is used when switching contexts to connect to a different
+// muster aggregator without restarting the REPL.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//   - newEndpoint: The new MCP server endpoint URL to connect to
+//
+// The method performs:
+//   - Closes the existing connection
+//   - Updates the endpoint
+//   - Creates a new connection
+//   - Reinitializes the session and reloads all cached data
+//
+// Example:
+//
+//	if err := client.Reconnect(ctx, "https://new-server.example.com/mcp"); err != nil {
+//	    return fmt.Errorf("reconnection failed: %w", err)
+//	}
+func (c *Client) Reconnect(ctx context.Context, newEndpoint string) error {
+	// Use mutex to protect c.client access during reconnection.
+	// This prevents race conditions if other goroutines try to use the client
+	// while we're reconnecting.
+	c.mu.Lock()
+
+	// Close existing connection
+	if c.client != nil {
+		c.client.Close()
+		c.client = nil
+	}
+
+	// Update endpoint and clear caches for fresh start
+	c.endpoint = newEndpoint
+	c.toolCache = []mcp.Tool{}
+	c.resourceCache = []mcp.Resource{}
+	c.promptCache = []mcp.Prompt{}
+	c.serverInfo = nil
+
+	c.mu.Unlock()
+
+	// Create and connect new client (outside lock to avoid holding lock during I/O)
+	mcpClient, err := c.createAndConnectClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to connect to new endpoint: %w", err)
+	}
+
+	c.mu.Lock()
+	c.client = mcpClient
+	c.mu.Unlock()
+
+	// Initialize session and load data
+	if err := c.InitializeAndLoadData(ctx); err != nil {
+		c.mu.Lock()
+		if c.client != nil {
+			c.client.Close()
+			c.client = nil
+		}
+		c.mu.Unlock()
+		return fmt.Errorf("failed to initialize new connection: %w", err)
+	}
+
+	return nil
+}
+
+// GetEndpoint returns the current endpoint URL.
+func (c *Client) GetEndpoint() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.endpoint
+}
+
 // NotificationHandler defines a function type for handling MCP notifications.
 // It receives JSON-RPC notifications from the MCP server and can be used
 // to implement custom notification processing logic.
@@ -1341,7 +1412,10 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 
 	resource, err := c.GetResource(ctx, "auth://status")
 	if err != nil {
-		// Silently return empty list - auth status is best-effort
+		// Log at debug level for troubleshooting - auth status is best-effort
+		if c.logger != nil {
+			c.logger.Debug("Failed to fetch auth://status: %v", err)
+		}
 		return []AuthRequiredInfo{}
 	}
 
