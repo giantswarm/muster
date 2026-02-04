@@ -182,8 +182,15 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interf
 		return textResult("No tools available to filter"), nil
 	}
 
+	// Validate pattern syntax before filtering
+	if pattern != "" {
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return errorResult(fmt.Sprintf("Invalid pattern %q: %v", pattern, err)), nil
+		}
+	}
+
 	// Filter tools based on criteria
-	var filteredTools []map[string]interface{}
+	filteredTools := make([]map[string]interface{}, 0, len(tools))
 
 	for _, tool := range tools {
 		matches := true
@@ -198,12 +205,8 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interf
 				searchPattern = strings.ToLower(searchPattern)
 			}
 
-			var err error
-			matches, err = filepath.Match(searchPattern, toolName)
-			if err != nil {
-				logging.Error("metatools", err, "bad pattern for filter")
-				matches = false
-			}
+			// Pattern already validated above, error won't occur
+			matches, _ = filepath.Match(searchPattern, toolName)
 		}
 
 		// Check description filter

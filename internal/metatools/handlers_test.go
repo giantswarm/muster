@@ -232,6 +232,16 @@ func TestProvider_HandleFilterTools(t *testing.T) {
 
 		assert.Equal(t, float64(1), parsed["filtered_count"])
 	})
+
+	t.Run("error for invalid pattern", func(t *testing.T) {
+		result, err := provider.ExecuteTool(ctx, "filter_tools", map[string]interface{}{
+			"pattern": "[invalid",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content[0].(string), "Invalid pattern")
+	})
 }
 
 func TestProvider_HandleCallTool(t *testing.T) {
@@ -337,6 +347,71 @@ func TestProvider_HandleDescribeResource(t *testing.T) {
 
 	t.Run("error for missing uri", func(t *testing.T) {
 		result, err := provider.ExecuteTool(ctx, "describe_resource", nil)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, result.Content[0].(string), "uri argument is required")
+	})
+}
+
+func TestProvider_HandleGetResource(t *testing.T) {
+	provider := NewProvider()
+	ctx := context.Background()
+
+	t.Run("retrieves text resource", func(t *testing.T) {
+		mock := &mockMetaToolsHandler{
+			getResourceResult: &mcp.ReadResourceResult{
+				Contents: []mcp.ResourceContents{
+					mcp.TextResourceContents{
+						URI:      "file://test.txt",
+						MIMEType: "text/plain",
+						Text:     "Hello, World!",
+					},
+				},
+			},
+		}
+		cleanup := registerMockHandler(mock)
+		defer cleanup()
+
+		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]interface{}{
+			"uri": "file://test.txt",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.False(t, result.IsError)
+		assert.Contains(t, result.Content[0].(string), "Hello, World!")
+	})
+
+	t.Run("retrieves blob resource", func(t *testing.T) {
+		mock := &mockMetaToolsHandler{
+			getResourceResult: &mcp.ReadResourceResult{
+				Contents: []mcp.ResourceContents{
+					mcp.BlobResourceContents{
+						URI:      "file://binary.dat",
+						MIMEType: "application/octet-stream",
+						Blob:     "YmluYXJ5ZGF0YQ==", // base64 encoded "binarydata"
+					},
+				},
+			},
+		}
+		cleanup := registerMockHandler(mock)
+		defer cleanup()
+
+		result, err := provider.ExecuteTool(ctx, "get_resource", map[string]interface{}{
+			"uri": "file://binary.dat",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.False(t, result.IsError)
+		assert.Contains(t, result.Content[0].(string), "Binary data")
+	})
+
+	t.Run("error for missing uri", func(t *testing.T) {
+		mock := &mockMetaToolsHandler{}
+		cleanup := registerMockHandler(mock)
+		defer cleanup()
+
+		result, err := provider.ExecuteTool(ctx, "get_resource", nil)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, result.IsError)
