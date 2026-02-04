@@ -2,7 +2,11 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // DescribeCommand shows detailed information about tools, resources, or prompts
@@ -29,7 +33,7 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 
 	switch itemType {
 	case "tool":
-		return d.describeTool(itemName)
+		return d.describeTool(ctx, itemName)
 	case "resource":
 		return d.describeResource(itemName)
 	case "prompt":
@@ -39,16 +43,53 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 	}
 }
 
-// describeTool shows detailed information about a tool
-func (d *DescribeCommand) describeTool(name string) error {
-	tools := d.client.GetToolCache()
-	tool := d.getFormatters().FindTool(tools, name)
-	if tool == nil {
-		d.output.Error("Tool not found: %s", name)
+// describeTool shows detailed information about a tool by calling the describe_tool meta-tool.
+// This works with actual tools (core_*, x_*, workflow_*) rather than meta-tools.
+func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
+	// Call the describe_tool meta-tool
+	result, err := d.client.CallTool(ctx, "describe_tool", map[string]interface{}{
+		"name": name,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to describe tool: %w", err)
+	}
+
+	if result.IsError {
+		for _, content := range result.Content {
+			if textContent, ok := content.(mcp.TextContent); ok {
+				d.output.Error("%s", textContent.Text)
+			}
+		}
 		return nil
 	}
 
-	d.output.OutputLine(d.getFormatters().FormatToolDetail(*tool))
+	// Parse and display the JSON response from describe_tool
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			var toolInfo struct {
+				Name        string      `json:"name"`
+				Description string      `json:"description"`
+				InputSchema interface{} `json:"inputSchema"`
+			}
+
+			if err := json.Unmarshal([]byte(textContent.Text), &toolInfo); err != nil {
+				// Not JSON, just output the raw text
+				d.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			d.output.OutputLine("Tool: %s", toolInfo.Name)
+			d.output.OutputLine("Description: %s", toolInfo.Description)
+			if toolInfo.InputSchema != nil {
+				schemaJSON, _ := json.MarshalIndent(toolInfo.InputSchema, "", "  ")
+				d.output.OutputLine("Input Schema:\n%s", string(schemaJSON))
+			}
+
+			return nil
+		}
+	}
+
+	d.output.Error("No information returned for tool: %s", name)
 	return nil
 }
 

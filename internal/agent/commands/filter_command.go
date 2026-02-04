@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,11 +23,6 @@ func NewFilterCommand(client ClientInterface, output OutputLogger, transport Tra
 
 // Execute filters tools based on patterns
 func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
-	if err := f.client.RefreshToolCache(ctx); err != nil {
-		f.output.Error("Failed to refresh tool cache: %v", err)
-		// Continue with the cached tools if refresh fails
-	}
-
 	parsed, err := f.parseArgs(args, 1, f.Usage())
 	if err != nil {
 		return err
@@ -53,66 +50,114 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		detailed = strings.ToLower(parsed[4]) == "true"
 	}
 
-	return f.filterTools(pattern, descriptionFilter, caseSensitive, detailed)
+	return f.filterTools(ctx, pattern, descriptionFilter, caseSensitive, detailed)
 }
 
-// filterTools filters tools by pattern and description
-func (f *FilterCommand) filterTools(pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
-	tools := f.client.GetToolCache()
-	if len(tools) == 0 {
-		f.output.OutputLine("No tools available to filter")
-		return nil
+// filterTools filters tools by calling the filter_tools meta-tool.
+// This returns actual tools (core_*, x_*, workflow_*) rather than meta-tools.
+func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFilter string, caseSensitive bool, detailed bool) error {
+	// Build args for the filter_tools meta-tool
+	toolArgs := map[string]interface{}{
+		"case_sensitive": caseSensitive,
+		"include_schema": detailed,
+	}
+	if pattern != "" {
+		toolArgs["pattern"] = pattern
+	}
+	if descriptionFilter != "" {
+		toolArgs["description_filter"] = descriptionFilter
 	}
 
-	var filteredTools []mcp.Tool
-
-	for _, tool := range tools {
-		nameMatch := pattern == "" || f.matchesPattern(tool.Name, pattern, caseSensitive)
-		descMatch := descriptionFilter == "" || f.containsDescription(tool.Description, descriptionFilter, caseSensitive)
-
-		if nameMatch && descMatch {
-			filteredTools = append(filteredTools, tool)
-		}
+	// Call the filter_tools meta-tool
+	result, err := f.client.CallTool(ctx, "filter_tools", toolArgs)
+	if err != nil {
+		return fmt.Errorf("failed to filter tools: %w", err)
 	}
 
-	// Show filter details if in verbose mode
-	if pattern != "" || descriptionFilter != "" {
-		f.output.Info("Filtering tools with:")
-		if pattern != "" {
-			f.output.Info("  Pattern: %s", pattern)
-		}
-		if descriptionFilter != "" {
-			f.output.Info("  Description filter: %s", descriptionFilter)
-		}
-		f.output.Info("  Case sensitive: %t", caseSensitive)
-		f.output.Info("Results: %d of %d tools match", len(filteredTools), len(tools))
-	}
-
-	if len(filteredTools) == 0 {
-		f.output.OutputLine("No tools match the specified filters.")
-		return nil
-	}
-
-	// Display matching tools - brief mode by default for better CLI UX
-	if detailed {
-		// Detailed mode - show full specifications (optional)
-		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
-		f.output.OutputLine(strings.Repeat("=", 60))
-
-		for i, tool := range filteredTools {
-			f.output.OutputLine("\n%d. %s", i+1, f.getFormatters().FormatToolDetail(tool))
-			if i < len(filteredTools)-1 {
-				f.output.OutputLine(strings.Repeat("-", 40))
+	if result.IsError {
+		f.output.Error("Error filtering tools:")
+		for _, content := range result.Content {
+			if textContent, ok := content.(mcp.TextContent); ok {
+				f.output.OutputLine("  %s", textContent.Text)
 			}
 		}
-	} else {
-		// Brief mode - show simple list (default for good CLI UX)
-		f.output.OutputLine("\nMatching tools:")
-		for i, tool := range filteredTools {
-			f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+		return nil
+	}
+
+	// Parse the JSON response from filter_tools
+	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			var response struct {
+				Filters struct {
+					Pattern           string `json:"pattern"`
+					DescriptionFilter string `json:"description_filter"`
+					CaseSensitive     bool   `json:"case_sensitive"`
+					IncludeSchema     bool   `json:"include_schema"`
+				} `json:"filters"`
+				TotalTools    int `json:"total_tools"`
+				FilteredCount int `json:"filtered_count"`
+				Tools         []struct {
+					Name        string      `json:"name"`
+					Description string      `json:"description"`
+					InputSchema interface{} `json:"inputSchema,omitempty"`
+				} `json:"tools"`
+			}
+
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				f.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			// Show filter details
+			if pattern != "" || descriptionFilter != "" {
+				f.output.Info("Filtering tools with:")
+				if pattern != "" {
+					f.output.Info("  Pattern: %s", pattern)
+				}
+				if descriptionFilter != "" {
+					f.output.Info("  Description filter: %s", descriptionFilter)
+				}
+				f.output.Info("  Case sensitive: %t", caseSensitive)
+				f.output.Info("Results: %d of %d tools match", response.FilteredCount, response.TotalTools)
+			}
+
+			if len(response.Tools) == 0 {
+				f.output.OutputLine("No tools match the specified filters.")
+				return nil
+			}
+
+			// Display matching tools - brief mode by default for better CLI UX
+			if detailed {
+				// Detailed mode - show full specifications (optional)
+				f.output.OutputLine("\nFiltered Tools with Full Specifications:")
+				f.output.OutputLine(strings.Repeat("=", 60))
+
+				for i, tool := range response.Tools {
+					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
+					f.output.OutputLine("   Description: %s", tool.Description)
+					if tool.InputSchema != nil {
+						schemaJSON, _ := json.MarshalIndent(tool.InputSchema, "   ", "  ")
+						f.output.OutputLine("   Schema: %s", string(schemaJSON))
+					}
+					if i < len(response.Tools)-1 {
+						f.output.OutputLine(strings.Repeat("-", 40))
+					}
+				}
+			} else {
+				// Brief mode - show simple list (default for good CLI UX)
+				f.output.OutputLine("\nMatching tools:")
+				for i, tool := range response.Tools {
+					f.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+				}
+			}
+
+			return nil
 		}
 	}
 
+	f.output.OutputLine("No tools available to filter")
 	return nil
 }
 

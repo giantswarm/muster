@@ -31,11 +31,7 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	target := strings.ToLower(args[0])
 	switch target {
 	case "tool", "tools":
-		if err := l.client.RefreshToolCache(ctx); err != nil {
-			l.output.Error("Failed to refresh tool cache: %v", err)
-			// Continue with the cached tools if refresh fails
-		}
-		return l.listTools()
+		return l.listTools(ctx)
 	case "resource", "resources":
 		if err := l.client.RefreshResourceCache(ctx); err != nil {
 			l.output.Error("Failed to refresh resource cache: %v", err)
@@ -51,10 +47,6 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	case "workflow", "workflows":
 		return l.listWorkflows(ctx)
 	case "core-tool", "core-tools":
-		if err := l.client.RefreshToolCache(ctx); err != nil {
-			l.output.Error("Failed to refresh tool cache: %v", err)
-			// Continue with the cached tools if refresh fails
-		}
 		return l.listCoreTools(ctx)
 	default:
 		return l.validateTarget(target, []string{
@@ -67,10 +59,79 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	}
 }
 
-// listTools lists all available tools
-func (l *ListCommand) listTools() error {
-	tools := l.client.GetToolCache()
-	l.output.OutputLine(l.getFormatters().FormatToolsList(tools))
+// listTools lists all available tools by calling the list_tools meta-tool.
+// This returns the actual tools (core_*, x_*, workflow_*) rather than the
+// meta-tools exposed by the MCP native tools/list protocol.
+func (l *ListCommand) listTools(ctx context.Context) error {
+	// Call the list_tools meta-tool to get actual tools
+	result, err := l.client.CallTool(ctx, "list_tools", map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("failed to list tools: %w", err)
+	}
+
+	if result.IsError {
+		l.output.Error("Error listing tools:")
+		for _, content := range result.Content {
+			if textContent, ok := content.(mcp.TextContent); ok {
+				l.output.OutputLine("  %s", textContent.Text)
+			}
+		}
+		return nil
+	}
+
+	// Parse the JSON response from list_tools
+	// Format: {"tools": [{"name": "...", "description": "..."}, ...], "servers_requiring_auth": [...]}
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			var response struct {
+				Tools []struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+				} `json:"tools"`
+				ServersRequiringAuth []struct {
+					Name     string `json:"name"`
+					Status   string `json:"status"`
+					AuthTool string `json:"auth_tool"`
+				} `json:"servers_requiring_auth"`
+			}
+
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				l.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			if len(response.Tools) == 0 {
+				l.output.OutputLine("No tools available")
+				return nil
+			}
+
+			// Sort tools alphabetically by name
+			sort.Slice(response.Tools, func(i, j int) bool {
+				return response.Tools[i].Name < response.Tools[j].Name
+			})
+
+			l.output.OutputLine("Available tools (%d):", len(response.Tools))
+			l.output.OutputLine("")
+
+			for i, tool := range response.Tools {
+				l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, tool.Description)
+			}
+
+			// Show servers requiring auth if any
+			if len(response.ServersRequiringAuth) > 0 {
+				l.output.OutputLine("")
+				l.output.OutputLine("Servers requiring authentication:")
+				for _, server := range response.ServersRequiringAuth {
+					l.output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
+				}
+			}
+
+			return nil
+		}
+	}
+
+	l.output.OutputLine("No tools available")
 	return nil
 }
 
@@ -88,42 +149,68 @@ func (l *ListCommand) listPrompts() error {
 	return nil
 }
 
-// listCoreTools lists muster core tools by filtering tools that start with "core_"
+// listCoreTools lists muster core tools by calling the list_core_tools meta-tool.
+// This returns only the core_* tools which are muster's built-in functionality.
 func (l *ListCommand) listCoreTools(ctx context.Context) error {
 	l.output.Info("Fetching core muster tools...")
 
-	// Get all tools from cache
-	tools := l.client.GetToolCache()
+	// Call the list_core_tools meta-tool
+	result, err := l.client.CallTool(ctx, "list_core_tools", map[string]interface{}{})
+	if err != nil {
+		return fmt.Errorf("failed to list core tools: %w", err)
+	}
 
-	if len(tools) == 0 {
-		l.output.OutputLine("No tools available")
+	if result.IsError {
+		l.output.Error("Error listing core tools:")
+		for _, content := range result.Content {
+			if textContent, ok := content.(mcp.TextContent); ok {
+				l.output.OutputLine("  %s", textContent.Text)
+			}
+		}
 		return nil
 	}
 
-	// Filter tools that start with "core" (case-insensitive)
-	var coreTools []mcp.Tool
-	pattern := "core"
+	// Parse the JSON response from list_core_tools
+	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			var response struct {
+				TotalTools    int `json:"total_tools"`
+				FilteredCount int `json:"filtered_count"`
+				Tools         []struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+				} `json:"tools"`
+			}
 
-	for _, tool := range tools {
-		toolName := strings.ToLower(tool.Name)
-		if strings.HasPrefix(toolName, pattern) {
-			coreTools = append(coreTools, tool)
+			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+				// Not JSON, just output the raw text
+				l.output.OutputLine(textContent.Text)
+				return nil
+			}
+
+			if len(response.Tools) == 0 {
+				l.output.OutputLine("No core tools found (searched %d total tools)", response.TotalTools)
+				return nil
+			}
+
+			// Sort tools alphabetically by name
+			sort.Slice(response.Tools, func(i, j int) bool {
+				return response.Tools[i].Name < response.Tools[j].Name
+			})
+
+			l.output.OutputLine("Core muster tools (%d found out of %d total):", response.FilteredCount, response.TotalTools)
+			l.output.OutputLine("")
+
+			for i, tool := range response.Tools {
+				l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, tool.Description)
+			}
+
+			return nil
 		}
 	}
 
-	if len(coreTools) == 0 {
-		l.output.OutputLine("No core tools found (searched %d total tools)", len(tools))
-		return nil
-	}
-
-	l.output.OutputLine("Core muster tools (%d found out of %d total):", len(coreTools), len(tools))
-	l.output.OutputLine("")
-
-	// Display each core tool
-	for i, tool := range coreTools {
-		l.output.OutputLine("  %d. %-27s - %s", i+1, tool.Name, tool.Description)
-	}
-
+	l.output.OutputLine("No core tools found")
 	return nil
 }
 
