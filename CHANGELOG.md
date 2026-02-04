@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+> **Note:** The Server-Side Meta-Tools Migration below is a **breaking change** that will be released as part of the next major version. External integrations should prepare for this change.
+
 ### Breaking Changes
 
 #### Server-Side Meta-Tools Migration
@@ -48,6 +50,16 @@ Meta-tools (`list_tools`, `call_tool`, `describe_tool`, etc.) have moved from th
 - Centralized meta-tool logic
 
 See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for design details.
+
+**Known External Integrations Affected:**
+- Any HTTP clients calling the aggregator directly
+- Custom MCP clients not using `muster agent`
+- CI/CD pipelines with direct tool calls
+
+**Recommended Migration Timeline:**
+1. Review your integration code for direct tool calls
+2. Update to wrap calls through `call_tool` meta-tool
+3. Test with the new Muster version before deploying
 
 ### Changed
 - **MCPServer CRD State Exposes Auth Required** - The MCPServer CRD now shows `Auth Required` state when a remote server returns 401 Unauthorized ([#337](https://github.com/giantswarm/muster/issues/337))

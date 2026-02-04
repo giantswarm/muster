@@ -1425,4 +1425,107 @@ Get detailed information about a specific workflow execution.
 
 ### How Workflow Execution Tools Work
 
-1. **Workflow Definition**: You create workflows using `
+1. **Workflow Definition**: You create workflows using `core_workflow_create` or by placing YAML files in `.muster/workflows/`
+2. **Tool Generation**: Muster automatically creates a corresponding `workflow_<name>` tool
+3. **Tool Discovery**: The workflow tool appears in `list_tools()` output
+4. **Tool Execution**: Execute via `call_tool(name="workflow_<name>", arguments={...})`
+
+### Example
+
+If you create a workflow named `deploy-webapp`:
+
+```yaml
+# .muster/workflows/deploy-webapp.yaml
+name: deploy-webapp
+description: "Deploy web application to Kubernetes"
+args:
+  app_name:
+    type: string
+    required: true
+  environment:
+    type: string
+    default: "staging"
+steps:
+  - id: create-service
+    tool: core_service_create
+    args:
+      name: "{{.app_name}}-{{.environment}}"
+      serviceClassName: "web-app"
+```
+
+This generates a `workflow_deploy-webapp` tool that you execute via:
+
+```json
+{
+  "name": "call_tool",
+  "arguments": {
+    "name": "workflow_deploy-webapp",
+    "arguments": {
+      "app_name": "my-service",
+      "environment": "production"
+    }
+  }
+}
+```
+
+### Workflow Tool Naming Convention
+
+| Workflow Name | Generated Tool Name |
+|---------------|---------------------|
+| `deploy-webapp` | `workflow_deploy-webapp` |
+| `connect-monitoring` | `workflow_connect-monitoring` |
+| `auth-kubernetes` | `workflow_auth-kubernetes` |
+
+---
+
+## External Tools
+
+External MCP tools come from your configured MCP servers (Kubernetes, Prometheus, Teleport, etc.). These are accessed the same way as core tools - via `call_tool`.
+
+### Naming Convention
+
+External tools follow the pattern: `x_<mcpserver-name>_<tool-name>`
+
+| MCP Server | Tool | Full Name |
+|------------|------|-----------|
+| `kubernetes` | `get_pods` | `x_kubernetes_get_pods` |
+| `prometheus` | `query` | `x_prometheus_query` |
+| `teleport` | `kube_login` | `x_teleport_kube_login` |
+
+### Example: Kubernetes Tool
+
+```json
+{
+  "name": "call_tool",
+  "arguments": {
+    "name": "x_kubernetes_get_pods",
+    "arguments": {
+      "namespace": "default",
+      "labelSelector": "app=my-service"
+    }
+  }
+}
+```
+
+### Discovering External Tools
+
+Use meta-tools to discover what external tools are available:
+
+```bash
+# List all tools including external
+list_tools()
+
+# Filter to specific MCP server
+filter_tools(pattern="x_kubernetes_*")
+
+# Get details about a specific external tool
+describe_tool(name="x_kubernetes_get_pods")
+```
+
+---
+
+## Migration Note
+
+> **For users familiar with previous Muster versions:** The tool access model has changed. Previously, tools like `core_service_list` could be called directly. Now, **all tool calls must go through the `call_tool` meta-tool**. The server exposes only meta-tools; actual tools are accessed via `call_tool(name="...", arguments={...})`.
+>
+> See the [CHANGELOG](../../CHANGELOG.md) for migration details and [ADR-010](../explanation/decisions/010-server-side-meta-tools.md) for the architectural rationale

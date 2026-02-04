@@ -14,7 +14,7 @@ graph TB
     end
     
     subgraph "Muster System"
-        MusterAgent[muster agent<br/>--mcp-server<br/>OAuth Shim + Transport Bridge]
+        MusterAgent[muster agent<br/>--mcp-server<br/>Transport Bridge + OAuth]
         
         subgraph "Aggregator Server (muster serve)"
             MetaTools[Meta-Tools Interface<br/>list_tools, call_tool, etc.]
@@ -114,7 +114,7 @@ The agent is a **thin transport bridge** for non-OAuth MCP clients:
 ```mermaid
 sequenceDiagram
     participant AI as AI Agent
-    participant Agent as muster agent<br/>(OAuth Shim)
+    participant Agent as muster agent<br/>(Transport Bridge)
     participant Server as muster serve<br/>(Meta-Tools)
     participant Core as Core Tools
     participant Ext as External MCP
