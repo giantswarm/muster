@@ -124,7 +124,8 @@ steps:
       input: "should-fail"
     expected:
       success: false
-      error_contains: ["tool not found"]
+      # Error message changed as part of server-side meta-tools migration (Issue #343)
+      error_contains: ["server not found"]
 
   # Phase 4: Restart HTTP service and verify all work again
   - id: "start-http-service"

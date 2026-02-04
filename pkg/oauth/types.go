@@ -256,17 +256,26 @@ type ClientMetadata struct {
 }
 
 // Server status constants for use in ServerAuthStatus.Status field.
+// These are the primary status values visible to users and AI assistants.
 const (
 	// ServerStatusConnected indicates the server is connected and operational.
+	// Tools from this server are available for use.
 	ServerStatusConnected = "connected"
 
 	// ServerStatusAuthRequired indicates the server requires OAuth authentication.
+	// This is an important status that requires user action: run 'muster auth login --server <name>'.
+	// The server is reachable but needs authentication before tools become available.
+	//
+	// This status is more informative than a generic "Disconnected" because it tells
+	// users exactly what action is needed to restore connectivity.
 	ServerStatusAuthRequired = "auth_required"
 
 	// ServerStatusDisconnected indicates the server is disconnected.
+	// The connection was previously established but is no longer active.
 	ServerStatusDisconnected = "disconnected"
 
 	// ServerStatusError indicates the server encountered an error.
+	// Check the error field for details about what went wrong.
 	ServerStatusError = "error"
 
 	// ServerStatusUnreachable indicates the server endpoint cannot be reached.
@@ -283,6 +292,15 @@ const (
 	// unexpected error during communication). This is distinct from infrastructure
 	// failures (tracked in MCPServer Phase) and auth failures (tracked in AuthStatus).
 	ServerStatusFailed = "failed"
+)
+
+// Display constants for user-facing output.
+// These are formatted strings suitable for CLI prompts and status displays.
+const (
+	// DisplayAuthRequired is the formatted string shown in CLI prompts when servers require authentication.
+	// This is displayed prominently in uppercase because it requires user action (running 'auth login').
+	// Example prompt: "muster staging [AUTH REQUIRED] > "
+	DisplayAuthRequired = "[AUTH REQUIRED]"
 )
 
 // AuthStatusResponse is the structured response from the auth://status MCP resource.

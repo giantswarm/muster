@@ -238,19 +238,20 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 			eh.generateEvent(event.Name, events.ReasonMCPServerToolsDiscovered, events.EventData{})
 		}
 	} else {
-		// Skip deregistration for servers in "waiting" state
-		// This state is used when a server requires OAuth authentication.
-		// The server is waiting for the user to authenticate, and the orchestrator
-		// will register a synthetic auth tool. We must not deregister during this transition.
-		if event.NewState == "waiting" {
-			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is waiting for authentication", event.Name)
+		// Skip deregistration for servers in "waiting" or "auth_required" state.
+		// These servers require OAuth authentication before they can connect.
+		// The orchestrator will register them as pending auth servers.
+		// We MUST check the event state directly, not the registry, because there's a race
+		// condition where the event is processed before the Orchestrator registers the server.
+		if event.NewState == "waiting" || event.NewState == "auth_required" {
+			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is in %s state (requires authentication)", event.Name, event.NewState)
 			return
 		}
 
-		// Check if the server is in auth_required state - don't deregister those
-		// They need to stay registered with their synthetic auth tool
+		// Also check the registry as a fallback for servers already in auth_required state
+		// (handles cases where the event state might not match the current registry state)
 		if eh.isServerAuthRequired != nil && eh.isServerAuthRequired(event.Name) {
-			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is in auth_required state", event.Name)
+			logging.Debug("Aggregator-EventHandler", "Skipping deregistration of %s - server is in auth_required state (from registry)", event.Name)
 			return
 		}
 

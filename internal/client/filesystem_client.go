@@ -324,8 +324,8 @@ func (f *filesystemClient) CreateMCPServer(ctx context.Context, server *musterv1
 		return fmt.Errorf("failed to marshal MCPServer %s: %w", server.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write MCPServer file %s: %w", filePath, err)
 	}
 
@@ -354,8 +354,8 @@ func (f *filesystemClient) UpdateMCPServer(ctx context.Context, server *musterv1
 		return fmt.Errorf("failed to marshal MCPServer %s: %w", server.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write MCPServer file %s: %w", filePath, err)
 	}
 
@@ -485,8 +485,8 @@ func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass 
 		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
 	}
 
@@ -515,8 +515,8 @@ func (f *filesystemClient) UpdateServiceClass(ctx context.Context, serviceClass 
 		return fmt.Errorf("failed to marshal ServiceClass %s: %w", serviceClass.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write ServiceClass file %s: %w", filePath, err)
 	}
 
@@ -644,8 +644,8 @@ func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv
 		return fmt.Errorf("failed to marshal Workflow %s: %w", workflow.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write Workflow file %s: %w", filePath, err)
 	}
 
@@ -674,8 +674,8 @@ func (f *filesystemClient) UpdateWorkflow(ctx context.Context, workflow *musterv
 		return fmt.Errorf("failed to marshal Workflow %s: %w", workflow.Name, err)
 	}
 
-	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	// Write file atomically to prevent race conditions with filesystem watchers
+	if err := atomicWriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write Workflow file %s: %w", filePath, err)
 	}
 
@@ -1141,6 +1141,61 @@ func (f *filesystemClient) writeJSONEvent(eventsDir string, timestamp time.Time,
 
 	_, err = file.WriteString(string(eventJSON) + "\n")
 	return err
+}
+
+// atomicWriteFile writes data to a file atomically.
+// It first writes to a temporary file in the same directory, then renames it
+// to the target path. This ensures that readers never see a partially written
+// or empty file, which prevents race conditions with filesystem watchers.
+//
+// The rename operation is atomic on POSIX-compliant filesystems when the source
+// and destination are on the same filesystem.
+func atomicWriteFile(filePath string, data []byte, perm os.FileMode) error {
+	// Create temp file in the same directory to ensure same filesystem for atomic rename
+	dir := filepath.Dir(filePath)
+	tempFile, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+
+	// Clean up temp file on any error
+	success := false
+	defer func() {
+		if !success {
+			os.Remove(tempPath)
+		}
+	}()
+
+	// Write data to temp file
+	if _, err := tempFile.Write(data); err != nil {
+		tempFile.Close()
+		return fmt.Errorf("failed to write to temp file: %w", err)
+	}
+
+	// Sync to ensure data is on disk before rename
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
+
+	// Close before rename
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	// Set permissions before rename (CreateTemp creates with 0600)
+	if err := os.Chmod(tempPath, perm); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tempPath, filePath); err != nil {
+		return fmt.Errorf("failed to rename temp file: %w", err)
+	}
+
+	success = true
+	return nil
 }
 
 // cleanupOldEventFiles removes event files older than 30 days.

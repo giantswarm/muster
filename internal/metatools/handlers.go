@@ -78,7 +78,8 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 }
 
 // handleListTools handles the list_tools meta-tool.
-// This handler returns a list of all available tools from the aggregator.
+// This handler returns a list of all available tools from the aggregator,
+// along with information about servers that require authentication.
 func (p *Provider) handleListTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
@@ -90,7 +91,10 @@ func (p *Provider) handleListTools(ctx context.Context, args map[string]interfac
 		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
 	}
 
-	jsonData, err := p.formatters.FormatToolsListJSON(tools)
+	// Get servers requiring authentication for the current session
+	serversRequiringAuth := handler.ListServersRequiringAuth(ctx)
+
+	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(tools, serversRequiringAuth)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format tools: %v", err)), nil
 	}

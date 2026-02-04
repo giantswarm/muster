@@ -63,37 +63,6 @@ func NewAuthToolProvider(aggregator *AggregatorServer) *AuthToolProvider {
 	}
 }
 
-// GetTools returns metadata for the authentication tools.
-// These tools are prefixed with "auth_" and get converted to "core_auth_*" by prefixToolName.
-func (p *AuthToolProvider) GetTools() []api.ToolMetadata {
-	return []api.ToolMetadata{
-		{
-			Name:        "auth_login",
-			Description: "Initiate OAuth login flow for a specific MCP server. Returns an OAuth URL for the user to complete authentication in their browser.",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "server",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to authenticate to",
-				},
-			},
-		},
-		{
-			Name:        "auth_logout",
-			Description: "Clear authentication session for a specific MCP server. The server's tools will be hidden until re-authentication.",
-			Args: []api.ArgMetadata{
-				{
-					Name:        "server",
-					Type:        "string",
-					Required:    true,
-					Description: "Name of the MCP server to log out from",
-				},
-			},
-		},
-	}
-}
-
 // ExecuteTool executes an authentication tool by name.
 func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
 	switch toolName {

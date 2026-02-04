@@ -180,13 +180,19 @@ func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLog
 	}, nil
 }
 
-// CreateInstance creates a new muster serve instance with the given configuration
-func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName string, config *MusterPreConfiguration) (*MusterInstance, error) {
+// CreateInstance creates a new muster serve instance with the given configuration.
+// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName string, config *MusterPreConfiguration, logger TestLogger) (*MusterInstance, error) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	// Generate unique instance ID
 	instanceID := fmt.Sprintf("test-%s-%d", sanitizeFileName(scenarioName), time.Now().UnixNano())
 
 	// Find available port (with atomic reservation)
-	port, err := m.findAvailablePort(instanceID)
+	port, err := m.findAvailablePort(instanceID, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find available port: %w", err)
 	}
@@ -198,42 +204,42 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	}
 
 	if m.debug {
-		m.logger.Debug("🏗️  Creating muster instance %s with config at %s\n", instanceID, configPath)
+		logger.Debug("🏗️  Creating muster instance %s with config at %s\n", instanceID, configPath)
 	}
 
 	// Start mock OAuth servers FIRST (before HTTP servers, as they may depend on OAuth)
-	mockOAuthServerInfo, err := m.startMockOAuthServers(ctx, instanceID, config)
+	mockOAuthServerInfo, err := m.startMockOAuthServers(ctx, instanceID, config, logger)
 	if err != nil {
-		m.releasePort(port, instanceID)
+		m.releasePort(port, instanceID, logger)
 		os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock OAuth servers: %w", err)
 	}
 
 	// Start mock HTTP servers for URL-based mock MCP servers BEFORE generating config files
 	// Pass OAuth server info so protected MCP servers can reference them
-	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, config, mockOAuthServerInfo)
+	mockHTTPServerInfo, err := m.startMockHTTPServersWithOAuth(ctx, instanceID, configPath, config, mockOAuthServerInfo, logger)
 	if err != nil {
-		m.stopMockOAuthServers(ctx, instanceID)
-		m.releasePort(port, instanceID)
+		m.stopMockOAuthServers(ctx, instanceID, logger)
+		m.releasePort(port, instanceID, logger)
 		os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
 	}
 
 	// Generate configuration files (passing mock HTTP server endpoints)
-	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID); err != nil {
+	if err := m.generateConfigFilesWithMocks(configPath, config, port, mockHTTPServerInfo, instanceID, logger); err != nil {
 		// Clean up mock HTTP servers on failure
-		m.stopMockHTTPServers(ctx, instanceID)
-		m.releasePort(port, instanceID)
+		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.releasePort(port, instanceID, logger)
 		os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to generate config files: %w", err)
 	}
 
 	// Start muster serve process with log capture
-	managedProc, err := m.startMusterProcess(ctx, configPath)
+	managedProc, err := m.startMusterProcess(ctx, configPath, logger)
 	if err != nil {
 		// Clean up on failure: stop mock servers, release port and remove config directory
-		m.stopMockHTTPServers(ctx, instanceID)
-		m.releasePort(port, instanceID)
+		m.stopMockHTTPServers(ctx, instanceID, logger)
+		m.releasePort(port, instanceID, logger)
 		os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
 	}
@@ -246,6 +252,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	// Extract expected resources from configuration
 	expectedTools := m.extractExpectedToolsWithHTTPMocks(config, mockHTTPServerInfo)
 	expectedServiceClasses := m.extractExpectedServiceClasses(config)
+	expectedMCPServers := m.extractExpectedMCPServers(config)
 
 	// Extract muster OAuth access token if any mock OAuth server is used as muster's OAuth server
 	var musterOAuthToken string
@@ -266,22 +273,29 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		Logs:                   nil, // Will be populated when destroying
 		ExpectedTools:          expectedTools,
 		ExpectedServiceClasses: expectedServiceClasses,
+		ExpectedMCPServers:     expectedMCPServers,
 		MockHTTPServers:        mockHTTPServerInfo,
 		MockOAuthServers:       mockOAuthServerInfo,
 		MusterOAuthAccessToken: musterOAuthToken,
 	}
 
 	if m.debug {
-		m.logger.Debug("🚀 Started muster instance %s on port %d (PID: %d)\n", instanceID, port, managedProc.cmd.Process.Pid)
+		logger.Debug("🚀 Started muster instance %s on port %d (PID: %d)\n", instanceID, port, managedProc.cmd.Process.Pid)
 	}
 
 	return instance, nil
 }
 
-// DestroyInstance stops and cleans up an muster serve instance
-func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *MusterInstance) error {
+// DestroyInstance stops and cleans up an muster serve instance.
+// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *MusterInstance, logger TestLogger) error {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	if m.debug {
-		m.logger.Debug("🛑 Destroying muster instance %s (PID: %d)\n", instance.ID, instance.Process.Pid)
+		logger.Debug("🛑 Destroying muster instance %s (PID: %d)\n", instance.ID, instance.Process.Pid)
 	}
 
 	// Get the managed process
@@ -291,9 +305,9 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 
 	if exists && managedProc != nil {
 		// Attempt graceful shutdown first
-		if err := m.gracefulShutdown(managedProc, instance.ID); err != nil {
+		if err := m.gracefulShutdown(managedProc, instance.ID, logger); err != nil {
 			if m.debug {
-				m.logger.Debug("⚠️  Graceful shutdown failed for %s: %v, forcing termination\n", instance.ID, err)
+				logger.Debug("⚠️  Graceful shutdown failed for %s: %v, forcing termination\n", instance.ID, err)
 			}
 		}
 
@@ -310,40 +324,40 @@ func (m *musterInstanceManager) DestroyInstance(ctx context.Context, instance *M
 	}
 
 	// Stop protected MCP servers for this instance
-	m.stopProtectedMCPServers(ctx, instance.ID)
+	m.stopProtectedMCPServers(ctx, instance.ID, logger)
 
 	// Stop mock HTTP servers for this instance
-	m.stopMockHTTPServers(ctx, instance.ID)
+	m.stopMockHTTPServers(ctx, instance.ID, logger)
 
 	// Stop mock OAuth servers for this instance
-	m.stopMockOAuthServers(ctx, instance.ID)
+	m.stopMockOAuthServers(ctx, instance.ID, logger)
 
 	// Release the reserved port
-	m.releasePort(instance.Port, instance.ID)
+	m.releasePort(instance.Port, instance.ID, logger)
 
 	// Clean up configuration directory unless keepTempConfig is true
 	if m.keepTempConfig {
 		if m.debug {
-			m.logger.Debug("🔍 Keeping temporary config directory for debugging: %s\n", instance.ConfigPath)
+			logger.Debug("🔍 Keeping temporary config directory for debugging: %s\n", instance.ConfigPath)
 		}
 	} else {
 		if err := os.RemoveAll(instance.ConfigPath); err != nil {
 			if m.debug {
-				m.logger.Debug("⚠️  Failed to remove config directory %s: %v\n", instance.ConfigPath, err)
+				logger.Debug("⚠️  Failed to remove config directory %s: %v\n", instance.ConfigPath, err)
 			}
 			return fmt.Errorf("failed to remove config directory: %w", err)
 		}
 	}
 
 	if m.debug {
-		m.logger.Debug("✅ Destroyed muster instance %s\n", instance.ID)
+		logger.Debug("✅ Destroyed muster instance %s\n", instance.ID)
 	}
 
 	return nil
 }
 
 // gracefulShutdown attempts to gracefully shutdown an muster process and all its children
-func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, instanceID string) error {
+func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, instanceID string, logger TestLogger) error {
 	if managedProc.cmd == nil || managedProc.cmd.Process == nil {
 		return fmt.Errorf("no process to shutdown")
 	}
@@ -351,13 +365,13 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 	process := managedProc.cmd.Process
 
 	if m.debug {
-		m.logger.Debug("🛑 Shutting down process group for %s (PID: %d)\n", instanceID, process.Pid)
+		logger.Debug("🛑 Shutting down process group for %s (PID: %d)\n", instanceID, process.Pid)
 	}
 
 	// First, send SIGTERM to the entire process group to terminate all children
 	if err := m.killProcessGroup(process.Pid, syscall.SIGTERM); err != nil {
 		if m.debug {
-			m.logger.Debug("⚠️  Failed to send SIGTERM to process group %d: %v\n", process.Pid, err)
+			logger.Debug("⚠️  Failed to send SIGTERM to process group %d: %v\n", process.Pid, err)
 		}
 	}
 
@@ -374,9 +388,9 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 	case err := <-done:
 		if m.debug {
 			if err != nil {
-				m.logger.Debug("✅ Process %s exited with: %v\n", instanceID, err)
+				logger.Debug("✅ Process %s exited with: %v\n", instanceID, err)
 			} else {
-				m.logger.Debug("✅ Process %s exited gracefully\n", instanceID)
+				logger.Debug("✅ Process %s exited gracefully\n", instanceID)
 			}
 		}
 		// Ensure any remaining child processes are killed
@@ -384,17 +398,23 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 		return nil
 	case <-time.After(shutdownTimeout):
 		if m.debug {
-			m.logger.Debug("⏰ Graceful shutdown timeout for %s, forcing kill of entire process group\n", instanceID)
+			logger.Debug("⏰ Graceful shutdown timeout for %s, forcing kill of entire process group\n", instanceID)
 		}
 		// Force kill the entire process group
 		return m.killProcessGroup(process.Pid, syscall.SIGKILL)
 	}
 }
 
-// WaitForReady waits for an instance to be ready to accept connections and has all expected resources available
-func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *MusterInstance) error {
+// WaitForReady waits for an instance to be ready to accept connections and has all expected resources available.
+// The logger parameter allows scenario-specific logging with prefixes for parallel execution.
+func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *MusterInstance, logger TestLogger) error {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	if m.debug {
-		m.logger.Debug("⏳ Waiting for muster instance %s to be ready at %s\n", instance.ID, instance.Endpoint)
+		logger.Debug("⏳ Waiting for muster instance %s to be ready at %s\n", instance.ID, instance.Endpoint)
 	}
 
 	timeout := 60 * time.Second // Increased timeout for more complex setups
@@ -414,7 +434,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		select {
 		case <-readyCtx.Done():
 			if m.debug {
-				m.showLogs(instance)
+				m.showLogs(instance, logger)
 			}
 			return fmt.Errorf("timeout waiting for muster instance port to be ready")
 		case <-ticker.C:
@@ -424,17 +444,17 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				conn.Close()
 				portReady = true
 				if m.debug {
-					m.logger.Debug("✅ Port %d is ready\n", instance.Port)
+					logger.Debug("✅ Port %d is ready\n", instance.Port)
 				}
 			} else if m.debug {
-				m.logger.Debug("🔍 Port %d not ready yet: %v\n", instance.Port, err)
+				logger.Debug("🔍 Port %d not ready yet: %v\n", instance.Port, err)
 			}
 		}
 	}
 
 	// Now wait for services to be fully initialized
 	if m.debug {
-		m.logger.Debug("⏳ Waiting for services to be fully initialized and all resources to be available...\n")
+		logger.Debug("⏳ Waiting for services to be fully initialized and all resources to be available...\n")
 	}
 
 	// Create MCP client to check availability
@@ -443,7 +463,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 
 	// Connect to the MCP aggregator
 	// Use authenticated connection if muster's OAuth server is enabled
-	connectCtx, connectCancel := context.WithTimeout(readyCtx, 30*time.Second)
+	connectCtx, connectCancel := context.WithTimeout(readyCtx, 5*time.Second)
 	defer connectCancel()
 
 	// Retry connection until successful or timeout
@@ -452,7 +472,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		select {
 		case <-connectCtx.Done():
 			if m.debug {
-				m.logger.Debug("⚠️  Failed to connect to MCP aggregator, proceeding anyway\n")
+				logger.Debug("⚠️  Failed to connect to MCP aggregator, proceeding anyway\n")
 			}
 			// If we can't connect to MCP, fall back to the old behavior
 			time.Sleep(3 * time.Second)
@@ -467,10 +487,10 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			if err == nil {
 				connected = true
 				if m.debug {
-					m.logger.Debug("✅ Connected to MCP aggregator\n")
+					logger.Debug("✅ Connected to MCP aggregator\n")
 				}
 			} else if m.debug {
-				m.logger.Debug("🔍 Waiting for MCP connection: %v\n", err)
+				logger.Debug("🔍 Waiting for MCP connection: %v\n", err)
 			}
 		}
 	}
@@ -480,29 +500,31 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	expectedServiceClasses := m.extractExpectedServiceClassesFromInstance(instance)
 	expectedServices := m.extractExpectedServicesFromInstance(instance)
 	expectedWorkflows := m.extractExpectedWorkflowsFromInstance(instance)
+	expectedMCPServers := m.extractExpectedMCPServersFromInstance(instance)
 
 	if len(expectedTools) == 0 && len(expectedServiceClasses) == 0 && len(expectedServices) == 0 &&
-		len(expectedWorkflows) == 0 {
+		len(expectedWorkflows) == 0 && len(expectedMCPServers) == 0 {
 		if m.debug {
-			m.logger.Debug("ℹ️  No expected resources specified, waiting for basic service readiness\n")
+			logger.Debug("ℹ️  No expected resources specified, waiting for basic service readiness\n")
 		}
-		// If no specific resources expected, wait a bit longer for general readiness
-		time.Sleep(5 * time.Second)
 		return nil
 	}
 
 	if m.debug {
 		if len(expectedTools) > 0 {
-			m.logger.Debug("🎯 Waiting for %d expected tools: %v\n", len(expectedTools), expectedTools)
+			logger.Debug("🎯 Waiting for %d expected tools: %v\n", len(expectedTools), expectedTools)
 		}
 		if len(expectedServiceClasses) > 0 {
-			m.logger.Debug("🎯 Waiting for %d expected ServiceClasses: %v\n", len(expectedServiceClasses), expectedServiceClasses)
+			logger.Debug("🎯 Waiting for %d expected ServiceClasses: %v\n", len(expectedServiceClasses), expectedServiceClasses)
 		}
 		if len(expectedServices) > 0 {
-			m.logger.Debug("🎯 Waiting for %d expected Services: %v\n", len(expectedServices), expectedServices)
+			logger.Debug("🎯 Waiting for %d expected Services: %v\n", len(expectedServices), expectedServices)
 		}
 		if len(expectedWorkflows) > 0 {
-			m.logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
+			logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
+		}
+		if len(expectedMCPServers) > 0 {
+			logger.Debug("🎯 Waiting for %d expected MCP servers: %v\n", len(expectedMCPServers), expectedMCPServers)
 		}
 	}
 
@@ -519,12 +541,18 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		select {
 		case <-resourceCtx.Done():
 			if m.debug {
-				m.logger.Debug("⚠️  Resource availability check timed out, checking what's available...\n")
+				logger.Debug("⚠️  Resource availability check timed out, checking what's available...\n")
 				// Show what's available for debugging
 				if len(expectedTools) > 0 {
 					if availableTools, err := mcpClient.ListTools(context.Background()); err == nil {
-						m.logger.Debug("🛠️  Available tools: %v\n", availableTools)
-						m.logger.Debug("🎯 Expected tools: %v\n", expectedTools)
+						logger.Debug("🛠️  Available tools: %v\n", availableTools)
+						logger.Debug("🎯 Expected tools: %v\n", expectedTools)
+					}
+				}
+				if len(expectedMCPServers) > 0 {
+					if registeredServers, err := m.checkMCPServersAvailability(mcpClient, context.Background(), expectedMCPServers); err == nil {
+						logger.Debug("🔌 Registered MCP servers: %v\n", registeredServers)
+						logger.Debug("🎯 Expected MCP servers: %v\n", expectedMCPServers)
 					}
 				}
 			}
@@ -538,7 +566,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				availableTools, err := mcpClient.ListTools(resourceCtx)
 				if err != nil {
 					if m.debug {
-						m.logger.Debug("🔍 Failed to list tools: %v\n", err)
+						logger.Debug("🔍 Failed to list tools: %v\n", err)
 					}
 					allReady = false
 					notReadyReasons = append(notReadyReasons, "tools check failed")
@@ -557,7 +585,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					available, err := m.checkServiceClassAvailability(mcpClient, resourceCtx, serviceClassName)
 					if err != nil {
 						if m.debug {
-							m.logger.Debug("🔍 Failed to check ServiceClass %s: %v\n", serviceClassName, err)
+							logger.Debug("🔍 Failed to check ServiceClass %s: %v\n", serviceClassName, err)
 						}
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("ServiceClass %s check failed", serviceClassName))
@@ -574,7 +602,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					available, err := m.checkServiceAvailability(mcpClient, resourceCtx, serviceName)
 					if err != nil {
 						if m.debug {
-							m.logger.Debug("🔍 Failed to check Service %s: %v\n", serviceName, err)
+							logger.Debug("🔍 Failed to check Service %s: %v\n", serviceName, err)
 						}
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("Service %s check failed", serviceName))
@@ -590,7 +618,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				availableWorkflows, err := m.checkWorkflowsAvailability(mcpClient, resourceCtx)
 				if err != nil {
 					if m.debug {
-						m.logger.Debug("🔍 Failed to list workflows: %v\n", err)
+						logger.Debug("🔍 Failed to list workflows: %v\n", err)
 					}
 					allReady = false
 					notReadyReasons = append(notReadyReasons, "workflows check failed")
@@ -611,16 +639,36 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				}
 			}
 
+			// Check MCP server availability (if any expected)
+			// This is critical for OAuth-protected servers which must be registered
+			// before tests can call core_auth_login
+			if len(expectedMCPServers) > 0 {
+				registeredServers, err := m.checkMCPServersAvailability(mcpClient, resourceCtx, expectedMCPServers)
+				if err != nil {
+					if m.debug {
+						logger.Debug("🔍 Failed to list MCP servers: %v\n", err)
+					}
+					allReady = false
+					notReadyReasons = append(notReadyReasons, "MCP servers check failed")
+				} else {
+					missingServers := m.findMissingMCPServers(expectedMCPServers, registeredServers)
+					if len(missingServers) > 0 {
+						allReady = false
+						notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing MCP servers: %v", missingServers))
+					}
+				}
+			}
+
 			if allReady {
 				if m.debug {
-					m.logger.Debug("✅ All expected resources are available!\n")
+					logger.Debug("✅ All expected resources are available!\n")
 				}
 
 				return nil
 			}
 
 			if m.debug {
-				m.logger.Debug("⏳ Still waiting for resources: %v\n", notReadyReasons)
+				logger.Debug("⏳ Still waiting for resources: %v\n", notReadyReasons)
 			}
 		}
 	}
@@ -653,24 +701,24 @@ func (m *musterInstanceManager) findMissingTools(expectedTools, availableTools [
 }
 
 // showLogs displays the recent logs from an muster instance
-func (m *musterInstanceManager) showLogs(instance *MusterInstance) {
+func (m *musterInstanceManager) showLogs(instance *MusterInstance, logger TestLogger) {
 	logDir := filepath.Join(instance.ConfigPath, "logs")
 
 	// Show stdout logs
 	stdoutPath := filepath.Join(logDir, "stdout.log")
 	if content, err := os.ReadFile(stdoutPath); err == nil && len(content) > 0 {
-		m.logger.Debug("📄 Instance %s stdout logs:\n%s\n", instance.ID, string(content))
+		logger.Debug("📄 Instance %s stdout logs:\n%s\n", instance.ID, string(content))
 	}
 
 	// Show stderr logs
 	stderrPath := filepath.Join(logDir, "stderr.log")
 	if content, err := os.ReadFile(stderrPath); err == nil && len(content) > 0 {
-		m.logger.Debug("🚨 Instance %s stderr logs:\n%s\n", instance.ID, string(content))
+		logger.Debug("🚨 Instance %s stderr logs:\n%s\n", instance.ID, string(content))
 	}
 }
 
 // findAvailablePort finds an available port starting from the base port with atomic reservation
-func (m *musterInstanceManager) findAvailablePort(instanceID string) (int, error) {
+func (m *musterInstanceManager) findAvailablePort(instanceID string, logger TestLogger) (int, error) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
@@ -680,7 +728,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string) (int, error
 		// Check if already reserved by another instance
 		if existingInstanceID, reserved := m.reservedPorts[port]; reserved {
 			if m.debug {
-				m.logger.Debug("🔒 Port %d already reserved by instance %s, skipping\n", port, existingInstanceID)
+				logger.Debug("🔒 Port %d already reserved by instance %s, skipping\n", port, existingInstanceID)
 			}
 			continue
 		}
@@ -689,7 +737,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string) (int, error
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
 			if m.debug {
-				m.logger.Debug("🔍 Port %d not available (in use): %v\n", port, err)
+				logger.Debug("🔍 Port %d not available (in use): %v\n", port, err)
 			}
 			continue // Port not available, try next
 		}
@@ -701,7 +749,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string) (int, error
 		m.portOffset = i + 1 // Next search starts from next port
 
 		if m.debug {
-			m.logger.Debug("✅ Reserved port %d for instance %s\n", port, instanceID)
+			logger.Debug("✅ Reserved port %d for instance %s\n", port, instanceID)
 		}
 
 		return port, nil
@@ -711,7 +759,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string) (int, error
 }
 
 // releasePort releases a reserved port back to the available pool
-func (m *musterInstanceManager) releasePort(port int, instanceID string) {
+func (m *musterInstanceManager) releasePort(port int, instanceID string, logger TestLogger) {
 	m.portMu.Lock()
 	defer m.portMu.Unlock()
 
@@ -720,22 +768,22 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string) {
 		if existingInstanceID == instanceID {
 			delete(m.reservedPorts, port)
 			if m.debug {
-				m.logger.Debug("🔓 Released port %d from instance %s\n", port, instanceID)
+				logger.Debug("🔓 Released port %d from instance %s\n", port, instanceID)
 			}
 		} else {
 			if m.debug {
-				m.logger.Debug("⚠️  Port %d was reserved by different instance %s, not releasing\n", port, existingInstanceID)
+				logger.Debug("⚠️  Port %d was reserved by different instance %s, not releasing\n", port, existingInstanceID)
 			}
 		}
 	} else {
 		if m.debug {
-			m.logger.Debug("ℹ️  Port %d was not reserved, nothing to release\n", port)
+			logger.Debug("ℹ️  Port %d was not reserved, nothing to release\n", port)
 		}
 	}
 }
 
 // startMusterProcess starts an muster serve process
-func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string) (*managedProcess, error) {
+func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
 	if err != nil {
@@ -758,7 +806,7 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	configureProcAttr(cmd)
 
 	if m.debug {
-		m.logger.Debug("🚀 Starting command: %s %v\n", musterPath, args)
+		logger.Debug("🚀 Starting command: %s %v\n", musterPath, args)
 	}
 
 	// Create log capture
@@ -845,7 +893,7 @@ func (m *musterInstanceManager) isInMusterSource(dir string) bool {
 }
 
 // writeYAMLFile writes data to a YAML file
-func (m *musterInstanceManager) writeYAMLFile(filename string, data interface{}) error {
+func (m *musterInstanceManager) writeYAMLFile(filename string, data interface{}, logger TestLogger) error {
 	yamlData, err := yaml.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
@@ -856,8 +904,8 @@ func (m *musterInstanceManager) writeYAMLFile(filename string, data interface{})
 	}
 
 	if m.debug {
-		m.logger.Debug("📝 Generated config file: %s\n", filename)
-		m.logger.Debug("📄 Content:\n%s\n", string(yamlData))
+		logger.Debug("📝 Generated config file: %s\n", filename)
+		logger.Debug("📄 Content:\n%s\n", string(yamlData))
 	}
 
 	return nil
@@ -890,7 +938,12 @@ func sanitizeFileName(name string) string {
 }
 
 // stopMockHTTPServers stops all mock HTTP servers for a given instance
-func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanceID string) {
+func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanceID string, logger TestLogger) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	m.mu.Lock()
 	servers, exists := m.mockHTTPServers[instanceID]
 	if exists {
@@ -904,13 +957,13 @@ func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanc
 
 	for name, server := range servers {
 		if m.debug {
-			m.logger.Debug("🛑 Stopping mock HTTP server %s\n", name)
+			logger.Debug("🛑 Stopping mock HTTP server %s\n", name)
 		}
 
 		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := server.Stop(stopCtx); err != nil {
 			if m.debug {
-				m.logger.Debug("⚠️  Failed to stop mock HTTP server %s: %v\n", name, err)
+				logger.Debug("⚠️  Failed to stop mock HTTP server %s: %v\n", name, err)
 			}
 		}
 		cancel()
@@ -926,6 +979,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	port int,
 	instanceID string,
 	musterConfigPath string,
+	logger TestLogger,
 ) {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
@@ -934,17 +988,17 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 		"callbackPath": "/oauth/proxy/callback",
 	}
 	if m.debug {
-		m.logger.Debug("🔐 Enabled OAuth MCP client/proxy for test instance (publicUrl: http://localhost:%d)\n", port)
+		logger.Debug("🔐 Enabled OAuth MCP client/proxy for test instance (publicUrl: http://localhost:%d)\n", port)
 	}
 
 	// Collect CA certificates from ALL TLS-enabled OAuth servers.
 	// This is needed for token exchange to work, where muster needs to call
 	// remote OAuth servers (e.g., cluster-b-idp) that use self-signed certs.
-	combinedCAFile := m.collectAndWriteCACertificates(instanceID, musterConfigPath, config)
+	combinedCAFile := m.collectAndWriteCACertificates(instanceID, musterConfigPath, config, logger)
 	if combinedCAFile != "" {
 		oauthMCPClientConfig["caFile"] = combinedCAFile
 		if m.debug {
-			m.logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
+			logger.Debug("🔒 Combined CA certificate written to %s\n", combinedCAFile)
 		}
 	}
 
@@ -957,7 +1011,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	// This enables testing of SSO token forwarding with muster's OAuth server protection
 	for _, oauthCfg := range config.MockOAuthServers {
 		if oauthCfg.UseAsMusterOAuthServer {
-			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig)
+			oauthServerConfig := m.buildMusterOAuthServerConfig(oauthCfg, port, instanceID, musterConfigPath, oauthMCPClientConfig, logger)
 			if oauthServerConfig != nil {
 				oauthConfig["server"] = oauthServerConfig
 			}
@@ -976,6 +1030,7 @@ func (m *musterInstanceManager) collectAndWriteCACertificates(
 	instanceID string,
 	musterConfigPath string,
 	config *MusterPreConfiguration,
+	logger TestLogger,
 ) string {
 	m.mu.RLock()
 	oauthServers := m.mockOAuthServers[instanceID]
@@ -993,7 +1048,7 @@ func (m *musterInstanceManager) collectAndWriteCACertificates(
 			if len(caPEM) > 0 {
 				combinedCAPEM = append(combinedCAPEM, caPEM...)
 				if m.debug {
-					m.logger.Debug("🔒 Collected CA certificate from %s for combined trust store\n", serverName)
+					logger.Debug("🔒 Collected CA certificate from %s for combined trust store\n", serverName)
 				}
 			}
 		}
@@ -1007,7 +1062,7 @@ func (m *musterInstanceManager) collectAndWriteCACertificates(
 	caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
 	if err := os.WriteFile(caFile, combinedCAPEM, 0644); err != nil {
 		if m.debug {
-			m.logger.Debug("⚠️  Failed to write combined CA file: %v\n", err)
+			logger.Debug("⚠️  Failed to write combined CA file: %v\n", err)
 		}
 		return ""
 	}
@@ -1023,6 +1078,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	instanceID string,
 	musterConfigPath string,
 	oauthProxyConfig map[string]interface{},
+	logger TestLogger,
 ) map[string]interface{} {
 	// Get the mock OAuth server info (should already be started)
 	m.mu.RLock()
@@ -1057,7 +1113,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	if m.debug {
-		m.logger.Debug("🔐 Enabled muster OAuth server with mock provider (issuer: %s)\n", issuerURL)
+		logger.Debug("🔐 Enabled muster OAuth server with mock provider (issuer: %s)\n", issuerURL)
 	}
 
 	return map[string]interface{}{
@@ -1072,7 +1128,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 }
 
 // generateConfigFilesWithMocks generates configuration files with mock HTTP server information
-func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, mockHTTPServers map[string]*MockHTTPServerInfo, instanceID string) error {
+func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, config *MusterPreConfiguration, port int, mockHTTPServers map[string]*MockHTTPServerInfo, instanceID string, logger TestLogger) error {
 	// Create muster subdirectory - this is where muster serve will look for configs
 	musterConfigPath := filepath.Join(configPath, "muster")
 
@@ -1103,7 +1159,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 	// Configure OAuth if mock OAuth servers are defined
 	if config != nil && len(config.MockOAuthServers) > 0 {
-		m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath)
+		m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger)
 	}
 
 	mainConfig := map[string]interface{}{
@@ -1121,14 +1177,14 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	}
 
 	configFile := filepath.Join(musterConfigPath, "config.yaml")
-	if err := m.writeYAMLFile(configFile, mainConfig); err != nil {
+	if err := m.writeYAMLFile(configFile, mainConfig, logger); err != nil {
 		return fmt.Errorf("failed to write main config: %w", err)
 	}
 
 	if m.debug {
 		// Show the generated config
 		configContent, _ := os.ReadFile(configFile)
-		m.logger.Debug("📋 Generated config.yaml:\n%s\n", string(configContent))
+		logger.Debug("📋 Generated config.yaml:\n%s\n", string(configContent))
 	}
 
 	// Generate configuration files if config is provided
@@ -1169,7 +1225,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 						if forwardToken, hasForwardToken := oauthConfig["forward_token"].(bool); hasForwardToken && forwardToken {
 							authConfig["forwardToken"] = true
 							if m.debug {
-								m.logger.Debug("🔐 Enabling token forwarding for MCPServer %s\n", mcpServer.Name)
+								logger.Debug("🔐 Enabling token forwarding for MCPServer %s\n", mcpServer.Name)
 							}
 						}
 
@@ -1192,7 +1248,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 									if oauthServer, ok := oauthServers[oauthServerRef]; ok {
 										tokenExchangeConfig["dexTokenEndpoint"] = oauthServer.GetIssuerURL() + "/token"
 										if m.debug {
-											m.logger.Debug("🔐 Resolved token exchange endpoint from %s: %s/token\n",
+											logger.Debug("🔐 Resolved token exchange endpoint from %s: %s/token\n",
 												oauthServerRef, oauthServer.GetIssuerURL())
 										}
 									}
@@ -1210,13 +1266,13 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if expectedIssuer, ok := tokenExchange["expected_issuer"].(string); ok {
 								tokenExchangeConfig["expectedIssuer"] = expectedIssuer
 								if m.debug {
-									m.logger.Debug("🔐 Using explicit expectedIssuer for %s: %s\n",
+									logger.Debug("🔐 Using explicit expectedIssuer for %s: %s\n",
 										mcpServer.Name, expectedIssuer)
 								}
 							}
 							authConfig["tokenExchange"] = tokenExchangeConfig
 							if m.debug {
-								m.logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
+								logger.Debug("🔐 Enabling token exchange for MCPServer %s (connector: %v)\n",
 									mcpServer.Name, tokenExchange["connector_id"])
 							}
 						}
@@ -1237,17 +1293,17 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 
 					if m.debug {
-						m.logger.Debug("🌐 MCPServer CRD for %s (HTTP mock): %+v\n", mcpServer.Name, mcpServerCRD)
+						logger.Debug("🌐 MCPServer CRD for %s (HTTP mock): %+v\n", mcpServer.Name, mcpServerCRD)
 					}
 
 					// Save MCPServer CRD
 					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
-					if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+					if err := m.writeYAMLFile(filename, mcpServerCRD, logger); err != nil {
 						return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
 					}
 
 					if m.debug {
-						m.logger.Debug("🌐 Created HTTP mock MCPServer CRD %s with %d tools (endpoint: %s)\n",
+						logger.Debug("🌐 Created HTTP mock MCPServer CRD %s with %d tools (endpoint: %s)\n",
 							mcpServer.Name, len(tools.([]interface{})), mockInfo.Endpoint)
 					}
 				} else if hasMockTools {
@@ -1277,23 +1333,23 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 
 					if m.debug {
-						m.logger.Debug("🧪 MCPServer CRD for %s: %+v\n", mcpServer.Name, mcpServerCRD)
-						m.logger.Debug("🧪 Tools config for %s: %+v\n", mcpServer.Name, mcpServer.Config)
+						logger.Debug("🧪 MCPServer CRD for %s: %+v\n", mcpServer.Name, mcpServerCRD)
+						logger.Debug("🧪 Tools config for %s: %+v\n", mcpServer.Name, mcpServer.Config)
 					}
 
 					// Save MCPServer CRD (what the unified client reads)
 					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
-					if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+					if err := m.writeYAMLFile(filename, mcpServerCRD, logger); err != nil {
 						return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
 					}
 
 					// Save mock tools config to mocks directory (what mock server reads)
-					if err := m.writeYAMLFile(mockConfigFile, mcpServer.Config); err != nil {
+					if err := m.writeYAMLFile(mockConfigFile, mcpServer.Config, logger); err != nil {
 						return fmt.Errorf("failed to write mock config %s: %w", mcpServer.Name, err)
 					}
 
 					if m.debug {
-						m.logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
+						logger.Debug("🧪 Created mock MCPServer CRD %s with %d tools\n", mcpServer.Name, len(tools.([]interface{})))
 					}
 				} else {
 					// For regular servers, convert Config to MCPServer CRD format
@@ -1308,7 +1364,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 					}
 
 					filename := filepath.Join(crdDir, mcpServer.Name+".yaml")
-					if err := m.writeYAMLFile(filename, mcpServerCRD); err != nil {
+					if err := m.writeYAMLFile(filename, mcpServerCRD, logger); err != nil {
 						return fmt.Errorf("failed to write MCPServer CRD %s: %w", mcpServer.Name, err)
 					}
 				}
@@ -1336,12 +1392,12 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 				}
 
 				filename := filepath.Join(crdDir, workflow.Name+".yaml")
-				if err := m.writeYAMLFile(filename, workflowCRD); err != nil {
+				if err := m.writeYAMLFile(filename, workflowCRD, logger); err != nil {
 					return fmt.Errorf("failed to write Workflow CRD %s: %w", workflow.Name, err)
 				}
 
 				if m.debug {
-					m.logger.Debug("📋 Created Workflow CRD %s\n", workflow.Name)
+					logger.Debug("📋 Created Workflow CRD %s\n", workflow.Name)
 				}
 			}
 		}
@@ -1367,12 +1423,12 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 				}
 
 				filename := filepath.Join(crdDir, serviceClass["name"].(string)+".yaml")
-				if err := m.writeYAMLFile(filename, serviceClassCRD); err != nil {
+				if err := m.writeYAMLFile(filename, serviceClassCRD, logger); err != nil {
 					return fmt.Errorf("failed to write ServiceClass CRD %s: %w", serviceClass["name"], err)
 				}
 
 				if m.debug {
-					m.logger.Debug("📋 Created ServiceClass CRD %s\n", serviceClass["name"])
+					logger.Debug("📋 Created ServiceClass CRD %s\n", serviceClass["name"])
 				}
 			}
 		}
@@ -1387,7 +1443,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 			for _, service := range config.Services {
 				filename := filepath.Join(servicesDir, service.Name+".yaml")
-				if err := m.writeYAMLFile(filename, service.Config); err != nil {
+				if err := m.writeYAMLFile(filename, service.Config, logger); err != nil {
 					return fmt.Errorf("failed to write service config %s: %w", service.Name, err)
 				}
 			}
@@ -1451,6 +1507,34 @@ func (m *musterInstanceManager) Cleanup() error {
 		m.logger.Debug("🔍 Keeping temporary directory for debugging: %s\n", m.tempDir)
 	}
 	return nil
+}
+
+// extractExpectedMCPServers extracts all MCP server names from the configuration.
+// This includes OAuth-protected servers that may be in "auth_required" state.
+// The returned list is used by WaitForReady to ensure servers are registered before tests run.
+func (m *musterInstanceManager) extractExpectedMCPServers(config *MusterPreConfiguration) []string {
+	if config == nil {
+		return []string{}
+	}
+
+	var expectedServers []string
+
+	// Extract all MCP server names from configuration
+	for _, mcpServer := range config.MCPServers {
+		expectedServers = append(expectedServers, mcpServer.Name)
+	}
+
+	if m.debug && len(expectedServers) > 0 {
+		m.logger.Debug("🎯 Extracted expected MCP servers from configuration: %v\n", expectedServers)
+	}
+
+	return expectedServers
+}
+
+// extractExpectedMCPServersFromInstance extracts expected MCP server names from instance configuration
+func (m *musterInstanceManager) extractExpectedMCPServersFromInstance(instance *MusterInstance) []string {
+	// Return the MCP servers stored during instance creation
+	return instance.ExpectedMCPServers
 }
 
 // extractExpectedServiceClasses extracts expected ServiceClass names from the configuration during instance creation
@@ -1596,6 +1680,110 @@ func (m *musterInstanceManager) checkServiceAvailability(client MCPTestClient, c
 
 	// If the call succeeds, the service exists (result != nil means success)
 	return result != nil, nil
+}
+
+// checkMCPServersAvailability checks if the expected MCP servers are registered.
+// This includes servers in "auth_required" state (OAuth-protected servers).
+// Returns the list of registered server names and any error.
+func (m *musterInstanceManager) checkMCPServersAvailability(client MCPTestClient, ctx context.Context, expectedServers []string) ([]string, error) {
+	if len(expectedServers) == 0 {
+		return nil, nil
+	}
+
+	// Use core_mcpserver_list to get all registered servers
+	result, err := client.CallTool(ctx, "core_mcpserver_list", map[string]interface{}{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call core_mcpserver_list: %w", err)
+	}
+
+	var registeredServers []string
+
+	// Parse the response to extract server names
+	// The response structure is: {"mcpServers": [...]}
+	jsonStr := ""
+
+	// Method 1: Try reflection to access the Content field dynamically
+	resultValue := reflect.ValueOf(result)
+	if resultValue.Kind() == reflect.Ptr {
+		resultValue = resultValue.Elem()
+	}
+
+	if resultValue.Kind() == reflect.Struct {
+		contentField := resultValue.FieldByName("Content")
+		if contentField.IsValid() && contentField.Kind() == reflect.Slice && contentField.Len() > 0 {
+			firstContent := contentField.Index(0)
+			if firstContent.Kind() == reflect.Struct {
+				textField := firstContent.FieldByName("Text")
+				if textField.IsValid() && textField.Kind() == reflect.String {
+					jsonStr = textField.String()
+				}
+			}
+		}
+	}
+
+	// Method 2: If reflection didn't work, try marshaling and parsing the JSON representation
+	if jsonStr == "" {
+		if resultBytes, err := json.Marshal(result); err == nil {
+			var tempMap map[string]interface{}
+			if err := json.Unmarshal(resultBytes, &tempMap); err == nil {
+				if content, exists := tempMap["content"]; exists {
+					if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
+						if contentItem, ok := contentArray[0].(map[string]interface{}); ok {
+							if textContent, exists := contentItem["text"]; exists {
+								if textStr, ok := textContent.(string); ok {
+									jsonStr = textStr
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Parse the extracted JSON string
+	if jsonStr != "" {
+		var response map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &response); err == nil {
+			if mcpServers, exists := response["mcpServers"]; exists {
+				if serverArray, ok := mcpServers.([]interface{}); ok {
+					for _, server := range serverArray {
+						if serverMap, ok := server.(map[string]interface{}); ok {
+							if name, exists := serverMap["name"]; exists {
+								if nameStr, ok := name.(string); ok {
+									registeredServers = append(registeredServers, nameStr)
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if m.debug {
+			m.logger.Debug("🔍 Failed to parse JSON from core_mcpserver_list: %v, content: %s\n", err, jsonStr)
+		}
+	}
+
+	return registeredServers, nil
+}
+
+// findMissingMCPServers returns MCP servers that are expected but not found in registered servers
+func (m *musterInstanceManager) findMissingMCPServers(expectedServers, registeredServers []string) []string {
+	var missing []string
+
+	for _, expected := range expectedServers {
+		found := false
+		for _, registered := range registeredServers {
+			if registered == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missing = append(missing, expected)
+		}
+	}
+
+	return missing
 }
 
 // checkWorkflowsAvailability returns the list of available workflows

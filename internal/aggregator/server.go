@@ -191,6 +191,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// gain access to all SSO-enabled MCP servers.
 	api.RegisterSessionInitCallback(a.handleSessionInit)
 
+	// Register this aggregator as the MetaToolsDataProvider (Issue #343)
+	// This enables the metatools package to access tools, resources, and prompts
+	// through the aggregator for the server-side meta-tools migration.
+	api.RegisterMetaToolsDataProvider(a)
+	logging.Info("Aggregator", "Registered as MetaToolsDataProvider")
+
 	// Perform initial capability discovery and registration
 	a.updateCapabilities()
 
@@ -1177,23 +1183,61 @@ func (a *AggregatorServer) IsYoloMode() bool {
 func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	logging.Debug("Aggregator", "CallToolInternal called for tool: %s", toolName)
 
+	// Get session ID for session-scoped tool resolution
+	sessionID := getSessionIDFromContext(ctx)
+
 	// First, try to resolve the tool name through the registry (backend servers)
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
 		logging.Debug("Aggregator", "Tool %s found in registry (server: %s, original: %s)", toolName, serverName, originalName)
-		// Found in registry - call through the registered server
+		// Found in registry - check if server is connected or needs session-scoped access
 		serverInfo, exists := a.registry.GetServerInfo(serverName)
 		if !exists || serverInfo == nil {
 			return nil, fmt.Errorf("server not found: %s", serverName)
 		}
 
-		// Call the tool through the backend client using the original name
+		// For connected servers with a working client, use the global client
+		if serverInfo.Status == StatusConnected && serverInfo.Client != nil {
+			logging.Debug("Aggregator", "Using global client for server %s", serverName)
+			return serverInfo.Client.CallTool(ctx, originalName, args)
+		}
+
+		// For auth-required servers, try session-scoped client
+		if serverInfo.Status == StatusAuthRequired && sessionID != "" {
+			logging.Debug("Aggregator", "Server %s requires auth, trying session connection for session %s",
+				serverName, logging.TruncateSessionID(sessionID))
+			_, sessionClient, sessionOriginalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
+			if sessionErr == nil && sessionClient != nil {
+				logging.Debug("Aggregator", "Using session client for tool %s", toolName)
+				return sessionClient.CallTool(ctx, sessionOriginalName, args)
+			}
+			logging.Debug("Aggregator", "No session connection found for tool %s: %v", toolName, sessionErr)
+		}
+
+		// If no client is available, return an error
+		if serverInfo.Client == nil {
+			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.Status)
+		}
+
+		// Fallback to global client (may fail for auth-required servers)
 		return serverInfo.Client.CallTool(ctx, originalName, args)
 	}
 
-	logging.Debug("Aggregator", "Tool %s not found in registry (error: %v), checking core tools", toolName, err)
+	logging.Debug("Aggregator", "Tool %s not found in registry (error: %v), checking session connections", toolName, err)
 
-	// If not found in registry, check if it's a core tool by name pattern
+	// Check session connections for OAuth-protected servers (Issue #343)
+	// This handles tools that are only available through session-specific connections
+	if sessionID != "" {
+		serverName, sessionClient, originalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
+		if sessionErr == nil && sessionClient != nil {
+			logging.Debug("Aggregator", "Tool %s found in session connection (server: %s)", toolName, serverName)
+			return sessionClient.CallTool(ctx, originalName, args)
+		}
+	}
+
+	logging.Debug("Aggregator", "Tool %s not found in registry or session, checking core tools", toolName)
+
+	// If not found in registry or session, check if it's a core tool by name pattern
 	// This avoids the deadlock that can occur when calling createToolsFromProviders()
 	// during workflow execution
 	if a.isCoreToolByName(toolName) {
@@ -1201,7 +1245,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		return a.callCoreToolDirectly(ctx, toolName, args)
 	}
 
-	logging.Debug("Aggregator", "Tool %s not found in registry or core tools", toolName)
+	logging.Debug("Aggregator", "Tool %s not found in registry, session, or core tools", toolName)
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
@@ -1690,4 +1734,136 @@ func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (st
 	}
 
 	return "", nil, "", fmt.Errorf("tool not found in session connections")
+}
+
+// ============================================================================
+// MetaToolsDataProvider interface implementation
+// ============================================================================
+// The following methods implement the api.MetaToolsDataProvider interface,
+// enabling the metatools package to access tools, resources, and prompts
+// through the aggregator.
+
+// ListToolsForContext returns all available tools for the current session context.
+// This is used by the metatools package to provide session-scoped tool visibility.
+//
+// The method extracts the session ID from the context and returns tools
+// appropriate for that session's authentication state.
+func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
+	sessionID := getSessionIDFromContext(ctx)
+	return a.GetToolsForSession(sessionID)
+}
+
+// ListResourcesForContext returns all available resources for the current session context.
+// This is used by the metatools package to provide session-scoped resource visibility.
+func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
+	sessionID := getSessionIDFromContext(ctx)
+	return a.GetResourcesForSession(sessionID)
+}
+
+// ListPromptsForContext returns all available prompts for the current session context.
+// This is used by the metatools package to provide session-scoped prompt visibility.
+func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
+	sessionID := getSessionIDFromContext(ctx)
+	return a.GetPromptsForSession(sessionID)
+}
+
+// ReadResource retrieves the contents of a resource by URI.
+// This resolves the resource URI to its origin server and reads the content.
+func (a *AggregatorServer) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	// Resolve the exposed URI back to server and original URI
+	serverName, originalURI, err := a.registry.ResolveResourceName(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)
+	}
+
+	// Get the backend client
+	client, err := a.registry.GetClient(serverName)
+	if err != nil {
+		return nil, fmt.Errorf("server not available: %w", err)
+	}
+
+	// Read the resource from the backend server
+	result, err := client.ReadResource(ctx, originalURI)
+	if err != nil {
+		return nil, fmt.Errorf("resource read failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetPrompt executes a prompt with the provided arguments.
+// This resolves the prompt name to its origin server and retrieves the prompt.
+func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error) {
+	// Resolve the exposed name back to server and original prompt name
+	serverName, originalName, err := a.registry.ResolvePromptName(name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve prompt name: %w", err)
+	}
+
+	// Get the backend client
+	client, err := a.registry.GetClient(serverName)
+	if err != nil {
+		return nil, fmt.Errorf("server not available: %w", err)
+	}
+
+	// Convert string args to interface{} args for the client
+	clientArgs := make(map[string]interface{})
+	for k, v := range args {
+		clientArgs[k] = v
+	}
+
+	// Get the prompt from the backend server
+	result, err := client.GetPrompt(ctx, originalName, clientArgs)
+	if err != nil {
+		return nil, fmt.Errorf("prompt retrieval failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListServersRequiringAuth returns a list of servers that require authentication
+// for the current session. This enables the list_tools meta-tool to inform users
+// about servers that are available but require authentication before their tools
+// become visible.
+//
+// The method checks each registered server and returns those that:
+//   - Have StatusAuthRequired status
+//   - The session has not yet authenticated to
+//
+// This is part of the server-side meta-tools migration (Issue #343) to provide
+// better visibility into which servers need authentication.
+func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	sessionID := getSessionIDFromContext(ctx)
+	servers := a.registry.GetAllServers()
+
+	var authRequired []api.ServerAuthInfo
+
+	for name, info := range servers {
+		// Only include servers that require auth
+		if info.Status != StatusAuthRequired {
+			continue
+		}
+
+		// Check if session already has an authenticated connection
+		if a.sessionRegistry != nil {
+			if conn, exists := a.sessionRegistry.GetConnection(sessionID, name); exists && conn != nil {
+				if conn.Status == StatusSessionConnected {
+					// Session is already authenticated to this server
+					continue
+				}
+			}
+		}
+
+		// Server requires auth for this session
+		authRequired = append(authRequired, api.ServerAuthInfo{
+			Name:     name,
+			Status:   "auth_required",
+			AuthTool: "core_auth_login",
+		})
+	}
+
+	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for session %s",
+		len(authRequired), logging.TruncateSessionID(sessionID))
+
+	return authRequired
 }

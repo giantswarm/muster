@@ -96,7 +96,8 @@ steps:
       message: "http-server-stopped"
     expected:
       success: false
-      error_contains: ["tool not found"]
+      # Error message changed as part of server-side meta-tools migration (Issue #343)
+      error_contains: ["server not found"]
 
   # Phase 3: Start the MCP server and verify tool calls work again
   - id: "start-mcpserver-service"

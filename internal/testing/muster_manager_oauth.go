@@ -17,7 +17,13 @@ func (m *musterInstanceManager) startMockOAuthServers(
 	ctx context.Context,
 	instanceID string,
 	config *MusterPreConfiguration,
+	logger TestLogger,
 ) (map[string]*MockOAuthServerInfo, error) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	result := make(map[string]*MockOAuthServerInfo)
 
 	if config == nil || len(config.MockOAuthServers) == 0 {
@@ -61,7 +67,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		if oauthCfg.UseMockClock {
 			serverConfig.Clock = mock.NewMockClock(time.Time{})
 			if m.debug {
-				m.logger.Debug("🕐 Using mock clock for OAuth server %s\n", oauthCfg.Name)
+				logger.Debug("🕐 Using mock clock for OAuth server %s\n", oauthCfg.Name)
 			}
 		}
 
@@ -76,7 +82,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		port, err := oauthServer.Start(ctx)
 		if err != nil {
 			// Clean up already started servers
-			m.stopMockOAuthServers(ctx, instanceID)
+			m.stopMockOAuthServers(ctx, instanceID, logger)
 			return nil, fmt.Errorf("failed to start mock OAuth server %s: %w", oauthCfg.Name, err)
 		}
 
@@ -85,7 +91,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		if err := oauthServer.WaitForReady(readyCtx); err != nil {
 			cancel()
 			oauthServer.Stop(ctx)
-			m.stopMockOAuthServers(ctx, instanceID)
+			m.stopMockOAuthServers(ctx, instanceID, logger)
 			return nil, fmt.Errorf("mock OAuth server %s not ready: %w", oauthCfg.Name, err)
 		}
 		cancel()
@@ -109,7 +115,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 				info.IDToken = tokenResp.IDToken
 				info.UseAsMusterOAuthServer = true
 				if m.debug {
-					m.logger.Debug("🔑 Generated test access token and ID token for muster authentication\n")
+					logger.Debug("🔑 Generated test access token and ID token for muster authentication\n")
 				}
 			}
 		}
@@ -121,7 +127,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			if oauthCfg.UseAsMusterOAuthServer {
 				protocol = "https"
 			}
-			m.logger.Debug("🔐 Started mock OAuth server %s on port %d (%s, issuer: %s)\n",
+			logger.Debug("🔐 Started mock OAuth server %s on port %d (%s, issuer: %s)\n",
 				oauthCfg.Name, port, protocol, oauthServer.GetIssuerURL())
 		}
 	}
@@ -147,12 +153,12 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			if refInfo, ok := result[ti.OAuthServerRef]; ok {
 				trustedIssuers[ti.ConnectorID] = refInfo.IssuerURL
 				if m.debug {
-					m.logger.Debug("🔐 OAuth server %s trusts %s (connector: %s, issuer: %s)\n",
+					logger.Debug("🔐 OAuth server %s trusts %s (connector: %s, issuer: %s)\n",
 						oauthCfg.Name, ti.OAuthServerRef, ti.ConnectorID, refInfo.IssuerURL)
 				}
 			} else {
 				if m.debug {
-					m.logger.Debug("⚠️  OAuth server %s references unknown server %s for trusted issuer\n",
+					logger.Debug("⚠️  OAuth server %s references unknown server %s for trusted issuer\n",
 						oauthCfg.Name, ti.OAuthServerRef)
 				}
 			}
@@ -167,7 +173,12 @@ func (m *musterInstanceManager) startMockOAuthServers(
 }
 
 // stopMockOAuthServers stops all mock OAuth servers for a given instance
-func (m *musterInstanceManager) stopMockOAuthServers(ctx context.Context, instanceID string) {
+func (m *musterInstanceManager) stopMockOAuthServers(ctx context.Context, instanceID string, logger TestLogger) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	m.mu.Lock()
 	servers, exists := m.mockOAuthServers[instanceID]
 	if exists {
@@ -181,13 +192,13 @@ func (m *musterInstanceManager) stopMockOAuthServers(ctx context.Context, instan
 
 	for name, server := range servers {
 		if m.debug {
-			m.logger.Debug("🔐 Stopping mock OAuth server %s\n", name)
+			logger.Debug("🔐 Stopping mock OAuth server %s\n", name)
 		}
 
 		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := server.Stop(stopCtx); err != nil {
 			if m.debug {
-				m.logger.Debug("⚠️  Failed to stop mock OAuth server %s: %v\n", name, err)
+				logger.Debug("⚠️  Failed to stop mock OAuth server %s: %v\n", name, err)
 			}
 		}
 		cancel()
@@ -200,7 +211,13 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 	instanceID, configPath string,
 	config *MusterPreConfiguration,
 	oauthServers map[string]*MockOAuthServerInfo,
+	logger TestLogger,
 ) (map[string]*MockHTTPServerInfo, error) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	result := make(map[string]*MockHTTPServerInfo)
 
 	if config == nil || len(config.MCPServers) == 0 {
@@ -250,14 +267,14 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 
 		if oauthConfig != nil && oauthConfig.Required {
 			// Start as a protected MCP server
-			info, err := m.startProtectedMCPServer(ctx, instanceID, mcpServer, transportType, oauthConfig, oauthServers)
+			info, err := m.startProtectedMCPServer(ctx, instanceID, mcpServer, transportType, oauthConfig, oauthServers, logger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to start protected MCP server %s: %w", mcpServer.Name, err)
 			}
 			result[mcpServer.Name] = info
 		} else {
 			// Start as a regular mock HTTP server
-			info, err := m.startRegularMockHTTPServer(ctx, instanceID, configPath, mcpServer, transportType)
+			info, err := m.startRegularMockHTTPServer(ctx, instanceID, configPath, mcpServer, transportType, logger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to start mock HTTP server %s: %w", mcpServer.Name, err)
 			}
@@ -303,6 +320,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 	transportType mock.HTTPTransportType,
 	oauthConfig *MCPServerOAuthConfig,
 	oauthServers map[string]*MockOAuthServerInfo,
+	logger TestLogger,
 ) (*MockHTTPServerInfo, error) {
 	// Find the referenced OAuth server
 	var oauthServer *mock.OAuthServer
@@ -361,7 +379,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 	m.mu.Unlock()
 
 	if m.debug {
-		m.logger.Debug("🔒 Started protected MCP server %s on port %d (issuer: %s)\n",
+		logger.Debug("🔒 Started protected MCP server %s on port %d (issuer: %s)\n",
 			mcpServer.Name, port, issuer)
 	}
 
@@ -379,11 +397,12 @@ func (m *musterInstanceManager) startRegularMockHTTPServer(
 	instanceID, configPath string,
 	mcpServer MCPServerConfig,
 	transportType mock.HTTPTransportType,
+	logger TestLogger,
 ) (*MockHTTPServerInfo, error) {
 	serverType, _ := mcpServer.Config["type"].(string)
 
 	if m.debug {
-		m.logger.Debug("🌐 Starting mock HTTP server for %s (transport: %s)\n", mcpServer.Name, serverType)
+		logger.Debug("🌐 Starting mock HTTP server for %s (transport: %s)\n", mcpServer.Name, serverType)
 	}
 
 	// Write mock config file
@@ -428,7 +447,7 @@ func (m *musterInstanceManager) startRegularMockHTTPServer(
 	m.mu.Unlock()
 
 	if m.debug {
-		m.logger.Debug("✅ Mock HTTP server %s started on port %d (endpoint: %s)\n",
+		logger.Debug("✅ Mock HTTP server %s started on port %d (endpoint: %s)\n",
 			mcpServer.Name, port, httpServer.Endpoint())
 	}
 
@@ -505,7 +524,12 @@ func (m *musterInstanceManager) extractToolConfigs(config map[string]interface{}
 }
 
 // stopProtectedMCPServers stops all protected MCP servers for a given instance
-func (m *musterInstanceManager) stopProtectedMCPServers(ctx context.Context, instanceID string) {
+func (m *musterInstanceManager) stopProtectedMCPServers(ctx context.Context, instanceID string, logger TestLogger) {
+	// Use provided logger or fall back to manager's logger
+	if logger == nil {
+		logger = m.logger
+	}
+
 	m.mu.Lock()
 	servers, exists := m.protectedMCPServers[instanceID]
 	if exists {
@@ -519,13 +543,13 @@ func (m *musterInstanceManager) stopProtectedMCPServers(ctx context.Context, ins
 
 	for name, server := range servers {
 		if m.debug {
-			m.logger.Debug("🔒 Stopping protected MCP server %s\n", name)
+			logger.Debug("🔒 Stopping protected MCP server %s\n", name)
 		}
 
 		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := server.Stop(stopCtx); err != nil {
 			if m.debug {
-				m.logger.Debug("⚠️  Failed to stop protected MCP server %s: %v\n", name, err)
+				logger.Debug("⚠️  Failed to stop protected MCP server %s: %v\n", name, err)
 			}
 		}
 		cancel()

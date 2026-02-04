@@ -419,8 +419,11 @@ func runSchemaGeneration(ctx context.Context, cmd *cobra.Command, args []string)
 	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, testTimeout)
 	defer timeoutCancel()
 
+	// Create logger for this operation
+	logger := testing.NewStdoutLogger(testVerbose, testDebug)
+
 	// Create an muster instance manager
-	manager, err := testing.NewMusterInstanceManagerWithLogger(testDebug, testBasePort, testing.NewStdoutLogger(testVerbose, testDebug))
+	manager, err := testing.NewMusterInstanceManagerWithLogger(testDebug, testBasePort, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create muster instance manager: %w", err)
 	}
@@ -430,14 +433,14 @@ func runSchemaGeneration(ctx context.Context, cmd *cobra.Command, args []string)
 	}
 
 	// Create the muster serve instance
-	instance, err := manager.CreateInstance(timeoutCtx, "schema-generation", nil)
+	instance, err := manager.CreateInstance(timeoutCtx, "schema-generation", nil, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create muster instance: %w", err)
 	}
-	defer manager.DestroyInstance(timeoutCtx, instance)
+	defer manager.DestroyInstance(timeoutCtx, instance, logger)
 
 	// Wait for the instance to be ready
-	if err := manager.WaitForReady(timeoutCtx, instance); err != nil {
+	if err := manager.WaitForReady(timeoutCtx, instance, logger); err != nil {
 		return fmt.Errorf("muster instance not ready: %w", err)
 	}
 

@@ -231,12 +231,18 @@ func (r *testReporter) ReportStepResult(stepResult TestStepResult) {
 func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 	symbol := r.getResultSymbol(scenarioResult.Result)
 
+	// Generate prefix for parallel mode to help identify which scenario the output belongs to
+	prefix := ""
+	if r.parallelMode {
+		prefix = GenerateScenarioPrefix(scenarioResult.Scenario.Name) + " "
+	}
+
 	if r.verbose {
-		fmt.Printf("%s Scenario completed: %s (%v)\n",
-			symbol, scenarioResult.Scenario.Name, scenarioResult.Duration)
+		fmt.Printf("%s%s Scenario completed: %s (%v)\n",
+			prefix, symbol, scenarioResult.Scenario.Name, scenarioResult.Duration)
 
 		if scenarioResult.Error != "" {
-			fmt.Printf("   ❌ Scenario Error: %s\n", scenarioResult.Error)
+			fmt.Printf("%s   ❌ Scenario Error: %s\n", prefix, scenarioResult.Error)
 		}
 
 		// Show detailed step summary
@@ -256,7 +262,7 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 			}
 		}
 
-		fmt.Printf("   📊 Step Summary: %d total", totalSteps)
+		fmt.Printf("%s   📊 Step Summary: %d total", prefix, totalSteps)
 		if passed > 0 {
 			fmt.Printf(", %d ✅ passed", passed)
 		}
@@ -270,11 +276,11 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 
 		// Show failed steps details
 		if failed > 0 || errors > 0 {
-			fmt.Printf("   🔍 Failed Steps:\n")
+			fmt.Printf("%s      🔍 Failed Steps:\n", prefix)
 			for _, stepResult := range scenarioResult.StepResults {
 				if stepResult.Result == ResultFailed || stepResult.Result == ResultError {
 					stepSymbol := r.getResultSymbol(stepResult.Result)
-					fmt.Printf("      %s %s: %s\n", stepSymbol, stepResult.Step.ID, stepResult.Error)
+					fmt.Printf("%s      %s %s: %s\n", prefix, stepSymbol, stepResult.Step.ID, stepResult.Error)
 				}
 			}
 		}
@@ -282,26 +288,26 @@ func (r *testReporter) ReportScenarioResult(scenarioResult TestScenarioResult) {
 		// Show instance logs if available and there were failures
 		if r.debug && scenarioResult.InstanceLogs != nil {
 			// Show logs in debug mode even for successful scenarios
-			fmt.Printf("   📄 Instance Logs (debug mode):\n")
+			fmt.Printf("%s   📄 Instance Logs (debug mode):\n", prefix)
 			if scenarioResult.InstanceLogs.Stdout != "" {
 				stdout := scenarioResult.InstanceLogs.Stdout
-				fmt.Printf("   📤 STDOUT:\n%s\n", r.indentText(stdout, "      "))
+				fmt.Printf("%s   📤 STDOUT:\n%s\n", prefix, r.indentText(stdout, prefix+"      "))
 			}
 			if scenarioResult.InstanceLogs.Stderr != "" {
 				stderr := scenarioResult.InstanceLogs.Stderr
-				fmt.Printf("   📥 STDERR:\n%s\n", r.indentText(stderr, "      "))
+				fmt.Printf("%s   📥 STDERR:\n%s\n", prefix, r.indentText(stderr, prefix+"      "))
 			}
 		} else if (failed > 0 || errors > 0) && scenarioResult.InstanceLogs != nil {
-			fmt.Printf("   📄 Instance Logs (last execution):\n")
+			fmt.Printf("%s   📄 Instance Logs (last execution):\n", prefix)
 			if scenarioResult.InstanceLogs.Stdout != "" {
-				fmt.Printf("   📤 STDOUT:\n")
+				fmt.Printf("%s   📤 STDOUT:\n", prefix)
 				stdout := r.trimLogs(scenarioResult.InstanceLogs.Stdout, 1000)
-				fmt.Printf("%s\n", r.indentText(stdout, "      "))
+				fmt.Printf("%s\n", r.indentText(stdout, prefix+"      "))
 			}
 			if scenarioResult.InstanceLogs.Stderr != "" {
-				fmt.Printf("   📥 STDERR:\n")
+				fmt.Printf("%s   📥 STDERR:\n", prefix)
 				stderr := r.trimLogs(scenarioResult.InstanceLogs.Stderr, 1000)
-				fmt.Printf("%s\n", r.indentText(stderr, "      "))
+				fmt.Printf("%s\n", r.indentText(stderr, prefix+"      "))
 			}
 		}
 
