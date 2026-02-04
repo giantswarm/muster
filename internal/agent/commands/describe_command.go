@@ -56,7 +56,7 @@ func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 
 	if result.IsError {
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				d.output.Error("%s", textContent.Text)
 			}
 		}
@@ -65,7 +65,7 @@ func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 
 	// Parse and display the JSON response from describe_tool
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var toolInfo struct {
 				Name        string      `json:"name"`
 				Description string      `json:"description"`
@@ -81,8 +81,9 @@ func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 			d.output.OutputLine("Tool: %s", toolInfo.Name)
 			d.output.OutputLine("Description: %s", toolInfo.Description)
 			if toolInfo.InputSchema != nil {
-				schemaJSON, _ := json.MarshalIndent(toolInfo.InputSchema, "", "  ")
-				d.output.OutputLine("Input Schema:\n%s", string(schemaJSON))
+				if schemaJSON, err := json.MarshalIndent(toolInfo.InputSchema, "", "  "); err == nil {
+					d.output.OutputLine("Input Schema:\n%s", string(schemaJSON))
+				}
 			}
 
 			return nil

@@ -77,7 +77,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 	if result.IsError {
 		f.output.Error("Error filtering tools:")
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				f.output.OutputLine("  %s", textContent.Text)
 			}
 		}
@@ -87,7 +87,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 	// Parse the JSON response from filter_tools
 	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var response struct {
 				Filters struct {
 					Pattern           string `json:"pattern"`
@@ -138,8 +138,9 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
 					f.output.OutputLine("   Description: %s", tool.Description)
 					if tool.InputSchema != nil {
-						schemaJSON, _ := json.MarshalIndent(tool.InputSchema, "   ", "  ")
-						f.output.OutputLine("   Schema: %s", string(schemaJSON))
+						if schemaJSON, err := json.MarshalIndent(tool.InputSchema, "   ", "  "); err == nil {
+							f.output.OutputLine("   Schema: %s", string(schemaJSON))
+						}
 					}
 					if i < len(response.Tools)-1 {
 						f.output.OutputLine(strings.Repeat("-", 40))
@@ -159,91 +160,6 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 
 	f.output.OutputLine("No tools available to filter")
 	return nil
-}
-
-// matchesPattern checks if a name matches a pattern (supports wildcards)
-func (f *FilterCommand) matchesPattern(name, pattern string, caseSensitive bool) bool {
-	if !caseSensitive {
-		name = strings.ToLower(name)
-		pattern = strings.ToLower(pattern)
-	}
-
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return true // empty pattern should match everything
-	}
-	if name == "" {
-		return pattern == ""
-	}
-
-	// If no wildcards are present in the pattern, perform a simple substring search.
-	// This makes the command more user-friendly for simple searches.
-	if !strings.ContainsAny(pattern, "*?") {
-		return strings.Contains(name, pattern)
-	}
-
-	// For patterns with wildcards, use the original matchWildcard logic
-	return f.matchWildcard(name, pattern)
-}
-
-// matchWildcard implements proper sequential wildcard pattern matching
-func (f *FilterCommand) matchWildcard(text, pattern string) bool {
-	// Handle edge cases
-	if pattern == "*" {
-		return true
-	}
-	if pattern == "" {
-		return text == ""
-	}
-	if text == "" {
-		return pattern == ""
-	}
-
-	// If no wildcards, do substring matching (like the original behavior)
-	if !strings.Contains(pattern, "*") {
-		return strings.Contains(text, pattern)
-	}
-
-	// Split pattern by wildcards
-	parts := strings.Split(pattern, "*")
-	textPos := 0
-
-	for i, part := range parts {
-		// Skip empty parts between consecutive wildcards
-		if part == "" {
-			continue
-		}
-
-		if i == 0 && !strings.HasPrefix(pattern, "*") {
-			// First part must match from the beginning (no leading wildcard)
-			if !strings.HasPrefix(text[textPos:], part) {
-				return false
-			}
-			textPos += len(part)
-		} else {
-			// All other parts must exist in sequence
-			// For patterns with wildcards, all parts after the first are treated as "find anywhere"
-			idx := strings.Index(text[textPos:], part)
-			if idx == -1 {
-				return false
-			}
-			textPos += idx + len(part)
-		}
-	}
-
-	return true
-}
-
-// containsDescription checks if description contains the filter text
-func (f *FilterCommand) containsDescription(description, filter string, caseSensitive bool) bool {
-	if !caseSensitive {
-		description = strings.ToLower(description)
-		filter = strings.ToLower(filter)
-	}
-	return strings.Contains(description, filter)
 }
 
 // Usage returns the usage string

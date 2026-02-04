@@ -35,13 +35,13 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 	case "resource", "resources":
 		if err := l.client.RefreshResourceCache(ctx); err != nil {
 			l.output.Error("Failed to refresh resource cache: %v", err)
-			// Continue with the cached tools if refresh fails
+			// Continue with the cached resources if refresh fails
 		}
 		return l.listResources()
 	case "prompt", "prompts":
 		if err := l.client.RefreshPromptCache(ctx); err != nil {
 			l.output.Error("Failed to refresh prompt cache: %v", err)
-			// Continue with the cached tools if refresh fails
+			// Continue with the cached prompts if refresh fails
 		}
 		return l.listPrompts()
 	case "workflow", "workflows":
@@ -72,7 +72,7 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 	if result.IsError {
 		l.output.Error("Error listing tools:")
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				l.output.OutputLine("  %s", textContent.Text)
 			}
 		}
@@ -82,7 +82,7 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 	// Parse the JSON response from list_tools
 	// Format: {"tools": [{"name": "...", "description": "..."}, ...], "servers_requiring_auth": [...]}
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var response struct {
 				Tools []struct {
 					Name        string `json:"name"`
@@ -163,7 +163,7 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 	if result.IsError {
 		l.output.Error("Error listing core tools:")
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				l.output.OutputLine("  %s", textContent.Text)
 			}
 		}
@@ -173,7 +173,7 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 	// Parse the JSON response from list_core_tools
 	// Format: {"filters": {...}, "total_tools": N, "filtered_count": M, "tools": [...]}
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var response struct {
 				TotalTools    int `json:"total_tools"`
 				FilteredCount int `json:"filtered_count"`
@@ -228,7 +228,7 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 	if result.IsError {
 		l.output.Error("Error fetching workflows:")
 		for _, content := range result.Content {
-			if textContent, ok := content.(mcp.TextContent); ok {
+			if textContent, ok := mcp.AsTextContent(content); ok {
 				l.output.OutputLine("  %s", textContent.Text)
 			}
 		}
@@ -245,7 +245,7 @@ func (l *ListCommand) listWorkflows(ctx context.Context) error {
 	var workflows []map[string]interface{}
 
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var jsonResult interface{}
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonResult); err == nil {
 				if resultMap, ok := jsonResult.(map[string]interface{}); ok {
@@ -330,7 +330,7 @@ func (l *ListCommand) getWorkflowParameters(ctx context.Context, workflowName st
 
 	// Try to parse JSON from the first text content
 	for _, content := range result.Content {
-		if textContent, ok := content.(mcp.TextContent); ok {
+		if textContent, ok := mcp.AsTextContent(content); ok {
 			var jsonResult interface{}
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonResult); err == nil {
 				if resultMap, ok := jsonResult.(map[string]interface{}); ok {
