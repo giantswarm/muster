@@ -211,3 +211,16 @@ func (a *Adapter) GetPrompt(ctx context.Context, name string, args map[string]st
 
 	return result, nil
 }
+
+// ListServersRequiringAuth returns a list of servers that require authentication
+// for the current session. This is used by the list_tools handler to inform
+// users about available servers that need authentication.
+func (a *Adapter) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	provider, err := a.getDataProvider()
+	if err != nil {
+		logging.Warn("metatools", "ListServersRequiringAuth: %v", err)
+		return []api.ServerAuthInfo{}
+	}
+
+	return provider.ListServersRequiringAuth(ctx)
+}

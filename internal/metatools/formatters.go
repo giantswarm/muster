@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"muster/internal/api"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -63,6 +65,65 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 	}
 
 	jsonData, err := json.MarshalIndent(toolList, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to format tools: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// FormatToolsListWithAuthJSON formats a list of tools along with information
+// about servers requiring authentication as structured JSON.
+//
+// This format is used by the list_tools meta-tool to provide users with:
+//   - Available tools from connected/authenticated servers
+//   - Information about servers that require authentication
+//
+// Args:
+//   - tools: Slice of available tools to format
+//   - serversRequiringAuth: Slice of servers that need authentication
+//
+// Returns:
+//   - JSON string containing tools and auth-required servers
+//   - error: JSON marshaling errors (should be rare)
+//
+// Output format:
+//
+//	{
+//	  "tools": [...],
+//	  "servers_requiring_auth": [
+//	    {
+//	      "name": "server-name",
+//	      "status": "auth_required",
+//	      "auth_tool": "core_auth_login"
+//	    }
+//	  ]
+//	}
+func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequiringAuth []api.ServerAuthInfo) (string, error) {
+	type ToolInfo struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+
+	type Response struct {
+		Tools                []ToolInfo           `json:"tools"`
+		ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
+	}
+
+	toolList := make([]ToolInfo, len(tools))
+	for i, tool := range tools {
+		toolList[i] = ToolInfo{
+			Name:        tool.Name,
+			Description: tool.Description,
+		}
+	}
+
+	response := Response{
+		Tools:                toolList,
+		ServersRequiringAuth: serversRequiringAuth,
+	}
+
+	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to format tools: %w", err)
 	}

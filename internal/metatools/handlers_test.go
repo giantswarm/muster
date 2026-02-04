@@ -61,6 +61,10 @@ func (m *mockMetaToolsHandler) GetPrompt(ctx context.Context, name string, args 
 	return m.getPromptResult, nil
 }
 
+func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	return []api.ServerAuthInfo{}
+}
+
 // registerMockHandler registers a mock handler for testing
 func registerMockHandler(mock *mockMetaToolsHandler) func() {
 	api.RegisterMetaTools(mock)
@@ -97,12 +101,16 @@ func TestProvider_HandleListTools(t *testing.T) {
 	require.NotNil(t, result)
 	assert.False(t, result.IsError)
 
-	// Parse the JSON result
+	// Parse the JSON result - new format with tools and servers_requiring_auth
 	content := result.Content[0].(string)
-	var parsed []map[string]string
+	var parsed struct {
+		Tools                []map[string]string  `json:"tools"`
+		ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
+	}
 	err = json.Unmarshal([]byte(content), &parsed)
 	require.NoError(t, err)
-	assert.Len(t, parsed, 2)
+	assert.Len(t, parsed.Tools, 2)
+	assert.Empty(t, parsed.ServersRequiringAuth) // Empty since mock returns empty list
 }
 
 func TestProvider_HandleDescribeTool(t *testing.T) {

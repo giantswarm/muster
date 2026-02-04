@@ -1820,3 +1820,50 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 
 	return result, nil
 }
+
+// ListServersRequiringAuth returns a list of servers that require authentication
+// for the current session. This enables the list_tools meta-tool to inform users
+// about servers that are available but require authentication before their tools
+// become visible.
+//
+// The method checks each registered server and returns those that:
+//   - Have StatusAuthRequired status
+//   - The session has not yet authenticated to
+//
+// This is part of the server-side meta-tools migration (Issue #343) to provide
+// better visibility into which servers need authentication.
+func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	sessionID := getSessionIDFromContext(ctx)
+	servers := a.registry.GetAllServers()
+
+	var authRequired []api.ServerAuthInfo
+
+	for name, info := range servers {
+		// Only include servers that require auth
+		if info.Status != StatusAuthRequired {
+			continue
+		}
+
+		// Check if session already has an authenticated connection
+		if a.sessionRegistry != nil {
+			if conn, exists := a.sessionRegistry.GetConnection(sessionID, name); exists && conn != nil {
+				if conn.Status == StatusSessionConnected {
+					// Session is already authenticated to this server
+					continue
+				}
+			}
+		}
+
+		// Server requires auth for this session
+		authRequired = append(authRequired, api.ServerAuthInfo{
+			Name:     name,
+			Status:   "auth_required",
+			AuthTool: "core_auth_login",
+		})
+	}
+
+	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for session %s",
+		len(authRequired), logging.TruncateSessionID(sessionID))
+
+	return authRequired
+}

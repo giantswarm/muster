@@ -79,6 +79,29 @@ type MetaToolsDataProvider interface {
 	//   - *mcp.GetPromptResult: The prompt result with messages
 	//   - error: Error if execution fails
 	GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error)
+
+	// ListServersRequiringAuth returns a list of servers that require authentication
+	// for the current session. This enables the list_tools meta-tool to inform users
+	// about servers that are available but require authentication before their tools
+	// become visible.
+	//
+	// Args:
+	//   - ctx: Context containing session information
+	//
+	// Returns:
+	//   - []ServerAuthInfo: List of servers requiring authentication
+	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+}
+
+// ServerAuthInfo contains information about a server requiring authentication.
+// This is used to inform users which servers need authentication via core_auth_login.
+type ServerAuthInfo struct {
+	// Name is the server name (e.g., "kubernetes", "github")
+	Name string `json:"name"`
+	// Status is the current auth status (typically "auth_required")
+	Status string `json:"status"`
+	// AuthTool is the tool to use for authentication (typically "core_auth_login")
+	AuthTool string `json:"auth_tool"`
 }
 
 // metaToolsDataProvider stores the registered MetaToolsDataProvider implementation.
@@ -203,4 +226,17 @@ type MetaToolsHandler interface {
 	//   - *mcp.GetPromptResult: The prompt result with messages
 	//   - error: Error if execution fails
 	GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error)
+
+	// Server status operations
+
+	// ListServersRequiringAuth returns a list of servers that require authentication
+	// for the current session. This enables the list_tools meta-tool to inform users
+	// about servers that are available but require authentication.
+	//
+	// Args:
+	//   - ctx: Context containing session information
+	//
+	// Returns:
+	//   - []ServerAuthInfo: List of servers requiring authentication
+	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
 }
