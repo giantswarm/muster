@@ -731,3 +731,55 @@ func GetTeleportClient() TeleportClientHandler {
 	defer handlerMutex.RUnlock()
 	return teleportClientHandler
 }
+
+// metaToolsHandler stores the registered MetaToolsHandler implementation.
+var metaToolsHandler MetaToolsHandler
+
+// RegisterMetaTools registers the meta-tools handler implementation.
+// This handler provides server-side meta-tool functionality for AI assistants,
+// enabling tool discovery, execution, and resource/prompt access.
+//
+// The registration is thread-safe and should be called during system initialization.
+// Only one meta-tools handler can be registered at a time; subsequent
+// registrations will replace the previous handler.
+//
+// Args:
+//   - h: MetaToolsHandler implementation that manages meta-tool operations
+//
+// Thread-safe: Yes, protected by handlerMutex.
+//
+// Example:
+//
+//	adapter := metatools.NewAdapter()
+//	adapter.Register()
+func RegisterMetaTools(h MetaToolsHandler) {
+	handlerMutex.Lock()
+	defer handlerMutex.Unlock()
+	logging.Debug("API", "Registering meta-tools handler: %v", h != nil)
+	metaToolsHandler = h
+}
+
+// GetMetaTools returns the registered meta-tools handler.
+// This provides access to server-side meta-tool functionality for
+// tool discovery, execution, and resource/prompt access.
+//
+// Returns nil if no handler has been registered yet. Callers should always
+// check for nil before using the returned handler.
+//
+// Returns:
+//   - MetaToolsHandler: The registered handler, or nil if not registered
+//
+// Thread-safe: Yes, protected by handlerMutex read lock.
+//
+// Example:
+//
+//	metaToolsHandler := api.GetMetaTools()
+//	if metaToolsHandler == nil {
+//	    return fmt.Errorf("meta-tools handler not available")
+//	}
+//	tools, err := metaToolsHandler.ListTools(ctx)
+func GetMetaTools() MetaToolsHandler {
+	handlerMutex.RLock()
+	defer handlerMutex.RUnlock()
+	return metaToolsHandler
+}
