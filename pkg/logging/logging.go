@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -54,60 +52,7 @@ func (l LogLevel) SlogLevel() slog.Level {
 	}
 }
 
-// LogEntry is the structured log entry passed to the TUI.
-type LogEntry struct {
-	Timestamp  time.Time
-	Level      LogLevel
-	Subsystem  string
-	Message    string
-	Err        error
-	Attributes []slog.Attr // Using slog.Attr for flexibility
-}
-
-var (
-	defaultLogger *slog.Logger
-	tuiLogChannel chan LogEntry
-	isTuiMode     bool
-	// globalHandlerSlogLevel slog.Level // No longer needed with defaultLogger.Enabled()
-)
-
-const tuiChannelBufferSize = 2048
-
-// Initcommon initializes the logger for either TUI or CLI mode.
-// This should be called once at application startup.
-func Initcommon(mode string, level LogLevel, output io.Writer, channelBufferSize int) <-chan LogEntry {
-	opts := &slog.HandlerOptions{
-		Level: level.SlogLevel(), // This sets the minimum level for the handler
-	}
-
-	var handler slog.Handler
-	if mode == "tui" {
-		isTuiMode = true
-		if channelBufferSize <= 0 {
-			channelBufferSize = tuiChannelBufferSize
-		}
-		tuiLogChannel = make(chan LogEntry, channelBufferSize)
-		// For TUI, even if a handler is set up for defaultLogger,
-		// logInternal will primarily send to tuiLogChannel.
-		// A default handler can be useful for any direct slog calls during TUI init.
-		handler = slog.NewTextHandler(io.Discard, opts) // TUI logs via channel; discard direct slog output from defaultLogger
-	} else { // cli mode
-		isTuiMode = false
-		handler = slog.NewTextHandler(output, opts)
-	}
-	defaultLogger = slog.New(handler)
-	slog.SetDefault(defaultLogger) // Set for any global slog calls if necessary
-
-	// Initialize controller-runtime logger to prevent "log.SetLogger(...) was never called" warnings.
-	// This bridges the Go slog logger to the logr interface used by controller-runtime.
-	// See: https://github.com/go-logr/logr for slog integration details.
-	initControllerRuntimeLogger(handler)
-
-	if isTuiMode {
-		return tuiLogChannel
-	}
-	return nil
-}
+var defaultLogger *slog.Logger
 
 // initControllerRuntimeLogger initializes the controller-runtime logger using the provided slog handler.
 // This must be called before any controller-runtime operations (informers, caches, etc.) are used,
@@ -117,9 +62,6 @@ func Initcommon(mode string, level LogLevel, output io.Writer, channelBufferSize
 // The function creates a logr.Logger from the slog handler and sets it as the controller-runtime
 // global logger via ctrl.SetLogger(). This ensures that controller-runtime logs are properly
 // routed through the muster logging infrastructure.
-//
-// Note: In TUI mode, the handler is set to io.Discard, so controller-runtime logs will also be
-// discarded. This is intentional as TUI mode uses a channel-based logging mechanism instead.
 func initControllerRuntimeLogger(handler slog.Handler) {
 	if handler == nil {
 		return
@@ -135,54 +77,35 @@ func initControllerRuntimeLogger(handler slog.Handler) {
 }
 
 // InitForCLI initializes the logging system for CLI mode.
+// This should be called once at application startup to configure structured logging.
+//
+// Args:
+//   - filterLevel: minimum log level to output (Debug, Info, Warn, Error)
+//   - output: writer for log output (typically os.Stdout or os.Stderr)
 func InitForCLI(filterLevel LogLevel, output io.Writer) {
-	Initcommon("cli", filterLevel, output, 0)
+	opts := &slog.HandlerOptions{
+		Level: filterLevel.SlogLevel(),
+	}
+
+	handler := slog.NewTextHandler(output, opts)
+	defaultLogger = slog.New(handler)
+	slog.SetDefault(defaultLogger)
+
+	// Initialize controller-runtime logger to prevent "log.SetLogger(...) was never called" warnings.
+	// This bridges the Go slog logger to the logr interface used by controller-runtime.
+	// See: https://github.com/go-logr/logr for slog integration details.
+	initControllerRuntimeLogger(handler)
 }
 
 func logInternal(level LogLevel, subsystem string, err error, messageFmt string, args ...interface{}) {
-	// For CLI mode, check if the level is enabled by the configured handler before proceeding.
-	// For TUI mode, we always send to the channel; TUI will do its own filtering/display logic.
-	if !isTuiMode {
-		if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), level.SlogLevel()) {
-			return // Suppress log if not in TUI mode and level is not enabled for CLI
-		}
+	// Check if the level is enabled by the configured handler before proceeding.
+	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), level.SlogLevel()) {
+		return
 	}
 
 	msg := messageFmt
 	if len(args) > 0 {
 		msg = fmt.Sprintf(messageFmt, args...)
-	}
-	now := time.Now()
-
-	if isTuiMode {
-		if tuiLogChannel != nil {
-			entry := LogEntry{
-				Timestamp: now,
-				Level:     level,
-				Subsystem: subsystem,
-				Message:   msg,
-				Err:       err,
-			}
-			select {
-			case tuiLogChannel <- entry:
-				// Sent successfully
-			default:
-				// Channel full or closed, log to stderr as fallback for TUI log loss
-				fmt.Fprintf(os.Stderr, "[LOGGING_CRITICAL] TUI log channel full/closed. Dropping: %s [%s] %s\n", now.Format(time.RFC3339), level, msg)
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "[LOGGING_CRITICAL] TUI mode active but tuiLogChannel is nil. Log: %s [%s] %s\n", now.Format(time.RFC3339), level, msg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
-			}
-		}
-		return // In TUI mode, primary path is the channel, even if defaultLogger is set.
-	}
-
-	// CLI mode logging (only reached if level was enabled)
-	if defaultLogger == nil { // Should not happen if level was enabled, but as a safeguard.
-		fmt.Fprintf(os.Stderr, "[LOGGING_ERROR] Logger not initialized. Log: %s [%s] %s\n", now.Format(time.RFC3339), level, msg)
-		return
 	}
 
 	var slogAttrs []slog.Attr

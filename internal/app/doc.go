@@ -12,7 +12,7 @@
 // 2. **Configuration (`config.go`)**: Application runtime configuration structure
 // 3. **Configuration Adapter (`config_adapter.go`)**: API integration and MCP configuration tools
 // 4. **Services (`services.go`)**: Service initialization, registration, and dependency management
-// 5. **Modes (`modes.go`)**: Execution mode handlers (CLI and TUI)
+// 5. **Modes (`modes.go`)**: Execution mode handlers
 //
 // # Core Components
 //
@@ -23,7 +23,7 @@
 //   - **Logging Configuration**: Sets up logging based on debug flags and execution mode
 //   - **Configuration Loading**: Supports both layered and single-path configuration strategies
 //   - **Service Initialization**: Creates and initializes all required services and API adapters
-//   - **Mode Selection**: Determines and executes appropriate mode (CLI/TUI) based on configuration
+//   - **Mode Selection**: Determines and executes appropriate execution mode based on configuration
 //
 // ### Configuration Loading Strategies
 //
@@ -41,7 +41,7 @@
 // The configuration system has two layers:
 //
 // **Application Configuration (`config.go`)**:
-//   - Runtime settings: UI mode, debug flags, safety settings
+//   - Runtime settings: debug flags, safety settings
 //   - Configuration loading behavior control
 //   - Bootstrap args and preferences
 //
@@ -91,7 +91,6 @@
 //   - MCP Server services (external MCP protocol servers)
 //   - Aggregator service (tool aggregation and MCP endpoint)
 //   - Workflow execution services
-
 //   - ServiceClass-based services
 //
 // ## Execution Modes (modes.go)
@@ -121,16 +120,16 @@
 //
 // ## Standard Application Startup
 //
-//	cfg := app.NewConfig(false, true, false, "")  // TUI mode, debug enabled
+//	cfg := app.NewConfig(true, false, false, "")  // debug enabled
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
 //	}
 //	return application.Run(ctx)
 //
-// ## CLI Mode with Custom Configuration
+// ## Custom Configuration Path
 //
-//	cfg := app.NewConfig(true, false, false, "/opt/muster/config")
+//	cfg := app.NewConfig(false, false, false, "/opt/muster/config")
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
@@ -139,7 +138,7 @@
 //
 // ## Debug Mode for Development
 //
-//	cfg := app.NewConfig(false, true, true, "")  // TUI, debug, yolo mode
+//	cfg := app.NewConfig(true, false, true, "")  // debug, yolo mode
 //	application, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("bootstrap failed: %w", err)
@@ -197,7 +196,6 @@
 //
 // **Service Components**:
 //   - `internal/serviceclass`: ServiceClass definition management
-
 //   - `internal/workflow`: Workflow definition and execution
 //   - `internal/mcpserver`: MCP server process management
 //

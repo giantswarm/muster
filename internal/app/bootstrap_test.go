@@ -35,7 +35,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 			errorReason: "valid config should succeed",
 		},
 		{
-			name: "no-tui config",
+			name: "default config",
 			cfg: &Config{
 				Debug: false,
 				// Pre-populate MusterConfig to avoid LoadConfig call
@@ -48,7 +48,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 				ConfigPath: config.GetDefaultConfigPathOrPanic(),
 			},
 			expectError: false,
-			errorReason: "no-tui config should work",
+			errorReason: "default config should work",
 		},
 		{
 			name: "minimal config",
