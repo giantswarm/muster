@@ -13,6 +13,27 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// promptMessageResponse represents a serialized prompt message for JSON output.
+// This structure preserves message role and content for proper serialization.
+type promptMessageResponse struct {
+	Role    mcp.Role        `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+
+// getHandler retrieves the MetaToolsHandler from the API layer.
+// This helper eliminates repetitive handler retrieval across all handler methods.
+//
+// Returns:
+//   - api.MetaToolsHandler: The handler if available
+//   - *api.CallToolResult: Error result if handler is not available, nil otherwise
+func (p *Provider) getHandler() (api.MetaToolsHandler, *api.CallToolResult) {
+	handler := api.GetMetaTools()
+	if handler == nil {
+		return nil, errorResult("Meta-tools handler not available")
+	}
+	return handler, nil
+}
+
 // ExecuteTool executes a specific meta-tool by name with the provided arguments.
 // This implements the api.ToolProvider interface for tool execution.
 //
@@ -59,9 +80,9 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 // handleListTools handles the list_tools meta-tool.
 // This handler returns a list of all available tools from the aggregator.
 func (p *Provider) handleListTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	tools, err := handler.ListTools(ctx)
@@ -85,9 +106,9 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]inter
 		return errorResult("name argument is required"), nil
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	tools, err := handler.ListTools(ctx)
@@ -110,73 +131,28 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]inter
 
 // handleListCoreTools handles the list_core_tools meta-tool.
 // This handler returns a filtered list of core muster tools (prefixed with "core").
+// It delegates to handleFilterTools with a pre-configured "core*" pattern.
 func (p *Provider) handleListCoreTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	// Build args for filter_tools with core* pattern
+	filterArgs := map[string]interface{}{
+		"pattern":        "core*",
+		"case_sensitive": false,
 	}
 
-	// Get include_schema arg (defaults to true)
-	includeSchema := true
+	// Pass through include_schema if provided
 	if schemaVal, ok := args["include_schema"].(bool); ok {
-		includeSchema = schemaVal
+		filterArgs["include_schema"] = schemaVal
 	}
 
-	tools, err := handler.ListTools(ctx)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to list tools: %v", err)), nil
-	}
-
-	if len(tools) == 0 {
-		return textResult("No tools available"), nil
-	}
-
-	// Filter tools that start with "core" (case-insensitive)
-	var coreTools []map[string]interface{}
-	pattern := "core"
-
-	for _, tool := range tools {
-		toolName := strings.ToLower(tool.Name)
-		if strings.HasPrefix(toolName, pattern) {
-			toolInfo := map[string]interface{}{
-				"name":        tool.Name,
-				"description": tool.Description,
-			}
-
-			if includeSchema {
-				toolInfo["inputSchema"] = tool.InputSchema
-			}
-
-			coreTools = append(coreTools, toolInfo)
-		}
-	}
-
-	result := map[string]interface{}{
-		"filters": map[string]interface{}{
-			"pattern":            "core*",
-			"description_filter": "",
-			"case_sensitive":     false,
-			"include_schema":     includeSchema,
-		},
-		"total_tools":    len(tools),
-		"filtered_count": len(coreTools),
-		"tools":          coreTools,
-	}
-
-	jsonData, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to format core tools: %v", err)), nil
-	}
-
-	return textResult(string(jsonData)), nil
+	return p.handleFilterTools(ctx, filterArgs)
 }
 
 // handleFilterTools handles the filter_tools meta-tool.
 // This handler filters tools based on name patterns and description content.
 func (p *Provider) handleFilterTools(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	// Get filter args with defaults
@@ -296,9 +272,9 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface
 		}
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	// Execute the tool via the handler
@@ -326,9 +302,9 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface
 // handleListResources handles the list_resources meta-tool.
 // This handler returns a list of all available resources.
 func (p *Provider) handleListResources(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	resources, err := handler.ListResources(ctx)
@@ -352,9 +328,9 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]i
 		return errorResult("uri argument is required"), nil
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	resources, err := handler.ListResources(ctx)
@@ -383,9 +359,9 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]interf
 		return errorResult("uri argument is required"), nil
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	result, err := handler.GetResource(ctx, uri)
@@ -409,9 +385,9 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]interf
 // handleListPrompts handles the list_prompts meta-tool.
 // This handler returns a list of all available prompts.
 func (p *Provider) handleListPrompts(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	prompts, err := handler.ListPrompts(ctx)
@@ -435,9 +411,9 @@ func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]int
 		return errorResult("name argument is required"), nil
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	prompts, err := handler.ListPrompts(ctx)
@@ -479,9 +455,9 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interfac
 		}
 	}
 
-	handler := api.GetMetaTools()
-	if handler == nil {
-		return errorResult("Meta-tools handler not available"), nil
+	handler, errResult := p.getHandler()
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	result, err := handler.GetPrompt(ctx, name, promptArgs)
@@ -489,47 +465,16 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interfac
 		return errorResult(fmt.Sprintf("Prompt retrieval failed: %v", err)), nil
 	}
 
-	// Format messages as structured JSON
-	type Message struct {
-		Role    mcp.Role        `json:"role"`
-		Content json.RawMessage `json:"content"`
-	}
-
-	messages := make([]Message, len(result.Messages))
+	// Format messages as structured JSON using the package-level type
+	messages := make([]promptMessageResponse, len(result.Messages))
 	for i, msg := range result.Messages {
-		var content json.RawMessage
-
-		if textContent, ok := mcp.AsTextContent(msg.Content); ok {
-			contentMap := map[string]interface{}{
-				"type": "text",
-				"text": textContent.Text,
-			}
-			content, _ = json.Marshal(contentMap)
-		} else if imageContent, ok := mcp.AsImageContent(msg.Content); ok {
-			contentMap := map[string]interface{}{
-				"type":     "image",
-				"mimeType": imageContent.MIMEType,
-				"dataSize": len(imageContent.Data),
-			}
-			content, _ = json.Marshal(contentMap)
-		} else if audioContent, ok := mcp.AsAudioContent(msg.Content); ok {
-			contentMap := map[string]interface{}{
-				"type":     "audio",
-				"mimeType": audioContent.MIMEType,
-				"dataSize": len(audioContent.Data),
-			}
-			content, _ = json.Marshal(contentMap)
-		} else if resource, ok := mcp.AsEmbeddedResource(msg.Content); ok {
-			contentMap := map[string]interface{}{
-				"type":     "embeddedResource",
-				"resource": resource.Resource,
-			}
-			content, _ = json.Marshal(contentMap)
-		} else {
-			content, _ = json.Marshal(msg.Content)
+		content, marshalErr := serializePromptContent(msg.Content)
+		if marshalErr != nil {
+			logging.Warn("metatools", "Failed to serialize prompt content: %v", marshalErr)
+			content = []byte(`{"error": "failed to serialize content"}`)
 		}
 
-		messages[i] = Message{
+		messages[i] = promptMessageResponse{
 			Role:    msg.Role,
 			Content: content,
 		}
@@ -541,6 +486,39 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]interfac
 	}
 
 	return textResult(string(jsonData)), nil
+}
+
+// serializePromptContent serializes prompt message content to JSON.
+// This helper handles different content types and returns appropriate JSON.
+func serializePromptContent(content mcp.Content) (json.RawMessage, error) {
+	if textContent, ok := mcp.AsTextContent(content); ok {
+		return json.Marshal(map[string]interface{}{
+			"type": "text",
+			"text": textContent.Text,
+		})
+	}
+	if imageContent, ok := mcp.AsImageContent(content); ok {
+		return json.Marshal(map[string]interface{}{
+			"type":     "image",
+			"mimeType": imageContent.MIMEType,
+			"dataSize": len(imageContent.Data),
+		})
+	}
+	if audioContent, ok := mcp.AsAudioContent(content); ok {
+		return json.Marshal(map[string]interface{}{
+			"type":     "audio",
+			"mimeType": audioContent.MIMEType,
+			"dataSize": len(audioContent.Data),
+		})
+	}
+	if resource, ok := mcp.AsEmbeddedResource(content); ok {
+		return json.Marshal(map[string]interface{}{
+			"type":     "embeddedResource",
+			"resource": resource.Resource,
+		})
+	}
+	// Fallback for unknown content types
+	return json.Marshal(content)
 }
 
 // textResult creates a successful text result.

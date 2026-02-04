@@ -297,8 +297,52 @@ func TestSerializeContent(t *testing.T) {
 		assert.Equal(t, "Hello world", item["text"])
 	})
 
+	t.Run("serializes image content", func(t *testing.T) {
+		content := []mcp.Content{
+			mcp.ImageContent{Type: "image", MIMEType: "image/png", Data: "base64data"},
+		}
+
+		result := SerializeContent(content)
+		require.Len(t, result, 1)
+
+		item := result[0].(map[string]interface{})
+		assert.Equal(t, "image", item["type"])
+		assert.Equal(t, "image/png", item["mimeType"])
+		assert.Equal(t, 10, item["dataSize"]) // len("base64data") = 10
+	})
+
+	t.Run("serializes audio content", func(t *testing.T) {
+		content := []mcp.Content{
+			mcp.AudioContent{Type: "audio", MIMEType: "audio/mp3", Data: "audiodata"},
+		}
+
+		result := SerializeContent(content)
+		require.Len(t, result, 1)
+
+		item := result[0].(map[string]interface{})
+		assert.Equal(t, "audio", item["type"])
+		assert.Equal(t, "audio/mp3", item["mimeType"])
+		assert.Equal(t, 9, item["dataSize"]) // len("audiodata") = 9
+	})
+
 	t.Run("handles empty content", func(t *testing.T) {
 		result := SerializeContent([]mcp.Content{})
 		assert.Empty(t, result)
+	})
+
+	t.Run("handles mixed content types", func(t *testing.T) {
+		content := []mcp.Content{
+			mcp.TextContent{Type: "text", Text: "Hello"},
+			mcp.ImageContent{Type: "image", MIMEType: "image/jpeg", Data: "imgdata"},
+		}
+
+		result := SerializeContent(content)
+		require.Len(t, result, 2)
+
+		textItem := result[0].(map[string]interface{})
+		assert.Equal(t, "text", textItem["type"])
+
+		imageItem := result[1].(map[string]interface{})
+		assert.Equal(t, "image", imageItem["type"])
 	})
 }

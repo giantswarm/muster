@@ -2,7 +2,6 @@ package metatools
 
 import (
 	"muster/internal/api"
-	"muster/pkg/logging"
 )
 
 // Provider implements the api.ToolProvider interface for meta-tools.
@@ -203,9 +202,4 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 //   - *Formatters: The formatters instance
 func (p *Provider) GetFormatters() *Formatters {
 	return p.formatters
-}
-
-// init logs the initialization of the metatools package.
-func init() {
-	logging.Debug("metatools", "Package initialized")
 }

@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	pkgstrings "muster/pkg/strings"
-
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -18,10 +16,6 @@ import (
 //   - Search and lookup utilities for cached data
 //   - Consistent error handling and fallback formatting
 type Formatters struct{}
-
-// descriptionMaxLen is the maximum length for descriptions in formatted output.
-// Uses the shared constant from pkg/strings for consistency across packages.
-const descriptionMaxLen = pkgstrings.DefaultDescriptionMaxLen
 
 // NewFormatters creates a new formatters instance.
 // The formatters instance is stateless and can be safely used concurrently.
