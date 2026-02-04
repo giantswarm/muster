@@ -6,14 +6,13 @@ import (
 
 // Config holds the application configuration that controls bootstrap behavior and execution modes.
 // This struct encapsulates all settings needed during application initialization and runtime,
-// including UI preferences, debugging options, safety settings, and configuration loading behavior.
+// including debugging options, safety settings, and configuration loading behavior.
 //
 // The configuration supports both layered and single-path configuration loading strategies:
 //   - Layered: Merges configuration from defaults, user config, and project config
 //   - Single-path: Loads configuration from a specific directory only
 //
 // Field descriptions:
-//   - NoTUI: When true, runs in CLI mode; when false, runs in TUI mode
 //   - Debug: Enables debug-level logging and additional diagnostic output
 //   - Yolo: Enables "you only live once" mode with relaxed safety checks
 //   - ConfigPath: Optional custom configuration directory path

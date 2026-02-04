@@ -20,7 +20,7 @@ import (
 //
 // Example usage:
 //
-//	cfg := app.NewConfig(false, true, false, "")  // TUI mode, debug enabled
+//	cfg := app.NewConfig(true, false, false, "")  // debug enabled
 //	app, err := app.NewApplication(cfg)
 //	if err != nil {
 //	    return fmt.Errorf("failed to create application: %w", err)
@@ -60,7 +60,7 @@ func NewApplication(cfg *Config) (*Application, error) {
 		appLogLevel = logging.LevelDebug
 	}
 
-	// Initialize logging for CLI output (will be replaced for TUI mode)
+	// Initialize logging for CLI output
 	var logOutput io.Writer = os.Stderr
 	if cfg.Silent {
 		// If silent mode is enabled, suppress all output

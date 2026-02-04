@@ -2,11 +2,9 @@ package logging
 
 import (
 	"bytes"
-	"errors"
 	"log/slog"
 	"strings"
 	"testing"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -57,11 +55,6 @@ func TestInitForCLI(t *testing.T) {
 	// Initialize for CLI mode
 	InitForCLI(LevelInfo, &buf)
 
-	// Test that CLI mode is set
-	if isTuiMode {
-		t.Error("Expected isTuiMode to be false after InitForCLI")
-	}
-
 	// Test that defaultLogger is set
 	if defaultLogger == nil {
 		t.Error("Expected defaultLogger to be set after InitForCLI")
@@ -102,40 +95,6 @@ func TestCLILevelFiltering(t *testing.T) {
 	}
 }
 
-func TestLogEntry(t *testing.T) {
-	// Test LogEntry structure
-	now := time.Now()
-	testErr := errors.New("test error")
-
-	entry := LogEntry{
-		Timestamp: now,
-		Level:     LevelError,
-		Subsystem: "test-subsystem",
-		Message:   "test message",
-		Err:       testErr,
-	}
-
-	if entry.Timestamp != now {
-		t.Error("Timestamp not set correctly")
-	}
-
-	if entry.Level != LevelError {
-		t.Error("Level not set correctly")
-	}
-
-	if entry.Subsystem != "test-subsystem" {
-		t.Error("Subsystem not set correctly")
-	}
-
-	if entry.Message != "test message" {
-		t.Error("Message not set correctly")
-	}
-
-	if entry.Err != testErr {
-		t.Error("Error not set correctly")
-	}
-}
-
 func TestControllerRuntimeLoggerInitialization(t *testing.T) {
 	var buf bytes.Buffer
 
@@ -159,22 +118,6 @@ func TestControllerRuntimeLoggerInitialization(t *testing.T) {
 	// Test that logging through controller-runtime works without panicking
 	// This also verifies the slog bridge is properly configured
 	logger.Info("test message from controller-runtime logger", "key", "value")
-}
-
-func TestControllerRuntimeLoggerInTUIMode(t *testing.T) {
-	// Initialize for CLI mode since TUI functions were removed
-	var buf bytes.Buffer
-	InitForCLI(LevelDebug, &buf)
-
-	// Verify controller-runtime logger is set
-	logger := ctrl.Log
-
-	if logger.GetSink() == nil {
-		t.Error("Expected controller-runtime logger sink to be initialized")
-	}
-
-	// Controller-runtime logs should work without panicking
-	logger.Info("this message goes to the configured output")
 }
 
 func TestInitControllerRuntimeLoggerNilHandler(t *testing.T) {
