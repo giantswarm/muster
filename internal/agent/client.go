@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -668,6 +669,43 @@ var metaToolNames = map[string]bool{
 	"get_prompt":        true,
 }
 
+// callToolFunc is a function type for direct tool execution.
+// Used by wrapAndCallTool to abstract over callToolDirect and callToolDirectWithTimeout.
+type callToolFunc func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)
+
+// wrapAndCallTool handles the meta-tool wrapping logic for both CallTool and CallToolWithTimeout.
+// Meta-tools are called directly, while all other tools are wrapped through the call_tool meta-tool.
+//
+// Args:
+//   - ctx: Context for cancellation and timeout control
+//   - name: The tool name to execute
+//   - args: Tool arguments
+//   - callFn: The underlying function to execute the tool call
+//
+// Returns:
+//   - CallToolResult: The tool execution result (unwrapped if it was wrapped)
+//   - error: Any execution or communication errors
+func (c *Client) wrapAndCallTool(ctx context.Context, name string, args map[string]interface{}, callFn callToolFunc) (*mcp.CallToolResult, error) {
+	// Meta-tools are called directly without wrapping
+	if metaToolNames[name] {
+		return callFn(ctx, name, args)
+	}
+
+	// All other tools are wrapped through call_tool meta-tool
+	wrappedArgs := map[string]interface{}{
+		"name":      name,
+		"arguments": args,
+	}
+
+	result, err := callFn(ctx, "call_tool", wrappedArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unwrap the nested response from call_tool
+	return c.unwrapMetaToolResponse(result, name)
+}
+
 // CallTool executes a tool on the MCP server with the provided arguments.
 // This method transparently wraps all non-meta-tool calls through the call_tool
 // meta-tool, implementing the server-side meta-tools pattern (Issue #343).
@@ -697,24 +735,7 @@ var metaToolNames = map[string]bool{
 //	    return fmt.Errorf("tool execution failed: %w", err)
 //	}
 func (c *Client) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	// Meta-tools are called directly without wrapping
-	if metaToolNames[name] {
-		return c.callToolDirect(ctx, name, args)
-	}
-
-	// All other tools are wrapped through call_tool meta-tool
-	wrappedArgs := map[string]interface{}{
-		"name":      name,
-		"arguments": args,
-	}
-
-	result, err := c.callToolDirect(ctx, "call_tool", wrappedArgs)
-	if err != nil {
-		return nil, err
-	}
-
-	// Unwrap the nested response from call_tool
-	return c.unwrapMetaToolResponse(result, name)
+	return c.wrapAndCallTool(ctx, name, args, c.callToolDirect)
 }
 
 // callToolDirect executes a tool directly without wrapping through call_tool.
@@ -782,7 +803,7 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 				errorMsgs = append(errorMsgs, textContent.Text)
 			}
 		}
-		return nil, fmt.Errorf("meta-tool error for %s: %v", toolName, errorMsgs)
+		return nil, fmt.Errorf("meta-tool error for %s: %s", toolName, strings.Join(errorMsgs, "; "))
 	}
 
 	// The call_tool meta-tool returns a single text content containing the wrapped result as JSON
@@ -1322,24 +1343,11 @@ func (c *Client) SetTimeoutForComplexOperations() {
 // CallToolWithTimeout executes a tool with a custom timeout.
 // Like CallTool, this method transparently wraps non-meta-tool calls through call_tool.
 func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[string]interface{}, timeout time.Duration) (*mcp.CallToolResult, error) {
-	// Meta-tools are called directly without wrapping
-	if metaToolNames[name] {
+	// Create a closure that captures the timeout for use with wrapAndCallTool
+	callFn := func(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 		return c.callToolDirectWithTimeout(ctx, name, args, timeout)
 	}
-
-	// All other tools are wrapped through call_tool meta-tool
-	wrappedArgs := map[string]interface{}{
-		"name":      name,
-		"arguments": args,
-	}
-
-	result, err := c.callToolDirectWithTimeout(ctx, "call_tool", wrappedArgs, timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	// Unwrap the nested response from call_tool
-	return c.unwrapMetaToolResponse(result, name)
+	return c.wrapAndCallTool(ctx, name, args, callFn)
 }
 
 // callToolDirectWithTimeout executes a tool directly with a custom timeout.
