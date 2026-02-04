@@ -32,18 +32,10 @@ const promptChevronUnicode = "»"
 // promptChevronASCII is the fallback chevron for terminals without unicode support.
 const promptChevronASCII = ">"
 
-// Connection state indicators for the REPL prompt.
-// These are exported for use by external tools that need to interpret REPL output.
-const (
-	// StateAuthRequired is the indicator shown when servers require authentication.
-	// This is displayed prominently in uppercase because it requires user action
-	// (running 'auth login'). This state takes priority over StateConnected.
-	StateAuthRequired = "[AUTH REQUIRED]"
-
-	// StateConnected is shown when successfully connected and authenticated.
-	// All servers are accessible and no authentication is pending.
-	StateConnected = "[connected]"
-)
+// StateAuthRequired is the indicator shown in the REPL prompt when servers require authentication.
+// This is displayed prominently in uppercase because it requires user action (running 'auth login').
+// Exported for use by external tools that need to interpret REPL output.
+const StateAuthRequired = "[AUTH REQUIRED]"
 
 // maxContextNameLength is the maximum length for context names in the prompt.
 // Longer names are truncated with smart ellipsis to preserve distinguishing suffix.
@@ -177,15 +169,16 @@ func detectUnicodeSupport() bool {
 	return true
 }
 
-// buildPrompt creates the REPL prompt with the current context and connection status.
+// buildPrompt creates the REPL prompt with the current context.
 // Format examples:
-//   - "𝗺 [connected] »" - no context set, connected
-//   - "𝗺 mycontext [connected] »" - context set, connected
+//   - "𝗺 »" - no context set
+//   - "𝗺 mycontext »" - context set
 //   - "𝗺 [AUTH REQUIRED] »" - no context, auth required
 //   - "𝗺 mycontext [AUTH REQUIRED] »" - context set, auth required
 //
 // The AUTH REQUIRED status is displayed prominently in uppercase to draw attention
-// since it requires user action (run 'auth login').
+// since it requires user action (run 'auth login'). No status is shown when connected
+// normally to keep the prompt clean.
 //
 // Long context names are truncated to maxContextNameLength characters with smart ellipsis.
 // Falls back to ASCII characters if terminal doesn't support unicode.
@@ -211,11 +204,9 @@ func (r *REPL) buildPrompt() string {
 		parts = append(parts, truncateContextName(ctx))
 	}
 
-	// Always show connection state - AUTH REQUIRED takes priority as it needs user action
+	// Only show AUTH REQUIRED when authentication is needed
 	if authReq {
 		parts = append(parts, StateAuthRequired)
-	} else {
-		parts = append(parts, StateConnected)
 	}
 
 	parts = append(parts, chevron)

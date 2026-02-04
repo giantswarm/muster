@@ -276,23 +276,23 @@ muster context use prod<TAB>
 When using `muster agent --repl`, you can switch contexts interactively without leaving the REPL:
 
 ```bash
-𝗺 local [connected] » context list
+𝗺 local » context list
 Available contexts:
 * local       http://localhost:8090/mcp
   staging     https://muster-staging.example.com/mcp
   production  https://muster.example.com/mcp
 
-𝗺 local [connected] » context use staging
+𝗺 local » context use staging
 Switched to staging (https://muster-staging.example.com/mcp)
 Connecting...
 Connected
 
-𝗺 staging [connected] »
+𝗺 staging »
 ```
 
 The REPL automatically reconnects to the new endpoint when you switch contexts. The prompt shows:
 - **Context name** - Current active context
-- **Connection status** - `[connected]` when authenticated, `[AUTH REQUIRED]` when authentication is needed
+- **`[AUTH REQUIRED]`** - Displayed when authentication is needed
 
 The `[AUTH REQUIRED]` status is displayed prominently in uppercase because it requires user action.
 
@@ -307,7 +307,7 @@ Run 'auth login' to authenticate
 When switching to a context that requires authentication (or has an expired token), the REPL automatically detects the 401 error and initiates the OAuth login flow:
 
 ```bash
-𝗺 local [connected] » context use production
+𝗺 local » context use production
 Switched to production (https://muster.example.com/mcp)
 Connecting...
 Authentication required for new endpoint
@@ -317,7 +317,7 @@ Authentication successful
 Retrying connection...
 Connected
 
-𝗺 production [connected] »
+𝗺 production »
 ```
 
 This eliminates the need to restart the REPL when switching to an authenticated endpoint.

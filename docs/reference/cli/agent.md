@@ -174,20 +174,19 @@ When using `--repl` mode, the following commands are available:
 
 When switching contexts, the REPL automatically reconnects to the new endpoint. If the new endpoint requires authentication (or the token has expired), the REPL will automatically initiate the OAuth login flow and retry the connection after successful authentication.
 
-The current context and connection status are displayed in the prompt:
+The current context is displayed in the prompt:
 
 ```
-𝗺 production [connected] » list tools
+𝗺 production » list tools
 𝗺 staging [AUTH REQUIRED] » call my_tool
 ```
 
 **Prompt indicators:**
-- `[connected]` - Successfully connected and authenticated
 - `[AUTH REQUIRED]` - One or more servers need authentication (run `auth login`) - displayed prominently in uppercase
 
 **Auto-reconnect with re-authentication:**
 ```
-𝗺 local [connected] » context use production
+𝗺 local » context use production
 Switched to production (https://muster.example.com/mcp)
 Connecting...
 Authentication required for new endpoint
@@ -197,7 +196,7 @@ Authentication successful
 Retrying connection...
 Connected
 
-𝗺 production [connected] »
+𝗺 production »
 ```
 
 Long context names are truncated using smart ellipsis that preserves both the start and end of the name (e.g., `production-...cluster`).
