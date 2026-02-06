@@ -32,7 +32,7 @@ metadata:
 spec:
   type: stdio
   autoStart: true
-  command: mcp-kubernetes
+  command: ["mcp-kubernetes"]
   description: "Kubernetes cluster management MCP server"
 ```
 
@@ -56,13 +56,15 @@ filter tools k8s
 
 ## Using Kubernetes Tools
 
-Once configured, AI agents can access Kubernetes tools through the aggregator. Common tools include:
+Once configured, AI agents can access Kubernetes tools through the aggregator. The exact tool names depend on the Kubernetes MCP server implementation and any configured `toolPrefix`. Common examples include:
 
 - `x_kubernetes_list_pods` - List pods in a namespace
 - `x_kubernetes_get_pod` - Get details of a specific pod
 - `x_kubernetes_list_deployments` - List deployments
 - `x_kubernetes_apply` - Apply Kubernetes manifests
 - `x_kubernetes_logs` - Get pod logs
+
+> **Note:** Tool names are prefixed with `x_<server-name>_` by default. If you set a `toolPrefix` in the MCPServer spec, that prefix is used instead of the server name.
 
 ### Example: List Pods
 
@@ -92,6 +94,7 @@ spec:
   type: streamable-http
   url: "https://mcp-kubernetes.example.com/mcp"
   auth:
+    type: oauth
     forwardToken: true
     requiredAudiences:
       - "dex-k8s-authenticator"
@@ -110,8 +113,9 @@ For detailed SSO configuration, see the [MCP Server Management Guide](mcp-server
 
 To connect to multiple Kubernetes clusters, create separate MCP server configurations:
 
+**Production cluster** (`production-cluster.yaml`):
+
 ```yaml
-# production-cluster.yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -119,14 +123,16 @@ metadata:
 spec:
   type: stdio
   autoStart: true
-  command: mcp-kubernetes
+  command: ["mcp-kubernetes"]
   toolPrefix: "k8s-prod"
   description: "Production Kubernetes cluster"
   env:
     KUBECONFIG: "/path/to/production-kubeconfig"
+```
 
----
-# staging-cluster.yaml
+**Staging cluster** (`staging-cluster.yaml`):
+
+```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -134,7 +140,7 @@ metadata:
 spec:
   type: stdio
   autoStart: true
-  command: mcp-kubernetes
+  command: ["mcp-kubernetes"]
   toolPrefix: "k8s-staging"
   description: "Staging Kubernetes cluster"
   env:
