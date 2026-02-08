@@ -5,7 +5,7 @@ type: application
 version: 0.1.1
 appVersion: "0.0.48"
 home: https://github.com/giantswarm/muster
-icon: https://raw.githubusercontent.com/kubernetes/kubernetes/master/logo/logo.png
+icon: https://s.giantswarm.io/app-icons/muster/1/light.svg
 sources:
   - https://github.com/giantswarm/muster
 keywords:
