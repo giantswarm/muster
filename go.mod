@@ -2,7 +2,7 @@ module github.com/giantswarm/muster
 
 go 1.25.0
 
-toolchain go1.25.7
+toolchain go1.26.0
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
