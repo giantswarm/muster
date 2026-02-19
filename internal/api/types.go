@@ -588,6 +588,14 @@ type OAuthToken struct {
 	// TokenType is typically "Bearer".
 	TokenType string `json:"token_type"`
 
+	// RefreshToken is used to obtain new access tokens.
+	// Required by mcp-go's transport layer for automatic token refresh.
+	RefreshToken string `json:"refresh_token,omitempty"`
+
+	// ExpiresAt is the calculated expiration timestamp.
+	// Required by mcp-go's transport layer to decide when to refresh.
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+
 	// Scope is the granted scope(s).
 	Scope string `json:"scope,omitempty"`
 

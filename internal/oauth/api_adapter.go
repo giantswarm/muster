@@ -43,10 +43,12 @@ func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		return nil
 	}
 	return &api.OAuthToken{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-		Scope:       token.Scope,
-		Issuer:      token.Issuer,
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		Issuer:       token.Issuer,
 	}
 }
 
@@ -58,11 +60,30 @@ func fullTokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		return nil
 	}
 	return &api.OAuthToken{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-		Scope:       token.Scope,
-		IDToken:     token.IDToken,
-		Issuer:      token.Issuer,
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		IDToken:      token.IDToken,
+		Issuer:       token.Issuer,
+	}
+}
+
+// apiTokenToPkgToken converts an api.OAuthToken back to a pkgoauth.Token.
+// Returns nil if the input token is nil.
+func apiTokenToPkgToken(token *api.OAuthToken) *pkgoauth.Token {
+	if token == nil {
+		return nil
+	}
+	return &pkgoauth.Token{
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		IDToken:      token.IDToken,
+		Issuer:       token.Issuer,
 	}
 }
 
@@ -103,6 +124,12 @@ func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 		}
 	}
 	return nil
+}
+
+// StoreToken persists a token for the given session and issuer.
+// This converts the API token to a pkg/oauth token and delegates to the manager's single backing store.
+func (a *Adapter) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+	a.manager.StoreToken(sessionID, issuer, apiTokenToPkgToken(token))
 }
 
 // ClearTokenByIssuer removes all tokens for a given session and issuer.

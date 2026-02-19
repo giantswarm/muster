@@ -21,6 +21,7 @@ type stubOAuthHandler struct {
 	accessToken      string
 	fullToken        *api.OAuthToken
 	refreshCallCount int
+	storedTokens     map[string]*api.OAuthToken // key: sessionID+issuer
 }
 
 func (m *stubOAuthHandler) IsEnabled() bool { return m.enabled }
@@ -32,9 +33,15 @@ func (m *stubOAuthHandler) GetFullTokenByIssuer(_, _ string) *api.OAuthToken {
 	return m.fullToken
 }
 
-func (m *stubOAuthHandler) GetToken(_, _ string) *api.OAuthToken                   { return nil }
-func (m *stubOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken           { return nil }
-func (m *stubOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken          { return nil }
+func (m *stubOAuthHandler) GetToken(_, _ string) *api.OAuthToken          { return nil }
+func (m *stubOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken  { return nil }
+func (m *stubOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken { return nil }
+func (m *stubOAuthHandler) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+	if m.storedTokens == nil {
+		m.storedTokens = make(map[string]*api.OAuthToken)
+	}
+	m.storedTokens[sessionID+"|"+issuer] = token
+}
 func (m *stubOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
 func (m *stubOAuthHandler) RegisterServer(_, _, _ string)                          {}
 func (m *stubOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
@@ -61,7 +68,7 @@ func TestMCPGoTokenStore_GetToken_ReturnsAccessToken(t *testing.T) {
 		enabled:     true,
 		accessToken: "test-access-token",
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -76,7 +83,7 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenEmpty(t *testing.T) {
 		enabled:     true,
 		accessToken: "",
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -88,7 +95,7 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) {
 	handler := &stubOAuthHandler{
 		enabled: false,
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -97,7 +104,7 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) {
 }
 
 func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenNilHandler(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", nil)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
 
 	token, err := store.GetToken(t.Context())
 
@@ -113,7 +120,7 @@ func TestMCPGoTokenStore_GetToken_CachesIDToken(t *testing.T) {
 			IDToken: "my-id-token",
 		},
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -127,7 +134,7 @@ func TestMCPGoTokenStore_GetToken_IDTokenEmpty_WhenNoFullToken(t *testing.T) {
 		accessToken: "access-token",
 		fullToken:   nil,
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -140,7 +147,7 @@ func TestMCPGoTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
 		enabled:     true,
 		accessToken: "token",
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", handler)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -152,20 +159,20 @@ func TestMCPGoTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
 }
 
 func TestMCPGoTokenStore_SaveToken_IsNoOp(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", nil)
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
 
 	err := store.SaveToken(t.Context(), &transport.Token{AccessToken: "ignored"})
 
 	assert.NoError(t, err)
 }
 
-func TestMCPGoTokenStore_SaveToken_RespectsContextCancellation(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", "openid", nil)
+func TestMCPGoTokenStore_SaveToken_IgnoresToken(t *testing.T) {
+	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
+	err := store.SaveToken(t.Context(), &transport.Token{
+		AccessToken:  "new-token",
+		RefreshToken: "new-refresh",
+	})
 
-	err := store.SaveToken(ctx, &transport.Token{})
-
-	assert.ErrorIs(t, err, context.Canceled)
+	assert.NoError(t, err)
 }

@@ -23,7 +23,6 @@ import (
 type MCPGoTokenStore struct {
 	sessionID    string
 	issuer       string
-	scope        string
 	oauthHandler api.OAuthHandler
 
 	mu      sync.RWMutex
@@ -32,11 +31,10 @@ type MCPGoTokenStore struct {
 
 // NewMCPGoTokenStore creates a new token store adapter that bridges muster's
 // session-scoped OAuth token management to mcp-go's transport.TokenStore.
-func NewMCPGoTokenStore(sessionID, issuer, scope string, oauthHandler api.OAuthHandler) *MCPGoTokenStore {
+func NewMCPGoTokenStore(sessionID, issuer string, oauthHandler api.OAuthHandler) *MCPGoTokenStore {
 	return &MCPGoTokenStore{
 		sessionID:    sessionID,
 		issuer:       issuer,
-		scope:        scope,
 		oauthHandler: oauthHandler,
 	}
 }
@@ -71,12 +69,14 @@ func (s *MCPGoTokenStore) GetToken(ctx context.Context) (*transport.Token, error
 	}, nil
 }
 
-// SaveToken is called by mcp-go after token refresh. Since muster manages
-// tokens via its own store (OAuthHandler), this is a no-op.
-func (s *MCPGoTokenStore) SaveToken(ctx context.Context, _ *transport.Token) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+// SaveToken is a no-op because muster owns the full token lifecycle.
+//
+// mcp-go calls SaveToken after its own token refresh, but that path never
+// triggers here: GetToken() proactively refreshes via muster's OAuthHandler
+// and returns a transport.Token without a RefreshToken, so mcp-go's internal
+// refresh logic has nothing to work with. Token persistence is handled
+// entirely by muster's OAuthHandler/token store.
+func (s *MCPGoTokenStore) SaveToken(_ context.Context, _ *transport.Token) error {
 	return nil
 }
 

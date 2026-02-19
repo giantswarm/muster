@@ -293,6 +293,21 @@ func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	logging.Debug("OAuth", "Cleared tokens for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
 }
 
+// StoreToken persists a token for the given session and issuer.
+// This is the write path used by mcp-go's transport after a successful token refresh.
+func (m *Manager) StoreToken(sessionID, issuer string, token *pkgoauth.Token) {
+	if m == nil || token == nil {
+		return
+	}
+
+	key := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     token.Scope,
+	}
+	m.client.tokenStore.Store(key, token)
+}
+
 // RefreshTokenIfNeeded checks if the token for the given session and issuer needs refresh
 // and refreshes it if necessary. This is the primary method for automatic token refresh
 // in long-running sessions (Issue #214).

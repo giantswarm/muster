@@ -39,6 +39,9 @@ func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sessionID string) *api.OAu
 	return m.findTokenResult
 }
 
+func (m *issuerMockOAuthHandler) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+}
+
 func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sessionID, issuer string) {
 }
 

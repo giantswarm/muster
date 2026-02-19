@@ -1584,8 +1584,8 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 // On failure, it returns an error that the caller can use to determine next steps.
 //
 // This method delegates to the shared establishSessionConnection helper to avoid code duplication.
-// The issuer and scope parameters are used to create a TokenProvider that can refresh
-// the token when it expires (Issue #214).
+// The issuer and scope parameters are used to create an MCPGoTokenStore that provides
+// automatic token refresh via mcp-go's built-in OAuth handler.
 func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
 	result, err := establishSessionConnection(ctx, a, sessionID, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {

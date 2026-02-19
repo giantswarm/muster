@@ -1,8 +1,12 @@
 package mcpserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 )
@@ -90,22 +94,20 @@ func (e *AuthRequiredError) GetResourceMetadataURL() string {
 // CheckForAuthRequiredError examines an error to determine if it's a 401 authentication
 // required error. It uses mcp-go's typed error detection instead of string parsing:
 //
-//   - transport.OAuthAuthorizationRequiredError: returned when WithHTTPOAuth is set
-//     (carries the OAuthHandler for metadata discovery)
-//   - transport.ErrUnauthorized: returned when no OAuth handler is configured
-//
-// This replaces the previous approach of string-matching "401"/"unauthorized" in error
-// messages and parsing WWW-Authenticate headers from error strings.
-func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
+//   - transport.OAuthAuthorizationRequiredError: returned when WithHTTPOAuth is set.
+//     The error carries an OAuthHandler that can discover server metadata (issuer, scopes).
+//   - transport.ErrUnauthorized: returned when no OAuth handler is configured.
+func CheckForAuthRequiredError(ctx context.Context, err error, url string) *AuthRequiredError {
 	if err == nil {
 		return nil
 	}
 
 	var oauthErr *transport.OAuthAuthorizationRequiredError
 	if errors.As(err, &oauthErr) {
+		authInfo := extractAuthInfoFromHandler(ctx, oauthErr.Handler)
 		return &AuthRequiredError{
 			URL:      url,
-			AuthInfo: AuthInfo{},
+			AuthInfo: authInfo,
 			Err:      fmt.Errorf("server returned 401 Unauthorized"),
 		}
 	}
@@ -119,4 +121,29 @@ func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
 	}
 
 	return nil
+}
+
+// extractAuthInfoFromHandler attempts to extract OAuth metadata from a mcp-go OAuthHandler.
+// It calls GetServerMetadata which may discover the authorization server via the
+// MCP server's .well-known/oauth-protected-resource endpoint (RFC 9728).
+// Returns an empty AuthInfo if metadata discovery fails.
+func extractAuthInfoFromHandler(ctx context.Context, handler *transport.OAuthHandler) AuthInfo {
+	if handler == nil {
+		return AuthInfo{}
+	}
+
+	metadata, err := handler.GetServerMetadata(ctx)
+	if err != nil {
+		logging.Debug("AuthRequiredError", "Failed to get server metadata from OAuthHandler: %v", err)
+		return AuthInfo{}
+	}
+
+	if metadata == nil {
+		return AuthInfo{}
+	}
+
+	return AuthInfo{
+		Issuer: metadata.Issuer,
+		Scope:  strings.Join(metadata.ScopesSupported, " "),
+	}
 }

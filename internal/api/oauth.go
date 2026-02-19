@@ -65,6 +65,11 @@ type OAuthHandler interface {
 	// Returns the first token found with an ID token, or nil if none exists.
 	FindTokenWithIDToken(sessionID string) *OAuthToken
 
+	// StoreToken persists a token for the given session and issuer.
+	// This is the write path used by mcp-go's transport.TokenStore.SaveToken()
+	// after a successful token refresh.
+	StoreToken(sessionID, issuer string, token *OAuthToken)
+
 	// ClearTokenByIssuer removes all tokens for a given session and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
 	ClearTokenByIssuer(sessionID, issuer string)

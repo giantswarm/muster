@@ -88,7 +88,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		mcpClient.Close()
 
-		if authErr := CheckForAuthRequiredError(err, c.url); authErr != nil {
+		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
 			logging.Debug("DynamicAuthClient", "Authentication required for URL: %s", c.url)
 			return authErr
 		}
