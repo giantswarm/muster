@@ -91,7 +91,7 @@ steps:
         - "success"
 
   # Step 4: Establish session connection
-  # This creates a DynamicAuthClient with SessionTokenProvider
+  # This creates a DynamicAuthClient with MusterTokenStore (mcp-go's built-in OAuth handler)
   # Per ADR-008: Use core_auth_login instead of synthetic auth tools
   - id: establish-connection
     description: "Establish authenticated session connection to the protected server"
@@ -129,7 +129,7 @@ steps:
 
   # Step 7: Call protected tool again
   # Token is now within refresh threshold (4 minutes remaining)
-  # The DynamicAuthClient should automatically refresh the token via SessionTokenProvider
+  # The DynamicAuthClient should automatically refresh the token via MusterTokenStore
   # and the tool call should succeed transparently
   - id: call-tool-after-refresh-threshold
     description: "Call protected tool when token is within refresh threshold (should auto-refresh and succeed)"

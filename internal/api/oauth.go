@@ -55,15 +55,20 @@ type OAuthHandler interface {
 	// This is used for SSO when we have the issuer from a 401 response.
 	GetTokenByIssuer(sessionID, issuer string) *OAuthToken
 
-	// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
-	// This is used for SSO token forwarding to downstream MCP servers.
-	// Returns nil if no valid token exists or if the token doesn't have an ID token.
+	// GetFullTokenByIssuer retrieves the full token (including ID token if available)
+	// for the given session and issuer. Returns nil if no valid token exists.
+	// The IDToken field may be empty if the token was obtained without an ID token.
 	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
 
 	// FindTokenWithIDToken searches for any token in the session that has an ID token.
 	// This is used as a fallback when the muster issuer is not explicitly configured.
 	// Returns the first token found with an ID token, or nil if none exists.
 	FindTokenWithIDToken(sessionID string) *OAuthToken
+
+	// StoreToken persists a token for the given session and issuer.
+	// This is the write path used by mcp-go's transport.TokenStore.SaveToken()
+	// after a successful token refresh.
+	StoreToken(sessionID, issuer string, token *OAuthToken)
 
 	// ClearTokenByIssuer removes all tokens for a given session and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
@@ -94,12 +99,6 @@ type OAuthHandler interface {
 	// SetAuthCompletionCallback sets the callback to be called after successful authentication.
 	// The aggregator uses this to establish session connections after browser OAuth completes.
 	SetAuthCompletionCallback(callback AuthCompletionCallback)
-
-	// RefreshTokenIfNeeded checks if the token for the given session and issuer needs refresh,
-	// and refreshes it if necessary. Returns the current (potentially refreshed) access token.
-	// Returns an empty string if no token exists or refresh failed without a fallback.
-	// This method is used for automatic token refresh in long-running sessions.
-	RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string
 
 	// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 	// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.

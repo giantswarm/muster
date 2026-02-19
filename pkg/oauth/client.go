@@ -201,17 +201,6 @@ func (c *Client) ExchangeCode(ctx context.Context, tokenEndpoint, code, redirect
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
 }
 
-// RefreshToken obtains a new access token using a refresh token.
-func (c *Client) RefreshToken(ctx context.Context, tokenEndpoint, refreshToken, clientID string) (*Token, error) {
-	data := url.Values{
-		"grant_type":    {"refresh_token"},
-		"refresh_token": {refreshToken},
-		"client_id":     {clientID},
-	}
-
-	return c.doTokenRequest(ctx, tokenEndpoint, data)
-}
-
 // doTokenRequest performs a token endpoint request.
 func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data url.Values) (*Token, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(data.Encode()))

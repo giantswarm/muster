@@ -111,7 +111,7 @@ func showVerifiedAuthStatus(handler api.AuthHandler, endpoint string, localStatu
 // handleServerVerificationError handles errors from server-side token verification.
 func handleServerVerificationError(handler api.AuthHandler, endpoint string, localStatus *api.AuthStatus, serverErr error) error {
 	// Check if this is a 401 error (token invalidated server-side)
-	if pkgoauth.Is401Error(serverErr) {
+	if pkgoauth.IsOAuthUnauthorizedError(serverErr) {
 		_ = handler.Logout(endpoint)
 		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Token invalidated"))
 		authPrint("             Your session was terminated by the identity provider.\n")
@@ -182,7 +182,7 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {
 		// Check if this is a 401 error (token invalidated server-side)
-		if pkgoauth.Is401Error(err) {
+		if pkgoauth.IsOAuthUnauthorizedError(err) {
 			_ = handler.Logout(aggregatorEndpoint)
 			return fmt.Errorf("your session was terminated by the identity provider. Run: muster auth login")
 		}

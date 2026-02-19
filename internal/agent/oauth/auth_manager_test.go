@@ -47,14 +47,10 @@ func TestAuthManager_StateTransitions(t *testing.T) {
 	})
 }
 
-func TestAuthManager_CheckConnection_NoAuthRequired(t *testing.T) {
-	// Create a mock server that doesn't require auth
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}))
-	defer server.Close()
-
+func TestAuthManager_CheckConnection_NoToken(t *testing.T) {
+	// CheckConnection no longer probes the server over HTTP.
+	// Without a valid token, it returns AuthStatePendingAuth so callers
+	// can attempt to connect and handle mcp-go's typed errors.
 	tmpDir := t.TempDir()
 	mgr, err := NewAuthManager(AuthManagerConfig{
 		TokenStorageDir: tmpDir,
@@ -66,54 +62,13 @@ func TestAuthManager_CheckConnection_NoAuthRequired(t *testing.T) {
 	defer mgr.Close()
 
 	ctx := context.Background()
-	state, err := mgr.CheckConnection(ctx, server.URL)
+	state, err := mgr.CheckConnection(ctx, "https://example.com")
 
-	// When server doesn't return 401, state should be Unknown (may or may not need auth)
 	if err != nil {
-		// Server responded, no error expected
-		t.Logf("Note: CheckConnection returned error: %v (this may be expected)", err)
+		t.Errorf("expected no error, got: %v", err)
 	}
-
-	// State should be Unknown when server doesn't require auth or we can't determine
-	if state != AuthStateUnknown && state != AuthStateError {
-		t.Errorf("expected state Unknown or Error when server doesn't return 401, got %s", state)
-	}
-}
-
-func TestAuthManager_CheckConnection_AuthRequired(t *testing.T) {
-	// Create a mock server that returns 401 with WWW-Authenticate header
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/oauth-protected-resource" {
-			// Return OAuth metadata
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"resource":              "https://example.com",
-				"authorization_servers": []string{"https://oauth.example.com"},
-			})
-			return
-		}
-		w.Header().Set("WWW-Authenticate", `Bearer realm="https://oauth.example.com"`)
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer server.Close()
-
-	tmpDir := t.TempDir()
-	mgr, err := NewAuthManager(AuthManagerConfig{
-		TokenStorageDir: tmpDir,
-		FileMode:        false,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create auth manager: %v", err)
-	}
-	defer mgr.Close()
-
-	ctx := context.Background()
-	state, err := mgr.CheckConnection(ctx, server.URL)
-
-	// When server returns 401 without proper OAuth info, might be PendingAuth or Error
-	// depending on whether OAuth metadata can be discovered
-	if state != AuthStatePendingAuth && state != AuthStateError {
-		t.Errorf("expected state PendingAuth or Error after 401, got %s (err: %v)", state, err)
+	if state != AuthStatePendingAuth {
+		t.Errorf("expected AuthStatePendingAuth when no token, got %s", state)
 	}
 }
 
@@ -156,77 +111,6 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 	}
 	if err != nil {
 		t.Errorf("expected no error with valid token, got: %v", err)
-	}
-}
-
-func TestAuthManager_DiscoverOAuthMetadata_RFC9728(t *testing.T) {
-	// Create a mock server that serves OAuth Protected Resource Metadata (RFC 9728)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/oauth-protected-resource" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"resource":              "https://resource.example.com",
-				"authorization_servers": []string{"https://auth.example.com"},
-			})
-			return
-		}
-		// All other paths return 401
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer server.Close()
-
-	tmpDir := t.TempDir()
-	mgr, err := NewAuthManager(AuthManagerConfig{
-		TokenStorageDir: tmpDir,
-		FileMode:        false,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create auth manager: %v", err)
-	}
-	defer mgr.Close()
-
-	ctx := context.Background()
-	challenge, err := mgr.discoverOAuthMetadata(ctx, server.URL)
-
-	if err != nil {
-		t.Fatalf("Failed to discover OAuth metadata: %v", err)
-	}
-
-	if challenge == nil {
-		t.Fatal("Expected challenge, got nil")
-	}
-
-	if challenge.Issuer != "https://auth.example.com" {
-		t.Errorf("expected issuer 'https://auth.example.com', got %q", challenge.Issuer)
-	}
-}
-
-func TestAuthManager_DiscoverOAuthMetadata_Fallback(t *testing.T) {
-	// Create a mock server that doesn't have OAuth metadata endpoint
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
-
-	tmpDir := t.TempDir()
-	mgr, err := NewAuthManager(AuthManagerConfig{
-		TokenStorageDir: tmpDir,
-		FileMode:        false,
-	})
-	if err != nil {
-		t.Fatalf("Failed to create auth manager: %v", err)
-	}
-	defer mgr.Close()
-
-	ctx := context.Background()
-	challenge, err := mgr.discoverOAuthMetadata(ctx, server.URL)
-
-	// Should fail when no metadata endpoint is available
-	if err == nil {
-		t.Error("Expected error when no OAuth metadata endpoint, got nil")
-	}
-	if challenge != nil {
-		t.Errorf("Expected nil challenge when discovery fails, got: %+v", challenge)
 	}
 }
 

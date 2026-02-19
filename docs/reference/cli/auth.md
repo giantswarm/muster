@@ -149,28 +149,6 @@ muster auth status --endpoint https://muster.example.com/mcp
 muster auth status --server mcp-kubernetes
 ```
 
-### muster auth refresh
-
-Force a token refresh for an endpoint.
-
-```bash
-muster auth refresh [OPTIONS]
-```
-
-**Options:**
-
-- `--endpoint` (string): Refresh token for specific endpoint
-
-**Examples:**
-
-```bash
-# Refresh token for configured aggregator
-muster auth refresh
-
-# Refresh token for specific endpoint
-muster auth refresh --endpoint https://muster.example.com/mcp
-```
-
 ### muster auth whoami
 
 Show the currently authenticated identity and token information.
@@ -348,10 +326,7 @@ muster auth logout --all
 ### Token Refresh
 
 ```bash
-# If experiencing auth issues, try refreshing
-muster auth refresh --endpoint https://muster.example.com/mcp
-
-# Or re-authenticate completely
+# If experiencing auth issues, re-authenticate
 muster auth logout --endpoint https://muster.example.com/mcp
 muster auth login --endpoint https://muster.example.com/mcp
 ```

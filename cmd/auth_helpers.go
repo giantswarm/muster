@@ -7,13 +7,12 @@ import (
 	"strings"
 	"time"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
-
 	"github.com/giantswarm/muster/internal/agent"
 	"github.com/giantswarm/muster/internal/agent/oauth"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -87,34 +86,31 @@ func getEndpointFromConfig() (string, error) {
 }
 
 // createConnectedClient creates and connects an authenticated client to the aggregator.
+// Uses mcp-go's OAuth transport for automatic token injection.
 // The caller is responsible for calling client.Close() when done.
 func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
 	logger := agent.NewDevNullLogger()
-	transport := agent.TransportStreamableHTTP
+	agentTransportType := agent.TransportStreamableHTTP
 	if strings.HasSuffix(endpoint, "/sse") {
-		transport = agent.TransportSSE
+		agentTransportType = agent.TransportSSE
 	}
 
-	client := agent.NewClient(endpoint, logger, transport)
+	client := agent.NewClient(endpoint, logger, agentTransportType)
 
-	// Set auth token if available
-	token, err := handler.GetBearerToken(endpoint)
-	if err == nil && token != "" {
-		client.SetAuthorizationHeader(token)
+	// Set up mcp-go OAuth transport for automatic token injection
+	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
+	if err == nil {
+		client.SetOAuthConfig(*oauthCfg, agentStore)
 	}
 
-	// Set persistent session ID for MCP server token persistence
-	// This enables tokens to persist across CLI invocations
 	if sessionID := handler.GetSessionID(); sessionID != "" {
 		client.SetHeader(api.ClientSessionIDHeader, sessionID)
 	}
 
-	// Connect to aggregator
 	if err := client.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
 	}
 
-	// Initialize client (required for resource operations)
 	if err := client.InitializeAndLoadData(ctx); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to initialize client: %w", err)

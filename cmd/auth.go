@@ -38,7 +38,6 @@ Examples:
   muster auth status                   # Show authentication status
   muster auth logout                   # Logout from configured aggregator
   muster auth logout --all             # Clear all stored tokens
-  muster auth refresh                  # Force token refresh
   muster auth whoami                   # Show current identity`,
 }
 
@@ -58,21 +57,6 @@ Examples:
   muster auth logout --all             # Clear all stored tokens
   muster auth logout --all --yes       # Clear all without confirmation`,
 	RunE: runAuthLogout,
-}
-
-// authRefreshCmd represents the auth refresh command
-var authRefreshCmd = &cobra.Command{
-	Use:   "refresh",
-	Short: "Force token refresh",
-	Long: `Force a refresh of the authentication token.
-
-This command attempts to refresh the OAuth token for an endpoint,
-which can be useful if you're experiencing authentication issues.
-
-Examples:
-  muster auth refresh                  # Refresh configured aggregator
-  muster auth refresh --endpoint <url> # Refresh specific endpoint`,
-	RunE: runAuthRefresh,
 }
 
 // authWhoamiCmd represents the auth whoami command
@@ -118,7 +102,6 @@ func init() {
 	authCmd.AddCommand(authLoginCmd)
 	authCmd.AddCommand(authLogoutCmd)
 	authCmd.AddCommand(authStatusCmd)
-	authCmd.AddCommand(authRefreshCmd)
 	authCmd.AddCommand(authWhoamiCmd)
 
 	// Common flags for auth commands (shared across subcommands)
@@ -206,35 +189,6 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	}
 
 	authPrint("Logged out from %s\n", endpoint)
-	return nil
-}
-
-func runAuthRefresh(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
-
-	handler, err := ensureAuthHandler()
-	if err != nil {
-		return err
-	}
-
-	// Determine which endpoint to refresh
-	var endpoint string
-	if authEndpoint != "" {
-		endpoint = authEndpoint
-	} else {
-		// Use configured aggregator endpoint
-		endpoint, err = getEndpointFromConfig()
-		if err != nil {
-			return err
-		}
-	}
-
-	authPrint("Refreshing token for %s...\n", endpoint)
-	if err := handler.RefreshToken(ctx, endpoint); err != nil {
-		return fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	authPrintln("Token refreshed successfully.")
 	return nil
 }
 

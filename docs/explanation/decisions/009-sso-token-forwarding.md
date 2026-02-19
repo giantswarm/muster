@@ -624,7 +624,6 @@ Required changes to token validation:
 
 1. Improve token persistence reliability
 2. Add CLI commands for token status (`muster auth status` - already exists)
-3. Add CLI commands for forced refresh (`muster auth refresh`)
 
 ## Security Considerations
 

@@ -12,42 +12,43 @@ import (
 )
 
 // DynamicAuthClient implements the MCPClient interface using StreamableHTTP transport
-// with dynamic token injection. Instead of static headers, it uses a TokenProvider
-// that's called on each HTTP request to get the current access token.
+// with mcp-go's built-in OAuth handler for automatic bearer token injection and
+// typed 401 error handling.
 //
-// This enables automatic token refresh for long-running sessions:
-// - The TokenProvider can check if the token is expiring and refresh it
-// - All HTTP requests will use the latest token automatically
-// - No client recreation needed when tokens are refreshed
-//
-// This implements Issue #214: Automatic token refresh for MCP server session connections.
+// Instead of manually injecting Authorization headers via WithHTTPHeaderFunc,
+// this client delegates token management to mcp-go's WithHTTPOAuth transport option.
+// The transport.TokenStore adapter bridges muster's session-scoped token management
+// to mcp-go's OAuth handler, enabling:
+//   - Automatic bearer token injection on every request
+//   - Typed OAuthAuthorizationRequiredError on 401 (preserving error details)
+//   - Transparent token refresh via the TokenStore
 type DynamicAuthClient struct {
 	baseMCPClient
-	url           string
-	tokenProvider TokenProvider
+	url        string
+	tokenStore transport.TokenStore
+	scope      string
 }
 
-// NewDynamicAuthClient creates a new StreamableHTTP-based MCP client with dynamic token injection.
-// The TokenProvider is called on each HTTP request to get the current access token.
+// NewDynamicAuthClient creates a new StreamableHTTP-based MCP client with mcp-go's
+// built-in OAuth handler. The TokenStore is queried on each HTTP request to get
+// the current access token for bearer injection.
 //
 // Args:
 //   - url: The MCP server URL
-//   - tokenProvider: Provider for OAuth access tokens (called on each request)
+//   - tokenStore: Adapter providing OAuth tokens (implements transport.TokenStore)
+//   - scope: The OAuth scope for this connection
 //
 // Returns a new DynamicAuthClient ready for initialization.
-func NewDynamicAuthClient(url string, tokenProvider TokenProvider) *DynamicAuthClient {
-	if tokenProvider == nil {
-		// Use a no-op provider if none provided
-		tokenProvider = TokenProviderFunc(func(_ context.Context) string { return "" })
-	}
+func NewDynamicAuthClient(url string, tokenStore transport.TokenStore, scope string) *DynamicAuthClient {
 	return &DynamicAuthClient{
-		url:           url,
-		tokenProvider: tokenProvider,
+		url:        url,
+		tokenStore: tokenStore,
+		scope:      scope,
 	}
 }
 
 // Initialize establishes the connection and performs protocol handshake.
-// The TokenProvider is used to dynamically inject the Authorization header.
+// Uses mcp-go's WithHTTPOAuth for automatic token injection and typed 401 handling.
 func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,11 +57,14 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		return nil
 	}
 
-	logging.Debug("DynamicAuthClient", "Creating StreamableHTTP client for URL: %s with dynamic auth", c.url)
+	logging.Debug("DynamicAuthClient", "Creating StreamableHTTP client for URL: %s with OAuth handler", c.url)
 
-	// Use the dynamic header function instead of static headers
-	opts := []transport.StreamableHTTPCOption{
-		transport.WithHTTPHeaderFunc(tokenProviderToHeaderFunc(c.tokenProvider)),
+	var opts []transport.StreamableHTTPCOption
+	if c.tokenStore != nil {
+		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
+			TokenStore: c.tokenStore,
+			Scopes:     []string{c.scope},
+		}))
 	}
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
@@ -85,8 +89,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	if err != nil {
 		mcpClient.Close()
 
-		// Check if this is a 401 authentication error
-		if authErr := CheckForAuthRequiredError(err, c.url); authErr != nil {
+		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
 			logging.Debug("DynamicAuthClient", "Authentication required for URL: %s", c.url)
 			return authErr
 		}
@@ -97,7 +100,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 	c.client = mcpClient
 	c.connected = true
 
-	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with dynamic auth. Server: %s, Version: %s",
+	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with OAuth handler. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
 
 	return nil

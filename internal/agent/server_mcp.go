@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/internal/agent/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -262,17 +263,9 @@ func (m *MCPServer) waitForReauthCompletion() {
 		return
 	}
 
-	// Get the new bearer token and update the client
-	bearerToken, err := m.authManager.GetBearerToken()
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Error("Failed to get bearer token after re-auth: %v", err)
-		}
-		return
-	}
-
-	m.client.SetAuthorizationHeader(bearerToken)
-
+	// After re-auth, the token is stored in the file-based token store.
+	// The mcp-go OAuth transport reads from the AgentTokenStore on each request,
+	// so subsequent requests will automatically use the new token.
 	if m.logger != nil {
 		m.logger.Success("Re-authentication successful! Token updated.")
 	}
@@ -286,7 +279,7 @@ func (m *MCPServer) checkAndHandleTokenExpiration(ctx context.Context, err error
 		return nil
 	}
 
-	if oauth.IsTokenExpiredError(err) {
+	if pkgoauth.IsOAuthUnauthorizedError(err) {
 		return m.handleTokenExpiredError(ctx, err)
 	}
 
