@@ -75,10 +75,6 @@ func (m *issuerMockOAuthHandler) RegisterServer(serverName, issuer, scope string
 func (m *issuerMockOAuthHandler) SetAuthCompletionCallback(callback api.AuthCompletionCallback) {
 }
 
-func (m *issuerMockOAuthHandler) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string {
-	return ""
-}
-
 func (m *issuerMockOAuthHandler) Stop() {
 }
 

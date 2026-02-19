@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -151,94 +150,6 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 		issuer, token.ExpiresIn)
 
 	return token, nil
-}
-
-// RefreshToken refreshes an expired token using its refresh token.
-// This operation is logged at INFO level for operational monitoring.
-func (c *Client) RefreshToken(ctx context.Context, token *pkgoauth.Token) (*pkgoauth.Token, error) {
-	if token.RefreshToken == "" {
-		logging.Warn("OAuth", "Token refresh attempted without refresh token (issuer=%s)", token.Issuer)
-		return nil, fmt.Errorf("no refresh token available")
-	}
-
-	logging.Info("OAuth", "Starting token refresh (issuer=%s)", token.Issuer)
-	startTime := time.Now()
-
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, token.Issuer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
-	}
-
-	// Refresh token using shared client
-	newToken, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, token.RefreshToken, c.clientID)
-	if err != nil {
-		logging.Warn("OAuth", "Token refresh failed (issuer=%s, duration=%v)", token.Issuer, time.Since(startTime))
-		return nil, err
-	}
-
-	// Set issuer on the new token
-	newToken.Issuer = token.Issuer
-
-	// Preserve refresh token if not returned
-	if newToken.RefreshToken == "" {
-		newToken.RefreshToken = token.RefreshToken
-	}
-
-	// Preserve ID token if not returned (refresh responses typically don't include ID tokens)
-	// The ID token is needed for SSO forwarding to downstream MCP servers
-	if newToken.IDToken == "" && token.IDToken != "" {
-		newToken.IDToken = token.IDToken
-	}
-
-	// Log successful refresh at INFO level for operational monitoring
-	logging.Info("OAuth", "Token refresh successful (issuer=%s, expires_in=%ds, duration=%v)",
-		token.Issuer, newToken.ExpiresIn, time.Since(startTime))
-
-	return newToken, nil
-}
-
-// RefreshTokenIfNeeded checks if a token needs refreshing and refreshes it if necessary.
-// Returns the token (refreshed or original), a boolean indicating if refresh occurred, and any error.
-func (c *Client) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) (*pkgoauth.Token, bool, error) {
-	// Get the token including expiring ones
-	token, tokenKey := c.tokenStore.GetByIssuerIncludingExpiring(sessionID, issuer)
-	if token == nil {
-		return nil, false, fmt.Errorf("no token found for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
-	}
-
-	// Check if token needs refresh
-	if !c.tokenStore.NeedsRefresh(token) {
-		return token, false, nil
-	}
-
-	// Check if we have a refresh token
-	if token.RefreshToken == "" {
-		logging.Debug("OAuth", "Token needs refresh but no refresh token available (session=%s, issuer=%s)",
-			logging.TruncateSessionID(sessionID), issuer)
-		return token, false, nil
-	}
-
-	logging.Debug("OAuth", "Token expiring soon, attempting refresh (session=%s, issuer=%s, expires_in=%v)",
-		logging.TruncateSessionID(sessionID), issuer, time.Until(token.ExpiresAt))
-
-	// Perform the refresh
-	newToken, err := c.RefreshToken(ctx, token)
-	if err != nil {
-		return token, false, fmt.Errorf("token refresh failed: %w", err)
-	}
-
-	// Store the refreshed token with the same key
-	if tokenKey != nil {
-		c.tokenStore.Store(*tokenKey, newToken)
-	} else {
-		// Fallback: store with new key
-		c.StoreToken(sessionID, newToken)
-	}
-
-	logging.Info("OAuth", "Token proactively refreshed (session=%s, issuer=%s, new_expiry=%v)",
-		logging.TruncateSessionID(sessionID), issuer, newToken.ExpiresAt)
-
-	return newToken, true, nil
 }
 
 // StoreToken stores a token in the token store.

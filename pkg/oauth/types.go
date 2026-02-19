@@ -11,11 +11,6 @@ import (
 // This accounts for clock skew and network latency.
 const DefaultExpiryMargin = 30 * time.Second
 
-// TokenRefreshThreshold is the duration before token expiry when tokens should be proactively refreshed.
-// Tokens expiring within this threshold will be refreshed automatically if a refresh token is available.
-// This is shared across all OAuth implementations (CLI, agent, aggregator) to ensure consistent behavior.
-const TokenRefreshThreshold = 5 * time.Minute
-
 // DefaultTokenStorageDir is the default directory for storing OAuth tokens,
 // relative to the user's home directory. This follows XDG conventions.
 // This constant is shared across all OAuth implementations for consistency.

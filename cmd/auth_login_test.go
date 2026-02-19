@@ -55,23 +55,3 @@ func TestAuthLogoutCmdProperties(t *testing.T) {
 		}
 	})
 }
-
-func TestAuthRefreshCmdProperties(t *testing.T) {
-	t.Run("refresh command Use field", func(t *testing.T) {
-		if authRefreshCmd.Use != "refresh" {
-			t.Errorf("expected Use 'refresh', got %q", authRefreshCmd.Use)
-		}
-	})
-
-	t.Run("refresh command has short description", func(t *testing.T) {
-		if authRefreshCmd.Short == "" {
-			t.Error("expected Short description to be set")
-		}
-	})
-
-	t.Run("refresh command has RunE", func(t *testing.T) {
-		if authRefreshCmd.RunE == nil {
-			t.Error("expected RunE to be set")
-		}
-	})
-}

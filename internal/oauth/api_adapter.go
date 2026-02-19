@@ -8,7 +8,6 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Adapter implements api.OAuthHandler by wrapping the OAuth Manager.
@@ -185,20 +184,6 @@ func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback)
 	a.manager.SetAuthCompletionCallback(func(ctx context.Context, sessionID, serverName, accessToken string) error {
 		return callback(ctx, sessionID, serverName, accessToken)
 	})
-}
-
-// RefreshTokenIfNeeded checks if the token needs refresh and refreshes it if necessary.
-// Returns the current (potentially refreshed) access token, or empty string if unavailable.
-func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string {
-	token, _, err := a.manager.RefreshTokenIfNeeded(ctx, sessionID, issuer)
-	if err != nil {
-		logging.Debug("OAuth", "RefreshTokenIfNeeded error (session=%s, issuer=%s): %v",
-			logging.TruncateSessionID(sessionID), issuer, err)
-	}
-	if token != nil {
-		return token.AccessToken
-	}
-	return ""
 }
 
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.

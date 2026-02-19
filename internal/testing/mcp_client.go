@@ -14,6 +14,27 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// testTokenStore implements transport.TokenStore for the test client.
+// It holds a pre-set access token and returns it on GetToken(), allowing
+// mcp-go's WithHTTPOAuth to handle bearer token injection and typed 401 errors.
+type testTokenStore struct {
+	token *transport.Token
+}
+
+func (s *testTokenStore) GetToken(_ context.Context) (*transport.Token, error) {
+	if s.token == nil {
+		return nil, transport.ErrNoToken
+	}
+	return s.token, nil
+}
+
+func (s *testTokenStore) SaveToken(_ context.Context, token *transport.Token) error {
+	s.token = token
+	return nil
+}
+
+var _ transport.TokenStore = (*testTokenStore)(nil)
+
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
 	client      client.MCPClient
@@ -80,26 +101,31 @@ func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint
 		}
 	}
 
-	// Build headers map
-	headers := make(map[string]string)
+	// Build transport options: use WithHTTPOAuth for token injection (typed 401 errors)
+	// and WithHTTPHeaders for the session ID header.
+	var opts []transport.StreamableHTTPCOption
+
 	if accessToken != "" {
-		headers["Authorization"] = "Bearer " + accessToken
+		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
+			TokenStore: &testTokenStore{
+				token: &transport.Token{
+					AccessToken: accessToken,
+					TokenType:   "Bearer",
+				},
+			},
+		}))
 	}
+
+	headers := make(map[string]string)
 	if sessionID != "" {
 		headers[api.ClientSessionIDHeader] = sessionID
 	}
+	if len(headers) > 0 {
+		opts = append(opts, transport.WithHTTPHeaders(headers))
+	}
 
 	// Create streamable HTTP client for muster aggregator
-	var httpClient *client.Client
-	var err error
-
-	if len(headers) > 0 {
-		httpClient, err = client.NewStreamableHttpClient(endpoint,
-			transport.WithHTTPHeaders(headers),
-		)
-	} else {
-		httpClient, err = client.NewStreamableHttpClient(endpoint)
-	}
+	httpClient, err := client.NewStreamableHttpClient(endpoint, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create streamable HTTP client: %w", err)
 	}

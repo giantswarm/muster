@@ -2,9 +2,13 @@ package oauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"strings"
 	"sync"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -96,13 +100,12 @@ func NewAuthManager(cfg AuthManagerConfig) (*AuthManager, error) {
 }
 
 // CheckConnection checks whether the agent has a valid token for the server.
-// It does not probe the server over HTTP -- mcp-go detects 401s at connection
-// time and returns typed OAuthAuthorizationRequiredError.
+// If no valid token exists, probes the server to discover OAuth auth requirements.
 //
 // Returns:
 //   - AuthStateAuthenticated if a valid token exists in the file store
-//   - AuthStatePendingAuth if no token exists (caller should trigger login)
-//   - AuthStateUnknown if the server URL is local / auth state is unclear
+//   - AuthStatePendingAuth if auth is required (authChallenge will be populated)
+//   - AuthStateUnknown if the server doesn't require auth or can't be reached
 func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (AuthState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -115,12 +118,138 @@ func (m *AuthManager) CheckConnection(ctx context.Context, serverURL string) (Au
 		return m.state, nil
 	}
 
-	// No valid token. We can't know if the server requires auth without
-	// probing, but the caller will find out when mcp-go returns a typed
-	// error at connection time. Return AuthStatePendingAuth so callers
-	// that need a pre-check (e.g., muster auth login) can act on it.
+	// Probe the server to discover auth requirements
+	challenge := m.discoverAuthChallenge(ctx, serverURL)
+	if challenge != nil {
+		m.authChallenge = challenge
+		m.state = AuthStatePendingAuth
+		return m.state, nil
+	}
+
+	// Could not determine auth requirements -- the server may not require
+	// auth, or it may be unreachable. Return PendingAuth so the caller
+	// can attempt a connection and let mcp-go detect 401 at that point.
 	m.state = AuthStatePendingAuth
 	return m.state, nil
+}
+
+// discoverAuthChallenge probes the server to discover OAuth auth requirements.
+// It first sends a HEAD request to the endpoint to check for a 401 + WWW-Authenticate
+// header. If that yields an issuer, it's used directly. Otherwise it falls back to
+// fetching /.well-known/oauth-protected-resource (RFC 9728).
+func (m *AuthManager) discoverAuthChallenge(ctx context.Context, serverURL string) *pkgoauth.AuthChallenge {
+	httpClient := m.client.GetHTTPClient()
+
+	// Try a HEAD request to the server endpoint to check for 401
+	challenge := probeEndpoint(ctx, httpClient, serverURL)
+	if challenge != nil {
+		return challenge
+	}
+
+	// Fall back to RFC 9728 protected resource metadata discovery
+	return discoverFromResourceMetadata(ctx, httpClient, serverURL)
+}
+
+// probeEndpoint sends a HEAD request to the server and parses any 401 WWW-Authenticate header.
+func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL string) *pkgoauth.AuthChallenge {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, serverURL, nil)
+	if err != nil {
+		return nil
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		return nil
+	}
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	if wwwAuth == "" {
+		return nil
+	}
+
+	challenge, err := pkgoauth.ParseWWWAuthenticate(wwwAuth)
+	if err != nil {
+		return nil
+	}
+
+	// If we have a direct issuer, use it
+	if challenge.GetIssuer() != "" {
+		return challenge
+	}
+
+	// If we have a resource_metadata URL, fetch it
+	if challenge.ResourceMetadataURL != "" {
+		if issuer := fetchIssuerFromResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL); issuer != "" {
+			challenge.Issuer = issuer
+			return challenge
+		}
+	}
+
+	return nil
+}
+
+// discoverFromResourceMetadata fetches /.well-known/oauth-protected-resource from
+// the server's base URL (RFC 9728) and extracts the authorization server issuer.
+func discoverFromResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *pkgoauth.AuthChallenge {
+	baseURL := strings.TrimSuffix(serverURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, "/mcp")
+	baseURL = strings.TrimSuffix(baseURL, "/sse")
+	metadataURL := baseURL + "/.well-known/oauth-protected-resource"
+
+	issuer := fetchIssuerFromResourceMetadata(ctx, httpClient, metadataURL)
+	if issuer == "" {
+		return nil
+	}
+
+	return &pkgoauth.AuthChallenge{
+		Scheme: "Bearer",
+		Issuer: issuer,
+	}
+}
+
+// protectedResourceMetadata is the JSON structure returned by RFC 9728 endpoints.
+type protectedResourceMetadata struct {
+	AuthorizationServers []string `json:"authorization_servers"`
+}
+
+// fetchIssuerFromResourceMetadata fetches a resource metadata URL and extracts
+// the first authorization server as the issuer.
+func fetchIssuerFromResourceMetadata(ctx context.Context, httpClient *http.Client, metadataURL string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return ""
+	}
+
+	var meta protectedResourceMetadata
+	if err := json.Unmarshal(body, &meta); err != nil {
+		return ""
+	}
+
+	if len(meta.AuthorizationServers) > 0 {
+		return meta.AuthorizationServers[0]
+	}
+	return ""
 }
 
 // StartAuthFlow initiates the OAuth authentication flow.

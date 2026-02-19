@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
 
+	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	"github.com/spf13/cobra"
 )
 
@@ -325,7 +327,7 @@ func runMCPServerDirectWithAuth(ctx context.Context, client *agent.Client, logge
 	if err := connectWithRetry(ctx, client, logger, endpoint, transport); err != nil {
 		// Check if this is a 401 error - if so, the cached token is invalid
 		// and we need to fall back to the pending auth flow
-		if authManager != nil && oauth.IsTokenExpiredError(err) {
+		if authManager != nil && isOAuthConnectionError(err) {
 			logger.Info("Connection failed with 401 - cached token is invalid, clearing and re-authenticating")
 			_ = authManager.ClearToken()
 
@@ -639,4 +641,17 @@ func connectWithRetry(ctx context.Context, client *agent.Client, logger *agent.L
 	}
 
 	return fmt.Errorf("failed to connect to aggregator after %d attempts", maxRetries)
+}
+
+// isOAuthConnectionError checks if an error indicates an OAuth authorization failure
+// using mcp-go's typed error detection.
+func isOAuthConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var oauthErr *mcptransport.OAuthAuthorizationRequiredError
+	if errors.As(err, &oauthErr) {
+		return true
+	}
+	return errors.Is(err, mcptransport.ErrUnauthorized)
 }

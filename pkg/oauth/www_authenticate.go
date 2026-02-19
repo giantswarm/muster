@@ -106,13 +106,3 @@ func ParseWWWAuthenticateFromResponse(resp *http.Response) *AuthChallenge {
 
 	return challenge
 }
-
-// Is401Error checks if an error message indicates a 401 Unauthorized response.
-func Is401Error(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "401") ||
-		strings.Contains(strings.ToLower(errStr), "unauthorized")
-}

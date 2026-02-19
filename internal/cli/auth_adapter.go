@@ -607,68 +607,6 @@ func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
 	return claims
 }
 
-// RefreshToken attempts to refresh the token using the stored refresh token.
-// This is exposed as the `muster auth refresh` CLI command. Unlike normal
-// token refresh (which is handled automatically by mcp-go's transport layer),
-// this method performs an explicit refresh regardless of token expiry status.
-func (a *AuthAdapter) RefreshToken(ctx context.Context, endpoint string) error {
-	mgr, err := a.getOrCreateManager(endpoint)
-	if err != nil {
-		return err
-	}
-
-	state, _ := mgr.CheckConnection(ctx, endpoint)
-	if state != oauth.AuthStateAuthenticated {
-		return fmt.Errorf("not authenticated. Run 'muster auth login --endpoint %s' first", endpoint)
-	}
-
-	normalizedEndpoint := normalizeEndpoint(endpoint)
-	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
-		StorageDir: a.tokenStorageDir,
-		FileMode:   true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create token store: %w", err)
-	}
-
-	storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint)
-	if storedToken == nil {
-		return fmt.Errorf("no stored token found")
-	}
-
-	if storedToken.RefreshToken == "" {
-		return fmt.Errorf("no refresh token available")
-	}
-
-	oauthClient := pkgoauth.NewClient()
-	metadata, err := oauthClient.DiscoverMetadata(ctx, storedToken.IssuerURL)
-	if err != nil {
-		return fmt.Errorf("failed to discover OAuth metadata: %w", err)
-	}
-
-	newToken, err := oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, storedToken.RefreshToken, oauth.DefaultAgentClientID)
-	if err != nil {
-		logging.Debug("AuthAdapter", "Token refresh failed: %v", err)
-		return fmt.Errorf("token refresh failed: %w. Run 'muster auth login --endpoint %s' to re-authenticate", err, endpoint)
-	}
-
-	if newToken.IDToken == "" && storedToken.IDToken != "" {
-		newToken.IDToken = storedToken.IDToken
-	}
-
-	oauth2Token := newToken.ToOAuth2Token()
-	if oauth2Token.RefreshToken == "" {
-		oauth2Token.RefreshToken = storedToken.RefreshToken
-	}
-
-	if err := store.StoreToken(normalizedEndpoint, storedToken.IssuerURL, oauth2Token); err != nil {
-		return fmt.Errorf("failed to store refreshed token: %w", err)
-	}
-
-	logging.Debug("AuthAdapter", "Token refreshed successfully for %s", endpoint)
-	return nil
-}
-
 // Close cleans up any resources held by the auth adapter.
 func (a *AuthAdapter) Close() error {
 	a.mu.Lock()

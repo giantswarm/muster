@@ -100,12 +100,6 @@ type OAuthHandler interface {
 	// The aggregator uses this to establish session connections after browser OAuth completes.
 	SetAuthCompletionCallback(callback AuthCompletionCallback)
 
-	// RefreshTokenIfNeeded checks if the token for the given session and issuer needs refresh,
-	// and refreshes it if necessary. Returns the current (potentially refreshed) access token.
-	// Returns an empty string if no token exists or refresh failed without a fallback.
-	// This method is used for automatic token refresh in long-running sessions.
-	RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string
-
 	// ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.
 	// This implements RFC 8693 Token Exchange for cross-cluster SSO scenarios.
 	//

@@ -60,9 +60,6 @@ func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _
 func (m *stubOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }
-func (m *stubOAuthHandler) RefreshTokenIfNeeded(_ context.Context, _, _ string) string {
-	return ""
-}
 
 var _ api.OAuthHandler = (*stubOAuthHandler)(nil)
 
