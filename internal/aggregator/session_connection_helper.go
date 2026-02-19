@@ -71,7 +71,7 @@ func establishSessionConnection(
 	// Otherwise, fall back to static headers (backwards compatibility).
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		tokenStore := internalmcp.NewMCPGoTokenStore(sessionID, issuer, oauthHandler)
+		tokenStore := internalmcp.NewMusterTokenStore(sessionID, issuer, oauthHandler)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
 		logging.Debug("SessionConnection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateSessionID(sessionID), serverName, issuer)

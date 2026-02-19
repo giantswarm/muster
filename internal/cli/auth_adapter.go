@@ -260,29 +260,19 @@ func (a *AuthAdapter) HasValidToken(endpoint string) bool {
 }
 
 // GetBearerToken returns a valid Bearer token for the endpoint.
-// It will automatically refresh the token if it's about to expire and a refresh token is available.
+// Token refresh is handled by mcp-go's transport layer via AgentTokenStore.
 func (a *AuthAdapter) GetBearerToken(endpoint string) (string, error) {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
 		return "", err
 	}
 
-	// First check if we need to check connection state
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
 	defer cancel()
 
 	state, _ := mgr.CheckConnection(ctx, endpoint)
 	if state != oauth.AuthStateAuthenticated {
 		return "", &AuthRequiredError{Endpoint: endpoint}
-	}
-
-	// Try to proactively refresh the token if it's about to expire
-	// This is silent - if refresh fails, we'll try with the existing token
-	refreshed, err := a.tryRefreshToken(ctx, endpoint)
-	if err != nil {
-		logging.Debug("AuthAdapter", "Proactive token refresh failed: %v", err)
-	} else if refreshed {
-		logging.Debug("AuthAdapter", "Token proactively refreshed for %s", endpoint)
 	}
 
 	token, err := mgr.GetBearerToken()
@@ -618,78 +608,21 @@ func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
 }
 
 // RefreshToken attempts to refresh the token using the stored refresh token.
-// If no refresh token is available or the refresh fails, it returns an error.
-// This method forces a refresh regardless of how much time is left on the current token.
-// Unlike Login(), this method never opens a browser - it only uses the refresh token.
+// This is exposed as the `muster auth refresh` CLI command. Unlike normal
+// token refresh (which is handled automatically by mcp-go's transport layer),
+// this method performs an explicit refresh regardless of token expiry status.
 func (a *AuthAdapter) RefreshToken(ctx context.Context, endpoint string) error {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
 		return err
 	}
 
-	// First check connection to initialize the manager with the stored token
 	state, _ := mgr.CheckConnection(ctx, endpoint)
 	if state != oauth.AuthStateAuthenticated {
-		// Not authenticated - need full login, but don't do it automatically
 		return fmt.Errorf("not authenticated. Run 'muster auth login --endpoint %s' first", endpoint)
 	}
 
-	// Force refresh the token (ignoring the threshold check)
-	err = a.forceRefreshToken(ctx, endpoint)
-	if err != nil {
-		logging.Debug("AuthAdapter", "Token refresh failed: %v", err)
-		return fmt.Errorf("token refresh failed: %w. Run 'muster auth login --endpoint %s' to re-authenticate", err, endpoint)
-	}
-
-	logging.Debug("AuthAdapter", "Token refreshed successfully for %s", endpoint)
-	return nil
-}
-
-// tryRefreshToken attempts to refresh the token using the stored refresh token.
-// Returns true if the token was refreshed, false if no refresh was needed.
-// This is used for proactive background refresh and respects the TokenRefreshThreshold.
-func (a *AuthAdapter) tryRefreshToken(ctx context.Context, endpoint string) (bool, error) {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
-
-	// Create a temporary token store to access and update the stored token
-	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
-		StorageDir: a.tokenStorageDir,
-		FileMode:   true,
-	})
-	if err != nil {
-		return false, fmt.Errorf("failed to create token store: %w", err)
-	}
-
-	// Get the stored token (including expiring ones)
-	storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint)
-	if storedToken == nil {
-		return false, fmt.Errorf("no stored token found")
-	}
-
-	// Check if token has a refresh token
-	if storedToken.RefreshToken == "" {
-		return false, fmt.Errorf("no refresh token available")
-	}
-
-	// Check if token actually needs refresh
-	if !tokenNeedsRefresh(storedToken) {
-		return false, nil
-	}
-
-	// Perform the refresh
-	if err := a.doTokenRefresh(ctx, store, storedToken, normalizedEndpoint); err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-// forceRefreshToken performs a token refresh regardless of how much time is left.
-// This is used when the user explicitly requests a refresh via "muster auth refresh".
-func (a *AuthAdapter) forceRefreshToken(ctx context.Context, endpoint string) error {
-	normalizedEndpoint := normalizeEndpoint(endpoint)
-
-	// Create a temporary token store to access and update the stored token
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
 		StorageDir: a.tokenStorageDir,
 		FileMode:   true,
@@ -698,23 +631,15 @@ func (a *AuthAdapter) forceRefreshToken(ctx context.Context, endpoint string) er
 		return fmt.Errorf("failed to create token store: %w", err)
 	}
 
-	// Get the stored token (including expiring ones)
 	storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint)
 	if storedToken == nil {
 		return fmt.Errorf("no stored token found")
 	}
 
-	// Check if token has a refresh token
 	if storedToken.RefreshToken == "" {
 		return fmt.Errorf("no refresh token available")
 	}
 
-	// Perform the refresh (no threshold check)
-	return a.doTokenRefresh(ctx, store, storedToken, normalizedEndpoint)
-}
-
-// doTokenRefresh performs the actual OAuth token refresh operation.
-func (a *AuthAdapter) doTokenRefresh(ctx context.Context, store *oauth.TokenStore, storedToken *oauth.StoredToken, normalizedEndpoint string) error {
 	oauthClient := pkgoauth.NewClient()
 	metadata, err := oauthClient.DiscoverMetadata(ctx, storedToken.IssuerURL)
 	if err != nil {
@@ -723,38 +648,25 @@ func (a *AuthAdapter) doTokenRefresh(ctx context.Context, store *oauth.TokenStor
 
 	newToken, err := oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, storedToken.RefreshToken, oauth.DefaultAgentClientID)
 	if err != nil {
-		return fmt.Errorf("token refresh failed: %w", err)
+		logging.Debug("AuthAdapter", "Token refresh failed: %v", err)
+		return fmt.Errorf("token refresh failed: %w. Run 'muster auth login --endpoint %s' to re-authenticate", err, endpoint)
 	}
 
-	// Preserve ID token if not returned (refresh responses typically don't include ID tokens)
-	// The ID token is needed for SSO forwarding to downstream MCP servers
 	if newToken.IDToken == "" && storedToken.IDToken != "" {
 		newToken.IDToken = storedToken.IDToken
 	}
 
-	// Convert to oauth2.Token for storage
 	oauth2Token := newToken.ToOAuth2Token()
-
-	// Preserve refresh token if not returned
 	if oauth2Token.RefreshToken == "" {
 		oauth2Token.RefreshToken = storedToken.RefreshToken
 	}
 
-	// Store the refreshed token
 	if err := store.StoreToken(normalizedEndpoint, storedToken.IssuerURL, oauth2Token); err != nil {
 		return fmt.Errorf("failed to store refreshed token: %w", err)
 	}
 
+	logging.Debug("AuthAdapter", "Token refreshed successfully for %s", endpoint)
 	return nil
-}
-
-// tokenNeedsRefresh checks if a token is approaching expiry and needs refresh.
-// Uses the shared TokenRefreshThreshold from pkg/oauth for consistent behavior.
-func tokenNeedsRefresh(token *oauth.StoredToken) bool {
-	if token == nil || token.Expiry.IsZero() {
-		return false
-	}
-	return time.Until(token.Expiry) < pkgoauth.TokenRefreshThreshold
 }
 
 // Close cleans up any resources held by the auth adapter.

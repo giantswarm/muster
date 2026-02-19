@@ -9,18 +9,18 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 )
 
-// MCPGoTokenStore adapts muster's session-scoped OAuth token management
-// to mcp-go's transport.TokenStore interface. This bridges muster's
-// OAuthHandler (which manages tokens by sessionID/issuer) to the
-// transport-level TokenStore that mcp-go uses for automatic bearer
-// token injection and 401 handling.
+// MusterTokenStore is a thin context-binder that implements mcp-go's
+// transport.TokenStore interface by binding {sessionID, issuer} context
+// to the single backing store exposed through api.OAuthHandler.
 //
-// The adapter also caches the ID token from muster's full token on each
-// GetToken() call, making it available for downstream SSO forwarding
-// via GetIDToken(). This keeps ID token concerns in muster's
-// orchestration layer while delegating the basic OAuth transport flow
-// to mcp-go.
-type MCPGoTokenStore struct {
+// It has no storage of its own -- all reads and writes go through
+// api.OAuthHandler. The only local state is a cached copy of the ID token,
+// because mcp-go's transport.Token doesn't track ID tokens.
+//
+// mcp-go owns token refresh and 401 handling. This store simply returns
+// the current token as-is and persists whatever mcp-go writes back after
+// a successful refresh.
+type MusterTokenStore struct {
 	sessionID    string
 	issuer       string
 	oauthHandler api.OAuthHandler
@@ -29,20 +29,23 @@ type MCPGoTokenStore struct {
 	idToken string
 }
 
-// NewMCPGoTokenStore creates a new token store adapter that bridges muster's
-// session-scoped OAuth token management to mcp-go's transport.TokenStore.
-func NewMCPGoTokenStore(sessionID, issuer string, oauthHandler api.OAuthHandler) *MCPGoTokenStore {
-	return &MCPGoTokenStore{
+// NewMusterTokenStore creates a new token store that binds the given
+// session and issuer context to the api.OAuthHandler backing store.
+func NewMusterTokenStore(sessionID, issuer string, oauthHandler api.OAuthHandler) *MusterTokenStore {
+	return &MusterTokenStore{
 		sessionID:    sessionID,
 		issuer:       issuer,
 		oauthHandler: oauthHandler,
 	}
 }
 
-// GetToken returns the current OAuth access token, refreshing if needed.
+// GetToken returns the current OAuth token from the backing store.
 // Returns transport.ErrNoToken when no token is available, which signals
 // mcp-go to initiate the OAuth authorization flow.
-func (s *MCPGoTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
+//
+// Unlike the previous implementation, this does NOT call RefreshTokenIfNeeded.
+// mcp-go decides when to refresh based on the ExpiresAt field.
+func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -51,43 +54,64 @@ func (s *MCPGoTokenStore) GetToken(ctx context.Context) (*transport.Token, error
 		return nil, transport.ErrNoToken
 	}
 
-	accessToken := s.oauthHandler.RefreshTokenIfNeeded(ctx, s.sessionID, s.issuer)
-	if accessToken == "" {
+	fullToken := s.oauthHandler.GetFullTokenByIssuer(s.sessionID, s.issuer)
+	if fullToken == nil || fullToken.AccessToken == "" {
 		return nil, transport.ErrNoToken
 	}
 
-	fullToken := s.oauthHandler.GetFullTokenByIssuer(s.sessionID, s.issuer)
-	if fullToken != nil && fullToken.IDToken != "" {
+	if fullToken.IDToken != "" {
 		s.mu.Lock()
 		s.idToken = fullToken.IDToken
 		s.mu.Unlock()
 	}
 
 	return &transport.Token{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
+		AccessToken:  fullToken.AccessToken,
+		TokenType:    "Bearer",
+		RefreshToken: fullToken.RefreshToken,
+		ExpiresAt:    fullToken.ExpiresAt,
 	}, nil
 }
 
-// SaveToken is a no-op because muster owns the full token lifecycle.
+// SaveToken persists a refreshed token to the backing store via
+// api.OAuthHandler.StoreToken. mcp-go calls this after a successful
+// token refresh.
 //
-// mcp-go calls SaveToken after its own token refresh, but that path never
-// triggers here: GetToken() proactively refreshes via muster's OAuthHandler
-// and returns a transport.Token without a RefreshToken, so mcp-go's internal
-// refresh logic has nothing to work with. Token persistence is handled
-// entirely by muster's OAuthHandler/token store.
-func (s *MCPGoTokenStore) SaveToken(_ context.Context, _ *transport.Token) error {
+// The cached IDToken is preserved because refresh responses typically
+// don't include ID tokens.
+func (s *MusterTokenStore) SaveToken(ctx context.Context, token *transport.Token) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if s.oauthHandler == nil || token == nil {
+		return nil
+	}
+
+	s.mu.RLock()
+	cachedIDToken := s.idToken
+	s.mu.RUnlock()
+
+	s.oauthHandler.StoreToken(s.sessionID, s.issuer, &api.OAuthToken{
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		IDToken:      cachedIDToken,
+		Issuer:       s.issuer,
+	})
+
 	return nil
 }
 
 // GetIDToken returns the last cached ID token. mcp-go's transport.Token
-// doesn't track ID tokens, so we cache them from muster's full token
+// doesn't track ID tokens, so we cache them from the backing store
 // on each GetToken() call for SSO forwarding.
-func (s *MCPGoTokenStore) GetIDToken() string {
+func (s *MusterTokenStore) GetIDToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.idToken
 }
 
-// Ensure MCPGoTokenStore implements transport.TokenStore at compile time.
-var _ transport.TokenStore = (*MCPGoTokenStore)(nil)
+// Ensure MusterTokenStore implements transport.TokenStore at compile time.
+var _ transport.TokenStore = (*MusterTokenStore)(nil)

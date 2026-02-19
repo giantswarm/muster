@@ -97,14 +97,11 @@ func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
 }
 
-// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
-// This is used for SSO token forwarding to downstream MCP servers.
-// Returns nil if no valid token exists or if the token doesn't have an ID token.
+// GetFullTokenByIssuer retrieves the full token (including ID token if available)
+// for the given session and issuer. Returns nil if no valid token exists.
+// The IDToken field may be empty if the token was obtained without an ID token.
 func (a *Adapter) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	token := a.manager.GetTokenByIssuer(sessionID, issuer)
-	if token == nil || token.IDToken == "" {
-		return nil
-	}
 	return fullTokenToAPIToken(token)
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 
@@ -14,22 +15,21 @@ import (
 )
 
 // stubOAuthHandler is a minimal implementation of api.OAuthHandler for testing
-// the token store adapter. Only the methods used by MCPGoTokenStore are implemented
+// the token store adapter. Only the methods used by MusterTokenStore are implemented
 // with real logic; others are stubs.
 type stubOAuthHandler struct {
-	enabled          bool
-	accessToken      string
-	fullToken        *api.OAuthToken
-	refreshCallCount int
-	storedTokens     map[string]*api.OAuthToken // key: sessionID+issuer
+	enabled      bool
+	fullToken    *api.OAuthToken
+	storedTokens map[string]*api.OAuthToken // key: sessionID+"|"+issuer
 }
 
 func (m *stubOAuthHandler) IsEnabled() bool { return m.enabled }
-func (m *stubOAuthHandler) RefreshTokenIfNeeded(_ context.Context, _, _ string) string {
-	m.refreshCallCount++
-	return m.accessToken
-}
-func (m *stubOAuthHandler) GetFullTokenByIssuer(_, _ string) *api.OAuthToken {
+func (m *stubOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	if m.storedTokens != nil {
+		if tok, ok := m.storedTokens[sessionID+"|"+issuer]; ok {
+			return tok
+		}
+	}
 	return m.fullToken
 }
 
@@ -60,30 +60,39 @@ func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _
 func (m *stubOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }
+func (m *stubOAuthHandler) RefreshTokenIfNeeded(_ context.Context, _, _ string) string {
+	return ""
+}
 
 var _ api.OAuthHandler = (*stubOAuthHandler)(nil)
 
-func TestMCPGoTokenStore_GetToken_ReturnsAccessToken(t *testing.T) {
+func TestMusterTokenStore_GetToken_ReturnsFullToken(t *testing.T) {
+	expiry := time.Now().Add(10 * time.Minute)
 	handler := &stubOAuthHandler{
-		enabled:     true,
-		accessToken: "test-access-token",
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken:  "test-access-token",
+			RefreshToken: "test-refresh-token",
+			ExpiresAt:    expiry,
+		},
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
 	require.NoError(t, err)
 	assert.Equal(t, "test-access-token", token.AccessToken)
 	assert.Equal(t, "Bearer", token.TokenType)
-	assert.Equal(t, 1, handler.refreshCallCount)
+	assert.Equal(t, "test-refresh-token", token.RefreshToken)
+	assert.Equal(t, expiry, token.ExpiresAt)
 }
 
-func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenEmpty(t *testing.T) {
+func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenEmpty(t *testing.T) {
 	handler := &stubOAuthHandler{
-		enabled:     true,
-		accessToken: "",
+		enabled:   true,
+		fullToken: nil,
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -91,11 +100,26 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenEmpty(t *testing.T) {
 	assert.True(t, errors.Is(err, transport.ErrNoToken))
 }
 
-func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) {
+func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenEmptyAccessToken(t *testing.T) {
+	handler := &stubOAuthHandler{
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken: "",
+		},
+	}
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+
+	token, err := store.GetToken(t.Context())
+
+	assert.Nil(t, token)
+	assert.True(t, errors.Is(err, transport.ErrNoToken))
+}
+
+func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) {
 	handler := &stubOAuthHandler{
 		enabled: false,
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -103,8 +127,8 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) {
 	assert.True(t, errors.Is(err, transport.ErrNoToken))
 }
 
-func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenNilHandler(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
+func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenNilHandler(t *testing.T) {
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", nil)
 
 	token, err := store.GetToken(t.Context())
 
@@ -112,15 +136,15 @@ func TestMCPGoTokenStore_GetToken_ReturnsErrNoToken_WhenNilHandler(t *testing.T)
 	assert.True(t, errors.Is(err, transport.ErrNoToken))
 }
 
-func TestMCPGoTokenStore_GetToken_CachesIDToken(t *testing.T) {
+func TestMusterTokenStore_GetToken_CachesIDToken(t *testing.T) {
 	handler := &stubOAuthHandler{
-		enabled:     true,
-		accessToken: "access-token",
+		enabled: true,
 		fullToken: &api.OAuthToken{
-			IDToken: "my-id-token",
+			AccessToken: "access-token",
+			IDToken:     "my-id-token",
 		},
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -128,13 +152,14 @@ func TestMCPGoTokenStore_GetToken_CachesIDToken(t *testing.T) {
 	assert.Equal(t, "my-id-token", store.GetIDToken())
 }
 
-func TestMCPGoTokenStore_GetToken_IDTokenEmpty_WhenNoFullToken(t *testing.T) {
+func TestMusterTokenStore_GetToken_IDTokenEmpty_WhenNoIDToken(t *testing.T) {
 	handler := &stubOAuthHandler{
-		enabled:     true,
-		accessToken: "access-token",
-		fullToken:   nil,
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken: "access-token",
+		},
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -142,12 +167,14 @@ func TestMCPGoTokenStore_GetToken_IDTokenEmpty_WhenNoFullToken(t *testing.T) {
 	assert.Empty(t, store.GetIDToken())
 }
 
-func TestMCPGoTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
+func TestMusterTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
 	handler := &stubOAuthHandler{
-		enabled:     true,
-		accessToken: "token",
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken: "token",
+		},
 	}
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -158,21 +185,115 @@ func TestMCPGoTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestMCPGoTokenStore_SaveToken_IsNoOp(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
+func TestMusterTokenStore_SaveToken_Persists(t *testing.T) {
+	handler := &stubOAuthHandler{
+		enabled: true,
+	}
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
 
-	err := store.SaveToken(t.Context(), &transport.Token{AccessToken: "ignored"})
+	expiry := time.Now().Add(30 * time.Minute)
+	err := store.SaveToken(t.Context(), &transport.Token{
+		AccessToken:  "new-access",
+		TokenType:    "Bearer",
+		RefreshToken: "new-refresh",
+		ExpiresAt:    expiry,
+	})
+	require.NoError(t, err)
 
+	// Verify the token was stored via the handler
+	stored := handler.storedTokens["session-1|https://issuer.example.com"]
+	require.NotNil(t, stored)
+	assert.Equal(t, "new-access", stored.AccessToken)
+	assert.Equal(t, "Bearer", stored.TokenType)
+	assert.Equal(t, "new-refresh", stored.RefreshToken)
+	assert.Equal(t, expiry, stored.ExpiresAt)
+	assert.Equal(t, "https://issuer.example.com", stored.Issuer)
+}
+
+func TestMusterTokenStore_SaveToken_PreservesIDToken(t *testing.T) {
+	handler := &stubOAuthHandler{
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken: "original-access",
+			IDToken:     "my-id-token",
+		},
+	}
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+
+	// Populate the cached IDToken by calling GetToken first
+	_, err := store.GetToken(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "my-id-token", store.GetIDToken())
+
+	// Now save a refreshed token (which won't contain an ID token)
+	err = store.SaveToken(t.Context(), &transport.Token{
+		AccessToken:  "refreshed-access",
+		RefreshToken: "refreshed-refresh",
+	})
+	require.NoError(t, err)
+
+	// Verify the stored token preserves the cached ID token
+	stored := handler.storedTokens["session-1|https://issuer.example.com"]
+	require.NotNil(t, stored)
+	assert.Equal(t, "refreshed-access", stored.AccessToken)
+	assert.Equal(t, "my-id-token", stored.IDToken)
+}
+
+func TestMusterTokenStore_SaveToken_RoundTrips(t *testing.T) {
+	handler := &stubOAuthHandler{
+		enabled: true,
+		fullToken: &api.OAuthToken{
+			AccessToken:  "original",
+			RefreshToken: "original-refresh",
+			IDToken:      "original-id",
+		},
+	}
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+
+	// GetToken caches IDToken
+	_, err := store.GetToken(t.Context())
+	require.NoError(t, err)
+
+	// SaveToken with refreshed token
+	expiry := time.Now().Add(1 * time.Hour)
+	err = store.SaveToken(t.Context(), &transport.Token{
+		AccessToken:  "refreshed",
+		RefreshToken: "refreshed-refresh",
+		ExpiresAt:    expiry,
+	})
+	require.NoError(t, err)
+
+	// GetToken should now return the saved token
+	token, err := store.GetToken(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "refreshed", token.AccessToken)
+	assert.Equal(t, "refreshed-refresh", token.RefreshToken)
+	assert.Equal(t, expiry, token.ExpiresAt)
+
+	// IDToken should still be cached
+	assert.Equal(t, "original-id", store.GetIDToken())
+}
+
+func TestMusterTokenStore_SaveToken_NilToken(t *testing.T) {
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
+
+	err := store.SaveToken(t.Context(), nil)
 	assert.NoError(t, err)
 }
 
-func TestMCPGoTokenStore_SaveToken_IgnoresToken(t *testing.T) {
-	store := NewMCPGoTokenStore("session-1", "https://issuer.example.com", nil)
+func TestMusterTokenStore_SaveToken_NilHandler(t *testing.T) {
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", nil)
 
-	err := store.SaveToken(t.Context(), &transport.Token{
-		AccessToken:  "new-token",
-		RefreshToken: "new-refresh",
-	})
-
+	err := store.SaveToken(t.Context(), &transport.Token{AccessToken: "token"})
 	assert.NoError(t, err)
+}
+
+func TestMusterTokenStore_SaveToken_RespectsContextCancellation(t *testing.T) {
+	store := NewMusterTokenStore("session-1", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := store.SaveToken(ctx, &transport.Token{AccessToken: "token"})
+	assert.ErrorIs(t, err, context.Canceled)
 }

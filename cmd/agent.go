@@ -198,21 +198,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// setupAgentAuthentication sets up authentication for the agent client using the AuthHandler.
-// This provides a unified authentication experience for all agent modes (REPL, normal).
+// setupAgentAuthentication sets up the mcp-go OAuth transport for the agent client.
+// If no valid token exists, it triggers authentication via the AuthHandler.
 func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, authMode cli.AuthMode) error {
-	// Check if this is a remote endpoint
 	if !cli.IsRemoteEndpoint(endpoint) {
-		// Local endpoint - no auth needed
 		return nil
 	}
 
-	// Try to get a token from the AuthHandler
 	handler := api.GetAuthHandler()
 	if handler == nil {
-		// No auth handler - create and register one
-		// Silent refresh is disabled by default (Dex doesn't support prompt=none)
-		// Use --silent flag to opt-in if your IdP supports it
 		adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
 			NoSilentRefresh: !agentSilentAuth,
 		})
@@ -228,68 +222,55 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	// Set persistent session ID for MCP server token persistence.
-	// This must be set early so the aggregator can associate all requests
-	// with the same session, enabling MCP server tools to be visible after
-	// authentication via `muster auth login --server <server>`.
 	if sessionID := handler.GetSessionID(); sessionID != "" {
 		client.SetHeader(api.ClientSessionIDHeader, sessionID)
 	}
 
-	// Check if we have a valid token
+	// Set up mcp-go OAuth transport
+	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
+	if err != nil {
+		logger.Info("Warning: Could not set up OAuth transport: %v", err)
+		return nil
+	}
+	client.SetOAuthConfig(*oauthCfg, agentStore)
+
+	// If we have a valid token, the OAuth transport will use it automatically
 	if handler.HasValidToken(endpoint) {
-		token, err := handler.GetBearerToken(endpoint)
-		if err == nil {
-			client.SetAuthorizationHeader(token)
-			logger.Info("Using existing authentication token")
-			return nil
-		}
+		logger.Info("Using existing authentication token")
+		return nil
 	}
 
-	// Check if auth is required
+	// No valid token -- check if we should trigger login proactively
 	authRequired, err := handler.CheckAuthRequired(ctx, endpoint)
 	if err != nil {
-		// Can't check auth - continue without token
 		logger.Info("Could not check auth requirements: %v", err)
 		return nil
 	}
 
 	if !authRequired {
-		// No auth required
 		return nil
 	}
 
-	// Handle auth based on mode
 	switch authMode {
 	case cli.AuthModeNone:
 		return &cli.AuthRequiredError{Endpoint: endpoint}
 	case cli.AuthModePrompt:
 		logger.Info("Authentication required for %s", endpoint)
 		logger.Info("Press Enter to open browser for authentication, or Ctrl+C to cancel...")
-		// Wait for user input
 		var input string
 		if _, err := fmt.Scanln(&input); err != nil {
-			// User pressed Enter (with or without newline)
+			// User pressed Enter
 		}
 	default:
-		// AuthModeAuto - proceed directly
 		logger.Info("Authentication required for %s", endpoint)
 	}
 
 	logger.Info("Starting OAuth login flow...")
-
 	if err := handler.Login(ctx, endpoint); err != nil {
 		return fmt.Errorf("authentication failed: %w. Run 'muster auth login --endpoint %s' to authenticate", err, endpoint)
 	}
 
-	// Get the token and set it on the client
-	token, err := handler.GetBearerToken(endpoint)
-	if err != nil {
-		return fmt.Errorf("failed to get authentication token: %w", err)
-	}
-	client.SetAuthorizationHeader(token)
 	logger.Success("Authentication successful")
-
 	return nil
 }
 
@@ -317,26 +298,14 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 	}
 
+	// Set up OAuth transport for the MCP server client
+	oauthCfg, agentStore, oauthErr := oauth.SetupOAuthConfig(endpoint)
+	if oauthErr == nil {
+		client.SetOAuthConfig(*oauthCfg, agentStore)
+	}
+
 	switch authState {
 	case oauth.AuthStateAuthenticated:
-		// Already have a valid token, use it
-		bearerToken, err := authManager.GetBearerToken()
-		if err != nil {
-			// Token might have expired between check and now
-			// Clear the invalid token and fall through to pending auth
-			logger.Info("Token expired or invalid, clearing and re-authenticating")
-			_ = authManager.ClearToken()
-
-			// Re-check to get the auth challenge
-			authState, err = authManager.CheckConnection(ctx, endpoint)
-			if err != nil || authState != oauth.AuthStatePendingAuth {
-				// Can't determine auth requirements, try direct connection with re-auth support
-				return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
-			}
-			return runMCPServerPendingAuth(ctx, client, logger, endpoint, transport, authManager)
-		}
-		client.SetAuthorizationHeader(bearerToken)
-		// Pass auth manager for re-authentication support when token expires mid-session
 		return runMCPServerDirectWithAuth(ctx, client, logger, endpoint, transport, authManager)
 
 	case oauth.AuthStatePendingAuth:
@@ -445,19 +414,11 @@ func runMCPServerPendingAuth(ctx context.Context, client *agent.Client, logger *
 }
 
 // upgradeToConnectedServer upgrades from pending auth to a fully connected server.
-// It connects to the aggregator with the auth token and updates the MCP server's tools.
+// It connects to the aggregator (OAuth transport injects the token automatically)
+// and updates the MCP server's tools.
 func upgradeToConnectedServer(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType, authManager *oauth.AuthManager, pendingServer *agent.PendingAuthMCPServer) {
-	// Get the bearer token
-	bearerToken, err := authManager.GetBearerToken()
-	if err != nil {
-		logger.Error("Failed to get bearer token after auth: %v", err)
-		return
-	}
-
-	// Set the authorization header on the client
-	client.SetAuthorizationHeader(bearerToken)
-
-	// Connect to the aggregator
+	// OAuth transport automatically injects the token from the AgentTokenStore.
+	// After auth completes, the token is in the file store and the transport picks it up.
 	if err := client.Connect(ctx); err != nil {
 		logger.Error("Failed to connect after auth: %v", err)
 		return

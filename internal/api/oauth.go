@@ -55,9 +55,9 @@ type OAuthHandler interface {
 	// This is used for SSO when we have the issuer from a 401 response.
 	GetTokenByIssuer(sessionID, issuer string) *OAuthToken
 
-	// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
-	// This is used for SSO token forwarding to downstream MCP servers.
-	// Returns nil if no valid token exists or if the token doesn't have an ID token.
+	// GetFullTokenByIssuer retrieves the full token (including ID token if available)
+	// for the given session and issuer. Returns nil if no valid token exists.
+	// The IDToken field may be empty if the token was obtained without an ID token.
 	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
 
 	// FindTokenWithIDToken searches for any token in the session that has an ID token.
