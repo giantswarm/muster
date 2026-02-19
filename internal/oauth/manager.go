@@ -210,7 +210,8 @@ func (m *Manager) GetServerConfig(serverName string) *AuthServerConfig {
 }
 
 // GetToken retrieves a valid token for the given session and server.
-// It will proactively refresh the token if it's about to expire.
+// mcp-go handles token refresh via its transport layer, so this method
+// simply returns the stored token without proactive refresh.
 func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 	if m == nil {
 		return nil
@@ -224,62 +225,19 @@ func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 		return nil
 	}
 
-	// Try to refresh the token if needed
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	token, refreshed, err := m.client.RefreshTokenIfNeeded(ctx, sessionID, serverCfg.Issuer)
-	if err != nil {
-		logging.Debug("OAuth", "Token refresh failed for session=%s server=%s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
-		// Fall back to getting the token directly (might still be valid)
-		return m.client.GetToken(sessionID, serverCfg.Issuer, serverCfg.Scope)
-	}
-
-	if refreshed {
-		logging.Debug("OAuth", "Token proactively refreshed for session=%s server=%s",
-			logging.TruncateSessionID(sessionID), serverName)
-	}
-
-	// Verify the token is still valid
-	if token != nil && !token.IsExpiredWithMargin(tokenExpiryMargin) {
-		return token
-	}
-
-	return nil
+	return m.client.GetToken(sessionID, serverCfg.Issuer, serverCfg.Scope)
 }
 
 // GetTokenByIssuer retrieves a valid token for the given session and issuer.
 // This is used for SSO when we have the issuer from a 401 response.
-// It will proactively refresh the token if it's about to expire.
+// mcp-go handles token refresh via its transport layer, so this method
+// simply returns the stored token without proactive refresh.
 func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
 
-	// Try to refresh the token if needed
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	token, refreshed, err := m.client.RefreshTokenIfNeeded(ctx, sessionID, issuer)
-	if err != nil {
-		logging.Debug("OAuth", "Token refresh failed for session=%s issuer=%s: %v",
-			logging.TruncateSessionID(sessionID), issuer, err)
-		// Fall back to getting the token directly (might still be valid)
-		return m.client.tokenStore.GetByIssuer(sessionID, issuer)
-	}
-
-	if refreshed {
-		logging.Debug("OAuth", "Token proactively refreshed for session=%s issuer=%s",
-			logging.TruncateSessionID(sessionID), issuer)
-	}
-
-	// Verify the token is still valid
-	if token != nil && !token.IsExpiredWithMargin(tokenExpiryMargin) {
-		return token
-	}
-
-	return nil
+	return m.client.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
@@ -293,20 +251,19 @@ func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	logging.Debug("OAuth", "Cleared tokens for session=%s issuer=%s", logging.TruncateSessionID(sessionID), issuer)
 }
 
-// RefreshTokenIfNeeded checks if the token for the given session and issuer needs refresh
-// and refreshes it if necessary. This is the primary method for automatic token refresh
-// in long-running sessions (Issue #214).
-//
-// Returns:
-//   - The token (refreshed or original)
-//   - Boolean indicating if a refresh occurred
-//   - Any error during refresh (token is still returned if available)
-func (m *Manager) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) (*pkgoauth.Token, bool, error) {
-	if m == nil {
-		return nil, false, fmt.Errorf("OAuth proxy is disabled")
+// StoreToken persists a token for the given session and issuer.
+// This is the write path used by mcp-go's transport after a successful token refresh.
+func (m *Manager) StoreToken(sessionID, issuer string, token *pkgoauth.Token) {
+	if m == nil || token == nil {
+		return
 	}
 
-	return m.client.RefreshTokenIfNeeded(ctx, sessionID, issuer)
+	key := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     token.Scope,
+	}
+	m.client.tokenStore.Store(key, token)
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.

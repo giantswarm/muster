@@ -11,6 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
 )
 
 // TransportType defines the transport type for MCP connections.
@@ -50,7 +52,7 @@ type ServerInfo struct {
 //   - Thread-safe concurrent operations
 //   - Configurable timeouts and error handling
 //   - Multiple output formats (text, JSON)
-//   - OAuth 2.1 authentication support with Bearer token
+//   - OAuth 2.1 authentication support via mcp-go's transport layer
 type Client struct {
 	endpoint         string
 	transport        TransportType
@@ -65,7 +67,9 @@ type Client struct {
 	cacheEnabled     bool
 	formatters       *Formatters
 	NotificationChan chan mcp.JSONRPCNotification
-	headers          map[string]string // Custom HTTP headers (e.g., Authorization)
+	headers          map[string]string           // Custom HTTP headers (e.g., X-Muster-Session-ID)
+	oauthConfig      *transport.OAuthConfig      // OAuth config for mcp-go transport
+	agentTokenStore  *agentoauth.AgentTokenStore // Token store for agent OAuth
 }
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
@@ -100,16 +104,17 @@ func NewClient(endpoint string, logger *Logger, transport TransportType) *Client
 	}
 }
 
-// SetAuthorizationHeader sets the Authorization header for authenticated requests.
-// This is used for OAuth 2.1 Bearer token authentication.
+// SetOAuthConfig configures the client to use mcp-go's built-in OAuth transport.
+// When set, the transport automatically injects Bearer tokens and returns typed
+// OAuthAuthorizationRequiredError on 401 instead of raw HTTP errors.
 //
-// Example:
-//
-//	client.SetAuthorizationHeader("Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...")
-func (c *Client) SetAuthorizationHeader(token string) {
+// The AgentTokenStore provides tokens to mcp-go, and mcp-go handles refresh
+// and 401 detection automatically.
+func (c *Client) SetOAuthConfig(config transport.OAuthConfig, tokenStore *agentoauth.AgentTokenStore) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.headers["Authorization"] = token
+	c.oauthConfig = &config
+	c.agentTokenStore = tokenStore
 }
 
 // SetHeader sets a custom HTTP header for requests.
@@ -122,13 +127,6 @@ func (c *Client) SetHeader(key, value string) {
 	c.headers[key] = value
 }
 
-// ClearAuthorizationHeader removes the Authorization header.
-func (c *Client) ClearAuthorizationHeader() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.headers, "Authorization")
-}
-
 // GetHeaders returns a copy of the current headers.
 func (c *Client) GetHeaders() map[string]string {
 	c.mu.RLock()
@@ -138,6 +136,13 @@ func (c *Client) GetHeaders() map[string]string {
 		headers[k] = v
 	}
 	return headers
+}
+
+// GetAgentTokenStore returns the agent token store, if configured.
+func (c *Client) GetAgentTokenStore() *agentoauth.AgentTokenStore {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.agentTokenStore
 }
 
 // Run executes the complete agent workflow for monitoring mode.
@@ -225,25 +230,29 @@ func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRP
 }
 
 // createAndConnectClient creates and connects an MCP client based on transport type.
-// It applies any configured headers (e.g., Authorization for OAuth).
+// When OAuth is configured via SetOAuthConfig, it uses mcp-go's built-in OAuth handler
+// for automatic bearer token injection and typed 401 error handling.
+// Non-auth headers (e.g., X-Muster-Session-ID) are always applied.
 func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, error) {
 	if c.transport != TransportSSE && c.transport != TransportStreamableHTTP {
 		return nil, fmt.Errorf("unsupported transport type: %s", c.transport)
 	}
 
-	// Get headers with lock held
 	c.mu.RLock()
 	headers := make(map[string]string)
 	for k, v := range c.headers {
 		headers[k] = v
 	}
+	oauthCfg := c.oauthConfig
 	c.mu.RUnlock()
 
 	var mcpClient client.MCPClient
 	switch c.transport {
 	case TransportSSE:
-		// Build SSE client options
 		var sseOpts []transport.ClientOption
+		if oauthCfg != nil {
+			sseOpts = append(sseOpts, transport.WithOAuth(*oauthCfg))
+		}
 		if len(headers) > 0 {
 			sseOpts = append(sseOpts, transport.WithHeaders(headers))
 		}
@@ -253,12 +262,10 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 			return nil, fmt.Errorf("failed to create SSE client: %w", err)
 		}
 
-		// Start the transport
 		if err := sseClient.Start(ctx); err != nil {
 			return nil, fmt.Errorf("failed to start SSE client: %w", err)
 		}
 
-		// Set up notification handler for SSE
 		sseClient.OnNotification(func(notification mcp.JSONRPCNotification) {
 			select {
 			case c.NotificationChan <- notification:
@@ -269,8 +276,10 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		mcpClient = sseClient
 
 	case TransportStreamableHTTP:
-		// Build StreamableHTTP client options
 		var httpOpts []transport.StreamableHTTPCOption
+		if oauthCfg != nil {
+			httpOpts = append(httpOpts, transport.WithHTTPOAuth(*oauthCfg))
+		}
 		if len(headers) > 0 {
 			httpOpts = append(httpOpts, transport.WithHTTPHeaders(headers))
 		}
@@ -280,12 +289,10 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 			return nil, fmt.Errorf("failed to create streamable-http client: %w", err)
 		}
 
-		// Start the transport
 		if err := httpClient.Start(ctx); err != nil {
 			return nil, fmt.Errorf("failed to start streamable-http client: %w", err)
 		}
 
-		// Set up notification handler for streamable HTTP
 		httpClient.OnNotification(func(notification mcp.JSONRPCNotification) {
 			select {
 			case c.NotificationChan <- notification:

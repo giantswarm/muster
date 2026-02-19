@@ -1,10 +1,13 @@
 package oauth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/mark3labs/mcp-go/client/transport"
 )
 
 // authParamRegex matches key="value" pairs in WWW-Authenticate headers.
@@ -107,53 +110,17 @@ func ParseWWWAuthenticateFromResponse(resp *http.Response) *AuthChallenge {
 	return challenge
 }
 
-// ParseWWWAuthenticateFromError attempts to extract auth challenge from an error.
-// This is a best-effort fallback when the HTTP response is not directly available.
-//
-// It looks for patterns like:
-//   - "401" or "Unauthorized" in the error message
-//   - Bearer realm="..." patterns
-//
-// Returns nil if no auth challenge can be extracted.
-func ParseWWWAuthenticateFromError(err error) *AuthChallenge {
-	if err == nil {
-		return nil
-	}
-
-	errStr := err.Error()
-
-	// Check if this looks like a 401 error
-	if !strings.Contains(errStr, "401") &&
-		!strings.Contains(strings.ToLower(errStr), "unauthorized") {
-		return nil
-	}
-
-	// Try to find and parse Bearer challenge in error
-	if idx := strings.Index(errStr, "Bearer"); idx >= 0 {
-		// Extract from Bearer to end of line or string
-		remaining := errStr[idx:]
-		if endIdx := strings.IndexAny(remaining, "\n\r"); endIdx > 0 {
-			remaining = remaining[:endIdx]
-		}
-
-		challenge, parseErr := ParseWWWAuthenticate(remaining)
-		if parseErr == nil {
-			return challenge
-		}
-	}
-
-	// Return a basic challenge indicating auth is required
-	return &AuthChallenge{
-		Scheme: "Bearer",
-	}
-}
-
-// Is401Error checks if an error message indicates a 401 Unauthorized response.
-func Is401Error(err error) bool {
+// IsOAuthUnauthorizedError checks if an error indicates an OAuth authorization
+// failure using mcp-go's typed error detection. Returns true for both
+// transport.OAuthAuthorizationRequiredError (when WithHTTPOAuth is configured)
+// and transport.ErrUnauthorized (bare 401 without OAuth handler).
+func IsOAuthUnauthorizedError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "401") ||
-		strings.Contains(strings.ToLower(errStr), "unauthorized")
+	var oauthErr *transport.OAuthAuthorizationRequiredError
+	if errors.As(err, &oauthErr) {
+		return true
+	}
+	return errors.Is(err, transport.ErrUnauthorized)
 }

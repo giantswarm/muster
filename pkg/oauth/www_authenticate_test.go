@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"errors"
 	"net/http"
 	"testing"
 )
@@ -268,92 +267,6 @@ func TestParseWWWAuthenticateFromResponse(t *testing.T) {
 			}
 			if got.GetIssuer() != tt.wantIssuer {
 				t.Errorf("Issuer = %q, want %q", got.GetIssuer(), tt.wantIssuer)
-			}
-		})
-	}
-}
-
-func TestParseWWWAuthenticateFromError(t *testing.T) {
-	tests := []struct {
-		name    string
-		err     error
-		wantNil bool
-	}{
-		{
-			name:    "nil error",
-			err:     nil,
-			wantNil: true,
-		},
-		{
-			name:    "non-401 error",
-			err:     errors.New("connection refused"),
-			wantNil: true,
-		},
-		{
-			name:    "401 error",
-			err:     errors.New("request failed with status 401"),
-			wantNil: false,
-		},
-		{
-			name:    "unauthorized error",
-			err:     errors.New("Unauthorized access"),
-			wantNil: false,
-		},
-		{
-			name:    "401 with Bearer",
-			err:     errors.New(`401: Bearer realm="https://auth.example.com"`),
-			wantNil: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ParseWWWAuthenticateFromError(tt.err)
-			if tt.wantNil {
-				if got != nil {
-					t.Errorf("ParseWWWAuthenticateFromError() = %v, want nil", got)
-				}
-				return
-			}
-			if got == nil {
-				t.Error("ParseWWWAuthenticateFromError() = nil, want non-nil")
-			}
-		})
-	}
-}
-
-func TestIs401Error(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "nil",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "401 in message",
-			err:  errors.New("failed with status 401"),
-			want: true,
-		},
-		{
-			name: "unauthorized in message",
-			err:  errors.New("Unauthorized access"),
-			want: true,
-		},
-		{
-			name: "other error",
-			err:  errors.New("connection timeout"),
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := Is401Error(tt.err); got != tt.want {
-				t.Errorf("Is401Error() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -8,7 +8,6 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // Adapter implements api.OAuthHandler by wrapping the OAuth Manager.
@@ -43,10 +42,12 @@ func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		return nil
 	}
 	return &api.OAuthToken{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-		Scope:       token.Scope,
-		Issuer:      token.Issuer,
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		Issuer:       token.Issuer,
 	}
 }
 
@@ -58,11 +59,30 @@ func fullTokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		return nil
 	}
 	return &api.OAuthToken{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-		Scope:       token.Scope,
-		IDToken:     token.IDToken,
-		Issuer:      token.Issuer,
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		IDToken:      token.IDToken,
+		Issuer:       token.Issuer,
+	}
+}
+
+// apiTokenToPkgToken converts an api.OAuthToken back to a pkgoauth.Token.
+// Returns nil if the input token is nil.
+func apiTokenToPkgToken(token *api.OAuthToken) *pkgoauth.Token {
+	if token == nil {
+		return nil
+	}
+	return &pkgoauth.Token{
+		AccessToken:  token.AccessToken,
+		TokenType:    token.TokenType,
+		RefreshToken: token.RefreshToken,
+		ExpiresAt:    token.ExpiresAt,
+		Scope:        token.Scope,
+		IDToken:      token.IDToken,
+		Issuer:       token.Issuer,
 	}
 }
 
@@ -76,14 +96,11 @@ func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
 }
 
-// GetFullTokenByIssuer retrieves the full token (including ID token) for the given session and issuer.
-// This is used for SSO token forwarding to downstream MCP servers.
-// Returns nil if no valid token exists or if the token doesn't have an ID token.
+// GetFullTokenByIssuer retrieves the full token (including ID token if available)
+// for the given session and issuer. Returns nil if no valid token exists.
+// The IDToken field may be empty if the token was obtained without an ID token.
 func (a *Adapter) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	token := a.manager.GetTokenByIssuer(sessionID, issuer)
-	if token == nil || token.IDToken == "" {
-		return nil
-	}
 	return fullTokenToAPIToken(token)
 }
 
@@ -103,6 +120,12 @@ func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 		}
 	}
 	return nil
+}
+
+// StoreToken persists a token for the given session and issuer.
+// This converts the API token to a pkg/oauth token and delegates to the manager's single backing store.
+func (a *Adapter) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+	a.manager.StoreToken(sessionID, issuer, apiTokenToPkgToken(token))
 }
 
 // ClearTokenByIssuer removes all tokens for a given session and issuer.
@@ -161,20 +184,6 @@ func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback)
 	a.manager.SetAuthCompletionCallback(func(ctx context.Context, sessionID, serverName, accessToken string) error {
 		return callback(ctx, sessionID, serverName, accessToken)
 	})
-}
-
-// RefreshTokenIfNeeded checks if the token needs refresh and refreshes it if necessary.
-// Returns the current (potentially refreshed) access token, or empty string if unavailable.
-func (a *Adapter) RefreshTokenIfNeeded(ctx context.Context, sessionID, issuer string) string {
-	token, _, err := a.manager.RefreshTokenIfNeeded(ctx, sessionID, issuer)
-	if err != nil {
-		logging.Debug("OAuth", "RefreshTokenIfNeeded error (session=%s, issuer=%s): %v",
-			logging.TruncateSessionID(sessionID), issuer, err)
-	}
-	if token != nil {
-		return token.AccessToken
-	}
-	return ""
 }
 
 // ExchangeTokenForRemoteCluster exchanges a local token for one valid on a remote cluster.

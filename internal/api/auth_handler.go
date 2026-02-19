@@ -46,10 +46,6 @@ type AuthHandler interface {
 	// GetStatusForEndpoint returns authentication status for a specific endpoint.
 	GetStatusForEndpoint(endpoint string) *AuthStatus
 
-	// RefreshToken forces a token refresh for the endpoint.
-	// Returns an error if no token exists or refresh fails.
-	RefreshToken(ctx context.Context, endpoint string) error
-
 	// GetSessionID returns a persistent session ID for this CLI user.
 	// This is used for the X-Muster-Session-ID header to enable MCP server
 	// token persistence across CLI invocations. Returns empty string if not available.

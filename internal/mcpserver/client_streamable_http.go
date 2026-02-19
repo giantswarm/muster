@@ -92,7 +92,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		mcpClient.Close()
 
 		// Check if this is a 401 authentication error
-		if authErr := CheckForAuthRequiredError(err, c.url); authErr != nil {
+		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
 			logging.Debug("StreamableHTTPClient", "Authentication required for URL: %s", c.url)
 			return authErr
 		}

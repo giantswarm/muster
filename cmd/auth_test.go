@@ -34,7 +34,7 @@ func TestAuthCommandStructure(t *testing.T) {
 			t.Error("expected auth to have subcommands")
 		}
 
-		expectedSubcommands := []string{"login", "logout", "status", "refresh", "whoami"}
+		expectedSubcommands := []string{"login", "logout", "status", "whoami"}
 		foundCommands := make(map[string]bool)
 		for _, cmd := range subcommands {
 			foundCommands[cmd.Name()] = true
@@ -153,23 +153,6 @@ func TestAuthStatusCommand(t *testing.T) {
 		flag := authStatusCmd.Flags().Lookup("server")
 		if flag == nil {
 			t.Error("expected --server flag on status command")
-		}
-	})
-}
-
-func TestAuthRefreshCommand(t *testing.T) {
-	t.Run("refresh command exists", func(t *testing.T) {
-		if authRefreshCmd == nil {
-			t.Fatal("authRefreshCmd should not be nil")
-		}
-	})
-
-	t.Run("refresh command properties", func(t *testing.T) {
-		if authRefreshCmd.Use != "refresh" {
-			t.Errorf("expected Use 'refresh', got %q", authRefreshCmd.Use)
-		}
-		if authRefreshCmd.Short == "" {
-			t.Error("expected Short description to be set")
 		}
 	})
 }

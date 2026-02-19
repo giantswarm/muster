@@ -183,18 +183,14 @@ func TestNewSSEClientWithNilHeaders(t *testing.T) {
 	assert.Empty(t, client.headers)
 }
 
-// TestNewDynamicAuthClientWithNilProvider tests that nil provider is handled gracefully
-func TestNewDynamicAuthClientWithNilProvider(t *testing.T) {
-	client := NewDynamicAuthClient("http://example.com/mcp", nil)
+// TestNewDynamicAuthClientWithNilStore tests that nil token store is handled gracefully
+func TestNewDynamicAuthClientWithNilStore(t *testing.T) {
+	client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "http://example.com/mcp", client.url)
-	assert.NotNil(t, client.tokenProvider) // Should be initialized to no-op provider
+	assert.Equal(t, "openid", client.scope)
 	assert.False(t, client.connected)
-
-	// Verify the no-op provider returns empty string
-	token := client.tokenProvider.GetAccessToken(t.Context())
-	assert.Empty(t, token)
 }
 
 // TestBaseMCPClientCheckConnected tests the connection check helper
@@ -240,7 +236,7 @@ func TestClientOperationsWithoutConnection(t *testing.T) {
 	})
 
 	t.Run("DynamicAuthClient", func(t *testing.T) {
-		client := NewDynamicAuthClient("http://example.com/mcp", nil)
+		client := NewDynamicAuthClient("http://example.com/mcp", nil, "openid")
 		testClientNotConnected(t, client)
 	})
 }

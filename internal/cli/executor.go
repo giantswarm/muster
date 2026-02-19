@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/giantswarm/muster/internal/agent"
+	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/metatools"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -267,7 +270,8 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 // Connect establishes a connection to the muster aggregator server.
 // It shows a progress spinner unless quiet mode is enabled, and handles
 // connection errors with appropriate user feedback. For remote servers,
-// it handles OAuth authentication according to the configured AuthMode.
+// it uses mcp-go's OAuth transport for automatic token injection and
+// typed 401 error handling.
 //
 // Args:
 //   - ctx: Context for connection timeout and cancellation
@@ -275,7 +279,6 @@ func (e *ToolExecutor) GetClient() *agent.Client {
 // Returns:
 //   - error: Connection error, if any
 func (e *ToolExecutor) Connect(ctx context.Context) error {
-	// For remote servers, we may need to handle authentication
 	if e.isRemote && e.options.AuthMode != AuthModeNone {
 		if err := e.setupAuthentication(ctx); err != nil {
 			return err
@@ -283,7 +286,7 @@ func (e *ToolExecutor) Connect(ctx context.Context) error {
 	}
 
 	if e.options.Quiet {
-		return e.client.Connect(ctx)
+		return e.connectWithAuthHandling(ctx)
 	}
 
 	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
@@ -291,29 +294,37 @@ func (e *ToolExecutor) Connect(ctx context.Context) error {
 	s.Start()
 	defer s.Stop()
 
-	err := e.client.Connect(ctx)
+	err := e.connectWithAuthHandling(ctx)
 	if err != nil {
-		// Check if this is an auth error (401)
-		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
-			s.Stop()
-			return e.handleAuthError(ctx, err)
-		}
 		s.FinalMSG = text.FgRed.Sprint("Failed to connect to muster server") + "\n"
-		return err
 	}
-
-	// Remove the success message - connection success is implied by command working
-	return nil
+	return err
 }
 
-// setupAuthentication sets up authentication for remote connections.
+// connectWithAuthHandling connects and handles OAuthAuthorizationRequiredError
+// by triggering the auth flow and retrying.
+func (e *ToolExecutor) connectWithAuthHandling(ctx context.Context) error {
+	err := e.client.Connect(ctx)
+	if err == nil {
+		return nil
+	}
+
+	if pkgoauth.IsOAuthUnauthorizedError(err) {
+		return e.handleAuthError(ctx, err)
+	}
+
+	return err
+}
+
+// setupAuthentication configures the mcp-go OAuth transport for remote connections.
+// It creates an AgentTokenStore backed by the file-based token store and sets up
+// the OAuth config on the client. The transport automatically injects bearer tokens
+// and returns typed errors on 401.
 func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 	authHandler := api.GetAuthHandler()
 	if authHandler == nil {
-		// No auth handler registered - create and register one
 		adapter, err := NewAuthAdapter()
 		if err != nil {
-			// Failed to create adapter - skip auth setup
 			return nil
 		}
 		adapter.Register()
@@ -323,62 +334,36 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 		}
 	}
 
-	// Set persistent session ID for MCP server token persistence.
-	// This must be set early so the aggregator can associate all requests
-	// with the same session, enabling MCP server tools to be visible after
-	// authentication via `muster auth login --server <server>`.
 	if sessionID := authHandler.GetSessionID(); sessionID != "" {
 		e.client.SetHeader(api.ClientSessionIDHeader, sessionID)
 	}
 
-	// Check if we have a valid token
-	if authHandler.HasValidToken(e.endpoint) {
-		// Get the token and set it on the client
-		token, err := authHandler.GetBearerToken(e.endpoint)
-		if err == nil {
-			e.client.SetAuthorizationHeader(token)
-			return nil
-		}
-		// Token retrieval failed, continue without auth or trigger login
-	}
-
-	// Check if auth is required
-	authRequired, err := authHandler.CheckAuthRequired(ctx, e.endpoint)
+	oauthCfg, agentStore, err := agentoauth.SetupOAuthConfig(e.endpoint)
 	if err != nil {
-		// Check failed, but we can still try to connect without auth
+		slog.Debug("Could not set up OAuth transport, proceeding without it",
+			"endpoint", e.endpoint, "error", err)
 		return nil
 	}
+	e.client.SetOAuthConfig(*oauthCfg, agentStore)
 
-	if !authRequired {
-		// No auth required
-		return nil
-	}
-
-	// Auth is required - handle according to AuthMode
-	return e.triggerAuthentication(ctx, authHandler)
+	return nil
 }
 
 // triggerAuthentication handles authentication based on the configured AuthMode.
+// After Login() completes, the token is stored in the file-based token store
+// and the mcp-go transport will pick it up automatically on the next connection.
 func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler api.AuthHandler) error {
 	switch e.options.AuthMode {
 	case AuthModeAuto:
-		// Auto mode: trigger login automatically
 		if !e.options.Quiet {
 			fmt.Println("Authentication required. Opening browser...")
 		}
 		if err := authHandler.Login(ctx, e.endpoint); err != nil {
 			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
 		}
-		// Get the token and set it on the client
-		token, err := authHandler.GetBearerToken(e.endpoint)
-		if err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		e.client.SetAuthorizationHeader(token)
 		return nil
 
 	case AuthModePrompt:
-		// Prompt mode: ask user before triggering
 		if !e.options.Quiet {
 			fmt.Printf("Authentication required for %s\n", e.endpoint)
 			fmt.Print("Open browser to authenticate? [Y/n]: ")
@@ -393,42 +378,24 @@ func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler ap
 		if err := authHandler.Login(ctx, e.endpoint); err != nil {
 			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
 		}
-		token, err := authHandler.GetBearerToken(e.endpoint)
-		if err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		e.client.SetAuthorizationHeader(token)
 		return nil
 
 	case AuthModeNone:
-		// None mode: fail immediately
 		return &AuthRequiredError{Endpoint: e.endpoint}
 
 	default:
-		// Unknown mode, treat as auto - use explicit auto logic to avoid recursion
 		if !e.options.Quiet {
 			fmt.Println("Authentication required. Opening browser...")
 		}
 		if err := authHandler.Login(ctx, e.endpoint); err != nil {
 			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
 		}
-		token, err := authHandler.GetBearerToken(e.endpoint)
-		if err != nil {
-			return &AuthFailedError{Endpoint: e.endpoint, Reason: err}
-		}
-		e.client.SetAuthorizationHeader(token)
 		return nil
 	}
 }
 
-// handleAuthError handles authentication errors during connection.
-// This is called when the server returns a 401, which can happen when:
-// 1. The local token has expired (normal case)
-// 2. The token was invalidated server-side (e.g., session revoked by IdP)
-//
-// In both cases, we need to clear the invalid cached token before
-// triggering re-authentication, otherwise the auth flow might reuse
-// the invalid token from the local cache.
+// handleAuthError handles OAuthAuthorizationRequiredError during connection.
+// It clears invalid tokens and triggers authentication, then retries.
 func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) error {
 	if e.options.AuthMode == AuthModeNone {
 		return &AuthRequiredError{Endpoint: e.endpoint}
@@ -439,20 +406,12 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 		return &AuthRequiredError{Endpoint: e.endpoint}
 	}
 
-	// Clear the invalid token before re-authenticating.
-	// This is critical for handling server-side token invalidation:
-	// the local token may still appear valid (not expired locally),
-	// but the server has rejected it (401). We must clear it to force
-	// a fresh OAuth flow.
-	// Note: We ignore the error here because Logout may fail if there's
-	// no token to clear, but we still want to proceed with re-authentication.
 	_ = authHandler.Logout(e.endpoint)
 
 	if err := e.triggerAuthentication(ctx, authHandler); err != nil {
 		return err
 	}
 
-	// Retry connection
 	return e.client.Connect(ctx)
 }
 

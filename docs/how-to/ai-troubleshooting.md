@@ -111,17 +111,14 @@ muster auth test
 muster auth info --show-expiry
 
 # Test with fresh token
-muster auth refresh
+muster auth login
 ```
 
 **Solutions:**
 
-**Fix 1: Refresh Authentication**
+**Fix 1: Re-authenticate**
 ```bash
-# Refresh tokens
-muster auth refresh
-
-# If that fails, re-authenticate
+# Re-authenticate
 muster auth login
 
 # Test authentication

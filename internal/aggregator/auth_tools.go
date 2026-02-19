@@ -40,9 +40,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/giantswarm/muster/internal/api"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -521,12 +521,8 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 	return p.aggregator.getMusterIssuerWithFallback(sessionID)
 }
 
-// is401Error checks if an error indicates a 401 Unauthorized response.
-// This provides structured 401 detection as per ADR-008.
+// is401Error checks if an error indicates a 401 Unauthorized response
+// using mcp-go's typed error detection.
 func is401Error(err error) bool {
-	if err == nil {
-		return false
-	}
-	// Check using pkg/oauth helper for structured detection
-	return pkgoauth.Is401Error(err)
+	return pkgoauth.IsOAuthUnauthorizedError(err)
 }

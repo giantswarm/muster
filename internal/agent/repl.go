@@ -13,8 +13,11 @@ import (
 
 	musterctx "github.com/giantswarm/muster/internal/context"
 
+	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
+
 	"github.com/giantswarm/muster/internal/agent/commands"
 	"github.com/giantswarm/muster/internal/api"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/chzyer/readline"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -302,48 +305,38 @@ func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) erro
 
 // isAuthError checks if an error is related to authentication (401 Unauthorized).
 func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "401") ||
-		strings.Contains(errStr, "Unauthorized") ||
-		strings.Contains(errStr, "invalid_token") ||
-		strings.Contains(errStr, "Missing Authorization header")
+	return pkgoauth.IsOAuthUnauthorizedError(err)
 }
 
 // authenticateForEndpoint triggers OAuth authentication for the given endpoint.
-// This is used when switching contexts to an endpoint that requires authentication.
+// It sets up the mcp-go OAuth transport and triggers login if needed.
 func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) error {
-	// Only authenticate for remote endpoints
 	if !isRemoteEndpoint(endpoint) {
 		return nil
 	}
 
-	// Get auth handler from the API layer
-	// The handler should already be registered by cmd/agent.go before the REPL starts
 	handler := api.GetAuthHandler()
 	if handler == nil {
 		return fmt.Errorf("authentication handler not available - try restarting with 'muster agent --repl'")
 	}
 
-	// Check if we already have a valid token
-	if handler.HasValidToken(endpoint) {
-		token, err := handler.GetBearerToken(endpoint)
-		if err == nil {
-			r.client.SetAuthorizationHeader(token)
-			r.logger.Info("Using existing authentication token")
-			return nil
-		}
-		// Token retrieval failed, continue to login
-	}
-
-	// Set session ID for MCP server token persistence
 	if sessionID := handler.GetSessionID(); sessionID != "" {
 		r.client.SetHeader(api.ClientSessionIDHeader, sessionID)
 	}
 
-	// Initiate OAuth login
+	// Set up mcp-go OAuth transport for this endpoint
+	oauthCfg, agentStore, err := agentoauth.SetupOAuthConfig(endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to set up OAuth: %w", err)
+	}
+	r.client.SetOAuthConfig(*oauthCfg, agentStore)
+
+	// Check if we already have a valid token -- no login needed
+	if handler.HasValidToken(endpoint) {
+		r.logger.Info("Using existing authentication token")
+		return nil
+	}
+
 	r.logger.Info("Starting OAuth login flow...")
 	r.logger.Info("A browser window will open for authentication.")
 
@@ -351,14 +344,7 @@ func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) err
 		return fmt.Errorf("login failed: %w", err)
 	}
 
-	// Get the token and set it on the client
-	token, err := handler.GetBearerToken(endpoint)
-	if err != nil {
-		return fmt.Errorf("failed to get authentication token: %w", err)
-	}
-	r.client.SetAuthorizationHeader(token)
 	r.logger.Success("Authentication successful")
-
 	return nil
 }
 

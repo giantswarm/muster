@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sync"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
-
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -285,8 +283,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			}
 			result, callErr := client.CallTool(ctx, origName, args)
 			if callErr != nil {
-				// Check if this is a 401 error - token may have expired and refresh failed
-				if pkgoauth.Is401Error(callErr) {
+				if is401Error(callErr) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
 						serverName, logging.TruncateSessionID(sessionID))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
@@ -324,8 +321,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 
 			result, err := conn.Client.CallTool(ctx, originalName, args)
 			if err != nil {
-				// Check if this is a 401 error - token may have expired and refresh failed
-				if pkgoauth.Is401Error(err) {
+				if is401Error(err) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
 						sName, logging.TruncateSessionID(sessionID))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", sName)
