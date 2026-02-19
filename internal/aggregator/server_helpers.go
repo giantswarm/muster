@@ -3,13 +3,13 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
-
 	"github.com/giantswarm/muster/pkg/logging"
 
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -285,8 +285,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			}
 			result, callErr := client.CallTool(ctx, origName, args)
 			if callErr != nil {
-				// Check if this is a 401 error - token may have expired and refresh failed
-				if pkgoauth.Is401Error(callErr) {
+				if isTransport401Error(callErr) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
 						serverName, logging.TruncateSessionID(sessionID))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
@@ -324,8 +323,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 
 			result, err := conn.Client.CallTool(ctx, originalName, args)
 			if err != nil {
-				// Check if this is a 401 error - token may have expired and refresh failed
-				if pkgoauth.Is401Error(err) {
+				if isTransport401Error(err) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
 						sName, logging.TruncateSessionID(sessionID))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", sName)
@@ -618,4 +616,21 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, session *SessionSta
 	}
 
 	return result
+}
+
+// isTransport401Error checks if an error from mcp-go represents a 401 Unauthorized
+// response, using typed error detection instead of string matching.
+//
+// With mcp-go v0.44.0:
+//   - transport.OAuthAuthorizationRequiredError is returned when WithHTTPOAuth is set
+//   - transport.ErrUnauthorized is returned when no OAuth handler is configured
+func isTransport401Error(err error) bool {
+	if err == nil {
+		return false
+	}
+	var oauthErr *transport.OAuthAuthorizationRequiredError
+	if errors.As(err, &oauthErr) {
+		return true
+	}
+	return errors.Is(err, transport.ErrUnauthorized)
 }

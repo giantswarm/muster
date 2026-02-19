@@ -65,14 +65,14 @@ func establishSessionConnection(
 	// Get OAuth handler for dynamic token refresh
 	oauthHandler := api.GetOAuthHandler()
 
-	// Create a token provider for dynamic token injection
-	// If OAuth handler is available, use dynamic auth client for automatic refresh
-	// Otherwise, fall back to static headers (backwards compatibility)
+	// Create the appropriate client based on OAuth availability.
+	// If OAuth handler is available, use DynamicAuthClient with mcp-go's built-in
+	// OAuth handler for automatic token injection and typed 401 errors.
+	// Otherwise, fall back to static headers (backwards compatibility).
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		// Create a dynamic auth client that refreshes tokens automatically
-		tokenProvider := NewSessionTokenProvider(sessionID, issuer, scope, oauthHandler)
-		client = internalmcp.NewDynamicAuthClient(serverURL, tokenProvider)
+		tokenStore := internalmcp.NewMCPGoTokenStore(sessionID, issuer, scope, oauthHandler)
+		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
 		logging.Debug("SessionConnection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateSessionID(sessionID), serverName, issuer)
 	} else {

@@ -4,28 +4,15 @@ import (
 	"context"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/internal/mcpserver"
 	"github.com/giantswarm/muster/internal/oauth"
 )
 
 // SessionTokenProvider provides OAuth access tokens for session connections.
-// It implements the mcpserver.TokenProvider interface and supports automatic
-// token refresh.
+// It supports automatic token refresh via the api.OAuthHandler.
 //
-// This type is the key component for Issue #214 - automatic token refresh:
-// - On each HTTP request, GetAccessToken is called
-// - If the token is expiring, it's proactively refreshed
-// - The refreshed token is stored back in the token store
-// - All session connections sharing the same TokenKey benefit from the refresh
-//
-// SSO Protection:
-// Multiple session connections can share the same TokenKey (via issuer matching).
-// When a token is refreshed, all connections using that TokenKey automatically
-// get the refreshed token because they look up from the same token store.
-//
-// Architecture Note:
-// This type uses the api.OAuthHandler interface to follow the service locator
-// pattern. It does not directly access internal OAuth types.
+// Note: DynamicAuthClient now uses MCPGoTokenStore (which implements
+// mcp-go's transport.TokenStore) instead of SessionTokenProvider.
+// This type is retained for backward compatibility.
 type SessionTokenProvider struct {
 	sessionID string
 	issuer    string
@@ -88,6 +75,3 @@ func (p *SessionTokenProvider) GetTokenKey() *oauth.TokenKey {
 		Scope:     p.scope,
 	}
 }
-
-// Ensure SessionTokenProvider implements mcpserver.TokenProvider
-var _ mcpserver.TokenProvider = (*SessionTokenProvider)(nil)

@@ -8,11 +8,6 @@ import (
 // Implementations should return the current valid access token, potentially
 // refreshing it if needed. This enables automatic token refresh without
 // recreating MCP client connections.
-//
-// This interface is a key part of the dynamic token injection pattern (Issue #214):
-// - Instead of creating clients with static Authorization headers
-// - Clients use a TokenProvider that's called on each HTTP request
-// - The TokenProvider can return refreshed tokens transparently
 type TokenProvider interface {
 	// GetAccessToken returns the current access token for the given context.
 	// Returns an empty string if no token is available.
@@ -27,19 +22,4 @@ type TokenProviderFunc func(ctx context.Context) string
 // GetAccessToken implements TokenProvider.
 func (f TokenProviderFunc) GetAccessToken(ctx context.Context) string {
 	return f(ctx)
-}
-
-// tokenProviderToHeaderFunc converts a TokenProvider to the mcp-go HTTPHeaderFunc format.
-// This adapter allows using our TokenProvider interface with the mcp-go library's
-// dynamic header injection capabilities.
-func tokenProviderToHeaderFunc(provider TokenProvider) func(context.Context) map[string]string {
-	return func(ctx context.Context) map[string]string {
-		token := provider.GetAccessToken(ctx)
-		if token == "" {
-			return nil
-		}
-		return map[string]string{
-			"Authorization": "Bearer " + token,
-		}
-	}
 }

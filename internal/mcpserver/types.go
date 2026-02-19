@@ -1,9 +1,10 @@
 package mcpserver
 
 import (
+	"errors"
 	"fmt"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/mark3labs/mcp-go/client/transport"
 )
 
 // McpDiscreteStatusUpdate is used to report discrete status changes from a running MCP process.
@@ -40,10 +41,6 @@ type AuthRequiredError struct {
 	// AuthInfo contains the OAuth parameters extracted from the 401 response
 	AuthInfo AuthInfo
 
-	// AuthChallenge contains the parsed WWW-Authenticate header information
-	// from pkg/oauth for structured auth challenge handling
-	AuthChallenge *pkgoauth.AuthChallenge
-
 	// Err is the underlying error
 	Err error
 }
@@ -63,25 +60,13 @@ func (e *AuthRequiredError) HasValidChallenge() bool {
 	if e == nil {
 		return false
 	}
-	// Check AuthChallenge first (preferred)
-	if e.AuthChallenge != nil && e.AuthChallenge.IsOAuthChallenge() {
-		return true
-	}
-	// Fallback to AuthInfo
 	return e.AuthInfo.Issuer != "" || e.AuthInfo.ResourceMetadataURL != ""
 }
 
 // GetIssuer returns the OAuth issuer URL from the error.
-// It prefers AuthChallenge if available, falls back to AuthInfo.
 func (e *AuthRequiredError) GetIssuer() string {
 	if e == nil {
 		return ""
-	}
-	if e.AuthChallenge != nil {
-		issuer := e.AuthChallenge.GetIssuer()
-		if issuer != "" {
-			return issuer
-		}
 	}
 	return e.AuthInfo.Issuer
 }
@@ -91,9 +76,6 @@ func (e *AuthRequiredError) GetScope() string {
 	if e == nil {
 		return ""
 	}
-	if e.AuthChallenge != nil && e.AuthChallenge.Scope != "" {
-		return e.AuthChallenge.Scope
-	}
 	return e.AuthInfo.Scope
 }
 
@@ -102,43 +84,39 @@ func (e *AuthRequiredError) GetResourceMetadataURL() string {
 	if e == nil {
 		return ""
 	}
-	if e.AuthChallenge != nil && e.AuthChallenge.ResourceMetadataURL != "" {
-		return e.AuthChallenge.ResourceMetadataURL
-	}
 	return e.AuthInfo.ResourceMetadataURL
 }
 
 // CheckForAuthRequiredError examines an error to determine if it's a 401 authentication
-// required error. If so, it returns an AuthRequiredError with parsed OAuth parameters.
-// This is a shared helper used by SSEClient and StreamableHTTPClient.
+// required error. It uses mcp-go's typed error detection instead of string parsing:
 //
-// The function uses the pkg/oauth utilities for structured 401 detection,
-// leveraging ParseWWWAuthenticateFromError for proper header parsing.
+//   - transport.OAuthAuthorizationRequiredError: returned when WithHTTPOAuth is set
+//     (carries the OAuthHandler for metadata discovery)
+//   - transport.ErrUnauthorized: returned when no OAuth handler is configured
+//
+// This replaces the previous approach of string-matching "401"/"unauthorized" in error
+// messages and parsing WWW-Authenticate headers from error strings.
 func CheckForAuthRequiredError(err error, url string) *AuthRequiredError {
 	if err == nil {
 		return nil
 	}
 
-	// Use the shared pkg/oauth utility to check if this is a 401 error
-	if !pkgoauth.Is401Error(err) {
-		return nil
+	var oauthErr *transport.OAuthAuthorizationRequiredError
+	if errors.As(err, &oauthErr) {
+		return &AuthRequiredError{
+			URL:      url,
+			AuthInfo: AuthInfo{},
+			Err:      fmt.Errorf("server returned 401 Unauthorized"),
+		}
 	}
 
-	// Parse auth challenge from the error using pkg/oauth
-	challenge := pkgoauth.ParseWWWAuthenticateFromError(err)
-
-	// Build AuthInfo from the parsed challenge
-	authInfo := AuthInfo{}
-	if challenge != nil {
-		authInfo.Issuer = challenge.GetIssuer()
-		authInfo.Scope = challenge.Scope
-		authInfo.ResourceMetadataURL = challenge.ResourceMetadataURL
+	if errors.Is(err, transport.ErrUnauthorized) {
+		return &AuthRequiredError{
+			URL:      url,
+			AuthInfo: AuthInfo{},
+			Err:      fmt.Errorf("server returned 401 Unauthorized"),
+		}
 	}
 
-	return &AuthRequiredError{
-		URL:           url,
-		AuthInfo:      authInfo,
-		AuthChallenge: challenge,
-		Err:           fmt.Errorf("server returned 401 Unauthorized"),
-	}
+	return nil
 }
