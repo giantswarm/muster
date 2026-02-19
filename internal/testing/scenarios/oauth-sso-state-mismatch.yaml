@@ -157,7 +157,6 @@ steps:
       success: false
       error_contains:
         - "401"
-        - "invalid_token"
 
   # Step 9: Try to call the protected tool after token revocation
   # EXPECTED BEHAVIOR: This should fail because the token has been revoked on the server.

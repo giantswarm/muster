@@ -134,11 +134,7 @@ func TestForwardToServerMetaToolWithArguments(t *testing.T) {
 
 	// Create request with arguments
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Arguments: map[string]interface{}{
 				"name": "test_tool",
 			},
@@ -221,11 +217,7 @@ func TestForwardToServerMetaToolCallTool(t *testing.T) {
 
 	// Create request to call a nested tool
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Arguments: map[string]interface{}{
 				"name": "core_service_list",
 				"arguments": map[string]interface{}{
