@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -18,9 +17,9 @@ import (
 
 	"github.com/giantswarm/muster/internal/agent/commands"
 	"github.com/giantswarm/muster/internal/api"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/chzyer/readline"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -305,23 +304,8 @@ func (r *REPL) reconnectToEndpoint(ctx context.Context, newEndpoint string) erro
 }
 
 // isAuthError checks if an error is related to authentication (401 Unauthorized).
-// Uses mcp-go's typed OAuthAuthorizationRequiredError when available,
-// with string-based fallback for transports without OAuth handler.
 func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var oauthErr *transport.OAuthAuthorizationRequiredError
-	if errors.As(err, &oauthErr) {
-		return true
-	}
-
-	errStr := err.Error()
-	return strings.Contains(errStr, "401") ||
-		strings.Contains(errStr, "Unauthorized") ||
-		strings.Contains(errStr, "invalid_token") ||
-		strings.Contains(errStr, "Missing Authorization header")
+	return pkgoauth.IsOAuthUnauthorizedError(err)
 }
 
 // authenticateForEndpoint triggers OAuth authentication for the given endpoint.

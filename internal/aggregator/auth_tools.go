@@ -38,13 +38,12 @@ package aggregator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/giantswarm/muster/internal/api"
-	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
-	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 // AuthToolProvider provides core authentication tools for the aggregator.
@@ -525,12 +524,5 @@ func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 // is401Error checks if an error indicates a 401 Unauthorized response
 // using mcp-go's typed error detection.
 func is401Error(err error) bool {
-	if err == nil {
-		return false
-	}
-	var oauthErr *transport.OAuthAuthorizationRequiredError
-	if errors.As(err, &oauthErr) {
-		return true
-	}
-	return errors.Is(err, transport.ErrUnauthorized)
+	return pkgoauth.IsOAuthUnauthorizedError(err)
 }

@@ -1,10 +1,13 @@
 package oauth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/mark3labs/mcp-go/client/transport"
 )
 
 // authParamRegex matches key="value" pairs in WWW-Authenticate headers.
@@ -105,4 +108,19 @@ func ParseWWWAuthenticateFromResponse(resp *http.Response) *AuthChallenge {
 	}
 
 	return challenge
+}
+
+// IsOAuthUnauthorizedError checks if an error indicates an OAuth authorization
+// failure using mcp-go's typed error detection. Returns true for both
+// transport.OAuthAuthorizationRequiredError (when WithHTTPOAuth is configured)
+// and transport.ErrUnauthorized (bare 401 without OAuth handler).
+func IsOAuthUnauthorizedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var oauthErr *transport.OAuthAuthorizationRequiredError
+	if errors.As(err, &oauthErr) {
+		return true
+	}
+	return errors.Is(err, transport.ErrUnauthorized)
 }

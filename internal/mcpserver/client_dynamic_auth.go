@@ -59,11 +59,12 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	logging.Debug("DynamicAuthClient", "Creating StreamableHTTP client for URL: %s with OAuth handler", c.url)
 
-	opts := []transport.StreamableHTTPCOption{
-		transport.WithHTTPOAuth(transport.OAuthConfig{
+	var opts []transport.StreamableHTTPCOption
+	if c.tokenStore != nil {
+		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
 			TokenStore: c.tokenStore,
 			Scopes:     []string{c.scope},
-		}),
+		}))
 	}
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)

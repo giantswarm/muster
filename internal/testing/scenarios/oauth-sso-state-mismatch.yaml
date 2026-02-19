@@ -153,10 +153,11 @@ steps:
     args:
       server: "state-test-server"
     expected:
-      # Server correctly rejects the revoked token with 401
+      # Server correctly rejects the revoked token. mcp-go returns a typed error
+      # with "authorization required" instead of a raw HTTP 401 message.
       success: false
       error_contains:
-        - "401"
+        - "authorization required"
 
   # Step 9: Try to call the protected tool after token revocation
   # EXPECTED BEHAVIOR: This should fail because the token has been revoked on the server.
@@ -166,7 +167,8 @@ steps:
     tool: "x_state-test-server_protected_operation"
     args: {}
     expected:
-      # Server correctly rejects the revoked token with 401
+      # Server correctly rejects the revoked token. mcp-go returns a typed error
+      # with "authorization required" instead of a raw HTTP 401 message.
       success: false
       error_contains:
-        - "401"
+        - "authorization required"

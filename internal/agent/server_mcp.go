@@ -2,14 +2,13 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/giantswarm/muster/internal/agent/oauth"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -280,21 +279,11 @@ func (m *MCPServer) checkAndHandleTokenExpiration(ctx context.Context, err error
 		return nil
 	}
 
-	if isOAuthError(err) {
+	if pkgoauth.IsOAuthUnauthorizedError(err) {
 		return m.handleTokenExpiredError(ctx, err)
 	}
 
 	return nil
-}
-
-// isOAuthError checks if an error indicates an OAuth authorization failure
-// using mcp-go's typed error detection.
-func isOAuthError(err error) bool {
-	var oauthErr *transport.OAuthAuthorizationRequiredError
-	if errors.As(err, &oauthErr) {
-		return true
-	}
-	return errors.Is(err, transport.ErrUnauthorized)
 }
 
 // registerTools registers all MCP meta-tools.

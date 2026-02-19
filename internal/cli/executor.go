@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,10 +14,10 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/metatools"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"
-	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 )
@@ -310,7 +309,7 @@ func (e *ToolExecutor) connectWithAuthHandling(ctx context.Context) error {
 		return nil
 	}
 
-	if isOAuthRequiredError(err) {
+	if pkgoauth.IsOAuthUnauthorizedError(err) {
 		return e.handleAuthError(ctx, err)
 	}
 
@@ -414,23 +413,6 @@ func (e *ToolExecutor) handleAuthError(ctx context.Context, originalErr error) e
 	}
 
 	return e.client.Connect(ctx)
-}
-
-// isOAuthRequiredError checks if an error is an mcp-go OAuthAuthorizationRequiredError
-// or a legacy string-based 401 error.
-func isOAuthRequiredError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var oauthErr *transport.OAuthAuthorizationRequiredError
-	if errors.As(err, &oauthErr) {
-		return true
-	}
-
-	// Fallback: legacy string-based detection for transports without OAuth handler
-	errStr := err.Error()
-	return strings.Contains(errStr, "401") || strings.Contains(errStr, "Unauthorized")
 }
 
 // Close gracefully closes the connection to the aggregator server.
