@@ -757,11 +757,7 @@ func (c *Client) callToolDirect(ctx context.Context, name string, args map[strin
 
 	// Construct the MCP tool call request
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Name:      name,
 			Arguments: args,
 		},
@@ -1359,11 +1355,7 @@ func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, arg
 
 	// Construct the MCP tool call request
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Name:      name,
 			Arguments: args,
 		},

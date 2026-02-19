@@ -187,11 +187,7 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 
 	// Create the request for the call_tool meta-tool
 	request := mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Name:      "call_tool",
 			Arguments: metaToolArgs,
 		},

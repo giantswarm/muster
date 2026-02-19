@@ -102,11 +102,7 @@ func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[stri
 	}
 
 	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: struct {
-			Name      string    `json:"name"`
-			Arguments any       `json:"arguments,omitempty"`
-			Meta      *mcp.Meta `json:"_meta,omitempty"`
-		}{
+		Params: mcp.CallToolParams{
 			Name:      name,
 			Arguments: args,
 		},
