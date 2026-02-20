@@ -50,6 +50,9 @@ type Config struct {
 	// OAuth Server settings (ADR 005 - for protecting the Muster Server ITSELF)
 	OAuthServerEnabled bool   // Enable OAuth 2.1 protection for Muster Server
 	OAuthServerBaseURL string // Base URL of the Muster Server for OAuth issuer
+
+	// Events settings
+	EnableEvents bool // Enable Kubernetes event emission (alpha, disabled by default)
 }
 
 // NewConfig creates a new application configuration with the specified settings.
@@ -113,6 +116,19 @@ func (c *Config) WithOAuthMCPClient(enabled bool, publicURL, clientID string) *C
 func (c *Config) WithOAuthServer(enabled bool, baseURL string) *Config {
 	c.OAuthServerEnabled = enabled
 	c.OAuthServerBaseURL = baseURL
+	return c
+}
+
+// WithEvents enables or disables Kubernetes event emission.
+// Events are an alpha feature and disabled by default. When enabled, muster emits
+// Kubernetes Events for CRD lifecycle operations and service management.
+//
+// Args:
+//   - enabled: whether event emission is enabled
+//
+// Returns the modified Config for method chaining.
+func (c *Config) WithEvents(enabled bool) *Config {
+	c.EnableEvents = enabled
 	return c
 }
 

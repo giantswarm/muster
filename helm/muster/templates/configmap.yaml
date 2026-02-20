@@ -77,3 +77,6 @@ data:
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true
+    {{- if .Values.muster.events }}
+    events: true
+    {{- end }}

@@ -43,6 +43,9 @@ var (
 	serveOAuthServerBaseURL string
 )
 
+// serveEnableEvents enables Kubernetes event emission (alpha, disabled by default)
+var serveEnableEvents bool
+
 // serveCmd defines the serve command structure.
 // This is the main command of muster that starts the aggregator server
 // and sets up the necessary MCP servers for development.
@@ -80,7 +83,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	cfg := app.NewConfig(serveDebug, serveSilent, serveYolo, serveConfigPath).
 		WithVersion(GetVersion()).
 		WithOAuthMCPClient(serveOAuthMCPClientEnabled, serveOAuthMCPClientPublicURL, serveOAuthMCPClientID).
-		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL)
+		WithOAuthServer(serveOAuthServerEnabled, serveOAuthServerBaseURL).
+		WithEvents(serveEnableEvents)
 
 	// Create and initialize the application
 	application, err := app.NewApplication(cfg)
@@ -120,4 +124,7 @@ func init() {
 	// Note: Full OAuth server configuration should be done via config file (config.yaml)
 	serveCmd.Flags().BoolVar(&serveOAuthServerEnabled, "oauth-server", false, "Enable OAuth 2.1 protection for Muster Server (requires config file for full setup)")
 	serveCmd.Flags().StringVar(&serveOAuthServerBaseURL, "oauth-server-base-url", "", "Base URL of the Muster Server for OAuth (e.g., https://muster.example.com)")
+
+	// Events flags (alpha feature, disabled by default)
+	serveCmd.Flags().BoolVar(&serveEnableEvents, "enable-events", false, "Enable Kubernetes event emission (alpha)")
 }
