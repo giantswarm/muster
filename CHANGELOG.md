@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Kubernetes event emission is now disabled by default (alpha feature). Use `--enable-events` flag on `muster serve` or set `events: true` in `config.yaml` to opt in.
+
 > **Note:** The Server-Side Meta-Tools Migration below is a **breaking change** that will be released as part of the next major version. External integrations should prepare for this change.
 
 ### Breaking Changes

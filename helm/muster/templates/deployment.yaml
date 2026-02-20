@@ -46,6 +46,9 @@ spec:
             {{- if .Values.muster.debug }}
             - --debug
             {{- end }}
+            {{- if .Values.muster.events }}
+            - --enable-events
+            {{- end }}
             {{- if .Values.muster.oauth.mcpClient.enabled }}
             - --oauth-mcp-client
             - --oauth-mcp-client-public-url={{ .Values.muster.oauth.mcpClient.publicUrl }}

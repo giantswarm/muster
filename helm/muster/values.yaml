@@ -214,6 +214,11 @@ muster:
   # Enable debug logging
   debug: false
 
+  # Enable Kubernetes event emission (alpha feature, disabled by default)
+  # When enabled, muster emits Kubernetes Events for CRD lifecycle operations
+  # and service management.
+  events: false
+
   # OAuth configuration - consolidated with explicit mcpClient/server sub-sections
   # This structure clearly separates the two distinct OAuth roles:
   #   - oauth.mcpClient: muster authenticating TO remote MCP servers (proxy role)

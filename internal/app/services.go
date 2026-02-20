@@ -158,9 +158,15 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		namespace = "default"
 	}
 
-	// Register event manager adapter using the unified client
-	eventAdapter := events.NewAdapter(musterClient)
-	eventAdapter.Register()
+	// Register event manager adapter only when events are enabled (alpha feature).
+	// Events can be enabled via --enable-events flag or config.yaml `events: true`.
+	if cfg.EnableEvents || cfg.MusterConfig.Events {
+		eventAdapter := events.NewAdapter(musterClient)
+		eventAdapter.Register()
+		logging.Info("Services", "Kubernetes event emission enabled (alpha)")
+	} else {
+		logging.Debug("Services", "Kubernetes event emission disabled (use --enable-events to enable)")
+	}
 
 	// Register Teleport client adapter for private installation access
 	// The adapter uses the muster client for Kubernetes secret access when in K8s mode
