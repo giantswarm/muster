@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Kubernetes event emission is now disabled by default (alpha feature). Use `--enable-events` flag on `muster serve` or set `events: true` in `config.yaml` to opt in.
+- Switch CI to `push-to-registries-multiarch` (`architect-orb@6.14.0`) with
+  amd64-only on branches for faster PR feedback and full multi-arch on release
+  tags. Chart tests now run before publishing to the app catalog.
+- Update Dockerfile to multi-stage build with native cross-compilation support
+  for multi-architecture images.
 
 > **Note:** The Server-Side Meta-Tools Migration below is a **breaking change** that will be released as part of the next major version. External integrations should prepare for this change.
 

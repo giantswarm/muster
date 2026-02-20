@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@6.13.0
+  architect: giantswarm/architect@6.14.0
 
 workflows:
   build:
@@ -11,13 +11,43 @@ workflows:
           name: go-build
           binary: muster
           filters:
-            # Trigger job also on git tag.
             tags:
               only: /^v.*/
 
-      - architect/push-to-registries:
+      # Branch builds: amd64 only for faster PR feedback
+      - architect/push-to-registries-multiarch:
           context: architect
           name: push-to-registries
+          platforms: "linux/amd64"
+          requires:
+            - go-build
+          filters:
+            branches:
+              ignore:
+                - main
+
+      # Tag builds: full multi-arch (amd64 + arm64)
+      - architect/push-to-registries-multiarch:
+          context: architect
+          name: push-to-registries-release
+          requires:
+            - go-build
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: build-muster-chart
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster
+          push_to_appcatalog: false
+          push_to_oci_registry: false
+          persist_chart_archive: true
           requires:
             - go-build
           filters:
@@ -27,6 +57,18 @@ workflows:
               ignore:
                 - main
 
+      - architect/run-tests-with-ats:
+          name: execute chart tests
+          requires:
+            - build-muster-chart
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore:
+                - main
+
+      # Branch: push chart after tests + amd64 image
       - architect/push-to-app-catalog:
           executor: app-build-suite
           context: architect
@@ -35,20 +77,26 @@ workflows:
           app_catalog_test: giantswarm-test-catalog
           chart: muster
           requires:
+            - execute chart tests
             - push-to-registries
-          persist_chart_archive: true
           filters:
-            tags:
-              only: /^v.*/
             branches:
               ignore:
                 - main
 
-      - architect/run-tests-with-ats:
-          name: execute chart tests
-          filters:
-            branches:
-              ignore:
-                - main
+      # Tag: push chart after tests + multi-arch image
+      - architect/push-to-app-catalog:
+          executor: app-build-suite
+          context: architect
+          name: push-muster-to-giantswarm-app-catalog-release
+          app_catalog: giantswarm-catalog
+          app_catalog_test: giantswarm-test-catalog
+          chart: muster
           requires:
-            - push-muster-to-giantswarm-app-catalog
+            - execute chart tests
+            - push-to-registries-release
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
