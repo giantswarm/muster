@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -137,7 +138,7 @@ func printAuthenticatedStatus(localStatus *api.AuthStatus) {
 	}
 	if localStatus.HasRefreshToken {
 		if !localStatus.RefreshExpiresAt.IsZero() {
-			authPrint("  Session:   %s (auto-refresh)\n", formatExpiryWithDirection(localStatus.RefreshExpiresAt))
+			authPrint("  Session:   ~%s remaining (auto-refresh)\n", formatDuration(time.Until(localStatus.RefreshExpiresAt)))
 		} else {
 			authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
 		}

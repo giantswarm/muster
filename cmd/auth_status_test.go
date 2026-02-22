@@ -174,8 +174,11 @@ func TestPrintAuthenticatedStatus(t *testing.T) {
 		if !strings.Contains(output, "Session:") {
 			t.Errorf("expected output to contain 'Session:', got: %s", output)
 		}
-		if !strings.Contains(output, "(auto-refresh)") {
-			t.Errorf("expected output to contain '(auto-refresh)', got: %s", output)
+		if !strings.Contains(output, "~") {
+			t.Errorf("expected output to contain '~' estimate prefix, got: %s", output)
+		}
+		if !strings.Contains(output, "remaining (auto-refresh)") {
+			t.Errorf("expected output to contain 'remaining (auto-refresh)', got: %s", output)
 		}
 		if strings.Contains(output, "Refresh:") {
 			t.Errorf("should not contain 'Refresh:' when session expiry is set, got: %s", output)

@@ -636,11 +636,21 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	// Set defaults
 	maxClientsPerIP := DefaultMaxClientsPerIP
 
+	refreshTokenTTL := DefaultRefreshTokenTTL
+	if cfg.SessionDuration != "" {
+		parsed, err := time.ParseDuration(cfg.SessionDuration)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
+		}
+		refreshTokenTTL = parsed
+		logger.Info("Using custom session duration", "duration", parsed)
+	}
+
 	// Create server configuration.
 	serverConfig := &oauthserver.Config{
 		Issuer:                           cfg.BaseURL,
 		AccessTokenTTL:                   int64(DefaultAccessTokenTTL / time.Second),
-		RefreshTokenTTL:                  int64(DefaultRefreshTokenTTL / time.Second),
+		RefreshTokenTTL:                  int64(refreshTokenTTL / time.Second),
 		AllowRefreshTokenRotation:        true,
 		RequirePKCE:                      true,
 		AllowPKCEPlain:                   false,

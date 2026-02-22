@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Session duration reduced from 90 days to 30 days.** The refresh token TTL now
+  matches Dex's `absoluteLifetime` (720h). Previously, muster's 90-day refresh token
+  outlived Dex's 30-day session, causing confusing failures when auto-refresh silently
+  stopped working after day 30. Users who were logging in once every ~2 months will now
+  need to re-authenticate every 30 days.
+- **`muster auth status` now shows session expiry.** Instead of `Refresh: Available`,
+  the output now shows `Session: ~29 days remaining (auto-refresh)`, giving users a
+  concrete estimate of when re-authentication will be required.
+- Access token TTL is now explicitly set to 30 minutes (matching Dex's `idTokens`
+  expiry) instead of relying on the library default of 1 hour.
+- Session duration is now configurable via `oauth.server.sessionDuration` in
+  `config.yaml` (default: `720h` / 30 days).
 - Kubernetes event emission is now disabled by default (alpha feature). Use `--enable-events` flag on `muster serve` or set `events: true` in `config.yaml` to opt in.
 - Switch CI to `push-to-registries-multiarch` (`architect-orb@6.14.0`) with
   amd64-only on branches for faster PR feedback and full multi-arch on release

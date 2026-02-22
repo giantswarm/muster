@@ -127,7 +127,8 @@ muster auth status [OPTIONS]
 Muster Aggregator
   Endpoint:  https://muster.example.com/mcp
   Status:    Authenticated
-  Expires:   in 23 hours
+  Expires:   in 23 minutes
+  Session:   ~29 days remaining (auto-refresh)
   Issuer:    https://dex.example.com
 
 MCP Servers
@@ -135,6 +136,15 @@ MCP Servers
   mcp-kubernetes      Connected
   mcp-github          Not authenticated   Run: muster auth login --server mcp-github
 ```
+
+The **Expires** line shows when the current access token expires (typically 30 minutes).
+Access tokens are automatically refreshed using the refresh token, so you don't need to
+re-authenticate when they expire.
+
+The **Session** line shows an approximate estimate (`~`) of how long your session will
+remain active before re-authentication is required. This is based on the configured
+session duration (default: 30 days). The actual session may end earlier if the upstream
+identity provider (e.g., Dex) has a shorter absolute lifetime configured.
 
 **Examples:**
 
@@ -303,7 +313,7 @@ muster auth login --endpoint https://muster.example.com/mcp
 
 # 3. Verify authentication
 muster auth status
-# Shows: Authenticated, Expires in 24 hours
+# Shows: Authenticated, Expires in 23 minutes, Session ~30 days remaining
 
 # 4. Now commands work
 muster list mcpserver --endpoint https://muster.example.com/mcp
@@ -428,17 +438,28 @@ Silent re-authentication works with IdPs that properly support OIDC `prompt=none
 
 ### Token Expired
 
-Tokens typically expire after 24 hours. The status command shows expiry:
+Access tokens expire after 30 minutes, but are automatically refreshed in the background
+using the refresh token. Sessions last approximately 30 days (configurable via
+`oauth.server.sessionDuration`). After the session expires, you'll need to re-authenticate.
+
+The status command shows both access token and session expiry:
 
 ```
-Expires:   expired 2 hours ago
+Expires:   expired 2 minutes ago
+Session:   ~29 days remaining (auto-refresh)
 ```
 
-Re-authenticate:
+If the session has also expired, re-authenticate:
 
 ```bash
 muster auth login --endpoint https://muster.example.com/mcp
 ```
+
+> **Note:** Muster uses a rolling refresh token TTL (reset on each token rotation), while
+> Dex's `absoluteLifetime` is measured from original issuance and does not reset. If your
+> Dex instance has `absoluteLifetime` set shorter than the configured session duration,
+> the actual session will end when Dex's absolute lifetime expires, even if muster's
+> estimate shows more time remaining.
 
 ### Network Issues
 
@@ -477,8 +498,8 @@ esac
 ## Security Considerations
 
 - Tokens are stored with restrictive file permissions
-- Access tokens are short-lived (typically 24 hours)
-- Refresh tokens enable automatic renewal
+- Access tokens are short-lived (30 minutes, auto-refreshed)
+- Refresh tokens enable automatic renewal (session duration: ~30 days)
 - Token values are never logged (only metadata)
 - All OAuth communication uses HTTPS in production
 - PKCE (Proof Key for Code Exchange) protects against authorization code interception
