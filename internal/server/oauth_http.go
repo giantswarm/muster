@@ -29,6 +29,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 const (
@@ -37,8 +38,19 @@ const (
 	// OAuthProviderGoogle is the Google OAuth provider type.
 	OAuthProviderGoogle = "google"
 
-	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days).
-	DefaultRefreshTokenTTL = 90 * 24 * time.Hour
+	// DefaultAccessTokenTTL is the configured TTL for access tokens (30 minutes).
+	// This is intentionally set to match the Dex idTokens expiry (30m) so that
+	// capTokenExpiry in mcp-oauth doesn't need to cap it further. If Dex's
+	// idTokens expiry is shorter than this value, capTokenExpiry will
+	// automatically reduce the effective TTL to match the provider's token lifetime.
+	DefaultAccessTokenTTL = 30 * time.Minute
+
+	// DefaultRefreshTokenTTL is the server-side TTL for refresh tokens.
+	// Derived from pkgoauth.DefaultSessionDuration to keep server and CLI in sync.
+	// Aligned with Dex's absoluteLifetime (720h = 30 days). Note: muster uses a
+	// rolling TTL (reset on each rotation), while Dex's absoluteLifetime is
+	// measured from original issuance and does NOT reset.
+	DefaultRefreshTokenTTL = pkgoauth.DefaultSessionDuration
 
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second).
 	DefaultIPRateLimit = 10
@@ -624,10 +636,21 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	// Set defaults
 	maxClientsPerIP := DefaultMaxClientsPerIP
 
-	// Create server configuration
+	refreshTokenTTL := DefaultRefreshTokenTTL
+	if cfg.SessionDuration != "" {
+		parsed, err := time.ParseDuration(cfg.SessionDuration)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid sessionDuration %q: %w", cfg.SessionDuration, err)
+		}
+		refreshTokenTTL = parsed
+		logger.Info("Using custom session duration", "duration", parsed)
+	}
+
+	// Create server configuration.
 	serverConfig := &oauthserver.Config{
 		Issuer:                           cfg.BaseURL,
-		RefreshTokenTTL:                  int64(DefaultRefreshTokenTTL.Seconds()),
+		AccessTokenTTL:                   int64(DefaultAccessTokenTTL / time.Second),
+		RefreshTokenTTL:                  int64(refreshTokenTTL / time.Second),
 		AllowRefreshTokenRotation:        true,
 		RequirePKCE:                      true,
 		AllowPKCEPlain:                   false,

@@ -240,6 +240,12 @@ type OAuthServerConfig struct {
 	// Default: true (native app support enabled by default)
 	AllowLocalhostRedirectURIs bool `yaml:"allowLocalhostRedirectURIs,omitempty"`
 
+	// SessionDuration is the maximum session duration before re-authentication
+	// is required. This sets the server-side refresh token TTL.
+	// Default: 720h (30 days), aligned with Dex's absoluteLifetime.
+	// Format: Go duration string (e.g., "720h", "30d" is NOT valid, use hours).
+	SessionDuration string `yaml:"sessionDuration,omitempty"`
+
 	// AllowedOrigins is a comma-separated list of allowed CORS origins.
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
 

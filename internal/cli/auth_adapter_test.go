@@ -1,10 +1,17 @@
 package cli
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/internal/agent/oauth"
 )
@@ -305,4 +312,105 @@ func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
 	if adapter.noSilentRefresh {
 		t.Error("expected noSilentRefresh to be false after unsetting")
 	}
+}
+
+// writeTestTokenFile writes a StoredToken as a JSON file in the token store dir
+// using the same key derivation the token store uses (SHA256 of server URL).
+func writeTestTokenFile(t *testing.T, dir string, tok map[string]interface{}, serverURL string) {
+	t.Helper()
+	hash := sha256.Sum256([]byte(serverURL))
+	key := hex.EncodeToString(hash[:16])
+	data, err := json.Marshal(tok)
+	if err != nil {
+		t.Fatalf("failed to marshal token: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, key+".json"), data, 0600); err != nil {
+		t.Fatalf("failed to write token file: %v", err)
+	}
+}
+
+func TestGetStatusFromManager_RefreshExpiresAt(t *testing.T) {
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	t.Run("sets RefreshExpiresAt when refresh token and CreatedAt are present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		createdAt := time.Now().Add(-2 * time.Hour)
+
+		writeTestTokenFile(t, tmpDir, map[string]interface{}{
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"token_type":    "Bearer",
+			"expiry":        time.Now().Add(25 * time.Minute).Format(time.RFC3339),
+			"server_url":    serverURL,
+			"issuer_url":    issuerURL,
+			"created_at":    createdAt.Format(time.RFC3339),
+		}, serverURL)
+
+		mgr, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
+			TokenStorageDir: tmpDir,
+			FileMode:        true,
+		})
+		if err != nil {
+			t.Fatalf("failed to create auth manager: %v", err)
+		}
+		defer mgr.Close()
+
+		ctx := context.Background()
+		_, _ = mgr.CheckConnection(ctx, serverURL)
+
+		adapter := &AuthAdapter{managers: make(map[string]*oauth.AuthManager)}
+		status := adapter.getStatusFromManager(serverURL, mgr)
+
+		if !status.Authenticated {
+			t.Fatal("expected authenticated status")
+		}
+		if !status.HasRefreshToken {
+			t.Fatal("expected HasRefreshToken to be true")
+		}
+
+		expectedExpiry := createdAt.Add(pkgoauth.DefaultSessionDuration)
+		diff := status.RefreshExpiresAt.Sub(expectedExpiry)
+		if diff < -2*time.Second || diff > 2*time.Second {
+			t.Errorf("RefreshExpiresAt = %v, want ~%v (diff: %v)", status.RefreshExpiresAt, expectedExpiry, diff)
+		}
+	})
+
+	t.Run("leaves RefreshExpiresAt zero when no refresh token", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		writeTestTokenFile(t, tmpDir, map[string]interface{}{
+			"access_token": "access-token",
+			"token_type":   "Bearer",
+			"expiry":       time.Now().Add(25 * time.Minute).Format(time.RFC3339),
+			"server_url":   serverURL,
+			"issuer_url":   issuerURL,
+			"created_at":   time.Now().Format(time.RFC3339),
+		}, serverURL)
+
+		mgr, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
+			TokenStorageDir: tmpDir,
+			FileMode:        true,
+		})
+		if err != nil {
+			t.Fatalf("failed to create auth manager: %v", err)
+		}
+		defer mgr.Close()
+
+		ctx := context.Background()
+		_, _ = mgr.CheckConnection(ctx, serverURL)
+
+		adapter := &AuthAdapter{managers: make(map[string]*oauth.AuthManager)}
+		status := adapter.getStatusFromManager(serverURL, mgr)
+
+		if !status.Authenticated {
+			t.Fatal("expected authenticated status")
+		}
+		if status.HasRefreshToken {
+			t.Error("expected HasRefreshToken to be false without refresh token")
+		}
+		if !status.RefreshExpiresAt.IsZero() {
+			t.Errorf("expected RefreshExpiresAt to be zero, got %v", status.RefreshExpiresAt)
+		}
+	})
 }

@@ -2,10 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/text"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 func TestFormatMCPServerStatus(t *testing.T) {
@@ -127,4 +132,91 @@ func TestFormatConnectionErrorReason(t *testing.T) {
 			}
 		})
 	}
+}
+
+// captureStdout captures stdout output produced by fn.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+
+	fn()
+
+	w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read pipe: %v", err)
+	}
+	return string(out)
+}
+
+func TestPrintAuthenticatedStatus(t *testing.T) {
+	authQuiet = false
+
+	t.Run("shows session expiry when refresh token has expiry", func(t *testing.T) {
+		sessionExpiry := time.Now().Add(29 * 24 * time.Hour)
+		status := &api.AuthStatus{
+			Authenticated:    true,
+			ExpiresAt:        time.Now().Add(25 * time.Minute),
+			HasRefreshToken:  true,
+			RefreshExpiresAt: sessionExpiry,
+		}
+
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(status)
+		})
+
+		if !strings.Contains(output, "Session:") {
+			t.Errorf("expected output to contain 'Session:', got: %s", output)
+		}
+		if !strings.Contains(output, "~") {
+			t.Errorf("expected output to contain '~' estimate prefix, got: %s", output)
+		}
+		if !strings.Contains(output, "remaining (auto-refresh)") {
+			t.Errorf("expected output to contain 'remaining (auto-refresh)', got: %s", output)
+		}
+		if strings.Contains(output, "Refresh:") {
+			t.Errorf("should not contain 'Refresh:' when session expiry is set, got: %s", output)
+		}
+	})
+
+	t.Run("shows refresh available when no expiry is set", func(t *testing.T) {
+		status := &api.AuthStatus{
+			Authenticated:   true,
+			ExpiresAt:       time.Now().Add(25 * time.Minute),
+			HasRefreshToken: true,
+		}
+
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(status)
+		})
+
+		if !strings.Contains(output, "Refresh:") {
+			t.Errorf("expected output to contain 'Refresh:', got: %s", output)
+		}
+		if strings.Contains(output, "Session:") {
+			t.Errorf("should not contain 'Session:' when RefreshExpiresAt is zero, got: %s", output)
+		}
+	})
+
+	t.Run("shows no refresh when refresh token is absent", func(t *testing.T) {
+		status := &api.AuthStatus{
+			Authenticated:   true,
+			ExpiresAt:       time.Now().Add(25 * time.Minute),
+			HasRefreshToken: false,
+		}
+
+		output := captureStdout(t, func() {
+			printAuthenticatedStatus(status)
+		})
+
+		if !strings.Contains(output, "Not available") {
+			t.Errorf("expected output to contain 'Not available', got: %s", output)
+		}
+	})
 }

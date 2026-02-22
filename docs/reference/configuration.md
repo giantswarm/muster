@@ -83,6 +83,33 @@ The aggregator manages the unified MCP interface and tool aggregation.
 
 ### Auth Configuration
 
+#### Session Duration
+
+The `sessionDuration` field controls how long a user's session remains valid before
+re-authentication is required. This sets the server-side refresh token TTL.
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      sessionDuration: "720h"  # 30 days (default)
+```
+
+| Value | Duration | Notes |
+|-------|----------|-------|
+| `720h` | 30 days | Default, aligned with Dex's `absoluteLifetime` |
+| `168h` | 7 days | More restrictive for high-security environments |
+| `2160h` | 90 days | Longer sessions (ensure Dex `absoluteLifetime` matches) |
+
+> **Important:** Muster uses a rolling refresh token TTL (reset on each token rotation),
+> while Dex's `absoluteLifetime` is measured from the original login and does **not**
+> reset. If you increase `sessionDuration` beyond Dex's `absoluteLifetime`, the effective
+> session will still be limited by Dex. Ensure both values are aligned.
+
+The CLI's `muster auth status` displays an approximate session estimate based on the
+default 30-day duration. Custom server-side values are not yet reflected in the CLI
+estimate.
+
 #### Silent Re-Authentication (CLI Flag)
 
 Silent re-authentication is controlled via CLI flags only, not configuration file.
