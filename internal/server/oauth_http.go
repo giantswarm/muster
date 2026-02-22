@@ -29,6 +29,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 const (
@@ -44,15 +45,12 @@ const (
 	// automatically reduce the effective TTL to match the provider's token lifetime.
 	DefaultAccessTokenTTL = 30 * time.Minute
 
-	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (30 days).
-	// This is aligned with Dex's absoluteLifetime (720h = 30 days) to avoid a
-	// mismatch where the muster refresh token appears valid but the underlying
-	// Dex refresh token has already expired due to its hard absolute cap.
-	// Note: muster issues a rolling TTL (reset on each rotation), while Dex's
-	// absoluteLifetime is measured from the original issuance and does NOT reset.
-	// Proper refresh token capping (analogous to capTokenExpiry) requires
-	// changes in the mcp-oauth library.
-	DefaultRefreshTokenTTL = 30 * 24 * time.Hour
+	// DefaultRefreshTokenTTL is the server-side TTL for refresh tokens.
+	// Derived from pkgoauth.DefaultSessionDuration to keep server and CLI in sync.
+	// Aligned with Dex's absoluteLifetime (720h = 30 days). Note: muster uses a
+	// rolling TTL (reset on each rotation), while Dex's absoluteLifetime is
+	// measured from original issuance and does NOT reset.
+	DefaultRefreshTokenTTL = pkgoauth.DefaultSessionDuration
 
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second).
 	DefaultIPRateLimit = 10
@@ -639,14 +637,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	maxClientsPerIP := DefaultMaxClientsPerIP
 
 	// Create server configuration.
-	// AccessTokenTTL is explicitly set rather than relying on the library default (1h).
-	// The mcp-oauth library's capTokenExpiry function will further reduce this if the
-	// upstream provider (e.g., Dex) issues shorter-lived tokens. For example, with
-	// Dex idTokens: "30m", the effective access token TTL becomes min(30m, 30m) = 30m.
 	serverConfig := &oauthserver.Config{
 		Issuer:                           cfg.BaseURL,
-		AccessTokenTTL:                   int64(DefaultAccessTokenTTL.Seconds()),
-		RefreshTokenTTL:                  int64(DefaultRefreshTokenTTL.Seconds()),
+		AccessTokenTTL:                   int64(DefaultAccessTokenTTL / time.Second),
+		RefreshTokenTTL:                  int64(DefaultRefreshTokenTTL / time.Second),
 		AllowRefreshTokenRotation:        true,
 		RequirePKCE:                      true,
 		AllowPKCEPlain:                   false,
