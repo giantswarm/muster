@@ -564,6 +564,9 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 			status.ExpiresAt = storedToken.Expiry
 			status.IssuerURL = storedToken.IssuerURL
 			status.HasRefreshToken = storedToken.RefreshToken != ""
+			if status.HasRefreshToken && !storedToken.CreatedAt.IsZero() {
+				status.RefreshExpiresAt = storedToken.CreatedAt.Add(pkgoauth.DefaultSessionDuration)
+			}
 			// Extract identity from ID token if available
 			if storedToken.IDToken != "" {
 				claims := parseIDTokenClaims(storedToken.IDToken)

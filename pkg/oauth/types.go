@@ -16,6 +16,13 @@ const DefaultExpiryMargin = 30 * time.Second
 // This constant is shared across all OAuth implementations for consistency.
 const DefaultTokenStorageDir = ".config/muster/tokens"
 
+// DefaultSessionDuration is the expected maximum session duration before
+// re-authentication is required. This should match the server-side
+// RefreshTokenTTL and is used by the CLI to estimate session expiry from
+// the stored token's CreatedAt timestamp.
+// Aligned with Dex's absoluteLifetime (720h = 30 days).
+const DefaultSessionDuration = 30 * 24 * time.Hour
+
 // NormalizeServerURL normalizes a server URL by stripping transport-specific
 // path suffixes (/mcp, /sse) and trailing slashes to get the base server URL.
 // This ensures consistent token storage and OAuth metadata discovery regardless

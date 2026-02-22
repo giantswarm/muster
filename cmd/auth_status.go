@@ -136,7 +136,11 @@ func printAuthenticatedStatus(localStatus *api.AuthStatus) {
 		authPrint("  Expires:   %s\n", formatExpiryWithDirection(localStatus.ExpiresAt))
 	}
 	if localStatus.HasRefreshToken {
-		authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
+		if !localStatus.RefreshExpiresAt.IsZero() {
+			authPrint("  Session:   %s (auto-refresh)\n", formatExpiryWithDirection(localStatus.RefreshExpiresAt))
+		} else {
+			authPrint("  Refresh:   %s\n", text.FgGreen.Sprint("Available"))
+		}
 	} else {
 		authPrint("  Refresh:   %s\n", text.FgYellow.Sprint("Not available (re-auth required on expiry)"))
 	}

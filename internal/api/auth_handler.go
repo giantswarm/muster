@@ -80,6 +80,12 @@ type AuthStatus struct {
 	// If false, the token cannot be refreshed and will require re-authentication when it expires.
 	HasRefreshToken bool
 
+	// RefreshExpiresAt is the estimated time when the refresh token (session) expires.
+	// This represents the muster-side refresh token expiry, calculated from the token's
+	// creation time plus the configured refresh token TTL. The actual session may end
+	// earlier if the upstream provider (e.g., Dex) has a shorter absolute lifetime.
+	RefreshExpiresAt time.Time
+
 	// Error is non-empty if the auth check failed.
 	Error string
 }

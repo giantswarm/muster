@@ -37,8 +37,22 @@ const (
 	// OAuthProviderGoogle is the Google OAuth provider type.
 	OAuthProviderGoogle = "google"
 
-	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (90 days).
-	DefaultRefreshTokenTTL = 90 * 24 * time.Hour
+	// DefaultAccessTokenTTL is the configured TTL for access tokens (30 minutes).
+	// This is intentionally set to match the Dex idTokens expiry (30m) so that
+	// capTokenExpiry in mcp-oauth doesn't need to cap it further. If Dex's
+	// idTokens expiry is shorter than this value, capTokenExpiry will
+	// automatically reduce the effective TTL to match the provider's token lifetime.
+	DefaultAccessTokenTTL = 30 * time.Minute
+
+	// DefaultRefreshTokenTTL is the default TTL for refresh tokens (30 days).
+	// This is aligned with Dex's absoluteLifetime (720h = 30 days) to avoid a
+	// mismatch where the muster refresh token appears valid but the underlying
+	// Dex refresh token has already expired due to its hard absolute cap.
+	// Note: muster issues a rolling TTL (reset on each rotation), while Dex's
+	// absoluteLifetime is measured from the original issuance and does NOT reset.
+	// Proper refresh token capping (analogous to capTokenExpiry) requires
+	// changes in the mcp-oauth library.
+	DefaultRefreshTokenTTL = 30 * 24 * time.Hour
 
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second).
 	DefaultIPRateLimit = 10
@@ -624,9 +638,14 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	// Set defaults
 	maxClientsPerIP := DefaultMaxClientsPerIP
 
-	// Create server configuration
+	// Create server configuration.
+	// AccessTokenTTL is explicitly set rather than relying on the library default (1h).
+	// The mcp-oauth library's capTokenExpiry function will further reduce this if the
+	// upstream provider (e.g., Dex) issues shorter-lived tokens. For example, with
+	// Dex idTokens: "30m", the effective access token TTL becomes min(30m, 30m) = 30m.
 	serverConfig := &oauthserver.Config{
 		Issuer:                           cfg.BaseURL,
+		AccessTokenTTL:                   int64(DefaultAccessTokenTTL.Seconds()),
 		RefreshTokenTTL:                  int64(DefaultRefreshTokenTTL.Seconds()),
 		AllowRefreshTokenRotation:        true,
 		RequirePKCE:                      true,
