@@ -134,6 +134,8 @@ brews:
       name: homebrew-muster
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
     # URL template for the download
     url_template: >-
       https://github.com/giantswarm/muster/releases/download/{{ .Tag }}/
