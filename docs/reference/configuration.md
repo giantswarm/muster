@@ -86,7 +86,8 @@ The aggregator manages the unified MCP interface and tool aggregation.
 #### Session Duration
 
 The `sessionDuration` field controls how long a user's session remains valid before
-re-authentication is required. This sets the server-side refresh token TTL.
+re-authentication is required. This sets the server-side refresh token TTL (the muster
+refresh token's lifetime).
 
 ```yaml
 aggregator:
@@ -101,10 +102,29 @@ aggregator:
 | `168h` | 7 days | More restrictive for high-security environments |
 | `2160h` | 90 days | Longer sessions (ensure Dex `absoluteLifetime` matches) |
 
-> **Important:** Muster uses a rolling refresh token TTL (reset on each token rotation),
-> while Dex's `absoluteLifetime` is measured from the original login and does **not**
-> reset. If you increase `sessionDuration` beyond Dex's `absoluteLifetime`, the effective
-> session will still be limited by Dex. Ensure both values are aligned.
+> **Important:** Muster uses a **rolling** refresh token TTL (reset on each token
+> rotation), while Dex's `absoluteLifetime` is an **absolute** limit measured from the
+> original login that does **not** reset on rotation. If you increase `sessionDuration`
+> beyond Dex's `absoluteLifetime`, the effective session will still be limited by Dex --
+> the next token refresh after the absolute lifetime expires will fail, forcing
+> re-authentication even if muster's session estimate shows time remaining.
+>
+> Always ensure `sessionDuration` does not exceed Dex's `absoluteLifetime`.
+
+#### Access Token TTL
+
+The access token TTL is not directly configurable; it defaults to 30 minutes
+(`DefaultAccessTokenTTL`), matching Dex's `idTokens` expiry. The mcp-oauth library's
+`capTokenExpiry` function automatically caps the effective access token lifetime to never
+exceed the provider's token lifetime, so even if the default were higher, the actual
+expiry would be capped to what Dex issues.
+
+Access tokens are refreshed automatically using the refresh token -- users do not need to
+re-authenticate when they expire. The CLI's `muster auth status` shows the current access
+token expiry under "Expires" and the session duration under "Session".
+
+For the full token lifecycle and how muster and Dex tokens interact, see the
+[Security Configuration](../operations/security.md#token-lifecycle) guide.
 
 The CLI's `muster auth status` displays an approximate session estimate based on the
 default 30-day duration. Custom server-side values are not yet reflected in the CLI

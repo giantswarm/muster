@@ -449,17 +449,28 @@ Expires:   expired 2 minutes ago
 Session:   ~29 days remaining (auto-refresh)
 ```
 
+- **Expires** shows the current access token's remaining lifetime. Access tokens are
+  short-lived (30 minutes) and refreshed automatically -- an expired access token does
+  not require re-authentication.
+- **Session** shows an approximate estimate of how long your session remains active
+  before re-authentication is required. This is based on the configured session duration
+  (default: 30 days).
+
 If the session has also expired, re-authenticate:
 
 ```bash
 muster auth login --endpoint https://muster.example.com/mcp
 ```
 
-> **Note:** Muster uses a rolling refresh token TTL (reset on each token rotation), while
-> Dex's `absoluteLifetime` is measured from original issuance and does not reset. If your
-> Dex instance has `absoluteLifetime` set shorter than the configured session duration,
-> the actual session will end when Dex's absolute lifetime expires, even if muster's
-> estimate shows more time remaining.
+> **Note:** Muster uses a **rolling** refresh token TTL (reset on each token rotation),
+> while Dex's `absoluteLifetime` is an **absolute** limit measured from original issuance
+> that does not reset. The default session duration (30 days) is aligned with Dex's
+> default `absoluteLifetime` (720h). If your Dex instance has a different
+> `absoluteLifetime`, the actual session will end when Dex's absolute lifetime expires,
+> even if muster's estimate shows more time remaining.
+>
+> For the full token lifecycle and how muster and Dex tokens interact, see the
+> [Security Configuration](../../operations/security.md#token-lifecycle) guide.
 
 ### Network Issues
 
@@ -497,13 +508,18 @@ esac
 
 ## Security Considerations
 
-- Tokens are stored with restrictive file permissions
-- Access tokens are short-lived (30 minutes, auto-refreshed)
-- Refresh tokens enable automatic renewal (session duration: ~30 days)
+- Tokens are stored with restrictive file permissions (`0600`)
+- Access tokens are short-lived (30 minutes), capped by `capTokenExpiry` to never exceed
+  the provider's token lifetime, and refreshed automatically
+- Refresh tokens enable automatic session renewal (session duration: ~30 days, aligned
+  with Dex's `absoluteLifetime`)
 - Token values are never logged (only metadata)
 - All OAuth communication uses HTTPS in production
 - PKCE (Proof Key for Code Exchange) protects against authorization code interception
 - State parameter validation prevents CSRF attacks
+
+For the full token lifecycle architecture, see the
+[Security Configuration](../../operations/security.md#token-lifecycle) guide.
 
 ### Silent Re-Authentication Security
 
