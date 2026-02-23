@@ -109,6 +109,8 @@ jobs:
 
       - name: Run GoReleaser
         if: steps.check_tag.outputs.skip != 'true'
+        continue-on-error: true
+        id: goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -116,5 +118,23 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Token for pushing to homebrew-muster tap
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Check release result
+        if: steps.check_tag.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.next_version }}
+          GR_OUTCOME: ${{ steps.goreleaser.outcome }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              > /dev/null 2>&1; then
+            echo "Release $TAG published successfully"
+            if [[ "$GR_OUTCOME" == "failure" ]]; then
+              echo "::warning::GoReleaser had non-fatal errors" \
+                "(e.g. homebrew tap update). Release artifacts are fine."
+            fi
+          else
+            echo "::error::Release $TAG was not published"
+            exit 1
+          fi

@@ -134,32 +134,20 @@ brews:
       name: homebrew-muster
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-      pull_request:
-        enabled: true
-    # URL template for the download
     url_template: >-
       https://github.com/giantswarm/muster/releases/download/{{ .Tag }}/
       {{- .ArtifactName }}
-    # Git author used for commits
     commit_author:
       name: giantswarm-bot
       email: bot@giantswarm.io
-    # Commit message template
     commit_msg_template: "Update {{ .ProjectName }} to {{ .Tag }}"
-    # Folder inside the repository to put the formula
     directory: Formula
-    # Homepage URL
     homepage: "https://github.com/giantswarm/muster"
-    # Description of the project
     description: "Universal Control Plane for AI Agents - MCP server aggregator"
-    # License
     license: "Apache-2.0"
-    # Skip upload if this is a prerelease
     skip_upload: auto
-    # Custom install script
     install: |
       bin.install "muster"
-    # Test block
     test: |
       system "#{bin}/muster", "version"
 
