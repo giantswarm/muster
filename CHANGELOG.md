@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-02-23
+
 ### Changed
 
 - **Session duration reduced from 90 days to 30 days.** The refresh token TTL now
@@ -362,4 +364,5 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 
 ## [0.6.0] - 2025-01-15
 
-[Unreleased]: https://github.com/giantswarm/muster/compare/v0.0.236...HEAD
+[Unreleased]: https://github.com/giantswarm/muster/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/giantswarm/muster/compare/v0.0.236...v0.1.0
