@@ -361,3 +361,5 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 - Simplified MCP server lifecycle management
 
 ## [0.6.0] - 2025-01-15
+
+[Unreleased]: https://github.com/giantswarm/muster/compare/v0.0.236...HEAD
