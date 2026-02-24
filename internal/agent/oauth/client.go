@@ -164,6 +164,13 @@ func (c *Client) HasValidToken(serverURL string) bool {
 	return c.tokenStore.HasValidToken(serverURL)
 }
 
+// HasCredentials reports whether usable credentials exist for the server:
+// either a valid access token or an expired token with a refresh token that
+// the mcp-go transport can use to obtain a new access token.
+func (c *Client) HasCredentials(serverURL string) bool {
+	return c.tokenStore.HasCredentials(serverURL)
+}
+
 // StartAuthFlow initiates an OAuth authorization flow for the specified server.
 // Returns the authorization URL that the user should open in their browser.
 //

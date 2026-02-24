@@ -327,6 +327,17 @@ func (s *TokenStore) HasValidToken(serverURL string) bool {
 	return s.GetToken(serverURL) != nil
 }
 
+// HasCredentials checks whether the store holds credentials that the mcp-go
+// transport can use: either a non-expired access token or an expired token
+// that carries a refresh token.
+func (s *TokenStore) HasCredentials(serverURL string) bool {
+	if s.HasValidToken(serverURL) {
+		return true
+	}
+	token := s.GetTokenIncludingExpiring(serverURL)
+	return token != nil && token.RefreshToken != ""
+}
+
 // GetTokenIncludingExpiring retrieves a stored token even if it's about to expire.
 // This is used for token refresh - we need the refresh token even if the access token
 // is expiring soon. Returns nil if no token exists at all.

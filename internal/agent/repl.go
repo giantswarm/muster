@@ -331,8 +331,9 @@ func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) err
 	}
 	r.client.SetOAuthConfig(*oauthCfg, agentStore)
 
-	// Check if we already have a valid token -- no login needed
-	if handler.HasValidToken(endpoint) {
+	// If usable credentials exist (valid token or refresh token), the
+	// mcp-go transport handles authentication/refresh automatically.
+	if handler.HasCredentials(endpoint) {
 		r.logger.Info("Using existing authentication token")
 		return nil
 	}

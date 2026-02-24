@@ -244,19 +244,14 @@ func (a *AuthAdapter) CheckAuthRequired(ctx context.Context, endpoint string) (b
 	return state == oauth.AuthStatePendingAuth, nil
 }
 
-// HasValidToken checks if a valid cached token exists for the endpoint.
-func (a *AuthAdapter) HasValidToken(endpoint string) bool {
+// HasCredentials reports whether usable credentials exist for the endpoint:
+// a valid access token or an expired token with a refresh token.
+func (a *AuthAdapter) HasCredentials(endpoint string) bool {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
 		return false
 	}
-
-	// Check connection will check for valid tokens
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
-	defer cancel()
-
-	state, _ := mgr.CheckConnection(ctx, endpoint)
-	return state == oauth.AuthStateAuthenticated
+	return mgr.HasCredentials(endpoint)
 }
 
 // GetBearerToken returns a valid Bearer token for the endpoint.
@@ -608,6 +603,22 @@ func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
 	// Parse claims
 	_ = json.Unmarshal(payload, &claims)
 	return claims
+}
+
+// InvalidateCache removes the cached auth manager for an endpoint.
+// This forces the next GetStatusForEndpoint call to create a fresh manager
+// that reads the latest token from the file store. This is needed after
+// mcp-go's transport refreshes a token, since the refreshed token is
+// persisted to file by AgentTokenStore but the AuthAdapter's in-memory
+// TokenStore cache is stale.
+func (a *AuthAdapter) InvalidateCache(endpoint string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	normalizedEndpoint := normalizeEndpoint(endpoint)
+	if mgr, ok := a.managers[normalizedEndpoint]; ok {
+		_ = mgr.Close()
+		delete(a.managers, normalizedEndpoint)
+	}
 }
 
 // Close cleans up any resources held by the auth adapter.

@@ -19,8 +19,12 @@ type AuthHandler interface {
 	// Returns true if 401 was received and OAuth flow should be initiated.
 	CheckAuthRequired(ctx context.Context, endpoint string) (bool, error)
 
-	// HasValidToken checks if a valid cached token exists for the endpoint.
-	HasValidToken(endpoint string) bool
+	// HasCredentials reports whether usable credentials exist for the
+	// endpoint: either a non-expired access token or an expired token with
+	// a refresh token that the mcp-go transport can use for automatic
+	// refresh. Use this instead of HasValidToken to avoid unnecessary
+	// interactive login when a refresh token is available.
+	HasCredentials(endpoint string) bool
 
 	// GetBearerToken returns a valid Bearer token for the endpoint.
 	// Returns an error if not authenticated.
@@ -45,6 +49,12 @@ type AuthHandler interface {
 
 	// GetStatusForEndpoint returns authentication status for a specific endpoint.
 	GetStatusForEndpoint(endpoint string) *AuthStatus
+
+	// InvalidateCache removes any cached state for the given endpoint.
+	// This forces the next status or token lookup to read fresh data from
+	// the persistent store. Call this after an external mechanism (e.g.
+	// mcp-go's transport) may have refreshed a token outside of this handler.
+	InvalidateCache(endpoint string)
 
 	// GetSessionID returns a persistent session ID for this CLI user.
 	// This is used for the X-Muster-Session-ID header to enable MCP server

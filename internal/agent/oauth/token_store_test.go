@@ -218,6 +218,66 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 	}
 }
 
+func TestTokenStore_HasCredentials(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewTokenStore(TokenStoreConfig{
+		StorageDir: tmpDir,
+		FileMode:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create token store: %v", err)
+	}
+
+	serverURL := "https://muster.example.com"
+	issuerURL := "https://dex.example.com"
+
+	// Initially no credentials
+	if store.HasCredentials(serverURL) {
+		t.Error("Expected no credentials initially")
+	}
+
+	// Store a valid (non-expired) token without refresh token
+	token := &oauth2.Token{
+		AccessToken: "valid-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+	if !store.HasCredentials(serverURL) {
+		t.Error("Expected credentials with valid access token")
+	}
+
+	// Store an expired token WITH a refresh token -- should still count
+	expiredWithRefresh := &oauth2.Token{
+		AccessToken:  "expired-token",
+		RefreshToken: "my-refresh",
+		TokenType:    "Bearer",
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuerURL, expiredWithRefresh); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+	if !store.HasCredentials(serverURL) {
+		t.Error("Expected credentials with expired access token + refresh token")
+	}
+
+	// Store an expired token WITHOUT a refresh token -- no credentials
+	expiredNoRefresh := &oauth2.Token{
+		AccessToken: "expired-token",
+		TokenType:   "Bearer",
+		Expiry:      time.Now().Add(-1 * time.Hour),
+	}
+	if err := store.StoreToken(serverURL, issuerURL, expiredNoRefresh); err != nil {
+		t.Fatalf("Failed to store token: %v", err)
+	}
+	if store.HasCredentials(serverURL) {
+		t.Error("Expected no credentials with expired access token and no refresh token")
+	}
+}
+
 func TestTokenStore_Clear(t *testing.T) {
 	tmpDir := t.TempDir()
 

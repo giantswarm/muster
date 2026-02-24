@@ -76,25 +76,25 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 		return loginToAll(ctx, handler, endpoint)
 	}
 
-	// Single aggregator login
+	// Before starting the browser flow, try connecting via mcp-go.
+	// If the access token expired but a valid refresh token exists,
+	// mcp-go's transport refreshes it transparently -- no browser needed.
+	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
+		authPrint("Already authenticated to %s\n", endpoint)
+		return nil
+	}
+
 	return handler.Login(ctx, endpoint)
 }
 
 // loginToMCPServer authenticates to a specific MCP server through the aggregator.
 // It queries the auth://status resource to find the server's auth tool and invokes it.
 func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
-	// First ensure we're authenticated to the aggregator
-	if !handler.HasValidToken(aggregatorEndpoint) {
-		authPrintln("Authenticating to aggregator first...")
-		if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
-			return fmt.Errorf("failed to authenticate to aggregator: %w", err)
-		}
-	}
-
-	// Get auth status from aggregator
-	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	// Try fetching auth status directly -- the mcp-go transport handles token
+	// refresh transparently, so this also serves as the connectivity check.
+	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		return fmt.Errorf("failed to get auth status: %w", err)
+		return err
 	}
 
 	// Find the requested server
@@ -130,14 +130,12 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 
 // loginToAll authenticates to the aggregator and all pending MCP servers.
 func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) error {
-	// Login to aggregator first - handler.Login() prints its own success message
-	if err := handler.Login(ctx, aggregatorEndpoint); err != nil {
-		return fmt.Errorf("failed to authenticate to aggregator: %w", err)
-	}
-
-	// Get auth status from aggregator
-	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
+	// Fetch auth status directly -- the mcp-go transport handles token
+	// refresh transparently. Falls back to interactive login on 401.
+	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
 	if err != nil {
+		// Non-auth errors (e.g. aggregator unreachable) are degraded to a
+		// warning so the user still sees that aggregator login succeeded.
 		authPrint("\nWarning: Could not get MCP server status: %v\n", err)
 		authPrintln("Aggregator authentication complete.")
 		return nil

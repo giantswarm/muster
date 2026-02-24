@@ -72,60 +72,49 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	authPrintln("Muster Aggregator")
 	authPrint("  Endpoint:  %s\n", aggregatorEndpoint)
 
-	// Get local token status first
-	localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
-
-	// If we have a local token, verify it with the server before showing "Authenticated"
-	if localStatus != nil && localStatus.Authenticated {
-		return showVerifiedAuthStatus(handler, aggregatorEndpoint, localStatus)
-	}
-
-	// No local token - check if auth is required
-	return showUnauthenticatedStatus(handler, aggregatorEndpoint)
-}
-
-// showVerifiedAuthStatus verifies the token with the server and displays the authenticated status.
-// This catches the case where the token was invalidated server-side (e.g., IdP revoked
-// the session) but the local expiry time hasn't passed yet.
-func showVerifiedAuthStatus(handler api.AuthHandler, endpoint string, localStatus *api.AuthStatus) error {
-	// Try to make an actual request to the server to verify the token
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
-	authStatus, serverErr := getAuthStatusFromAggregator(ctx, handler, endpoint)
+	// Connect via mcp-go client. The transport handles token refresh
+	// automatically when the access token is expired but a valid refresh
+	// token is available. This replaces the previous local-only token check
+	// that could not refresh tokens.
+	ctx, cancel := context.WithTimeout(cmd.Context(), DefaultStatusCheckTimeout)
+	authStatus, serverErr := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	cancel()
 
-	if serverErr != nil {
-		return handleServerVerificationError(handler, endpoint, localStatus, serverErr)
+	if serverErr == nil {
+		// Connection succeeded (possibly after automatic token refresh).
+		// Invalidate stale cached manager so GetStatusForEndpoint reads
+		// the refreshed token from the file store.
+		handler.InvalidateCache(aggregatorEndpoint)
+		localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
+
+		if localStatus != nil && localStatus.Authenticated {
+			printAuthenticatedStatus(localStatus)
+		} else {
+			authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
+		}
+
+		if len(authStatus.Servers) > 0 {
+			authPrintln("\nMCP Servers")
+			printMCPServerStatuses(authStatus.Servers)
+		}
+		return nil
 	}
 
-	// Server verified the token - show authenticated status
-	printAuthenticatedStatus(localStatus)
-
-	// Show MCP server status since we already have it
-	if len(authStatus.Servers) > 0 {
-		authPrintln("\nMCP Servers")
-		printMCPServerStatuses(authStatus.Servers)
-	}
-
-	return nil
-}
-
-// handleServerVerificationError handles errors from server-side token verification.
-func handleServerVerificationError(handler api.AuthHandler, endpoint string, localStatus *api.AuthStatus, serverErr error) error {
-	// Check if this is a 401 error (token invalidated server-side)
+	// Token is invalid and could not be refreshed -- clean up stale local token
 	if pkgoauth.IsOAuthUnauthorizedError(serverErr) {
-		_ = handler.Logout(endpoint)
-		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Token invalidated"))
-		authPrint("             Your session was terminated by the identity provider.\n")
+		_ = handler.Logout(aggregatorEndpoint)
+		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
 		authPrint("             Run: muster auth login\n")
 		return nil
 	}
 
-	// Other connection error - might be network issue, server down, etc.
-	printConnectionError(serverErr, endpoint)
-
-	// Still show local token info as it might be useful
-	if !localStatus.ExpiresAt.IsZero() {
-		authPrint("  (Local token expires: %s)\n", formatExpiryWithDirection(localStatus.ExpiresAt))
+	// Network/TLS error -- fall back to local token info
+	localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
+	if localStatus != nil && localStatus.Authenticated {
+		printAuthenticatedStatus(localStatus)
+		authPrint("  Warning:   %s\n", text.FgYellow.Sprint("Server unreachable, showing local token status"))
+	} else {
+		printConnectionError(serverErr, aggregatorEndpoint)
 	}
 	return nil
 }
@@ -150,26 +139,6 @@ func printAuthenticatedStatus(localStatus *api.AuthStatus) {
 	}
 }
 
-// showUnauthenticatedStatus checks if auth is required and shows appropriate status.
-func showUnauthenticatedStatus(handler api.AuthHandler, endpoint string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), ShortAuthCheckTimeout)
-	authRequired, checkErr := handler.CheckAuthRequired(ctx, endpoint)
-	cancel()
-
-	if checkErr != nil {
-		printConnectionError(checkErr, endpoint)
-		return nil
-	}
-
-	if authRequired {
-		authPrint("  Status:    %s\n", text.FgYellow.Sprint("Not authenticated"))
-		authPrint("             Run: muster auth login\n")
-	} else {
-		authPrint("  Status:    %s\n", text.FgHiBlack.Sprint("No authentication required"))
-	}
-	return nil
-}
-
 // printConnectionError prints a formatted connection error message.
 func printConnectionError(err error, endpoint string) {
 	connErr := cli.ClassifyConnectionError(err, endpoint)
@@ -178,18 +147,12 @@ func printConnectionError(err error, endpoint string) {
 }
 
 // showMCPServerStatus shows the authentication status of a specific MCP server.
+// The mcp-go transport handles token refresh automatically.
 func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
-	// Need to be authenticated to the aggregator first
-	if !handler.HasValidToken(aggregatorEndpoint) {
-		return fmt.Errorf("not authenticated to aggregator. Run 'muster auth login' first")
-	}
-
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		// Check if this is a 401 error (token invalidated server-side)
 		if pkgoauth.IsOAuthUnauthorizedError(err) {
-			_ = handler.Logout(aggregatorEndpoint)
-			return fmt.Errorf("your session was terminated by the identity provider. Run: muster auth login")
+			return fmt.Errorf("not authenticated to aggregator. Run 'muster auth login' first")
 		}
 		return fmt.Errorf("failed to get server status: %w", err)
 	}

@@ -492,6 +492,15 @@ func (m *AuthManager) HasValidTokenForEndpoint(endpoint string) bool {
 	return false
 }
 
+// HasCredentials reports whether usable credentials exist for the endpoint:
+// either a non-expired access token or an expired token paired with a
+// refresh token. Unlike HasValidTokenForEndpoint this does not update
+// internal auth state because the token may still need to be refreshed.
+func (m *AuthManager) HasCredentials(endpoint string) bool {
+	normalizedURL := normalizeServerURL(endpoint)
+	return m.client.HasCredentials(normalizedURL)
+}
+
 // Close cleans up resources.
 func (m *AuthManager) Close() error {
 	if m.client != nil {

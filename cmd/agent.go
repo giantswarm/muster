@@ -236,8 +236,9 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 	}
 	client.SetOAuthConfig(*oauthCfg, agentStore)
 
-	// If we have a valid token, the OAuth transport will use it automatically
-	if handler.HasValidToken(endpoint) {
+	// If usable credentials exist (valid token or refresh token), the
+	// mcp-go transport will handle authentication/refresh automatically.
+	if handler.HasCredentials(endpoint) {
 		logger.Info("Using existing authentication token")
 		return nil
 	}
