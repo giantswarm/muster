@@ -7,10 +7,9 @@ import (
 	"os"
 	"strings"
 
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
-
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/spf13/cobra"
 )
@@ -248,17 +247,16 @@ func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, s
 		return err
 	}
 
-	// Check if we're authenticated to the aggregator
-	if !handler.HasValidToken(endpoint) {
-		authPrintln("Not authenticated to aggregator.")
-		authPrintln("Run 'muster auth login' first to check server status.")
-		return nil
-	}
-
-	// Query the aggregator for server status
+	// Fetch auth status directly -- the mcp-go transport handles token
+	// refresh transparently.
+	invalidateAuthCache(handler, endpoint)
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
 	if err != nil {
-		// Fall back to generic message if we can't get status
+		if pkgoauth.IsOAuthUnauthorizedError(err) {
+			authPrintln("Not authenticated to aggregator.")
+			authPrintln("Run 'muster auth login' first to check server status.")
+			return nil
+		}
 		authPrintln("Note: MCP server authentication is managed by the aggregator.")
 		authPrintln("To disconnect all servers, run: muster auth logout")
 		return nil

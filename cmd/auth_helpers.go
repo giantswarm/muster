@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -26,8 +27,6 @@ const (
 	DefaultAuthPollInterval = 500 * time.Millisecond
 	// DefaultStatusCheckTimeout is the timeout for checking connection status and fetching resources.
 	DefaultStatusCheckTimeout = 10 * time.Second
-	// ShortAuthCheckTimeout is a shorter timeout for quick auth requirement checks.
-	ShortAuthCheckTimeout = 5 * time.Second
 )
 
 // AuthHandlerOptions configures the auth handler creation.
@@ -129,21 +128,51 @@ func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint str
 
 	client, err := createConnectedClient(connCtx, handler, endpoint)
 	if err != nil {
+		logging.Debug("tryMCPConnection", "Connection to %s failed: %v", endpoint, err)
 		return false
 	}
 	client.Close()
+	// Unconditionally invalidate: we cannot tell whether the transport
+	// refreshed the token during the connection, so we always clear the
+	// in-memory cache to ensure subsequent reads hit the file store.
 	invalidateAuthCache(handler, endpoint)
 	return true
 }
 
 // invalidateAuthCache clears the stale auth manager cache for an endpoint.
-// After mcp-go's transport refreshes a token, the AuthAdapter's in-memory
-// TokenStore cache is stale and needs to be cleared so subsequent
+// After mcp-go's transport refreshes a token, the handler's in-memory
+// cache is stale and needs to be cleared so subsequent
 // GetStatusForEndpoint calls read the refreshed token from the file store.
 func invalidateAuthCache(handler api.AuthHandler, endpoint string) {
-	if adapter, ok := handler.(*cli.AuthAdapter); ok {
-		adapter.InvalidateCache(endpoint)
+	handler.InvalidateCache(endpoint)
+}
+
+// ensureAuthenticatedAndGetStatus connects to the aggregator, fetching the
+// auth://status resource in a single round-trip. If the connection fails with
+// a 401, it triggers interactive login and retries. This avoids the double
+// connection that would result from calling tryMCPConnection followed by
+// getAuthStatusFromAggregator separately.
+func ensureAuthenticatedAndGetStatus(ctx context.Context, handler api.AuthHandler, endpoint string) (*pkgoauth.AuthStatusResponse, error) {
+	invalidateAuthCache(handler, endpoint)
+	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
+	if err == nil {
+		return authStatus, nil
 	}
+
+	if !pkgoauth.IsOAuthUnauthorizedError(err) {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	authPrintln("Authenticating to aggregator first...")
+	if loginErr := handler.Login(ctx, endpoint); loginErr != nil {
+		return nil, fmt.Errorf("failed to authenticate to aggregator: %w", loginErr)
+	}
+
+	authStatus, err = getAuthStatusFromAggregator(ctx, handler, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth status after login: %w", err)
+	}
+	return authStatus, nil
 }
 
 // getAuthStatusFromAggregator queries the auth://status resource from the aggregator.

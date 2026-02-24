@@ -46,6 +46,12 @@ type AuthHandler interface {
 	// GetStatusForEndpoint returns authentication status for a specific endpoint.
 	GetStatusForEndpoint(endpoint string) *AuthStatus
 
+	// InvalidateCache removes any cached state for the given endpoint.
+	// This forces the next status or token lookup to read fresh data from
+	// the persistent store. Call this after an external mechanism (e.g.
+	// mcp-go's transport) may have refreshed a token outside of this handler.
+	InvalidateCache(endpoint string)
+
 	// GetSessionID returns a persistent session ID for this CLI user.
 	// This is used for the X-Muster-Session-ID header to enable MCP server
 	// token persistence across CLI invocations. Returns empty string if not available.
