@@ -76,7 +76,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	// automatically when the access token is expired but a valid refresh
 	// token is available. This replaces the previous local-only token check
 	// that could not refresh tokens.
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultStatusCheckTimeout)
+	ctx, cancel := context.WithTimeout(cmd.Context(), DefaultStatusCheckTimeout)
 	authStatus, serverErr := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	cancel()
 
@@ -84,7 +84,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		// Connection succeeded (possibly after automatic token refresh).
 		// Invalidate stale cached manager so GetStatusForEndpoint reads
 		// the refreshed token from the file store.
-		invalidateAuthCache(handler, aggregatorEndpoint)
+		handler.InvalidateCache(aggregatorEndpoint)
 		localStatus := handler.GetStatusForEndpoint(aggregatorEndpoint)
 
 		if localStatus != nil && localStatus.Authenticated {

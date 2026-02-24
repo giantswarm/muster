@@ -249,7 +249,7 @@ func showMCPServerLogoutGuidance(ctx context.Context, handler api.AuthHandler, s
 
 	// Fetch auth status directly -- the mcp-go transport handles token
 	// refresh transparently.
-	invalidateAuthCache(handler, endpoint)
+	handler.InvalidateCache(endpoint)
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
 	if err != nil {
 		if pkgoauth.IsOAuthUnauthorizedError(err) {

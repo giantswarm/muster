@@ -79,7 +79,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	// Before starting the browser flow, try connecting via mcp-go.
 	// If the access token expired but a valid refresh token exists,
 	// mcp-go's transport refreshes it transparently -- no browser needed.
-	if tryMCPConnection(ctx, handler, endpoint) {
+	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
 		authPrint("Already authenticated to %s\n", endpoint)
 		return nil
 	}
@@ -134,7 +134,11 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	// refresh transparently. Falls back to interactive login on 401.
 	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		return err
+		// Non-auth errors (e.g. aggregator unreachable) are degraded to a
+		// warning so the user still sees that aggregator login succeeded.
+		authPrint("\nWarning: Could not get MCP server status: %v\n", err)
+		authPrintln("Aggregator authentication complete.")
+		return nil
 	}
 
 	// Find all servers requiring authentication, excluding SSO servers

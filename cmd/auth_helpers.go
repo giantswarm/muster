@@ -12,7 +12,6 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/cli"
 	"github.com/giantswarm/muster/internal/config"
-	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -121,30 +120,26 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 // tryMCPConnection attempts to connect to the aggregator via mcp-go client.
 // The mcp-go transport handles token refresh automatically -- if the access
 // token is expired but a refresh token exists, it will be refreshed
-// transparently. Returns true if the connection succeeded.
-func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint string) bool {
+// transparently.
+//
+// The connection is established and immediately closed; the purpose is to
+// let the mcp-go transport perform a token refresh as a side-effect. This
+// is acceptable because it is only called on the `muster auth login`
+// fast-path where no further aggregator interaction is needed.
+func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint string) error {
 	connCtx, cancel := context.WithTimeout(ctx, DefaultStatusCheckTimeout)
 	defer cancel()
 
 	client, err := createConnectedClient(connCtx, handler, endpoint)
 	if err != nil {
-		logging.Debug("tryMCPConnection", "Connection to %s failed: %v", endpoint, err)
-		return false
+		return err
 	}
 	client.Close()
 	// Unconditionally invalidate: we cannot tell whether the transport
 	// refreshed the token during the connection, so we always clear the
 	// in-memory cache to ensure subsequent reads hit the file store.
-	invalidateAuthCache(handler, endpoint)
-	return true
-}
-
-// invalidateAuthCache clears the stale auth manager cache for an endpoint.
-// After mcp-go's transport refreshes a token, the handler's in-memory
-// cache is stale and needs to be cleared so subsequent
-// GetStatusForEndpoint calls read the refreshed token from the file store.
-func invalidateAuthCache(handler api.AuthHandler, endpoint string) {
 	handler.InvalidateCache(endpoint)
+	return nil
 }
 
 // ensureAuthenticatedAndGetStatus connects to the aggregator, fetching the
@@ -153,7 +148,7 @@ func invalidateAuthCache(handler api.AuthHandler, endpoint string) {
 // connection that would result from calling tryMCPConnection followed by
 // getAuthStatusFromAggregator separately.
 func ensureAuthenticatedAndGetStatus(ctx context.Context, handler api.AuthHandler, endpoint string) (*pkgoauth.AuthStatusResponse, error) {
-	invalidateAuthCache(handler, endpoint)
+	handler.InvalidateCache(endpoint)
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, endpoint)
 	if err == nil {
 		return authStatus, nil
@@ -183,35 +178,7 @@ func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, a
 	}
 	defer client.Close()
 
-	// Get the auth://status resource
-	result, err := client.GetResource(ctx, "auth://status")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth://status resource: %w", err)
-	}
-
-	if len(result.Contents) == 0 {
-		return nil, fmt.Errorf("auth://status resource returned no content")
-	}
-
-	// Parse the response
-	var responseText string
-	for _, content := range result.Contents {
-		if textContent, ok := mcp.AsTextResourceContents(content); ok {
-			responseText = textContent.Text
-			break
-		}
-	}
-
-	if responseText == "" {
-		return nil, fmt.Errorf("auth://status resource returned no text content")
-	}
-
-	var authStatus pkgoauth.AuthStatusResponse
-	if err := json.Unmarshal([]byte(responseText), &authStatus); err != nil {
-		return nil, fmt.Errorf("failed to parse auth status: %w", err)
-	}
-
-	return &authStatus, nil
+	return parseAuthStatusResource(ctx, client)
 }
 
 // AuthWaitConfig configures how long to wait for authentication completion.
@@ -341,7 +308,11 @@ Please complete authentication in your browser, then run:
 // getAuthStatusFromClient queries the auth://status resource using an existing client.
 // This preserves the session ID, which is critical for checking per-session auth status.
 func getAuthStatusFromClient(ctx context.Context, client *agent.Client) (*pkgoauth.AuthStatusResponse, error) {
-	// Get the auth://status resource
+	return parseAuthStatusResource(ctx, client)
+}
+
+// parseAuthStatusResource fetches and parses the auth://status MCP resource.
+func parseAuthStatusResource(ctx context.Context, client *agent.Client) (*pkgoauth.AuthStatusResponse, error) {
 	result, err := client.GetResource(ctx, "auth://status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get auth://status resource: %w", err)
@@ -351,7 +322,6 @@ func getAuthStatusFromClient(ctx context.Context, client *agent.Client) (*pkgoau
 		return nil, fmt.Errorf("auth://status resource returned no content")
 	}
 
-	// Parse the response
 	var responseText string
 	for _, content := range result.Contents {
 		if textContent, ok := mcp.AsTextResourceContents(content); ok {
