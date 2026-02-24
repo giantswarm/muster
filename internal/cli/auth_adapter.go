@@ -610,6 +610,22 @@ func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
 	return claims
 }
 
+// InvalidateCache removes the cached auth manager for an endpoint.
+// This forces the next GetStatusForEndpoint call to create a fresh manager
+// that reads the latest token from the file store. This is needed after
+// mcp-go's transport refreshes a token, since the refreshed token is
+// persisted to file by AgentTokenStore but the AuthAdapter's in-memory
+// TokenStore cache is stale.
+func (a *AuthAdapter) InvalidateCache(endpoint string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	normalizedEndpoint := normalizeEndpoint(endpoint)
+	if mgr, ok := a.managers[normalizedEndpoint]; ok {
+		_ = mgr.Close()
+		delete(a.managers, normalizedEndpoint)
+	}
+}
+
 // Close cleans up any resources held by the auth adapter.
 func (a *AuthAdapter) Close() error {
 	a.mu.Lock()

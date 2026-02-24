@@ -119,6 +119,33 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 	return client, nil
 }
 
+// tryMCPConnection attempts to connect to the aggregator via mcp-go client.
+// The mcp-go transport handles token refresh automatically -- if the access
+// token is expired but a refresh token exists, it will be refreshed
+// transparently. Returns true if the connection succeeded.
+func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint string) bool {
+	connCtx, cancel := context.WithTimeout(ctx, DefaultStatusCheckTimeout)
+	defer cancel()
+
+	client, err := createConnectedClient(connCtx, handler, endpoint)
+	if err != nil {
+		return false
+	}
+	client.Close()
+	invalidateAuthCache(handler, endpoint)
+	return true
+}
+
+// invalidateAuthCache clears the stale auth manager cache for an endpoint.
+// After mcp-go's transport refreshes a token, the AuthAdapter's in-memory
+// TokenStore cache is stale and needs to be cleared so subsequent
+// GetStatusForEndpoint calls read the refreshed token from the file store.
+func invalidateAuthCache(handler api.AuthHandler, endpoint string) {
+	if adapter, ok := handler.(*cli.AuthAdapter); ok {
+		adapter.InvalidateCache(endpoint)
+	}
+}
+
 // getAuthStatusFromAggregator queries the auth://status resource from the aggregator.
 func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) (*pkgoauth.AuthStatusResponse, error) {
 	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
