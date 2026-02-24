@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -1060,49 +1061,15 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		return nil, fmt.Errorf("no refresh token or client ID from initial login (run test_muster_auth_login first)")
 	}
 
-	baseURL := h.currentInstance.Endpoint
-	if strings.HasSuffix(baseURL, "/mcp") {
-		baseURL = baseURL[:len(baseURL)-4]
-	} else if strings.HasSuffix(baseURL, "/sse") {
-		baseURL = baseURL[:len(baseURL)-4]
-	}
+	baseURL := stripTransportSuffix(h.currentInstance.Endpoint)
 
-	tokenURL := baseURL + "/oauth/token"
-	tokenData := url.Values{
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {h.currentInstance.MusterOAuthRefreshToken},
 		"client_id":     {h.currentInstance.MusterOAuthClientID},
-	}
-
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(tokenData.Encode()))
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create refresh request: %w", err)
-	}
-	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	tokenClient := &http.Client{Timeout: 30 * time.Second}
-	tokenResp, err := tokenClient.Do(tokenReq)
-	if err != nil {
-		return nil, fmt.Errorf("refresh token request failed: %w", err)
-	}
-	defer tokenResp.Body.Close()
-
-	if tokenResp.StatusCode != http.StatusOK {
-		bodyBytes := make([]byte, 4096)
-		n, _ := tokenResp.Body.Read(bodyBytes)
-		return nil, fmt.Errorf("token refresh failed (status %d): %s", tokenResp.StatusCode, string(bodyBytes[:n]))
-	}
-
-	var tokenResult struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenResult); err != nil {
-		return nil, fmt.Errorf("failed to decode refresh response: %w", err)
-	}
-
-	if tokenResult.AccessToken == "" {
-		return nil, fmt.Errorf("no access_token in refresh response")
+		return nil, fmt.Errorf("token refresh failed: %w", err)
 	}
 
 	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
@@ -1133,6 +1100,57 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
 		"session_preserved": newSessionID == currentSessionID,
 	}, nil
+}
+
+// stripTransportSuffix removes a trailing /mcp or /sse path segment from an
+// endpoint URL, returning the bare base URL suitable for OAuth endpoints.
+func stripTransportSuffix(endpoint string) string {
+	for _, suffix := range []string{"/mcp", "/sse"} {
+		if s := strings.TrimSuffix(endpoint, suffix); s != endpoint {
+			return s
+		}
+	}
+	return endpoint
+}
+
+// oauthTokenResult holds the tokens returned by an OAuth token endpoint.
+type oauthTokenResult struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// exchangeOAuthToken POSTs form data to the given token URL and decodes the
+// access/refresh token response. It is shared between handleMusterAuthLogin
+// (authorization_code grant) and handleSimulateMusterReauth (refresh_token grant).
+func exchangeOAuthToken(ctx context.Context, tokenURL string, data url.Values) (*oauthTokenResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result oauthTokenResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if result.AccessToken == "" {
+		return nil, fmt.Errorf("no access_token in token response")
+	}
+
+	return &result, nil
 }
 
 // handleMusterAuthLogin simulates `muster auth login` by completing the OAuth
@@ -1177,13 +1195,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 			musterOAuthServerName, musterOAuthServerInfo.IssuerURL)
 	}
 
-	// Extract base URL from the endpoint (remove /mcp or /sse suffix)
-	baseURL := h.currentInstance.Endpoint
-	if strings.HasSuffix(baseURL, "/mcp") {
-		baseURL = baseURL[:len(baseURL)-4]
-	} else if strings.HasSuffix(baseURL, "/sse") {
-		baseURL = baseURL[:len(baseURL)-4]
-	}
+	baseURL := stripTransportSuffix(h.currentInstance.Endpoint)
 
 	// Get the client ID from the mock OAuth server config - this is the client muster uses to talk to Dex
 	dexClientID := musterOAuthServer.GetClientID()
@@ -1308,11 +1320,8 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	if dexAuthURL == "" {
-		// Read the response body for more details
-		bodyBytes := make([]byte, 4096)
-		n, _ := resp.Body.Read(bodyBytes)
-		bodyStr := string(bodyBytes[:n])
-		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, bodyStr)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, string(body))
 	}
 
 	if h.debug {
@@ -1408,51 +1417,21 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	// Step 5: Exchange the muster auth code for a muster access token at /oauth/token.
 	// This stores the upstream provider token under the muster access token key,
 	// which is required for the access-token-keyed provider token lookup after refresh.
-	tokenURL := baseURL + "/oauth/token"
-	tokenData := url.Values{
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {musterAuthCode},
 		"redirect_uri":  {musterRedirectURI},
 		"client_id":     {registeredClientID},
 		"code_verifier": {pkce.CodeVerifier},
-	}
-
-	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(tokenData.Encode()))
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create token request: %w", err)
-	}
-	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	tokenClient := &http.Client{Timeout: 30 * time.Second}
-	tokenResp, err := tokenClient.Do(tokenReq)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange request failed: %w", err)
-	}
-	defer tokenResp.Body.Close()
-
-	if tokenResp.StatusCode != http.StatusOK {
-		bodyBytes := make([]byte, 4096)
-		n, _ := tokenResp.Body.Read(bodyBytes)
-		return nil, fmt.Errorf("token exchange failed (status %d): %s", tokenResp.StatusCode, string(bodyBytes[:n]))
-	}
-
-	var tokenResult struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenResult); err != nil {
-		return nil, fmt.Errorf("failed to decode token response: %w", err)
-	}
-
-	if tokenResult.AccessToken == "" {
-		return nil, fmt.Errorf("no access_token in token response")
+		return nil, fmt.Errorf("code exchange failed: %w", err)
 	}
 
 	if h.debug {
 		h.logger.Debug("🔐 Obtained muster access token, reconnecting MCP client\n")
 	}
 
-	// Update the instance with tokens and client ID for future re-auth
 	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
 	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
 	h.currentInstance.MusterOAuthClientID = registeredClientID

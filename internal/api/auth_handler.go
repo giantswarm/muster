@@ -22,8 +22,7 @@ type AuthHandler interface {
 	// HasCredentials reports whether usable credentials exist for the
 	// endpoint: either a non-expired access token or an expired token with
 	// a refresh token that the mcp-go transport can use for automatic
-	// refresh. Use this instead of HasValidToken to avoid unnecessary
-	// interactive login when a refresh token is available.
+	// refresh.
 	HasCredentials(endpoint string) bool
 
 	// GetBearerToken returns a valid Bearer token for the endpoint.

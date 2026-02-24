@@ -797,7 +797,8 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 		return nil
 	}
 	token, err := s.tokenStore.GetToken(ctx, bearerToken)
-	if err != nil || token == nil {
+	if err != nil {
+		logging.Warn("OAuth", "SSO: Failed to get provider token from store: %v", err)
 		return nil
 	}
 	return token
@@ -810,7 +811,7 @@ func extractBearerToken(r *http.Request) string {
 		return ""
 	}
 	const prefix = "Bearer "
-	if len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
+	if len(auth) >= len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
 		return auth[len(prefix):]
 	}
 	return ""

@@ -134,10 +134,8 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	// refresh transparently. Falls back to interactive login on 401.
 	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		// Non-auth errors (e.g. aggregator unreachable) are degraded to a
-		// warning so the user still sees that aggregator login succeeded.
-		authPrint("\nWarning: Could not get MCP server status: %v\n", err)
-		authPrintln("Aggregator authentication complete.")
+		authPrint("\nWarning: Could not reach aggregator: %v\n", err)
+		authPrintln("Check your network connection and try again.")
 		return nil
 	}
 
