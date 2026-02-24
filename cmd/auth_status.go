@@ -147,8 +147,7 @@ func printConnectionError(err error, endpoint string) {
 }
 
 // showMCPServerStatus shows the authentication status of a specific MCP server.
-// The mcp-go transport handles token refresh automatically, so no local
-// HasValidToken gate is needed.
+// The mcp-go transport handles token refresh automatically.
 func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
 	authStatus, err := getAuthStatusFromAggregator(ctx, handler, aggregatorEndpoint)
 	if err != nil {

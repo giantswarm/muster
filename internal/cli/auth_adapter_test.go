@@ -36,7 +36,7 @@ func TestNewAuthAdapter(t *testing.T) {
 	})
 }
 
-func TestAuthAdapter_HasValidToken(t *testing.T) {
+func TestAuthAdapter_HasCredentials(t *testing.T) {
 	adapter, err := NewAuthAdapter()
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
@@ -44,8 +44,8 @@ func TestAuthAdapter_HasValidToken(t *testing.T) {
 	defer adapter.Close()
 
 	// Without any tokens, should return false
-	if adapter.HasValidToken("https://example.com") {
-		t.Error("expected HasValidToken to return false when no token exists")
+	if adapter.HasCredentials("https://example.com") {
+		t.Error("expected HasCredentials to return false when no token exists")
 	}
 }
 

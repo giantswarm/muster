@@ -244,19 +244,14 @@ func (a *AuthAdapter) CheckAuthRequired(ctx context.Context, endpoint string) (b
 	return state == oauth.AuthStatePendingAuth, nil
 }
 
-// HasValidToken checks if a valid cached token exists for the endpoint.
-func (a *AuthAdapter) HasValidToken(endpoint string) bool {
+// HasCredentials reports whether usable credentials exist for the endpoint:
+// a valid access token or an expired token with a refresh token.
+func (a *AuthAdapter) HasCredentials(endpoint string) bool {
 	mgr, err := a.getOrCreateManager(endpoint)
 	if err != nil {
 		return false
 	}
-
-	// Check connection will check for valid tokens
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultConnectionCheckTimeout)
-	defer cancel()
-
-	state, _ := mgr.CheckConnection(ctx, endpoint)
-	return state == oauth.AuthStateAuthenticated
+	return mgr.HasCredentials(endpoint)
 }
 
 // GetBearerToken returns a valid Bearer token for the endpoint.

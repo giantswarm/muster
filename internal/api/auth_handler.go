@@ -19,8 +19,12 @@ type AuthHandler interface {
 	// Returns true if 401 was received and OAuth flow should be initiated.
 	CheckAuthRequired(ctx context.Context, endpoint string) (bool, error)
 
-	// HasValidToken checks if a valid cached token exists for the endpoint.
-	HasValidToken(endpoint string) bool
+	// HasCredentials reports whether usable credentials exist for the
+	// endpoint: either a non-expired access token or an expired token with
+	// a refresh token that the mcp-go transport can use for automatic
+	// refresh. Use this instead of HasValidToken to avoid unnecessary
+	// interactive login when a refresh token is available.
+	HasCredentials(endpoint string) bool
 
 	// GetBearerToken returns a valid Bearer token for the endpoint.
 	// Returns an error if not authenticated.
