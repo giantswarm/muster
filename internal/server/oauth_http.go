@@ -25,6 +25,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/giantswarm/mcp-oauth/storage/valkey"
+	"golang.org/x/oauth2"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
@@ -321,17 +322,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Retrieve the user's stored OAuth token for SSO forwarding.
-		token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
-		if err != nil {
-			// Log at WARN level to help diagnose SSO issues
-			logging.Warn("OAuth", "SSO: Failed to get token from store for email=%s: %v",
-				truncateEmail(userInfo.Email), err)
-			next.ServeHTTP(w, r)
-			return
-		}
+		// Look up the upstream provider token by the muster access token.
+		// After a token refresh, only the access-token-keyed entry in the
+		// token store has the fresh upstream token (with a valid ID token);
+		// the email-keyed entry that was used before is never updated by
+		// mcp-oauth's RefreshAccessToken and becomes stale.
+		token := s.getProviderToken(ctx, r)
 		if token == nil {
-			// This is a critical path for SSO - log at WARN to help diagnose
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
 			next.ServeHTTP(w, r)
@@ -339,10 +336,8 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		// Extract the ID token for downstream OIDC authentication.
-		// The ID token is required for SSO forwarding to downstream MCP servers.
 		idToken := GetIDToken(token)
 		if idToken == "" {
-			// This is a critical path for SSO - log at WARN to help diagnose
 			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
 				truncateEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
 			next.ServeHTTP(w, r)
@@ -353,10 +348,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		ctx = ContextWithAccessToken(ctx, idToken)
 
 		// Also inject the upstream access token for refresh detection.
-		// The access token changes on every refresh, while the ID token is preserved.
-		// By tracking the access token, we can detect both:
-		// - Re-authentication (new ID token from IdP)
-		// - Token refresh (new access token, preserved ID token)
+		// The access token changes on every token refresh, while the ID token
+		// is preserved during refresh (per OAuth spec). By tracking the access
+		// token, we can detect both re-authentication AND server-side token refresh.
 		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
 
@@ -787,6 +781,40 @@ func truncateEmail(email string) string {
 		return email[:logEmailPrefixLength]
 	}
 	return email
+}
+
+// getProviderToken retrieves the upstream provider token for SSO forwarding.
+//
+// It looks up the token by the muster access token (bearer token from the
+// Authorization header). The mcp-oauth token store maps muster access tokens
+// to upstream provider tokens. This is the only lookup that returns fresh
+// tokens after a refresh -- mcp-oauth's RefreshAccessToken stores the new
+// upstream provider token under the new access token key but does NOT update
+// the email-keyed entry that was used previously.
+func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request) *oauth2.Token {
+	bearerToken := extractBearerToken(r)
+	if bearerToken == "" {
+		return nil
+	}
+	token, err := s.tokenStore.GetToken(ctx, bearerToken)
+	if err != nil {
+		logging.Warn("OAuth", "SSO: Failed to get provider token from store: %v", err)
+		return nil
+	}
+	return token
+}
+
+// extractBearerToken extracts the bearer token from the Authorization header.
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return ""
+	}
+	const prefix = "Bearer "
+	if len(auth) >= len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
+		return auth[len(prefix):]
+	}
+	return ""
 }
 
 // runSessionTrackerCleanup runs a background goroutine that periodically removes

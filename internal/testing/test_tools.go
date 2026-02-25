@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -1054,84 +1055,42 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		h.logger.Debug("🔄 Muster re-auth: Current session ID: %s...\n", currentSessionID[:min(16, len(currentSessionID))])
 	}
 
-	// Step 2: Find the mock OAuth server that is used as muster's OAuth server
-	var musterOAuthServer *mock.OAuthServer
-	var musterOAuthServerName string
-	for name, info := range h.currentInstance.MockOAuthServers {
-		// Check if this OAuth server has an access token (indicates it's muster's OAuth server)
-		if info.AccessToken != "" {
-			musterOAuthServer = h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
-			musterOAuthServerName = name
-			if h.debug {
-				h.logger.Debug("🔄 Found muster OAuth server: %s (issuer: %s)\n", name, info.IssuerURL)
-			}
-			break
-		}
+	// Step 2: Use the refresh token from the initial login to get a new access token.
+	// This avoids re-registering a client and hitting rate limits.
+	if h.currentInstance.MusterOAuthRefreshToken == "" || h.currentInstance.MusterOAuthClientID == "" {
+		return nil, fmt.Errorf("no refresh token or client ID from initial login (run test_muster_auth_login first)")
 	}
 
-	if musterOAuthServer == nil {
-		return nil, fmt.Errorf("no muster OAuth server found (need a mock OAuth server with use_as_muster_oauth_server: true)")
-	}
+	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
 
-	// Step 3: Generate a NEW access token from the mock OAuth server
-	// This token will be different from the initial token.
-	// Use all accepted scopes from the OAuth server to ensure downstream MCP servers
-	// can validate tokens with their required scopes (e.g., mcp:admin)
-	clientID := musterOAuthServer.GetClientID()
-	scopes := musterOAuthServer.GetScopes()
-	scope := strings.Join(scopes, " ")
-	newTokenResp := musterOAuthServer.GenerateTestToken(clientID, scope)
-	if newTokenResp == nil {
-		return nil, fmt.Errorf("failed to generate new access token")
-	}
-
-	newAccessToken := newTokenResp.AccessToken
-	if h.debug {
-		h.logger.Debug("🔄 Generated new access token from %s: %s...\n", musterOAuthServerName, newAccessToken[:min(16, len(newAccessToken))])
-	}
-
-	// Step 4: Reconnect the MCP client with the new access token but SAME session ID
-	err := h.mcpClient.ReconnectWithSession(ctx, h.currentInstance.Endpoint, newAccessToken, currentSessionID)
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {h.currentInstance.MusterOAuthRefreshToken},
+		"client_id":     {h.currentInstance.MusterOAuthClientID},
+	})
 	if err != nil {
+		return nil, fmt.Errorf("token refresh failed: %w", err)
+	}
+
+	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
+	if tokenResult.RefreshToken != "" {
+		h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
+	}
+
+	if h.debug {
+		h.logger.Debug("🔄 Obtained new muster access token via refresh token\n")
+	}
+
+	// Step 3: Reconnect the MCP client with the new access token but SAME session ID
+	if err := h.mcpClient.ReconnectWithSession(ctx, h.currentInstance.Endpoint, tokenResult.AccessToken, currentSessionID); err != nil {
 		return nil, fmt.Errorf("failed to reconnect MCP client with new token: %w", err)
 	}
 
-	// Verify the session ID is still the same
 	newSessionID := h.mcpClient.GetSessionID()
-	sessionPreserved := newSessionID == currentSessionID
 
 	if h.debug {
 		h.logger.Debug("✅ Muster re-auth complete. Session preserved: %v (id: %s...)\n",
-			sessionPreserved, newSessionID[:min(16, len(newSessionID))])
-	}
-
-	// Step 5: Re-authenticate to SSO-enabled servers using the OAuth callback flow
-	// This uses the session-level OAuth manager which stores tokens per-session.
-	// Find the first SSO-enabled server and authenticate to it.
-	if h.debug {
-		h.logger.Debug("🔄 Re-authenticating to SSO servers after muster re-auth...\n")
-	}
-
-	// Find an SSO-enabled server to re-authenticate
-	var ssoServerName string
-	for name := range h.currentInstance.MockHTTPServers {
-		ssoServerName = name
-		break
-	}
-
-	if ssoServerName != "" {
-		if h.debug {
-			h.logger.Debug("🔄 Re-authenticating to SSO server: %s\n", ssoServerName)
-		}
-		_, err := h.handleSimulateOAuthCallback(ctx, map[string]interface{}{
-			"server": ssoServerName,
-		})
-		if err != nil {
-			if h.debug {
-				h.logger.Debug("⚠️ SSO server re-auth failed (expected if server requires different issuer): %v\n", err)
-			}
-			// Don't fail - the scenario might want to test this failure case
-		}
+			newSessionID == currentSessionID, newSessionID[:min(16, len(newSessionID))])
 	}
 
 	return map[string]interface{}{
@@ -1139,8 +1098,48 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"message":           "Successfully simulated muster re-authentication with new token",
 		"session_id":        currentSessionID[:min(32, len(currentSessionID))],
 		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
-		"session_preserved": sessionPreserved,
+		"session_preserved": newSessionID == currentSessionID,
 	}, nil
+}
+
+// oauthTokenResult holds the tokens returned by an OAuth token endpoint.
+type oauthTokenResult struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// exchangeOAuthToken POSTs form data to the given token URL and decodes the
+// access/refresh token response. It is shared between handleMusterAuthLogin
+// (authorization_code grant) and handleSimulateMusterReauth (refresh_token grant).
+func exchangeOAuthToken(ctx context.Context, tokenURL string, data url.Values) (*oauthTokenResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("token request failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result oauthTokenResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if result.AccessToken == "" {
+		return nil, fmt.Errorf("no access_token in token response")
+	}
+
+	return &result, nil
 }
 
 // handleMusterAuthLogin simulates `muster auth login` by completing the OAuth
@@ -1185,13 +1184,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 			musterOAuthServerName, musterOAuthServerInfo.IssuerURL)
 	}
 
-	// Extract base URL from the endpoint (remove /mcp or /sse suffix)
-	baseURL := h.currentInstance.Endpoint
-	if strings.HasSuffix(baseURL, "/mcp") {
-		baseURL = baseURL[:len(baseURL)-4]
-	} else if strings.HasSuffix(baseURL, "/sse") {
-		baseURL = baseURL[:len(baseURL)-4]
-	}
+	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
 
 	// Get the client ID from the mock OAuth server config - this is the client muster uses to talk to Dex
 	dexClientID := musterOAuthServer.GetClientID()
@@ -1236,18 +1229,16 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 	defer registerResp.Body.Close()
 
-	// Read the registration response to get the assigned client_id
+	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(registerResp.Body, 4096))
+		return nil, fmt.Errorf("client registration failed (status %d): %s", registerResp.StatusCode, string(body))
+	}
+
 	var registrationResult struct {
 		ClientID string `json:"client_id"`
 	}
 	if err := json.NewDecoder(registerResp.Body).Decode(&registrationResult); err != nil {
-		// If we can't decode, try to read the raw body for debugging
-		registerResp.Body.Close()
-		return nil, fmt.Errorf("failed to decode registration response (status: %d): %w", registerResp.StatusCode, err)
-	}
-
-	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("client registration failed with status: %d", registerResp.StatusCode)
+		return nil, fmt.Errorf("failed to decode registration response: %w", err)
 	}
 
 	// Use the registered client ID (muster may assign its own)
@@ -1316,11 +1307,8 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	if dexAuthURL == "" {
-		// Read the response body for more details
-		bodyBytes := make([]byte, 4096)
-		n, _ := resp.Body.Read(bodyBytes)
-		bodyStr := string(bodyBytes[:n])
-		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, bodyStr)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, string(body))
 	}
 
 	if h.debug {
@@ -1383,12 +1371,28 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		h.logger.Debug("🔐 Callback response status: %d\n", callbackResp.StatusCode)
 	}
 
-	// Check for success (200 OK or redirect to success page)
-	if callbackResp.StatusCode >= 200 && callbackResp.StatusCode < 400 {
-		if h.debug {
-			h.logger.Debug("🔐 Muster auth login succeeded - ID token stored in muster's token store\n")
-		}
+	// The callback should redirect with a muster authorization code.
+	// We need to exchange that code for a muster access token so that
+	// subsequent MCP requests use a token that is stored in muster's
+	// token store (which maps access tokens to upstream provider tokens).
+	if callbackResp.StatusCode < 200 || callbackResp.StatusCode >= 400 {
+		return nil, fmt.Errorf("muster callback returned error status: %d", callbackResp.StatusCode)
+	}
 
+	// Extract the muster auth code from the redirect Location header
+	location := callbackResp.Header.Get("Location")
+	musterAuthCode := ""
+	if location != "" {
+		parsedLocation, err := url.Parse(location)
+		if err == nil {
+			musterAuthCode = parsedLocation.Query().Get("code")
+		}
+	}
+
+	if musterAuthCode == "" {
+		if h.debug {
+			h.logger.Debug("🔐 No muster auth code in redirect, falling back to ID token store only\n")
+		}
 		return map[string]interface{}{
 			"success":      true,
 			"message":      "Muster auth login completed - ID token stored for SSO forwarding",
@@ -1397,5 +1401,40 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		}, nil
 	}
 
-	return nil, fmt.Errorf("muster callback returned error status: %d", callbackResp.StatusCode)
+	// Step 5: Exchange the muster auth code for a muster access token at /oauth/token.
+	// This stores the upstream provider token under the muster access token key,
+	// which is required for the access-token-keyed provider token lookup after refresh.
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {musterAuthCode},
+		"redirect_uri":  {musterRedirectURI},
+		"client_id":     {registeredClientID},
+		"code_verifier": {pkce.CodeVerifier},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("code exchange failed: %w", err)
+	}
+
+	if h.debug {
+		h.logger.Debug("🔐 Obtained muster access token, reconnecting MCP client\n")
+	}
+
+	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
+	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
+	h.currentInstance.MusterOAuthClientID = registeredClientID
+	if h.mcpClient != nil {
+		h.mcpClient.Close()
+		newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
+		if err := newClient.ConnectWithAuth(ctx, h.currentInstance.Endpoint, tokenResult.AccessToken); err != nil {
+			return nil, fmt.Errorf("failed to reconnect with muster access token: %w", err)
+		}
+		h.mcpClient = newClient
+	}
+
+	return map[string]interface{}{
+		"success":      true,
+		"message":      "Muster auth login completed - ID token stored for SSO forwarding",
+		"oauth_server": musterOAuthServerName,
+		"issuer_url":   musterOAuthServerInfo.IssuerURL,
+	}, nil
 }
