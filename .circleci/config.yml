@@ -68,7 +68,7 @@ workflows:
               ignore:
                 - main
 
-      # Branch: push chart after tests + amd64 image
+      # Branch: push chart after tests
       - architect/push-to-app-catalog:
           executor: app-build-suite
           context: architect
@@ -78,13 +78,12 @@ workflows:
           chart: muster
           requires:
             - execute chart tests
-            - push-to-registries
           filters:
             branches:
               ignore:
                 - main
 
-      # Tag: push chart after tests + multi-arch image
+      # Tag: push chart after tests
       - architect/push-to-app-catalog:
           executor: app-build-suite
           context: architect
@@ -94,7 +93,6 @@ workflows:
           chart: muster
           requires:
             - execute chart tests
-            - push-to-registries-release
           filters:
             tags:
               only: /^v.*/
