@@ -26,10 +26,26 @@ workflows:
               ignore:
                 - main
 
-      # Tag builds: full multi-arch (amd64 + arm64)
+      # Tag builds: push multi-arch image to gsoci (primary registry).
+      # Chart push depends on this completing successfully.
       - architect/push-to-registries-multiarch:
           context: architect
-          name: push-to-registries-release
+          name: push-to-gsoci-release
+          registries-data: "public gsoci.azurecr.io ACR_GSOCI_USERNAME ACR_GSOCI_PASSWORD true"
+          requires:
+            - go-build
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+
+      # Tag builds: push multi-arch image to all registries (including China mirrors).
+      # Runs in parallel, does NOT block the chart push. If a mirror is unreachable,
+      # only mirror-dependent clusters are affected, not the primary delivery pipeline.
+      - architect/push-to-registries-multiarch:
+          context: architect
+          name: push-to-all-registries-release
           requires:
             - go-build
           filters:
@@ -84,7 +100,7 @@ workflows:
               ignore:
                 - main
 
-      # Tag: push chart after tests + multi-arch image
+      # Tag: push chart after tests + gsoci image
       - architect/push-to-app-catalog:
           executor: app-build-suite
           context: architect
@@ -94,7 +110,7 @@ workflows:
           chart: muster
           requires:
             - execute chart tests
-            - push-to-registries-release
+            - push-to-gsoci-release
           filters:
             tags:
               only: /^v.*/
