@@ -134,8 +134,8 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	// refresh transparently. Falls back to interactive login on 401.
 	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
 	if err != nil {
-		authPrint("\nWarning: Could not reach aggregator: %v\n", err)
-		authPrintln("Check your network connection and try again.")
+		authPrint("\nWarning: Could not verify authentication status: %v\n", err)
+		authPrintln("Authentication may have succeeded. Please retry if issues persist.")
 		return nil
 	}
 

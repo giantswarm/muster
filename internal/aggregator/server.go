@@ -15,6 +15,7 @@ import (
 	"github.com/giantswarm/muster/internal/config"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -1607,10 +1608,7 @@ type ProtectedResourceMetadata struct {
 // the server's /.well-known/oauth-protected-resource endpoint.
 // This follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
 func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*ProtectedResourceMetadata, error) {
-	// Build the resource metadata URL
-	baseURL := strings.TrimSuffix(serverURL, "/")
-	// Remove /mcp suffix if present (common for MCP servers)
-	baseURL = strings.TrimSuffix(baseURL, "/mcp")
+	baseURL := pkgoauth.NormalizeServerURL(serverURL)
 	resourceMetadataURL := baseURL + "/.well-known/oauth-protected-resource"
 
 	req, err := http.NewRequestWithContext(ctx, "GET", resourceMetadataURL, nil)

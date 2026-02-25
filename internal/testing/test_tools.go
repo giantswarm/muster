@@ -1061,7 +1061,7 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		return nil, fmt.Errorf("no refresh token or client ID from initial login (run test_muster_auth_login first)")
 	}
 
-	baseURL := stripTransportSuffix(h.currentInstance.Endpoint)
+	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
 
 	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
 		"grant_type":    {"refresh_token"},
@@ -1100,17 +1100,6 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
 		"session_preserved": newSessionID == currentSessionID,
 	}, nil
-}
-
-// stripTransportSuffix removes a trailing /mcp or /sse path segment from an
-// endpoint URL, returning the bare base URL suitable for OAuth endpoints.
-func stripTransportSuffix(endpoint string) string {
-	for _, suffix := range []string{"/mcp", "/sse"} {
-		if s := strings.TrimSuffix(endpoint, suffix); s != endpoint {
-			return s
-		}
-	}
-	return endpoint
 }
 
 // oauthTokenResult holds the tokens returned by an OAuth token endpoint.
@@ -1195,7 +1184,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 			musterOAuthServerName, musterOAuthServerInfo.IssuerURL)
 	}
 
-	baseURL := stripTransportSuffix(h.currentInstance.Endpoint)
+	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
 
 	// Get the client ID from the mock OAuth server config - this is the client muster uses to talk to Dex
 	dexClientID := musterOAuthServer.GetClientID()
@@ -1240,18 +1229,16 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 	defer registerResp.Body.Close()
 
-	// Read the registration response to get the assigned client_id
+	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(registerResp.Body, 4096))
+		return nil, fmt.Errorf("client registration failed (status %d): %s", registerResp.StatusCode, string(body))
+	}
+
 	var registrationResult struct {
 		ClientID string `json:"client_id"`
 	}
 	if err := json.NewDecoder(registerResp.Body).Decode(&registrationResult); err != nil {
-		// If we can't decode, try to read the raw body for debugging
-		registerResp.Body.Close()
-		return nil, fmt.Errorf("failed to decode registration response (status: %d): %w", registerResp.StatusCode, err)
-	}
-
-	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("client registration failed with status: %d", registerResp.StatusCode)
+		return nil, fmt.Errorf("failed to decode registration response: %w", err)
 	}
 
 	// Use the registered client ID (muster may assign its own)

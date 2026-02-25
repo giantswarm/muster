@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -199,9 +198,7 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 // discoverFromResourceMetadata fetches /.well-known/oauth-protected-resource from
 // the server's base URL (RFC 9728) and extracts the authorization server issuer.
 func discoverFromResourceMetadata(ctx context.Context, httpClient *http.Client, serverURL string) *pkgoauth.AuthChallenge {
-	baseURL := strings.TrimSuffix(serverURL, "/")
-	baseURL = strings.TrimSuffix(baseURL, "/mcp")
-	baseURL = strings.TrimSuffix(baseURL, "/sse")
+	baseURL := pkgoauth.NormalizeServerURL(serverURL)
 	metadataURL := baseURL + "/.well-known/oauth-protected-resource"
 
 	issuer := fetchIssuerFromResourceMetadata(ctx, httpClient, metadataURL)
