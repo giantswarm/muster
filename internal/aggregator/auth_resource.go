@@ -306,12 +306,26 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 
 // establishSSOConnection attempts to establish an SSO connection to a single server.
 // This is called from handleSessionInit for each SSO-enabled server.
+//
+// This method is safe against concurrent calls (e.g., proactive SSO goroutine racing
+// with an explicit core_auth_login). It checks the session registry before attempting
+// connection and skips if the session already has an active connection.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	sessionID string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) {
+	// Guard against concurrent connection attempts. The proactive SSO goroutine
+	// (from handleSessionInit) can race with explicit core_auth_login calls.
+	if a.sessionRegistry != nil {
+		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Debug("Aggregator", "Session init: Session %s already connected to %s, skipping SSO",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			return
+		}
+	}
+
 	var result *SessionConnectionResult
 	var err error
 	var ssoMethod string
