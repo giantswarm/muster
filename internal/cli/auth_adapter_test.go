@@ -314,6 +314,84 @@ func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateSessionID(t *testing.T) {
+	t.Run("creates a new session ID in empty directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		sessionID, err := loadOrCreateSessionID(tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if sessionID == "" {
+			t.Fatal("expected non-empty session ID")
+		}
+
+		// Verify the file was created
+		data, err := os.ReadFile(filepath.Join(tmpDir, SessionIDFilename))
+		if err != nil {
+			t.Fatalf("session ID file not created: %v", err)
+		}
+		if string(data) != sessionID {
+			t.Errorf("file content %q does not match returned session ID %q", string(data), sessionID)
+		}
+	})
+
+	t.Run("returns existing session ID on subsequent calls", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		first, err := loadOrCreateSessionID(tmpDir)
+		if err != nil {
+			t.Fatalf("first call failed: %v", err)
+		}
+
+		second, err := loadOrCreateSessionID(tmpDir)
+		if err != nil {
+			t.Fatalf("second call failed: %v", err)
+		}
+
+		if first != second {
+			t.Errorf("session ID changed between calls: %q vs %q", first, second)
+		}
+	})
+
+	t.Run("preserves a pre-existing session ID", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		existing := "pre-existing-session-id-12345"
+		if err := os.WriteFile(filepath.Join(tmpDir, SessionIDFilename), []byte(existing), 0600); err != nil {
+			t.Fatalf("failed to write seed file: %v", err)
+		}
+
+		got, err := loadOrCreateSessionID(tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != existing {
+			t.Errorf("expected %q, got %q", existing, got)
+		}
+	})
+}
+
+func TestLoadSessionID_MatchesAuthAdapter(t *testing.T) {
+	// LoadSessionID and NewAuthAdapterWithConfig (default) must resolve to the
+	// same token directory and therefore return the same session ID. This test
+	// guards against path-construction drift between the two code paths.
+	standaloneID, err := LoadSessionID()
+	if err != nil {
+		t.Fatalf("LoadSessionID failed: %v", err)
+	}
+
+	adapter, err := NewAuthAdapter()
+	if err != nil {
+		t.Fatalf("NewAuthAdapter failed: %v", err)
+	}
+	defer adapter.Close()
+
+	if standaloneID != adapter.sessionID {
+		t.Errorf("path-construction drift detected: LoadSessionID returned %q but AuthAdapter has %q",
+			standaloneID, adapter.sessionID)
+	}
+}
+
 // writeTestTokenFile writes a StoredToken as a JSON file in the token store dir
 // using the same key derivation the token store uses (SHA256 of server URL).
 func writeTestTokenFile(t *testing.T, dir string, tok map[string]interface{}, serverURL string) {
