@@ -1,6 +1,9 @@
 package oauth
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +18,17 @@ const DefaultExpiryMargin = 30 * time.Second
 // relative to the user's home directory. This follows XDG conventions.
 // This constant is shared across all OAuth implementations for consistency.
 const DefaultTokenStorageDir = ".config/muster/tokens"
+
+// DefaultTokenDir returns the absolute path to the default token storage
+// directory (~/.config/muster/tokens). It does not create the directory;
+// callers that need it to exist should call os.MkdirAll themselves.
+func DefaultTokenDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, DefaultTokenStorageDir), nil
+}
 
 // DefaultSessionDuration is the expected maximum session duration before
 // re-authentication is required. This should match the server-side

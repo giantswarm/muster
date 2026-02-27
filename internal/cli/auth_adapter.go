@@ -86,11 +86,11 @@ func NewAuthAdapter() (*AuthAdapter, error) {
 func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 	tokenDir := cfg.TokenStorageDir
 	if tokenDir == "" {
-		homeDir, err := os.UserHomeDir()
+		var err error
+		tokenDir, err = pkgoauth.DefaultTokenDir()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
+			return nil, err
 		}
-		tokenDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	// Ensure the token directory exists

@@ -282,6 +282,22 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 // exposing only the authenticate_muster tool, then upgrades to the full server
 // after authentication completes.
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	// Create an AuthAdapter to get the persistent session ID. This uses the
+	// same code path as setupAgentAuthentication, ensuring the session ID is
+	// resolved identically regardless of agent mode.
+	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
+		NoSilentRefresh: !agentSilentAuth,
+	})
+	if err != nil {
+		logger.Debug("Could not initialize auth adapter: %v", err)
+	} else {
+		defer adapter.Close()
+		adapter.Register()
+		if sessionID := adapter.GetSessionID(); sessionID != "" {
+			client.SetHeader(api.ClientSessionIDHeader, sessionID)
+		}
+	}
+
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
 		CallbackPort: DefaultOAuthCallbackPort,
