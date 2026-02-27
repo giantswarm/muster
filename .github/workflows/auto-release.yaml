@@ -65,7 +65,7 @@ jobs:
 
       - name: Install GoReleaser
         if: steps.check_tag.outputs.skip != 'true'
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
@@ -111,7 +111,7 @@ jobs:
         if: steps.check_tag.outputs.skip != 'true'
         continue-on-error: true
         id: goreleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
