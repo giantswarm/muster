@@ -79,11 +79,11 @@ type TokenStoreConfig struct {
 func NewTokenStore(cfg TokenStoreConfig) (*TokenStore, error) {
 	storageDir := cfg.StorageDir
 	if storageDir == "" {
-		homeDir, err := os.UserHomeDir()
+		var err error
+		storageDir, err = pkgoauth.DefaultTokenDir()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
+			return nil, err
 		}
-		storageDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	store := &TokenStore{

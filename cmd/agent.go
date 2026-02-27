@@ -286,6 +286,8 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	// triggerSessionInitIfNeeded can initiate proactive SSO on the first request.
 	if sessionID, err := cli.LoadSessionID(); err == nil && sessionID != "" {
 		client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	} else if err != nil {
+		logger.Debug("Could not load session ID: %v", err)
 	}
 
 	// First, check if the server requires authentication

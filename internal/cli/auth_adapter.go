@@ -86,11 +86,11 @@ func NewAuthAdapter() (*AuthAdapter, error) {
 func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 	tokenDir := cfg.TokenStorageDir
 	if tokenDir == "" {
-		homeDir, err := os.UserHomeDir()
+		var err error
+		tokenDir, err = pkgoauth.DefaultTokenDir()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %w", err)
+			return nil, err
 		}
-		tokenDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	// Ensure the token directory exists
@@ -117,11 +117,10 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 // alternative to creating a full AuthAdapter when only the session ID is needed
 // (e.g., for setting the X-Muster-Session-ID header in MCP server mode).
 func LoadSessionID() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	tokenDir, err := pkgoauth.DefaultTokenDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", err
 	}
-	tokenDir := filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 
 	if err := os.MkdirAll(tokenDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create token storage directory: %w", err)

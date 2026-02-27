@@ -2,8 +2,6 @@ package oauth
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 
@@ -24,11 +22,11 @@ func SetupOAuthConfig(serverURL string) (*transport.OAuthConfig, *AgentTokenStor
 // If tokenStorageDir is empty, defaults to ~/.config/muster/tokens/.
 func SetupOAuthConfigWithDir(serverURL, tokenStorageDir string) (*transport.OAuthConfig, *AgentTokenStore, error) {
 	if tokenStorageDir == "" {
-		homeDir, err := os.UserHomeDir()
+		var err error
+		tokenStorageDir, err = pkgoauth.DefaultTokenDir()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get home directory: %w", err)
+			return nil, nil, err
 		}
-		tokenStorageDir = filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
 	}
 
 	tokenStore, err := NewTokenStore(TokenStoreConfig{

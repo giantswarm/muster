@@ -371,27 +371,6 @@ func TestLoadOrCreateSessionID(t *testing.T) {
 	})
 }
 
-func TestLoadSessionID_MatchesAuthAdapter(t *testing.T) {
-	// LoadSessionID and NewAuthAdapterWithConfig (default) must resolve to the
-	// same token directory and therefore return the same session ID. This test
-	// guards against path-construction drift between the two code paths.
-	standaloneID, err := LoadSessionID()
-	if err != nil {
-		t.Fatalf("LoadSessionID failed: %v", err)
-	}
-
-	adapter, err := NewAuthAdapter()
-	if err != nil {
-		t.Fatalf("NewAuthAdapter failed: %v", err)
-	}
-	defer adapter.Close()
-
-	if standaloneID != adapter.sessionID {
-		t.Errorf("path-construction drift detected: LoadSessionID returned %q but AuthAdapter has %q",
-			standaloneID, adapter.sessionID)
-	}
-}
-
 // writeTestTokenFile writes a StoredToken as a JSON file in the token store dir
 // using the same key derivation the token store uses (SHA256 of server URL).
 func writeTestTokenFile(t *testing.T, dir string, tok map[string]interface{}, serverURL string) {
