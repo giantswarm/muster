@@ -264,6 +264,17 @@ func EstablishSessionConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, error) {
+	// Guard against concurrent connection attempts. The proactive SSO goroutine
+	// can race with explicit core_auth_login calls; both invoke this function.
+	// Check early to avoid creating redundant MCP clients.
+	if a.sessionRegistry != nil {
+		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token forwarding",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+		}
+	}
+
 	// Try to get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
@@ -475,6 +486,15 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
+	}
+
+	// Guard against concurrent connection attempts (same race as token forwarding).
+	if a.sessionRegistry != nil {
+		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
+			logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token exchange",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+		}
 	}
 
 	// Get the OAuth handler for token exchange
