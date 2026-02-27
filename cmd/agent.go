@@ -282,6 +282,12 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 // exposing only the authenticate_muster tool, then upgrades to the full server
 // after authentication completes.
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
+	// Load the persistent session ID and set it on the client so the server's
+	// triggerSessionInitIfNeeded can initiate proactive SSO on the first request.
+	if sessionID, err := cli.LoadSessionID(); err == nil && sessionID != "" {
+		client.SetHeader(api.ClientSessionIDHeader, sessionID)
+	}
+
 	// First, check if the server requires authentication
 	authManager, err := oauth.NewAuthManager(oauth.AuthManagerConfig{
 		CallbackPort: DefaultOAuthCallbackPort,

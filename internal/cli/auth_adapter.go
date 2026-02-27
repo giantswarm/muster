@@ -112,6 +112,24 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 	}, nil
 }
 
+// LoadSessionID loads the persistent session ID from the default token storage
+// directory, creating a new one if it doesn't exist yet. This is a lightweight
+// alternative to creating a full AuthAdapter when only the session ID is needed
+// (e.g., for setting the X-Muster-Session-ID header in MCP server mode).
+func LoadSessionID() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	tokenDir := filepath.Join(homeDir, pkgoauth.DefaultTokenStorageDir)
+
+	if err := os.MkdirAll(tokenDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create token storage directory: %w", err)
+	}
+
+	return loadOrCreateSessionID(tokenDir)
+}
+
 // loadOrCreateSessionID loads the session ID from the storage directory,
 // or generates and persists a new one if it doesn't exist.
 // This enables persistent session identity across CLI invocations.
