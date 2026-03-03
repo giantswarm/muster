@@ -14,7 +14,9 @@ permissions:
 jobs:
   auto_release:
     name: Auto Release
-    if: github.event.pull_request.merged
+    if: >-
+      github.event.pull_request.merged &&
+      !startsWith(github.event.pull_request.title, \'Release v\')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -83,9 +85,13 @@ jobs:
         id: version
         run: |
           set -e
-          # Get the latest tag, defaulting to v0.0.0 if none exists
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null \
-            || echo "v0.0.0")
+          # Use version-aware sorting to find the semantically highest tag,
+          # not just the nearest reachable one. git describe can pick the
+          # wrong tag when multiple tags point to the same commit.
+          LATEST_TAG=$(git tag --sort=-version:refname | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
           # Remove 'v' prefix
           LATEST_VERSION=${LATEST_TAG#v}
           # Split into major, minor, patch
