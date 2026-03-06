@@ -11,6 +11,19 @@ import (
 )
 
 // =============================================================================
+// mockAuthRequiredError - Mock error satisfying api.IsAuthRequiredError
+// =============================================================================
+
+// mockAuthRequiredError simulates mcpserver.AuthRequiredError for testing.
+// It satisfies the api.authRequiredError interface via the AuthRequired() method.
+type mockAuthRequiredError struct {
+	msg string
+}
+
+func (e *mockAuthRequiredError) Error() string      { return "authentication required: " + e.msg }
+func (e *mockAuthRequiredError) AuthRequired() bool { return true }
+
+// =============================================================================
 // MockOrchestratorAPI - Shared orchestrator API mock for all tests
 // =============================================================================
 

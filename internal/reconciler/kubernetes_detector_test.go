@@ -219,8 +219,22 @@ func TestKubernetesDetectorEventHandlers(t *testing.T) {
 		t.Error("handleAdd: no event received")
 	}
 
-	// Test handleUpdate
-	detector.handleUpdate(ResourceTypeMCPServer, mcpServer, mcpServer)
+	// Test handleUpdate (with generation change to trigger event)
+	oldServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 1,
+		},
+	}
+	newServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 2,
+		},
+	}
+	detector.handleUpdate(ResourceTypeMCPServer, oldServer, newServer)
 
 	select {
 	case event := <-changeChan:
@@ -331,6 +345,123 @@ func TestKubernetesDetectorWithFakeClient(t *testing.T) {
 
 	if retrieved.Name != "test-server" {
 		t.Errorf("retrieved name = %q, want %q", retrieved.Name, "test-server")
+	}
+}
+
+// TestKubernetesDetectorHandleUpdateSkipsStatusOnly tests that status-only
+// updates (same generation) are filtered out to prevent reconciliation loops.
+func TestKubernetesDetectorHandleUpdateSkipsStatusOnly(t *testing.T) {
+	detector, err := NewKubernetesDetector(nil, "default")
+	if err != nil {
+		t.Fatalf("failed to create detector: %v", err)
+	}
+
+	detector.running = true
+	changeChan := make(chan ChangeEvent, 10)
+	detector.changeChan = changeChan
+
+	oldServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 3,
+		},
+	}
+	newServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 3, // Same generation = status-only update
+		},
+	}
+
+	detector.handleUpdate(ResourceTypeMCPServer, oldServer, newServer)
+
+	select {
+	case <-changeChan:
+		t.Error("expected no event for status-only update (same generation)")
+	case <-time.After(50 * time.Millisecond):
+		// Expected - no event should be emitted
+	}
+}
+
+// TestKubernetesDetectorHandleUpdateProcessesSpecChange tests that spec changes
+// (different generation) are processed normally.
+func TestKubernetesDetectorHandleUpdateProcessesSpecChange(t *testing.T) {
+	detector, err := NewKubernetesDetector(nil, "default")
+	if err != nil {
+		t.Fatalf("failed to create detector: %v", err)
+	}
+
+	detector.running = true
+	changeChan := make(chan ChangeEvent, 10)
+	detector.changeChan = changeChan
+
+	oldServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 1,
+		},
+	}
+	newServer := &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-server",
+			Namespace:  "default",
+			Generation: 2, // Different generation = spec change
+		},
+	}
+
+	detector.handleUpdate(ResourceTypeMCPServer, oldServer, newServer)
+
+	select {
+	case event := <-changeChan:
+		if event.Operation != OperationUpdate {
+			t.Errorf("Operation = %v, want %v", event.Operation, OperationUpdate)
+		}
+		if event.Name != "test-server" {
+			t.Errorf("Name = %q, want %q", event.Name, "test-server")
+		}
+		if event.Namespace != "default" {
+			t.Errorf("Namespace = %q, want %q", event.Namespace, "default")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("expected event for spec change (different generation)")
+	}
+}
+
+// TestKubernetesDetectorHandleUpdateInvalidObjects tests that handleUpdate
+// handles non-client.Object inputs gracefully.
+func TestKubernetesDetectorHandleUpdateInvalidObjects(t *testing.T) {
+	detector, err := NewKubernetesDetector(nil, "default")
+	if err != nil {
+		t.Fatalf("failed to create detector: %v", err)
+	}
+
+	detector.running = true
+	changeChan := make(chan ChangeEvent, 10)
+	detector.changeChan = changeChan
+
+	invalidObj := struct{ Name string }{Name: "test"}
+
+	// Should not panic with invalid old object
+	detector.handleUpdate(ResourceTypeMCPServer, invalidObj, &musterv1alpha1.MCPServer{})
+
+	select {
+	case <-changeChan:
+		t.Error("expected no event for invalid object")
+	case <-time.After(50 * time.Millisecond):
+		// Expected
+	}
+
+	// Should not panic with invalid new object
+	detector.handleUpdate(ResourceTypeMCPServer, &musterv1alpha1.MCPServer{}, invalidObj)
+
+	select {
+	case <-changeChan:
+		t.Error("expected no event for invalid object")
+	case <-time.After(50 * time.Millisecond):
+		// Expected
 	}
 }
 

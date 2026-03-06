@@ -245,6 +245,41 @@ func TestMCPServerReconciler_ReconcileUpdateNoChange(t *testing.T) {
 	}
 }
 
+func TestMCPServerReconciler_ReconcileCreateAuthRequired(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+
+	// Simulate AuthRequiredError from StartService
+	orchAPI.StartError = fmt.Errorf("failed to start service: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "remote-server",
+		Type:      "streamable-http",
+		URL:       "https://example.com/mcp",
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    "remote-server",
+		Attempt: 1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Auth Required should be treated as success, not an error
+	if result.Error != nil {
+		t.Errorf("expected no error for auth required state, got: %v", result.Error)
+	}
+	if result.Requeue {
+		t.Error("expected no requeue for auth required state")
+	}
+}
+
 func TestMCPServerReconciler_ReconcileStartError(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
@@ -312,6 +347,55 @@ func TestMCPServerReconciler_ReconcileStopError(t *testing.T) {
 	}
 	if !result.Requeue {
 		t.Error("expected requeue on stop error")
+	}
+}
+
+func TestMCPServerReconciler_ReconcileUpdateAuthRequired(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+
+	// Add existing service with old configuration
+	registry.AddService("remote-server", &MockServiceInfo{
+		Name:        "remote-server",
+		ServiceType: api.TypeMCPServer,
+		State:       api.StateRunning,
+		Health:      api.HealthHealthy,
+		ServiceData: map[string]interface{}{
+			"url":       "https://old-url.com/mcp",
+			"command":   "",
+			"type":      "streamable-http",
+			"autoStart": true,
+		},
+	})
+
+	// Simulate AuthRequiredError from RestartService
+	orchAPI.RestartError = fmt.Errorf("failed to restart: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "remote-server",
+		Type:      "streamable-http",
+		URL:       "https://new-url.com/mcp", // Changed URL to trigger restart
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    "remote-server",
+		Attempt: 1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Auth Required after config update should be treated as success
+	if result.Error != nil {
+		t.Errorf("expected no error for auth required after restart, got: %v", result.Error)
+	}
+	if result.Requeue {
+		t.Error("expected no requeue for auth required after restart")
 	}
 }
 

@@ -59,6 +59,12 @@ func (e *AuthRequiredError) Unwrap() error {
 	return e.Err
 }
 
+// AuthRequired is a marker method that satisfies api.authRequiredError,
+// enabling detection via api.IsAuthRequiredError without direct imports.
+func (e *AuthRequiredError) AuthRequired() bool {
+	return true
+}
+
 // HasValidChallenge returns true if the error contains valid auth challenge information.
 func (e *AuthRequiredError) HasValidChallenge() bool {
 	if e == nil {

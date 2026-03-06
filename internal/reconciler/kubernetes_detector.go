@@ -240,17 +240,29 @@ func (d *KubernetesDetector) handleAdd(resourceType ResourceType, obj interface{
 }
 
 // handleUpdate processes an update event from the informer.
+//
+// With the status subresource enabled (+kubebuilder:subresource:status),
+// only spec changes increment metadata.generation. Status-only updates
+// are filtered out to prevent reconciliation loops where syncStatus
+// triggers informer events that re-trigger reconciliation.
 func (d *KubernetesDetector) handleUpdate(resourceType ResourceType, oldObj, newObj interface{}) {
-	meta, ok := extractObjectMeta(newObj)
-	if !ok {
-		logging.Warn("KubernetesDetector", "Failed to extract metadata from update event")
+	oldClientObj, oldOk := oldObj.(client.Object)
+	newClientObj, newOk := newObj.(client.Object)
+	if !oldOk || !newOk {
+		logging.Warn("KubernetesDetector", "Failed to extract client.Object from update event")
+		return
+	}
+
+	if oldClientObj.GetGeneration() == newClientObj.GetGeneration() {
+		logging.Debug("KubernetesDetector", "Skipping status-only update for %s/%s/%s (generation %d)",
+			resourceType, newClientObj.GetNamespace(), newClientObj.GetName(), newClientObj.GetGeneration())
 		return
 	}
 
 	changeEvent := ChangeEvent{
 		Type:      resourceType,
-		Name:      meta.name,
-		Namespace: meta.namespace,
+		Name:      newClientObj.GetName(),
+		Namespace: newClientObj.GetNamespace(),
 		Operation: OperationUpdate,
 		Timestamp: time.Now(),
 		Source:    SourceKubernetes,

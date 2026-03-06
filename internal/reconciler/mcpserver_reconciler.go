@@ -323,9 +323,12 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 
 	// Start the service via orchestrator
 	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
-		// If service doesn't exist in orchestrator, we need to create it first
-		// The orchestrator should handle this via processServiceClassRequirements
-		// For now, we trigger a manual refresh
+		// Auth Required is a stable state, not a failure. The service is registered
+		// and will be activated via SSO when a user authenticates.
+		if api.IsAuthRequiredError(err) {
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
+			return ReconcileResult{}
+		}
 		logging.Debug("MCPServerReconciler", "Service %s not found in orchestrator, may need creation", req.Name)
 		return ReconcileResult{
 			Error:   fmt.Errorf("service not found in orchestrator: %w", err),
@@ -382,6 +385,10 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 
 	// Restart the service to apply changes
 	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
+		if api.IsAuthRequiredError(err) {
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after config update", req.Name)
+			return ReconcileResult{}
+		}
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to restart service: %w", err),
 			Requeue: true,
