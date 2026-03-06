@@ -154,18 +154,13 @@ func TestMCPServerReconciler_ReconcileUpdate(t *testing.T) {
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service with old configuration
+	// Add existing service whose configuration has changed
 	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "http://old-url",
-			"command":   "old-command",
-			"type":      "stdio",
-			"autoStart": true,
-		},
+		Name:          "test-server",
+		ServiceType:   api.TypeMCPServer,
+		State:         api.StateRunning,
+		Health:        api.HealthHealthy,
+		ConfigChanged: true,
 	})
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
@@ -202,18 +197,12 @@ func TestMCPServerReconciler_ReconcileUpdateNoChange(t *testing.T) {
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service with same configuration
+	// Add existing service with unchanged configuration (ConfigChanged defaults to false)
 	registry.AddService("test-server", &MockServiceInfo{
 		Name:        "test-server",
 		ServiceType: api.TypeMCPServer,
 		State:       api.StateRunning,
 		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "",
-			"command":   "test-command",
-			"type":      "stdio",
-			"autoStart": true,
-		},
 	})
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
@@ -242,6 +231,41 @@ func TestMCPServerReconciler_ReconcileUpdateNoChange(t *testing.T) {
 	// Verify service was NOT restarted (no config change)
 	if orchAPI.RestartedServices["test-server"] {
 		t.Error("service should not be restarted when config is unchanged")
+	}
+}
+
+func TestMCPServerReconciler_ReconcileCreateAuthRequired(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+
+	// Simulate AuthRequiredError from StartService
+	orchAPI.StartError = fmt.Errorf("failed to start service: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "remote-server",
+		Type:      "streamable-http",
+		URL:       "https://example.com/mcp",
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    "remote-server",
+		Attempt: 1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Auth Required should be treated as success, not an error
+	if result.Error != nil {
+		t.Errorf("expected no error for auth required state, got: %v", result.Error)
+	}
+	if result.Requeue {
+		t.Error("expected no requeue for auth required state")
 	}
 }
 
@@ -315,23 +339,62 @@ func TestMCPServerReconciler_ReconcileStopError(t *testing.T) {
 	}
 }
 
+func TestMCPServerReconciler_ReconcileUpdateAuthRequired(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	orchAPI := NewMockOrchestratorAPI()
+	registry := NewMockServiceRegistry()
+
+	// Add existing service whose configuration has changed
+	registry.AddService("remote-server", &MockServiceInfo{
+		Name:          "remote-server",
+		ServiceType:   api.TypeMCPServer,
+		State:         api.StateRunning,
+		Health:        api.HealthHealthy,
+		ConfigChanged: true,
+	})
+
+	// Simulate AuthRequiredError from RestartService
+	orchAPI.RestartError = fmt.Errorf("failed to restart: %w", &mockAuthRequiredError{msg: "401 Unauthorized"})
+
+	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
+
+	mgr.AddMCPServer(&api.MCPServerInfo{
+		Name:      "remote-server",
+		Type:      "streamable-http",
+		URL:       "https://new-url.com/mcp", // Changed URL to trigger restart
+		AutoStart: true,
+	})
+
+	req := ReconcileRequest{
+		Type:    ResourceTypeMCPServer,
+		Name:    "remote-server",
+		Attempt: 1,
+	}
+
+	ctx := context.Background()
+	result := reconciler.Reconcile(ctx, req)
+
+	// Auth Required after config update should be treated as success
+	if result.Error != nil {
+		t.Errorf("expected no error for auth required after restart, got: %v", result.Error)
+	}
+	if result.Requeue {
+		t.Error("expected no requeue for auth required after restart")
+	}
+}
+
 func TestMCPServerReconciler_ReconcileRestartError(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service with old configuration
+	// Add existing service whose configuration has changed
 	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "",
-			"command":   "old-command",
-			"type":      "stdio",
-			"autoStart": true,
-		},
+		Name:          "test-server",
+		ServiceType:   api.TypeMCPServer,
+		State:         api.StateRunning,
+		Health:        api.HealthHealthy,
+		ConfigChanged: true,
 	})
 
 	// Simulate restart error
@@ -364,445 +427,17 @@ func TestMCPServerReconciler_ReconcileRestartError(t *testing.T) {
 	}
 }
 
-func TestMCPServerReconciler_NeedsRestart(t *testing.T) {
-	mgr := NewMockMCPServerManager()
-	orchAPI := NewMockOrchestratorAPI()
-	registry := NewMockServiceRegistry()
-	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
-
-	tests := []struct {
-		name         string
-		desired      *api.MCPServerInfo
-		serviceData  map[string]interface{}
-		expectChange bool
-	}{
-		{
-			name: "no change",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "cmd",
-				AutoStart: true,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-			},
-			expectChange: false,
-		},
-		{
-			name: "command changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "new-cmd",
-				AutoStart: true,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "old-cmd",
-				"type":      "stdio",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "url changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://new-url",
-				AutoStart: true,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://old-url",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "type changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				AutoStart: true,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "",
-				"type":      "stdio",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "autostart enabled",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				AutoStart: true,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "",
-				"type":      "stdio",
-				"autoStart": false,
-			},
-			expectChange: true,
-		},
-		{
-			name: "nil service data",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				AutoStart: true,
-			},
-			serviceData:  nil,
-			expectChange: true,
-		},
-		{
-			name: "env changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "cmd",
-				AutoStart: true,
-				Env:       map[string]string{"KEY": "new-value"},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-				"env":       map[string]string{"KEY": "old-value"},
-			},
-			expectChange: true,
-		},
-		{
-			name: "env added",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "cmd",
-				AutoStart: true,
-				Env:       map[string]string{"NEW_KEY": "value"},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			// Test map[string]interface{} handling (common from JSON unmarshaling)
-			name: "env changed with map[string]interface{} from JSON",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "cmd",
-				AutoStart: true,
-				Env:       map[string]string{"KEY": "new-value"},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-				// Simulate JSON unmarshaling which produces map[string]interface{}
-				"env": map[string]interface{}{"KEY": "old-value"},
-			},
-			expectChange: true,
-		},
-		{
-			// Test map[string]interface{} with matching values (no change)
-			name: "env no change with map[string]interface{} from JSON",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "stdio",
-				Command:   "cmd",
-				AutoStart: true,
-				Env:       map[string]string{"KEY": "same-value"},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-				// Simulate JSON unmarshaling which produces map[string]interface{}
-				"env": map[string]interface{}{"KEY": "same-value"},
-			},
-			expectChange: false,
-		},
-		{
-			name: "headers changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Headers:   map[string]string{"Authorization": "Bearer new-token"},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"headers":   map[string]string{"Authorization": "Bearer old-token"},
-			},
-			expectChange: true,
-		},
-		{
-			name: "timeout changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Timeout:   60,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"timeout":   30,
-			},
-			expectChange: true,
-		},
-		{
-			name: "timeout added",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Timeout:   60,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "toolPrefix changed",
-			desired: &api.MCPServerInfo{
-				Name:       "test",
-				Type:       "stdio",
-				Command:    "cmd",
-				AutoStart:  true,
-				ToolPrefix: "new_prefix",
-			},
-			serviceData: map[string]interface{}{
-				"url":        "",
-				"command":    "cmd",
-				"type":       "stdio",
-				"autoStart":  true,
-				"toolPrefix": "old_prefix",
-			},
-			expectChange: true,
-		},
-		{
-			name: "toolPrefix added",
-			desired: &api.MCPServerInfo{
-				Name:       "test",
-				Type:       "stdio",
-				Command:    "cmd",
-				AutoStart:  true,
-				ToolPrefix: "my_prefix",
-			},
-			serviceData: map[string]interface{}{
-				"url":       "",
-				"command":   "cmd",
-				"type":      "stdio",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "no change with all fields",
-			desired: &api.MCPServerInfo{
-				Name:       "test",
-				Type:       "streamable-http",
-				URL:        "http://example.com",
-				AutoStart:  true,
-				Headers:    map[string]string{"Authorization": "Bearer token"},
-				Env:        map[string]string{"KEY": "value"},
-				Timeout:    30,
-				ToolPrefix: "prefix",
-			},
-			serviceData: map[string]interface{}{
-				"url":        "http://example.com",
-				"command":    "",
-				"type":       "streamable-http",
-				"autoStart":  true,
-				"headers":    map[string]string{"Authorization": "Bearer token"},
-				"env":        map[string]string{"KEY": "value"},
-				"timeout":    30,
-				"toolPrefix": "prefix",
-			},
-			expectChange: false,
-		},
-		{
-			name: "auth added",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Auth: &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-			},
-			expectChange: true,
-		},
-		{
-			name: "auth removed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Auth:      nil,
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"auth": &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			expectChange: true,
-		},
-		{
-			name: "auth type changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Auth: &api.MCPServerAuth{
-					Type: "teleport",
-					Teleport: &api.TeleportAuth{
-						AppName: "my-app",
-					},
-				},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"auth": &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			expectChange: true,
-		},
-		{
-			name: "auth forwardToken changed",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Auth: &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: false,
-				},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"auth": &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			expectChange: true,
-		},
-		{
-			name: "auth no change",
-			desired: &api.MCPServerInfo{
-				Name:      "test",
-				Type:      "streamable-http",
-				URL:       "http://example.com",
-				AutoStart: true,
-				Auth: &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			serviceData: map[string]interface{}{
-				"url":       "http://example.com",
-				"command":   "",
-				"type":      "streamable-http",
-				"autoStart": true,
-				"auth": &api.MCPServerAuth{
-					Type:         "oauth",
-					ForwardToken: true,
-				},
-			},
-			expectChange: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svcInfo := &MockServiceInfo{
-				Name:        "test",
-				ServiceType: api.TypeMCPServer,
-				State:       api.StateRunning,
-				ServiceData: tt.serviceData,
-			}
-
-			needsRestart := reconciler.needsRestart(tt.desired, svcInfo)
-
-			if needsRestart != tt.expectChange {
-				t.Errorf("needsRestart() = %v, expected %v", needsRestart, tt.expectChange)
-			}
-		})
-	}
-}
-
 func TestMCPServerReconciler_PeriodicRequeue(t *testing.T) {
 	mgr := NewMockMCPServerManager()
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service (no config change)
+	// Add existing service (no config change, ConfigChanged defaults to false)
 	registry.AddService("test-server", &MockServiceInfo{
 		Name:        "test-server",
 		ServiceType: api.TypeMCPServer,
 		State:       api.StateRunning,
 		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "",
-			"command":   "test-command",
-			"type":      "stdio",
-			"autoStart": true,
-		},
 	})
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
@@ -842,19 +477,13 @@ func TestMCPServerReconciler_ArgsChange(t *testing.T) {
 	orchAPI := NewMockOrchestratorAPI()
 	registry := NewMockServiceRegistry()
 
-	// Add existing service with args
+	// Add existing service whose args have changed
 	registry.AddService("test-server", &MockServiceInfo{
-		Name:        "test-server",
-		ServiceType: api.TypeMCPServer,
-		State:       api.StateRunning,
-		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "",
-			"command":   "test-command",
-			"type":      "stdio",
-			"autoStart": true,
-			"args":      []string{"old-arg1", "old-arg2"},
-		},
+		Name:          "test-server",
+		ServiceType:   api.TypeMCPServer,
+		State:         api.StateRunning,
+		Health:        api.HealthHealthy,
+		ConfigChanged: true,
 	})
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry)
@@ -1294,18 +923,12 @@ func TestMCPServerReconciler_SyncStatus_RetriesOnConflict(t *testing.T) {
 	statusUpdater.UpdateMCPServerStatusError = conflictErr
 	statusUpdater.UpdateMCPServerStatusFailCount = 1 // Fail only the first attempt
 
-	// Add running service
+	// Add running service (no config change)
 	registry.AddService("test-server", &MockServiceInfo{
 		Name:        "test-server",
 		ServiceType: api.TypeMCPServer,
 		State:       api.StateRunning,
 		Health:      api.HealthHealthy,
-		ServiceData: map[string]interface{}{
-			"url":       "",
-			"command":   "test-command",
-			"type":      "stdio",
-			"autoStart": true,
-		},
 	})
 
 	reconciler := NewMCPServerReconciler(orchAPI, mgr, registry).

@@ -221,16 +221,16 @@ func (d *KubernetesDetector) createEventHandler(resourceType ResourceType) tools
 
 // handleAdd processes an add event from the informer.
 func (d *KubernetesDetector) handleAdd(resourceType ResourceType, obj interface{}) {
-	meta, ok := extractObjectMeta(obj)
+	clientObj, ok := obj.(client.Object)
 	if !ok {
-		logging.Warn("KubernetesDetector", "Failed to extract metadata from add event")
+		logging.Warn("KubernetesDetector", "Failed to extract client.Object from add event")
 		return
 	}
 
 	changeEvent := ChangeEvent{
 		Type:      resourceType,
-		Name:      meta.name,
-		Namespace: meta.namespace,
+		Name:      clientObj.GetName(),
+		Namespace: clientObj.GetNamespace(),
 		Operation: OperationCreate,
 		Timestamp: time.Now(),
 		Source:    SourceKubernetes,
@@ -240,17 +240,33 @@ func (d *KubernetesDetector) handleAdd(resourceType ResourceType, obj interface{
 }
 
 // handleUpdate processes an update event from the informer.
+//
+// With the status subresource enabled (+kubebuilder:subresource:status),
+// only spec changes increment metadata.generation. Status-only updates
+// are filtered out to prevent reconciliation loops where syncStatus
+// triggers informer events that re-trigger reconciliation.
+//
+// Note: metadata-only changes (labels, annotations) also do not increment
+// generation and are intentionally filtered. The reconciler only acts on
+// spec changes, so this is the desired behavior.
 func (d *KubernetesDetector) handleUpdate(resourceType ResourceType, oldObj, newObj interface{}) {
-	meta, ok := extractObjectMeta(newObj)
-	if !ok {
-		logging.Warn("KubernetesDetector", "Failed to extract metadata from update event")
+	oldClientObj, oldOk := oldObj.(client.Object)
+	newClientObj, newOk := newObj.(client.Object)
+	if !oldOk || !newOk {
+		logging.Warn("KubernetesDetector", "Failed to extract client.Object from update event")
+		return
+	}
+
+	if oldClientObj.GetGeneration() == newClientObj.GetGeneration() {
+		logging.Debug("KubernetesDetector", "Skipping status-only update for %s/%s/%s (generation %d)",
+			resourceType, newClientObj.GetNamespace(), newClientObj.GetName(), newClientObj.GetGeneration())
 		return
 	}
 
 	changeEvent := ChangeEvent{
 		Type:      resourceType,
-		Name:      meta.name,
-		Namespace: meta.namespace,
+		Name:      newClientObj.GetName(),
+		Namespace: newClientObj.GetNamespace(),
 		Operation: OperationUpdate,
 		Timestamp: time.Now(),
 		Source:    SourceKubernetes,
@@ -266,39 +282,22 @@ func (d *KubernetesDetector) handleDelete(resourceType ResourceType, obj interfa
 		obj = deletedState.Obj
 	}
 
-	meta, ok := extractObjectMeta(obj)
+	clientObj, ok := obj.(client.Object)
 	if !ok {
-		logging.Warn("KubernetesDetector", "Failed to extract metadata from delete event")
+		logging.Warn("KubernetesDetector", "Failed to extract client.Object from delete event")
 		return
 	}
 
 	changeEvent := ChangeEvent{
 		Type:      resourceType,
-		Name:      meta.name,
-		Namespace: meta.namespace,
+		Name:      clientObj.GetName(),
+		Namespace: clientObj.GetNamespace(),
 		Operation: OperationDelete,
 		Timestamp: time.Now(),
 		Source:    SourceKubernetes,
 	}
 
 	d.sendChangeEvent(changeEvent)
-}
-
-// objectMeta holds extracted metadata from a Kubernetes object.
-type objectMeta struct {
-	name      string
-	namespace string
-}
-
-// extractObjectMeta extracts name and namespace from a Kubernetes object.
-func extractObjectMeta(obj interface{}) (objectMeta, bool) {
-	if clientObj, ok := obj.(client.Object); ok {
-		return objectMeta{
-			name:      clientObj.GetName(),
-			namespace: clientObj.GetNamespace(),
-		}, true
-	}
-	return objectMeta{}, false
 }
 
 // sendChangeEvent sends a change event to the output channel.

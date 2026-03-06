@@ -183,6 +183,22 @@ var (
 	ErrWorkflowNotFound = errors.New("workflow not found")
 )
 
+// authRequiredError is a marker interface for errors that indicate a service
+// requires authentication. The mcpserver.AuthRequiredError type satisfies this
+// interface, enabling detection without direct package imports.
+type authRequiredError interface {
+	AuthRequired() bool
+}
+
+// IsAuthRequiredError checks if an error wraps an auth-required error.
+// This uses Go's structural typing via errors.As to match any error type
+// that implements the AuthRequired() bool marker method, allowing the
+// reconciler to detect auth-required states without importing mcpserver.
+func IsAuthRequiredError(err error) bool {
+	var target authRequiredError
+	return errors.As(err, &target) && target.AuthRequired()
+}
+
 // HandleErrorWithPrefix creates an appropriate CallToolResult with a custom prefix.
 // This function is similar to HandleError but allows customizing the error message prefix
 // for more specific error context.
