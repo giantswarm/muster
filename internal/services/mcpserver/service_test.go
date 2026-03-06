@@ -182,6 +182,448 @@ func TestGetServiceData(t *testing.T) {
 	assert.Equal(t, map[string]string{"TEST": "value"}, data["env"])
 }
 
+// TestConfigurationChanged verifies that ConfigurationChanged correctly detects
+// configuration differences that require a service restart.
+func TestConfigurationChanged(t *testing.T) {
+	tests := []struct {
+		name          string
+		current       *api.MCPServer
+		newConfig     *api.MCPServer
+		expectChanged bool
+	}{
+		{
+			name: "no change",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+			},
+			expectChanged: false,
+		},
+		{
+			name: "command changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "old-cmd",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "new-cmd",
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "url changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://old-url",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://new-url",
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "type changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "autostart enabled",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				AutoStart: false,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "autostart disabled does not trigger change",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				AutoStart: false,
+			},
+			expectChanged: false,
+		},
+		{
+			name: "args changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				Args:      []string{"old-arg"},
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				Args:      []string{"new-arg"},
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "args added",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				Args:      []string{"new-arg"},
+				AutoStart: true,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "env changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "old-value"},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"KEY": "new-value"},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "env added",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+				Env:       map[string]string{"NEW_KEY": "value"},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "headers changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Headers:   map[string]string{"Authorization": "Bearer old-token"},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Headers:   map[string]string{"Authorization": "Bearer new-token"},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "timeout changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Timeout:   30,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Timeout:   60,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "timeout added",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Timeout:   60,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "toolPrefix changed",
+			current: &api.MCPServer{
+				Name:       "test",
+				Type:       api.MCPServerTypeStdio,
+				Command:    "cmd",
+				AutoStart:  true,
+				ToolPrefix: "old_prefix",
+			},
+			newConfig: &api.MCPServer{
+				Name:       "test",
+				Type:       api.MCPServerTypeStdio,
+				Command:    "cmd",
+				AutoStart:  true,
+				ToolPrefix: "new_prefix",
+			},
+			expectChanged: true,
+		},
+		{
+			name: "toolPrefix added",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStdio,
+				Command:   "cmd",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:       "test",
+				Type:       api.MCPServerTypeStdio,
+				Command:    "cmd",
+				AutoStart:  true,
+				ToolPrefix: "my_prefix",
+			},
+			expectChanged: true,
+		},
+		{
+			name: "description change does not trigger restart",
+			current: &api.MCPServer{
+				Name:        "test",
+				Type:        api.MCPServerTypeStdio,
+				Command:     "cmd",
+				AutoStart:   true,
+				Description: "old description",
+			},
+			newConfig: &api.MCPServer{
+				Name:        "test",
+				Type:        api.MCPServerTypeStdio,
+				Command:     "cmd",
+				AutoStart:   true,
+				Description: "new description",
+			},
+			expectChanged: false,
+		},
+		{
+			name: "no change with all fields",
+			current: &api.MCPServer{
+				Name:       "test",
+				Type:       api.MCPServerTypeStreamableHTTP,
+				URL:        "http://example.com",
+				AutoStart:  true,
+				Headers:    map[string]string{"Authorization": "Bearer token"},
+				Env:        map[string]string{"KEY": "value"},
+				Timeout:    30,
+				ToolPrefix: "prefix",
+			},
+			newConfig: &api.MCPServer{
+				Name:       "test",
+				Type:       api.MCPServerTypeStreamableHTTP,
+				URL:        "http://example.com",
+				AutoStart:  true,
+				Headers:    map[string]string{"Authorization": "Bearer token"},
+				Env:        map[string]string{"KEY": "value"},
+				Timeout:    30,
+				ToolPrefix: "prefix",
+			},
+			expectChanged: false,
+		},
+		{
+			name: "auth added",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "auth removed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth:      nil,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "auth type changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type: "teleport",
+					Teleport: &api.TeleportAuth{
+						AppName: "my-app",
+					},
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "auth forwardToken changed",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: false,
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "auth no change",
+			current: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			newConfig: &api.MCPServer{
+				Name:      "test",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://example.com",
+				AutoStart: true,
+				Auth: &api.MCPServerAuth{
+					Type:         "oauth",
+					ForwardToken: true,
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "invalid config type returns true",
+			current: &api.MCPServer{
+				Name: "test",
+				Type: api.MCPServerTypeStdio,
+			},
+			newConfig:     nil,
+			expectChanged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, err := NewService(tt.current)
+			require.NoError(t, err)
+
+			var configArg interface{} = tt.newConfig
+			if tt.newConfig == nil {
+				configArg = "invalid-type"
+			}
+
+			changed := svc.ConfigurationChanged(configArg)
+			assert.Equal(t, tt.expectChanged, changed,
+				"ConfigurationChanged() = %v, expected %v", changed, tt.expectChanged)
+		})
+	}
+}
+
 // TestDefaultRemoteTimeoutMatchesCRD verifies that DefaultRemoteTimeout matches the expected
 // kubebuilder:default value defined in MCPServerSpec.Timeout.
 // The CRD defines: +kubebuilder:default=30

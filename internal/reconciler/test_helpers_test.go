@@ -245,6 +245,9 @@ type MockServiceInfo struct {
 	LastError   error
 	ServiceData map[string]interface{}
 
+	// ConfigChanged controls what ConfigurationChanged returns
+	ConfigChanged bool
+
 	// Track configuration updates
 	ConfigUpdateCalled bool
 	LastConfig         *api.MCPServer
@@ -282,23 +285,21 @@ func (m *MockServiceInfo) GetServiceData() map[string]interface{} {
 	return m.ServiceData
 }
 
+// ConfigurationChanged implements api.ConfigurableService.
+func (m *MockServiceInfo) ConfigurationChanged(_ interface{}) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ConfigChanged
+}
+
 // UpdateConfiguration implements api.ConfigurableService.
-func (m *MockServiceInfo) UpdateConfiguration(cfg *api.MCPServer) error {
+func (m *MockServiceInfo) UpdateConfiguration(config interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ConfigUpdateCalled = true
-	m.LastConfig = cfg
-
-	// Initialize serviceData if nil to prevent panic
-	if m.ServiceData == nil {
-		m.ServiceData = make(map[string]interface{})
+	if cfg, ok := config.(*api.MCPServer); ok {
+		m.LastConfig = cfg
 	}
-
-	// Update service data with new configuration
-	m.ServiceData["url"] = cfg.URL
-	m.ServiceData["command"] = cfg.Command
-	m.ServiceData["type"] = string(cfg.Type)
-	m.ServiceData["autoStart"] = cfg.AutoStart
 	return nil
 }
 

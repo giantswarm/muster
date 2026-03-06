@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -313,6 +316,61 @@ func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 
 	s.definition = newDef
 	return nil
+}
+
+// ConfigurationChanged returns true if the new configuration differs from the
+// current one in a way that requires a restart. Description changes are excluded
+// because they are metadata-only and do not affect runtime behavior.
+func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
+	newDef, ok := newConfig.(*api.MCPServer)
+	if !ok {
+		return true
+	}
+
+	cur := s.definition
+
+	if cur.URL != newDef.URL {
+		s.LogDebug("Config change detected: url changed from %q to %q", cur.URL, newDef.URL)
+		return true
+	}
+	if cur.Command != newDef.Command {
+		s.LogDebug("Config change detected: command changed from %q to %q", cur.Command, newDef.Command)
+		return true
+	}
+	if cur.Type != newDef.Type {
+		s.LogDebug("Config change detected: type changed from %q to %q", cur.Type, newDef.Type)
+		return true
+	}
+	if !cur.AutoStart && newDef.AutoStart {
+		s.LogDebug("Config change detected: autoStart changed from false to true")
+		return true
+	}
+	if !slices.Equal(cur.Args, newDef.Args) {
+		s.LogDebug("Config change detected: args changed from %v to %v", cur.Args, newDef.Args)
+		return true
+	}
+	if !maps.Equal(cur.Env, newDef.Env) {
+		s.LogDebug("Config change detected: env changed")
+		return true
+	}
+	if !maps.Equal(cur.Headers, newDef.Headers) {
+		s.LogDebug("Config change detected: headers changed")
+		return true
+	}
+	if cur.Timeout != newDef.Timeout {
+		s.LogDebug("Config change detected: timeout changed from %d to %d", cur.Timeout, newDef.Timeout)
+		return true
+	}
+	if cur.ToolPrefix != newDef.ToolPrefix {
+		s.LogDebug("Config change detected: toolPrefix changed from %q to %q", cur.ToolPrefix, newDef.ToolPrefix)
+		return true
+	}
+	if !reflect.DeepEqual(cur.Auth, newDef.Auth) {
+		s.LogDebug("Config change detected: auth configuration changed")
+		return true
+	}
+
+	return false
 }
 
 // GetServiceData implements ServiceDataProvider

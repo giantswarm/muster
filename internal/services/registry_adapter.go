@@ -1,6 +1,8 @@
 package services
 
 import (
+	"fmt"
+
 	"github.com/giantswarm/muster/internal/api"
 )
 
@@ -78,6 +80,25 @@ func (s *serviceInfoAdapter) GetServiceData() map[string]interface{} {
 		return provider.GetServiceData()
 	}
 	return nil
+}
+
+// UpdateConfiguration implements api.ConfigurableService by delegating to the
+// underlying service if it supports configuration updates.
+func (s *serviceInfoAdapter) UpdateConfiguration(config interface{}) error {
+	if configurable, ok := s.service.(interface{ UpdateConfiguration(interface{}) error }); ok {
+		return configurable.UpdateConfiguration(config)
+	}
+	return fmt.Errorf("service %s does not support configuration updates", s.service.GetName())
+}
+
+// ConfigurationChanged implements api.ConfigurableService by delegating to the
+// underlying service if it supports configuration comparison. Returns true
+// (conservative) if the service does not support comparison.
+func (s *serviceInfoAdapter) ConfigurationChanged(newConfig interface{}) bool {
+	if configurable, ok := s.service.(interface{ ConfigurationChanged(interface{}) bool }); ok {
+		return configurable.ConfigurationChanged(newConfig)
+	}
+	return true
 }
 
 // UpdateState implements api.StateUpdater by delegating to the underlying service

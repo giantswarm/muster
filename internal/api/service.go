@@ -31,12 +31,23 @@ type ServiceInfo interface {
 	GetServiceData() map[string]interface{}
 }
 
-// ConfigurableService extends ServiceInfo with the ability to update configuration.
-// Services that can have their configuration updated at runtime should implement
-// this interface to allow reconcilers and managers to update configuration
-// before restarting the service.
+// ConfigurableService extends ServiceInfo with the ability to detect configuration
+// changes and update configuration at runtime. Services implement this interface
+// to allow reconcilers to determine whether a restart is needed and to apply
+// new configuration before restarting.
 type ConfigurableService interface {
 	ServiceInfo
+
+	// ConfigurationChanged returns true if the new configuration differs from
+	// the current one in a way that requires a restart. The service owns this
+	// comparison logic because it has typed access to its configuration struct.
+	//
+	// Args:
+	//   - newConfig: The new configuration to compare against (type depends on service implementation)
+	//
+	// Returns:
+	//   - bool: true if the configuration has changed and a restart is needed
+	ConfigurationChanged(newConfig interface{}) bool
 
 	// UpdateConfiguration updates the service's internal configuration.
 	// This should be called before restarting a service when its definition changes.
