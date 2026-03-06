@@ -50,10 +50,13 @@ func (r *RegistryAdapter) Register() {
 	api.RegisterServiceRegistry(r)
 }
 
-// serviceInfoAdapter adapts a Service to implement api.ServiceInfo
+// serviceInfoAdapter adapts a Service to implement api.ServiceInfo and
+// api.ConfigurableService.
 type serviceInfoAdapter struct {
 	service Service
 }
+
+var _ api.ConfigurableService = (*serviceInfoAdapter)(nil)
 
 func (s *serviceInfoAdapter) GetName() string {
 	return s.service.GetName()

@@ -35,6 +35,10 @@ type ServiceInfo interface {
 // changes and update configuration at runtime. Services implement this interface
 // to allow reconcilers to determine whether a restart is needed and to apply
 // new configuration before restarting.
+//
+// Methods accept interface{} instead of a concrete type (e.g. *MCPServer) so
+// that the interface remains generic across different service kinds. Each
+// implementation performs a type assertion internally.
 type ConfigurableService interface {
 	ServiceInfo
 

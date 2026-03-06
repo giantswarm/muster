@@ -345,7 +345,7 @@ func TestKubernetesDetectorHandleUpdateSkipsStatusOnly(t *testing.T) {
 	select {
 	case <-changeChan:
 		t.Error("expected no event for status-only update (same generation)")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		// Expected - no event should be emitted
 	}
 }
@@ -415,7 +415,7 @@ func TestKubernetesDetectorHandleUpdateInvalidObjects(t *testing.T) {
 	select {
 	case <-changeChan:
 		t.Error("expected no event for invalid object")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		// Expected
 	}
 
@@ -425,7 +425,7 @@ func TestKubernetesDetectorHandleUpdateInvalidObjects(t *testing.T) {
 	select {
 	case <-changeChan:
 		t.Error("expected no event for invalid object")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		// Expected
 	}
 }

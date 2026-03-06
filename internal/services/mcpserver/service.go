@@ -307,7 +307,10 @@ func (s *Service) ValidateConfiguration() error {
 	return nil
 }
 
-// UpdateConfiguration updates the MCP server configuration
+// UpdateConfiguration updates the MCP server configuration.
+//
+// Concurrency: must be called from the reconciler goroutine only;
+// concurrent access to s.definition is not synchronized.
 func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 	newDef, ok := newConfig.(*api.MCPServer)
 	if !ok {
@@ -321,6 +324,9 @@ func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 // ConfigurationChanged returns true if the new configuration differs from the
 // current one in a way that requires a restart. Description changes are excluded
 // because they are metadata-only and do not affect runtime behavior.
+//
+// Concurrency: must be called from the reconciler goroutine only;
+// concurrent access to s.definition is not synchronized.
 func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 	newDef, ok := newConfig.(*api.MCPServer)
 	if !ok {
@@ -341,6 +347,8 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: type changed from %q to %q", cur.Type, newDef.Type)
 		return true
 	}
+	// Only false->true matters: enabling auto-start on a stopped service requires
+	// a restart. Disabling it on an already-running service is a no-op.
 	if !cur.AutoStart && newDef.AutoStart {
 		s.LogDebug("Config change detected: autoStart changed from false to true")
 		return true

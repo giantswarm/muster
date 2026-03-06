@@ -596,15 +596,6 @@ func TestConfigurationChanged(t *testing.T) {
 			},
 			expectChanged: false,
 		},
-		{
-			name: "invalid config type returns true",
-			current: &api.MCPServer{
-				Name: "test",
-				Type: api.MCPServerTypeStdio,
-			},
-			newConfig:     nil,
-			expectChanged: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -612,16 +603,30 @@ func TestConfigurationChanged(t *testing.T) {
 			svc, err := NewService(tt.current)
 			require.NoError(t, err)
 
-			var configArg interface{} = tt.newConfig
-			if tt.newConfig == nil {
-				configArg = "invalid-type"
-			}
-
-			changed := svc.ConfigurationChanged(configArg)
+			changed := svc.ConfigurationChanged(tt.newConfig)
 			assert.Equal(t, tt.expectChanged, changed,
 				"ConfigurationChanged() = %v, expected %v", changed, tt.expectChanged)
 		})
 	}
+}
+
+// TestConfigurationChangedInvalidTypes verifies that non-*api.MCPServer arguments
+// are conservatively treated as changed.
+func TestConfigurationChangedInvalidTypes(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{
+		Name: "test",
+		Type: api.MCPServerTypeStdio,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, svc.ConfigurationChanged("wrong-type"),
+		"string argument should be treated as changed")
+
+	assert.True(t, svc.ConfigurationChanged(nil),
+		"nil argument should be treated as changed")
+
+	assert.True(t, svc.ConfigurationChanged(42),
+		"int argument should be treated as changed")
 }
 
 // TestDefaultRemoteTimeoutMatchesCRD verifies that DefaultRemoteTimeout matches the expected
