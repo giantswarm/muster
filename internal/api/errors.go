@@ -196,7 +196,7 @@ type authRequiredError interface {
 // reconciler to detect auth-required states without importing mcpserver.
 func IsAuthRequiredError(err error) bool {
 	var target authRequiredError
-	return errors.As(err, &target)
+	return errors.As(err, &target) && target.AuthRequired()
 }
 
 // HandleErrorWithPrefix creates an appropriate CallToolResult with a custom prefix.

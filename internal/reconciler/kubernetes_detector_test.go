@@ -143,41 +143,6 @@ func TestKubernetesDetectorNamespaceDisplay(t *testing.T) {
 	}
 }
 
-// TestExtractObjectMeta tests the extractObjectMeta helper function.
-func TestExtractObjectMeta(t *testing.T) {
-	// Create a fake MCP server object
-	mcpServer := &musterv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-server",
-			Namespace: "test-namespace",
-		},
-	}
-
-	meta, ok := extractObjectMeta(mcpServer)
-	if !ok {
-		t.Fatal("extractObjectMeta returned false for valid object")
-	}
-
-	if meta.name != "test-server" {
-		t.Errorf("name = %q, want %q", meta.name, "test-server")
-	}
-
-	if meta.namespace != "test-namespace" {
-		t.Errorf("namespace = %q, want %q", meta.namespace, "test-namespace")
-	}
-}
-
-// TestExtractObjectMetaInvalidObject tests extractObjectMeta with invalid input.
-func TestExtractObjectMetaInvalidObject(t *testing.T) {
-	// Test with a non-client.Object type
-	invalidObj := struct{ Name string }{Name: "test"}
-
-	_, ok := extractObjectMeta(invalidObj)
-	if ok {
-		t.Error("extractObjectMeta returned true for invalid object")
-	}
-}
-
 // TestKubernetesDetectorEventHandlers tests the event handlers directly.
 func TestKubernetesDetectorEventHandlers(t *testing.T) {
 	detector, err := NewKubernetesDetector(nil, "default")

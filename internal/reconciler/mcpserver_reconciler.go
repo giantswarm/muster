@@ -329,9 +329,9 @@ func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req Reconcile
 			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
 			return ReconcileResult{}
 		}
-		logging.Debug("MCPServerReconciler", "Service %s not found in orchestrator, may need creation", req.Name)
+		logging.Debug("MCPServerReconciler", "Failed to start service %s: %v", req.Name, err)
 		return ReconcileResult{
-			Error:   fmt.Errorf("service not found in orchestrator: %w", err),
+			Error:   fmt.Errorf("failed to start service: %w", err),
 			Requeue: true,
 		}
 	}
