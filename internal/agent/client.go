@@ -56,23 +56,23 @@ type ServerInfo struct {
 //   - Multiple output formats (text, JSON)
 //   - OAuth 2.1 authentication support via mcp-go's transport layer
 type Client struct {
-	endpoint         string
-	transport        TransportType
-	logger           *Logger
-	client           client.MCPClient
-	serverInfo       *ServerInfo // Stores server info from initialization
-	toolCache        []mcp.Tool
-	resourceCache    []mcp.Resource
-	promptCache      []mcp.Prompt
-	mu               sync.RWMutex
-	timeout          time.Duration
-	cacheEnabled     bool
-	formatters       *Formatters
-	NotificationChan chan mcp.JSONRPCNotification
-	headers             map[string]string           // Custom HTTP headers (e.g., X-Muster-Session-ID)
-	oauthConfig         *transport.OAuthConfig      // OAuth config for mcp-go transport
-	agentTokenStore     *agentoauth.AgentTokenStore // Token store for agent OAuth
-	sessionIDCallback   func(sessionID string)      // Called when server returns a session ID in response header
+	endpoint          string
+	transport         TransportType
+	logger            *Logger
+	client            client.MCPClient
+	serverInfo        *ServerInfo // Stores server info from initialization
+	toolCache         []mcp.Tool
+	resourceCache     []mcp.Resource
+	promptCache       []mcp.Prompt
+	mu                sync.RWMutex
+	timeout           time.Duration
+	cacheEnabled      bool
+	formatters        *Formatters
+	NotificationChan  chan mcp.JSONRPCNotification
+	headers           map[string]string           // Custom HTTP headers (e.g., X-Muster-Session-ID)
+	oauthConfig       *transport.OAuthConfig      // OAuth config for mcp-go transport
+	agentTokenStore   *agentoauth.AgentTokenStore // Token store for agent OAuth
+	sessionIDCallback func(sessionID string)      // Called when server returns a session ID in response header
 }
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
