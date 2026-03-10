@@ -345,7 +345,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 
 		// Inject the ID token into context for downstream SSO use
-		ctx = ContextWithAccessToken(ctx, idToken)
+		ctx = ContextWithIDToken(ctx, idToken)
 
 		// Also inject the upstream access token for refresh detection.
 		// The access token changes on every token refresh, while the ID token
@@ -385,7 +385,7 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 	}
 
 	// Get the ID token from context - we need this for SSO forwarding
-	idToken, _ := GetAccessTokenFromContext(ctx)
+	idToken, _ := GetIDTokenFromContext(ctx)
 	if idToken == "" {
 		logging.Debug("OAuth", "SSO: No ID token in context for session %s, skipping session init",
 			logging.TruncateSessionID(sessionID))
@@ -448,7 +448,7 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		// Create a background context with the ID token for SSO forwarding.
 		// This context won't be canceled when the HTTP request completes.
 		bgCtx := context.Background()
-		bgCtx = ContextWithAccessToken(bgCtx, idToken)
+		bgCtx = ContextWithIDToken(bgCtx, idToken)
 		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
 
 		callback(bgCtx, sessionID)

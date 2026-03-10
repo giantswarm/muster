@@ -59,7 +59,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("returns token from context when available", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithAccessToken(ctx, validToken)
+		ctx = server.ContextWithIDToken(ctx, validToken)
 
 		token := getIDTokenForForwarding(ctx, "test-session", "https://accounts.google.com")
 
@@ -76,7 +76,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("context token takes priority over empty string", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithAccessToken(ctx, validToken)
+		ctx = server.ContextWithIDToken(ctx, validToken)
 
 		// Even with an issuer, context token should be returned
 		token := getIDTokenForForwarding(ctx, "test-session", "")
@@ -86,7 +86,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("returns empty for empty context token", func(t *testing.T) {
 		ctx := context.Background()
-		ctx = server.ContextWithAccessToken(ctx, "")
+		ctx = server.ContextWithIDToken(ctx, "")
 
 		token := getIDTokenForForwarding(ctx, "test-session", "https://accounts.google.com")
 
