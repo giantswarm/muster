@@ -56,9 +56,19 @@ type AuthHandler interface {
 	InvalidateCache(endpoint string)
 
 	// GetSessionID returns a persistent session ID for this CLI user.
-	// This is used for the X-Muster-Session-ID header to enable MCP server
-	// token persistence across CLI invocations. Returns empty string if not available.
+	// Deprecated: Use GetSessionIDForEndpoint for per-endpoint session IDs.
+	// Returns empty string if no session ID is available.
 	GetSessionID() string
+
+	// GetSessionIDForEndpoint returns the server-issued session ID for the given endpoint.
+	// Session IDs are scoped per-endpoint and stored locally after being received
+	// from the server's X-Muster-Session-ID response header.
+	// Returns empty string if no session ID exists for this endpoint.
+	GetSessionIDForEndpoint(endpoint string) string
+
+	// UpdateSessionID stores a server-issued session ID for the given endpoint.
+	// This is called after reading the X-Muster-Session-ID response header.
+	UpdateSessionID(endpoint, sessionID string)
 
 	// Close cleans up any resources held by the auth handler.
 	Close() error

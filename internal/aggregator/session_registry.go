@@ -1,7 +1,9 @@
 package aggregator
 
 import (
+	"crypto/rand"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -10,6 +12,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// uuidV4Regex validates UUID v4 format (8-4-4-4-12 hex digits with hyphens).
+var uuidV4Regex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // Session ID validation constants.
 const (
@@ -95,6 +100,11 @@ type SessionState struct {
 	SessionID    string
 	CreatedAt    time.Time
 	LastActivity time.Time
+
+	// Subject is the authenticated user identity (sub claim from OAuth token)
+	// bound to this session. Once set, subsequent requests must match this
+	// identity or the session will be rejected (403).
+	Subject string
 
 	mu sync.RWMutex
 
@@ -189,6 +199,28 @@ func NewSessionRegistryWithLimits(sessionTimeout time.Duration, maxSessions int)
 	return sr
 }
 
+// GenerateSessionID creates a new cryptographically random UUID v4 session ID.
+// Uses crypto/rand for secure random data per RFC 4122 Section 4.4.
+func GenerateSessionID() (string, error) {
+	var uuid [16]byte
+	if _, err := rand.Read(uuid[:]); err != nil {
+		return "", fmt.Errorf("failed to generate session ID: %w", err)
+	}
+
+	// Set version 4 (random) per RFC 4122
+	uuid[6] = (uuid[6] & 0x0f) | 0x40
+	// Set variant bits per RFC 4122
+	uuid[8] = (uuid[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16]), nil
+}
+
+// IsValidUUIDv4 checks if a string is a valid UUID v4 format.
+func IsValidUUIDv4(s string) bool {
+	return uuidV4Regex.MatchString(s)
+}
+
 // ValidateSessionID checks if a session ID is valid.
 //
 // A valid session ID must be:
@@ -202,6 +234,18 @@ func ValidateSessionID(sessionID string) error {
 	}
 	if len(sessionID) > MaxSessionIDLength {
 		return &InvalidSessionIDError{Reason: fmt.Sprintf("session ID exceeds maximum length of %d", MaxSessionIDLength)}
+	}
+	return nil
+}
+
+// ValidateSessionIDStrict checks if a session ID is a valid server-issued UUID v4.
+// Returns an error if the session ID is empty, too long, or not in UUID v4 format.
+func ValidateSessionIDStrict(sessionID string) error {
+	if err := ValidateSessionID(sessionID); err != nil {
+		return err
+	}
+	if !IsValidUUIDv4(sessionID) {
+		return &InvalidSessionIDError{Reason: "session ID is not a valid UUID v4 format"}
 	}
 	return nil
 }
@@ -268,6 +312,76 @@ func (sr *SessionRegistry) GetOrCreateSessionWithError(sessionID string) (*Sessi
 	}
 
 	return session, nil
+}
+
+// CreateSessionForSubject generates a new server-side session ID and binds it to the
+// given subject (authenticated user identity). This is the primary entry point for
+// server-side session creation.
+//
+// Returns the new session state and session ID, or an error if generation fails
+// or the session limit is exceeded.
+func (sr *SessionRegistry) CreateSessionForSubject(subject string) (*SessionState, error) {
+	sessionID, err := GenerateSessionID()
+	if err != nil {
+		return nil, err
+	}
+
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+
+	// Check session limit
+	if sr.maxSessions > 0 && len(sr.sessions) >= sr.maxSessions {
+		logging.Warn("SessionRegistry", "Session limit reached (%d), rejecting new session",
+			sr.maxSessions)
+		return nil, &SessionLimitExceededError{Limit: sr.maxSessions, Current: len(sr.sessions)}
+	}
+
+	session := &SessionState{
+		SessionID:    sessionID,
+		CreatedAt:    time.Now(),
+		LastActivity: time.Now(),
+		Subject:      subject,
+		Connections:  make(map[string]*SessionConnection),
+	}
+	sr.sessions[sessionID] = session
+	logging.Debug("SessionRegistry", "Created server-side session: %s for subject: %s (total: %d)",
+		logging.TruncateSessionID(sessionID), subject, len(sr.sessions))
+
+	return session, nil
+}
+
+// ValidateSessionIdentity checks that the session's bound identity matches the given subject.
+// Returns nil if the session has no bound identity (legacy/unbound) or if it matches.
+// Returns a SessionIdentityMismatchError if the identities don't match.
+func (sr *SessionRegistry) ValidateSessionIdentity(sessionID, subject string) error {
+	session, exists := sr.GetSession(sessionID)
+	if !exists {
+		return nil // Session not found -- will be handled as "unknown session"
+	}
+
+	// Hold a single write lock for the entire read-check-write sequence to avoid
+	// TOCTOU race where two concurrent requests could both observe an empty Subject
+	// and race to bind different identities.
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if session.Subject == "" {
+		// Legacy session without identity binding -- allow but bind now
+		session.Subject = subject
+		logging.Info("SessionRegistry", "Bound identity to existing session %s: %s",
+			logging.TruncateSessionID(sessionID), subject)
+		return nil
+	}
+
+	if session.Subject != subject {
+		return &SessionIdentityMismatchError{
+			SessionID:       sessionID,
+			ExpectedSubject: session.Subject,
+			ActualSubject:   subject,
+		}
+	}
+
+	return nil
 }
 
 // GetSession returns the session state for a session ID.
@@ -582,10 +696,16 @@ func (sr *SessionRegistry) RemoveServerFromAllSessions(serverName string) int {
 // This method closes all session-specific MCP client connections and stops
 // the background cleanup goroutine.
 func (sr *SessionRegistry) Stop() {
-	close(sr.stopCleanup)
-
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
+
+	select {
+	case <-sr.stopCleanup:
+		// Already stopped
+		return
+	default:
+		close(sr.stopCleanup)
+	}
 
 	for _, session := range sr.sessions {
 		session.CloseAllConnections()
@@ -945,4 +1065,17 @@ type SessionLimitExceededError struct {
 
 func (e *SessionLimitExceededError) Error() string {
 	return fmt.Sprintf("session limit exceeded: %d/%d sessions", e.Current, e.Limit)
+}
+
+// SessionIdentityMismatchError is returned when a session's bound identity
+// does not match the authenticated user's identity.
+type SessionIdentityMismatchError struct {
+	SessionID       string
+	ExpectedSubject string
+	ActualSubject   string
+}
+
+func (e *SessionIdentityMismatchError) Error() string {
+	return fmt.Sprintf("session identity mismatch: session %s is bound to %s but request is from %s",
+		logging.TruncateSessionID(e.SessionID), e.ExpectedSubject, e.ActualSubject)
 }

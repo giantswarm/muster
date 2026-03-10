@@ -314,59 +314,102 @@ func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
 	}
 }
 
-func TestLoadOrCreateSessionID(t *testing.T) {
-	t.Run("creates a new session ID in empty directory", func(t *testing.T) {
+func TestPerEndpointSessionIDs(t *testing.T) {
+	t.Run("GetSessionID returns empty string (server-issued)", func(t *testing.T) {
 		tmpDir := t.TempDir()
-
-		sessionID, err := loadOrCreateSessionID(tmpDir)
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if sessionID == "" {
-			t.Fatal("expected non-empty session ID")
-		}
 
-		// Verify the file was created
-		data, err := os.ReadFile(filepath.Join(tmpDir, SessionIDFilename))
-		if err != nil {
-			t.Fatalf("session ID file not created: %v", err)
-		}
-		if string(data) != sessionID {
-			t.Errorf("file content %q does not match returned session ID %q", string(data), sessionID)
+		if got := adapter.GetSessionID(); got != "" {
+			t.Errorf("expected empty session ID, got %q", got)
 		}
 	})
 
-	t.Run("returns existing session ID on subsequent calls", func(t *testing.T) {
+	t.Run("UpdateSessionID persists and retrieves per endpoint", func(t *testing.T) {
 		tmpDir := t.TempDir()
-
-		first, err := loadOrCreateSessionID(tmpDir)
-		if err != nil {
-			t.Fatalf("first call failed: %v", err)
-		}
-
-		second, err := loadOrCreateSessionID(tmpDir)
-		if err != nil {
-			t.Fatalf("second call failed: %v", err)
-		}
-
-		if first != second {
-			t.Errorf("session ID changed between calls: %q vs %q", first, second)
-		}
-	})
-
-	t.Run("preserves a pre-existing session ID", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		existing := "pre-existing-session-id-12345"
-		if err := os.WriteFile(filepath.Join(tmpDir, SessionIDFilename), []byte(existing), 0600); err != nil {
-			t.Fatalf("failed to write seed file: %v", err)
-		}
-
-		got, err := loadOrCreateSessionID(tmpDir)
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != existing {
-			t.Errorf("expected %q, got %q", existing, got)
+
+		adapter.UpdateSessionID("https://muster.example.com/mcp", "test-session-id-1")
+		adapter.UpdateSessionID("https://staging.example.com/mcp", "test-session-id-2")
+
+		if got := adapter.GetSessionIDForEndpoint("https://muster.example.com/mcp"); got != "test-session-id-1" {
+			t.Errorf("expected test-session-id-1, got %q", got)
+		}
+		if got := adapter.GetSessionIDForEndpoint("https://staging.example.com/mcp"); got != "test-session-id-2" {
+			t.Errorf("expected test-session-id-2, got %q", got)
+		}
+	})
+
+	t.Run("session IDs survive reload", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		adapter.UpdateSessionID("https://prod.example.com/mcp", "persisted-session-id")
+
+		// Create a new adapter that should load the persisted session ID
+		adapter2, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := adapter2.GetSessionIDForEndpoint("https://prod.example.com/mcp"); got != "persisted-session-id" {
+			t.Errorf("expected persisted-session-id, got %q", got)
+		}
+	})
+
+	t.Run("Logout deletes per-endpoint session ID", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		adapter.UpdateSessionID("https://prod.example.com/mcp", "to-be-deleted")
+
+		// Logout should clear the session ID
+		_ = adapter.Logout("https://prod.example.com/mcp")
+
+		if got := adapter.GetSessionIDForEndpoint("https://prod.example.com/mcp"); got != "" {
+			t.Errorf("expected empty after logout, got %q", got)
+		}
+	})
+
+	t.Run("legacy global session-id file is ignored gracefully", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		// Write a legacy global session-id file
+		if err := os.WriteFile(filepath.Join(tmpDir, SessionIDFilename), []byte("legacy-id"), 0600); err != nil {
+			t.Fatalf("failed to write legacy file: %v", err)
+		}
+
+		// Creating a new adapter should not fail
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// GetSessionID should return empty (legacy file is ignored)
+		if got := adapter.GetSessionID(); got != "" {
+			t.Errorf("expected empty, got %q", got)
 		}
 	})
 }

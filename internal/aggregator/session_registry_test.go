@@ -999,3 +999,171 @@ func TestSessionRegistry_SSOInitUpdatesActivity(t *testing.T) {
 			afterEndActivity, pastTime)
 	}
 }
+
+// --- Server-side session ID lifecycle tests (issue #414) ---
+
+func TestGenerateSessionID(t *testing.T) {
+	id, err := GenerateSessionID()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !IsValidUUIDv4(id) {
+		t.Errorf("generated ID %q is not a valid UUID v4", id)
+	}
+
+	// Generate another and ensure uniqueness
+	id2, err := GenerateSessionID()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id == id2 {
+		t.Error("two generated IDs should not be equal")
+	}
+}
+
+func TestIsValidUUIDv4(t *testing.T) {
+	tests := []struct {
+		input string
+		valid bool
+	}{
+		{"550e8400-e29b-41d4-a716-446655440000", true},
+		{"f47ac10b-58cc-4372-a567-0e02b2c3d479", true},
+		{"not-a-uuid", false},
+		{"", false},
+		{"550e8400-e29b-51d4-a716-446655440000", false}, // version 5, not 4
+		{"550e8400-e29b-41d4-c716-446655440000", false}, // wrong variant
+		{"UPPER-CASE-UUID-IS-INVALID-HERE", false},
+	}
+
+	for _, tt := range tests {
+		if got := IsValidUUIDv4(tt.input); got != tt.valid {
+			t.Errorf("IsValidUUIDv4(%q) = %v, want %v", tt.input, got, tt.valid)
+		}
+	}
+}
+
+func TestValidateSessionIDStrict(t *testing.T) {
+	t.Run("accepts valid UUID v4", func(t *testing.T) {
+		id, _ := GenerateSessionID()
+		if err := ValidateSessionIDStrict(id); err != nil {
+			t.Errorf("expected valid, got error: %v", err)
+		}
+	})
+
+	t.Run("rejects empty string", func(t *testing.T) {
+		if err := ValidateSessionIDStrict(""); err == nil {
+			t.Error("expected error for empty string")
+		}
+	})
+
+	t.Run("rejects non-UUID string", func(t *testing.T) {
+		err := ValidateSessionIDStrict("not-a-uuid-at-all")
+		if err == nil {
+			t.Error("expected error for non-UUID")
+		}
+		var invalidErr *InvalidSessionIDError
+		if ok := isInvalidSessionIDError(err, &invalidErr); !ok {
+			t.Errorf("expected InvalidSessionIDError, got %T", err)
+		}
+	})
+}
+
+func isInvalidSessionIDError(err error, target **InvalidSessionIDError) bool {
+	if e, ok := err.(*InvalidSessionIDError); ok {
+		*target = e
+		return true
+	}
+	return false
+}
+
+func TestCreateSessionForSubject(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	session, err := sr.CreateSessionForSubject("user@example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if session.SessionID == "" {
+		t.Error("expected non-empty session ID")
+	}
+
+	if !IsValidUUIDv4(session.SessionID) {
+		t.Errorf("session ID %q is not a valid UUID v4", session.SessionID)
+	}
+
+	if session.Subject != "user@example.com" {
+		t.Errorf("expected subject user@example.com, got %q", session.Subject)
+	}
+
+	// Verify session is in registry
+	found, exists := sr.GetSession(session.SessionID)
+	if !exists {
+		t.Error("expected session to be in registry")
+	}
+	if found.SessionID != session.SessionID {
+		t.Error("session IDs don't match")
+	}
+}
+
+func TestCreateSessionForSubject_SessionLimit(t *testing.T) {
+	sr := NewSessionRegistryWithLimits(5*time.Minute, 1)
+	defer sr.Stop()
+
+	_, err := sr.CreateSessionForSubject("user1")
+	if err != nil {
+		t.Fatalf("first session should succeed: %v", err)
+	}
+
+	_, err = sr.CreateSessionForSubject("user2")
+	if err == nil {
+		t.Error("expected session limit error")
+	}
+}
+
+func TestValidateSessionIdentity(t *testing.T) {
+	sr := NewSessionRegistry(5 * time.Minute)
+	defer sr.Stop()
+
+	t.Run("matching identity succeeds", func(t *testing.T) {
+		session, _ := sr.CreateSessionForSubject("user1")
+		err := sr.ValidateSessionIdentity(session.SessionID, "user1")
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("mismatched identity returns error", func(t *testing.T) {
+		session, _ := sr.CreateSessionForSubject("user1")
+		err := sr.ValidateSessionIdentity(session.SessionID, "user2")
+		if err == nil {
+			t.Error("expected identity mismatch error")
+		}
+		if _, ok := err.(*SessionIdentityMismatchError); !ok {
+			t.Errorf("expected SessionIdentityMismatchError, got %T", err)
+		}
+	})
+
+	t.Run("unbound session gets bound on first check", func(t *testing.T) {
+		// Create session without subject via GetOrCreateSession (legacy path)
+		session := sr.GetOrCreateSession("unbound-session-id-1234")
+		err := sr.ValidateSessionIdentity("unbound-session-id-1234", "late-binding-user")
+		if err != nil {
+			t.Errorf("expected nil error for late binding, got %v", err)
+		}
+		session.mu.RLock()
+		if session.Subject != "late-binding-user" {
+			t.Errorf("expected subject to be late-binding-user, got %q", session.Subject)
+		}
+		session.mu.RUnlock()
+	})
+
+	t.Run("unknown session returns nil", func(t *testing.T) {
+		err := sr.ValidateSessionIdentity("nonexistent-session", "anyone")
+		if err != nil {
+			t.Errorf("expected nil for unknown session, got %v", err)
+		}
+	})
+}
