@@ -224,9 +224,14 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	if sessionID := handler.GetSessionID(); sessionID != "" {
+	if sessionID := handler.GetSessionIDForEndpoint(endpoint); sessionID != "" {
 		client.SetHeader(api.ClientSessionIDHeader, sessionID)
 	}
+
+	// Set up callback to persist server-issued session IDs
+	client.SetSessionIDCallback(func(serverSessionID string) {
+		handler.UpdateSessionID(endpoint, serverSessionID)
+	})
 
 	// Set up mcp-go OAuth transport
 	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
@@ -293,9 +298,13 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	} else {
 		defer adapter.Close()
 		adapter.Register()
-		if sessionID := adapter.GetSessionID(); sessionID != "" {
+		if sessionID := adapter.GetSessionIDForEndpoint(endpoint); sessionID != "" {
 			client.SetHeader(api.ClientSessionIDHeader, sessionID)
 		}
+		// Set up callback to persist server-issued session IDs
+		client.SetSessionIDCallback(func(serverSessionID string) {
+			adapter.UpdateSessionID(endpoint, serverSessionID)
+		})
 	}
 
 	// First, check if the server requires authentication

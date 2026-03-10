@@ -2,7 +2,7 @@ package cli
 
 import (
 	"context"
-	cryptoRand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -46,7 +46,7 @@ const SessionIDFilename = "session-id"
 //
 // Thread-safe: All public methods are safe for concurrent use.
 type AuthAdapter struct {
-	// mu protects concurrent access to managers map.
+	// mu protects concurrent access to managers map and sessionIDs map.
 	mu sync.RWMutex
 
 	// managers handles OAuth flows and state management.
@@ -56,9 +56,9 @@ type AuthAdapter struct {
 	// tokenStorageDir is the directory for storing tokens.
 	tokenStorageDir string
 
-	// sessionID is the persistent session ID for this CLI user.
-	// This is sent via X-Muster-Session-ID header to enable MCP server token persistence.
-	sessionID string
+	// sessionIDs stores per-endpoint server-issued session IDs.
+	// Key is the normalized endpoint URL, value is the server-issued session ID.
+	sessionIDs map[string]string
 
 	// noSilentRefresh disables silent re-authentication attempts.
 	// When true, Login() always uses interactive authentication.
@@ -98,73 +98,113 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 		return nil, fmt.Errorf("failed to create token storage directory: %w", err)
 	}
 
-	// Load or generate the persistent session ID
-	sessionID, err := loadOrCreateSessionID(tokenDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize session ID: %w", err)
+	adapter := &AuthAdapter{
+		managers:        make(map[string]*oauth.AuthManager),
+		sessionIDs:      make(map[string]string),
+		tokenStorageDir: tokenDir,
+		noSilentRefresh: cfg.NoSilentRefresh,
 	}
 
-	return &AuthAdapter{
-		managers:        make(map[string]*oauth.AuthManager),
-		tokenStorageDir: tokenDir,
-		sessionID:       sessionID,
-		noSilentRefresh: cfg.NoSilentRefresh,
-	}, nil
+	// Load per-endpoint session IDs from storage
+	adapter.loadPerEndpointSessionIDs()
+
+	return adapter, nil
 }
 
-// loadOrCreateSessionID loads the session ID from the storage directory,
-// or generates and persists a new one if it doesn't exist.
-// This enables persistent session identity across CLI invocations.
-func loadOrCreateSessionID(storageDir string) (string, error) {
-	sessionFilePath := filepath.Join(storageDir, SessionIDFilename)
+// Note: Client-side session ID generation has been removed.
+// Session IDs are now generated server-side and returned via the
+// X-Muster-Session-ID response header. See issue #414.
 
-	// Try to read existing session ID
-	data, err := os.ReadFile(sessionFilePath)
-	if err == nil {
+// GetSessionID returns an empty string. Session IDs are now server-issued and per-endpoint.
+// Use GetSessionIDForEndpoint instead.
+func (a *AuthAdapter) GetSessionID() string {
+	return ""
+}
+
+// GetSessionIDForEndpoint returns the server-issued session ID for the given endpoint.
+func (a *AuthAdapter) GetSessionIDForEndpoint(endpoint string) string {
+	hash := endpointHash(normalizeEndpoint(endpoint))
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.sessionIDs[hash]
+}
+
+// UpdateSessionID stores a server-issued session ID for the given endpoint.
+// The session ID is persisted to disk in the per-endpoint directory.
+func (a *AuthAdapter) UpdateSessionID(endpoint, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	hash := endpointHash(normalizeEndpoint(endpoint))
+	a.mu.Lock()
+	a.sessionIDs[hash] = sessionID
+	a.mu.Unlock()
+
+	// Persist to disk in per-endpoint directory
+	if err := a.saveSessionIDForEndpoint(normalizeEndpoint(endpoint), sessionID); err != nil {
+		logging.Warn("AuthAdapter", "Failed to persist session ID for %s: %v", endpoint, err)
+	}
+}
+
+// endpointHash returns a filesystem-safe hash of a normalized endpoint URL.
+// Uses the same normalization as token storage for consistency.
+func endpointHash(endpoint string) string {
+	// Use a simple hash to create a directory-safe name
+	h := fmt.Sprintf("%x", sha256Sum([]byte(endpoint)))
+	// Use first 16 chars for readability while avoiding collisions
+	if len(h) > 16 {
+		return h[:16]
+	}
+	return h
+}
+
+// sha256Sum returns the SHA-256 hash of data.
+func sha256Sum(data []byte) [32]byte {
+	return sha256.Sum256(data)
+}
+
+// saveSessionIDForEndpoint persists a session ID for the given endpoint to disk.
+func (a *AuthAdapter) saveSessionIDForEndpoint(normalizedEndpoint, sessionID string) error {
+	dir := filepath.Join(a.tokenStorageDir, endpointHash(normalizedEndpoint))
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create endpoint session dir: %w", err)
+	}
+	sessionFile := filepath.Join(dir, SessionIDFilename)
+	return os.WriteFile(sessionFile, []byte(sessionID), 0600)
+}
+
+// loadPerEndpointSessionIDs scans the token directory for per-endpoint session IDs.
+func (a *AuthAdapter) loadPerEndpointSessionIDs() {
+	entries, err := os.ReadDir(a.tokenStorageDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sessionFile := filepath.Join(a.tokenStorageDir, entry.Name(), SessionIDFilename)
+		data, err := os.ReadFile(sessionFile)
+		if err != nil {
+			continue
+		}
 		sessionID := strings.TrimSpace(string(data))
 		if sessionID != "" {
-			logging.Debug("AuthAdapter", "Loaded existing session ID: %s", logging.TruncateSessionID(sessionID))
-			return sessionID, nil
+			// We store by directory name since we can't reverse the hash.
+			// The actual endpoint lookup happens when GetSessionIDForEndpoint is called
+			// and the endpoint hash matches a directory.
+			a.sessionIDs[entry.Name()] = sessionID
+			logging.Debug("AuthAdapter", "Loaded session ID for endpoint dir %s: %s",
+				entry.Name(), logging.TruncateSessionID(sessionID))
 		}
 	}
 
-	// Generate a new session ID (UUID-like format)
-	sessionID := generateSessionID()
-
-	// Persist the session ID
-	if err := os.WriteFile(sessionFilePath, []byte(sessionID), 0600); err != nil {
-		return "", fmt.Errorf("failed to write session ID file: %w", err)
+	// Also check for legacy global session-id file and ignore it gracefully
+	legacyFile := filepath.Join(a.tokenStorageDir, SessionIDFilename)
+	if _, err := os.Stat(legacyFile); err == nil {
+		logging.Info("AuthAdapter", "Found legacy global session-id file; it will be ignored (session IDs are now per-endpoint and server-issued)")
 	}
-
-	logging.Debug("AuthAdapter", "Generated new session ID: %s", logging.TruncateSessionID(sessionID))
-	return sessionID, nil
-}
-
-// generateSessionID creates a new unique session ID.
-// Uses a combination of random data and timestamp for uniqueness.
-func generateSessionID() string {
-	// Use crypto/rand for secure random data
-	randomBytes := make([]byte, 16)
-	if _, err := cryptoRand.Read(randomBytes); err != nil {
-		// Fallback to time-based if random fails - this may indicate a system issue
-		logging.Warn("AuthAdapter", "crypto/rand failed, using time-based session ID: %v", err)
-		return fmt.Sprintf("cli-%d", time.Now().UnixNano())
-	}
-
-	// Format as UUID-like string
-	return fmt.Sprintf("%x-%x-%x-%x-%x",
-		randomBytes[0:4],
-		randomBytes[4:6],
-		randomBytes[6:8],
-		randomBytes[8:10],
-		randomBytes[10:16],
-	)
-}
-
-// GetSessionID returns the persistent session ID for this CLI user.
-// This is used for the X-Muster-Session-ID header.
-func (a *AuthAdapter) GetSessionID() string {
-	return a.sessionID
 }
 
 // SetNoSilentRefresh enables or disables silent re-authentication.
@@ -433,11 +473,12 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 	return a.Login(ctx, endpoint)
 }
 
-// Logout clears stored tokens for the endpoint.
+// Logout clears stored tokens and session ID for the endpoint.
 func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
+	hash := endpointHash(normalizedEndpoint)
 
-	// Remove manager from cache if it exists
+	// Remove manager and session ID from cache
 	a.mu.Lock()
 	if mgr, ok := a.managers[normalizedEndpoint]; ok {
 		if err := mgr.Close(); err != nil {
@@ -445,7 +486,14 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 		}
 		delete(a.managers, normalizedEndpoint)
 	}
+	delete(a.sessionIDs, hash)
 	a.mu.Unlock()
+
+	// Delete the per-endpoint session ID file
+	sessionFile := filepath.Join(a.tokenStorageDir, hash, SessionIDFilename)
+	if err := os.Remove(sessionFile); err != nil && !os.IsNotExist(err) {
+		logging.Warn("AuthAdapter", "Failed to delete session ID file for %s: %v", normalizedEndpoint, err)
+	}
 
 	// Clear the token directly from the token store.
 	// We don't use the manager's ClearToken() because newly created managers
@@ -465,9 +513,9 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 	return nil
 }
 
-// LogoutAll clears all stored tokens.
+// LogoutAll clears all stored tokens and session IDs.
 func (a *AuthAdapter) LogoutAll() error {
-	// Close all managers
+	// Close all managers and clear session IDs
 	a.mu.Lock()
 	for endpoint, mgr := range a.managers {
 		if err := mgr.Close(); err != nil {
@@ -475,6 +523,15 @@ func (a *AuthAdapter) LogoutAll() error {
 		}
 	}
 	a.managers = make(map[string]*oauth.AuthManager)
+
+	// Delete all per-endpoint session ID files
+	for hash := range a.sessionIDs {
+		sessionFile := filepath.Join(a.tokenStorageDir, hash, SessionIDFilename)
+		if err := os.Remove(sessionFile); err != nil && !os.IsNotExist(err) {
+			logging.Warn("AuthAdapter", "Failed to delete session ID file %s: %v", hash, err)
+		}
+	}
+	a.sessionIDs = make(map[string]string)
 	a.mu.Unlock()
 
 	// Create a temporary token store to clear all tokens

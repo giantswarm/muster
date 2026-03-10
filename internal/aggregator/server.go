@@ -791,8 +791,8 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	}
 
 	// Mount the MCP handler as the default for all other paths
-	// Wrap with clientSessionIDMiddleware to enable CLI session persistence
-	mux.Handle("/", clientSessionIDMiddleware(mcpHandler))
+	// Wrap with clientSessionIDMiddleware to enable server-side session lifecycle
+	mux.Handle("/", a.clientSessionIDMiddleware(mcpHandler))
 
 	return mux
 }
@@ -810,9 +810,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	// Wrap the MCP handler with clientSessionIDMiddleware to enable CLI session persistence
+	// Wrap the MCP handler with clientSessionIDMiddleware to enable server-side session lifecycle
 	// This must be done before OAuth middleware so the session ID is available in context
-	wrappedHandler := clientSessionIDMiddleware(mcpHandler)
+	wrappedHandler := a.clientSessionIDMiddleware(mcpHandler)
 
 	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, wrappedHandler, a.config.Debug)
 	if err != nil {
@@ -1695,16 +1695,99 @@ func getSessionIDFromContext(ctx context.Context) string {
 	return defaultSessionID
 }
 
-// clientSessionIDMiddleware extracts the X-Muster-Session-ID header and adds it to context.
-// This middleware enables CLI tools to maintain persistent session identity across invocations.
-func clientSessionIDMiddleware(next http.Handler) http.Handler {
+// clientSessionIDMiddleware handles server-side session ID lifecycle.
+//
+// For every authenticated request, it:
+//  1. Validates the client-provided X-Muster-Session-ID (if any)
+//  2. Creates a new server-side session if none exists or the provided ID is unknown
+//  3. Validates identity binding (session must match authenticated user)
+//  4. Sets the X-Muster-Session-ID response header on every response
+//
+// Edge case handling:
+//   - No session ID header: Create new session, return ID in response header
+//   - Valid session ID, matching identity: Reuse session
+//   - Valid session ID, different identity: Reject with 403
+//   - Unknown session ID (not in store): Create new session, return new ID (with warning)
+//   - Malformed session ID (not UUID): Reject with 400
+//   - Session ID exceeds max length: Reject with 400
+func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientSessionID := r.Header.Get(api.ClientSessionIDHeader)
-		if clientSessionID != "" {
-			logging.Debug("Aggregator", "Client provided session ID: %s", logging.TruncateSessionID(clientSessionID))
-			ctx := api.WithClientSessionID(r.Context(), clientSessionID)
-			r = r.WithContext(ctx)
+
+		// Extract authenticated subject from context (set by OAuth ValidateToken middleware).
+		// For unprotected endpoints, subject will be empty and identity binding is skipped.
+		subject := api.GetSubjectFromContext(r.Context())
+
+		var sessionID string
+
+		switch {
+		case clientSessionID == "":
+			// No session ID: create a new server-side session
+			session, err := a.sessionRegistry.CreateSessionForSubject(subject)
+			if err != nil {
+				logging.Warn("Aggregator", "Failed to create session: %v", err)
+				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
+			sessionID = session.SessionID
+			logging.Debug("Aggregator", "Created new server-side session: %s", logging.TruncateSessionID(sessionID))
+
+		case len(clientSessionID) > MaxSessionIDLength:
+			// Session ID exceeds max length: reject before running regex
+			logging.Warn("Aggregator", "Rejected oversized session ID (length %d)", len(clientSessionID))
+			http.Error(w, "Bad Request: session ID too long", http.StatusBadRequest)
+			return
+
+		case !IsValidUUIDv4(clientSessionID):
+			// Malformed session ID (not UUID v4 format): reject with 400
+			logging.Warn("Aggregator", "Rejected malformed session ID (not UUID v4): %s",
+				logging.TruncateSessionID(clientSessionID))
+			http.Error(w, "Bad Request: malformed session ID (expected UUID v4 format)", http.StatusBadRequest)
+			return
+
+		default:
+			// Client provided a UUID v4 session ID: validate it
+			if err := ValidateSessionID(clientSessionID); err != nil {
+				logging.Warn("Aggregator", "Rejected invalid session ID: %v", err)
+				http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			session, exists := a.sessionRegistry.GetSession(clientSessionID)
+			if !exists {
+				// Unknown session ID (not in store): create new session, log warning
+				logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session",
+					logging.TruncateSessionID(clientSessionID))
+				newSession, err := a.sessionRegistry.CreateSessionForSubject(subject)
+				if err != nil {
+					logging.Warn("Aggregator", "Failed to create session: %v", err)
+					http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+					return
+				}
+				sessionID = newSession.SessionID
+			} else {
+				// Session exists: validate identity binding
+				if subject != "" {
+					if err := a.sessionRegistry.ValidateSessionIdentity(clientSessionID, subject); err != nil {
+						if _, ok := err.(*SessionIdentityMismatchError); ok {
+							logging.Warn("Aggregator", "Session identity mismatch: %v", err)
+							http.Error(w, "Forbidden: session identity mismatch - clear your session and re-authenticate", http.StatusForbidden)
+							return
+						}
+					}
+				}
+				sessionID = session.SessionID
+				session.UpdateActivity()
+			}
 		}
+
+		// Set the session ID in the response header on every authenticated response
+		w.Header().Set(api.ClientSessionIDHeader, sessionID)
+
+		// Add session ID to context for downstream handlers
+		ctx := api.WithClientSessionID(r.Context(), sessionID)
+		r = r.WithContext(ctx)
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1714,7 +1797,10 @@ func clientSessionIDMiddleware(next http.Handler) http.Handler {
 //
 // Returns the server name, session-specific client, original tool name, or an error if not found.
 func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (string, MCPClient, string, error) {
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
+	session, exists := a.sessionRegistry.GetSession(sessionID)
+	if !exists {
+		return "", nil, "", fmt.Errorf("session not found: %s", logging.TruncateSessionID(sessionID))
+	}
 
 	// Iterate through all session connections to find the tool
 	for serverName, conn := range session.GetAllConnections() {

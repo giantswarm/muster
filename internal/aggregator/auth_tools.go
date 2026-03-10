@@ -400,8 +400,14 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Get the session and remove the connection
-	session := p.aggregator.sessionRegistry.GetOrCreateSession(sessionID)
+	// Get the session (read-only; do not create if absent -- it may have already expired)
+	session, sessionExists := p.aggregator.sessionRegistry.GetSession(sessionID)
+	if !sessionExists {
+		// Session already expired/deleted; nothing to clean up
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("Logged out from %s (session already expired).", serverName)},
+		}, nil
+	}
 	conn, hasConnection := session.GetConnection(serverName)
 
 	if hasConnection && conn.Client != nil {
@@ -420,6 +426,15 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
 		}
+	}
+
+	// If no connections remain, delete the entire session from the registry.
+	// This ensures server-side session cleanup on logout rather than waiting
+	// for idle timeout.
+	if len(session.GetAllConnections()) == 0 {
+		p.aggregator.sessionRegistry.DeleteSession(sessionID)
+		logging.Info("AuthTools", "Deleted session %s (no remaining connections after logout)",
+			logging.TruncateSessionID(sessionID))
 	}
 
 	// Notify the session that tools have changed

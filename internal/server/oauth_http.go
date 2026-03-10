@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -346,6 +347,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		// Inject the ID token into context for downstream SSO use
 		ctx = ContextWithIDToken(ctx, idToken)
+
+		// Extract and inject the authenticated user's subject (sub claim) for session identity binding.
+		// This enables the session middleware to verify that sessions are used only by
+		// the identity that created them.
+		if subject := extractSubjectFromIDToken(idToken); subject != "" {
+			ctx = api.WithSubject(ctx, subject)
+		}
 
 		// Also inject the upstream access token for refresh detection.
 		// The access token changes on every token refresh, while the ID token
@@ -855,6 +863,34 @@ func (s *OAuthHTTPServer) cleanupExpiredSessions() {
 	if expiredCount > 0 {
 		logging.Info("OAuth", "Cleaned up %d expired session tracker entries", expiredCount)
 	}
+}
+
+// extractSubjectFromIDToken extracts the subject (sub) claim from a JWT ID token.
+// This is used for session identity binding. Returns empty string if extraction fails.
+//
+// SECURITY: This function does NOT verify the JWT signature. It MUST only be called
+// after the ValidateToken middleware has cryptographically verified the token.
+// The middleware chain in createOAuthProtectedMux guarantees this ordering.
+func extractSubjectFromIDToken(idToken string) string {
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+
+	// Decode the payload (second part)
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+
+	return claims.Sub
 }
 
 // hashToken returns a short hash of the token for comparison purposes.
