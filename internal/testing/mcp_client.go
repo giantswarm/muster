@@ -44,7 +44,7 @@ var _ transport.TokenStore = (*testTokenStore)(nil)
 type testSessionIDRoundTripper struct {
 	wrapped   http.RoundTripper
 	mu        sync.Mutex
-	sessionID string         // server-issued session ID (empty until first response)
+	sessionID string          // server-issued session ID (empty until first response)
 	onUpdate  func(id string) // optional callback when session ID is updated
 }
 
