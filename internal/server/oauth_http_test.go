@@ -343,28 +343,28 @@ func TestTruncateEmail(t *testing.T) {
 }
 
 func TestTokenProviderContextFunctions(t *testing.T) {
-	t.Run("ContextWithAccessToken and GetAccessTokenFromContext", func(t *testing.T) {
+	t.Run("ContextWithIDToken and GetIDTokenFromContext", func(t *testing.T) {
 		ctx := httptest.NewRequest("GET", "/", nil).Context()
 		token := "test-token-123"
 
 		// Initially no token
-		_, ok := GetAccessTokenFromContext(ctx)
+		_, ok := GetIDTokenFromContext(ctx)
 		assert.False(t, ok)
 
 		// Add token to context
-		ctx = ContextWithAccessToken(ctx, token)
+		ctx = ContextWithIDToken(ctx, token)
 
 		// Retrieve token
-		retrieved, ok := GetAccessTokenFromContext(ctx)
+		retrieved, ok := GetIDTokenFromContext(ctx)
 		assert.True(t, ok)
 		assert.Equal(t, token, retrieved)
 	})
 
-	t.Run("GetAccessTokenFromContext with empty token returns false", func(t *testing.T) {
+	t.Run("GetIDTokenFromContext with empty token returns false", func(t *testing.T) {
 		ctx := httptest.NewRequest("GET", "/", nil).Context()
-		ctx = ContextWithAccessToken(ctx, "")
+		ctx = ContextWithIDToken(ctx, "")
 
-		_, ok := GetAccessTokenFromContext(ctx)
+		_, ok := GetIDTokenFromContext(ctx)
 		assert.False(t, ok)
 	})
 
@@ -440,7 +440,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Create request with session ID and tokens in context
 		req := httptest.NewRequest("GET", "/", nil)
 		req.Header.Set(api.ClientSessionIDHeader, "test-session-1")
-		ctx := ContextWithAccessToken(req.Context(), "id-token-A")
+		ctx := ContextWithIDToken(req.Context(), "id-token-A")
 		ctx = ContextWithUpstreamAccessToken(ctx, "access-token-A")
 
 		server.triggerSessionInitIfNeeded(ctx, req)
@@ -471,7 +471,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// First call with tokens - should trigger callback
 		req1 := httptest.NewRequest("GET", "/", nil)
 		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx1 := ContextWithAccessToken(req1.Context(), idToken)
+		ctx1 := ContextWithIDToken(req1.Context(), idToken)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessToken)
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
@@ -486,7 +486,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Second call with SAME tokens - should NOT trigger callback
 		req2 := httptest.NewRequest("GET", "/", nil)
 		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx2 := ContextWithAccessToken(req2.Context(), idToken)
+		ctx2 := ContextWithIDToken(req2.Context(), idToken)
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessToken)
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
@@ -508,7 +508,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 
 		// Register callback that captures the ID token from context
 		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
-			idToken, _ := GetAccessTokenFromContext(ctx)
+			idToken, _ := GetIDTokenFromContext(ctx)
 			callbackDone <- callbackResult{idToken: idToken}
 		})
 		defer api.RegisterSessionInitCallback(nil)
@@ -522,7 +522,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// First call with token A
 		req1 := httptest.NewRequest("GET", "/", nil)
 		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx1 := ContextWithAccessToken(req1.Context(), idTokenA)
+		ctx1 := ContextWithIDToken(req1.Context(), idTokenA)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenA)
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
@@ -537,7 +537,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Second call with DIFFERENT tokens (simulating re-authentication)
 		req2 := httptest.NewRequest("GET", "/", nil)
 		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx2 := ContextWithAccessToken(req2.Context(), idTokenB)
+		ctx2 := ContextWithIDToken(req2.Context(), idTokenB)
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenB)
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
@@ -559,7 +559,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 
 		// Register callback that captures the ID token from context
 		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
-			idToken, _ := GetAccessTokenFromContext(ctx)
+			idToken, _ := GetIDTokenFromContext(ctx)
 			callbackDone <- callbackResult{idToken: idToken}
 		})
 		defer api.RegisterSessionInitCallback(nil)
@@ -574,7 +574,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// First call with original access token
 		req1 := httptest.NewRequest("GET", "/", nil)
 		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx1 := ContextWithAccessToken(req1.Context(), idToken)
+		ctx1 := ContextWithIDToken(req1.Context(), idToken)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenBefore)
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
@@ -589,7 +589,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Second call with SAME ID token but DIFFERENT access token (simulating server-side refresh)
 		req2 := httptest.NewRequest("GET", "/", nil)
 		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx2 := ContextWithAccessToken(req2.Context(), idToken)       // Same ID token
+		ctx2 := ContextWithIDToken(req2.Context(), idToken)       // Same ID token
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenAfter) // Different access token
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
@@ -613,7 +613,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 
 		// Request without session ID header
 		req := httptest.NewRequest("GET", "/", nil)
-		ctx := ContextWithAccessToken(req.Context(), "some-id-token")
+		ctx := ContextWithIDToken(req.Context(), "some-id-token")
 		ctx = ContextWithUpstreamAccessToken(ctx, "some-access-token")
 
 		// This returns early (no goroutine launched) when session ID is missing
@@ -669,7 +669,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// First call with ID token only (no upstream access token) - should trigger
 		req1 := httptest.NewRequest("GET", "/", nil)
 		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx1 := ContextWithAccessToken(req1.Context(), idTokenA)
+		ctx1 := ContextWithIDToken(req1.Context(), idTokenA)
 		// Note: NOT setting ContextWithUpstreamAccessToken
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
@@ -683,7 +683,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Second call with SAME ID token (no upstream access token) - should NOT trigger
 		req2 := httptest.NewRequest("GET", "/", nil)
 		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx2 := ContextWithAccessToken(req2.Context(), idTokenA)
+		ctx2 := ContextWithIDToken(req2.Context(), idTokenA)
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
 		select {
@@ -696,7 +696,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Third call with DIFFERENT ID token - should trigger
 		req3 := httptest.NewRequest("GET", "/", nil)
 		req3.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx3 := ContextWithAccessToken(req3.Context(), idTokenB)
+		ctx3 := ContextWithIDToken(req3.Context(), idTokenB)
 		server.triggerSessionInitIfNeeded(ctx3, req3)
 
 		select {

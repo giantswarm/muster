@@ -216,7 +216,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 	// First, check the request context for an ID token from muster's OAuth server protection.
 	// This is the primary SSO use case: user authenticates TO muster, and we forward that
 	// token to downstream servers that trust muster's OAuth client ID.
-	if idToken, ok := server.GetAccessTokenFromContext(ctx); ok && idToken != "" {
+	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
 		logging.Debug("SessionConnection", "Found ID token in request context for session %s",
 			logging.TruncateSessionID(sessionID))
 		return idToken

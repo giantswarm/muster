@@ -207,10 +207,10 @@ Context helpers for passing OAuth tokens through the request chain:
 
 ```go
 // Store ID token in context for downstream use
-ctx = oauth.ContextWithAccessToken(ctx, idToken)
+ctx = oauth.ContextWithIDToken(ctx, idToken)
 
 // Retrieve token in tool handlers
-token, ok := oauth.GetAccessTokenFromContext(ctx)
+token, ok := oauth.GetIDTokenFromContext(ctx)
 ```
 
 #### 3. Access Token Injector Middleware
@@ -229,7 +229,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
         token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
         // Extract ID token and inject into context
         idToken := GetIDToken(token)
-        ctx = ContextWithAccessToken(ctx, idToken)
+        ctx = ContextWithIDToken(ctx, idToken)
         r = r.WithContext(ctx)
         next.ServeHTTP(w, r)
     })

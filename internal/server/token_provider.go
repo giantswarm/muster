@@ -11,10 +11,10 @@ import (
 type contextKey string
 
 const (
-	// accessTokenKey is the context key for storing the user's OAuth access token.
+	// idTokenKey is the context key for storing the user's OIDC ID token.
 	// This token can be used for downstream API authentication.
 	//nolint:gosec // G101 false positive - this is a context key name, not a credential
-	accessTokenKey contextKey = "oauth_access_token"
+	idTokenKey contextKey = "oauth_id_token"
 
 	// upstreamAccessTokenKey is the context key for storing the upstream IdP's access token.
 	// This is used to detect token refresh (the access token changes on refresh,
@@ -27,17 +27,17 @@ const (
 // This is a type alias for the library's providers.UserInfo type.
 type UserInfo = providers.UserInfo
 
-// ContextWithAccessToken creates a context with the given OAuth ID token.
-// This is used to pass the user's OAuth ID token for downstream
+// ContextWithIDToken creates a context with the given OIDC ID token.
+// This is used to pass the user's ID token for downstream
 // authentication (e.g., to remote MCP servers).
-func ContextWithAccessToken(ctx context.Context, idToken string) context.Context {
-	return context.WithValue(ctx, accessTokenKey, idToken)
+func ContextWithIDToken(ctx context.Context, idToken string) context.Context {
+	return context.WithValue(ctx, idTokenKey, idToken)
 }
 
-// GetAccessTokenFromContext retrieves the OAuth ID token from the context.
+// GetIDTokenFromContext retrieves the OIDC ID token from the context.
 // Returns the ID token and true if present, or empty string and false if not available.
-func GetAccessTokenFromContext(ctx context.Context) (string, bool) {
-	token, ok := ctx.Value(accessTokenKey).(string)
+func GetIDTokenFromContext(ctx context.Context) (string, bool) {
+	token, ok := ctx.Value(idTokenKey).(string)
 	return token, ok && token != ""
 }
 
