@@ -5,6 +5,8 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"sync"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -35,13 +37,81 @@ func (s *testTokenStore) SaveToken(_ context.Context, token *transport.Token) er
 
 var _ transport.TokenStore = (*testTokenStore)(nil)
 
+// testSessionIDRoundTripper wraps an http.RoundTripper to track server-issued session IDs.
+// On each response, it reads the X-Muster-Session-ID header and stores the server's
+// authoritative session ID. On each request, it overrides the session ID header with
+// the server-issued value so that subsequent requests reuse the same server-side session.
+type testSessionIDRoundTripper struct {
+	wrapped   http.RoundTripper
+	mu        sync.Mutex
+	sessionID string         // server-issued session ID (empty until first response)
+	onUpdate  func(id string) // optional callback when session ID is updated
+}
+
+func (rt *testSessionIDRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// If we have a server-issued session ID, override the request header
+	// so the server recognizes this as an existing session.
+	// Clone the request before mutating to comply with the http.RoundTripper contract.
+	rt.mu.Lock()
+	sid := rt.sessionID
+	rt.mu.Unlock()
+
+	if sid != "" {
+		req = req.Clone(req.Context())
+		req.Header.Set(api.ClientSessionIDHeader, sid)
+	}
+
+	resp, err := rt.wrapped.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	// Capture server-issued session ID from response header.
+	// Validate format before accepting, matching the production client's checks
+	// in internal/agent/client.go to guard against malformed values.
+	if serverSessionID := resp.Header.Get(api.ClientSessionIDHeader); serverSessionID != "" {
+		if len(serverSessionID) <= 256 && isValidTestUUIDv4(serverSessionID) {
+			rt.mu.Lock()
+			if rt.sessionID != serverSessionID {
+				rt.sessionID = serverSessionID
+				if rt.onUpdate != nil {
+					rt.onUpdate(serverSessionID)
+				}
+			}
+			rt.mu.Unlock()
+		}
+	}
+
+	return resp, err
+}
+
+// isValidTestUUIDv4 checks if a string looks like a valid UUID v4.
+// This is a lightweight format check matching the production client's validation
+// in internal/agent/client.go (isValidUUIDv4Format).
+func isValidTestUUIDv4(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+		} else if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
 	client      client.MCPClient
 	endpoint    string
 	debug       bool
 	logger      TestLogger
-	sessionID   string // Client's session ID (from X-Muster-Session-ID header)
+	mu          sync.Mutex
+	sessionID   string // Client's session ID (tracks server-issued ID)
 	accessToken string // Current access token used for authentication
 }
 
@@ -75,7 +145,10 @@ func (c *mcpTestClient) ConnectWithAuth(ctx context.Context, endpoint, accessTok
 // connectWithOptions establishes connection with optional authentication.
 func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, accessToken string) error {
 	// Use existing session ID or generate a new one
-	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, c.sessionID)
+	c.mu.Lock()
+	sid := c.sessionID
+	c.mu.Unlock()
+	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, sid)
 }
 
 // connectWithSessionAndToken establishes connection with specific session ID and token.
@@ -101,9 +174,25 @@ func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint
 		}
 	}
 
-	// Build transport options: use WithHTTPOAuth for token injection (typed 401 errors)
-	// and WithHTTPHeaders for the session ID header.
+	// Build transport options: use WithHTTPOAuth for token injection (typed 401 errors),
+	// WithHTTPHeaders for the initial session ID header, and a custom HTTP client with
+	// a sessionIDRoundTripper to track server-issued session IDs across requests.
 	var opts []transport.StreamableHTTPCOption
+
+	// Create a custom round tripper that tracks server-issued session IDs.
+	// This mirrors the pattern in internal/agent/client.go's sessionIDRoundTripper.
+	rt := &testSessionIDRoundTripper{
+		wrapped: http.DefaultTransport,
+		onUpdate: func(serverID string) {
+			c.mu.Lock()
+			c.sessionID = serverID
+			c.mu.Unlock()
+			if c.debug {
+				c.logger.Debug("📌 Server issued session ID: %s...\n", serverID[:min(8, len(serverID))])
+			}
+		},
+	}
+	opts = append(opts, transport.WithHTTPBasicClient(&http.Client{Transport: rt}))
 
 	if accessToken != "" {
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
@@ -430,8 +519,10 @@ func (c *mcpTestClient) GetEndpoint() string {
 	return c.endpoint
 }
 
-// GetSessionID returns the client's session ID.
+// GetSessionID returns the client's session ID (tracks server-issued ID after first request).
 func (c *mcpTestClient) GetSessionID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.sessionID
 }
 
