@@ -589,7 +589,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		// Second call with SAME ID token but DIFFERENT access token (simulating server-side refresh)
 		req2 := httptest.NewRequest("GET", "/", nil)
 		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
-		ctx2 := ContextWithIDToken(req2.Context(), idToken)       // Same ID token
+		ctx2 := ContextWithIDToken(req2.Context(), idToken)           // Same ID token
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenAfter) // Different access token
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
