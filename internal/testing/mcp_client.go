@@ -173,14 +173,20 @@ func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint
 	return nil
 }
 
-// generateTestSessionID creates a unique session ID for testing.
+// generateTestSessionID creates a unique UUID v4 session ID for testing.
+// The server validates UUID v4 format, so we must set version and variant bits.
 func generateTestSessionID() string {
 	randomBytes := make([]byte, 16)
 	if _, err := cryptoRand.Read(randomBytes); err != nil {
 		// Fallback to time-based ID
 		return fmt.Sprintf("test-%d", time.Now().UnixNano())
 	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x",
+	// Set version 4 (random) per RFC 4122
+	randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40
+	// Set variant bits per RFC 4122
+	randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		randomBytes[0:4], randomBytes[4:6], randomBytes[6:8], randomBytes[8:10], randomBytes[10:16])
 }
 
