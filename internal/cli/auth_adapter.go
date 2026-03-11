@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -474,9 +475,21 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 }
 
 // Logout clears stored tokens and session ID for the endpoint.
+// It first attempts to invalidate the server-side session (best-effort),
+// then performs local cleanup regardless of whether server invalidation succeeded.
 func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
 	hash := endpointHash(normalizedEndpoint)
+
+	// Best-effort server-side session invalidation before local cleanup.
+	// Read session ID while holding the lock, then release before making HTTP call.
+	a.mu.RLock()
+	sessionID := a.sessionIDs[hash]
+	a.mu.RUnlock()
+
+	if sessionID != "" {
+		a.invalidateServerSession(normalizedEndpoint, sessionID)
+	}
 
 	// Remove manager and session ID from cache
 	a.mu.Lock()
@@ -514,7 +527,20 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 }
 
 // LogoutAll clears all stored tokens and session IDs.
+// It first attempts to invalidate all known server-side sessions (best-effort),
+// then performs local cleanup regardless of whether server invalidation succeeded.
 func (a *AuthAdapter) LogoutAll() error {
+	// Collect endpoint->sessionID mappings for server-side invalidation.
+	// We need endpoint URLs from managers and token files, matched with session IDs.
+	a.mu.RLock()
+	endpointSessionPairs := a.collectEndpointSessionPairs()
+	a.mu.RUnlock()
+
+	// Best-effort server-side session invalidation for all known endpoints
+	for endpoint, sessionID := range endpointSessionPairs {
+		a.invalidateServerSession(endpoint, sessionID)
+	}
+
 	// Close all managers and clear session IDs
 	a.mu.Lock()
 	for endpoint, mgr := range a.managers {
@@ -544,6 +570,63 @@ func (a *AuthAdapter) LogoutAll() error {
 	}
 
 	return store.Clear()
+}
+
+// invalidateServerSession sends a DELETE /session request to the server to invalidate
+// the server-side session. This is best-effort: if the server is unreachable or returns
+// an error, the failure is logged and local cleanup proceeds.
+func (a *AuthAdapter) invalidateServerSession(endpoint, sessionID string) {
+	sessionURL := endpoint + "/session"
+
+	req, err := http.NewRequest(http.MethodDelete, sessionURL, nil)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to create session invalidation request for %s: %v", endpoint, err)
+		return
+	}
+	req.Header.Set(api.ClientSessionIDHeader, sessionID)
+
+	client := &http.Client{Timeout: DefaultHTTPClientTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to invalidate server session for %s (server may be unreachable): %v", endpoint, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		logging.Info("AuthAdapter", "Server session invalidated for %s", endpoint)
+	} else {
+		logging.Warn("AuthAdapter", "Server session invalidation returned status %d for %s", resp.StatusCode, endpoint)
+	}
+}
+
+// collectEndpointSessionPairs builds a map of endpoint URL -> session ID from all
+// known sources (managers, token files). Must be called with a.mu held for reading.
+func (a *AuthAdapter) collectEndpointSessionPairs() map[string]string {
+	pairs := make(map[string]string)
+
+	// From managers: keys are normalized endpoint URLs
+	for endpoint := range a.managers {
+		hash := endpointHash(endpoint)
+		if sid, ok := a.sessionIDs[hash]; ok {
+			pairs[endpoint] = sid
+		}
+	}
+
+	// From token files: have ServerURL
+	tokenFiles, _ := a.listTokenFiles()
+	for _, tf := range tokenFiles {
+		normalized := normalizeEndpoint(tf.ServerURL)
+		if _, already := pairs[normalized]; already {
+			continue
+		}
+		hash := endpointHash(normalized)
+		if sid, ok := a.sessionIDs[hash]; ok {
+			pairs[normalized] = sid
+		}
+	}
+
+	return pairs
 }
 
 // GetStatus returns authentication status for all known endpoints.
