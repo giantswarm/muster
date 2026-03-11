@@ -349,7 +349,7 @@ type ServerAuthStatus struct {
 	Status   string `json:"status"` // "connected", "auth_required", "sso_pending", "disconnected", "error"
 	Issuer   string `json:"issuer,omitempty"`
 	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008
+	AuthTool string `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
 	Error    string `json:"error,omitempty"`
 
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.

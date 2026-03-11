@@ -169,7 +169,7 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 				authPrint("  Issuer:   %s\n", srv.Issuer)
 			}
 			if srv.Status == pkgoauth.ServerStatusAuthRequired {
-				if srv.SSOAttemptFailed {
+				if srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 					authPrint("  Action:   SSO failed - check server configuration\n")
 				} else if srv.AuthTool != "" {
 					authPrint("  Action:   Run: muster auth login --server %s\n", srv.Name)
@@ -246,7 +246,7 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen+5, "")
 		}
 
-		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.SSOAttemptFailed {
+		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 			fmt.Printf("  %-*s %s%s  SSO failed - check server configuration\n", maxNameLen, srv.Name, statusStr, ssoLabel)
 		} else if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
 			fmt.Printf("  %-*s %s%s  Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoLabel, srv.Name)
