@@ -33,7 +33,7 @@ func TestConcurrentStaleSessionID(t *testing.T) {
 	staleID := "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" // valid UUID v4, but unknown
 
 	// Use a barrier so all goroutines start the handler at the same instant,
-	// maximizing the chance they overlap inside singleflight.Do.
+	// maximizing the chance they overlap inside sync.Once.Do.
 	var ready sync.WaitGroup
 	ready.Add(concurrency)
 	gate := make(chan struct{})
@@ -272,16 +272,15 @@ func TestSSOInitAfterSessionTimeout(t *testing.T) {
 	require.NoError(t, err)
 	originalID := session.SessionID
 
-	// Wait for the session to time out and be cleaned up.
-	// Don't use GetSession for polling because it calls UpdateActivity(),
-	// which would keep the session alive. Use Count() instead.
+	// Wait for the session to time out and the removal callback to fire.
+	// We check the callback (not just Count()) because the callback runs
+	// outside the registry lock and may lag behind session deletion.
 	require.Eventually(t, func() bool {
-		return sr.Count() == 0
-	}, 5*time.Second, 50*time.Millisecond, "session should be cleaned up after timeout")
+		_, called := removedIDs.Load(originalID)
+		return called
+	}, 5*time.Second, 50*time.Millisecond, "onSessionRemoved should fire for timed-out session")
 
-	// Verify the removal callback was called
-	_, wasCalled := removedIDs.Load(originalID)
-	assert.True(t, wasCalled, "onSessionRemoved should fire for timed-out session")
+	assert.Equal(t, 0, sr.Count(), "session should be removed from registry")
 
 	// Now create a new session (simulating the next request)
 	newSession, err := sr.CreateSessionForSubject("user")

@@ -110,7 +110,8 @@ const staleSessionDedupMaxEntries = 20000
 //
 // Thread safety: all goroutines call entry.once.Do() before reading sessionID
 // and err. sync.Once.Do establishes a happens-before edge, so no additional
-// lock is needed for the subsequent reads.
+// lock is needed for the subsequent reads. createdAt is immutable after the
+// entry is published to the sync.Map (write-once at construction).
 type staleSessionEntry struct {
 	once      sync.Once
 	sessionID string
@@ -1852,6 +1853,13 @@ func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Han
 					if !loaded {
 						a.staleSessionDedupCount.Add(1)
 					}
+					// sync.Once ensures only one goroutine creates the session.
+					// If creation fails (e.g., session limit exceeded), the error
+					// is cached for the lifetime of this entry (staleSessionDedupTTL).
+					// Concurrent requests sharing this entry will receive the same
+					// error. This is acceptable because the TTL is short (5s) and
+					// the underlying condition (session limit) is unlikely to clear
+					// within that window.
 					entry.once.Do(func() {
 						logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session",
 							logging.TruncateSessionID(clientSessionID))
@@ -1923,8 +1931,12 @@ func (a *AggregatorServer) cleanupStaleSessionDedup() {
 	a.staleSessionDedup.Range(func(key, val interface{}) bool {
 		entry := val.(*staleSessionEntry)
 		if now.Sub(entry.createdAt) > staleSessionDedupTTL {
-			a.staleSessionDedup.Delete(key)
-			a.staleSessionDedupCount.Add(-1)
+			// Use LoadAndDelete so the counter is decremented only when a
+			// deletion actually occurs. This prevents counter drift if
+			// cleanupStaleSessionDedup is ever called concurrently.
+			if _, deleted := a.staleSessionDedup.LoadAndDelete(key); deleted {
+				a.staleSessionDedupCount.Add(-1)
+			}
 		}
 		return true
 	})
