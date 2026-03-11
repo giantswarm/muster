@@ -214,6 +214,14 @@ func (sr *SessionRegistry) SetOnSessionRemoved(fn func(sessionID string)) {
 	sr.onSessionRemoved = fn
 }
 
+// GetOnSessionRemoved returns the currently registered session-removal callback.
+// This allows callers to chain callbacks (read the old one, wrap it, set a new one).
+func (sr *SessionRegistry) GetOnSessionRemoved() func(sessionID string) {
+	sr.mu.RLock()
+	defer sr.mu.RUnlock()
+	return sr.onSessionRemoved
+}
+
 // GenerateSessionID creates a new cryptographically random UUID v4 session ID.
 // Uses crypto/rand for secure random data per RFC 4122 Section 4.4.
 func GenerateSessionID() (string, error) {
