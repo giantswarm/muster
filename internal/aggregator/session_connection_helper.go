@@ -319,12 +319,12 @@ func EstablishSessionConnectionWithTokenForwarding(
 	headerFunc := func(_ context.Context) map[string]string {
 		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 		if latestToken == "" {
-			logging.Warn("SessionConnection", "Token expired, no fresh ID token available for session %s to %s",
+			logging.Warn("SessionConnection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
 				logging.TruncateSessionID(sessionID), serverInfo.Name)
-			// Fall back to the original token; the server will return 401
+			// Fall back to the original token; the server will return 401 if expired
 			latestToken = idToken
-		} else if latestToken != idToken && isIDTokenExpired(idToken) {
-			logging.Info("SessionConnection", "Token expired, refreshing ID token for session %s to %s",
+		} else if latestToken != idToken {
+			logging.Info("SessionConnection", "Token expired, refreshing: resolved updated ID token from OAuth store for session %s to %s",
 				logging.TruncateSessionID(sessionID), serverInfo.Name)
 		}
 		return map[string]string{
@@ -678,11 +678,17 @@ func EstablishSessionConnectionWithTokenExchange(
 
 	// Create a dynamic header function that caches the exchanged token and
 	// lazily re-exchanges when the cached token is near expiry.
+	//
+	// connRef is set after the SessionConnection is created (below) so the
+	// closure can update conn.TokenExpiresAt after a successful re-exchange.
+	// This prevents the re-init guard from tearing down a working connection
+	// whose initial token has expired but whose headerFunc already re-exchanged.
 	var (
 		cachedToken    = exchangedToken
 		cachedExpiry   = getTokenExpiryTime(exchangedToken)
 		tokenMu        sync.Mutex
 		exchangeConfig = serverInfo.AuthConfig.TokenExchange
+		connRef        *SessionConnection // set after conn creation
 	)
 
 	headerFunc := func(_ context.Context) map[string]string {
@@ -732,6 +738,11 @@ func EstablishSessionConnectionWithTokenExchange(
 
 			cachedToken = newToken
 			cachedExpiry = getTokenExpiryTime(newToken)
+			// Update the SessionConnection's TokenExpiresAt so the re-init guard
+			// sees the refreshed expiry instead of the stale initial value.
+			if connRef != nil {
+				connRef.SetTokenExpiresAt(cachedExpiry)
+			}
 			logging.Info("SessionConnection", "Token expired, refreshing: re-exchanged token for session %s to %s (new expiry: %v)",
 				logging.TruncateSessionID(sessionID), serverInfo.Name, cachedExpiry)
 		}
@@ -802,6 +813,11 @@ func EstablishSessionConnectionWithTokenExchange(
 	conn.UpdateTools(tools)
 	conn.UpdateResources(resources)
 	conn.UpdatePrompts(prompts)
+
+	// Wire up the connRef so the headerFunc closure can update TokenExpiresAt
+	// after a successful re-exchange (prevents the guard from tearing down a
+	// working connection whose initial token has expired).
+	connRef = conn
 
 	session.SetConnection(serverInfo.Name, conn)
 

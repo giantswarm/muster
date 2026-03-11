@@ -1021,10 +1021,22 @@ func (sc *SessionConnection) GetPrompts() []mcp.Prompt {
 // expire within the given margin. Returns false if no expiry time is set
 // (e.g., non-SSO connections or unknown expiry).
 func (sc *SessionConnection) IsTokenExpired(margin time.Duration) bool {
-	if sc.TokenExpiresAt.IsZero() {
+	sc.mu.RLock()
+	expiresAt := sc.TokenExpiresAt
+	sc.mu.RUnlock()
+	if expiresAt.IsZero() {
 		return false
 	}
-	return time.Now().Add(margin).After(sc.TokenExpiresAt)
+	return time.Now().Add(margin).After(expiresAt)
+}
+
+// SetTokenExpiresAt updates the token expiry time. This is called when a
+// dynamic header function successfully re-exchanges a token, so that the
+// re-init guard sees the updated expiry instead of the stale initial value.
+func (sc *SessionConnection) SetTokenExpiresAt(t time.Time) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.TokenExpiresAt = t
 }
 
 // GetAuthStatus returns the authentication status for a session connection.
