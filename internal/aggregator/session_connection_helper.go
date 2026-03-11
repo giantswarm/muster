@@ -311,8 +311,13 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Create a client with a dynamic header function that resolves the latest
 	// ID token on each request. This ensures token refresh is picked up
 	// automatically without needing to re-establish the connection.
+	//
+	// IMPORTANT: Use context.Background() instead of the captured request ctx,
+	// because the original request context becomes stale/cancelled after the
+	// connection-establishing request completes. The OAuth token store (keyed by
+	// sessionID + musterIssuer) is the stable source for refreshed tokens.
 	headerFunc := func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 		if latestToken == "" {
 			logging.Warn("SessionConnection", "Token expired, no fresh ID token available for session %s to %s",
 				logging.TruncateSessionID(sessionID), serverInfo.Name)
@@ -689,8 +694,9 @@ func EstablishSessionConnectionWithTokenExchange(
 			logging.Info("SessionConnection", "Token expired, refreshing exchanged token for session %s to %s",
 				logging.TruncateSessionID(sessionID), serverInfo.Name)
 
-			// Get a fresh source ID token for re-exchange
-			freshIDToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+			// Get a fresh source ID token for re-exchange.
+			// Use context.Background() because the original request context is stale.
+			freshIDToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 			if freshIDToken == "" || isIDTokenExpired(freshIDToken) {
 				logging.Warn("SessionConnection", "Authentication failed: no fresh ID token for re-exchange, session %s to %s",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
