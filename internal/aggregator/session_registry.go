@@ -89,6 +89,11 @@ type SessionRegistry struct {
 	sessionTimeout time.Duration // Duration after which idle sessions are cleaned up
 	maxSessions    int           // Maximum number of concurrent sessions (DoS protection)
 	stopCleanup    chan struct{}
+
+	// Optional callback invoked when a session is removed (cleanup or explicit delete).
+	// This allows external components (e.g., AuthRateLimiter) to clean up per-session
+	// state without tight coupling.
+	onSessionRemoved func(sessionID string)
 }
 
 // SessionState holds per-session connection state.
@@ -197,6 +202,15 @@ func NewSessionRegistryWithLimits(sessionTimeout time.Duration, maxSessions int)
 	go sr.cleanupLoop()
 
 	return sr
+}
+
+// SetOnSessionRemoved registers a callback that is invoked whenever a session is
+// removed from the registry (via cleanup or DeleteSession). This must be called
+// before sessions are created (typically right after construction).
+func (sr *SessionRegistry) SetOnSessionRemoved(fn func(sessionID string)) {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	sr.onSessionRemoved = fn
 }
 
 // GenerateSessionID creates a new cryptographically random UUID v4 session ID.
@@ -416,10 +430,10 @@ func (sr *SessionRegistry) GetSession(sessionID string) (*SessionState, bool) {
 //   - sessionID: Unique identifier for the session to remove
 func (sr *SessionRegistry) DeleteSession(sessionID string) {
 	sr.mu.Lock()
-	defer sr.mu.Unlock()
 
 	session, exists := sr.sessions[sessionID]
 	if !exists {
+		sr.mu.Unlock()
 		return
 	}
 
@@ -427,7 +441,15 @@ func (sr *SessionRegistry) DeleteSession(sessionID string) {
 	session.CloseAllConnections()
 
 	delete(sr.sessions, sessionID)
+	callback := sr.onSessionRemoved
+	sr.mu.Unlock()
+
 	logging.Debug("SessionRegistry", "Deleted session: %s", logging.TruncateSessionID(sessionID))
+
+	// Notify external components (e.g., rate limiter) outside the lock
+	if callback != nil {
+		callback(sessionID)
+	}
 }
 
 // GetConnection returns a session's connection to a specific server.
@@ -742,11 +764,11 @@ func (sr *SessionRegistry) cleanupLoop() {
 // Sessions with SSO initialization in progress are skipped to prevent race conditions.
 func (sr *SessionRegistry) cleanup() {
 	sr.mu.Lock()
-	defer sr.mu.Unlock()
 
 	now := time.Now()
 	count := 0
 	skippedSSOInit := 0
+	var removedIDs []string
 
 	for sessionID, session := range sr.sessions {
 		// Acquire write lock directly since we may need to close connections.
@@ -776,10 +798,21 @@ func (sr *SessionRegistry) cleanup() {
 			session.Connections = make(map[string]*SessionConnection)
 			session.mu.Unlock()
 			delete(sr.sessions, sessionID)
+			removedIDs = append(removedIDs, sessionID)
 			count++
 			continue
 		}
 		session.mu.Unlock()
+	}
+
+	callback := sr.onSessionRemoved
+	sr.mu.Unlock()
+
+	// Notify external components outside the lock to avoid deadlocks
+	if callback != nil {
+		for _, id := range removedIDs {
+			callback(id)
+		}
 	}
 
 	if count > 0 {

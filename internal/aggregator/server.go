@@ -101,16 +101,25 @@ const DefaultSessionTimeout = 30 * time.Minute
 //
 // Returns a configured but unstarted aggregator server ready for initialization.
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
+	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
+	sessionReg := NewSessionRegistry(DefaultSessionTimeout)
+
+	// When a session is removed, also clean up its rate limiter entries to prevent
+	// unbounded growth of the attempts map (see #426).
+	sessionReg.SetOnSessionRemoved(func(sessionID string) {
+		rateLimiter.Reset(sessionID)
+	})
+
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
-		sessionRegistry: NewSessionRegistry(DefaultSessionTimeout),
+		sessionRegistry: sessionReg,
 		toolManager:     newActiveItemManager(itemTypeTool),
 		promptManager:   newActiveItemManager(itemTypePrompt),
 		resourceManager: newActiveItemManager(itemTypeResource),
 		errorCallback:   errorCallback,
 		// Security hardening: rate limiting and metrics for auth operations (ADR-008)
-		authRateLimiter: NewAuthRateLimiter(DefaultAuthRateLimiterConfig()),
+		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
 	}
 }
@@ -408,6 +417,11 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Stop session registry (closes all session-specific connections)
 	if a.sessionRegistry != nil {
 		a.sessionRegistry.Stop()
+	}
+
+	// Stop auth rate limiter background cleanup goroutine
+	if a.authRateLimiter != nil {
+		a.authRateLimiter.Stop()
 	}
 
 	// Reset internal state to allow for clean restart
