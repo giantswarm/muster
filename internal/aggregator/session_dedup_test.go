@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TestConcurrentStaleSessionID verifies that N concurrent requests with the
