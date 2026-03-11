@@ -318,11 +318,19 @@ func (a *AggregatorServer) establishSSOConnection(
 ) {
 	// Guard against concurrent connection attempts. The proactive SSO goroutine
 	// (from handleSessionInit) can race with explicit core_auth_login calls.
+	// However, if the existing connection's token is expired or near expiry,
+	// close the stale connection and proceed with re-establishment.
 	if a.sessionRegistry != nil {
 		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
-			logging.Debug("Aggregator", "Session init: Session %s already connected to %s, skipping SSO",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
-			return
+			if conn.IsTokenExpired(idTokenExpiryMargin) {
+				logging.Info("Aggregator", "Session init: Session %s connection to %s has expired token, re-establishing SSO",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				conn.Client.Close()
+			} else {
+				logging.Debug("Aggregator", "Session init: Session %s already connected to %s, skipping SSO",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				return
+			}
 		}
 	}
 

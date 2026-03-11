@@ -137,13 +137,14 @@ type SessionState struct {
 //   - Tools/Resources/Prompts: User-specific capabilities
 //   - LastError: Session-specific errors (not infrastructure errors)
 type SessionConnection struct {
-	ServerName  string
-	Status      ConnectionStatus
-	AuthStatus  AuthStatus      // Per-user authentication status
-	Client      MCPClient       // Session-specific MCP client (with user's token)
-	TokenKey    *oauth.TokenKey // Reference to the token in the token store
-	ConnectedAt time.Time       // When the connection was established
-	LastError   string          // Session-specific error (e.g., auth failures)
+	ServerName     string
+	Status         ConnectionStatus
+	AuthStatus     AuthStatus      // Per-user authentication status
+	Client         MCPClient       // Session-specific MCP client (with user's token)
+	TokenKey       *oauth.TokenKey // Reference to the token in the token store
+	ConnectedAt    time.Time       // When the connection was established
+	TokenExpiresAt time.Time       // When the SSO token expires (zero value = unknown/not SSO)
+	LastError      string          // Session-specific error (e.g., auth failures)
 
 	// Cached capabilities for this session's connection
 	// These may differ from other sessions if the server returns different
@@ -969,6 +970,16 @@ func (sc *SessionConnection) GetPrompts() []mcp.Prompt {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
 	return sc.Prompts
+}
+
+// IsTokenExpired returns true if the connection's SSO token is expired or will
+// expire within the given margin. Returns false if no expiry time is set
+// (e.g., non-SSO connections or unknown expiry).
+func (sc *SessionConnection) IsTokenExpired(margin time.Duration) bool {
+	if sc.TokenExpiresAt.IsZero() {
+		return false
+	}
+	return time.Now().Add(margin).After(sc.TokenExpiresAt)
 }
 
 // GetAuthStatus returns the authentication status for a session connection.
