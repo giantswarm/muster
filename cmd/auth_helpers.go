@@ -409,6 +409,62 @@ func openBrowserForAuth(url string) error {
 	return oauth.OpenBrowser(url)
 }
 
+// SSO wait timeout constants.
+const (
+	// DefaultSSOWaitTimeout is the maximum time to wait for SSO completion after login.
+	DefaultSSOWaitTimeout = 30 * time.Second
+	// DefaultSSOPollInterval is how often to check SSO status during the wait.
+	DefaultSSOPollInterval = 500 * time.Millisecond
+)
+
+// waitForSSOCompletion polls auth://status until no servers are in sso_pending state.
+// It reuses a single connected client for all polls to avoid creating many connections.
+// Returns the final auth status (which may still contain sso_pending servers on timeout).
+func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint string) (*pkgoauth.AuthStatusResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultSSOWaitTimeout)
+	defer cancel()
+
+	client, err := createConnectedClient(ctx, handler, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect for SSO status check: %w", err)
+	}
+	defer client.Close()
+
+	ticker := time.NewTicker(DefaultSSOPollInterval)
+	defer ticker.Stop()
+
+	var lastStatus *pkgoauth.AuthStatusResponse
+
+	for {
+		select {
+		case <-ctx.Done():
+			return lastStatus, ctx.Err()
+		case <-ticker.C:
+			status, err := parseAuthStatusResource(ctx, client)
+			if err != nil {
+				continue // transient error, keep polling
+			}
+			lastStatus = status
+			if !hasSSOPending(status) {
+				return status, nil
+			}
+		}
+	}
+}
+
+// hasSSOPending returns true if any server in the auth status response is in sso_pending state.
+func hasSSOPending(status *pkgoauth.AuthStatusResponse) bool {
+	if status == nil {
+		return false
+	}
+	for _, srv := range status.Servers {
+		if srv.Status == pkgoauth.ServerStatusSSOPending {
+			return true
+		}
+	}
+	return false
+}
+
 // formatDuration formats a duration in a human-readable way.
 func formatDuration(d time.Duration) string {
 	if d < 0 {

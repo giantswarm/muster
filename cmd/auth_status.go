@@ -171,6 +171,9 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 			if srv.AuthTool != "" && srv.Status == pkgoauth.ServerStatusAuthRequired {
 				authPrint("  Action:   Run: muster auth login --server %s\n", srv.Name)
 			}
+			if srv.Status == pkgoauth.ServerStatusSSOPending {
+				authPrint("  Action:   Waiting for SSO to complete...\n")
+			}
 			return nil
 		}
 	}
@@ -194,11 +197,15 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 
 	// Count servers requiring auth and find longest name for alignment
 	var pendingCount int
+	var ssoPendingCount int
 	var maxNameLen int
 	var maxSSOLen int
 	for _, srv := range reachableServers {
-		if srv.Status == pkgoauth.ServerStatusAuthRequired {
+		switch srv.Status {
+		case pkgoauth.ServerStatusAuthRequired:
 			pendingCount++
+		case pkgoauth.ServerStatusSSOPending:
+			ssoPendingCount++
 		}
 		if len(srv.Name) > maxNameLen {
 			maxNameLen = len(srv.Name)
@@ -215,6 +222,9 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 
 	if pendingCount > 0 {
 		fmt.Printf("  (%d pending authentication)\n", pendingCount)
+	}
+	if ssoPendingCount > 0 {
+		fmt.Printf("  (%d SSO in progress)\n", ssoPendingCount)
 	}
 
 	for _, srv := range reachableServers {
@@ -256,6 +266,8 @@ func formatMCPServerStatus(status string) string {
 		return text.FgRed.Sprint("Disconnected")
 	case pkgoauth.ServerStatusError:
 		return text.FgRed.Sprint("Error")
+	case pkgoauth.ServerStatusSSOPending:
+		return text.FgCyan.Sprint("SSO Pending")
 	case pkgoauth.ServerStatusUnreachable:
 		return text.FgHiBlack.Sprint("Unreachable")
 	default:

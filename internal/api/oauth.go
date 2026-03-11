@@ -137,8 +137,15 @@ type OAuthHandler interface {
 var oauthHandler OAuthHandler
 var oauthMutex sync.RWMutex
 
+// SessionInitPrepareCallback is called synchronously before the async session init
+// goroutine fires. The aggregator registers this to set SSOInitInProgress before
+// the goroutine starts, closing the race window where auth://status could return
+// auth_required instead of sso_pending.
+type SessionInitPrepareCallback func(sessionID string)
+
 // sessionInitCallback stores the registered session initialization callback.
 var sessionInitCallback SessionInitCallback
+var sessionInitPrepareCallback SessionInitPrepareCallback
 var sessionInitMutex sync.RWMutex
 
 // RegisterSessionInitCallback registers a callback for session initialization.
@@ -161,6 +168,28 @@ func GetSessionInitCallback() SessionInitCallback {
 	sessionInitMutex.RLock()
 	defer sessionInitMutex.RUnlock()
 	return sessionInitCallback
+}
+
+// RegisterSessionInitPrepareCallback registers a callback that runs synchronously
+// before the async session init goroutine. This is used to set SSOInitInProgress
+// before the goroutine fires, closing the race window where an auth://status read
+// between goroutine launch and StartSSOInit could return auth_required.
+//
+// Thread-safe: Yes, protected by sessionInitMutex.
+func RegisterSessionInitPrepareCallback(cb SessionInitPrepareCallback) {
+	sessionInitMutex.Lock()
+	defer sessionInitMutex.Unlock()
+	sessionInitPrepareCallback = cb
+}
+
+// GetSessionInitPrepareCallback returns the registered prepare callback.
+// Returns nil if no callback has been registered.
+//
+// Thread-safe: Yes, protected by sessionInitMutex read lock.
+func GetSessionInitPrepareCallback() SessionInitPrepareCallback {
+	sessionInitMutex.RLock()
+	defer sessionInitMutex.RUnlock()
+	return sessionInitPrepareCallback
 }
 
 // RegisterOAuthHandler registers the OAuth handler implementation.

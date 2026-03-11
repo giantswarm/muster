@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -106,6 +108,66 @@ https://fallback.example.com/auth`,
 			result := extractAuthURL(tt.result)
 			if result != tt.expected {
 				t.Errorf("extractAuthURL() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHasSSOPending(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   *pkgoauth.AuthStatusResponse
+		expected bool
+	}{
+		{
+			name:     "nil response",
+			status:   nil,
+			expected: false,
+		},
+		{
+			name: "no sso_pending servers",
+			status: &pkgoauth.AuthStatusResponse{
+				Servers: []pkgoauth.ServerAuthStatus{
+					{Name: "server1", Status: pkgoauth.ServerStatusConnected},
+					{Name: "server2", Status: pkgoauth.ServerStatusAuthRequired},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "one sso_pending server",
+			status: &pkgoauth.AuthStatusResponse{
+				Servers: []pkgoauth.ServerAuthStatus{
+					{Name: "server1", Status: pkgoauth.ServerStatusConnected},
+					{Name: "server2", Status: pkgoauth.ServerStatusSSOPending},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "all sso_pending",
+			status: &pkgoauth.AuthStatusResponse{
+				Servers: []pkgoauth.ServerAuthStatus{
+					{Name: "server1", Status: pkgoauth.ServerStatusSSOPending},
+					{Name: "server2", Status: pkgoauth.ServerStatusSSOPending},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "empty servers list",
+			status: &pkgoauth.AuthStatusResponse{
+				Servers: []pkgoauth.ServerAuthStatus{},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasSSOPending(tt.status)
+			if result != tt.expected {
+				t.Errorf("hasSSOPending() = %v, want %v", result, tt.expected)
 			}
 		})
 	}

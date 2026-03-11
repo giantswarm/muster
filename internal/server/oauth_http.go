@@ -447,6 +447,13 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		return
 	}
 
+	// Call the prepare callback synchronously to set SSOInitInProgress before
+	// the goroutine fires. This closes the race window where an auth://status
+	// read between goroutine launch and StartSSOInit could return auth_required.
+	if prepareCallback := api.GetSessionInitPrepareCallback(); prepareCallback != nil {
+		prepareCallback(sessionID)
+	}
+
 	// Trigger the callback asynchronously to not block the request.
 	// Use a background context with the necessary values copied over.
 	go func() {

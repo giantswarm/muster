@@ -40,6 +40,11 @@ func TestFormatMCPServerStatus(t *testing.T) {
 			expected: text.FgRed.Sprint("Error"),
 		},
 		{
+			name:     "sso_pending status",
+			status:   "sso_pending",
+			expected: text.FgCyan.Sprint("SSO Pending"),
+		},
+		{
 			name:     "unknown status",
 			status:   "initializing",
 			expected: text.FgHiBlack.Sprint("initializing"),

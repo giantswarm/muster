@@ -160,6 +160,15 @@ func (a *AggregatorServer) determineSessionAuthStatus(sessionID, serverName stri
 
 	// No session connection exists - check infrastructure state
 	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
+		// If the server is SSO-enabled and SSO init is in progress for this session,
+		// return sso_pending instead of auth_required. This prevents clients from
+		// calling core_auth_login while SSO is still completing.
+		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
+			a.sessionRegistry != nil &&
+			a.sessionRegistry.IsSSOInitInProgress(sessionID) &&
+			!a.sessionRegistry.HasSSOFailed(sessionID, serverName) {
+			return pkgoauth.ServerStatusSSOPending
+		}
 		// Server requires auth globally but this session hasn't authenticated
 		return pkgoauth.ServerStatusAuthRequired
 	}
@@ -240,6 +249,20 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 	return ""
 }
 
+// handleSessionInitPrepare is called synchronously before the async SSO goroutine.
+// It sets SSOInitInProgress early to close the race window where an auth://status
+// read between goroutine launch and the actual StartSSOInit call inside
+// handleSessionInit could return auth_required instead of sso_pending.
+//
+// This is a best-effort operation: it sets the flag even if there turn out to be
+// no SSO servers. handleSessionInit's defer EndSSOInit clears it immediately in
+// that case, so the window of a false positive is negligible.
+func (a *AggregatorServer) handleSessionInitPrepare(sessionID string) {
+	if a.sessionRegistry != nil {
+		a.sessionRegistry.StartSSOInit(sessionID)
+	}
+}
+
 // handleSessionInit is called on the first authenticated MCP request for a session.
 // It triggers proactive SSO connections to all SSO-enabled servers (forwardToken: true)
 // using muster's ID token.
@@ -253,6 +276,13 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 //
 // Note: This callback runs asynchronously and should not block.
 func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID string) {
+	// The prepare callback (handleSessionInitPrepare) already called StartSSOInit
+	// synchronously before this goroutine launched. We MUST call EndSSOInit when
+	// done, regardless of whether we find SSO servers or not.
+	if a.sessionRegistry != nil {
+		defer a.sessionRegistry.EndSSOInit(sessionID)
+	}
+
 	// Get muster issuer for SSO token forwarding
 	musterIssuer := a.getMusterIssuer()
 	if musterIssuer == "" {
@@ -278,13 +308,6 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID stri
 
 	logging.Info("Aggregator", "Session init: Establishing proactive SSO connections for session %s to %d servers (parallel)",
 		logging.TruncateSessionID(sessionID), len(ssoServers))
-
-	// Mark the session as having SSO initialization in progress
-	// This prevents the session from being cleaned up while SSO connections are being established
-	if a.sessionRegistry != nil {
-		a.sessionRegistry.StartSSOInit(sessionID)
-		defer a.sessionRegistry.EndSSOInit(sessionID)
-	}
 
 	// Attempt to connect to all SSO-enabled servers in parallel
 	// This minimizes total time and prevents race conditions with session timeouts
