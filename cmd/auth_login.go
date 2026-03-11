@@ -81,10 +81,16 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	// mcp-go's transport refreshes it transparently -- no browser needed.
 	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
 		authPrint("Already authenticated to %s\n", endpoint)
-		return nil
+		// The connection triggered proactive SSO -- wait for it to complete
+		return waitAndPrintSSOSummary(ctx, handler, endpoint)
 	}
 
-	return handler.Login(ctx, endpoint)
+	if err := handler.Login(ctx, endpoint); err != nil {
+		return err
+	}
+
+	// After login, create a connection (triggers proactive SSO) and wait
+	return waitAndPrintSSOSummary(ctx, handler, endpoint)
 }
 
 // loginToMCPServer authenticates to a specific MCP server through the aggregator.
@@ -113,6 +119,22 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 	if serverInfo.Status != pkgoauth.ServerStatusAuthRequired {
 		if serverInfo.Status == pkgoauth.ServerStatusConnected {
 			authPrint("Server '%s' is already connected and does not require authentication.\n", serverName)
+			return nil
+		}
+		if serverInfo.Status == pkgoauth.ServerStatusSSOPending {
+			authPrint("SSO authentication is in progress for '%s'. Waiting for completion...\n", serverName)
+			finalStatus, err := waitForSSOCompletion(ctx, handler, aggregatorEndpoint)
+			if err != nil {
+				authPrint("Warning: Timed out waiting for SSO to complete for '%s'.\n", serverName)
+				authPrintln("SSO may still complete in the background. Check with: muster auth status --server " + serverName)
+				return nil
+			}
+			for _, srv := range finalStatus.Servers {
+				if srv.Name == serverName {
+					authPrint("Server '%s' is now: %s\n", serverName, formatMCPServerStatus(srv.Status))
+					return nil
+				}
+			}
 			return nil
 		}
 		authPrint("Server '%s' is in state '%s' and cannot be authenticated.\n", serverName, serverInfo.Status)
@@ -180,5 +202,36 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	}
 
 	authPrint("\nAuthentication complete. %d/%d servers authenticated.\n", successCount, len(pendingServers))
+
+	// Wait for any SSO servers to complete before printing the final summary
+	return waitAndPrintSSOSummary(ctx, handler, aggregatorEndpoint)
+}
+
+// waitAndPrintSSOSummary waits for all SSO servers to finish connecting,
+// then prints a summary of any that failed. Returns nil on success or timeout
+// (timeout is not treated as an error since SSO may still complete).
+func waitAndPrintSSOSummary(ctx context.Context, handler api.AuthHandler, endpoint string) error {
+	authStatus, err := waitForSSOCompletion(ctx, handler, endpoint)
+	if err != nil {
+		// Timeout or connection failure -- not fatal, SSO continues in background
+		if authStatus != nil && hasSSOPending(authStatus) {
+			authPrintln("Note: Some SSO servers are still connecting. Check with: muster auth status")
+		}
+		return nil
+	}
+
+	// Print summary of SSO results
+	var failedSSO []string
+	for _, srv := range authStatus.Servers {
+		if srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
+			failedSSO = append(failedSSO, srv.Name)
+		}
+	}
+	if len(failedSSO) > 0 {
+		authPrint("\nSSO failed for %d server(s):\n", len(failedSSO))
+		for _, name := range failedSSO {
+			authPrint("  - %s\n", name)
+		}
+	}
 	return nil
 }

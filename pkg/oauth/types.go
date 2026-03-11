@@ -308,6 +308,16 @@ const (
 	// unexpected error during communication). This is distinct from infrastructure
 	// failures (tracked in MCPServer Phase) and auth failures (tracked in AuthStatus).
 	ServerStatusFailed = "failed"
+
+	// ServerStatusSSOPending indicates that SSO authentication is in progress for this
+	// server. The server is SSO-enabled and muster is currently establishing the
+	// connection via token forwarding or token exchange. This is a transient state
+	// that will resolve to "connected" (on success) or "auth_required" with
+	// sso_attempt_failed=true (on failure).
+	//
+	// Clients should NOT call core_auth_login for servers in this state -- they
+	// should wait for the SSO process to complete.
+	ServerStatusSSOPending = "sso_pending"
 )
 
 // Display constants for user-facing output.
@@ -336,7 +346,7 @@ type AuthStatusResponse struct {
 //     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
 	Name     string `json:"name"`
-	Status   string `json:"status"` // "connected", "auth_required", "disconnected", "error"
+	Status   string `json:"status"` // "connected", "auth_required", "sso_pending", "disconnected", "error"
 	Issuer   string `json:"issuer,omitempty"`
 	Scope    string `json:"scope,omitempty"`
 	AuthTool string `json:"auth_tool,omitempty"` // Always "core_auth_login" per ADR-008

@@ -200,6 +200,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// enabling seamless SSO: users authenticate once to muster and automatically
 	// gain access to all SSO-enabled MCP servers.
 	api.RegisterSessionInitCallback(a.handleSessionInit)
+	api.RegisterSessionInitPrepareCallback(a.handleSessionInitPrepare)
 
 	// Register this aggregator as the MetaToolsDataProvider (Issue #343)
 	// This enables the metatools package to access tools, resources, and prompts
