@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -42,6 +43,7 @@ func TestAuthRateLimiter_Allow(t *testing.T) {
 				MaxAttempts: tt.maxAttempts,
 				Window:      tt.window,
 			})
+			defer rl.Stop()
 
 			sessionID := "test-session-123"
 			serverName := "test-server"
@@ -65,6 +67,7 @@ func TestAuthRateLimiter_RemainingAttempts(t *testing.T) {
 		MaxAttempts: 5,
 		Window:      time.Minute,
 	})
+	defer rl.Stop()
 
 	sessionID := "test-session-123"
 	serverName := "test-server"
@@ -99,6 +102,7 @@ func TestAuthRateLimiter_Reset(t *testing.T) {
 		MaxAttempts: 3,
 		Window:      time.Minute,
 	})
+	defer rl.Stop()
 
 	sessionID := "test-session-123"
 	serverName := "test-server"
@@ -132,6 +136,7 @@ func TestAuthRateLimiter_PerSessionIsolation(t *testing.T) {
 		MaxAttempts: 2,
 		Window:      time.Minute,
 	})
+	defer rl.Stop()
 
 	session1 := "session-1"
 	session2 := "session-2"
@@ -157,6 +162,7 @@ func TestAuthRateLimiter_Cleanup(t *testing.T) {
 		MaxAttempts: 5,
 		Window:      10 * time.Millisecond, // Very short window for testing
 	})
+	defer rl.Stop()
 
 	sessionID := "test-session-123"
 	serverName := "test-server"
@@ -196,6 +202,7 @@ func TestNewAuthRateLimiter_InvalidConfig(t *testing.T) {
 		MaxAttempts: -1,
 		Window:      -time.Second,
 	})
+	defer rl.Stop()
 
 	// Should use default values
 	if rl.maxAttempts != 10 {
@@ -203,5 +210,102 @@ func TestNewAuthRateLimiter_InvalidConfig(t *testing.T) {
 	}
 	if rl.window != time.Minute {
 		t.Errorf("window = %v, want %v (default)", rl.window, time.Minute)
+	}
+}
+
+func TestAuthRateLimiter_CleanupGoroutine(t *testing.T) {
+	// Use a very short window so the cleanup goroutine fires quickly.
+	// The cleanup interval is 2*window, clamped to minAuthRateLimiterCleanupInterval (1s).
+	rl := NewAuthRateLimiter(AuthRateLimiterConfig{
+		MaxAttempts: 5,
+		Window:      10 * time.Millisecond,
+	})
+	defer rl.Stop()
+
+	sessionID := "goroutine-test-session"
+	serverName := "test-server"
+
+	// Record some attempts
+	for i := 0; i < 3; i++ {
+		rl.Allow(sessionID, serverName)
+	}
+
+	// Verify attempts were recorded
+	if got := rl.RemainingAttempts(sessionID); got != 2 {
+		t.Fatalf("RemainingAttempts() = %d, want 2", got)
+	}
+
+	// Wait for the window to expire plus the cleanup interval (min 1s)
+	time.Sleep(1500 * time.Millisecond)
+
+	// The background goroutine should have cleaned up the stale entries
+	if got := rl.RemainingAttempts(sessionID); got != 5 {
+		t.Errorf("RemainingAttempts() = %d after cleanup goroutine ran, want 5", got)
+	}
+}
+
+func TestAuthRateLimiter_StopIsIdempotent(t *testing.T) {
+	rl := NewAuthRateLimiter(AuthRateLimiterConfig{
+		MaxAttempts: 5,
+		Window:      time.Minute,
+	})
+
+	// Calling Stop multiple times should not panic
+	rl.Stop()
+	rl.Stop()
+}
+
+func TestSessionRegistry_OnSessionRemoved_DeleteSession(t *testing.T) {
+	sr := NewSessionRegistryWithLimits(30*time.Minute, 100)
+	defer sr.Stop()
+
+	var removedIDs []string
+	sr.SetOnSessionRemoved(func(sessionID string) {
+		removedIDs = append(removedIDs, sessionID)
+	})
+
+	// Create a session
+	session := sr.GetOrCreateSession("test-session-1")
+	if session == nil {
+		t.Fatal("GetOrCreateSession returned nil")
+	}
+
+	// Delete it
+	sr.DeleteSession("test-session-1")
+
+	// Callback should have been invoked
+	if len(removedIDs) != 1 || removedIDs[0] != "test-session-1" {
+		t.Errorf("onSessionRemoved called with %v, want [test-session-1]", removedIDs)
+	}
+}
+
+func TestSessionRegistry_OnSessionRemoved_Cleanup(t *testing.T) {
+	// Use a very short timeout so cleanup fires quickly
+	sr := NewSessionRegistryWithLimits(10*time.Millisecond, 100)
+	defer sr.Stop()
+
+	var mu sync.Mutex
+	var removedIDs []string
+	sr.SetOnSessionRemoved(func(sessionID string) {
+		mu.Lock()
+		removedIDs = append(removedIDs, sessionID)
+		mu.Unlock()
+	})
+
+	// Create a session
+	session := sr.GetOrCreateSession("cleanup-test-session")
+	if session == nil {
+		t.Fatal("GetOrCreateSession returned nil")
+	}
+
+	// Wait for session to expire and cleanup to run
+	// Cleanup interval = sessionTimeout/2 = 5ms, but clamped to minCleanupInterval (1s)
+	time.Sleep(1500 * time.Millisecond)
+
+	// Callback should have been invoked for the expired session
+	mu.Lock()
+	defer mu.Unlock()
+	if len(removedIDs) != 1 || removedIDs[0] != "cleanup-test-session" {
+		t.Errorf("onSessionRemoved called with %v, want [cleanup-test-session]", removedIDs)
 	}
 }

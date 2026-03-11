@@ -13,7 +13,9 @@ import (
 // Rate limiting is implemented using a sliding window approach:
 //   - Each session can make at most MaxAuthAttempts auth attempts within the time window
 //   - Attempts are tracked per session, not globally
-//   - Old attempts are automatically cleaned up
+//   - Old attempts are automatically cleaned up via a background goroutine
+//
+// Callers MUST call Stop() when done to prevent goroutine leaks.
 type AuthRateLimiter struct {
 	mu sync.RWMutex
 
@@ -23,6 +25,9 @@ type AuthRateLimiter struct {
 
 	// Per-session attempt tracking
 	attempts map[string][]time.Time // sessionID -> list of attempt timestamps
+
+	// Lifecycle management
+	stopCh chan struct{} // Closed to signal the cleanup goroutine to exit
 }
 
 // AuthRateLimiterConfig holds configuration for the rate limiter.
@@ -45,6 +50,8 @@ func DefaultAuthRateLimiterConfig() AuthRateLimiterConfig {
 }
 
 // NewAuthRateLimiter creates a new rate limiter with the given configuration.
+// It starts a background goroutine that periodically calls Cleanup() to remove
+// stale entries. Callers MUST call Stop() when done to prevent goroutine leaks.
 func NewAuthRateLimiter(config AuthRateLimiterConfig) *AuthRateLimiter {
 	if config.MaxAttempts <= 0 {
 		config.MaxAttempts = 10
@@ -53,11 +60,16 @@ func NewAuthRateLimiter(config AuthRateLimiterConfig) *AuthRateLimiter {
 		config.Window = time.Minute
 	}
 
-	return &AuthRateLimiter{
+	rl := &AuthRateLimiter{
 		maxAttempts: config.MaxAttempts,
 		window:      config.Window,
 		attempts:    make(map[string][]time.Time),
+		stopCh:      make(chan struct{}),
 	}
+
+	go rl.cleanupLoop()
+
+	return rl
 }
 
 // Allow checks if an auth attempt is allowed for the given session.
@@ -137,8 +149,43 @@ func (rl *AuthRateLimiter) Reset(sessionID string) {
 	logging.Debug("AuthRateLimiter", "Rate limit reset for session %s", logging.TruncateSessionID(sessionID))
 }
 
+// Stop terminates the background cleanup goroutine.
+// It is safe to call Stop multiple times.
+func (rl *AuthRateLimiter) Stop() {
+	select {
+	case <-rl.stopCh:
+		// Already stopped
+	default:
+		close(rl.stopCh)
+		logging.Debug("AuthRateLimiter", "Stopped background cleanup goroutine")
+	}
+}
+
+// minAuthRateLimiterCleanupInterval is the minimum cleanup interval to prevent
+// excessive cleanup frequency when the window is very short.
+const minAuthRateLimiterCleanupInterval = time.Second
+
+// cleanupLoop periodically removes stale entries from the rate limiter.
+func (rl *AuthRateLimiter) cleanupLoop() {
+	interval := rl.window * 2
+	if interval < minAuthRateLimiterCleanupInterval {
+		interval = minAuthRateLimiterCleanupInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			rl.Cleanup()
+		case <-rl.stopCh:
+			return
+		}
+	}
+}
+
 // Cleanup removes stale entries from the rate limiter.
-// This should be called periodically to prevent memory leaks.
+// This is called periodically by the background cleanup goroutine.
 func (rl *AuthRateLimiter) Cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
