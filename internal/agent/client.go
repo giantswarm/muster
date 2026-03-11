@@ -1672,10 +1672,10 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 			continue
 		}
 
-		// Skip SSO-enabled servers unless SSO explicitly failed
-		// These servers use token forwarding or token exchange and don't need
-		// separate browser-based OAuth authentication
-		if (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) && !srv.SSOAttemptFailed {
+		// Skip SSO-enabled servers entirely -- manual login cannot fix SSO failures.
+		// These servers use token forwarding or token exchange; authentication is
+		// managed by the admin, not the user.
+		if srv.TokenForwardingEnabled || srv.TokenExchangeEnabled {
 			continue
 		}
 
