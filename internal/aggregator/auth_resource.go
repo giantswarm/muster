@@ -91,8 +91,13 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		if status.Status == pkgoauth.ServerStatusAuthRequired && info.AuthInfo != nil {
 			status.Issuer = info.AuthInfo.Issuer
 			status.Scope = info.AuthInfo.Scope
-			// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
-			status.AuthTool = "core_auth_login"
+			// Only expose auth tool for servers that support manual browser-based OAuth.
+			// SSO-enabled servers (token forwarding/exchange) are authenticated by the
+			// admin, not the user -- manual login cannot fix SSO failures.
+			if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
+				// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
+				status.AuthTool = "core_auth_login"
+			}
 		}
 
 		response.Servers = append(response.Servers, status)

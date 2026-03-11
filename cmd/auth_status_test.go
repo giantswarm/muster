@@ -10,6 +10,8 @@ import (
 
 	"github.com/jedib0t/go-pretty/v6/text"
 
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
 	"github.com/giantswarm/muster/internal/api"
 )
 
@@ -222,6 +224,73 @@ func TestPrintAuthenticatedStatus(t *testing.T) {
 
 		if !strings.Contains(output, "Not available") {
 			t.Errorf("expected output to contain 'Not available', got: %s", output)
+		}
+	})
+}
+
+func TestPrintMCPServerStatuses_SSOFailed(t *testing.T) {
+	authQuiet = false
+
+	t.Run("SSO-failed server shows config message instead of login suggestion", func(t *testing.T) {
+		servers := []pkgoauth.ServerAuthStatus{
+			{
+				Name:                   "sso-server",
+				Status:                 pkgoauth.ServerStatusAuthRequired,
+				TokenForwardingEnabled: true,
+				SSOAttemptFailed:       true,
+			},
+		}
+
+		output := captureStdout(t, func() {
+			printMCPServerStatuses(servers)
+		})
+
+		if !strings.Contains(output, "SSO failed - check server configuration") {
+			t.Errorf("expected 'SSO failed - check server configuration' in output, got: %s", output)
+		}
+		if strings.Contains(output, "muster auth login") {
+			t.Errorf("should not contain 'muster auth login' for SSO-failed server, got: %s", output)
+		}
+	})
+
+	t.Run("non-SSO auth_required server still shows login suggestion", func(t *testing.T) {
+		servers := []pkgoauth.ServerAuthStatus{
+			{
+				Name:     "regular-server",
+				Status:   pkgoauth.ServerStatusAuthRequired,
+				AuthTool: "core_auth_login",
+			},
+		}
+
+		output := captureStdout(t, func() {
+			printMCPServerStatuses(servers)
+		})
+
+		if !strings.Contains(output, "muster auth login --server regular-server") {
+			t.Errorf("expected login suggestion for non-SSO server, got: %s", output)
+		}
+		if strings.Contains(output, "SSO failed") {
+			t.Errorf("should not contain 'SSO failed' for non-SSO server, got: %s", output)
+		}
+	})
+
+	t.Run("SSO-failed server without AuthTool shows config message", func(t *testing.T) {
+		servers := []pkgoauth.ServerAuthStatus{
+			{
+				Name:                 "exchange-server",
+				Status:               pkgoauth.ServerStatusAuthRequired,
+				TokenExchangeEnabled: true,
+				SSOAttemptFailed:     true,
+				// AuthTool intentionally empty (SSO servers don't get it)
+			},
+		}
+
+		output := captureStdout(t, func() {
+			printMCPServerStatuses(servers)
+		})
+
+		if !strings.Contains(output, "SSO failed - check server configuration") {
+			t.Errorf("expected SSO failure message, got: %s", output)
 		}
 	})
 }

@@ -118,6 +118,147 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 	}
 }
 
+func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
+	t.Run("token forwarding server does not get AuthTool", func(t *testing.T) {
+		aggServer := &AggregatorServer{
+			registry: NewServerRegistry("x"),
+		}
+
+		err := aggServer.registry.RegisterPendingAuthWithConfig(
+			"sso-fwd-server",
+			"https://sso-fwd.example.com",
+			"ssofwd",
+			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			&api.MCPServerAuth{ForwardToken: true},
+		)
+		if err != nil {
+			t.Fatalf("failed to register server: %v", err)
+		}
+
+		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent, ok := result[0].(mcp.TextResourceContents)
+		if !ok {
+			t.Fatalf("expected TextResourceContents, got %T", result[0])
+		}
+
+		var response pkgoauth.AuthStatusResponse
+		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(response.Servers) != 1 {
+			t.Fatalf("expected 1 server, got %d", len(response.Servers))
+		}
+
+		srv := response.Servers[0]
+		if srv.AuthTool != "" {
+			t.Errorf("expected empty AuthTool for SSO token-forwarding server, got %q", srv.AuthTool)
+		}
+		if !srv.TokenForwardingEnabled {
+			t.Error("expected TokenForwardingEnabled to be true")
+		}
+		// Issuer and scope should still be set even without AuthTool
+		if srv.Issuer != "https://dex.example.com" {
+			t.Errorf("expected issuer to be set, got %q", srv.Issuer)
+		}
+	})
+
+	t.Run("token exchange server does not get AuthTool", func(t *testing.T) {
+		aggServer := &AggregatorServer{
+			registry: NewServerRegistry("x"),
+		}
+
+		err := aggServer.registry.RegisterPendingAuthWithConfig(
+			"sso-exch-server",
+			"https://sso-exch.example.com",
+			"ssoexch",
+			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			&api.MCPServerAuth{
+				TokenExchange: &api.TokenExchangeConfig{
+					Enabled:          true,
+					DexTokenEndpoint: "https://remote-dex.example.com/token",
+					ConnectorID:      "cluster-a-dex",
+					ClientID:         "test-client",
+				},
+			},
+		)
+		if err != nil {
+			t.Fatalf("failed to register server: %v", err)
+		}
+
+		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent, ok := result[0].(mcp.TextResourceContents)
+		if !ok {
+			t.Fatalf("expected TextResourceContents, got %T", result[0])
+		}
+
+		var response pkgoauth.AuthStatusResponse
+		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(response.Servers) != 1 {
+			t.Fatalf("expected 1 server, got %d", len(response.Servers))
+		}
+
+		srv := response.Servers[0]
+		if srv.AuthTool != "" {
+			t.Errorf("expected empty AuthTool for SSO token-exchange server, got %q", srv.AuthTool)
+		}
+		if !srv.TokenExchangeEnabled {
+			t.Error("expected TokenExchangeEnabled to be true")
+		}
+	})
+
+	t.Run("non-SSO server still gets AuthTool", func(t *testing.T) {
+		aggServer := &AggregatorServer{
+			registry: NewServerRegistry("x"),
+		}
+
+		err := aggServer.registry.RegisterPendingAuth(
+			"regular-server",
+			"https://regular.example.com",
+			"reg",
+			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		)
+		if err != nil {
+			t.Fatalf("failed to register server: %v", err)
+		}
+
+		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		textContent, ok := result[0].(mcp.TextResourceContents)
+		if !ok {
+			t.Fatalf("expected TextResourceContents, got %T", result[0])
+		}
+
+		var response pkgoauth.AuthStatusResponse
+		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(response.Servers) != 1 {
+			t.Fatalf("expected 1 server, got %d", len(response.Servers))
+		}
+
+		srv := response.Servers[0]
+		if srv.AuthTool != "core_auth_login" {
+			t.Errorf("expected AuthTool 'core_auth_login' for non-SSO server, got %q", srv.AuthTool)
+		}
+	})
+}
+
 func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 	sessionTimeout := 5 * time.Minute
 	sessionID := "test-session-sso"

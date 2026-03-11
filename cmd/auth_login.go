@@ -116,6 +116,17 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return fmt.Errorf("server '%s' not found. Use 'muster auth status' to see available servers", serverName)
 	}
 
+	// SSO-enabled servers cannot be authenticated via manual login.
+	// Token forwarding/exchange is managed by the admin, not the user.
+	if serverInfo.TokenForwardingEnabled || serverInfo.TokenExchangeEnabled {
+		authPrint("Server '%s' uses SSO (token forwarding/exchange).\n", serverName)
+		authPrintln("Authentication is managed automatically. If SSO failed, check:")
+		authPrintln("  - Token forwarding: Is muster's OAuth client ID trusted by the server?")
+		authPrintln("  - Token exchange: Is the remote Dex endpoint reachable? Is the connector configured?")
+		authPrint("Run 'muster auth status --server %s' for details.\n", serverName)
+		return nil
+	}
+
 	if serverInfo.Status != pkgoauth.ServerStatusAuthRequired {
 		if serverInfo.Status == pkgoauth.ServerStatusConnected {
 			authPrint("Server '%s' is already connected and does not require authentication.\n", serverName)
@@ -161,16 +172,17 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 		return nil
 	}
 
-	// Find all servers requiring authentication, excluding SSO servers
-	// SSO servers (token forwarding/exchange) are handled automatically by proactive SSO
-	// and don't need separate browser-based OAuth authentication
+	// Find all servers requiring authentication, excluding SSO servers.
+	// SSO servers (token forwarding/exchange) are authenticated by the admin,
+	// not the user -- skip them entirely, even if SSO failed, since manual
+	// browser-based OAuth cannot fix SSO configuration problems.
 	var pendingServers []pkgoauth.ServerAuthStatus
 	for _, srv := range authStatus.Servers {
 		if srv.Status != pkgoauth.ServerStatusAuthRequired || srv.AuthTool == "" {
 			continue
 		}
-		// Skip SSO-enabled servers unless SSO explicitly failed
-		if (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) && !srv.SSOAttemptFailed {
+		// Skip SSO-enabled servers entirely -- manual login cannot help
+		if srv.TokenForwardingEnabled || srv.TokenExchangeEnabled {
 			continue
 		}
 		pendingServers = append(pendingServers, srv)
