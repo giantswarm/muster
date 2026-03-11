@@ -790,6 +790,9 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 		}
 	}
 
+	// Session invalidation endpoint for client-initiated logout
+	mux.HandleFunc("DELETE /session", a.handleSessionInvalidation)
+
 	// Mount the MCP handler as the default for all other paths
 	// Wrap with clientSessionIDMiddleware to enable server-side session lifecycle
 	mux.Handle("/", a.clientSessionIDMiddleware(mcpHandler))
@@ -823,7 +826,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	a.oauthHTTPServer = oauthHTTPServer
 
 	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
-	return oauthHTTPServer.CreateMux(), nil
+
+	// Wrap the OAuth mux with session invalidation endpoint.
+	// This endpoint does not require OAuth authentication because the session ID
+	// itself is a cryptographic secret (UUID v4) that authenticates the request.
+	oauthMux := oauthHTTPServer.CreateMux()
+	outerMux := http.NewServeMux()
+	outerMux.HandleFunc("DELETE /session", a.handleSessionInvalidation)
+	outerMux.Handle("/", oauthMux)
+
+	return outerMux, nil
 }
 
 // GetEndpoint returns the aggregator's primary endpoint URL based on the configured transport.
@@ -1790,6 +1802,36 @@ func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Han
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleSessionInvalidation handles DELETE /session requests for client-initiated logout.
+// The client sends the session ID via the X-Muster-Session-ID header.
+// The server deletes the session from the registry and closes all connections.
+//
+// This endpoint does not require OAuth authentication because:
+//   - The session ID itself is a cryptographic secret (UUID v4) that authenticates the request
+//   - Only the client that possesses the session ID can invalidate it
+//   - The endpoint only performs deletion, not creation or data access
+//
+// Responses:
+//   - 204 No Content: Session invalidated (or already absent)
+//   - 400 Bad Request: Missing or malformed session ID
+func (a *AggregatorServer) handleSessionInvalidation(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.Header.Get(api.ClientSessionIDHeader)
+	if sessionID == "" {
+		http.Error(w, "Bad Request: missing "+api.ClientSessionIDHeader+" header", http.StatusBadRequest)
+		return
+	}
+
+	if len(sessionID) > MaxSessionIDLength || !IsValidUUIDv4(sessionID) {
+		http.Error(w, "Bad Request: malformed session ID", http.StatusBadRequest)
+		return
+	}
+
+	a.sessionRegistry.DeleteSession(sessionID)
+	logging.Info("Aggregator", "Session invalidated via DELETE /session: %s", logging.TruncateSessionID(sessionID))
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // resolveSessionTool attempts to resolve a tool name through session connections.
