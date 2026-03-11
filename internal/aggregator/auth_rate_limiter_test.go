@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -283,9 +284,12 @@ func TestSessionRegistry_OnSessionRemoved_Cleanup(t *testing.T) {
 	sr := NewSessionRegistryWithLimits(10*time.Millisecond, 100)
 	defer sr.Stop()
 
+	var mu sync.Mutex
 	var removedIDs []string
 	sr.SetOnSessionRemoved(func(sessionID string) {
+		mu.Lock()
 		removedIDs = append(removedIDs, sessionID)
+		mu.Unlock()
 	})
 
 	// Create a session
@@ -299,6 +303,8 @@ func TestSessionRegistry_OnSessionRemoved_Cleanup(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	// Callback should have been invoked for the expired session
+	mu.Lock()
+	defer mu.Unlock()
 	if len(removedIDs) != 1 || removedIDs[0] != "cleanup-test-session" {
 		t.Errorf("onSessionRemoved called with %v, want [cleanup-test-session]", removedIDs)
 	}

@@ -715,24 +715,36 @@ func (sr *SessionRegistry) RemoveServerFromAllSessions(serverName string) int {
 
 // Stop stops the session registry and cleans up all sessions.
 //
-// This method closes all session-specific MCP client connections and stops
-// the background cleanup goroutine.
+// This method closes all session-specific MCP client connections, invokes
+// the onSessionRemoved callback for each session, and stops the background
+// cleanup goroutine.
 func (sr *SessionRegistry) Stop() {
 	sr.mu.Lock()
-	defer sr.mu.Unlock()
 
 	select {
 	case <-sr.stopCleanup:
 		// Already stopped
+		sr.mu.Unlock()
 		return
 	default:
 		close(sr.stopCleanup)
 	}
 
-	for _, session := range sr.sessions {
+	var removedIDs []string
+	for id, session := range sr.sessions {
 		session.CloseAllConnections()
+		removedIDs = append(removedIDs, id)
 	}
 	sr.sessions = make(map[string]*SessionState)
+	callback := sr.onSessionRemoved
+	sr.mu.Unlock()
+
+	// Notify external components outside the lock
+	if callback != nil {
+		for _, id := range removedIDs {
+			callback(id)
+		}
+	}
 
 	logging.Debug("SessionRegistry", "Session registry stopped")
 }
