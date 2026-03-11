@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -267,11 +268,18 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Guard against concurrent connection attempts. The proactive SSO goroutine
 	// can race with explicit core_auth_login calls; both invoke this function.
 	// Check early to avoid creating redundant MCP clients.
+	// If the existing connection's token is expired, close it and re-establish.
 	if a.sessionRegistry != nil {
 		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
-			logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token forwarding",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
-			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			if conn.IsTokenExpired(idTokenExpiryMargin) {
+				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token forwarding",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				conn.Client.Close()
+			} else {
+				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token forwarding",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			}
 		}
 	}
 
@@ -300,11 +308,25 @@ func EstablishSessionConnectionWithTokenForwarding(
 	logging.Info("SessionConnection", "Attempting ID token forwarding for session %s to server %s",
 		logging.TruncateSessionID(sessionID), serverInfo.Name)
 
-	// Create a client with the forwarded ID token
-	headers := map[string]string{
-		"Authorization": "Bearer " + idToken,
+	// Create a client with a dynamic header function that resolves the latest
+	// ID token on each request. This ensures token refresh is picked up
+	// automatically without needing to re-establish the connection.
+	headerFunc := func(_ context.Context) map[string]string {
+		latestToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		if latestToken == "" {
+			logging.Warn("SessionConnection", "Token expired, no fresh ID token available for session %s to %s",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			// Fall back to the original token; the server will return 401
+			latestToken = idToken
+		} else if latestToken != idToken && isIDTokenExpired(idToken) {
+			logging.Info("SessionConnection", "Token expired, refreshing ID token for session %s to %s",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+		}
+		return map[string]string{
+			"Authorization": "Bearer " + latestToken,
+		}
 	}
-	client := internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
 	if err := client.Initialize(ctx); err != nil {
@@ -357,13 +379,15 @@ func EstablishSessionConnectionWithTokenForwarding(
 		Issuer:    musterIssuer,
 	}
 
-	// Create the session connection
+	// Create the session connection with token expiry tracking
+	tokenExpiry := getTokenExpiryTime(idToken)
 	conn := &SessionConnection{
-		ServerName:  serverInfo.Name,
-		Status:      StatusSessionConnected,
-		Client:      client,
-		TokenKey:    tokenKey,
-		ConnectedAt: time.Now(),
+		ServerName:     serverInfo.Name,
+		Status:         StatusSessionConnected,
+		Client:         client,
+		TokenKey:       tokenKey,
+		ConnectedAt:    time.Now(),
+		TokenExpiresAt: tokenExpiry,
 	}
 	conn.UpdateTools(tools)
 	conn.UpdateResources(resources)
@@ -489,11 +513,18 @@ func EstablishSessionConnectionWithTokenExchange(
 	}
 
 	// Guard against concurrent connection attempts (same race as token forwarding).
+	// If the existing connection's token is expired, close it and re-establish.
 	if a.sessionRegistry != nil {
 		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
-			logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token exchange",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
-			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			if conn.IsTokenExpired(idTokenExpiryMargin) {
+				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token exchange",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				conn.Client.Close()
+			} else {
+				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token exchange",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			}
 		}
 	}
 
@@ -640,17 +671,76 @@ func EstablishSessionConnectionWithTokenExchange(
 		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
 	})
 
-	// Create a client with the exchanged token
-	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
-	headers := map[string]string{
-		"Authorization": "Bearer " + exchangedToken,
+	// Create a dynamic header function that caches the exchanged token and
+	// lazily re-exchanges when the cached token is near expiry.
+	var (
+		cachedToken    = exchangedToken
+		cachedExpiry   = getTokenExpiryTime(exchangedToken)
+		tokenMu        sync.Mutex
+		exchangeConfig = serverInfo.AuthConfig.TokenExchange
+	)
+
+	headerFunc := func(_ context.Context) map[string]string {
+		tokenMu.Lock()
+		defer tokenMu.Unlock()
+
+		// Check if the cached token is still valid (with margin)
+		if !cachedExpiry.IsZero() && time.Now().Add(idTokenExpiryMargin).After(cachedExpiry) {
+			logging.Info("SessionConnection", "Token expired, refreshing exchanged token for session %s to %s",
+				logging.TruncateSessionID(sessionID), serverInfo.Name)
+
+			// Get a fresh source ID token for re-exchange
+			freshIDToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+			if freshIDToken == "" || isIDTokenExpired(freshIDToken) {
+				logging.Warn("SessionConnection", "Authentication failed: no fresh ID token for re-exchange, session %s to %s",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				// Return stale token; server will return 401
+				return map[string]string{"Authorization": "Bearer " + cachedToken}
+			}
+
+			freshUserID := extractUserIDFromToken(freshIDToken)
+			if freshUserID == "" {
+				logging.Warn("SessionConnection", "Authentication failed: cannot extract user ID for re-exchange, session %s to %s",
+					logging.TruncateSessionID(sessionID), serverInfo.Name)
+				return map[string]string{"Authorization": "Bearer " + cachedToken}
+			}
+
+			// Re-exchange the token
+			var newToken string
+			var exchangeErr error
+			if teleportResult.Client != nil {
+				newToken, exchangeErr = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
+					context.Background(), freshIDToken, freshUserID, exchangeConfig, teleportResult.Client,
+				)
+			} else {
+				newToken, exchangeErr = oauthHandler.ExchangeTokenForRemoteCluster(
+					context.Background(), freshIDToken, freshUserID, exchangeConfig,
+				)
+			}
+
+			if exchangeErr != nil {
+				logging.Warn("SessionConnection", "Authentication failed: token re-exchange failed for session %s to %s: %v",
+					logging.TruncateSessionID(sessionID), serverInfo.Name, exchangeErr)
+				return map[string]string{"Authorization": "Bearer " + cachedToken}
+			}
+
+			cachedToken = newToken
+			cachedExpiry = getTokenExpiryTime(newToken)
+			logging.Info("SessionConnection", "Token expired, refreshing: re-exchanged token for session %s to %s (new expiry: %v)",
+				logging.TruncateSessionID(sessionID), serverInfo.Name, cachedExpiry)
+		}
+
+		return map[string]string{"Authorization": "Bearer " + cachedToken}
 	}
+
+	// Create a client with the dynamic header function.
+	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
 	var client *internalmcp.StreamableHTTPClient
 	if teleportResult.Client != nil {
 		logging.Debug("SessionConnection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
-		client = internalmcp.NewStreamableHTTPClientWithHTTPClient(serverInfo.URL, headers, teleportResult.Client)
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
 	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverInfo.URL, headers)
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 	}
 
 	// Try to initialize the client with the exchanged token
@@ -693,13 +783,15 @@ func EstablishSessionConnectionWithTokenExchange(
 		Issuer:    musterIssuer,
 	}
 
-	// Create the session connection
+	// Create the session connection with token expiry tracking
+	tokenExpiry := getTokenExpiryTime(exchangedToken)
 	conn := &SessionConnection{
-		ServerName:  serverInfo.Name,
-		Status:      StatusSessionConnected,
-		Client:      client,
-		TokenKey:    tokenKey,
-		ConnectedAt: time.Now(),
+		ServerName:     serverInfo.Name,
+		Status:         StatusSessionConnected,
+		Client:         client,
+		TokenKey:       tokenKey,
+		ConnectedAt:    time.Now(),
+		TokenExpiresAt: tokenExpiry,
 	}
 	conn.UpdateTools(tools)
 	conn.UpdateResources(resources)
@@ -878,6 +970,24 @@ func isIDTokenExpired(idToken string) bool {
 	}
 
 	return false
+}
+
+// getTokenExpiryTime extracts the expiry time from a JWT token.
+// Returns zero time if the token is malformed or missing the exp claim.
+func getTokenExpiryTime(token string) time.Time {
+	decoded, err := decodeJWTPayload(token)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil || claims.Exp == 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(claims.Exp, 0)
 }
 
 // TeleportClientResult contains the result of getting a Teleport HTTP client.

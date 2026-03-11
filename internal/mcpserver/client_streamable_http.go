@@ -18,7 +18,8 @@ type StreamableHTTPClient struct {
 	baseMCPClient
 	url        string
 	headers    map[string]string
-	httpClient *http.Client // Custom HTTP client (e.g., for Teleport TLS)
+	headerFunc transport.HTTPHeaderFunc // Dynamic header function called on each request
+	httpClient *http.Client             // Custom HTTP client (e.g., for Teleport TLS)
 }
 
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
@@ -29,6 +30,28 @@ func NewStreamableHTTPClientWithHeaders(url string, headers map[string]string) *
 	return &StreamableHTTPClient{
 		url:     url,
 		headers: headers,
+	}
+}
+
+// NewStreamableHTTPClientWithHeaderFunc creates a new StreamableHTTP-based MCP client
+// with a dynamic header function that is called on every request. This enables token
+// refresh by resolving the latest token at call time instead of baking in a static header.
+func NewStreamableHTTPClientWithHeaderFunc(url string, headerFunc transport.HTTPHeaderFunc) *StreamableHTTPClient {
+	return &StreamableHTTPClient{
+		url:        url,
+		headers:    make(map[string]string),
+		headerFunc: headerFunc,
+	}
+}
+
+// NewStreamableHTTPClientWithHeaderFuncAndHTTPClient creates a new StreamableHTTP-based MCP client
+// with both a dynamic header function and a custom HTTP client (e.g., for Teleport TLS).
+func NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(url string, headerFunc transport.HTTPHeaderFunc, httpClient *http.Client) *StreamableHTTPClient {
+	return &StreamableHTTPClient{
+		url:        url,
+		headers:    make(map[string]string),
+		headerFunc: headerFunc,
+		httpClient: httpClient,
 	}
 }
 
@@ -58,7 +81,10 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 
 	// Build client options including headers if provided
 	var opts []transport.StreamableHTTPCOption
-	if len(c.headers) > 0 {
+	if c.headerFunc != nil {
+		opts = append(opts, transport.WithHTTPHeaderFunc(c.headerFunc))
+		logging.Debug("StreamableHTTPClient", "Configured dynamic header function")
+	} else if len(c.headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(c.headers))
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}

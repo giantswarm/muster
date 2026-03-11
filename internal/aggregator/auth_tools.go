@@ -144,16 +144,23 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has a connection to this server
-	// This can happen after proactive SSO or previous authentication
+	// Check if this session already has a connection to this server.
+	// This can happen after proactive SSO or previous authentication.
+	// If the existing connection's token is expired, close it and proceed with re-auth.
 	if p.aggregator.sessionRegistry != nil {
 		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
-			logging.Debug("AuthTools", "Session %s already has connection to server %s",
-				logging.TruncateSessionID(sessionID), serverName)
-			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated for this session.", serverName)},
-				IsError: false,
-			}, nil
+			if conn.IsTokenExpired(idTokenExpiryMargin) {
+				logging.Info("AuthTools", "Session %s connection to %s has expired token, allowing re-authentication",
+					logging.TruncateSessionID(sessionID), serverName)
+				conn.Client.Close()
+			} else {
+				logging.Debug("AuthTools", "Session %s already has connection to server %s",
+					logging.TruncateSessionID(sessionID), serverName)
+				return &api.CallToolResult{
+					Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated for this session.", serverName)},
+					IsError: false,
+				}, nil
+			}
 		}
 	}
 
