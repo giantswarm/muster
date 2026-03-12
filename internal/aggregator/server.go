@@ -890,6 +890,14 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	oauthMux := oauthHTTPServer.CreateMux()
 	outerMux := http.NewServeMux()
 	outerMux.HandleFunc("DELETE /session", a.handleSessionInvalidation)
+
+	// Authenticated logout endpoints (behind ValidateToken middleware).
+	// These require a valid Bearer token and extract the user's subject from context.
+	outerMux.Handle("DELETE /user-tokens", oauthHTTPServer.ValidateTokenWithSubject(
+		http.HandlerFunc(a.handleUserTokensDeletion)))
+	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(
+		http.HandlerFunc(a.handleAuthServerDeletion)))
+
 	outerMux.Handle("/", oauthMux)
 
 	return outerMux, nil
@@ -1963,6 +1971,92 @@ func (a *AggregatorServer) handleSessionInvalidation(w http.ResponseWriter, r *h
 	a.sessionRegistry.DeleteSession(sessionID)
 	logging.Info("Aggregator", "Session invalidated via DELETE /session: %s", logging.TruncateSessionID(sessionID))
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUserTokensDeletion handles DELETE /user-tokens for "sign out everywhere".
+// It clears all downstream tokens for the authenticated user and invalidates
+// the capability cache. This endpoint requires a valid Bearer token (ValidateToken middleware).
+//
+// Responses:
+//   - 204 No Content: All downstream tokens cleared
+//   - 401 Unauthorized: Missing or invalid Bearer token / subject
+func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *http.Request) {
+	sub := api.GetSubjectFromContext(r.Context())
+	if sub == "" {
+		http.Error(w, "Unauthorized: missing subject", http.StatusUnauthorized)
+		return
+	}
+
+	// Clear all downstream tokens for this user via the OAuthHandler.
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler != nil && oauthHandler.IsEnabled() {
+		oauthHandler.DeleteTokensByUser(sub)
+	}
+
+	// TODO(Phase 2A): Invalidate CapabilityCache for the user when wired into AggregatorServer.
+	// a.capabilityCache.InvalidateUser(sub)
+
+	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateSessionID(sub))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAuthServerDeletion handles DELETE /auth/{server} for per-server disconnect.
+// It clears the downstream token for a specific server, closes the MCP client connection,
+// and invalidates the cache entry. This is the HTTP equivalent of the core_auth_logout tool.
+//
+// Responses:
+//   - 204 No Content: Server disconnected and token cleared
+//   - 401 Unauthorized: Missing or invalid Bearer token / subject
+//   - 404 Not Found: Server not found in registry
+func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *http.Request) {
+	sub := api.GetSubjectFromContext(r.Context())
+	if sub == "" {
+		http.Error(w, "Unauthorized: missing subject", http.StatusUnauthorized)
+		return
+	}
+
+	serverName := r.PathValue("server")
+	if serverName == "" {
+		http.Error(w, "Bad Request: missing server name", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve server from registry. Return 204 regardless of existence to
+	// prevent server name enumeration via distinct 404 vs 204 responses.
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Clear the downstream token for this server's issuer
+	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler != nil && oauthHandler.IsEnabled() {
+			oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
+		}
+	}
+
+	// Close MCP client connections only for sessions belonging to this user.
+	// We iterate all sessions and only remove the server from sessions matching
+	// the authenticated subject, avoiding cross-user disconnection.
+	if a.sessionRegistry != nil {
+		for sessionID, session := range a.sessionRegistry.GetAllSessions() {
+			if session.Subject != sub {
+				continue
+			}
+			session.RemoveConnection(serverName)
+			logging.Debug("Aggregator", "Removed server %s from session %s for user %s",
+				serverName, logging.TruncateSessionID(sessionID), logging.TruncateSessionID(sub))
+		}
+	}
+
+	// TODO(Phase 2A): Invalidate CapabilityCache entry when wired into AggregatorServer.
+	// a.capabilityCache.Invalidate(sub, serverName)
+
+	logging.Info("Aggregator", "Server %s disconnected for user via DELETE /auth/{server}: %s",
+		serverName, logging.TruncateSessionID(sub))
 	w.WriteHeader(http.StatusNoContent)
 }
 

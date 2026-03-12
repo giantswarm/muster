@@ -45,6 +45,9 @@ func (m *issuerMockOAuthHandler) StoreToken(sessionID, issuer string, token *api
 func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sessionID, issuer string) {
 }
 
+func (m *issuerMockOAuthHandler) DeleteTokensByUser(subject string) {
+}
+
 func (m *issuerMockOAuthHandler) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
 	return nil, nil
 }

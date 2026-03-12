@@ -514,6 +514,98 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	}
 }
 
+func TestManager_DeleteTokensByUser(t *testing.T) {
+	t.Run("removes all tokens for the given subject", func(t *testing.T) {
+		cfg := config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.example.com",
+			ClientID:     "client-id",
+			CallbackPath: "/oauth/proxy/callback",
+		}
+
+		manager := NewManager(cfg)
+		if manager == nil {
+			t.Fatal("Expected non-nil manager")
+		}
+		defer manager.Stop()
+
+		subject := "user@example.com"
+		otherSubject := "other@example.com"
+
+		// Store tokens for the target subject under two different issuers
+		for _, issuer := range []string{"https://issuer1.example.com", "https://issuer2.example.com"} {
+			manager.client.StoreToken(subject, &pkgoauth.Token{
+				AccessToken: "token-for-" + issuer,
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				Issuer:      issuer,
+			})
+		}
+
+		// Store a token for a different subject that must not be removed
+		manager.client.StoreToken(otherSubject, &pkgoauth.Token{
+			AccessToken: "other-token",
+			TokenType:   "Bearer",
+			ExpiresIn:   3600,
+			Issuer:      "https://issuer1.example.com",
+		})
+
+		// Verify 3 tokens exist
+		if manager.client.tokenStore.Count() != 3 {
+			t.Fatalf("expected 3 tokens before deletion, got %d", manager.client.tokenStore.Count())
+		}
+
+		// Delete all tokens for the target subject
+		manager.DeleteTokensByUser(subject)
+
+		// Only the other subject's token should remain
+		if manager.client.tokenStore.Count() != 1 {
+			t.Errorf("expected 1 token after deletion, got %d", manager.client.tokenStore.Count())
+		}
+
+		// Verify target subject's tokens are gone
+		if manager.GetTokenByIssuer(subject, "https://issuer1.example.com") != nil {
+			t.Error("expected issuer1 token to be deleted for target subject")
+		}
+		if manager.GetTokenByIssuer(subject, "https://issuer2.example.com") != nil {
+			t.Error("expected issuer2 token to be deleted for target subject")
+		}
+
+		// Verify other subject's token still exists
+		if manager.GetTokenByIssuer(otherSubject, "https://issuer1.example.com") == nil {
+			t.Error("expected other subject's token to remain after deletion")
+		}
+	})
+
+	t.Run("is a no-op when subject has no tokens", func(t *testing.T) {
+		cfg := config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.example.com",
+			ClientID:     "client-id",
+			CallbackPath: "/oauth/proxy/callback",
+		}
+
+		manager := NewManager(cfg)
+		if manager == nil {
+			t.Fatal("Expected non-nil manager")
+		}
+		defer manager.Stop()
+
+		// Should not panic when the subject has no tokens
+		manager.DeleteTokensByUser("no-tokens@example.com")
+
+		if manager.client.tokenStore.Count() != 0 {
+			t.Errorf("expected 0 tokens, got %d", manager.client.tokenStore.Count())
+		}
+	})
+
+	t.Run("does not panic on nil manager", func(t *testing.T) {
+		var manager *Manager
+		// Should not panic
+		manager.DeleteTokensByUser("user@example.com")
+	})
+}
+
 func TestNewManager_SelfHostedCIMD(t *testing.T) {
 	cfg := config.OAuthMCPClientConfig{
 		Enabled:      true,

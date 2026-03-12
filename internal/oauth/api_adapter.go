@@ -133,6 +133,11 @@ func (a *Adapter) ClearTokenByIssuer(subject, issuer string) {
 	a.manager.ClearTokenByIssuer(subject, issuer)
 }
 
+// DeleteTokensByUser removes all downstream tokens for a given subject.
+func (a *Adapter) DeleteTokensByUser(subject string) {
+	a.manager.DeleteTokensByUser(subject)
+}
+
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 func (a *Adapter) CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*api.AuthChallenge, error) {
 	challenge, err := a.manager.CreateAuthChallenge(ctx, subject, serverName, issuer, scope)
