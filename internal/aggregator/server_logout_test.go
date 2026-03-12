@@ -259,23 +259,34 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 	})
 
-	t.Run("calls RemoveServerFromAllSessions for the server name", func(t *testing.T) {
+	t.Run("only removes server from sessions belonging to the requesting user", func(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		sr := NewSessionRegistry(5 * time.Minute)
 		defer sr.Stop()
 
-		// Create a session with a connection to the server under test
-		session, err := sr.CreateSessionForSubject("user@example.com")
+		// Create sessions for two different users, both connected to the same server
+		session1, err := sr.CreateSessionForSubject("user@example.com")
 		if err != nil {
-			t.Fatalf("failed to create session: %v", err)
+			t.Fatalf("failed to create session for user1: %v", err)
 		}
-		mockClient := &mockMCPClient{initialized: true}
-		session.SetConnection("target-server", &SessionConnection{
+		mockClient1 := &mockMCPClient{initialized: true}
+		session1.SetConnection("target-server", &SessionConnection{
 			ServerName: "target-server",
 			Status:     StatusSessionConnected,
-			Client:     mockClient,
+			Client:     mockClient1,
+		})
+
+		session2, err := sr.CreateSessionForSubject("other-user@example.com")
+		if err != nil {
+			t.Fatalf("failed to create session for user2: %v", err)
+		}
+		mockClient2 := &mockMCPClient{initialized: true}
+		session2.SetConnection("target-server", &SessionConnection{
+			ServerName: "target-server",
+			Status:     StatusSessionConnected,
+			Client:     mockClient2,
 		})
 
 		reg := NewServerRegistry("")
@@ -300,9 +311,17 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		// The mock client should have been closed via RemoveServerFromAllSessions
-		if !mockClient.closed {
-			t.Error("expected client to be closed after server deletion")
+		// The requesting user's client should have been closed
+		if !mockClient1.closed {
+			t.Error("expected requesting user's client to be closed after server deletion")
+		}
+		// The other user's client should NOT have been closed
+		if mockClient2.closed {
+			t.Error("other user's client should not be closed by a different user's logout")
+		}
+		// The other user should still have the connection
+		if _, exists := session2.GetConnection("target-server"); !exists {
+			t.Error("other user's connection to target-server should still exist")
 		}
 	})
 

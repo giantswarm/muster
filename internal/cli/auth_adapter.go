@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -638,7 +639,10 @@ func (a *AuthAdapter) invalidateServerSession(endpoint, sessionID string) {
 func (a *AuthAdapter) revokeRefreshToken(endpoint, refreshToken string) {
 	revokeURL := endpoint + "/oauth/revoke"
 
-	body := strings.NewReader("token=" + refreshToken + "&token_type_hint=refresh_token")
+	v := url.Values{}
+	v.Set("token", refreshToken)
+	v.Set("token_type_hint", "refresh_token")
+	body := strings.NewReader(v.Encode())
 	req, err := http.NewRequest(http.MethodPost, revokeURL, body)
 	if err != nil {
 		logging.Warn("AuthAdapter", "Failed to create revoke request for %s: %v", endpoint, err)

@@ -2037,10 +2037,18 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
-	// Close MCP client connections and remove from all sessions.
-	// RemoveServerFromAllSessions handles locking, client closure, and cleanup.
+	// Close MCP client connections only for sessions belonging to this user.
+	// We iterate all sessions and only remove the server from sessions matching
+	// the authenticated subject, avoiding cross-user disconnection.
 	if a.sessionRegistry != nil {
-		a.sessionRegistry.RemoveServerFromAllSessions(serverName)
+		for sessionID, session := range a.sessionRegistry.GetAllSessions() {
+			if session.Subject != sub {
+				continue
+			}
+			session.RemoveConnection(serverName)
+			logging.Debug("Aggregator", "Removed server %s from session %s for user %s",
+				serverName, logging.TruncateSessionID(sessionID), logging.TruncateSessionID(sub))
+		}
 	}
 
 	// TODO(Phase 2A): Invalidate CapabilityCache entry when wired into AggregatorServer.
