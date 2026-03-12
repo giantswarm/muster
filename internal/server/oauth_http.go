@@ -56,9 +56,10 @@ const (
 	DefaultRefreshTokenTTL = pkgoauth.DefaultSessionDuration
 
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second).
-	DefaultIPRateLimit = 10
+	// Set generously since muster is a local proxy where all clients share the same IP.
+	DefaultIPRateLimit = 50
 	// DefaultIPBurst is the default burst size for IP rate limiting.
-	DefaultIPBurst = 20
+	DefaultIPBurst = 100
 
 	// DefaultUserRateLimit is the default rate limit for authenticated users (requests/second).
 	DefaultUserRateLimit = 100
