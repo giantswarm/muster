@@ -442,9 +442,14 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	}
 
 	// Invalidate CapabilityCache so that GetAllToolsForUser no longer returns
-	// cached tools for this server after logout.
+	// cached tools for this server after logout. Use the same defaultUser
+	// fallback that session_connection_helper uses when populating the cache,
+	// so stdio sessions (which have no OAuth sub claim) are correctly evicted.
 	sub := api.GetSubjectFromContext(ctx)
-	if sub != "" && p.aggregator.capabilityCache != nil {
+	if sub == "" {
+		sub = defaultUser
+	}
+	if p.aggregator.capabilityCache != nil {
 		p.aggregator.capabilityCache.Invalidate(sub, serverName)
 	}
 
