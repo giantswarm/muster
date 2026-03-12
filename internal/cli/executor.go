@@ -334,15 +334,6 @@ func (e *ToolExecutor) setupAuthentication(ctx context.Context) error {
 		}
 	}
 
-	if sessionID := authHandler.GetSessionIDForEndpoint(e.endpoint); sessionID != "" {
-		e.client.SetHeader(api.ClientSessionIDHeader, sessionID)
-	}
-
-	// Set up callback to persist server-issued session IDs
-	e.client.SetSessionIDCallback(func(serverSessionID string) {
-		authHandler.UpdateSessionID(e.endpoint, serverSessionID)
-	})
-
 	oauthCfg, agentStore, err := agentoauth.SetupOAuthConfig(e.endpoint)
 	if err != nil {
 		slog.Debug("Could not set up OAuth transport, proceeding without it",

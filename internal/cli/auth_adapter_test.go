@@ -319,106 +319,6 @@ func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
 	}
 }
 
-func TestPerEndpointSessionIDs(t *testing.T) {
-	t.Run("GetSessionID returns empty string (server-issued)", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if got := adapter.GetSessionID(); got != "" {
-			t.Errorf("expected empty session ID, got %q", got)
-		}
-	})
-
-	t.Run("UpdateSessionID persists and retrieves per endpoint", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		adapter.UpdateSessionID("https://muster.example.com/mcp", "test-session-id-1")
-		adapter.UpdateSessionID("https://staging.example.com/mcp", "test-session-id-2")
-
-		if got := adapter.GetSessionIDForEndpoint("https://muster.example.com/mcp"); got != "test-session-id-1" {
-			t.Errorf("expected test-session-id-1, got %q", got)
-		}
-		if got := adapter.GetSessionIDForEndpoint("https://staging.example.com/mcp"); got != "test-session-id-2" {
-			t.Errorf("expected test-session-id-2, got %q", got)
-		}
-	})
-
-	t.Run("session IDs survive reload", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		adapter.UpdateSessionID("https://prod.example.com/mcp", "persisted-session-id")
-
-		// Create a new adapter that should load the persisted session ID
-		adapter2, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if got := adapter2.GetSessionIDForEndpoint("https://prod.example.com/mcp"); got != "persisted-session-id" {
-			t.Errorf("expected persisted-session-id, got %q", got)
-		}
-	})
-
-	t.Run("Logout deletes per-endpoint session ID", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		adapter.UpdateSessionID("https://prod.example.com/mcp", "to-be-deleted")
-
-		// Logout should clear the session ID
-		_ = adapter.Logout("https://prod.example.com/mcp")
-
-		if got := adapter.GetSessionIDForEndpoint("https://prod.example.com/mcp"); got != "" {
-			t.Errorf("expected empty after logout, got %q", got)
-		}
-	})
-
-	t.Run("legacy global session-id file is ignored gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		// Write a legacy global session-id file
-		if err := os.WriteFile(filepath.Join(tmpDir, SessionIDFilename), []byte("legacy-id"), 0600); err != nil {
-			t.Fatalf("failed to write legacy file: %v", err)
-		}
-
-		// Creating a new adapter should not fail
-		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
-			TokenStorageDir: tmpDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// GetSessionID should return empty (legacy file is ignored)
-		if got := adapter.GetSessionID(); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-}
-
 // ---------------------------------------------------------------------------
 // Tests for revokeRefreshToken
 // ---------------------------------------------------------------------------
@@ -1001,18 +901,10 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to per-endpoint session invalidation when DELETE /user-tokens returns 404", func(t *testing.T) {
-		var sessionInvalidationCalled atomic.Bool
-
+	t.Run("succeeds when DELETE /user-tokens returns 404", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodDelete && r.URL.Path == "/user-tokens" {
-				// Old server: 404
 				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			if r.Method == http.MethodDelete && r.URL.Path == "/session" {
-				sessionInvalidationCalled.Store(true)
-				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
@@ -1035,16 +927,9 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 			"server_url":   serverURL,
 		}, serverURL)
 
-		// Register a session ID to trigger the fallback path
-		adapter.UpdateSessionID(srv.URL+"/mcp", "session-for-fallback")
-
 		err = adapter.LogoutAll()
 		if err != nil {
 			t.Errorf("unexpected error on LogoutAll: %v", err)
-		}
-
-		if !sessionInvalidationCalled.Load() {
-			t.Error("expected fallback session invalidation to be called when DELETE /user-tokens returns 404")
 		}
 	})
 
@@ -1096,17 +981,11 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 			"server_url":   serverURL,
 		}, serverURL)
 
-		adapter.UpdateSessionID(serverURL, "some-session")
-
 		err = adapter.LogoutAll()
 		if err != nil {
 			t.Errorf("unexpected error on LogoutAll: %v", err)
 		}
 
-		// Session IDs should be cleared
-		if got := adapter.GetSessionIDForEndpoint(serverURL); got != "" {
-			t.Errorf("expected empty session ID after LogoutAll, got %q", got)
-		}
 		// Managers map should be empty
 		adapter.mu.RLock()
 		managerCount := len(adapter.managers)

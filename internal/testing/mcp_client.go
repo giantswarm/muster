@@ -2,14 +2,9 @@ package testing
 
 import (
 	"context"
-	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync"
 	"time"
-
-	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -37,81 +32,12 @@ func (s *testTokenStore) SaveToken(_ context.Context, token *transport.Token) er
 
 var _ transport.TokenStore = (*testTokenStore)(nil)
 
-// testSessionIDRoundTripper wraps an http.RoundTripper to track server-issued session IDs.
-// On each response, it reads the X-Muster-Session-ID header and stores the server's
-// authoritative session ID. On each request, it overrides the session ID header with
-// the server-issued value so that subsequent requests reuse the same server-side session.
-type testSessionIDRoundTripper struct {
-	wrapped   http.RoundTripper
-	mu        sync.Mutex
-	sessionID string          // server-issued session ID (empty until first response)
-	onUpdate  func(id string) // optional callback when session ID is updated
-}
-
-func (rt *testSessionIDRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// If we have a server-issued session ID, override the request header
-	// so the server recognizes this as an existing session.
-	// Clone the request before mutating to comply with the http.RoundTripper contract.
-	rt.mu.Lock()
-	sid := rt.sessionID
-	rt.mu.Unlock()
-
-	if sid != "" {
-		req = req.Clone(req.Context())
-		req.Header.Set(api.ClientSessionIDHeader, sid)
-	}
-
-	resp, err := rt.wrapped.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-
-	// Capture server-issued session ID from response header.
-	// Validate format before accepting, matching the production client's checks
-	// in internal/agent/client.go to guard against malformed values.
-	if serverSessionID := resp.Header.Get(api.ClientSessionIDHeader); serverSessionID != "" {
-		if len(serverSessionID) <= 256 && isValidTestUUIDv4(serverSessionID) {
-			rt.mu.Lock()
-			if rt.sessionID != serverSessionID {
-				rt.sessionID = serverSessionID
-				if rt.onUpdate != nil {
-					rt.onUpdate(serverSessionID)
-				}
-			}
-			rt.mu.Unlock()
-		}
-	}
-
-	return resp, err
-}
-
-// isValidTestUUIDv4 checks if a string looks like a valid UUID v4.
-// This is a lightweight format check matching the production client's validation
-// in internal/agent/client.go (isValidUUIDv4Format).
-func isValidTestUUIDv4(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i, c := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if c != '-' {
-				return false
-			}
-		} else if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
-}
-
 // mcpTestClient implements the MCPTestClient interface
 type mcpTestClient struct {
 	client      client.MCPClient
 	endpoint    string
 	debug       bool
 	logger      TestLogger
-	mu          sync.Mutex
-	sessionID   string // Client's session ID (tracks server-issued ID)
 	accessToken string // Current access token used for authentication
 }
 
@@ -144,55 +70,18 @@ func (c *mcpTestClient) ConnectWithAuth(ctx context.Context, endpoint, accessTok
 
 // connectWithOptions establishes connection with optional authentication.
 func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, accessToken string) error {
-	// Use existing session ID or generate a new one
-	c.mu.Lock()
-	sid := c.sessionID
-	c.mu.Unlock()
-	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, sid)
-}
-
-// connectWithSessionAndToken establishes connection with specific session ID and token.
-func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint, accessToken, sessionID string) error {
 	c.endpoint = endpoint
 	c.accessToken = accessToken
 
-	// Generate session ID if not provided
-	if sessionID == "" {
-		sessionID = generateTestSessionID()
-	}
-	c.sessionID = sessionID
-
 	if c.debug {
-		sessionInfo := ""
-		if sessionID != "" {
-			sessionInfo = fmt.Sprintf(", session=%s...", sessionID[:min(8, len(sessionID))])
-		}
 		if accessToken != "" {
-			c.logger.Debug("🔗 Connecting to MCP aggregator at %s (with auth%s)\n", endpoint, sessionInfo)
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s (with auth)\n", endpoint)
 		} else {
-			c.logger.Debug("🔗 Connecting to MCP aggregator at %s%s\n", endpoint, sessionInfo)
+			c.logger.Debug("🔗 Connecting to MCP aggregator at %s\n", endpoint)
 		}
 	}
 
-	// Build transport options: use WithHTTPOAuth for token injection (typed 401 errors),
-	// WithHTTPHeaders for the initial session ID header, and a custom HTTP client with
-	// a sessionIDRoundTripper to track server-issued session IDs across requests.
 	var opts []transport.StreamableHTTPCOption
-
-	// Create a custom round tripper that tracks server-issued session IDs.
-	// This mirrors the pattern in internal/agent/client.go's sessionIDRoundTripper.
-	rt := &testSessionIDRoundTripper{
-		wrapped: http.DefaultTransport,
-		onUpdate: func(serverID string) {
-			c.mu.Lock()
-			c.sessionID = serverID
-			c.mu.Unlock()
-			if c.debug {
-				c.logger.Debug("📌 Server issued session ID: %s...\n", serverID[:min(8, len(serverID))])
-			}
-		},
-	}
-	opts = append(opts, transport.WithHTTPBasicClient(&http.Client{Transport: rt}))
 
 	if accessToken != "" {
 		opts = append(opts, transport.WithHTTPOAuth(transport.OAuthConfig{
@@ -203,14 +92,6 @@ func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint
 				},
 			},
 		}))
-	}
-
-	headers := make(map[string]string)
-	if sessionID != "" {
-		headers[api.ClientSessionIDHeader] = sessionID
-	}
-	if len(headers) > 0 {
-		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}
 
 	// Create streamable HTTP client for muster aggregator
@@ -260,23 +141,6 @@ func (c *mcpTestClient) connectWithSessionAndToken(ctx context.Context, endpoint
 	}
 
 	return nil
-}
-
-// generateTestSessionID creates a unique UUID v4 session ID for testing.
-// The server validates UUID v4 format, so we must set version and variant bits.
-func generateTestSessionID() string {
-	randomBytes := make([]byte, 16)
-	if _, err := cryptoRand.Read(randomBytes); err != nil {
-		// Fallback to time-based ID
-		return fmt.Sprintf("test-%d", time.Now().UnixNano())
-	}
-	// Set version 4 (random) per RFC 4122
-	randomBytes[6] = (randomBytes[6] & 0x0f) | 0x40
-	// Set variant bits per RFC 4122
-	randomBytes[8] = (randomBytes[8] & 0x3f) | 0x80
-
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		randomBytes[0:4], randomBytes[4:6], randomBytes[6:8], randomBytes[8:10], randomBytes[10:16])
 }
 
 // CallTool executes a tool via MCP using the call_tool meta-tool.
@@ -506,9 +370,6 @@ func (c *mcpTestClient) Close() error {
 
 	err := c.client.Close()
 	c.client = nil
-	c.mu.Lock()
-	c.sessionID = ""
-	c.mu.Unlock()
 	return err
 }
 

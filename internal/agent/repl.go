@@ -320,15 +320,6 @@ func (r *REPL) authenticateForEndpoint(ctx context.Context, endpoint string) err
 		return fmt.Errorf("authentication handler not available - try restarting with 'muster agent --repl'")
 	}
 
-	if sessionID := handler.GetSessionIDForEndpoint(endpoint); sessionID != "" {
-		r.client.SetHeader(api.ClientSessionIDHeader, sessionID)
-	}
-
-	// Set up callback to persist server-issued session IDs
-	r.client.SetSessionIDCallback(func(serverSessionID string) {
-		handler.UpdateSessionID(endpoint, serverSessionID)
-	})
-
 	// Set up mcp-go OAuth transport for this endpoint
 	oauthCfg, agentStore, err := agentoauth.SetupOAuthConfig(endpoint)
 	if err != nil {

@@ -101,15 +101,6 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 		client.SetOAuthConfig(*oauthCfg, agentStore)
 	}
 
-	if sessionID := handler.GetSessionIDForEndpoint(endpoint); sessionID != "" {
-		client.SetHeader(api.ClientSessionIDHeader, sessionID)
-	}
-
-	// Set up callback to persist server-issued session IDs
-	client.SetSessionIDCallback(func(serverSessionID string) {
-		handler.UpdateSessionID(endpoint, serverSessionID)
-	})
-
 	if err := client.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
 	}
