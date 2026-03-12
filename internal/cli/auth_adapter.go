@@ -475,14 +475,28 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 }
 
 // Logout clears stored tokens and session ID for the endpoint.
-// It first attempts to invalidate the server-side session (best-effort),
-// then performs local cleanup regardless of whether server invalidation succeeded.
+// It first revokes the refresh token via RFC 7009 (best-effort), then attempts
+// to invalidate the server-side session, then performs local cleanup.
 func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
 	hash := endpointHash(normalizedEndpoint)
 
-	// Best-effort server-side session invalidation before local cleanup.
-	// Read session ID while holding the lock, then release before making HTTP call.
+	// Read the stored refresh token before any cleanup so we can revoke it.
+	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
+		StorageDir: a.tokenStorageDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Best-effort refresh token revocation via POST /oauth/revoke (RFC 7009).
+	// This must happen before local cleanup deletes the token file.
+	if storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint); storedToken != nil && storedToken.RefreshToken != "" {
+		a.revokeRefreshToken(normalizedEndpoint, storedToken.RefreshToken)
+	}
+
+	// Best-effort server-side session invalidation (backwards compat, Phase 3 removes).
 	a.mu.RLock()
 	sessionID := a.sessionIDs[hash]
 	a.mu.RUnlock()
@@ -509,16 +523,6 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 	}
 
 	// Clear the token directly from the token store.
-	// We don't use the manager's ClearToken() because newly created managers
-	// have an empty serverURL and would return early without clearing anything.
-	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
-		StorageDir: a.tokenStorageDir,
-		FileMode:   true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create token store: %w", err)
-	}
-
 	if err := store.DeleteToken(normalizedEndpoint); err != nil {
 		return fmt.Errorf("failed to clear token: %w", err)
 	}
@@ -527,18 +531,56 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 }
 
 // LogoutAll clears all stored tokens and session IDs.
-// It first attempts to invalidate all known server-side sessions (best-effort),
-// then performs local cleanup regardless of whether server invalidation succeeded.
+// It revokes each endpoint's refresh token via RFC 7009, then calls DELETE /user-tokens
+// to clear server-side downstream state, with fallback to per-endpoint invalidation.
 func (a *AuthAdapter) LogoutAll() error {
+	// Create a token store to read refresh tokens before cleanup.
+	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
+		StorageDir: a.tokenStorageDir,
+		FileMode:   true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
 	// Collect endpoint->sessionID mappings for server-side invalidation.
-	// We need endpoint URLs from managers and token files, matched with session IDs.
 	a.mu.RLock()
 	endpointSessionPairs := a.collectEndpointSessionPairs()
 	a.mu.RUnlock()
 
-	// Best-effort server-side session invalidation for all known endpoints
-	for endpoint, sessionID := range endpointSessionPairs {
-		a.invalidateServerSession(endpoint, sessionID)
+	// Collect all known endpoints (from managers + token files) for revocation.
+	endpoints := a.collectAllEndpoints()
+
+	// Best-effort: revoke each endpoint's refresh token via POST /oauth/revoke.
+	// Also track a valid Bearer token + endpoint for the DELETE /user-tokens call.
+	var bearerToken, bearerEndpoint string
+	for _, ep := range endpoints {
+		storedToken := store.GetTokenIncludingExpiring(ep)
+		if storedToken == nil {
+			continue
+		}
+		if storedToken.RefreshToken != "" {
+			a.revokeRefreshToken(ep, storedToken.RefreshToken)
+		}
+		// Use the first available access token for DELETE /user-tokens
+		if bearerToken == "" && storedToken.AccessToken != "" {
+			bearerToken = storedToken.AccessToken
+			bearerEndpoint = ep
+		}
+	}
+
+	// Best-effort: call DELETE /user-tokens with Bearer token to clear
+	// server-side downstream state. Falls back to per-endpoint invalidation.
+	userTokensDeleted := false
+	if bearerToken != "" && bearerEndpoint != "" {
+		userTokensDeleted = a.deleteUserTokens(bearerEndpoint, bearerToken)
+	}
+
+	// Fallback: per-endpoint session invalidation if DELETE /user-tokens failed.
+	if !userTokensDeleted {
+		for endpoint, sessionID := range endpointSessionPairs {
+			a.invalidateServerSession(endpoint, sessionID)
+		}
 	}
 
 	// Close all managers and clear session IDs
@@ -559,15 +601,6 @@ func (a *AuthAdapter) LogoutAll() error {
 	}
 	a.sessionIDs = make(map[string]string)
 	a.mu.Unlock()
-
-	// Create a temporary token store to clear all tokens
-	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
-		StorageDir: a.tokenStorageDir,
-		FileMode:   true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create token store: %w", err)
-	}
 
 	return store.Clear()
 }
@@ -598,6 +631,89 @@ func (a *AuthAdapter) invalidateServerSession(endpoint, sessionID string) {
 	} else {
 		logging.Warn("AuthAdapter", "Server session invalidation returned status %d for %s", resp.StatusCode, endpoint)
 	}
+}
+
+// revokeRefreshToken revokes a refresh token at the endpoint's /oauth/revoke endpoint
+// per RFC 7009. This is best-effort: errors are logged but do not prevent local cleanup.
+func (a *AuthAdapter) revokeRefreshToken(endpoint, refreshToken string) {
+	revokeURL := endpoint + "/oauth/revoke"
+
+	body := strings.NewReader("token=" + refreshToken + "&token_type_hint=refresh_token")
+	req, err := http.NewRequest(http.MethodPost, revokeURL, body)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to create revoke request for %s: %v", endpoint, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: DefaultHTTPClientTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to revoke refresh token for %s (server may be unreachable): %v", endpoint, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// RFC 7009: server returns 200 regardless of whether the token was found.
+	if resp.StatusCode == http.StatusOK {
+		logging.Info("AuthAdapter", "Refresh token revoked for %s", endpoint)
+	} else {
+		logging.Warn("AuthAdapter", "Refresh token revocation returned status %d for %s", resp.StatusCode, endpoint)
+	}
+}
+
+// deleteUserTokens sends DELETE /user-tokens with a Bearer token to clear all
+// server-side downstream state for the current user. Returns true if the server
+// acknowledged the request (204), false otherwise (e.g., 404 for old servers).
+func (a *AuthAdapter) deleteUserTokens(endpoint, accessToken string) bool {
+	url := endpoint + "/user-tokens"
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to create DELETE /user-tokens request for %s: %v", endpoint, err)
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: DefaultHTTPClientTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Warn("AuthAdapter", "Failed to call DELETE /user-tokens for %s: %v", endpoint, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		logging.Info("AuthAdapter", "Server-side user tokens deleted for %s", endpoint)
+		return true
+	}
+
+	logging.Warn("AuthAdapter", "DELETE /user-tokens returned status %d for %s", resp.StatusCode, endpoint)
+	return false
+}
+
+// collectAllEndpoints returns a deduplicated list of all known endpoint URLs
+// from managers and token files.
+func (a *AuthAdapter) collectAllEndpoints() []string {
+	seen := make(map[string]bool)
+
+	a.mu.RLock()
+	for endpoint := range a.managers {
+		seen[endpoint] = true
+	}
+	a.mu.RUnlock()
+
+	tokenFiles, _ := a.listTokenFiles()
+	for _, tf := range tokenFiles {
+		normalized := normalizeEndpoint(tf.ServerURL)
+		seen[normalized] = true
+	}
+
+	endpoints := make([]string, 0, len(seen))
+	for ep := range seen {
+		endpoints = append(endpoints, ep)
+	}
+	return endpoints
 }
 
 // collectEndpointSessionPairs builds a map of endpoint URL -> session ID from all

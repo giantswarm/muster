@@ -251,6 +251,17 @@ func (m *Manager) ClearTokenByIssuer(subject, issuer string) {
 	logging.Debug("OAuth", "Cleared tokens for subject=%s issuer=%s", logging.TruncateSessionID(subject), issuer)
 }
 
+// DeleteTokensByUser removes all downstream tokens for a given subject.
+// This is used during "sign out everywhere" to clear all server-side token state.
+func (m *Manager) DeleteTokensByUser(subject string) {
+	if m == nil {
+		return
+	}
+
+	m.client.tokenStore.DeleteByUser(subject)
+	logging.Debug("OAuth", "Deleted all tokens for subject=%s", logging.TruncateSessionID(subject))
+}
+
 // StoreToken persists a token for the given subject and issuer.
 // This is the write path used by mcp-go's transport after a successful token refresh.
 func (m *Manager) StoreToken(subject, issuer string, token *pkgoauth.Token) {

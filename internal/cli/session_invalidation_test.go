@@ -158,18 +158,75 @@ func TestLogout_InvalidatesServerSession(t *testing.T) {
 }
 
 func TestLogoutAll_InvalidatesAllServerSessions(t *testing.T) {
-	t.Run("invalidates sessions for all known endpoints", func(t *testing.T) {
+	// With the new LogoutAll, when access tokens are present the primary path
+	// is DELETE /user-tokens (which clears all server-side downstream state).
+	// Per-endpoint DELETE /session invalidation is only used as a fallback when
+	// DELETE /user-tokens fails (e.g., old server that returns 404).
+	t.Run("calls DELETE /user-tokens when access token available (primary path)", func(t *testing.T) {
+		var deleteUserTokensCalled atomic.Int32
+
+		server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/user-tokens" {
+				deleteUserTokensCalled.Add(1)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server1.Close()
+
+		tmpDir := t.TempDir()
+		adapter, err := NewAuthAdapterWithConfig(AuthAdapterConfig{
+			TokenStorageDir: tmpDir,
+		})
+		if err != nil {
+			t.Fatalf("failed to create adapter: %v", err)
+		}
+		defer adapter.Close()
+
+		adapter.UpdateSessionID(server1.URL+"/mcp", "session-1")
+
+		writeTestTokenFile(t, tmpDir, map[string]interface{}{
+			"access_token": "tok1",
+			"token_type":   "Bearer",
+			"server_url":   normalizeEndpoint(server1.URL + "/mcp"),
+		}, normalizeEndpoint(server1.URL+"/mcp"))
+
+		err = adapter.LogoutAll()
+		if err != nil {
+			t.Errorf("unexpected error on logout all: %v", err)
+		}
+
+		if deleteUserTokensCalled.Load() == 0 {
+			t.Error("expected DELETE /user-tokens to be called as primary path")
+		}
+	})
+
+	t.Run("falls back to per-endpoint invalidation when DELETE /user-tokens returns 404", func(t *testing.T) {
 		receivedSessions := make(map[string]bool)
 		server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/user-tokens" {
+				// Simulate old server that does not support DELETE /user-tokens
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			sid := r.Header.Get(api.ClientSessionIDHeader)
-			receivedSessions[sid] = true
+			if sid != "" {
+				receivedSessions[sid] = true
+			}
 			w.WriteHeader(http.StatusNoContent)
 		}))
 		defer server1.Close()
 
 		server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete && r.URL.Path == "/user-tokens" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			sid := r.Header.Get(api.ClientSessionIDHeader)
-			receivedSessions[sid] = true
+			if sid != "" {
+				receivedSessions[sid] = true
+			}
 			w.WriteHeader(http.StatusNoContent)
 		}))
 		defer server2.Close()
@@ -206,10 +263,10 @@ func TestLogoutAll_InvalidatesAllServerSessions(t *testing.T) {
 		}
 
 		if !receivedSessions["session-1"] {
-			t.Error("expected session-1 to be invalidated")
+			t.Error("expected session-1 to be invalidated via fallback path")
 		}
 		if !receivedSessions["session-2"] {
-			t.Error("expected session-2 to be invalidated")
+			t.Error("expected session-2 to be invalidated via fallback path")
 		}
 	})
 }

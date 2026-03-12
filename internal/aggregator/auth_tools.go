@@ -441,6 +441,12 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}
 	}
 
+	// TODO(Phase 2A): Invalidate CapabilityCache entry when wired into AggregatorServer.
+	// sub := api.GetSubjectFromContext(ctx)
+	// if sub != "" && p.aggregator.capabilityCache != nil {
+	//     p.aggregator.capabilityCache.Invalidate(sub, serverName)
+	// }
+
 	// If no connections remain, delete the entire session from the registry.
 	// This ensures server-side session cleanup on logout rather than waiting
 	// for idle timeout.

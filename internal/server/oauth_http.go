@@ -480,6 +480,27 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauth.Handler {
 	return s.oauthHandler
 }
 
+// ValidateTokenWithSubject wraps the given handler with OAuth token validation
+// and extracts the authenticated user's subject (sub claim) into the context.
+// This is used for API endpoints that need to identify the user but don't need
+// the full SSO/token-injection logic of the MCP middleware chain.
+func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
+	return s.oauthHandler.ValidateToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		// UserInfo is set by ValidateToken middleware
+		userInfo, ok := oauth.UserInfoFromContext(ctx)
+		if !ok || userInfo == nil || userInfo.ID == "" {
+			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
+			return
+		}
+
+		// Set the subject in context for downstream handlers
+		ctx = api.WithSubject(ctx, userInfo.ID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}))
+}
+
 // GetTokenStore returns the token store for downstream OAuth passthrough.
 func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 	return s.tokenStore

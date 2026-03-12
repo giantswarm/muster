@@ -291,6 +291,117 @@ func TestAdapter_Stop(t *testing.T) {
 	adapter.Stop()
 }
 
+func TestAdapter_DeleteTokensByUser(t *testing.T) {
+	t.Run("delegates to manager and removes all tokens for subject", func(t *testing.T) {
+		cfg := config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.example.com",
+			ClientID:     "client-id",
+			CallbackPath: "/oauth/proxy/callback",
+		}
+
+		manager := NewManager(cfg)
+		if manager == nil {
+			t.Fatal("Expected non-nil manager")
+		}
+		defer manager.Stop()
+
+		adapter := NewAdapter(manager)
+
+		subject := "user@example.com"
+		issuer := "https://auth.example.com"
+
+		// Store a token directly via manager internals
+		manager.client.StoreToken(subject, &pkgoauth.Token{
+			AccessToken: "access-token",
+			TokenType:   "Bearer",
+			ExpiresIn:   3600,
+			Issuer:      issuer,
+		})
+
+		// Verify the token exists via the adapter
+		if adapter.GetTokenByIssuer(subject, issuer) == nil {
+			t.Fatal("expected token to exist before deletion")
+		}
+
+		// Delete via adapter
+		adapter.DeleteTokensByUser(subject)
+
+		// Token should be gone
+		if adapter.GetTokenByIssuer(subject, issuer) != nil {
+			t.Error("expected token to be deleted after DeleteTokensByUser")
+		}
+	})
+
+	t.Run("does not affect tokens for other subjects", func(t *testing.T) {
+		cfg := config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.example.com",
+			ClientID:     "client-id",
+			CallbackPath: "/oauth/proxy/callback",
+		}
+
+		manager := NewManager(cfg)
+		if manager == nil {
+			t.Fatal("Expected non-nil manager")
+		}
+		defer manager.Stop()
+
+		adapter := NewAdapter(manager)
+
+		targetSubject := "target@example.com"
+		otherSubject := "other@example.com"
+		issuer := "https://auth.example.com"
+
+		// Store tokens for both subjects
+		manager.client.StoreToken(targetSubject, &pkgoauth.Token{
+			AccessToken: "target-token",
+			TokenType:   "Bearer",
+			ExpiresIn:   3600,
+			Issuer:      issuer,
+		})
+		manager.client.StoreToken(otherSubject, &pkgoauth.Token{
+			AccessToken: "other-token",
+			TokenType:   "Bearer",
+			ExpiresIn:   3600,
+			Issuer:      issuer,
+		})
+
+		// Delete only target subject's tokens
+		adapter.DeleteTokensByUser(targetSubject)
+
+		// Target subject's token should be gone
+		if adapter.GetTokenByIssuer(targetSubject, issuer) != nil {
+			t.Error("expected target subject's token to be deleted")
+		}
+
+		// Other subject's token should still exist
+		if adapter.GetTokenByIssuer(otherSubject, issuer) == nil {
+			t.Error("expected other subject's token to remain")
+		}
+	})
+
+	t.Run("is a no-op when subject has no tokens", func(t *testing.T) {
+		cfg := config.OAuthMCPClientConfig{
+			Enabled:      true,
+			PublicURL:    "https://muster.example.com",
+			ClientID:     "client-id",
+			CallbackPath: "/oauth/proxy/callback",
+		}
+
+		manager := NewManager(cfg)
+		if manager == nil {
+			t.Fatal("Expected non-nil manager")
+		}
+		defer manager.Stop()
+
+		adapter := NewAdapter(manager)
+
+		// Should not panic when no tokens exist for this subject
+		adapter.DeleteTokensByUser("nobody@example.com")
+	})
+}
+
 func TestTokenToAPIToken(t *testing.T) {
 	// Test with nil token
 	result := tokenToAPIToken(nil)

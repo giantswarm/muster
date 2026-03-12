@@ -74,6 +74,10 @@ type OAuthHandler interface {
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
 	ClearTokenByIssuer(subject, issuer string)
 
+	// DeleteTokensByUser removes all downstream tokens for a given subject.
+	// This is used during "sign out everywhere" to clear all server-side token state.
+	DeleteTokensByUser(subject string)
+
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
 	CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*AuthChallenge, error)

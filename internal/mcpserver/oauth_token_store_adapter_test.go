@@ -43,6 +43,7 @@ func (m *stubOAuthHandler) StoreToken(subject, issuer string, token *api.OAuthTo
 	m.storedTokens[subject+"|"+issuer] = token
 }
 func (m *stubOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
+func (m *stubOAuthHandler) DeleteTokensByUser(_ string)                            {}
 func (m *stubOAuthHandler) RegisterServer(_, _, _ string)                          {}
 func (m *stubOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (m *stubOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
