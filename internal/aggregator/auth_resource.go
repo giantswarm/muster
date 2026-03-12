@@ -371,7 +371,9 @@ func (a *AggregatorServer) establishSSOConnection(
 			if conn.IsTokenExpired(idTokenExpiryMargin) {
 				logging.Info("Aggregator", "Session init: Session %s connection to %s has expired token, re-establishing SSO",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				conn.Client.Close()
+				if conn.Client != nil {
+					conn.Client.Close()
+				}
 			} else {
 				logging.Debug("Aggregator", "Session init: Session %s already connected to %s, skipping SSO",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)

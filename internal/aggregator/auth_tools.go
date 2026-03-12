@@ -158,7 +158,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			if conn.IsTokenExpired(idTokenExpiryMargin) {
 				logging.Info("AuthTools", "Session %s connection to %s has expired token, allowing re-authentication",
 					logging.TruncateSessionID(sessionID), serverName)
-				conn.Client.Close()
+				if conn.Client != nil {
+					conn.Client.Close()
+				}
 			} else {
 				logging.Debug("AuthTools", "Session %s already has connection to server %s",
 					logging.TruncateSessionID(sessionID), serverName)

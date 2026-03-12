@@ -270,11 +270,22 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		if err != nil {
 			// If not found in registry, check session connections for OAuth-protected servers
 			sessionID := getSessionIDFromContext(ctx)
-			serverName, client, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
+			serverName, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
 			}
-			// Found in session connection - call through the session-specific client
+			// Apply destructive tool check for session-resolved tools
+			if !a.config.Yolo && isDestructiveTool(origName) {
+				logging.Warn("Aggregator", "Blocked destructive tool call: %s (enable --yolo flag to allow)", origName)
+				return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", origName)
+			}
+			// Found in session connection - create on-demand client for tool execution
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID)
+			if clientErr != nil {
+				return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
+			}
+			defer cleanup()
+
 			args := make(map[string]interface{})
 			if req.Params.Arguments != nil {
 				if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
@@ -302,16 +313,24 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		// Check if this server is OAuth-protected and needs session-specific client
 		serverInfo, exists := a.registry.GetServerInfo(sName)
 		if exists && serverInfo.Status == StatusAuthRequired {
-			// This is an OAuth-protected server - get the client from session connection
+			// This is an OAuth-protected server - create on-demand client
 			sessionID := getSessionIDFromContext(ctx)
-			session := a.sessionRegistry.GetOrCreateSession(sessionID)
+			session, sessionExists := a.sessionRegistry.GetSession(sessionID)
+			if !sessionExists {
+				return nil, fmt.Errorf("not authenticated to server %s", sName)
+			}
 			conn, hasConn := session.GetConnection(sName)
-			if !hasConn || conn.Client == nil {
+			if !hasConn || conn.Status != StatusSessionConnected {
 				return nil, fmt.Errorf("not authenticated to server %s", sName)
 			}
 
-			// Forward the request using the session-specific client
-			// The client uses DynamicAuthClient which automatically refreshes tokens
+			// Create an on-demand client for this tool call
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sName, sessionID)
+			if clientErr != nil {
+				return nil, fmt.Errorf("failed to connect to server %s: %w", sName, clientErr)
+			}
+			defer cleanup()
+
 			args := make(map[string]interface{})
 			if req.Params.Arguments != nil {
 				if argsMap, ok := req.Params.Arguments.(map[string]interface{}); ok {
@@ -319,7 +338,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 				}
 			}
 
-			result, err := conn.Client.CallTool(ctx, originalName, args)
+			result, err := client.CallTool(ctx, originalName, args)
 			if err != nil {
 				if is401Error(err) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
