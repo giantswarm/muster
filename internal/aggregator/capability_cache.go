@@ -52,6 +52,7 @@ type CapabilityCache struct {
 	defaultTTL time.Duration
 	stopCh     chan struct{}
 	stopped    chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewCapabilityCache creates a cache with the given default TTL and starts a
@@ -96,9 +97,9 @@ func (c *CapabilityCache) Set(subject, serverName string, tools []mcp.Tool, reso
 func (c *CapabilityCache) SetWithTTL(subject, serverName string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt, ttl time.Duration) {
 	now := time.Now()
 	entry := &CacheEntry{
-		Tools:         tools,
-		Resources:     resources,
-		Prompts:       prompts,
+		Tools:         append([]mcp.Tool(nil), tools...),
+		Resources:     append([]mcp.Resource(nil), resources...),
+		Prompts:       append([]mcp.Prompt(nil), prompts...),
 		StoredAt:      now,
 		ExpiresAt:     now.Add(ttl),
 		graceDeadline: now.Add(2 * ttl),
@@ -143,12 +144,9 @@ func (c *CapabilityCache) Invalidate(subject, serverName string) {
 // Stop stops the background cleanup goroutine. It is safe to call multiple
 // times but only the first call has an effect.
 func (c *CapabilityCache) Stop() {
-	select {
-	case <-c.stopCh:
-		// Already stopped.
-	default:
+	c.stopOnce.Do(func() {
 		close(c.stopCh)
-	}
+	})
 	<-c.stopped
 }
 
