@@ -417,15 +417,15 @@ func (d *deleteCaptureMockHandler) CreateAuthChallenge(ctx context.Context, sub,
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (d *deleteCaptureMockHandler) GetCallbackPath() string       { return "/oauth/proxy/callback" }
-func (d *deleteCaptureMockHandler) GetCIMDPath() string           { return "/.well-known/oauth-client.json" }
-func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool         { return true }
+func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (d *deleteCaptureMockHandler) GetCIMDPath() string          { return "/.well-known/oauth-client.json" }
+func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool        { return true }
 func (d *deleteCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 	return nil
 }
-func (d *deleteCaptureMockHandler) RegisterServer(name, issuer, scope string) {}
+func (d *deleteCaptureMockHandler) RegisterServer(name, issuer, scope string)               {}
 func (d *deleteCaptureMockHandler) SetAuthCompletionCallback(cb api.AuthCompletionCallback) {}
-func (d *deleteCaptureMockHandler) Stop() {}
+func (d *deleteCaptureMockHandler) Stop()                                                   {}
 func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }
@@ -466,15 +466,15 @@ func (c *clearCaptureMockHandler) CreateAuthChallenge(ctx context.Context, sub, 
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (c *clearCaptureMockHandler) GetCallbackPath() string       { return "/oauth/proxy/callback" }
-func (c *clearCaptureMockHandler) GetCIMDPath() string           { return "/.well-known/oauth-client.json" }
-func (c *clearCaptureMockHandler) ShouldServeCIMD() bool         { return true }
+func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (c *clearCaptureMockHandler) GetCIMDPath() string          { return "/.well-known/oauth-client.json" }
+func (c *clearCaptureMockHandler) ShouldServeCIMD() bool        { return true }
 func (c *clearCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 	return nil
 }
-func (c *clearCaptureMockHandler) RegisterServer(name, issuer, scope string) {}
+func (c *clearCaptureMockHandler) RegisterServer(name, issuer, scope string)               {}
 func (c *clearCaptureMockHandler) SetAuthCompletionCallback(cb api.AuthCompletionCallback) {}
-func (c *clearCaptureMockHandler) Stop() {}
+func (c *clearCaptureMockHandler) Stop()                                                   {}
 func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }
