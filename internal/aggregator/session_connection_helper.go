@@ -13,7 +13,6 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/events"
-	"github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
@@ -112,36 +111,11 @@ func establishSessionConnection(
 		prompts = nil
 	}
 
-	// Upgrade the session connection
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
-
-	// Create the token key for future reference
-	var tokenKey *oauth.TokenKey
-	if issuer != "" {
-		tokenKey = &oauth.TokenKey{
-			Subject: sessionID,
-			Issuer:  issuer,
-			Scope:   scope,
-		}
-	}
-
 	// Close the initial client now that capabilities have been fetched.
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Create the session connection without a long-lived client.
-	conn := &SessionConnection{
-		ServerName:  serverName,
-		Status:      StatusSessionConnected,
-		Client:      nil,
-		TokenKey:    tokenKey,
-		ConnectedAt: time.Now(),
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	// Populate the CapabilityCache for the user-based listing path
 	capSubject := api.GetSubjectFromContext(ctx)
 	if capSubject == "" {
 		capSubject = defaultUser
@@ -149,8 +123,6 @@ func establishSessionConnection(
 	if a.capabilityCache != nil {
 		a.capabilityCache.Set(capSubject, serverName, tools, resources, prompts)
 	}
-
-	session.SetConnection(serverName, conn)
 
 	// Register the session-specific tools with the mcp-go server so they can be called
 	a.registerSessionTools(serverName, tools)
@@ -277,23 +249,17 @@ func EstablishSessionConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, error) {
-	// Guard against concurrent connection attempts. The proactive SSO goroutine
-	// can race with explicit core_auth_login calls; both invoke this function.
-	// Check early to avoid creating redundant MCP clients.
-	// If the existing connection's token is expired, close it and re-establish.
-	if a.sessionRegistry != nil {
-		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
-			if conn.IsTokenExpired(idTokenExpiryMargin) {
-				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token forwarding",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				if conn.Client != nil {
-					conn.Client.Close()
-				}
-			} else {
-				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token forwarding",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
-			}
+	// Guard against concurrent connection attempts using CapabilityCache.
+	// If the cache entry exists and is not expired, skip re-establishment.
+	fwdSub := api.GetSubjectFromContext(ctx)
+	if fwdSub == "" {
+		fwdSub = defaultUser
+	}
+	if a.capabilityCache != nil {
+		if entry, exists := a.capabilityCache.Get(fwdSub, serverInfo.Name); exists && !entry.IsExpired() {
+			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token forwarding",
+				logging.TruncateSessionID(fwdSub), serverInfo.Name)
+			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
 
@@ -387,36 +353,11 @@ func EstablishSessionConnectionWithTokenForwarding(
 		prompts = nil
 	}
 
-	// Upgrade the session connection
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
-
-	// Create a token key using the muster issuer (since the token is from muster's auth).
-	// Scope is intentionally omitted: this is a forwarded ID token from muster's OAuth,
-	// not a token obtained via server-specific OAuth flow with its own scopes.
-	tokenKey := &oauth.TokenKey{
-		Subject: sessionID,
-		Issuer:  musterIssuer,
-	}
-
 	// Close the initial client now that capabilities have been fetched.
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Create the session connection without a long-lived client.
-	tokenExpiry := getTokenExpiryTime(idToken)
-	conn := &SessionConnection{
-		ServerName:     serverInfo.Name,
-		Status:         StatusSessionConnected,
-		Client:         nil,
-		TokenKey:       tokenKey,
-		ConnectedAt:    time.Now(),
-		TokenExpiresAt: tokenExpiry,
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	// Populate the CapabilityCache
 	fwdSubject := api.GetSubjectFromContext(ctx)
 	if fwdSubject == "" {
 		fwdSubject = extractUserIDFromToken(idToken)
@@ -427,8 +368,6 @@ func EstablishSessionConnectionWithTokenForwarding(
 	if a.capabilityCache != nil {
 		a.capabilityCache.Set(fwdSubject, serverInfo.Name, tools, resources, prompts)
 	}
-
-	session.SetConnection(serverInfo.Name, conn)
 
 	// Register the session-specific tools
 	a.registerSessionTools(serverInfo.Name, tools)
@@ -547,21 +486,16 @@ func EstablishSessionConnectionWithTokenExchange(
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
-	// Guard against concurrent connection attempts (same race as token forwarding).
-	// If the existing connection's token is expired, close it and re-establish.
-	if a.sessionRegistry != nil {
-		if conn, exists := a.sessionRegistry.GetConnection(sessionID, serverInfo.Name); exists && conn != nil && conn.Status == StatusSessionConnected {
-			if conn.IsTokenExpired(idTokenExpiryMargin) {
-				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token exchange",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				if conn.Client != nil {
-					conn.Client.Close()
-				}
-			} else {
-				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token exchange",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
-			}
+	// Guard against concurrent connection attempts using CapabilityCache.
+	exchSub := api.GetSubjectFromContext(ctx)
+	if exchSub == "" {
+		exchSub = defaultUser
+	}
+	if a.capabilityCache != nil {
+		if entry, exists := a.capabilityCache.Get(exchSub, serverInfo.Name); exists && !entry.IsExpired() {
+			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token exchange",
+				logging.TruncateSessionID(exchSub), serverInfo.Name)
+			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
 
@@ -756,34 +690,11 @@ func EstablishSessionConnectionWithTokenExchange(
 		prompts = nil
 	}
 
-	// Upgrade the session connection
-	session := a.sessionRegistry.GetOrCreateSession(sessionID)
-
-	// Create a token key using the muster issuer (since the original token is from muster's auth).
-	tokenKey := &oauth.TokenKey{
-		Subject: sessionID,
-		Issuer:  musterIssuer,
-	}
-
 	// Close the initial client now that capabilities have been fetched.
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Create the session connection without a long-lived client.
-	tokenExpiry := getTokenExpiryTime(exchangedToken)
-	conn := &SessionConnection{
-		ServerName:     serverInfo.Name,
-		Status:         StatusSessionConnected,
-		Client:         nil,
-		TokenKey:       tokenKey,
-		ConnectedAt:    time.Now(),
-		TokenExpiresAt: tokenExpiry,
-	}
-	conn.UpdateTools(tools)
-	conn.UpdateResources(resources)
-	conn.UpdatePrompts(prompts)
-
-	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	// Populate the CapabilityCache
 	exchSubject := api.GetSubjectFromContext(ctx)
 	if exchSubject == "" {
 		exchSubject = userID // already extracted via extractUserIDFromToken
@@ -794,8 +705,6 @@ func EstablishSessionConnectionWithTokenExchange(
 	if a.capabilityCache != nil {
 		a.capabilityCache.Set(exchSubject, serverInfo.Name, tools, resources, prompts)
 	}
-
-	session.SetConnection(serverInfo.Name, conn)
 
 	// Register the session-specific tools
 	a.registerSessionTools(serverInfo.Name, tools)

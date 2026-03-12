@@ -266,21 +266,21 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		}
 
 		// Resolve the exposed name back to server and original tool name
+		sub := getUserSubjectFromContext(ctx)
 		sName, originalName, err := a.registry.ResolveToolName(exposedName)
 		if err != nil {
-			// If not found in registry, check session connections for OAuth-protected servers
-			sessionID := getSessionIDFromContext(ctx)
-			serverName, origName, resolveErr := a.resolveSessionTool(sessionID, exposedName)
+			// If not found in registry, check capability cache for OAuth-protected servers
+			serverName, origName, resolveErr := a.resolveSessionTool(sub, exposedName)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
 			}
-			// Apply destructive tool check for session-resolved tools
+			// Apply destructive tool check
 			if !a.config.Yolo && isDestructiveTool(origName) {
 				logging.Warn("Aggregator", "Blocked destructive tool call: %s (enable --yolo flag to allow)", origName)
 				return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", origName)
 			}
-			// Found in session connection - create on-demand client for tool execution
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID)
+			// Found in capability cache - create on-demand client for tool execution
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sub)
 			if clientErr != nil {
 				return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
 			}
@@ -295,8 +295,8 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			result, callErr := client.CallTool(ctx, origName, args)
 			if callErr != nil {
 				if is401Error(callErr) {
-					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
-						serverName, logging.TruncateSessionID(sessionID))
+					logging.Warn("Aggregator", "Tool call to %s got 401 for user %s - token expired/refresh failed",
+						serverName, logging.TruncateSessionID(sub))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", callErr)
@@ -310,22 +310,11 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", originalName)
 		}
 
-		// Check if this server is OAuth-protected and needs session-specific client
+		// Check if this server is OAuth-protected and needs on-demand client
 		serverInfo, exists := a.registry.GetServerInfo(sName)
 		if exists && serverInfo.Status == StatusAuthRequired {
-			// This is an OAuth-protected server - create on-demand client
-			sessionID := getSessionIDFromContext(ctx)
-			session, sessionExists := a.sessionRegistry.GetSession(sessionID)
-			if !sessionExists {
-				return nil, fmt.Errorf("not authenticated to server %s", sName)
-			}
-			conn, hasConn := session.GetConnection(sName)
-			if !hasConn || conn.Status != StatusSessionConnected {
-				return nil, fmt.Errorf("not authenticated to server %s", sName)
-			}
-
 			// Create an on-demand client for this tool call
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sName, sessionID)
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sName, sub)
 			if clientErr != nil {
 				return nil, fmt.Errorf("failed to connect to server %s: %w", sName, clientErr)
 			}
@@ -341,8 +330,8 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			result, err := client.CallTool(ctx, originalName, args)
 			if err != nil {
 				if is401Error(err) {
-					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
-						sName, logging.TruncateSessionID(sessionID))
+					logging.Warn("Aggregator", "Tool call to %s got 401 for user %s - token expired/refresh failed",
+						sName, logging.TruncateSessionID(sub))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", sName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", err)
@@ -525,16 +514,17 @@ func processResourcesForServer(a *AggregatorServer, serverName string, info *Ser
 	return resourcesToAdd
 }
 
-// enrichMCPServerWithSessionData adds session-specific state to an MCPServerInfo.
-// This includes the session's connection status, authentication status, and tools count.
+// enrichMCPServerWithSessionData adds user-specific state to an MCPServerInfo.
+// This includes the user's connection status and tools count from the CapabilityCache.
 //
 // Args:
 //   - serverInfo: The MCPServerInfo map from the mcpserver_list response
-//   - session: The session state (may be nil if no session)
+//   - cache: The CapabilityCache (may be nil)
+//   - sub: The user's subject
 //
 // Returns the enriched serverInfo map with session fields added.
-func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, session *SessionState) map[string]interface{} {
-	if session == nil {
+func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, cache *CapabilityCache, sub string) map[string]interface{} {
+	if cache == nil || sub == "" {
 		return serverInfo
 	}
 
@@ -543,83 +533,66 @@ func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, session *
 		return serverInfo
 	}
 
-	conn, hasConn := session.GetConnection(serverName)
-	if !hasConn || conn == nil {
-		// No session connection - leave session fields empty
+	entry, exists := cache.Get(sub, serverName)
+	if !exists {
 		return serverInfo
 	}
 
-	// Add session status (using thread-safe getter)
-	serverInfo["sessionStatus"] = string(conn.GetStatus())
+	serverInfo["sessionStatus"] = "connected"
 
-	// Add auth status (only for non-empty values)
-	authStatus := conn.GetAuthStatus()
-	if authStatus != "" && authStatus != AuthStatusUnknown {
-		serverInfo["sessionAuth"] = string(authStatus)
+	if len(entry.Tools) > 0 {
+		serverInfo["toolsCount"] = len(entry.Tools)
 	}
 
-	// Add connected timestamp if available (using thread-safe getter)
-	connectedAt := conn.GetConnectedAt()
-	if !connectedAt.IsZero() {
-		serverInfo["connectedAt"] = connectedAt
-	}
-
-	// Add tools count from session connection
-	tools := conn.GetTools()
-	if len(tools) > 0 {
-		serverInfo["toolsCount"] = len(tools)
+	if !entry.StoredAt.IsZero() {
+		serverInfo["connectedAt"] = entry.StoredAt
 	}
 
 	return serverInfo
 }
 
-// enrichMCPServerListResponse enriches the mcpserver_list response with session-specific data.
-// It modifies the response in place to add sessionStatus, sessionAuth, toolsCount, and connectedAt
-// fields to each server based on the current session's connection state.
+// enrichMCPServerListResponse enriches the mcpserver_list response with user-specific data
+// from the CapabilityCache. It modifies the response in place to add sessionStatus,
+// toolsCount, and connectedAt fields to each server.
 //
 // Args:
 //   - result: The mcp.CallToolResult from mcpserver_list
-//   - session: The session state (may be nil if no session)
+//   - cache: The CapabilityCache (may be nil)
+//   - sub: The user's subject
 //
 // Returns the enriched result.
-func enrichMCPServerListResponse(result *mcp.CallToolResult, session *SessionState) *mcp.CallToolResult {
-	if session == nil || result == nil || len(result.Content) == 0 {
+func enrichMCPServerListResponse(result *mcp.CallToolResult, cache *CapabilityCache, sub string) *mcp.CallToolResult {
+	if cache == nil || sub == "" || result == nil || len(result.Content) == 0 {
 		return result
 	}
 
-	// The mcpserver_list response has Content containing a map with "mcpServers" array
 	for i, content := range result.Content {
 		textContent, ok := content.(mcp.TextContent)
 		if !ok {
 			continue
 		}
 
-		// Parse the JSON content
 		var responseMap map[string]interface{}
 		if err := json.Unmarshal([]byte(textContent.Text), &responseMap); err != nil {
 			logging.Debug("ServerHelpers", "Failed to parse mcpserver_list response: %v", err)
 			continue
 		}
 
-		// Find the mcpServers array
 		servers, ok := responseMap["mcpServers"].([]interface{})
 		if !ok {
-			logging.Debug("ServerHelpers", "mcpserver_list response missing 'mcpServers' array, skipping session enrichment")
+			logging.Debug("ServerHelpers", "mcpserver_list response missing 'mcpServers' array, skipping enrichment")
 			continue
 		}
 
-		// Enrich each server with session data
 		for j, server := range servers {
 			serverMap, ok := server.(map[string]interface{})
 			if !ok {
-				logging.Debug("ServerHelpers", "mcpserver_list server at index %d is not a map, skipping", j)
 				continue
 			}
-			servers[j] = enrichMCPServerWithSessionData(serverMap, session)
+			servers[j] = enrichMCPServerWithSessionData(serverMap, cache, sub)
 		}
 		responseMap["mcpServers"] = servers
 
-		// Re-serialize and update the content
 		enrichedJSON, err := json.Marshal(responseMap)
 		if err != nil {
 			logging.Debug("ServerHelpers", "Failed to serialize enriched response: %v", err)

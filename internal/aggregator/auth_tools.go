@@ -91,23 +91,17 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Get session ID early for metrics and session registry calls
-	sessionID := getSessionIDFromContext(ctx)
-
-	// Derive userID for rate limiter: prefer the OAuth sub claim, fall back to sessionID for stdio
-	userID := api.GetSubjectFromContext(ctx)
-	if userID == "" {
-		userID = sessionID // fallback for stdio/unauthenticated requests
-	}
+	// Get user subject for identity-based operations
+	sub := getUserSubjectFromContext(ctx)
 
 	// Check rate limit before processing
-	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(userID, serverName) {
+	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sub, serverName) {
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sessionID)
+			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sub)
 		}
 		remaining := 0
 		if p.aggregator.authRateLimiter != nil {
-			remaining = p.aggregator.authRateLimiter.RemainingAttempts(userID)
+			remaining = p.aggregator.authRateLimiter.RemainingAttempts(sub)
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
@@ -122,7 +116,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// Record the login attempt in metrics
 	if p.aggregator.authMetrics != nil {
-		p.aggregator.authMetrics.RecordLoginAttempt(serverName, sessionID)
+		p.aggregator.authMetrics.RecordLoginAttempt(serverName, sub)
 	}
 
 	logging.Info("AuthTools", "Handling auth login for server: %s", serverName)
@@ -150,25 +144,15 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has a connection to this server.
+	// Check if this user already has cached capabilities for this server.
 	// This can happen after proactive SSO or previous authentication.
-	// If the existing connection's token is expired, close it and proceed with re-auth.
-	if p.aggregator.sessionRegistry != nil {
-		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
-			if conn.IsTokenExpired(idTokenExpiryMargin) {
-				logging.Info("AuthTools", "Session %s connection to %s has expired token, allowing re-authentication",
-					logging.TruncateSessionID(sessionID), serverName)
-				if conn.Client != nil {
-					conn.Client.Close()
-				}
-			} else {
-				logging.Debug("AuthTools", "Session %s already has connection to server %s",
-					logging.TruncateSessionID(sessionID), serverName)
-				return &api.CallToolResult{
-					Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated for this session.", serverName)},
-					IsError: false,
-				}, nil
-			}
+	if p.aggregator.capabilityCache != nil {
+		if _, ok := p.aggregator.capabilityCache.Get(sub, serverName); ok {
+			logging.Debug("AuthTools", "User %s already has capabilities for server %s", sub, serverName)
+			return &api.CallToolResult{
+				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
+				IsError: false,
+			}, nil
 		}
 	}
 
@@ -176,7 +160,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "oauth_not_configured")
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "oauth_not_configured")
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
@@ -192,11 +176,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	if ShouldUseTokenExchange(serverInfo) {
 		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
 
-		result, err := p.tryTokenExchange(ctx, sessionID, serverInfo)
+		result, err := p.tryTokenExchange(ctx, sub, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_exchange_failed")
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "token_exchange_failed")
 			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
@@ -211,10 +195,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 		// Token exchange succeeded
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sub)
 		}
 		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(userID)
+			p.aggregator.authRateLimiter.Reset(sub)
 		}
 		return result, nil
 	} else if ShouldUseTokenForwarding(serverInfo) {
@@ -223,11 +207,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 		// Get the muster issuer from the OAuth server configuration
 		// For token forwarding, we use the same issuer that muster authenticated the user with
-		result, err := p.tryTokenForwarding(ctx, sessionID, serverInfo)
+		result, err := p.tryTokenForwarding(ctx, sub, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "token_forwarding_failed")
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "token_forwarding_failed")
 			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
@@ -242,10 +226,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 		// Token forwarding succeeded
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sub)
 		}
 		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(userID)
+			p.aggregator.authRateLimiter.Reset(sub)
 		}
 		return result, nil
 	}
@@ -276,7 +260,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// If still empty, we can't proceed
 	if authInfo.Issuer == "" {
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "issuer_discovery_failed")
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "issuer_discovery_failed")
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
@@ -288,47 +272,24 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has a connection to THIS specific server.
-	// This provides a clear message to the user that they're already connected.
-	if p.aggregator.sessionRegistry != nil {
-		if conn, exists := p.aggregator.sessionRegistry.GetConnection(sessionID, serverName); exists && conn != nil && conn.Status == StatusSessionConnected {
-			logging.Info("AuthTools", "Session %s already has connection to server %s",
-				logging.TruncateSessionID(sessionID), serverName)
-			// Record success metrics since the user is already connected
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
-			}
-			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf(
-					api.AuthMsgAlreadyConnected+"\n\n"+
-						"Server: %s\n"+
-						"Status: connected\n\n"+
-						"You are already authenticated to this server. Use core_auth_logout to disconnect first if you want to re-authenticate with a different account.",
-					serverName,
-				)},
-				IsError: false,
-			}, nil
-		}
-	}
-
 	// Check if we already have a valid token for this server/issuer (SSO).
 	// This enables single sign-on: if the user authenticated to another server
 	// with the same OAuth issuer, we can reuse that token.
-	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
+	token := oauthHandler.GetTokenByIssuer(sub, authInfo.Issuer)
 
 	if token != nil {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
 			serverName, authInfo.Issuer)
 
 		// Try to establish connection using the existing token
-		connectResult, connectErr := p.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
+		connectResult, connectErr := p.tryConnectWithToken(ctx, sub, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
 			// Record success and reset rate limiter for this user
 			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
+				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sub)
 			}
 			if p.aggregator.authRateLimiter != nil {
-				p.aggregator.authRateLimiter.Reset(userID)
+				p.aggregator.authRateLimiter.Reset(sub)
 			}
 			return connectResult, nil
 		}
@@ -336,12 +297,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Check if the error is a 401 - token is expired/invalid
 		if is401Error(connectErr) {
 			logging.Info("AuthTools", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
+			oauthHandler.ClearTokenByIssuer(sub, authInfo.Issuer)
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
 			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "connection_failed")
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "connection_failed")
 			}
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf(
@@ -354,11 +315,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, serverName, authInfo.Issuer, authInfo.Scope)
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sub, serverName, authInfo.Issuer, authInfo.Scope)
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sessionID, "challenge_creation_failed")
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "challenge_creation_failed")
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
@@ -383,7 +344,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}, nil
 }
 
-// handleAuthLogout clears authentication session for a specific MCP server.
+// handleAuthLogout clears authentication for a specific MCP server.
 //
 // Security features:
 //   - Metrics: Tracks logout attempts and successes for monitoring
@@ -396,15 +357,15 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Get session ID from context
-	sessionID := getSessionIDFromContext(ctx)
+	// Get user subject for identity-based operations
+	sub := getUserSubjectFromContext(ctx)
 
 	// Record the logout attempt in metrics
 	if p.aggregator.authMetrics != nil {
-		p.aggregator.authMetrics.RecordLogoutAttempt(serverName, sessionID)
+		p.aggregator.authMetrics.RecordLogoutAttempt(serverName, sub)
 	}
 
-	logging.Info("AuthTools", "Handling auth logout for server: %s", serverName)
+	logging.Info("AuthTools", "Handling auth logout for server: %s (user=%s)", serverName, sub)
 
 	// Get server info from registry
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
@@ -415,61 +376,23 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Get the session (read-only; do not create if absent -- it may have already expired)
-	session, sessionExists := p.aggregator.sessionRegistry.GetSession(sessionID)
-	if !sessionExists {
-		// Session already expired/deleted; nothing to clean up
-		return &api.CallToolResult{
-			Content: []interface{}{fmt.Sprintf("Logged out from %s (session already expired).", serverName)},
-		}, nil
-	}
-	conn, hasConnection := session.GetConnection(serverName)
-
-	if hasConnection && conn.Client != nil {
-		// Close the client connection
-		if err := conn.Client.Close(); err != nil {
-			logging.Warn("AuthTools", "Error closing client for %s: %v", serverName, err)
-		}
-	}
-
-	// Remove the connection from the session
-	session.RemoveConnection(serverName)
-
 	// Clear tokens for this server's issuer if we have auth info
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+			oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
 		}
 	}
 
 	// Invalidate CapabilityCache so that GetAllToolsForUser no longer returns
-	// cached tools for this server after logout. Use the same defaultUser
-	// fallback that session_connection_helper uses when populating the cache,
-	// so stdio sessions (which have no OAuth sub claim) are correctly evicted.
-	sub := api.GetSubjectFromContext(ctx)
-	if sub == "" {
-		sub = defaultUser
-	}
+	// cached tools for this server after logout.
 	if p.aggregator.capabilityCache != nil {
 		p.aggregator.capabilityCache.Invalidate(sub, serverName)
 	}
 
-	// If no connections remain, delete the entire session from the registry.
-	// This ensures server-side session cleanup on logout rather than waiting
-	// for idle timeout.
-	if len(session.GetAllConnections()) == 0 {
-		p.aggregator.sessionRegistry.DeleteSession(sessionID)
-		logging.Info("AuthTools", "Deleted session %s (no remaining connections after logout)",
-			logging.TruncateSessionID(sessionID))
-	}
-
-	// Notify the session that tools have changed
-	p.aggregator.NotifySessionToolsChanged(sessionID)
-
 	// Record logout success
 	if p.aggregator.authMetrics != nil {
-		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sessionID)
+		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sub)
 	}
 
 	return &api.CallToolResult{
@@ -484,8 +407,8 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
 // This delegates to the shared establishSessionConnection helper to avoid code duplication.
-func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
-	result, err := establishSessionConnection(ctx, p.aggregator, sessionID, serverName, serverURL, issuer, scope, accessToken)
+func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
+	result, err := establishSessionConnection(ctx, p.aggregator, sub, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -498,17 +421,16 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sessionID, s
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token exchange failed
-func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	// Get the muster issuer from the configuration
-	musterIssuer := p.getMusterIssuer(sessionID)
+	musterIssuer := p.getMusterIssuer(sub)
 	if musterIssuer == "" {
-		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
 	}
 
 	result, err := EstablishSessionConnectionWithTokenExchange(
-		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
+		ctx, p.aggregator, sub, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
@@ -523,18 +445,17 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sessionID strin
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token forwarding failed
-func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	// Get the muster issuer from the configuration
 	// We need to find what issuer muster used to authenticate the user
-	musterIssuer := p.getMusterIssuer(sessionID)
+	musterIssuer := p.getMusterIssuer(sub)
 	if musterIssuer == "" {
-		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
 	}
 
 	result, err := EstablishSessionConnectionWithTokenForwarding(
-		ctx, p.aggregator, sessionID, serverInfo, musterIssuer,
+		ctx, p.aggregator, sub, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
@@ -553,14 +474,14 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sessionID str
 //   - No OAuth handler is registered
 //   - The OAuth handler is not enabled
 //   - No issuer could be determined from config or tokens
-func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
+func (p *AuthToolProvider) getMusterIssuer(sub string) string {
 	// OAuth handler must be registered and enabled for token forwarding to work
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	return p.aggregator.getMusterIssuerWithFallback(sessionID)
+	return p.aggregator.getMusterIssuerWithFallback(sub)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response

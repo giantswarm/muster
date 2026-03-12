@@ -378,26 +378,23 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 }
 
 // triggerSessionInitIfNeeded triggers the session initialization callback if this
-// is the first authenticated request for the session, or if the token has changed.
+// is the first authenticated request for the user, or if the token has changed.
 // This enables proactive SSO connections to be established after:
 // - Initial muster authentication (first login)
 // - Re-authentication (logout + login with new ID token)
 // - Token refresh (server-side refresh gets new access token)
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
-	// Get session ID from the request header directly.
-	// We can't rely on context here because clientSessionIDMiddleware runs
-	// AFTER this middleware in the chain (it wraps the MCP handler, not the OAuth chain).
-	sessionID := r.Header.Get(api.ClientSessionIDHeader)
-	if sessionID == "" {
-		logging.Debug("OAuth", "SSO: No session ID header, skipping session init")
+	// Get user subject from context (set by extractSubjectFromIDToken above)
+	sub := api.GetSubjectFromContext(ctx)
+	if sub == "" {
+		logging.Debug("OAuth", "SSO: No user subject in context, skipping session init")
 		return
 	}
 
 	// Get the ID token from context - we need this for SSO forwarding
 	idToken, _ := GetIDTokenFromContext(ctx)
 	if idToken == "" {
-		logging.Debug("OAuth", "SSO: No ID token in context for session %s, skipping session init",
-			logging.TruncateSessionID(sessionID))
+		logging.Debug("OAuth", "SSO: No ID token in context for user %s, skipping session init", sub)
 		return
 	}
 
@@ -416,27 +413,25 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 	currentTokenHash := hashToken(upstreamAccessToken)
 	now := time.Now()
 
-	// Check if we've already initialized this session with this token.
+	// Check if we've already initialized this user with this token.
 	// If the token has changed (re-authentication or refresh), we need to trigger SSO again.
-	if existingEntry, exists := s.sessionInitTracker.Load(sessionID); exists {
+	if existingEntry, exists := s.sessionInitTracker.Load(sub); exists {
 		entry := existingEntry.(sessionTrackerEntry)
 		if entry.tokenHash == currentTokenHash {
 			// Already initialized with the same token - just update last access time
-			s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{
+			s.sessionInitTracker.Store(sub, sessionTrackerEntry{
 				tokenHash:  currentTokenHash,
 				lastAccess: now,
 			})
-			logging.Debug("OAuth", "SSO: Session %s already initialized with current token, skipping",
-				logging.TruncateSessionID(sessionID))
+			logging.Debug("OAuth", "SSO: User %s already initialized with current token, skipping", sub)
 			return
 		}
 		// Token has changed - could be re-authentication or server-side refresh
-		logging.Info("OAuth", "SSO: Token changed for session %s (re-auth or refresh), triggering SSO",
-			logging.TruncateSessionID(sessionID))
+		logging.Info("OAuth", "SSO: Token changed for user %s (re-auth or refresh), triggering SSO", sub)
 	}
 
 	// Store the current token hash with timestamp
-	s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{
+	s.sessionInitTracker.Store(sub, sessionTrackerEntry{
 		tokenHash:  currentTokenHash,
 		lastAccess: now,
 	})
@@ -452,22 +447,21 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 	// the goroutine fires. This closes the race window where an auth://status
 	// read between goroutine launch and StartSSOInit could return auth_required.
 	if prepareCallback := api.GetSessionInitPrepareCallback(); prepareCallback != nil {
-		prepareCallback(sessionID)
+		prepareCallback(sub)
 	}
 
 	// Trigger the callback asynchronously to not block the request.
 	// Use a background context with the necessary values copied over.
 	go func() {
-		logging.Info("OAuth", "SSO: Triggering proactive SSO for session %s (has_id_token=%v)",
-			logging.TruncateSessionID(sessionID), idToken != "")
+		logging.Info("OAuth", "SSO: Triggering proactive SSO for user %s (has_id_token=%v)", sub, idToken != "")
 
 		// Create a background context with the ID token for SSO forwarding.
 		// This context won't be canceled when the HTTP request completes.
 		bgCtx := context.Background()
 		bgCtx = ContextWithIDToken(bgCtx, idToken)
-		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
+		bgCtx = api.WithSubject(bgCtx, sub)
 
-		callback(bgCtx, sessionID)
+		callback(bgCtx, sub)
 	}()
 }
 
@@ -872,18 +866,18 @@ func (s *OAuthHTTPServer) runSessionTrackerCleanup() {
 	}
 }
 
-// cleanupExpiredSessions removes session entries that haven't been accessed
+// cleanupExpiredSessions removes tracker entries that haven't been accessed
 // within the TTL period.
 func (s *OAuthHTTPServer) cleanupExpiredSessions() {
 	now := time.Now()
 	expiredCount := 0
 
 	s.sessionInitTracker.Range(func(key, value interface{}) bool {
-		sessionID := key.(string)
+		sub := key.(string)
 		entry := value.(sessionTrackerEntry)
 
 		if now.Sub(entry.lastAccess) > DefaultSessionTrackerTTL {
-			s.sessionInitTracker.Delete(sessionID)
+			s.sessionInitTracker.Delete(sub)
 			expiredCount++
 		}
 		return true
@@ -895,10 +889,10 @@ func (s *OAuthHTTPServer) cleanupExpiredSessions() {
 }
 
 // DeleteSessionTrackerEntry removes the sessionInitTracker entry for the given
-// session ID. This should be called when a session is removed from the registry
-// so that the next request for that user triggers fresh SSO initialization. (#435)
-func (s *OAuthHTTPServer) DeleteSessionTrackerEntry(sessionID string) {
-	s.sessionInitTracker.Delete(sessionID)
+// user subject. This should be called when a user's auth state is cleared
+// so that the next request triggers fresh SSO initialization.
+func (s *OAuthHTTPServer) DeleteSessionTrackerEntry(sub string) {
+	s.sessionInitTracker.Delete(sub)
 }
 
 // extractSubjectFromIDToken extracts the subject (sub) claim from a JWT ID token.
