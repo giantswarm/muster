@@ -156,14 +156,14 @@ steps:
   # - Gets a new token from the OAuth server via refresh
   # - Reconnects to muster with the new access token
   - id: reauth-to-muster
-    description: "Re-authenticate to muster with new token (same session)"
+    description: "Re-authenticate to muster with new token (fresh connection)"
     tool: "test_simulate_muster_reauth"
     args: {}
     expected:
       success: true
       contains:
         - "success"
-        - "session"
+        - "re-authenticated"
 
   # Step 10: Reconnect to the SSO server using token forwarding
   # After re-authentication, the user can reconnect via core_auth_login

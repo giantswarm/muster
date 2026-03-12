@@ -506,6 +506,9 @@ func (c *mcpTestClient) Close() error {
 
 	err := c.client.Close()
 	c.client = nil
+	c.mu.Lock()
+	c.sessionID = ""
+	c.mu.Unlock()
 	return err
 }
 
@@ -517,29 +520,4 @@ func (c *mcpTestClient) IsConnected() bool {
 // GetEndpoint returns the current endpoint
 func (c *mcpTestClient) GetEndpoint() string {
 	return c.endpoint
-}
-
-// GetSessionID returns the client's session ID (tracks server-issued ID after first request).
-func (c *mcpTestClient) GetSessionID() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.sessionID
-}
-
-// ReconnectWithSession closes the current connection and reconnects with a new token
-// while preserving the session ID. This is used to test proactive SSO re-triggering
-// when a user re-authenticates with a new token.
-func (c *mcpTestClient) ReconnectWithSession(ctx context.Context, endpoint, accessToken, sessionID string) error {
-	// Close existing connection
-	if err := c.Close(); err != nil {
-		return fmt.Errorf("failed to close existing connection: %w", err)
-	}
-
-	if c.debug {
-		c.logger.Debug("🔄 Reconnecting with same session ID (%s...) but new token\n",
-			sessionID[:min(8, len(sessionID))])
-	}
-
-	// Reconnect with the specified session ID and new token
-	return c.connectWithSessionAndToken(ctx, endpoint, accessToken, sessionID)
 }
