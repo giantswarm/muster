@@ -35,10 +35,10 @@
 //
 // For persistent token storage in future versions, encryption would be required.
 //
-// ## Session Isolation
+// ## Subject Isolation
 //
 // Each MCP connection (SSE or Streamable HTTP) receives a unique UUID-based session ID
-// from the mcp-go library. Tokens are stored with a composite key of (SessionID, Issuer, Scope),
+// from the mcp-go library. Tokens are stored with a composite key of (Subject, Issuer, Scope),
 // ensuring complete isolation between users. User A cannot access User B's tokens.
 //
 // For stdio transport (single-user CLI), a default session ID is used. This is acceptable
