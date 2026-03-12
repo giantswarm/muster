@@ -395,6 +395,11 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
 	}
 
+	// Clear session init tracker so re-login triggers proactive SSO
+	if p.aggregator.oauthHTTPServer != nil {
+		p.aggregator.oauthHTTPServer.DeleteSessionTrackerEntry(sub)
+	}
+
 	// Record logout success
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sub)

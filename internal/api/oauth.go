@@ -21,21 +21,21 @@ import (
 // Returns an error if the connection could not be established.
 type AuthCompletionCallback func(ctx context.Context, subject, serverName, accessToken string) error
 
-// SessionInitCallback is called when a new session is first seen with a valid muster token.
+// SessionInitCallback is called when a new user is first seen with a valid muster token.
 // The aggregator registers this callback to trigger proactive SSO connections to
 // all SSO-enabled servers (forwardToken: true) using muster's ID token.
 //
-// This callback is triggered on the first authenticated MCP request for a session,
+// This callback is triggered on the first authenticated MCP request for a user,
 // enabling seamless SSO: users authenticate once to muster (via `muster auth login`)
 // and automatically gain access to all SSO-enabled MCP servers.
 //
 // Args:
 //   - ctx: Context containing the ID token for forwarding
-//   - sessionID: The MCP session ID
+//   - sub: The user subject (from OAuth token)
 //
 // The callback should not return an error - SSO connection failures are logged
 // but don't prevent the request from proceeding.
-type SessionInitCallback func(ctx context.Context, sessionID string)
+type SessionInitCallback func(ctx context.Context, sub string)
 
 // OAuthHandler defines the interface for OAuth proxy functionality.
 // This handler manages OAuth authentication flows for remote MCP servers,
@@ -145,7 +145,7 @@ var oauthMutex sync.RWMutex
 // goroutine fires. The aggregator registers this to set SSOInitInProgress before
 // the goroutine starts, closing the race window where auth://status could return
 // auth_required instead of sso_pending.
-type SessionInitPrepareCallback func(sessionID string)
+type SessionInitPrepareCallback func(sub string)
 
 // sessionInitCallback stores the registered session initialization callback.
 var sessionInitCallback SessionInitCallback

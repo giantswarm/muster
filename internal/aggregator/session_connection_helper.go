@@ -34,21 +34,21 @@ type SessionConnectionResult struct {
 	PromptCount int
 }
 
-// establishSessionConnection creates a connection to an MCP server and registers
-// it with the session. This is the shared implementation used by both:
+// establishSessionConnection creates a connection to an MCP server and populates
+// the CapabilityCache. This is the shared implementation used by both:
 //   - AuthToolProvider.tryConnectWithToken (core_auth_login tool)
-//   - AggregatorServer.tryConnectWithToken (legacy path, manager.go)
+//   - AggregatorServer.tryConnectWithToken (OAuth browser callback, manager.go)
 //
 // This method:
 //  1. Creates the appropriate client (DynamicAuthClient or static headers)
 //  2. Initializes the connection and fetches capabilities
-//  3. Creates and registers the session connection
-//  4. Notifies the session of tool changes
+//  3. Populates the CapabilityCache and registers tools
+//  4. Broadcasts tool change notifications
 //
 // Args:
 //   - ctx: Context for the operation
 //   - a: The aggregator server instance
-//   - sessionID: The session to register the connection with
+//   - sub: The user subject to populate the CapabilityCache for
 //   - serverName: Name of the MCP server
 //   - serverURL: URL of the MCP server
 //   - issuer: OAuth issuer URL (empty for non-OAuth servers)
@@ -59,7 +59,7 @@ type SessionConnectionResult struct {
 func establishSessionConnection(
 	ctx context.Context,
 	a *AggregatorServer,
-	sessionID, serverName, serverURL, issuer, scope, accessToken string,
+	sub, serverName, serverURL, issuer, scope, accessToken string,
 ) (*SessionConnectionResult, error) {
 	// Get OAuth handler for dynamic token refresh
 	oauthHandler := api.GetOAuthHandler()
@@ -70,18 +70,18 @@ func establishSessionConnection(
 	// Otherwise, fall back to static headers (backwards compatibility).
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		tokenStore := internalmcp.NewMusterTokenStore(sessionID, issuer, oauthHandler)
+		tokenStore := internalmcp.NewMusterTokenStore(sub, issuer, oauthHandler)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
-		logging.Debug("SessionConnection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
-			logging.TruncateSessionID(sessionID), serverName, issuer)
+		logging.Debug("SessionConnection", "Using DynamicAuthClient for user %s, server %s (issuer=%s)",
+			logging.TruncateSessionID(sub), serverName, issuer)
 	} else {
 		// Fallback to static headers
 		headers := map[string]string{
 			"Authorization": "Bearer " + accessToken,
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("SessionConnection", "Using static auth headers for session %s, server %s",
-			logging.TruncateSessionID(sessionID), serverName)
+		logging.Debug("SessionConnection", "Using static auth headers for user %s, server %s",
+			logging.TruncateSessionID(sub), serverName)
 	}
 
 	// Try to initialize the client
@@ -100,14 +100,14 @@ func establishSessionConnection(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
+		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverName, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverName, err)
+		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverName, err)
 		prompts = nil
 	}
 
@@ -116,25 +116,21 @@ func establishSessionConnection(
 	client.Close()
 
 	// Populate the CapabilityCache for the user-based listing path
-	capSubject := api.GetSubjectFromContext(ctx)
-	if capSubject == "" {
-		capSubject = defaultUser
-	}
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(capSubject, serverName, tools, resources, prompts)
+		a.capabilityCache.Set(sub, serverName, tools, resources, prompts)
 	}
 
-	// Register the session-specific tools with the mcp-go server so they can be called
+	// Register tools with the mcp-go server so they can be called
 	a.registerSessionTools(serverName, tools)
 
-	// Send targeted notification to the session that their tools have changed
-	a.NotifySessionToolsChanged(sessionID)
+	// Broadcast tool change notification to all connected clients
+	a.NotifyToolsChanged()
 
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
 
-	logging.Info("SessionConnection", "Session %s connected to %s with %d tools, %d resources, %d prompts",
-		logging.TruncateSessionID(sessionID), serverName, len(tools), len(resources), len(prompts))
+	logging.Info("SessionConnection", "User %s connected to %s with %d tools, %d resources, %d prompts",
+		logging.TruncateSessionID(sub), serverName, len(tools), len(resources), len(prompts))
 
 	return &SessionConnectionResult{
 		ServerName:    serverName,
@@ -186,24 +182,24 @@ func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 //  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
 //     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
 //  2. OAuth proxy token store - contains tokens when user authenticated WITH remote servers
-//     via core_auth_login. These are keyed by (sessionID, issuer).
+//     via core_auth_login. These are keyed by (sub, issuer).
 //
 // The context token takes priority because it represents the user's current authentication
 // to muster, which is what we want to forward for SSO.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
-//   - sessionID: The session identifier
+//   - sub: The user subject
 //   - musterIssuer: The issuer URL to look up in the OAuth proxy store
 //
 // Returns the ID token string, or empty string if no token is available.
-func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
+func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) string {
 	// First, check the request context for an ID token from muster's OAuth server protection.
 	// This is the primary SSO use case: user authenticates TO muster, and we forward that
 	// token to downstream servers that trust muster's OAuth client ID.
 	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
-		logging.Debug("SessionConnection", "Found ID token in request context for session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Debug("SessionConnection", "Found ID token in request context for user %s",
+			logging.TruncateSessionID(sub))
 		return idToken
 	}
 
@@ -211,31 +207,31 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 	// This handles the case where tokens were obtained via a previous core_auth_login call.
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
-		fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
+		fullToken := oauthHandler.GetFullTokenByIssuer(sub, musterIssuer)
 		if fullToken != nil && fullToken.IDToken != "" {
-			logging.Debug("SessionConnection", "Found ID token in OAuth proxy store for session %s, issuer %s",
-				logging.TruncateSessionID(sessionID), musterIssuer)
+			logging.Debug("SessionConnection", "Found ID token in OAuth proxy store for user %s, issuer %s",
+				logging.TruncateSessionID(sub), musterIssuer)
 			return fullToken.IDToken
 		}
 	}
 
-	logging.Debug("SessionConnection", "No ID token found for session %s",
-		logging.TruncateSessionID(sessionID))
+	logging.Debug("SessionConnection", "No ID token found for user %s",
+		logging.TruncateSessionID(sub))
 	return ""
 }
 
-// EstablishSessionConnectionWithTokenForwarding attempts to establish a session connection
+// EstablishSessionConnectionWithTokenForwarding attempts to establish a connection
 // using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
 //
 // The function:
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Forwards it to the downstream MCP server
-//  3. If successful, establishes the session connection
+//  3. If successful, populates the CapabilityCache and registers tools
 //
 // Args:
 //   - ctx: Context for the operation
 //   - a: The aggregator server instance
-//   - sessionID: The session to register the connection with
+//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -245,7 +241,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 func EstablishSessionConnectionWithTokenForwarding(
 	ctx context.Context,
 	a *AggregatorServer,
-	sessionID string,
+	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, error) {
@@ -270,23 +266,23 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// When a user authenticates TO muster (via Google/Dex OAuth), the token is
 	// injected into the request context by createAccessTokenInjectorMiddleware.
 	// This is the primary SSO use case.
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Debug("SessionConnection", "No ID token available for user %s",
+			logging.TruncateSessionID(sub))
 		return nil, fmt.Errorf("no ID token available for forwarding")
 	}
 
 	// Validate ID token is not expired before forwarding
 	// This avoids unnecessary network round-trips with expired tokens
 	if isIDTokenExpired(idToken) {
-		logging.Warn("SessionConnection", "ID token expired for session %s, cannot forward to %s",
-			logging.TruncateSessionID(sessionID), serverInfo.Name)
+		logging.Warn("SessionConnection", "ID token expired for user %s, cannot forward to %s",
+			logging.TruncateSessionID(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
 	}
 
-	logging.Info("SessionConnection", "Attempting ID token forwarding for session %s to server %s",
-		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	logging.Info("SessionConnection", "Attempting ID token forwarding for user %s to server %s",
+		logging.TruncateSessionID(sub), serverInfo.Name)
 
 	// Create a client with a dynamic header function that resolves the latest
 	// ID token on each request. This ensures token refresh is picked up
@@ -295,17 +291,17 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// IMPORTANT: Use context.Background() instead of the captured request ctx,
 	// because the original request context becomes stale/cancelled after the
 	// connection-establishing request completes. The OAuth token store (keyed by
-	// sessionID + musterIssuer) is the stable source for refreshed tokens.
+	// sub + musterIssuer) is the stable source for refreshed tokens.
 	headerFunc := func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+		latestToken := getIDTokenForForwarding(context.Background(), sub, musterIssuer)
 		if latestToken == "" {
-			logging.Warn("SessionConnection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			logging.Warn("SessionConnection", "Authentication failed: no ID token in OAuth store for user %s to %s, using original token",
+				logging.TruncateSessionID(sub), serverInfo.Name)
 			// Fall back to the original token; the server will return 401 if expired
 			latestToken = idToken
 		} else if latestToken != idToken {
-			logging.Info("SessionConnection", "Token expired, refreshing: resolved updated ID token from OAuth store for session %s to %s",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
+			logging.Info("SessionConnection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
+				logging.TruncateSessionID(sub), serverInfo.Name)
 		}
 		return map[string]string{
 			"Authorization": "Bearer " + latestToken,
@@ -318,8 +314,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 		client.Close()
 
 		// Log the token forwarding failure
-		logging.Warn("SessionConnection", "ID token forwarding failed for session %s to server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Warn("SessionConnection", "ID token forwarding failed for user %s to server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
@@ -328,8 +324,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	}
 
 	// Token forwarding succeeded - emit success event
-	logging.Info("SessionConnection", "ID token forwarding succeeded for session %s to server %s",
-		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	logging.Info("SessionConnection", "ID token forwarding succeeded for user %s to server %s",
+		logging.TruncateSessionID(sub), serverInfo.Name)
 	emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
 
 	// Fetch tools from the server
@@ -342,14 +338,14 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 		prompts = nil
 	}
 
@@ -358,28 +354,21 @@ func EstablishSessionConnectionWithTokenForwarding(
 	client.Close()
 
 	// Populate the CapabilityCache
-	fwdSubject := api.GetSubjectFromContext(ctx)
-	if fwdSubject == "" {
-		fwdSubject = extractUserIDFromToken(idToken)
-	}
-	if fwdSubject == "" {
-		fwdSubject = defaultUser
-	}
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(fwdSubject, serverInfo.Name, tools, resources, prompts)
+		a.capabilityCache.Set(sub, serverInfo.Name, tools, resources, prompts)
 	}
 
-	// Register the session-specific tools
+	// Register tools with the mcp-go server
 	a.registerSessionTools(serverInfo.Name, tools)
 
-	// Notify the session
-	a.NotifySessionToolsChanged(sessionID)
+	// Broadcast tool change notification
+	a.NotifyToolsChanged()
 
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
 
-	logging.Info("SessionConnection", "Session %s connected to %s via SSO token forwarding with %d tools",
-		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
+	logging.Info("SessionConnection", "User %s connected to %s via SSO token forwarding with %d tools",
+		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
 
 	return &SessionConnectionResult{
 		ServerName:    serverInfo.Name,
@@ -454,7 +443,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
 }
 
-// EstablishSessionConnectionWithTokenExchange attempts to establish a session connection
+// EstablishSessionConnectionWithTokenExchange attempts to establish a connection
 // using RFC 8693 Token Exchange for cross-cluster SSO. This is used when an MCPServer has
 // tokenExchange configured.
 //
@@ -462,12 +451,12 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Extracts the user ID (sub claim) from the token
 //  3. Exchanges it for a token valid on the remote cluster's Dex
-//  4. If successful, establishes the session connection with the exchanged token
+//  4. If successful, populates the CapabilityCache and registers tools
 //
 // Args:
 //   - ctx: Context for the operation
 //   - a: The aggregator server instance
-//   - sessionID: The session to register the connection with
+//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -477,7 +466,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 func EstablishSessionConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
-	sessionID string,
+	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*SessionConnectionResult, error) {
@@ -508,30 +497,30 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Debug("SessionConnection", "No ID token available for user %s",
+			logging.TruncateSessionID(sub))
 		return nil, fmt.Errorf("no ID token available for token exchange")
 	}
 
 	// Validate ID token is not expired before exchanging
 	if isIDTokenExpired(idToken) {
-		logging.Warn("SessionConnection", "ID token expired for session %s, cannot exchange for %s",
-			logging.TruncateSessionID(sessionID), serverInfo.Name)
+		logging.Warn("SessionConnection", "ID token expired for user %s, cannot exchange for %s",
+			logging.TruncateSessionID(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
 	}
 
 	// Extract user ID from the token for cache key generation
 	userID := extractUserIDFromToken(idToken)
 	if userID == "" {
-		logging.Warn("SessionConnection", "Failed to extract user ID from token for session %s",
-			logging.TruncateSessionID(sessionID))
+		logging.Warn("SessionConnection", "Failed to extract user ID from token for user %s",
+			logging.TruncateSessionID(sub))
 		return nil, fmt.Errorf("failed to extract user ID from token")
 	}
 
-	logging.Info("SessionConnection", "Attempting token exchange for session %s to server %s",
-		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	logging.Info("SessionConnection", "Attempting token exchange for user %s to server %s",
+		logging.TruncateSessionID(sub), serverInfo.Name)
 
 	// Load client credentials from secret if configured.
 	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange to populate
@@ -607,8 +596,8 @@ func EstablishSessionConnectionWithTokenExchange(
 		)
 	}
 	if err != nil {
-		logging.Warn("SessionConnection", "Token exchange failed for session %s to server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Warn("SessionConnection", "Token exchange failed for user %s to server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 
 		// Emit event for token exchange failure
 		emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
@@ -617,7 +606,7 @@ func EstablishSessionConnectionWithTokenExchange(
 		logging.Audit(logging.AuditEvent{
 			Action:    "token_exchange",
 			Outcome:   "failure",
-			SessionID: logging.TruncateSessionID(sessionID),
+			SessionID: logging.TruncateSessionID(sub),
 			UserID:    logging.TruncateSessionID(userID),
 			Target:    serverInfo.Name,
 			Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
@@ -628,15 +617,15 @@ func EstablishSessionConnectionWithTokenExchange(
 	}
 
 	// Token exchange succeeded - emit success event and audit log
-	logging.Info("SessionConnection", "Token exchange succeeded for session %s to server %s",
-		logging.TruncateSessionID(sessionID), serverInfo.Name)
+	logging.Info("SessionConnection", "Token exchange succeeded for user %s to server %s",
+		logging.TruncateSessionID(sub), serverInfo.Name)
 	emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
 
 	// Audit log for successful token exchange (compliance/security monitoring)
 	logging.Audit(logging.AuditEvent{
 		Action:    "token_exchange",
 		Outcome:   "success",
-		SessionID: logging.TruncateSessionID(sessionID),
+		SessionID: logging.TruncateSessionID(sub),
 		UserID:    logging.TruncateSessionID(userID),
 		Target:    serverInfo.Name,
 		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
@@ -663,8 +652,8 @@ func EstablishSessionConnectionWithTokenExchange(
 	if err := client.Initialize(ctx); err != nil {
 		client.Close()
 
-		logging.Warn("SessionConnection", "Connection with exchanged token failed for session %s to server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Warn("SessionConnection", "Connection with exchanged token failed for user %s to server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 
 		return nil, fmt.Errorf("connection with exchanged token failed: %w", err)
 	}
@@ -679,14 +668,14 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for session %s, server %s: %v",
-			logging.TruncateSessionID(sessionID), serverInfo.Name, err)
+		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateSessionID(sub), serverInfo.Name, err)
 		prompts = nil
 	}
 
@@ -695,28 +684,21 @@ func EstablishSessionConnectionWithTokenExchange(
 	client.Close()
 
 	// Populate the CapabilityCache
-	exchSubject := api.GetSubjectFromContext(ctx)
-	if exchSubject == "" {
-		exchSubject = userID // already extracted via extractUserIDFromToken
-	}
-	if exchSubject == "" {
-		exchSubject = defaultUser
-	}
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(exchSubject, serverInfo.Name, tools, resources, prompts)
+		a.capabilityCache.Set(sub, serverInfo.Name, tools, resources, prompts)
 	}
 
-	// Register the session-specific tools
+	// Register tools with the mcp-go server
 	a.registerSessionTools(serverInfo.Name, tools)
 
-	// Notify the session
-	a.NotifySessionToolsChanged(sessionID)
+	// Broadcast tool change notification
+	a.NotifyToolsChanged()
 
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
 
-	logging.Info("SessionConnection", "Session %s connected to %s via RFC 8693 token exchange with %d tools",
-		logging.TruncateSessionID(sessionID), serverInfo.Name, len(tools))
+	logging.Info("SessionConnection", "User %s connected to %s via RFC 8693 token exchange with %d tools",
+		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
 
 	return &SessionConnectionResult{
 		ServerName:    serverInfo.Name,

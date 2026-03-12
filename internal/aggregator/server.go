@@ -80,7 +80,7 @@ type AggregatorServer struct {
 	isShuttingDown  bool               // Indicates whether the server is currently stopping
 
 	// Authentication rate limiting and metrics (security hardening per ADR-008)
-	authRateLimiter *AuthRateLimiter // Per-session rate limiting for auth operations
+	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
 	// Per-user capability cache for OAuth servers (Phase 2A: session ID elimination)
@@ -1004,42 +1004,27 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	return allTools
 }
 
-// NotifySessionToolsChanged sends a tools/list_changed notification to a specific session.
+// NotifyToolsChanged broadcasts a tools/list_changed notification to all connected clients.
 //
-// This method is used to notify a specific session that their tool list has changed,
-// typically after they complete OAuth authentication with a new server. This implements
-// targeted notifications as described in ADR-006, avoiding broadcast to all sessions.
-//
-// Args:
-//   - sessionID: The session to notify
-func (a *AggregatorServer) NotifySessionToolsChanged(sessionID string) {
+// This is used after OAuth authentication adds tools from a new server.
+// Since session IDs are no longer tracked, we broadcast to all clients;
+// each client receives its own filtered tool list via sessionToolFilter.
+func (a *AggregatorServer) NotifyToolsChanged() {
 	a.mu.RLock()
 	mcpServer := a.mcpServer
 	a.mu.RUnlock()
 
 	if mcpServer == nil {
-		logging.Warn("Aggregator", "Cannot notify session %s: MCP server not initialized",
-			logging.TruncateSessionID(sessionID))
+		logging.Warn("Aggregator", "Cannot notify clients: MCP server not initialized")
 		return
 	}
 
-	// Send targeted notification to the specific session
-	err := mcpServer.SendNotificationToSpecificClient(
-		sessionID,
-		"notifications/tools/list_changed",
-		nil,
-	)
-	if err != nil {
-		logging.Warn("Aggregator", "Failed to send tools/list_changed notification to session %s: %v",
-			logging.TruncateSessionID(sessionID), err)
-	} else {
-		logging.Debug("Aggregator", "Sent tools/list_changed notification to session %s",
-			logging.TruncateSessionID(sessionID))
-	}
+	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
+	logging.Debug("Aggregator", "Broadcast tools/list_changed notification to all clients")
 }
 
-// NotifySessionResourcesChanged sends a resources/list_changed notification to a specific session.
-func (a *AggregatorServer) NotifySessionResourcesChanged(sessionID string) {
+// NotifyResourcesChanged broadcasts a resources/list_changed notification to all connected clients.
+func (a *AggregatorServer) NotifyResourcesChanged() {
 	a.mu.RLock()
 	mcpServer := a.mcpServer
 	a.mu.RUnlock()
@@ -1048,15 +1033,7 @@ func (a *AggregatorServer) NotifySessionResourcesChanged(sessionID string) {
 		return
 	}
 
-	err := mcpServer.SendNotificationToSpecificClient(
-		sessionID,
-		"notifications/resources/list_changed",
-		nil,
-	)
-	if err != nil {
-		logging.Warn("Aggregator", "Failed to send resources/list_changed notification to session %s: %v",
-			logging.TruncateSessionID(sessionID), err)
-	}
+	mcpServer.SendNotificationToAllClients("notifications/resources/list_changed", nil)
 }
 
 // registerSessionTools registers tools from an OAuth-protected server connection with the mcp-go server.
@@ -1103,8 +1080,8 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 	}
 }
 
-// NotifySessionPromptsChanged sends a prompts/list_changed notification to a specific session.
-func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
+// NotifyPromptsChanged broadcasts a prompts/list_changed notification to all connected clients.
+func (a *AggregatorServer) NotifyPromptsChanged() {
 	a.mu.RLock()
 	mcpServer := a.mcpServer
 	a.mu.RUnlock()
@@ -1113,15 +1090,7 @@ func (a *AggregatorServer) NotifySessionPromptsChanged(sessionID string) {
 		return
 	}
 
-	err := mcpServer.SendNotificationToSpecificClient(
-		sessionID,
-		"notifications/prompts/list_changed",
-		nil,
-	)
-	if err != nil {
-		logging.Warn("Aggregator", "Failed to send prompts/list_changed notification to session %s: %v",
-			logging.TruncateSessionID(sessionID), err)
-	}
+	mcpServer.SendNotificationToAllClients("notifications/prompts/list_changed", nil)
 }
 
 // GetToolsWithStatus returns all available tools along with their security blocking status.
@@ -1656,8 +1625,8 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 // This method delegates to the shared establishSessionConnection helper to avoid code duplication.
 // The issuer and scope parameters are used to create a MusterTokenStore that provides
 // automatic token refresh via mcp-go's built-in OAuth handler.
-func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sessionID, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
-	result, err := establishSessionConnection(ctx, a, sessionID, serverName, serverURL, issuer, scope, accessToken)
+func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
+	result, err := establishSessionConnection(ctx, a, sub, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
