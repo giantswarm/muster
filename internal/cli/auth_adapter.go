@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -37,18 +36,13 @@ const DefaultConnectionCheckTimeout = 5 * time.Second
 // DefaultHTTPClientTimeout is the timeout for HTTP client operations.
 const DefaultHTTPClientTimeout = 5 * time.Second
 
-// SessionIDFilename is the name of the file storing the persistent CLI session ID.
-// This session ID is used for X-Muster-Session-ID header to enable MCP server
-// token persistence across CLI invocations.
-const SessionIDFilename = "session-id"
-
 // AuthAdapter implements api.AuthHandler using internal/agent/oauth.
 // It wraps the AuthManager and TokenStore to provide OAuth authentication
 // for CLI commands following the project's service locator pattern.
 //
 // Thread-safe: All public methods are safe for concurrent use.
 type AuthAdapter struct {
-	// mu protects concurrent access to managers map and sessionIDs map.
+	// mu protects concurrent access to the managers map.
 	mu sync.RWMutex
 
 	// managers handles OAuth flows and state management.
@@ -57,10 +51,6 @@ type AuthAdapter struct {
 
 	// tokenStorageDir is the directory for storing tokens.
 	tokenStorageDir string
-
-	// sessionIDs stores per-endpoint server-issued session IDs.
-	// Key is the normalized endpoint URL, value is the server-issued session ID.
-	sessionIDs map[string]string
 
 	// noSilentRefresh disables silent re-authentication attempts.
 	// When true, Login() always uses interactive authentication.
@@ -102,111 +92,11 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 
 	adapter := &AuthAdapter{
 		managers:        make(map[string]*oauth.AuthManager),
-		sessionIDs:      make(map[string]string),
 		tokenStorageDir: tokenDir,
 		noSilentRefresh: cfg.NoSilentRefresh,
 	}
 
-	// Load per-endpoint session IDs from storage
-	adapter.loadPerEndpointSessionIDs()
-
 	return adapter, nil
-}
-
-// Note: Client-side session ID generation has been removed.
-// Session IDs are now generated server-side and returned via the
-// X-Muster-Session-ID response header. See issue #414.
-
-// GetSessionID returns an empty string. Session IDs are now server-issued and per-endpoint.
-// Use GetSessionIDForEndpoint instead.
-func (a *AuthAdapter) GetSessionID() string {
-	return ""
-}
-
-// GetSessionIDForEndpoint returns the server-issued session ID for the given endpoint.
-func (a *AuthAdapter) GetSessionIDForEndpoint(endpoint string) string {
-	hash := endpointHash(normalizeEndpoint(endpoint))
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.sessionIDs[hash]
-}
-
-// UpdateSessionID stores a server-issued session ID for the given endpoint.
-// The session ID is persisted to disk in the per-endpoint directory.
-func (a *AuthAdapter) UpdateSessionID(endpoint, sessionID string) {
-	if sessionID == "" {
-		return
-	}
-	hash := endpointHash(normalizeEndpoint(endpoint))
-	a.mu.Lock()
-	a.sessionIDs[hash] = sessionID
-	a.mu.Unlock()
-
-	// Persist to disk in per-endpoint directory
-	if err := a.saveSessionIDForEndpoint(normalizeEndpoint(endpoint), sessionID); err != nil {
-		logging.Warn("AuthAdapter", "Failed to persist session ID for %s: %v", endpoint, err)
-	}
-}
-
-// endpointHash returns a filesystem-safe hash of a normalized endpoint URL.
-// Uses the same normalization as token storage for consistency.
-func endpointHash(endpoint string) string {
-	// Use a simple hash to create a directory-safe name
-	h := fmt.Sprintf("%x", sha256Sum([]byte(endpoint)))
-	// Use first 16 chars for readability while avoiding collisions
-	if len(h) > 16 {
-		return h[:16]
-	}
-	return h
-}
-
-// sha256Sum returns the SHA-256 hash of data.
-func sha256Sum(data []byte) [32]byte {
-	return sha256.Sum256(data)
-}
-
-// saveSessionIDForEndpoint persists a session ID for the given endpoint to disk.
-func (a *AuthAdapter) saveSessionIDForEndpoint(normalizedEndpoint, sessionID string) error {
-	dir := filepath.Join(a.tokenStorageDir, endpointHash(normalizedEndpoint))
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create endpoint session dir: %w", err)
-	}
-	sessionFile := filepath.Join(dir, SessionIDFilename)
-	return os.WriteFile(sessionFile, []byte(sessionID), 0600)
-}
-
-// loadPerEndpointSessionIDs scans the token directory for per-endpoint session IDs.
-func (a *AuthAdapter) loadPerEndpointSessionIDs() {
-	entries, err := os.ReadDir(a.tokenStorageDir)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		sessionFile := filepath.Join(a.tokenStorageDir, entry.Name(), SessionIDFilename)
-		data, err := os.ReadFile(sessionFile)
-		if err != nil {
-			continue
-		}
-		sessionID := strings.TrimSpace(string(data))
-		if sessionID != "" {
-			// We store by directory name since we can't reverse the hash.
-			// The actual endpoint lookup happens when GetSessionIDForEndpoint is called
-			// and the endpoint hash matches a directory.
-			a.sessionIDs[entry.Name()] = sessionID
-			logging.Debug("AuthAdapter", "Loaded session ID for endpoint dir %s: %s",
-				entry.Name(), logging.TruncateIdentifier(sessionID))
-		}
-	}
-
-	// Also check for legacy global session-id file and ignore it gracefully
-	legacyFile := filepath.Join(a.tokenStorageDir, SessionIDFilename)
-	if _, err := os.Stat(legacyFile); err == nil {
-		logging.Info("AuthAdapter", "Found legacy global session-id file; it will be ignored (session IDs are now per-endpoint and server-issued)")
-	}
 }
 
 // SetNoSilentRefresh enables or disables silent re-authentication.
@@ -475,12 +365,10 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 	return a.Login(ctx, endpoint)
 }
 
-// Logout clears stored tokens and session ID for the endpoint.
-// It first revokes the refresh token via RFC 7009 (best-effort), then attempts
-// to invalidate the server-side session, then performs local cleanup.
+// Logout clears stored tokens for the endpoint.
+// It first revokes the refresh token via RFC 7009 (best-effort), then performs local cleanup.
 func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
-	hash := endpointHash(normalizedEndpoint)
 
 	// Read the stored refresh token before any cleanup so we can revoke it.
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
@@ -497,16 +385,7 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 		a.revokeRefreshToken(normalizedEndpoint, storedToken.RefreshToken)
 	}
 
-	// Best-effort server-side session invalidation (backwards compat, Phase 3 removes).
-	a.mu.RLock()
-	sessionID := a.sessionIDs[hash]
-	a.mu.RUnlock()
-
-	if sessionID != "" {
-		a.invalidateServerSession(normalizedEndpoint, sessionID)
-	}
-
-	// Remove manager and session ID from cache
+	// Remove manager from cache
 	a.mu.Lock()
 	if mgr, ok := a.managers[normalizedEndpoint]; ok {
 		if err := mgr.Close(); err != nil {
@@ -514,14 +393,7 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 		}
 		delete(a.managers, normalizedEndpoint)
 	}
-	delete(a.sessionIDs, hash)
 	a.mu.Unlock()
-
-	// Delete the per-endpoint session ID file
-	sessionFile := filepath.Join(a.tokenStorageDir, hash, SessionIDFilename)
-	if err := os.Remove(sessionFile); err != nil && !os.IsNotExist(err) {
-		logging.Warn("AuthAdapter", "Failed to delete session ID file for %s: %v", normalizedEndpoint, err)
-	}
 
 	// Clear the token directly from the token store.
 	if err := store.DeleteToken(normalizedEndpoint); err != nil {
@@ -531,9 +403,9 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 	return nil
 }
 
-// LogoutAll clears all stored tokens and session IDs.
+// LogoutAll clears all stored tokens.
 // It revokes each endpoint's refresh token via RFC 7009, then calls DELETE /user-tokens
-// to clear server-side downstream state, with fallback to per-endpoint invalidation.
+// to clear server-side downstream state.
 func (a *AuthAdapter) LogoutAll() error {
 	// Create a token store to read refresh tokens before cleanup.
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
@@ -543,11 +415,6 @@ func (a *AuthAdapter) LogoutAll() error {
 	if err != nil {
 		return fmt.Errorf("failed to create token store: %w", err)
 	}
-
-	// Collect endpoint->sessionID mappings for server-side invalidation.
-	a.mu.RLock()
-	endpointSessionPairs := a.collectEndpointSessionPairs()
-	a.mu.RUnlock()
 
 	// Collect all known endpoints (from managers + token files) for revocation.
 	endpoints := a.collectAllEndpoints()
@@ -571,20 +438,12 @@ func (a *AuthAdapter) LogoutAll() error {
 	}
 
 	// Best-effort: call DELETE /user-tokens with Bearer token to clear
-	// server-side downstream state. Falls back to per-endpoint invalidation.
-	userTokensDeleted := false
+	// server-side downstream state.
 	if bearerToken != "" && bearerEndpoint != "" {
-		userTokensDeleted = a.deleteUserTokens(bearerEndpoint, bearerToken)
+		a.deleteUserTokens(bearerEndpoint, bearerToken)
 	}
 
-	// Fallback: per-endpoint session invalidation if DELETE /user-tokens failed.
-	if !userTokensDeleted {
-		for endpoint, sessionID := range endpointSessionPairs {
-			a.invalidateServerSession(endpoint, sessionID)
-		}
-	}
-
-	// Close all managers and clear session IDs
+	// Close all managers
 	a.mu.Lock()
 	for endpoint, mgr := range a.managers {
 		if err := mgr.Close(); err != nil {
@@ -592,46 +451,9 @@ func (a *AuthAdapter) LogoutAll() error {
 		}
 	}
 	a.managers = make(map[string]*oauth.AuthManager)
-
-	// Delete all per-endpoint session ID files
-	for hash := range a.sessionIDs {
-		sessionFile := filepath.Join(a.tokenStorageDir, hash, SessionIDFilename)
-		if err := os.Remove(sessionFile); err != nil && !os.IsNotExist(err) {
-			logging.Warn("AuthAdapter", "Failed to delete session ID file %s: %v", hash, err)
-		}
-	}
-	a.sessionIDs = make(map[string]string)
 	a.mu.Unlock()
 
 	return store.Clear()
-}
-
-// invalidateServerSession sends a DELETE /session request to the server to invalidate
-// the server-side session. This is best-effort: if the server is unreachable or returns
-// an error, the failure is logged and local cleanup proceeds.
-func (a *AuthAdapter) invalidateServerSession(endpoint, sessionID string) {
-	sessionURL := endpoint + "/session"
-
-	req, err := http.NewRequest(http.MethodDelete, sessionURL, nil)
-	if err != nil {
-		logging.Warn("AuthAdapter", "Failed to create session invalidation request for %s: %v", endpoint, err)
-		return
-	}
-	req.Header.Set(api.ClientSessionIDHeader, sessionID)
-
-	client := &http.Client{Timeout: DefaultHTTPClientTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		logging.Warn("AuthAdapter", "Failed to invalidate server session for %s (server may be unreachable): %v", endpoint, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
-		logging.Info("AuthAdapter", "Server session invalidated for %s", endpoint)
-	} else {
-		logging.Warn("AuthAdapter", "Server session invalidation returned status %d for %s", resp.StatusCode, endpoint)
-	}
 }
 
 // revokeRefreshToken revokes a refresh token at the endpoint's /oauth/revoke endpoint
@@ -718,35 +540,6 @@ func (a *AuthAdapter) collectAllEndpoints() []string {
 		endpoints = append(endpoints, ep)
 	}
 	return endpoints
-}
-
-// collectEndpointSessionPairs builds a map of endpoint URL -> session ID from all
-// known sources (managers, token files). Must be called with a.mu held for reading.
-func (a *AuthAdapter) collectEndpointSessionPairs() map[string]string {
-	pairs := make(map[string]string)
-
-	// From managers: keys are normalized endpoint URLs
-	for endpoint := range a.managers {
-		hash := endpointHash(endpoint)
-		if sid, ok := a.sessionIDs[hash]; ok {
-			pairs[endpoint] = sid
-		}
-	}
-
-	// From token files: have ServerURL
-	tokenFiles, _ := a.listTokenFiles()
-	for _, tf := range tokenFiles {
-		normalized := normalizeEndpoint(tf.ServerURL)
-		if _, already := pairs[normalized]; already {
-			continue
-		}
-		hash := endpointHash(normalized)
-		if sid, ok := a.sessionIDs[hash]; ok {
-			pairs[normalized] = sid
-		}
-	}
-
-	return pairs
 }
 
 // GetStatus returns authentication status for all known endpoints.

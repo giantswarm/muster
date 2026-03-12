@@ -148,12 +148,6 @@ func TruncateIdentifier(id string) string {
 	return id[:8] + "..."
 }
 
-// TruncateSessionID is a deprecated alias for TruncateIdentifier.
-// Prefer TruncateIdentifier for new code.
-func TruncateSessionID(id string) string {
-	return TruncateIdentifier(id)
-}
-
 // AuditEvent represents a structured audit log event for security-sensitive operations.
 // These events can be collected by external audit systems for compliance monitoring.
 type AuditEvent struct {

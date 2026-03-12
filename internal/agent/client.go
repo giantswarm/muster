@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
-	"github.com/giantswarm/muster/internal/api"
 )
 
 // TransportType defines the transport type for MCP connections.
@@ -56,23 +54,22 @@ type ServerInfo struct {
 //   - Multiple output formats (text, JSON)
 //   - OAuth 2.1 authentication support via mcp-go's transport layer
 type Client struct {
-	endpoint          string
-	transport         TransportType
-	logger            *Logger
-	client            client.MCPClient
-	serverInfo        *ServerInfo // Stores server info from initialization
-	toolCache         []mcp.Tool
-	resourceCache     []mcp.Resource
-	promptCache       []mcp.Prompt
-	mu                sync.RWMutex
-	timeout           time.Duration
-	cacheEnabled      bool
-	formatters        *Formatters
-	NotificationChan  chan mcp.JSONRPCNotification
-	headers           map[string]string           // Custom HTTP headers (e.g., X-Muster-Session-ID)
-	oauthConfig       *transport.OAuthConfig      // OAuth config for mcp-go transport
-	agentTokenStore   *agentoauth.AgentTokenStore // Token store for agent OAuth
-	sessionIDCallback func(sessionID string)      // Called when server returns a session ID in response header
+	endpoint         string
+	transport        TransportType
+	logger           *Logger
+	client           client.MCPClient
+	serverInfo       *ServerInfo // Stores server info from initialization
+	toolCache        []mcp.Tool
+	resourceCache    []mcp.Resource
+	promptCache      []mcp.Prompt
+	mu               sync.RWMutex
+	timeout          time.Duration
+	cacheEnabled     bool
+	formatters       *Formatters
+	NotificationChan chan mcp.JSONRPCNotification
+	headers          map[string]string           // Custom HTTP headers
+	oauthConfig      *transport.OAuthConfig      // OAuth config for mcp-go transport
+	agentTokenStore  *agentoauth.AgentTokenStore // Token store for agent OAuth
 }
 
 // NewClient creates a new MCP client with the specified endpoint, logger, and transport type.
@@ -128,15 +125,6 @@ func (c *Client) SetHeader(key, value string) {
 		c.headers = make(map[string]string)
 	}
 	c.headers[key] = value
-}
-
-// SetSessionIDCallback sets a callback that is called when the server returns
-// a session ID in the X-Muster-Session-ID response header. This enables
-// the client to persist server-issued session IDs for future requests.
-func (c *Client) SetSessionIDCallback(cb func(sessionID string)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.sessionIDCallback = cb
 }
 
 // GetHeaders returns a copy of the current headers.
@@ -241,60 +229,10 @@ func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRP
 	return nil
 }
 
-// isValidUUIDv4Format checks if a string looks like a valid UUID v4 (lightweight client-side check).
-func isValidUUIDv4Format(s string) bool {
-	if len(s) != 36 {
-		return false
-	}
-	for i, c := range s {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if c != '-' {
-				return false
-			}
-		} else if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
-}
-
-// sessionIDRoundTripper wraps an http.RoundTripper to intercept server-issued session IDs
-// from the X-Muster-Session-ID response header. When a session ID is received, the callback
-// is invoked and the session ID header is updated for subsequent requests.
-type sessionIDRoundTripper struct {
-	wrapped  http.RoundTripper
-	callback func(sessionID string)
-	client   *Client
-}
-
-func (rt *sessionIDRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := rt.wrapped.RoundTrip(req)
-	if err != nil {
-		return resp, err
-	}
-
-	// Check for server-issued session ID in response header.
-	// Validate format before accepting to guard against malicious/compromised servers
-	// returning oversized or malformed values that would be persisted to disk.
-	if serverSessionID := resp.Header.Get(api.ClientSessionIDHeader); serverSessionID != "" {
-		if len(serverSessionID) <= 256 && isValidUUIDv4Format(serverSessionID) {
-			// Update the client's header for future requests
-			rt.client.SetHeader(api.ClientSessionIDHeader, serverSessionID)
-			// Notify the callback (e.g., to persist per-endpoint)
-			if rt.callback != nil {
-				rt.callback(serverSessionID)
-			}
-		}
-	}
-
-	return resp, err
-}
-
 // createAndConnectClient creates and connects an MCP client based on transport type.
 // When OAuth is configured via SetOAuthConfig, it uses mcp-go's built-in OAuth handler
 // for automatic bearer token injection and typed 401 error handling.
-// Non-auth headers (e.g., X-Muster-Session-ID) are always applied.
-// A custom HTTP client with a session ID interceptor is used to capture server-issued session IDs.
+// Non-auth headers are always applied.
 func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, error) {
 	if c.transport != TransportSSE && c.transport != TransportStreamableHTTP {
 		return nil, fmt.Errorf("unsupported transport type: %s", c.transport)
@@ -306,24 +244,12 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		headers[k] = v
 	}
 	oauthCfg := c.oauthConfig
-	sessionIDCb := c.sessionIDCallback
 	c.mu.RUnlock()
-
-	// Create a custom HTTP client that intercepts response headers
-	// to capture server-issued session IDs.
-	httpClient := &http.Client{
-		Transport: &sessionIDRoundTripper{
-			wrapped:  http.DefaultTransport,
-			callback: sessionIDCb,
-			client:   c,
-		},
-	}
 
 	var mcpClient client.MCPClient
 	switch c.transport {
 	case TransportSSE:
 		var sseOpts []transport.ClientOption
-		sseOpts = append(sseOpts, transport.WithHTTPClient(httpClient))
 		if oauthCfg != nil {
 			sseOpts = append(sseOpts, transport.WithOAuth(*oauthCfg))
 		}
@@ -351,7 +277,6 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 
 	case TransportStreamableHTTP:
 		var httpOpts []transport.StreamableHTTPCOption
-		httpOpts = append(httpOpts, transport.WithHTTPBasicClient(httpClient))
 		if oauthCfg != nil {
 			httpOpts = append(httpOpts, transport.WithHTTPOAuth(*oauthCfg))
 		}

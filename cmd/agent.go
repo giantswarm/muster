@@ -224,15 +224,6 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		return nil
 	}
 
-	if sessionID := handler.GetSessionIDForEndpoint(endpoint); sessionID != "" {
-		client.SetHeader(api.ClientSessionIDHeader, sessionID)
-	}
-
-	// Set up callback to persist server-issued session IDs
-	client.SetSessionIDCallback(func(serverSessionID string) {
-		handler.UpdateSessionID(endpoint, serverSessionID)
-	})
-
 	// Set up mcp-go OAuth transport
 	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
 	if err != nil {
@@ -287,9 +278,7 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 // exposing only the authenticate_muster tool, then upgrades to the full server
 // after authentication completes.
 func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *agent.Logger, endpoint string, transport agent.TransportType) error {
-	// Create an AuthAdapter to get the persistent session ID. This uses the
-	// same code path as setupAgentAuthentication, ensuring the session ID is
-	// resolved identically regardless of agent mode.
+	// Create an AuthAdapter for OAuth support.
 	adapter, err := cli.NewAuthAdapterWithConfig(cli.AuthAdapterConfig{
 		NoSilentRefresh: !agentSilentAuth,
 	})
@@ -298,13 +287,6 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	} else {
 		defer adapter.Close()
 		adapter.Register()
-		if sessionID := adapter.GetSessionIDForEndpoint(endpoint); sessionID != "" {
-			client.SetHeader(api.ClientSessionIDHeader, sessionID)
-		}
-		// Set up callback to persist server-issued session IDs
-		client.SetSessionIDCallback(func(serverSessionID string) {
-			adapter.UpdateSessionID(endpoint, serverSessionID)
-		})
 	}
 
 	// First, check if the server requires authentication
