@@ -390,6 +390,11 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		p.aggregator.capabilityCache.Invalidate(sub, serverName)
 	}
 
+	// Clear SSO failure state so re-authentication can trigger fresh SSO
+	if p.aggregator.ssoTracker != nil {
+		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
+	}
+
 	// Record logout success
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sub)

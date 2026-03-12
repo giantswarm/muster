@@ -142,6 +142,17 @@ func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 	return false
 }
 
+func (s *ssoTracker) ClearSSOFailed(sub, serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.failedServers[sub]; ok {
+		delete(m, serverName)
+		if len(m) == 0 {
+			delete(s.failedServers, sub)
+		}
+	}
+}
+
 // NewAggregatorServer creates a new aggregator server with the specified configuration.
 //
 // This constructor initializes all necessary components but does not start any servers.
