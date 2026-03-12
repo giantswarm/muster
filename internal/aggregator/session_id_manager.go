@@ -9,9 +9,9 @@ import (
 // MusterSessionIdManager implements mcpserver.SessionIdManager to bridge
 // muster's SessionRegistry into mcp-go's session lifecycle.
 //
-// This replaces the custom X-Muster-Session-ID header with mcp-go's native
-// Mcp-Session-Id session mechanism, while preserving muster's session registry
-// features (identity binding, OAuth token storage, proactive SSO).
+// It uses mcp-go's native Mcp-Session-Id session mechanism while preserving
+// muster's session registry features (identity binding, OAuth token storage,
+// proactive SSO).
 //
 // Generate() creates a new session in the registry (subject bound later via httpContextFunc).
 // Validate() checks whether the session exists or has been terminated.
