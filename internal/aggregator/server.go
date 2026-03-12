@@ -88,6 +88,57 @@ type AggregatorServer struct {
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
+
+	// Maps user subjects to their MCP client session IDs for targeted notifications.
+	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
+	subjectSessions *subjectSessionTracker
+}
+
+// subjectSessionTracker maps user subjects to their MCP client session IDs.
+// This enables targeted notifications instead of broadcasting to all clients.
+type subjectSessionTracker struct {
+	mu       sync.RWMutex
+	sessions map[string]map[string]bool // sub -> set of MCP session IDs
+}
+
+func newSubjectSessionTracker() *subjectSessionTracker {
+	return &subjectSessionTracker{
+		sessions: make(map[string]map[string]bool),
+	}
+}
+
+// Track records a mapping from user subject to MCP session ID.
+func (t *subjectSessionTracker) Track(sub, mcpSessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.sessions[sub] == nil {
+		t.sessions[sub] = make(map[string]bool)
+	}
+	t.sessions[sub][mcpSessionID] = true
+}
+
+// RemoveSession removes an MCP session ID from all subject mappings.
+func (t *subjectSessionTracker) RemoveSession(mcpSessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for sub, ids := range t.sessions {
+		delete(ids, mcpSessionID)
+		if len(ids) == 0 {
+			delete(t.sessions, sub)
+		}
+	}
+}
+
+// GetSessionIDs returns the MCP session IDs for the given user subject.
+func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	ids := t.sessions[sub]
+	result := make([]string, 0, len(ids))
+	for id := range ids {
+		result = append(result, id)
+	}
+	return result
 }
 
 // ssoTracker tracks SSO initialization state per user subject.
@@ -182,6 +233,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		authMetrics:     NewAuthMetrics(),
 		capabilityCache: NewCapabilityCache(5 * time.Minute),
 		ssoTracker:      newSSOTracker(),
+		subjectSessions: newSubjectSessionTracker(),
 	}
 }
 
@@ -223,6 +275,12 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		serverVersion = "dev"
 	}
 
+	// Set up hooks for session lifecycle tracking
+	hooks := &mcpserver.Hooks{}
+	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
+		a.subjectSessions.RemoveSession(session.SessionID())
+	})
+
 	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
@@ -233,6 +291,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
+		mcpserver.WithHooks(hooks),                     // Clean up subject-session mappings on disconnect
 	)
 
 	a.mcpServer = mcpSrv
@@ -983,6 +1042,11 @@ func (a *AggregatorServer) GetPromptsForUser(subject string) []mcp.Prompt {
 func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
 	subject := getUserSubjectFromContext(ctx)
 
+	// Track subject -> MCP session mapping for targeted notifications
+	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+		a.subjectSessions.Track(subject, session.SessionID())
+	}
+
 	// Get user-specific MCP server tools (handles OAuth auth state via CapabilityCache)
 	mcpServerTools := a.GetToolsForUser(subject)
 
@@ -1004,41 +1068,17 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	return allTools
 }
 
-// NotifyToolsChanged broadcasts a tools/list_changed notification to all connected clients.
-//
-// This is used after OAuth authentication adds tools from a new server.
-// Since session IDs are no longer tracked, we broadcast to all clients;
-// each client receives its own filtered tool list via sessionToolFilter.
-//
-// Trade-off: every client receives a notification when any user authenticates,
-// even though only that user's tool list changed. For small deployments this is
-// fine; for many concurrent users, consider re-introducing targeted notifications
-// if the extra tool-list refreshes become a performance concern.
-func (a *AggregatorServer) NotifyToolsChanged() {
-	a.mu.RLock()
-	mcpServer := a.mcpServer
-	a.mu.RUnlock()
-
-	if mcpServer == nil {
-		logging.Warn("Aggregator", "Cannot notify clients: MCP server not initialized")
-		return
-	}
-
-	mcpServer.SendNotificationToAllClients("notifications/tools/list_changed", nil)
-	logging.Debug("Aggregator", "Broadcast tools/list_changed notification to all clients")
+// NotifyToolsChanged sends a tools/list_changed notification to the specific user's
+// MCP sessions. Only the sessions belonging to the given subject are notified,
+// avoiding unnecessary tool-list refreshes for other users.
+func (a *AggregatorServer) NotifyToolsChanged(sub string) {
+	a.sendUserNotification(sub, "notifications/tools/list_changed")
 }
 
-// NotifyResourcesChanged broadcasts a resources/list_changed notification to all connected clients.
-func (a *AggregatorServer) NotifyResourcesChanged() {
-	a.mu.RLock()
-	mcpServer := a.mcpServer
-	a.mu.RUnlock()
-
-	if mcpServer == nil {
-		return
-	}
-
-	mcpServer.SendNotificationToAllClients("notifications/resources/list_changed", nil)
+// NotifyResourcesChanged sends a resources/list_changed notification to the specific
+// user's MCP sessions.
+func (a *AggregatorServer) NotifyResourcesChanged(sub string) {
+	a.sendUserNotification(sub, "notifications/resources/list_changed")
 }
 
 // registerSessionTools registers tools from an OAuth-protected server connection with the mcp-go server.
@@ -1085,17 +1125,40 @@ func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.T
 	}
 }
 
-// NotifyPromptsChanged broadcasts a prompts/list_changed notification to all connected clients.
-func (a *AggregatorServer) NotifyPromptsChanged() {
+// NotifyPromptsChanged sends a prompts/list_changed notification to the specific
+// user's MCP sessions.
+func (a *AggregatorServer) NotifyPromptsChanged(sub string) {
+	a.sendUserNotification(sub, "notifications/prompts/list_changed")
+}
+
+// sendUserNotification sends an MCP notification to all sessions belonging to
+// the given user subject. Errors on individual sessions are logged but do not
+// prevent notification of remaining sessions.
+func (a *AggregatorServer) sendUserNotification(sub, method string) {
 	a.mu.RLock()
 	mcpServer := a.mcpServer
 	a.mu.RUnlock()
 
 	if mcpServer == nil {
+		logging.Warn("Aggregator", "Cannot notify client: MCP server not initialized")
 		return
 	}
 
-	mcpServer.SendNotificationToAllClients("notifications/prompts/list_changed", nil)
+	sessionIDs := a.subjectSessions.GetSessionIDs(sub)
+	if len(sessionIDs) == 0 {
+		logging.Debug("Aggregator", "No sessions found for subject %s, skipping %s notification",
+			logging.TruncateSessionID(sub), method)
+		return
+	}
+
+	for _, sid := range sessionIDs {
+		if err := mcpServer.SendNotificationToSpecificClient(sid, method, nil); err != nil {
+			logging.Debug("Aggregator", "Failed to send %s to session %s for subject %s: %v",
+				method, sid, logging.TruncateSessionID(sub), err)
+		}
+	}
+	logging.Debug("Aggregator", "Sent %s notification to %d session(s) for subject %s",
+		method, len(sessionIDs), logging.TruncateSessionID(sub))
 }
 
 // GetToolsWithStatus returns all available tools along with their security blocking status.

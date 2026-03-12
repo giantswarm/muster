@@ -123,8 +123,8 @@ func establishSessionConnection(
 	// Register tools with the mcp-go server so they can be called
 	a.registerSessionTools(serverName, tools)
 
-	// Broadcast tool change notification to all connected clients
-	a.NotifyToolsChanged()
+	// Notify the authenticating user's sessions about new tools
+	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
@@ -361,8 +361,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Register tools with the mcp-go server
 	a.registerSessionTools(serverInfo.Name, tools)
 
-	// Broadcast tool change notification
-	a.NotifyToolsChanged()
+	// Notify the authenticating user's sessions about new tools
+	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
@@ -691,8 +691,8 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Register tools with the mcp-go server
 	a.registerSessionTools(serverInfo.Name, tools)
 
-	// Broadcast tool change notification
-	a.NotifyToolsChanged()
+	// Notify the authenticating user's sessions about new tools
+	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
