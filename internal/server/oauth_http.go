@@ -56,7 +56,9 @@ const (
 	DefaultRefreshTokenTTL = pkgoauth.DefaultSessionDuration
 
 	// DefaultIPRateLimit is the default rate limit for requests per IP (requests/second).
-	// Set generously since muster is a local proxy where all clients share the same IP.
+	// In Kubernetes deployments, traffic may arrive from multiple distinct IPs or be
+	// NATed through an ingress, so per-IP limits should be generous enough to avoid
+	// false positives while still protecting against abuse.
 	DefaultIPRateLimit = 50
 	// DefaultIPBurst is the default burst size for IP rate limiting.
 	DefaultIPBurst = 100
