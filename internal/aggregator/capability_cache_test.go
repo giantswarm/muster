@@ -73,16 +73,11 @@ func TestCapabilityCache_TTLExpiry(t *testing.T) {
 	assert.True(t, entry.IsStale())
 	assert.Equal(t, "t1", entry.Tools[0].Name)
 
-	// Wait past grace period
-	time.Sleep(ttl + 10*time.Millisecond)
-
-	entry, ok = cache.Get("user1", "server1")
-	if ok {
-		// Entry might still be present if cleanup hasn't run yet,
-		// but it should no longer be stale (past grace).
-		assert.True(t, entry.IsExpired())
-		assert.False(t, entry.IsStale(), "entry past grace period should not be stale")
-	}
+	// After the grace period (2x TTL), the background cleanup should evict the entry.
+	require.Eventually(t, func() bool {
+		_, found := cache.Get("user1", "server1")
+		return !found
+	}, 5*time.Second, 5*time.Millisecond, "entry should be evicted after grace period")
 }
 
 func TestCapabilityCache_SetWithTTL(t *testing.T) {
@@ -215,11 +210,12 @@ func TestCapabilityCache_BackgroundCleanup(t *testing.T) {
 
 	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
 
-	// Wait for grace period (2x TTL) + cleanup interval (TTL/2) + buffer
-	time.Sleep(3*ttl + 20*time.Millisecond)
-
-	_, ok := cache.Get("user1", "server1")
-	assert.False(t, ok, "entry past grace period should be evicted by background cleanup")
+	// The grace period is 2x TTL. The cleanup goroutine runs every TTL/2.
+	// Use Eventually to avoid flakiness on slow CI runners.
+	require.Eventually(t, func() bool {
+		_, ok := cache.Get("user1", "server1")
+		return !ok
+	}, 5*time.Second, 5*time.Millisecond, "entry past grace period should be evicted by background cleanup")
 }
 
 func TestCapabilityCache_StopHaltsCleanup(t *testing.T) {
