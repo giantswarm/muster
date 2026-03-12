@@ -138,6 +138,15 @@ func establishSessionConnection(
 	conn.UpdateResources(resources)
 	conn.UpdatePrompts(prompts)
 
+	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	capSubject := api.GetSubjectFromContext(ctx)
+	if capSubject == "" {
+		capSubject = defaultUser
+	}
+	if a.capabilityCache != nil {
+		a.capabilityCache.Set(capSubject, serverName, tools, resources, prompts)
+	}
+
 	session.SetConnection(serverName, conn)
 
 	// Register the session-specific tools with the mcp-go server so they can be called
@@ -397,6 +406,18 @@ func EstablishSessionConnectionWithTokenForwarding(
 	conn.UpdateTools(tools)
 	conn.UpdateResources(resources)
 	conn.UpdatePrompts(prompts)
+
+	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	fwdSubject := api.GetSubjectFromContext(ctx)
+	if fwdSubject == "" {
+		fwdSubject = extractUserIDFromToken(idToken)
+	}
+	if fwdSubject == "" {
+		fwdSubject = defaultUser
+	}
+	if a.capabilityCache != nil {
+		a.capabilityCache.Set(fwdSubject, serverInfo.Name, tools, resources, prompts)
+	}
 
 	session.SetConnection(serverInfo.Name, conn)
 
@@ -813,6 +834,18 @@ func EstablishSessionConnectionWithTokenExchange(
 	conn.UpdateTools(tools)
 	conn.UpdateResources(resources)
 	conn.UpdatePrompts(prompts)
+
+	// Populate the CapabilityCache for the user-based listing path (Phase 2A)
+	exchSubject := api.GetSubjectFromContext(ctx)
+	if exchSubject == "" {
+		exchSubject = userID // already extracted via extractUserIDFromToken
+	}
+	if exchSubject == "" {
+		exchSubject = defaultUser
+	}
+	if a.capabilityCache != nil {
+		a.capabilityCache.Set(exchSubject, serverInfo.Name, tools, resources, prompts)
+	}
 
 	// Wire up the connRef so the headerFunc closure can update TokenExpiresAt
 	// after a successful re-exchange (prevents the guard from tearing down a
