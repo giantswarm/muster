@@ -30,9 +30,7 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{sessionRegistry: sr}
+		a := &AggregatorServer{}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -52,9 +50,7 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{sessionRegistry: sr}
+		a := &AggregatorServer{}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		// No subject injected into context
@@ -71,9 +67,7 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{sessionRegistry: sr}
+		a := &AggregatorServer{}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -92,9 +86,7 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(mockHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{sessionRegistry: sr}
+		a := &AggregatorServer{}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -118,9 +110,7 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{sessionRegistry: sr}
+		a := &AggregatorServer{}
 
 		specialSubject := "CgZpZDEyMxIGbG9jYWw"
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
@@ -154,9 +144,6 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-
 		reg := NewServerRegistry("")
 		// Directly insert a server with AuthInfo
 		reg.mu.Lock()
@@ -169,8 +156,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		reg.mu.Unlock()
 
 		a := &AggregatorServer{
-			registry:        reg,
-			sessionRegistry: sr,
+			registry: reg,
 		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/my-server", nil)
@@ -193,9 +179,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		reg := NewServerRegistry("")
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{registry: reg, sessionRegistry: sr}
+		a := &AggregatorServer{registry: reg}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/some-server", nil)
 		req.SetPathValue("server", "some-server")
@@ -214,9 +198,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		reg := NewServerRegistry("")
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{registry: reg, sessionRegistry: sr}
+		a := &AggregatorServer{registry: reg}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/nonexistent", nil)
 		req.SetPathValue("server", "nonexistent")
@@ -234,9 +216,6 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-
 		reg := NewServerRegistry("")
 		reg.mu.Lock()
 		reg.servers["plain-server"] = &ServerInfo{
@@ -245,7 +224,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 		reg.mu.Unlock()
 
-		a := &AggregatorServer{registry: reg, sessionRegistry: sr}
+		a := &AggregatorServer{registry: reg}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/plain-server", nil)
 		req.SetPathValue("server", "plain-server")
@@ -259,35 +238,14 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 	})
 
-	t.Run("only removes server from sessions belonging to the requesting user", func(t *testing.T) {
+	t.Run("invalidates capability cache for the requesting user only", func(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-
-		// Create sessions for two different users, both connected to the same server
-		session1, err := sr.CreateSessionForSubject("user@example.com")
-		if err != nil {
-			t.Fatalf("failed to create session for user1: %v", err)
-		}
-		mockClient1 := &mockMCPClient{initialized: true}
-		session1.SetConnection("target-server", &SessionConnection{
-			ServerName: "target-server",
-			Status:     StatusSessionConnected,
-			Client:     mockClient1,
-		})
-
-		session2, err := sr.CreateSessionForSubject("other-user@example.com")
-		if err != nil {
-			t.Fatalf("failed to create session for user2: %v", err)
-		}
-		mockClient2 := &mockMCPClient{initialized: true}
-		session2.SetConnection("target-server", &SessionConnection{
-			ServerName: "target-server",
-			Status:     StatusSessionConnected,
-			Client:     mockClient2,
-		})
+		cache := NewCapabilityCache(5 * time.Minute)
+		// Populate cache for two users
+		cache.Set("user@example.com", "target-server", nil, nil, nil)
+		cache.Set("other-user@example.com", "target-server", nil, nil, nil)
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()
@@ -299,7 +257,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 		reg.mu.Unlock()
 
-		a := &AggregatorServer{registry: reg, sessionRegistry: sr}
+		a := &AggregatorServer{registry: reg, capabilityCache: cache}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/target-server", nil)
 		req.SetPathValue("server", "target-server")
@@ -311,26 +269,19 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		// The requesting user's client should have been closed
-		if !mockClient1.closed {
-			t.Error("expected requesting user's client to be closed after server deletion")
+		// The requesting user's cache should have been invalidated
+		if _, ok := cache.Get("user@example.com", "target-server"); ok {
+			t.Error("expected requesting user's cache entry to be invalidated")
 		}
-		// The other user's client should NOT have been closed
-		if mockClient2.closed {
-			t.Error("other user's client should not be closed by a different user's logout")
-		}
-		// The other user should still have the connection
-		if _, exists := session2.GetConnection("target-server"); !exists {
-			t.Error("other user's connection to target-server should still exist")
+		// The other user's cache should NOT have been invalidated
+		if _, ok := cache.Get("other-user@example.com", "target-server"); !ok {
+			t.Error("other user's cache entry should still exist")
 		}
 	})
 
 	t.Run("returns 204 when OAuthHandler is nil (no token clearing attempted)", func(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()
@@ -342,7 +293,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 		reg.mu.Unlock()
 
-		a := &AggregatorServer{registry: reg, sessionRegistry: sr}
+		a := &AggregatorServer{registry: reg}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/server-no-handler", nil)
 		req.SetPathValue("server", "server-no-handler")
@@ -361,9 +312,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		sr := NewSessionRegistry(5 * time.Minute)
-		defer sr.Stop()
-		a := &AggregatorServer{registry: NewServerRegistry(""), sessionRegistry: sr}
+		a := &AggregatorServer{registry: NewServerRegistry("")}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/", nil)
 		// Do not set path value -- PathValue returns "" by default

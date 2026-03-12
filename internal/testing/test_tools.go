@@ -1018,24 +1018,17 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 	}, nil
 }
 
-// handleSimulateMusterReauth simulates re-authentication to muster with a new token
-// while preserving the same MCP session ID. This is used to test session continuity
-// when a user re-authenticates to muster.
+// handleSimulateMusterReauth simulates re-authentication to muster with a new token.
+// This is used to test the token refresh + SSO reconnection flow.
 //
 // The key behavior being tested:
-// - The session ID remains the same across re-authentication
 // - After re-auth, the user can re-establish connections to SSO servers
-// - This tests the session tracking and token refresh paths
+// - This tests the token refresh and SSO reconnection paths
 //
 // This tool:
-// 1. Captures the current session ID from the MCP client
-// 2. Generates a new access token from the mock OAuth server (different from the initial token)
-// 3. Reconnects to muster with the new access token (same session ID)
-// 4. The user can then use test_simulate_oauth_callback to re-authenticate to SSO servers
-//
-// Note: This simulates muster re-authentication by generating a new token and reconnecting
-// with the same session ID. For SSO servers to reconnect, the user must explicitly
-// re-authenticate to them (via test_simulate_oauth_callback or core_auth_login).
+// 1. Refreshes the muster access token via the refresh token
+// 2. Closes the old MCP client and creates a new one with the new token
+// 3. The user can then use core_auth_login to re-authenticate to SSO servers
 func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not available")
@@ -1045,17 +1038,7 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		return nil, fmt.Errorf("instance manager or current instance not available")
 	}
 
-	// Step 1: Get the current session ID
-	currentSessionID := h.mcpClient.GetSessionID()
-	if currentSessionID == "" {
-		return nil, fmt.Errorf("no session ID found - client may not be connected")
-	}
-
-	if h.debug {
-		h.logger.Debug("🔄 Muster re-auth: Current session ID: %s...\n", currentSessionID[:min(16, len(currentSessionID))])
-	}
-
-	// Step 2: Use the refresh token from the initial login to get a new access token.
+	// Step 1: Use the refresh token from the initial login to get a new access token.
 	// This avoids re-registering a client and hitting rate limits.
 	if h.currentInstance.MusterOAuthRefreshToken == "" || h.currentInstance.MusterOAuthClientID == "" {
 		return nil, fmt.Errorf("no refresh token or client ID from initial login (run test_muster_auth_login first)")
@@ -1081,24 +1064,24 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		h.logger.Debug("🔄 Obtained new muster access token via refresh token\n")
 	}
 
-	// Step 3: Reconnect the MCP client with the new access token but SAME session ID
-	if err := h.mcpClient.ReconnectWithSession(ctx, h.currentInstance.Endpoint, tokenResult.AccessToken, currentSessionID); err != nil {
+	// Step 2: Close the old client and reconnect with the new token.
+	// User identity is derived from the OAuth subject claim, so a fresh
+	// connection with the new token is sufficient.
+	if err := h.mcpClient.Close(); err != nil {
+		h.logger.Error("warning: failed to close existing MCP client: %v\n", err)
+	}
+
+	if err := h.mcpClient.ConnectWithAuth(ctx, h.currentInstance.Endpoint, tokenResult.AccessToken); err != nil {
 		return nil, fmt.Errorf("failed to reconnect MCP client with new token: %w", err)
 	}
 
-	newSessionID := h.mcpClient.GetSessionID()
-
 	if h.debug {
-		h.logger.Debug("✅ Muster re-auth complete. Session preserved: %v (id: %s...)\n",
-			newSessionID == currentSessionID, newSessionID[:min(16, len(newSessionID))])
+		h.logger.Debug("✅ Muster re-auth complete: closed old client and reconnected with new token\n")
 	}
 
 	return map[string]interface{}{
-		"success":           true,
-		"message":           "Successfully simulated muster re-authentication with new token",
-		"session_id":        currentSessionID[:min(32, len(currentSessionID))],
-		"new_session_id":    newSessionID[:min(32, len(newSessionID))],
-		"session_preserved": newSessionID == currentSessionID,
+		"success": true,
+		"message": "Successfully re-authenticated to muster with new token",
 	}, nil
 }
 
@@ -1336,7 +1319,14 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	// Step 3: Generate an auth code on the mock Dex server
-	authCode := musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+	// If a subject was specified, use it to generate per-user tokens
+	subject, _ := args["subject"].(string)
+	var authCode string
+	if subject != "" {
+		authCode = musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject)
+	} else {
+		authCode = musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+	}
 
 	if h.debug {
 		h.logger.Debug("🔐 Generated Dex auth code: %s...\n", authCode[:min(16, len(authCode))])

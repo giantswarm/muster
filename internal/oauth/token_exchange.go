@@ -198,7 +198,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s",
-			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
@@ -208,7 +208,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 
 	// Perform the exchange
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s",
-		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
+		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
 
 	// Build the token exchange request with client credentials if available
 	exchangeReq := oidc.TokenExchangeRequest{
@@ -231,7 +231,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	resp, err := e.client.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s: %v",
-			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
@@ -240,22 +240,22 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if expectedIssuer != "" {
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s: %v",
-				logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
 		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s)",
-			logging.TruncateSessionID(req.UserID), expectedIssuer)
+			logging.TruncateIdentifier(req.UserID), expectedIssuer)
 	}
 
 	// Cache the result
 	if resp.ExpiresIn > 0 {
 		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
 		logging.Debug("TokenExchange", "Cached exchanged token for user=%s (expires in %ds)",
-			logging.TruncateSessionID(req.UserID), resp.ExpiresIn)
+			logging.TruncateIdentifier(req.UserID), resp.ExpiresIn)
 	}
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s",
-		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
 
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,
@@ -294,7 +294,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	cacheKey := oidc.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s (with custom client)",
-			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
@@ -313,7 +313,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	})
 
 	logging.Debug("TokenExchange", "Exchanging token for user=%s endpoint=%s connector=%s (with custom client)",
-		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
+		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, req.Config.ConnectorID)
 
 	// Build the token exchange request with client credentials if available
 	exchangeReq := oidc.TokenExchangeRequest{
@@ -337,7 +337,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	resp, err := tempClient.Exchange(ctx, exchangeReq)
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
-			logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
@@ -346,22 +346,22 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	if expectedIssuer != "" {
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s (with custom client): %v",
-				logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint, err)
+				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
 		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s, with custom client)",
-			logging.TruncateSessionID(req.UserID), expectedIssuer)
+			logging.TruncateIdentifier(req.UserID), expectedIssuer)
 	}
 
 	// Cache the result (same cache as normal exchange)
 	if resp.ExpiresIn > 0 {
 		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
 		logging.Debug("TokenExchange", "Cached exchanged token for user=%s (expires in %ds, with custom client)",
-			logging.TruncateSessionID(req.UserID), resp.ExpiresIn)
+			logging.TruncateIdentifier(req.UserID), resp.ExpiresIn)
 	}
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s (with custom client)",
-		logging.TruncateSessionID(req.UserID), req.Config.DexTokenEndpoint)
+		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
 
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,
@@ -376,7 +376,7 @@ func (e *TokenExchanger) ClearCache(tokenEndpoint, connectorID, userID string) {
 	cacheKey := oidc.GenerateCacheKey(tokenEndpoint, connectorID, userID)
 	e.cache.Delete(cacheKey)
 	logging.Debug("TokenExchange", "Cleared cache for user=%s endpoint=%s",
-		logging.TruncateSessionID(userID), tokenEndpoint)
+		logging.TruncateIdentifier(userID), tokenEndpoint)
 }
 
 // ClearAllCache removes all cached tokens.

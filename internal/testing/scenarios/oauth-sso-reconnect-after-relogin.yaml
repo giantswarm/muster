@@ -7,7 +7,7 @@ description: |
   This scenario tests the complete logout + re-login user flow:
   1. User authenticates to muster → connects to SSO server via core_auth_login
   2. User logs out from the SSO server → session connection is cleared
-  3. User re-authenticates with SAME session ID but NEW token
+  3. User re-authenticates with NEW token
   4. User can reconnect to SSO server via core_auth_login (token forwarding)
   
   This verifies that token forwarding works correctly across the full
@@ -150,21 +150,20 @@ steps:
   # PHASE 3: Re-authentication (should reconnect the server)
   # =========================================================================
 
-  # Step 9: Re-authenticate to muster with new token (same session ID)
+  # Step 9: Re-authenticate to muster with new token
   # This simulates a user re-authenticating after logging out.
   # Uses test_simulate_muster_reauth which:
-  # - Preserves the current session ID
-  # - Gets a new token from the OAuth server
-  # - Reconnects with the same session ID but new token
+  # - Gets a new token from the OAuth server via refresh
+  # - Reconnects to muster with the new access token
   - id: reauth-to-muster
-    description: "Re-authenticate to muster with new token (same session)"
+    description: "Re-authenticate to muster with new token (fresh connection)"
     tool: "test_simulate_muster_reauth"
     args: {}
     expected:
       success: true
       contains:
         - "success"
-        - "session"
+        - "re-authenticated"
 
   # Step 10: Reconnect to the SSO server using token forwarding
   # After re-authentication, the user can reconnect via core_auth_login

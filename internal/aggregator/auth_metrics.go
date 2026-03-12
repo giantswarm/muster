@@ -66,8 +66,8 @@ func (m *AuthMetrics) getOrCreateServerMetrics(serverName string) *authServerMet
 //
 // Args:
 //   - serverName: Name of the server being authenticated to
-//   - sessionID: The session making the attempt (for logging, truncated)
-func (m *AuthMetrics) RecordLoginAttempt(serverName, sessionID string) {
+//   - sub: The user subject making the attempt (for logging, truncated)
+func (m *AuthMetrics) RecordLoginAttempt(serverName, sub string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -76,16 +76,16 @@ func (m *AuthMetrics) RecordLoginAttempt(serverName, sessionID string) {
 	metrics.LastAttemptAt = time.Now()
 	m.totalLoginAttempts++
 
-	logging.Debug("AuthMetrics", "Login attempt for server %s by session %s (total: %d)",
-		serverName, logging.TruncateSessionID(sessionID), metrics.LoginAttempts)
+	logging.Debug("AuthMetrics", "Login attempt for server %s by user %s (total: %d)",
+		serverName, logging.TruncateIdentifier(sub), metrics.LoginAttempts)
 }
 
 // RecordLoginSuccess records a successful authentication.
 //
 // Args:
 //   - serverName: Name of the server authenticated to
-//   - sessionID: The session that authenticated (for logging, truncated)
-func (m *AuthMetrics) RecordLoginSuccess(serverName, sessionID string) {
+//   - sub: The user subject that authenticated (for logging, truncated)
+func (m *AuthMetrics) RecordLoginSuccess(serverName, sub string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -94,17 +94,17 @@ func (m *AuthMetrics) RecordLoginSuccess(serverName, sessionID string) {
 	metrics.LastSuccessAt = time.Now()
 	m.totalLoginSuccesses++
 
-	logging.Info("AuthMetrics", "Login success for server %s by session %s (successes: %d, failures: %d)",
-		serverName, logging.TruncateSessionID(sessionID), metrics.LoginSuccesses, metrics.LoginFailures)
+	logging.Info("AuthMetrics", "Login success for server %s by user %s (successes: %d, failures: %d)",
+		serverName, logging.TruncateIdentifier(sub), metrics.LoginSuccesses, metrics.LoginFailures)
 }
 
 // RecordLoginFailure records a failed authentication attempt.
 //
 // Args:
 //   - serverName: Name of the server where authentication failed
-//   - sessionID: The session that failed (for logging, truncated)
+//   - sub: The user subject that failed (for logging, truncated)
 //   - reason: The reason for the failure
-func (m *AuthMetrics) RecordLoginFailure(serverName, sessionID, reason string) {
+func (m *AuthMetrics) RecordLoginFailure(serverName, sub, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -113,16 +113,16 @@ func (m *AuthMetrics) RecordLoginFailure(serverName, sessionID, reason string) {
 	metrics.LastFailureAt = time.Now()
 	m.totalLoginFailures++
 
-	logging.Warn("AuthMetrics", "Login failure for server %s by session %s: %s (failures: %d)",
-		serverName, logging.TruncateSessionID(sessionID), reason, metrics.LoginFailures)
+	logging.Warn("AuthMetrics", "Login failure for server %s by user %s: %s (failures: %d)",
+		serverName, logging.TruncateIdentifier(sub), reason, metrics.LoginFailures)
 }
 
-// RecordRateLimitBlock records when a session was rate limited.
+// RecordRateLimitBlock records when a user was rate limited.
 //
 // Args:
-//   - serverName: Name of the server the session was trying to authenticate to
-//   - sessionID: The session that was blocked (for logging, truncated)
-func (m *AuthMetrics) RecordRateLimitBlock(serverName, sessionID string) {
+//   - serverName: Name of the server the user was trying to authenticate to
+//   - sub: The user subject that was blocked (for logging, truncated)
+func (m *AuthMetrics) RecordRateLimitBlock(serverName, sub string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -130,16 +130,16 @@ func (m *AuthMetrics) RecordRateLimitBlock(serverName, sessionID string) {
 	metrics.RateLimitBlocks++
 	m.totalRateLimitBlocks++
 
-	logging.Warn("AuthMetrics", "Rate limit block for server %s by session %s (total blocks: %d)",
-		serverName, logging.TruncateSessionID(sessionID), metrics.RateLimitBlocks)
+	logging.Warn("AuthMetrics", "Rate limit block for server %s by user %s (total blocks: %d)",
+		serverName, logging.TruncateIdentifier(sub), metrics.RateLimitBlocks)
 }
 
 // RecordLogoutAttempt records a logout attempt.
 //
 // Args:
 //   - serverName: Name of the server being logged out from
-//   - sessionID: The session making the attempt (for logging, truncated)
-func (m *AuthMetrics) RecordLogoutAttempt(serverName, sessionID string) {
+//   - sub: The user subject making the attempt (for logging, truncated)
+func (m *AuthMetrics) RecordLogoutAttempt(serverName, sub string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -147,16 +147,16 @@ func (m *AuthMetrics) RecordLogoutAttempt(serverName, sessionID string) {
 	metrics.LogoutAttempts++
 	m.totalLogoutAttempts++
 
-	logging.Debug("AuthMetrics", "Logout attempt for server %s by session %s",
-		serverName, logging.TruncateSessionID(sessionID))
+	logging.Debug("AuthMetrics", "Logout attempt for server %s by user %s",
+		serverName, logging.TruncateIdentifier(sub))
 }
 
 // RecordLogoutSuccess records a successful logout.
 //
 // Args:
 //   - serverName: Name of the server logged out from
-//   - sessionID: The session that logged out (for logging, truncated)
-func (m *AuthMetrics) RecordLogoutSuccess(serverName, sessionID string) {
+//   - sub: The user subject that logged out (for logging, truncated)
+func (m *AuthMetrics) RecordLogoutSuccess(serverName, sub string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -164,8 +164,8 @@ func (m *AuthMetrics) RecordLogoutSuccess(serverName, sessionID string) {
 	metrics.LogoutSuccesses++
 	m.totalLogoutSuccesses++
 
-	logging.Info("AuthMetrics", "Logout success for server %s by session %s",
-		serverName, logging.TruncateSessionID(sessionID))
+	logging.Info("AuthMetrics", "Logout success for server %s by user %s",
+		serverName, logging.TruncateIdentifier(sub))
 }
 
 // AuthMetricsSummary provides a summary of authentication metrics.

@@ -53,7 +53,7 @@ func (ts *TokenStore) Store(key TokenKey, token *pkgoauth.Token) {
 
 	ts.tokens[key] = token
 	logging.Debug("OAuth", "Stored token for subject=%s issuer=%s scope=%s (expires: %v)",
-		logging.TruncateSessionID(key.Subject), key.Issuer, key.Scope, token.ExpiresAt)
+		logging.TruncateIdentifier(key.Subject), key.Issuer, key.Scope, token.ExpiresAt)
 }
 
 // Get retrieves a token from the store by key.
@@ -69,7 +69,7 @@ func (ts *TokenStore) Get(key TokenKey) *pkgoauth.Token {
 
 	// Check if token is expired (with margin for clock skew)
 	if token.IsExpiredWithMargin(tokenExpiryMargin) {
-		logging.Debug("OAuth", "Token expired for subject=%s issuer=%s", logging.TruncateSessionID(key.Subject), key.Issuer)
+		logging.Debug("OAuth", "Token expired for subject=%s issuer=%s", logging.TruncateIdentifier(key.Subject), key.Issuer)
 		return nil
 	}
 
@@ -130,7 +130,7 @@ func (ts *TokenStore) Delete(key TokenKey) {
 	defer ts.mu.Unlock()
 
 	delete(ts.tokens, key)
-	logging.Debug("OAuth", "Deleted token for subject=%s issuer=%s", logging.TruncateSessionID(key.Subject), key.Issuer)
+	logging.Debug("OAuth", "Deleted token for subject=%s issuer=%s", logging.TruncateIdentifier(key.Subject), key.Issuer)
 }
 
 // DeleteByUser removes all tokens for a given subject.
@@ -145,7 +145,7 @@ func (ts *TokenStore) DeleteByUser(subject string) {
 			count++
 		}
 	}
-	logging.Debug("OAuth", "Deleted %d tokens for subject=%s", count, logging.TruncateSessionID(subject))
+	logging.Debug("OAuth", "Deleted %d tokens for subject=%s", count, logging.TruncateIdentifier(subject))
 }
 
 // DeleteByIssuer removes all tokens for a given subject and issuer.
@@ -161,7 +161,7 @@ func (ts *TokenStore) DeleteByIssuer(subject, issuer string) {
 			count++
 		}
 	}
-	logging.Debug("OAuth", "Deleted %d tokens for subject=%s issuer=%s", count, logging.TruncateSessionID(subject), issuer)
+	logging.Debug("OAuth", "Deleted %d tokens for subject=%s issuer=%s", count, logging.TruncateIdentifier(subject), issuer)
 }
 
 // Count returns the number of tokens in the store.

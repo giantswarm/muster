@@ -137,15 +137,21 @@ func Error(subsystem string, err error, messageFmt string, args ...interface{}) 
 	logInternal(LevelError, subsystem, err, messageFmt, args...)
 }
 
-// TruncateSessionID returns a truncated session ID for secure logging.
-// This prevents full session IDs from appearing in logs while still
-// providing enough context for debugging correlation.
+// TruncateIdentifier returns a truncated identifier (user subject, session ID, etc.)
+// for secure logging. This prevents full identifiers from appearing in logs while
+// still providing enough context for debugging correlation.
 // Format: first 8 chars + "..." (e.g., "abc12345...")
-func TruncateSessionID(sessionID string) string {
-	if len(sessionID) <= 8 {
-		return sessionID
+func TruncateIdentifier(id string) string {
+	if len(id) <= 8 {
+		return id
 	}
-	return sessionID[:8] + "..."
+	return id[:8] + "..."
+}
+
+// TruncateSessionID is a deprecated alias for TruncateIdentifier.
+// Prefer TruncateIdentifier for new code.
+func TruncateSessionID(id string) string {
+	return TruncateIdentifier(id)
 }
 
 // AuditEvent represents a structured audit log event for security-sensitive operations.
@@ -155,9 +161,9 @@ type AuditEvent struct {
 	Action string
 	// Outcome indicates whether the action succeeded or failed
 	Outcome string // "success" or "failure"
-	// SessionID is the truncated session identifier
-	SessionID string
-	// UserID is the truncated user identifier (from JWT sub claim)
+	// Subject is the truncated user subject (sub claim from JWT)
+	Subject string
+	// UserID is the truncated user identifier (from JWT sub claim or extracted user ID)
 	UserID string
 	// Target is the target of the action (e.g., server name, endpoint)
 	Target string
@@ -172,14 +178,14 @@ type AuditEvent struct {
 // to make them easily filterable by log aggregation systems.
 //
 // Example output:
-// [AUDIT] action=token_exchange outcome=success session=abc12345... user=xyz789... target=mcp-kubernetes
+// [AUDIT] action=token_exchange outcome=success subject=abc12345... user=xyz789... target=mcp-kubernetes
 func Audit(event AuditEvent) {
 	// Pre-allocate with expected capacity for efficiency
 	parts := make([]string, 0, 7)
 	parts = append(parts, "action="+event.Action)
 	parts = append(parts, "outcome="+event.Outcome)
-	if event.SessionID != "" {
-		parts = append(parts, "session="+event.SessionID)
+	if event.Subject != "" {
+		parts = append(parts, "subject="+event.Subject)
 	}
 	if event.UserID != "" {
 		parts = append(parts, "user="+event.UserID)

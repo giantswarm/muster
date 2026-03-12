@@ -139,6 +139,7 @@ type authCodeEntry struct {
 	CodeChallenge   string
 	ChallengeMethod string
 	CreatedAt       time.Time
+	Subject         string // Optional: override subject in generated tokens
 }
 
 type issuedToken struct {
@@ -147,6 +148,7 @@ type issuedToken struct {
 	Scope        string
 	ClientID     string
 	ExpiresAt    time.Time
+	Subject      string // Subject (sub) claim used in this token's ID token
 }
 
 // TokenResponse is the OAuth token response
@@ -400,6 +402,12 @@ func (s *OAuthServer) GetTokenURL() string {
 // GenerateAuthCode generates an authorization code for testing
 // This simulates a user completing the OAuth flow
 func (s *OAuthServer) GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) string {
+	return s.GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, "")
+}
+
+// GenerateAuthCodeWithSubject generates an authorization code with a custom subject claim.
+// If subject is empty, the default "test-user-123" is used.
+func (s *OAuthServer) GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, subject string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -413,10 +421,11 @@ func (s *OAuthServer) GenerateAuthCode(clientID, redirectURI, scope, state, code
 		CodeChallenge:   codeChallenge,
 		ChallengeMethod: codeChallengeMethod,
 		CreatedAt:       s.clock.Now(),
+		Subject:         subject,
 	}
 
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔐 Generated auth code for client %s: %s\n", clientID, code[:16]+"...")
+		fmt.Fprintf(os.Stderr, "🔐 Generated auth code for client %s (sub=%s): %s\n", clientID, subject, code[:16]+"...")
 	}
 
 	return code
@@ -437,8 +446,18 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
-	// Generate ID token for SSO token forwarding support
-	idToken := s.generateIDToken(entry.ClientID, entry.Scope)
+	// Generate ID token, using subject override from auth code if present
+	var idToken string
+	if entry.Subject != "" {
+		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject)
+	} else {
+		idToken = s.generateIDToken(entry.ClientID, entry.Scope)
+	}
+
+	sub := entry.Subject
+	if sub == "" {
+		sub = "test-user-123"
+	}
 
 	token := &issuedToken{
 		AccessToken:  accessToken,
@@ -446,6 +465,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 		Scope:        entry.Scope,
 		ClientID:     entry.ClientID,
 		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+		Subject:      sub,
 	}
 
 	s.mu.Lock()
@@ -752,7 +772,18 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	refreshToken := generateOpaqueToken()
 
 	// Generate ID token for SSO token forwarding support
-	idToken := s.generateIDToken(entry.ClientID, entry.Scope)
+	// Use subject override from auth code if present
+	var idToken string
+	if entry.Subject != "" {
+		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject)
+	} else {
+		idToken = s.generateIDToken(entry.ClientID, entry.Scope)
+	}
+
+	sub := entry.Subject
+	if sub == "" {
+		sub = "test-user-123"
+	}
 
 	token := &issuedToken{
 		AccessToken:  accessToken,
@@ -760,6 +791,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		Scope:        entry.Scope,
 		ClientID:     entry.ClientID,
 		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+		Subject:      sub,
 	}
 
 	s.mu.Lock()
@@ -817,8 +849,13 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	newAccessToken := s.generateAccessToken(originalToken.ClientID, originalToken.Scope)
 	newRefreshToken := generateOpaqueToken()
 
-	// Generate new ID token for SSO token forwarding support
-	newIDToken := s.generateIDToken(originalToken.ClientID, originalToken.Scope)
+	// Generate new ID token, preserving subject from original token.
+	// Always use generateIDTokenWithSub to avoid sentinel-value fragility.
+	sub := originalToken.Subject
+	if sub == "" {
+		sub = "test-user-123"
+	}
+	newIDToken := s.generateIDTokenWithSub(originalToken.ClientID, originalToken.Scope, sub)
 
 	newToken := &issuedToken{
 		AccessToken:  newAccessToken,
@@ -826,6 +863,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 		Scope:        originalToken.Scope,
 		ClientID:     originalToken.ClientID,
 		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+		Subject:      originalToken.Subject,
 	}
 
 	s.mu.Lock()
@@ -1037,8 +1075,16 @@ func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use subject from token if available, otherwise default
+	sub := "test-user-123"
+	s.mu.RLock()
+	if issued, ok := s.issuedTokens[token]; ok && issued.Subject != "" {
+		sub = issued.Subject
+	}
+	s.mu.RUnlock()
+
 	userInfo := map[string]interface{}{
-		"sub":   "test-user-123",
+		"sub":   sub,
 		"name":  "Test User",
 		"email": "test@example.com",
 	}
