@@ -2022,10 +2022,11 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Resolve server from registry
+	// Resolve server from registry. Return 204 regardless of existence to
+	// prevent server name enumeration via distinct 404 vs 204 responses.
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists {
-		http.Error(w, "Not Found: server not found", http.StatusNotFound)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 

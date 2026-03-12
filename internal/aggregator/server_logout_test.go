@@ -209,7 +209,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 	})
 
-	t.Run("returns 404 when server not found in registry", func(t *testing.T) {
+	t.Run("returns 204 when server not found (prevents enumeration)", func(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
@@ -225,8 +225,8 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		a.handleAuthServerDeletion(w, req)
 
-		if w.Code != http.StatusNotFound {
-			t.Errorf("expected status 404 for unknown server, got %d", w.Code)
+		if w.Code != http.StatusNoContent {
+			t.Errorf("expected status 204 for unknown server (idempotent delete), got %d", w.Code)
 		}
 	})
 
