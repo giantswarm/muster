@@ -86,34 +86,34 @@ func apiTokenToPkgToken(token *api.OAuthToken) *pkgoauth.Token {
 	}
 }
 
-// GetToken retrieves a valid token for the given session and server.
-func (a *Adapter) GetToken(sessionID, serverName string) *api.OAuthToken {
-	return tokenToAPIToken(a.manager.GetToken(sessionID, serverName))
+// GetToken retrieves a valid token for the given subject and server.
+func (a *Adapter) GetToken(subject, serverName string) *api.OAuthToken {
+	return tokenToAPIToken(a.manager.GetToken(subject, serverName))
 }
 
-// GetTokenByIssuer retrieves a valid token for the given session and issuer.
-func (a *Adapter) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
-	return tokenToAPIToken(a.manager.GetTokenByIssuer(sessionID, issuer))
+// GetTokenByIssuer retrieves a valid token for the given subject and issuer.
+func (a *Adapter) GetTokenByIssuer(subject, issuer string) *api.OAuthToken {
+	return tokenToAPIToken(a.manager.GetTokenByIssuer(subject, issuer))
 }
 
 // GetFullTokenByIssuer retrieves the full token (including ID token if available)
-// for the given session and issuer. Returns nil if no valid token exists.
+// for the given subject and issuer. Returns nil if no valid token exists.
 // The IDToken field may be empty if the token was obtained without an ID token.
-func (a *Adapter) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
-	token := a.manager.GetTokenByIssuer(sessionID, issuer)
+func (a *Adapter) GetFullTokenByIssuer(subject, issuer string) *api.OAuthToken {
+	token := a.manager.GetTokenByIssuer(subject, issuer)
 	return fullTokenToAPIToken(token)
 }
 
-// FindTokenWithIDToken searches for any token in the session that has an ID token.
+// FindTokenWithIDToken searches for any token for the subject that has an ID token.
 // This is used as a fallback when the muster issuer is not explicitly configured.
 // Returns the first token found with an ID token, or nil if none exists.
-func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+func (a *Adapter) FindTokenWithIDToken(subject string) *api.OAuthToken {
 	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
 		return nil
 	}
 
-	// Get all tokens for the session and find one with an ID token
-	allTokens := a.manager.client.tokenStore.GetAllForSession(sessionID)
+	// Get all tokens for the subject and find one with an ID token
+	allTokens := a.manager.client.tokenStore.GetAllForUser(subject)
 	for _, token := range allTokens {
 		if token != nil && token.IDToken != "" {
 			return fullTokenToAPIToken(token)
@@ -122,20 +122,20 @@ func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 	return nil
 }
 
-// StoreToken persists a token for the given session and issuer.
+// StoreToken persists a token for the given subject and issuer.
 // This converts the API token to a pkg/oauth token and delegates to the manager's single backing store.
-func (a *Adapter) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
-	a.manager.StoreToken(sessionID, issuer, apiTokenToPkgToken(token))
+func (a *Adapter) StoreToken(subject, issuer string, token *api.OAuthToken) {
+	a.manager.StoreToken(subject, issuer, apiTokenToPkgToken(token))
 }
 
-// ClearTokenByIssuer removes all tokens for a given session and issuer.
-func (a *Adapter) ClearTokenByIssuer(sessionID, issuer string) {
-	a.manager.ClearTokenByIssuer(sessionID, issuer)
+// ClearTokenByIssuer removes all tokens for a given subject and issuer.
+func (a *Adapter) ClearTokenByIssuer(subject, issuer string) {
+	a.manager.ClearTokenByIssuer(subject, issuer)
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
-func (a *Adapter) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
-	challenge, err := a.manager.CreateAuthChallenge(ctx, sessionID, serverName, issuer, scope)
+func (a *Adapter) CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*api.AuthChallenge, error) {
+	challenge, err := a.manager.CreateAuthChallenge(ctx, subject, serverName, issuer, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +181,8 @@ func (a *Adapter) RegisterServer(serverName, issuer, scope string) {
 // SetAuthCompletionCallback sets the callback to be called after successful authentication.
 func (a *Adapter) SetAuthCompletionCallback(callback api.AuthCompletionCallback) {
 	// Wrap the api callback with the oauth callback type
-	a.manager.SetAuthCompletionCallback(func(ctx context.Context, sessionID, serverName, accessToken string) error {
-		return callback(ctx, sessionID, serverName, accessToken)
+	a.manager.SetAuthCompletionCallback(func(ctx context.Context, subject, serverName, accessToken string) error {
+		return callback(ctx, subject, serverName, accessToken)
 	})
 }
 

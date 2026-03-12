@@ -169,9 +169,9 @@ func TestSessionRegistry_UpgradeConnection(t *testing.T) {
 
 	// Upgrade connection with nil client for simplicity
 	tokenKey := &oauth.TokenKey{
-		SessionID: sessionID,
-		Issuer:    "https://auth.example.com",
-		Scope:     "openid",
+		Subject: sessionID,
+		Issuer:  "https://auth.example.com",
+		Scope:   "openid",
 	}
 
 	err := sr.UpgradeConnection(sessionID, serverName, nil, tokenKey)
