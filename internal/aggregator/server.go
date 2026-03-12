@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -80,10 +81,43 @@ type AggregatorServer struct {
 	// Authentication rate limiting and metrics (security hardening per ADR-008)
 	authRateLimiter *AuthRateLimiter // Per-session rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
+
+	// Deduplication for concurrent requests with the same stale/unknown session ID.
+	// When multiple requests arrive with the same unknown session ID, only the first
+	// creates a new session and logs the warning; concurrent and slightly-late
+	// requests reuse the cached result. Entries are cleaned up periodically. (#435)
+	staleSessionDedup      sync.Map     // map[string]*staleSessionEntry
+	staleSessionDedupCount atomic.Int64 // approximate count for size-cap enforcement
 }
 
 // DefaultSessionTimeout is the default timeout for idle session cleanup.
 const DefaultSessionTimeout = 30 * time.Minute
+
+// staleSessionDedupTTL is how long a stale-session dedup entry is kept after
+// creation. This must be long enough for all concurrent requests with the same
+// stale ID to be served, but short enough to not waste memory.
+const staleSessionDedupTTL = 5 * time.Second
+
+// staleSessionDedupMaxEntries is the maximum number of entries in the dedup map.
+// This prevents memory exhaustion from an attacker sending many unique stale
+// session IDs. When the limit is reached, dedup is skipped and session creation
+// proceeds without deduplication.
+const staleSessionDedupMaxEntries = 20000
+
+// staleSessionEntry holds the result of creating a replacement session for a
+// stale/unknown client session ID. sync.Once ensures the session is created
+// exactly once; concurrent requests share the cached result via sync.Map.
+//
+// Thread safety: all goroutines call entry.once.Do() before reading sessionID
+// and err. sync.Once.Do establishes a happens-before edge, so no additional
+// lock is needed for the subsequent reads. createdAt is immutable after the
+// entry is published to the sync.Map (write-once at construction).
+type staleSessionEntry struct {
+	once      sync.Once
+	sessionID string
+	err       error
+	createdAt time.Time
+}
 
 // NewAggregatorServer creates a new aggregator server with the specified configuration.
 //
@@ -155,6 +189,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	// Create cancellable context for coordinating shutdown across all components
 	a.ctx, a.cancelFunc = context.WithCancel(ctx)
+
+	// Start periodic cleanup of stale session dedup entries (#435)
+	a.startStaleSessionDedupCleanup()
 
 	// Determine the server version to report
 	serverVersion := a.config.Version
@@ -839,6 +876,17 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
+
+	// Wire cross-cleanup: when a session is removed from the registry, also
+	// remove its sessionInitTracker entry so the next request triggers fresh
+	// SSO initialization. Chain with the existing callback. (#435)
+	prevCallback := a.sessionRegistry.GetOnSessionRemoved()
+	a.sessionRegistry.SetOnSessionRemoved(func(sessionID string) {
+		if prevCallback != nil {
+			prevCallback(sessionID)
+		}
+		oauthHTTPServer.DeleteSessionTrackerEntry(sessionID)
+	})
 
 	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
 
@@ -1782,16 +1830,54 @@ func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Han
 
 			session, exists := a.sessionRegistry.GetSession(clientSessionID)
 			if !exists {
-				// Unknown session ID (not in store): create new session, log warning
-				logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session",
-					logging.TruncateSessionID(clientSessionID))
-				newSession, err := a.sessionRegistry.CreateSessionForSubject(subject)
-				if err != nil {
-					logging.Warn("Aggregator", "Failed to create session: %v", err)
-					http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-					return
+				// Unknown session ID (not in store): deduplicate both the warning
+				// and session creation across concurrent requests with the same
+				// stale ID. sync.Once ensures the session is created exactly once;
+				// concurrent and slightly-late requests share the cached result. (#435)
+				//
+				// Size cap: if the dedup map is too large (possible DoS via unique
+				// stale IDs), skip dedup and create the session directly.
+				if a.staleSessionDedupCount.Load() >= staleSessionDedupMaxEntries {
+					logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session (dedup map full)",
+						logging.TruncateSessionID(clientSessionID))
+					newSession, createErr := a.sessionRegistry.CreateSessionForSubject(subject)
+					if createErr != nil {
+						logging.Warn("Aggregator", "Failed to create session: %v", createErr)
+						http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+						return
+					}
+					sessionID = newSession.SessionID
+				} else {
+					val, loaded := a.staleSessionDedup.LoadOrStore(clientSessionID, &staleSessionEntry{createdAt: time.Now()})
+					entry := val.(*staleSessionEntry)
+					if !loaded {
+						a.staleSessionDedupCount.Add(1)
+					}
+					// sync.Once ensures only one goroutine creates the session.
+					// If creation fails (e.g., session limit exceeded), the error
+					// is cached for the lifetime of this entry (staleSessionDedupTTL).
+					// Concurrent requests sharing this entry will receive the same
+					// error. This is acceptable because the TTL is short (5s) and
+					// the underlying condition (session limit) is unlikely to clear
+					// within that window.
+					entry.once.Do(func() {
+						logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session",
+							logging.TruncateSessionID(clientSessionID))
+						newSession, createErr := a.sessionRegistry.CreateSessionForSubject(subject)
+						if createErr != nil {
+							entry.err = createErr
+							return
+						}
+						entry.sessionID = newSession.SessionID
+					})
+
+					if entry.err != nil {
+						logging.Warn("Aggregator", "Failed to create session: %v", entry.err)
+						http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+						return
+					}
+					sessionID = entry.sessionID
 				}
-				sessionID = newSession.SessionID
 			} else {
 				// Session exists: validate identity binding
 				if subject != "" {
@@ -1816,6 +1902,43 @@ func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Han
 		r = r.WithContext(ctx)
 
 		next.ServeHTTP(w, r)
+	})
+}
+
+// startStaleSessionDedupCleanup runs a background goroutine that periodically
+// removes expired entries from the staleSessionDedup map. This single goroutine
+// replaces per-entry cleanup goroutines to prevent goroutine exhaustion under
+// DoS conditions. The goroutine exits when a.ctx is canceled (during Stop).
+func (a *AggregatorServer) startStaleSessionDedupCleanup() {
+	go func() {
+		ticker := time.NewTicker(staleSessionDedupTTL)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-ticker.C:
+				a.cleanupStaleSessionDedup()
+			}
+		}
+	}()
+}
+
+// cleanupStaleSessionDedup removes expired entries from the staleSessionDedup map.
+func (a *AggregatorServer) cleanupStaleSessionDedup() {
+	now := time.Now()
+	a.staleSessionDedup.Range(func(key, val interface{}) bool {
+		entry := val.(*staleSessionEntry)
+		if now.Sub(entry.createdAt) > staleSessionDedupTTL {
+			// Use LoadAndDelete so the counter is decremented only when a
+			// deletion actually occurs. This prevents counter drift if
+			// cleanupStaleSessionDedup is ever called concurrently.
+			if _, deleted := a.staleSessionDedup.LoadAndDelete(key); deleted {
+				a.staleSessionDedupCount.Add(-1)
+			}
+		}
+		return true
 	})
 }
 

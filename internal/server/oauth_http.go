@@ -872,6 +872,13 @@ func (s *OAuthHTTPServer) cleanupExpiredSessions() {
 	}
 }
 
+// DeleteSessionTrackerEntry removes the sessionInitTracker entry for the given
+// session ID. This should be called when a session is removed from the registry
+// so that the next request for that user triggers fresh SSO initialization. (#435)
+func (s *OAuthHTTPServer) DeleteSessionTrackerEntry(sessionID string) {
+	s.sessionInitTracker.Delete(sessionID)
+}
+
 // extractSubjectFromIDToken extracts the subject (sub) claim from a JWT ID token.
 // This is used for session identity binding. Returns empty string if extraction fails.
 //

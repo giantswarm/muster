@@ -264,6 +264,16 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 // that case, so the window of a false positive is negligible.
 func (a *AggregatorServer) handleSessionInitPrepare(sessionID string) {
 	if a.sessionRegistry != nil {
+		// Only start SSO init if the session already exists in the registry.
+		// triggerSessionInitIfNeeded runs BEFORE clientSessionIDMiddleware, so
+		// if the session was recently removed (and its tracker entry cleaned up
+		// via onSessionRemoved), the session ID in the request header is stale.
+		// Calling StartSSOInit would re-create the deleted session via
+		// GetOrCreateSession, racing with clientSessionIDMiddleware which will
+		// independently create a new session with a different ID. (#435)
+		if _, exists := a.sessionRegistry.GetSession(sessionID); !exists {
+			return
+		}
 		a.sessionRegistry.StartSSOInit(sessionID)
 	}
 }
@@ -281,11 +291,19 @@ func (a *AggregatorServer) handleSessionInitPrepare(sessionID string) {
 //
 // Note: This callback runs asynchronously and should not block.
 func (a *AggregatorServer) handleSessionInit(ctx context.Context, sessionID string) {
-	// The prepare callback (handleSessionInitPrepare) already called StartSSOInit
-	// synchronously before this goroutine launched. We MUST call EndSSOInit when
-	// done, regardless of whether we find SSO servers or not.
 	if a.sessionRegistry != nil {
 		defer a.sessionRegistry.EndSSOInit(sessionID)
+		// Skip SSO init if the session no longer exists in the registry.
+		// This can happen when a session is deleted (e.g., logout with no
+		// remaining connections) and the tracker entry is cleaned up via
+		// onSessionRemoved: the next request with the stale session ID
+		// triggers SSO init, but clientSessionIDMiddleware will create a
+		// new session with a different ID. (#435)
+		if _, exists := a.sessionRegistry.GetSession(sessionID); !exists {
+			logging.Debug("Aggregator", "Session init: Session %s not found in registry, skipping (stale session ID)",
+				logging.TruncateSessionID(sessionID))
+			return
+		}
 	}
 
 	// Get muster issuer for SSO token forwarding

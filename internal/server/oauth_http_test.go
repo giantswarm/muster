@@ -795,6 +795,97 @@ func TestCleanupExpiredSessions(t *testing.T) {
 	})
 }
 
+// TestDeleteSessionTrackerEntry verifies that deleting a tracker entry allows
+// the next request for that session to trigger SSO init again.
+func TestDeleteSessionTrackerEntry(t *testing.T) {
+	t.Run("Delete removes entry so next request triggers SSO", func(t *testing.T) {
+		srv := &OAuthHTTPServer{}
+
+		// Simulate an existing tracker entry (session already initialized)
+		srv.sessionInitTracker.Store("session-A", sessionTrackerEntry{
+			tokenHash:  "hash-1",
+			lastAccess: time.Now(),
+		})
+
+		// Verify entry exists
+		_, exists := srv.sessionInitTracker.Load("session-A")
+		assert.True(t, exists, "entry should exist before deletion")
+
+		// Delete it
+		srv.DeleteSessionTrackerEntry("session-A")
+
+		// Verify entry is gone
+		_, exists = srv.sessionInitTracker.Load("session-A")
+		assert.False(t, exists, "entry should be removed after deletion")
+	})
+
+	t.Run("Delete non-existent entry is a no-op", func(t *testing.T) {
+		srv := &OAuthHTTPServer{}
+
+		// Should not panic
+		srv.DeleteSessionTrackerEntry("non-existent")
+	})
+
+	t.Run("SSO triggers again after tracker entry deleted", func(t *testing.T) {
+		srv := &OAuthHTTPServer{}
+		callbackDone := make(chan string, 5)
+
+		api.RegisterSessionInitCallback(func(ctx context.Context, sessionID string) {
+			callbackDone <- sessionID
+		})
+		defer api.RegisterSessionInitCallback(nil)
+
+		sessionID := "test-session-reinit"
+		idToken := "id-token-reinit"
+		accessToken := "access-token-reinit"
+
+		// First call - should trigger callback
+		req1 := httptest.NewRequest("GET", "/", nil)
+		req1.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx1 := ContextWithIDToken(req1.Context(), idToken)
+		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessToken)
+		srv.triggerSessionInitIfNeeded(ctx1, req1)
+
+		select {
+		case id := <-callbackDone:
+			assert.Equal(t, sessionID, id)
+		case <-time.After(5 * time.Second):
+			t.Fatal("First callback was not called")
+		}
+
+		// Second call with same token - should NOT trigger
+		req2 := httptest.NewRequest("GET", "/", nil)
+		req2.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx2 := ContextWithIDToken(req2.Context(), idToken)
+		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessToken)
+		srv.triggerSessionInitIfNeeded(ctx2, req2)
+
+		select {
+		case <-callbackDone:
+			t.Fatal("Should NOT trigger again with same token")
+		case <-time.After(100 * time.Millisecond):
+			// expected
+		}
+
+		// Delete the tracker entry (simulates session removal)
+		srv.DeleteSessionTrackerEntry(sessionID)
+
+		// Third call with same token - should trigger again because entry was deleted
+		req3 := httptest.NewRequest("GET", "/", nil)
+		req3.Header.Set(api.ClientSessionIDHeader, sessionID)
+		ctx3 := ContextWithIDToken(req3.Context(), idToken)
+		ctx3 = ContextWithUpstreamAccessToken(ctx3, accessToken)
+		srv.triggerSessionInitIfNeeded(ctx3, req3)
+
+		select {
+		case id := <-callbackDone:
+			assert.Equal(t, sessionID, id)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Third callback was not called (should trigger after tracker entry deletion)")
+		}
+	})
+}
+
 // TestSessionTrackerCleanupGoroutine tests that the cleanup goroutine starts and stops correctly.
 func TestSessionTrackerCleanupGoroutine(t *testing.T) {
 	t.Run("Cleanup goroutine stops on channel close", func(t *testing.T) {
