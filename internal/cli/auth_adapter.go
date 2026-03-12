@@ -198,7 +198,7 @@ func (a *AuthAdapter) loadPerEndpointSessionIDs() {
 			// and the endpoint hash matches a directory.
 			a.sessionIDs[entry.Name()] = sessionID
 			logging.Debug("AuthAdapter", "Loaded session ID for endpoint dir %s: %s",
-				entry.Name(), logging.TruncateSessionID(sessionID))
+				entry.Name(), logging.TruncateIdentifier(sessionID))
 		}
 	}
 

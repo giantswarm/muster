@@ -117,7 +117,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, subject, serverName, issue
 	}
 
 	logging.Debug("OAuth", "Generated auth URL for subject=%s server=%s issuer=%s",
-		logging.TruncateSessionID(subject), serverName, issuer)
+		logging.TruncateIdentifier(subject), serverName, issuer)
 
 	return authURL, nil
 }

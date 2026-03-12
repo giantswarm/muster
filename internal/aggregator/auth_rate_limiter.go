@@ -100,7 +100,7 @@ func (rl *AuthRateLimiter) Allow(userID, serverName string) bool {
 	// Check if we've exceeded the limit
 	if len(recent) >= rl.maxAttempts {
 		logging.Warn("AuthRateLimiter", "Rate limit exceeded for user %s attempting to auth to server %s (%d attempts in %v)",
-			logging.TruncateSessionID(userID), serverName, len(recent), rl.window)
+			logging.TruncateIdentifier(userID), serverName, len(recent), rl.window)
 		// Update the filtered list even though we're rejecting
 		rl.attempts[userID] = recent
 		return false
@@ -111,7 +111,7 @@ func (rl *AuthRateLimiter) Allow(userID, serverName string) bool {
 	rl.attempts[userID] = recent
 
 	logging.Debug("AuthRateLimiter", "Auth attempt allowed for user %s server %s (%d/%d attempts)",
-		logging.TruncateSessionID(userID), serverName, len(recent), rl.maxAttempts)
+		logging.TruncateIdentifier(userID), serverName, len(recent), rl.maxAttempts)
 
 	return true
 }
@@ -146,7 +146,7 @@ func (rl *AuthRateLimiter) Reset(userID string) {
 	defer rl.mu.Unlock()
 
 	delete(rl.attempts, userID)
-	logging.Debug("AuthRateLimiter", "Rate limit reset for user %s", logging.TruncateSessionID(userID))
+	logging.Debug("AuthRateLimiter", "Rate limit reset for user %s", logging.TruncateIdentifier(userID))
 }
 
 // Stop terminates the background cleanup goroutine.

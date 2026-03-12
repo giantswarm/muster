@@ -248,7 +248,7 @@ func (m *Manager) ClearTokenByIssuer(subject, issuer string) {
 	}
 
 	m.client.tokenStore.DeleteByIssuer(subject, issuer)
-	logging.Debug("OAuth", "Cleared tokens for subject=%s issuer=%s", logging.TruncateSessionID(subject), issuer)
+	logging.Debug("OAuth", "Cleared tokens for subject=%s issuer=%s", logging.TruncateIdentifier(subject), issuer)
 }
 
 // DeleteTokensByUser removes all downstream tokens for a given subject.
@@ -259,7 +259,7 @@ func (m *Manager) DeleteTokensByUser(subject string) {
 	}
 
 	m.client.tokenStore.DeleteByUser(subject)
-	logging.Debug("OAuth", "Deleted all tokens for subject=%s", logging.TruncateSessionID(subject))
+	logging.Debug("OAuth", "Deleted all tokens for subject=%s", logging.TruncateIdentifier(subject))
 }
 
 // StoreToken persists a token for the given subject and issuer.

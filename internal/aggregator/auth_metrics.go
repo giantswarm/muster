@@ -77,7 +77,7 @@ func (m *AuthMetrics) RecordLoginAttempt(serverName, sub string) {
 	m.totalLoginAttempts++
 
 	logging.Debug("AuthMetrics", "Login attempt for server %s by user %s (total: %d)",
-		serverName, logging.TruncateSessionID(sub), metrics.LoginAttempts)
+		serverName, logging.TruncateIdentifier(sub), metrics.LoginAttempts)
 }
 
 // RecordLoginSuccess records a successful authentication.
@@ -95,7 +95,7 @@ func (m *AuthMetrics) RecordLoginSuccess(serverName, sub string) {
 	m.totalLoginSuccesses++
 
 	logging.Info("AuthMetrics", "Login success for server %s by user %s (successes: %d, failures: %d)",
-		serverName, logging.TruncateSessionID(sub), metrics.LoginSuccesses, metrics.LoginFailures)
+		serverName, logging.TruncateIdentifier(sub), metrics.LoginSuccesses, metrics.LoginFailures)
 }
 
 // RecordLoginFailure records a failed authentication attempt.
@@ -114,7 +114,7 @@ func (m *AuthMetrics) RecordLoginFailure(serverName, sub, reason string) {
 	m.totalLoginFailures++
 
 	logging.Warn("AuthMetrics", "Login failure for server %s by user %s: %s (failures: %d)",
-		serverName, logging.TruncateSessionID(sub), reason, metrics.LoginFailures)
+		serverName, logging.TruncateIdentifier(sub), reason, metrics.LoginFailures)
 }
 
 // RecordRateLimitBlock records when a user was rate limited.
@@ -131,7 +131,7 @@ func (m *AuthMetrics) RecordRateLimitBlock(serverName, sub string) {
 	m.totalRateLimitBlocks++
 
 	logging.Warn("AuthMetrics", "Rate limit block for server %s by user %s (total blocks: %d)",
-		serverName, logging.TruncateSessionID(sub), metrics.RateLimitBlocks)
+		serverName, logging.TruncateIdentifier(sub), metrics.RateLimitBlocks)
 }
 
 // RecordLogoutAttempt records a logout attempt.
@@ -148,7 +148,7 @@ func (m *AuthMetrics) RecordLogoutAttempt(serverName, sub string) {
 	m.totalLogoutAttempts++
 
 	logging.Debug("AuthMetrics", "Logout attempt for server %s by user %s",
-		serverName, logging.TruncateSessionID(sub))
+		serverName, logging.TruncateIdentifier(sub))
 }
 
 // RecordLogoutSuccess records a successful logout.
@@ -165,7 +165,7 @@ func (m *AuthMetrics) RecordLogoutSuccess(serverName, sub string) {
 	m.totalLogoutSuccesses++
 
 	logging.Info("AuthMetrics", "Logout success for server %s by user %s",
-		serverName, logging.TruncateSessionID(sub))
+		serverName, logging.TruncateIdentifier(sub))
 }
 
 // AuthMetricsSummary provides a summary of authentication metrics.

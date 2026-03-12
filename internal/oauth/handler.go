@@ -83,7 +83,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logging.Debug("OAuth", "Processing OAuth callback for subject=%s server=%s issuer=%s",
-		logging.TruncateSessionID(state.Subject), state.ServerName, state.Issuer)
+		logging.TruncateIdentifier(state.Subject), state.ServerName, state.Issuer)
 
 	// Validate we have the required data stored with the state
 	if state.Issuer == "" {
@@ -109,7 +109,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	h.client.StoreToken(state.Subject, token)
 
 	logging.Info("OAuth", "Successfully authenticated subject=%s server=%s",
-		logging.TruncateSessionID(state.Subject), state.ServerName)
+		logging.TruncateIdentifier(state.Subject), state.ServerName)
 
 	// Call the auth completion callback to establish session connection
 	if h.manager != nil {
@@ -122,7 +122,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 				// Log the error but don't fail the OAuth flow - the token is already stored
 				// and can be used on the next request
 				logging.Warn("OAuth", "Auth completion callback failed for subject=%s server=%s: %v",
-					logging.TruncateSessionID(state.Subject), state.ServerName, err)
+					logging.TruncateIdentifier(state.Subject), state.ServerName, err)
 			}
 		}
 	}

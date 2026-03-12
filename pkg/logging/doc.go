@@ -90,7 +90,7 @@
 //	logging.Audit(logging.AuditEvent{
 //	    Action:    "token_exchange",
 //	    Outcome:   "success",
-//	    SessionID: logging.TruncateSessionID(sessionID),
+//	    Subject:   logging.TruncateIdentifier(sub),
 //	    Target:    "mcp-kubernetes",
 //	})
 //

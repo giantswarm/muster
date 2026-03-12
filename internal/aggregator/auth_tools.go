@@ -401,6 +401,13 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
 	}
 
+	// NOTE: We intentionally do NOT clear the sessionInitTracker entry here.
+	// After logout, the user must explicitly re-authenticate via core_auth_login.
+	// If we cleared the tracker, the next MCP request would trigger proactive SSO
+	// reconnect, which defeats the purpose of logging out (see #423, #440).
+	// Proactive SSO will naturally re-trigger when the muster access token is
+	// refreshed (new token hash detected by triggerSessionInitIfNeeded).
+
 	// Record logout success
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLogoutSuccess(serverName, sub)
@@ -417,9 +424,9 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 }
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
-// This delegates to the shared establishSessionConnection helper to avoid code duplication.
+// This delegates to the shared establishConnection helper to avoid code duplication.
 func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
-	result, err := establishSessionConnection(ctx, p.aggregator, sub, serverName, serverURL, issuer, scope, accessToken)
+	result, err := establishConnection(ctx, p.aggregator, sub, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +447,7 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, ser
 		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
 	}
 
-	result, err := EstablishSessionConnectionWithTokenExchange(
+	result, err := EstablishConnectionWithTokenExchange(
 		ctx, p.aggregator, sub, serverInfo, musterIssuer,
 	)
 	if err != nil {
@@ -465,7 +472,7 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sub string, s
 		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
 	}
 
-	result, err := EstablishSessionConnectionWithTokenForwarding(
+	result, err := EstablishConnectionWithTokenForwarding(
 		ctx, p.aggregator, sub, serverInfo, musterIssuer,
 	)
 	if err != nil {

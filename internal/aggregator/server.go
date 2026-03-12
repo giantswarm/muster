@@ -96,14 +96,17 @@ type AggregatorServer struct {
 
 // subjectSessionTracker maps user subjects to their MCP client session IDs.
 // This enables targeted notifications instead of broadcasting to all clients.
+// A reverse map (session -> subject) allows O(1) removal when a session disconnects.
 type subjectSessionTracker struct {
 	mu       sync.RWMutex
 	sessions map[string]map[string]bool // sub -> set of MCP session IDs
+	reverse  map[string]string          // MCP session ID -> sub
 }
 
 func newSubjectSessionTracker() *subjectSessionTracker {
 	return &subjectSessionTracker{
 		sessions: make(map[string]map[string]bool),
+		reverse:  make(map[string]string),
 	}
 }
 
@@ -115,13 +118,19 @@ func (t *subjectSessionTracker) Track(sub, mcpSessionID string) {
 		t.sessions[sub] = make(map[string]bool)
 	}
 	t.sessions[sub][mcpSessionID] = true
+	t.reverse[mcpSessionID] = sub
 }
 
-// RemoveSession removes an MCP session ID from all subject mappings.
+// RemoveSession removes an MCP session ID using the reverse map for O(1) lookup.
 func (t *subjectSessionTracker) RemoveSession(mcpSessionID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for sub, ids := range t.sessions {
+	sub, ok := t.reverse[mcpSessionID]
+	if !ok {
+		return
+	}
+	delete(t.reverse, mcpSessionID)
+	if ids, exists := t.sessions[sub]; exists {
 		delete(ids, mcpSessionID)
 		if len(ids) == 0 {
 			delete(t.sessions, sub)
@@ -141,64 +150,98 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 	return result
 }
 
+// ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry.
+type ssoFailedEntry struct {
+	failedAt time.Time
+}
+
+// ssoTrackerFailureTTL is the duration after which SSO failure entries expire.
+// Once expired, proactive SSO will retry the server on the next session init.
+const ssoTrackerFailureTTL = 30 * time.Minute
+
 // ssoTracker tracks SSO initialization state per user subject.
 // This is a lightweight replacement for the SSO tracking methods that were
 // previously in SessionRegistry.
 type ssoTracker struct {
 	mu             sync.RWMutex
-	initInProgress map[string]bool            // sub -> bool
-	failedServers  map[string]map[string]bool // sub -> serverName -> bool
+	initInProgress map[string]bool                       // sub -> bool
+	failedServers  map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
 }
 
 func newSSOTracker() *ssoTracker {
 	return &ssoTracker{
 		initInProgress: make(map[string]bool),
-		failedServers:  make(map[string]map[string]bool),
+		failedServers:  make(map[string]map[string]*ssoFailedEntry),
 	}
 }
 
+// StartSSOInit marks that SSO initialization is in progress for a user.
 func (s *ssoTracker) StartSSOInit(sub string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.initInProgress[sub] = true
 }
 
+// EndSSOInit marks that SSO initialization has completed for a user.
 func (s *ssoTracker) EndSSOInit(sub string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.initInProgress, sub)
 }
 
+// IsSSOInitInProgress returns true if SSO initialization is currently running for the user.
 func (s *ssoTracker) IsSSOInitInProgress(sub string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.initInProgress[sub]
 }
 
+// MarkSSOFailed records that SSO failed for a user/server pair with a timestamp.
 func (s *ssoTracker) MarkSSOFailed(sub, serverName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failedServers[sub] == nil {
-		s.failedServers[sub] = make(map[string]bool)
+		s.failedServers[sub] = make(map[string]*ssoFailedEntry)
 	}
-	s.failedServers[sub][serverName] = true
+	s.failedServers[sub][serverName] = &ssoFailedEntry{failedAt: time.Now()}
 }
 
+// HasSSOFailed returns true if SSO has recently failed for this user/server pair.
+// Entries older than ssoTrackerFailureTTL are treated as expired and return false.
 func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if m, ok := s.failedServers[sub]; ok {
-		return m[serverName]
+		if entry, exists := m[serverName]; exists {
+			return time.Since(entry.failedAt) < ssoTrackerFailureTTL
+		}
 	}
 	return false
 }
 
+// ClearSSOFailed removes the SSO failure record for a user/server pair.
 func (s *ssoTracker) ClearSSOFailed(sub, serverName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := s.failedServers[sub]; ok {
 		delete(m, serverName)
 		if len(m) == 0 {
+			delete(s.failedServers, sub)
+		}
+	}
+}
+
+// CleanupExpired removes SSO failure entries older than ssoTrackerFailureTTL.
+func (s *ssoTracker) CleanupExpired() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sub, servers := range s.failedServers {
+		for serverName, entry := range servers {
+			if time.Since(entry.failedAt) >= ssoTrackerFailureTTL {
+				delete(servers, serverName)
+			}
+		}
+		if len(servers) == 0 {
 			delete(s.failedServers, sub)
 		}
 	}
@@ -211,8 +254,8 @@ func (s *ssoTracker) ClearSSOFailed(sub, serverName string) {
 //
 // The server is configured with:
 //   - A server registry using the specified muster prefix
-//   - A session registry for per-session state management (OAuth)
 //   - Active item managers for tracking capabilities
+//   - Per-user capability cache and SSO tracker for OAuth servers
 //   - Default transport settings based on configuration
 //
 // Args:
@@ -300,6 +343,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Start background monitoring for registry changes
 	a.wg.Add(1)
 	go a.monitorRegistryUpdates()
+
+	// Start periodic cleanup for SSO failure entries
+	a.wg.Add(1)
+	go a.runSSOTrackerCleanup()
 
 	// Subscribe to tool update events from workflow and other managers
 	// This ensures the aggregator stays synchronized with core muster components
@@ -639,6 +686,21 @@ func (a *AggregatorServer) monitorRegistryUpdates() {
 
 			// Publish tool update event to trigger refresh in dependent managers
 			a.publishToolUpdateEvent()
+		}
+	}
+}
+
+// runSSOTrackerCleanup periodically removes expired SSO failure entries.
+func (a *AggregatorServer) runSSOTrackerCleanup() {
+	defer a.wg.Done()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.ssoTracker.CleanupExpired()
 		}
 	}
 }
@@ -1063,7 +1125,7 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	}
 
 	logging.Debug("Aggregator", "sessionToolFilter: returning %d tools (%d mcp server, %d core) for subject %s",
-		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateSessionID(subject))
+		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateIdentifier(subject))
 
 	return allTools
 }
@@ -1147,18 +1209,18 @@ func (a *AggregatorServer) sendUserNotification(sub, method string) {
 	sessionIDs := a.subjectSessions.GetSessionIDs(sub)
 	if len(sessionIDs) == 0 {
 		logging.Debug("Aggregator", "No sessions found for subject %s, skipping %s notification",
-			logging.TruncateSessionID(sub), method)
+			logging.TruncateIdentifier(sub), method)
 		return
 	}
 
 	for _, sid := range sessionIDs {
 		if err := mcpServer.SendNotificationToSpecificClient(sid, method, nil); err != nil {
 			logging.Debug("Aggregator", "Failed to send %s to session %s for subject %s: %v",
-				method, sid, logging.TruncateSessionID(sub), err)
+				method, sid, logging.TruncateIdentifier(sub), err)
 		}
 	}
 	logging.Debug("Aggregator", "Sent %s notification to %d session(s) for subject %s",
-		method, len(sessionIDs), logging.TruncateSessionID(sub))
+		method, len(sessionIDs), logging.TruncateIdentifier(sub))
 }
 
 // GetToolsWithStatus returns all available tools along with their security blocking status.
@@ -1303,7 +1365,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		// For auth-required servers, try on-demand client via CapabilityCache
 		if serverInfo.Status == StatusAuthRequired && sub != "" {
 			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for user %s",
-				serverName, logging.TruncateSessionID(sub))
+				serverName, logging.TruncateIdentifier(sub))
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sub, toolName)
 			if sessionErr == nil {
 				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
@@ -1690,11 +1752,11 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 // On success, it upgrades the session connection and returns a success result.
 // On failure, it returns an error that the caller can use to determine next steps.
 //
-// This method delegates to the shared establishSessionConnection helper to avoid code duplication.
+// This method delegates to the shared establishConnection helper to avoid code duplication.
 // The issuer and scope parameters are used to create a MusterTokenStore that provides
 // automatic token refresh via mcp-go's built-in OAuth handler.
 func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
-	result, err := establishSessionConnection(ctx, a, sub, serverName, serverURL, issuer, scope, accessToken)
+	result, err := establishConnection(ctx, a, sub, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1798,7 +1860,7 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		a.capabilityCache.InvalidateUser(sub)
 	}
 
-	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateSessionID(sub))
+	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateIdentifier(sub))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1845,7 +1907,7 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 	}
 
 	logging.Info("Aggregator", "Server %s disconnected for user via DELETE /auth/{server}: %s",
-		serverName, logging.TruncateSessionID(sub))
+		serverName, logging.TruncateIdentifier(sub))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2076,7 +2138,7 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools = append(allTools, coreTools...)
 
 	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for subject %s",
-		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateSessionID(subject))
+		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateIdentifier(subject))
 
 	return allTools
 }
@@ -2188,7 +2250,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	}
 
 	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for user %s",
-		len(authRequired), logging.TruncateSessionID(sub))
+		len(authRequired), logging.TruncateIdentifier(sub))
 
 	return authRequired
 }

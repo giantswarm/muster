@@ -21,7 +21,7 @@ import (
 )
 
 // ConnectionResult contains the result of establishing a session connection.
-// This is returned by establishSessionConnection and used by callers to format
+// This is returned by establishConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
 type ConnectionResult struct {
 	// ServerName is the name of the server that was connected
@@ -34,7 +34,7 @@ type ConnectionResult struct {
 	PromptCount int
 }
 
-// establishSessionConnection creates a connection to an MCP server and populates
+// establishConnection creates a connection to an MCP server and populates
 // the CapabilityCache. This is the shared implementation used by both:
 //   - AuthToolProvider.tryConnectWithToken (core_auth_login tool)
 //   - AggregatorServer.tryConnectWithToken (OAuth browser callback, manager.go)
@@ -56,7 +56,7 @@ type ConnectionResult struct {
 //   - accessToken: The access token to use for authentication
 //
 // Returns the connection result or an error if connection failed.
-func establishSessionConnection(
+func establishConnection(
 	ctx context.Context,
 	a *AggregatorServer,
 	sub, serverName, serverURL, issuer, scope, accessToken string,
@@ -72,16 +72,16 @@ func establishSessionConnection(
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
 		tokenStore := internalmcp.NewMusterTokenStore(sub, issuer, oauthHandler)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
-		logging.Debug("SessionConnection", "Using DynamicAuthClient for user %s, server %s (issuer=%s)",
-			logging.TruncateSessionID(sub), serverName, issuer)
+		logging.Debug("Connection", "Using DynamicAuthClient for user %s, server %s (issuer=%s)",
+			logging.TruncateIdentifier(sub), serverName, issuer)
 	} else {
 		// Fallback to static headers
 		headers := map[string]string{
 			"Authorization": "Bearer " + accessToken,
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("SessionConnection", "Using static auth headers for user %s, server %s",
-			logging.TruncateSessionID(sub), serverName)
+		logging.Debug("Connection", "Using static auth headers for user %s, server %s",
+			logging.TruncateIdentifier(sub), serverName)
 	}
 
 	// Try to initialize the client
@@ -100,14 +100,14 @@ func establishSessionConnection(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverName, err)
+		logging.Debug("Connection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverName, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverName, err)
+		logging.Debug("Connection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverName, err)
 		prompts = nil
 	}
 
@@ -129,8 +129,8 @@ func establishSessionConnection(
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
 
-	logging.Info("SessionConnection", "User %s connected to %s with %d tools, %d resources, %d prompts",
-		logging.TruncateSessionID(sub), serverName, len(tools), len(resources), len(prompts))
+	logging.Info("Connection", "User %s connected to %s with %d tools, %d resources, %d prompts",
+		logging.TruncateIdentifier(sub), serverName, len(tools), len(resources), len(prompts))
 
 	return &ConnectionResult{
 		ServerName:    serverName,
@@ -198,8 +198,8 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 	// This is the primary SSO use case: user authenticates TO muster, and we forward that
 	// token to downstream servers that trust muster's OAuth client ID.
 	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
-		logging.Debug("SessionConnection", "Found ID token in request context for user %s",
-			logging.TruncateSessionID(sub))
+		logging.Debug("Connection", "Found ID token in request context for user %s",
+			logging.TruncateIdentifier(sub))
 		return idToken
 	}
 
@@ -209,18 +209,18 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
 		fullToken := oauthHandler.GetFullTokenByIssuer(sub, musterIssuer)
 		if fullToken != nil && fullToken.IDToken != "" {
-			logging.Debug("SessionConnection", "Found ID token in OAuth proxy store for user %s, issuer %s",
-				logging.TruncateSessionID(sub), musterIssuer)
+			logging.Debug("Connection", "Found ID token in OAuth proxy store for user %s, issuer %s",
+				logging.TruncateIdentifier(sub), musterIssuer)
 			return fullToken.IDToken
 		}
 	}
 
-	logging.Debug("SessionConnection", "No ID token found for user %s",
-		logging.TruncateSessionID(sub))
+	logging.Debug("Connection", "No ID token found for user %s",
+		logging.TruncateIdentifier(sub))
 	return ""
 }
 
-// EstablishSessionConnectionWithTokenForwarding attempts to establish a connection
+// EstablishConnectionWithTokenForwarding attempts to establish a connection
 // using ID token forwarding for SSO. This is used when an MCPServer has forwardToken: true.
 //
 // The function:
@@ -238,7 +238,7 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 // Returns:
 //   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
-func EstablishSessionConnectionWithTokenForwarding(
+func EstablishConnectionWithTokenForwarding(
 	ctx context.Context,
 	a *AggregatorServer,
 	sub string,
@@ -253,8 +253,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	}
 	if a.capabilityCache != nil {
 		if entry, exists := a.capabilityCache.Get(fwdSub, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token forwarding",
-				logging.TruncateSessionID(fwdSub), serverInfo.Name)
+			logging.Debug("Connection", "User %s already connected to %s, skipping token forwarding",
+				logging.TruncateIdentifier(fwdSub), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
@@ -268,21 +268,21 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// This is the primary SSO use case.
 	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for user %s",
-			logging.TruncateSessionID(sub))
+		logging.Debug("Connection", "No ID token available for user %s",
+			logging.TruncateIdentifier(sub))
 		return nil, fmt.Errorf("no ID token available for forwarding")
 	}
 
 	// Validate ID token is not expired before forwarding
 	// This avoids unnecessary network round-trips with expired tokens
 	if isIDTokenExpired(idToken) {
-		logging.Warn("SessionConnection", "ID token expired for user %s, cannot forward to %s",
-			logging.TruncateSessionID(sub), serverInfo.Name)
+		logging.Warn("Connection", "ID token expired for user %s, cannot forward to %s",
+			logging.TruncateIdentifier(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before forwarding")
 	}
 
-	logging.Info("SessionConnection", "Attempting ID token forwarding for user %s to server %s",
-		logging.TruncateSessionID(sub), serverInfo.Name)
+	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 
 	// Create a client with a dynamic header function that resolves the latest
 	// ID token on each request. This ensures token refresh is picked up
@@ -295,13 +295,13 @@ func EstablishSessionConnectionWithTokenForwarding(
 	headerFunc := func(_ context.Context) map[string]string {
 		latestToken := getIDTokenForForwarding(context.Background(), sub, musterIssuer)
 		if latestToken == "" {
-			logging.Warn("SessionConnection", "Authentication failed: no ID token in OAuth store for user %s to %s, using original token",
-				logging.TruncateSessionID(sub), serverInfo.Name)
+			logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for user %s to %s, using original token",
+				logging.TruncateIdentifier(sub), serverInfo.Name)
 			// Fall back to the original token; the server will return 401 if expired
 			latestToken = idToken
 		} else if latestToken != idToken {
-			logging.Info("SessionConnection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
-				logging.TruncateSessionID(sub), serverInfo.Name)
+			logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
+				logging.TruncateIdentifier(sub), serverInfo.Name)
 		}
 		return map[string]string{
 			"Authorization": "Bearer " + latestToken,
@@ -314,8 +314,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 		client.Close()
 
 		// Log the token forwarding failure
-		logging.Warn("SessionConnection", "ID token forwarding failed for user %s to server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 
 		// Emit event for token forwarding failure
 		emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
@@ -324,8 +324,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	}
 
 	// Token forwarding succeeded - emit success event
-	logging.Info("SessionConnection", "ID token forwarding succeeded for user %s to server %s",
-		logging.TruncateSessionID(sub), serverInfo.Name)
+	logging.Info("Connection", "ID token forwarding succeeded for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 	emitTokenForwardingEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
 
 	// Fetch tools from the server
@@ -338,14 +338,14 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Debug("Connection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Debug("Connection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 		prompts = nil
 	}
 
@@ -367,8 +367,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
 
-	logging.Info("SessionConnection", "User %s connected to %s via SSO token forwarding with %d tools",
-		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
+	logging.Info("Connection", "User %s connected to %s via SSO token forwarding with %d tools",
+		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
 
 	return &ConnectionResult{
 		ServerName:    serverInfo.Name,
@@ -387,7 +387,7 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
 		namespace = "default"
 	}
 
@@ -443,7 +443,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
 }
 
-// EstablishSessionConnectionWithTokenExchange attempts to establish a connection
+// EstablishConnectionWithTokenExchange attempts to establish a connection
 // using RFC 8693 Token Exchange for cross-cluster SSO. This is used when an MCPServer has
 // tokenExchange configured.
 //
@@ -463,7 +463,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 // Returns:
 //   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
-func EstablishSessionConnectionWithTokenExchange(
+func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
 	sub string,
@@ -482,8 +482,8 @@ func EstablishSessionConnectionWithTokenExchange(
 	}
 	if a.capabilityCache != nil {
 		if entry, exists := a.capabilityCache.Get(exchSub, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token exchange",
-				logging.TruncateSessionID(exchSub), serverInfo.Name)
+			logging.Debug("Connection", "User %s already connected to %s, skipping token exchange",
+				logging.TruncateIdentifier(exchSub), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
@@ -499,28 +499,28 @@ func EstablishSessionConnectionWithTokenExchange(
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
 	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
 	if idToken == "" {
-		logging.Debug("SessionConnection", "No ID token available for user %s",
-			logging.TruncateSessionID(sub))
+		logging.Debug("Connection", "No ID token available for user %s",
+			logging.TruncateIdentifier(sub))
 		return nil, fmt.Errorf("no ID token available for token exchange")
 	}
 
 	// Validate ID token is not expired before exchanging
 	if isIDTokenExpired(idToken) {
-		logging.Warn("SessionConnection", "ID token expired for user %s, cannot exchange for %s",
-			logging.TruncateSessionID(sub), serverInfo.Name)
+		logging.Warn("Connection", "ID token expired for user %s, cannot exchange for %s",
+			logging.TruncateIdentifier(sub), serverInfo.Name)
 		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
 	}
 
 	// Extract user ID from the token for cache key generation
 	userID := extractUserIDFromToken(idToken)
 	if userID == "" {
-		logging.Warn("SessionConnection", "Failed to extract user ID from token for user %s",
-			logging.TruncateSessionID(sub))
+		logging.Warn("Connection", "Failed to extract user ID from token for user %s",
+			logging.TruncateIdentifier(sub))
 		return nil, fmt.Errorf("failed to extract user ID from token")
 	}
 
-	logging.Info("SessionConnection", "Attempting token exchange for user %s to server %s",
-		logging.TruncateSessionID(sub), serverInfo.Name)
+	logging.Info("Connection", "Attempting token exchange for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 
 	// Load client credentials from secret if configured.
 	// Note: This intentionally mutates serverInfo.AuthConfig.TokenExchange to populate
@@ -529,12 +529,12 @@ func EstablishSessionConnectionWithTokenExchange(
 	if serverInfo.AuthConfig.TokenExchange.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
-			logging.Error("SessionConnection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
+			logging.Error("Connection", err, "Failed to load token exchange credentials for %s", serverInfo.Name)
 			return nil, fmt.Errorf("failed to load client credentials: %w", err)
 		}
 		serverInfo.AuthConfig.TokenExchange.ClientID = credentials.ClientID
 		serverInfo.AuthConfig.TokenExchange.ClientSecret = credentials.ClientSecret
-		logging.Debug("SessionConnection", "Loaded client credentials for token exchange to %s (client_id=%s)",
+		logging.Debug("Connection", "Loaded client credentials for token exchange to %s (client_id=%s)",
 			serverInfo.Name, credentials.ClientID)
 	}
 
@@ -554,11 +554,11 @@ func EstablishSessionConnectionWithTokenExchange(
 		if err != nil {
 			// Log the error but continue without the audiences - they should already be
 			// validated at CRD admission, but handle gracefully if not.
-			logging.Warn("SessionConnection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+			logging.Warn("Connection", "Failed to format audience scopes for %s: %v (continuing without audiences)",
 				serverInfo.Name, err)
 		} else {
 			serverInfo.AuthConfig.TokenExchange.Scopes = updatedScopes
-			logging.Debug("SessionConnection", "Added %d required audiences to token exchange scopes for %s",
+			logging.Debug("Connection", "Added %d required audiences to token exchange scopes for %s",
 				len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
 		}
 	}
@@ -570,7 +570,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	// If Teleport is configured but failed, return an explicit error rather than
 	// falling back silently (which would cause confusing connection failures to private endpoints)
 	if teleportResult.Configured && teleportResult.Error != nil {
-		logging.Error("SessionConnection", teleportResult.Error, "Teleport required for %s but failed",
+		logging.Error("Connection", teleportResult.Error, "Teleport required for %s but failed",
 			serverInfo.Name)
 		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
 	}
@@ -579,7 +579,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	var exchangedToken string
 	var err error
 	if teleportResult.Client != nil {
-		logging.Debug("SessionConnection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
+		logging.Debug("Connection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
 		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
 			ctx,
 			idToken,
@@ -596,39 +596,39 @@ func EstablishSessionConnectionWithTokenExchange(
 		)
 	}
 	if err != nil {
-		logging.Warn("SessionConnection", "Token exchange failed for user %s to server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 
 		// Emit event for token exchange failure
 		emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), false, err.Error())
 
 		// Audit log for failed token exchange (compliance/security monitoring)
 		logging.Audit(logging.AuditEvent{
-			Action:    "token_exchange",
-			Outcome:   "failure",
-			SessionID: logging.TruncateSessionID(sub),
-			UserID:    logging.TruncateSessionID(userID),
-			Target:    serverInfo.Name,
-			Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
-			Error:     err.Error(),
+			Action:  "token_exchange",
+			Outcome: "failure",
+			Subject: logging.TruncateIdentifier(sub),
+			UserID:  logging.TruncateIdentifier(userID),
+			Target:  serverInfo.Name,
+			Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+			Error:   err.Error(),
 		})
 
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
 	// Token exchange succeeded - emit success event and audit log
-	logging.Info("SessionConnection", "Token exchange succeeded for user %s to server %s",
-		logging.TruncateSessionID(sub), serverInfo.Name)
+	logging.Info("Connection", "Token exchange succeeded for user %s to server %s",
+		logging.TruncateIdentifier(sub), serverInfo.Name)
 	emitTokenExchangeEvent(serverInfo.Name, serverInfo.GetNamespace(), true, "")
 
 	// Audit log for successful token exchange (compliance/security monitoring)
 	logging.Audit(logging.AuditEvent{
-		Action:    "token_exchange",
-		Outcome:   "success",
-		SessionID: logging.TruncateSessionID(sub),
-		UserID:    logging.TruncateSessionID(userID),
-		Target:    serverInfo.Name,
-		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
+		Action:  "token_exchange",
+		Outcome: "success",
+		Subject: logging.TruncateIdentifier(sub),
+		UserID:  logging.TruncateIdentifier(userID),
+		Target:  serverInfo.Name,
+		Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
 	})
 
 	// Create a simple header function using the exchanged token.
@@ -642,7 +642,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
 	var client *internalmcp.StreamableHTTPClient
 	if teleportResult.Client != nil {
-		logging.Debug("SessionConnection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
+		logging.Debug("Connection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
 	} else {
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
@@ -652,8 +652,8 @@ func EstablishSessionConnectionWithTokenExchange(
 	if err := client.Initialize(ctx); err != nil {
 		client.Close()
 
-		logging.Warn("SessionConnection", "Connection with exchanged token failed for user %s to server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Warn("Connection", "Connection with exchanged token failed for user %s to server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 
 		return nil, fmt.Errorf("connection with exchanged token failed: %w", err)
 	}
@@ -668,14 +668,14 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Fetch resources and prompts (optional - some servers may not support them)
 	resources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list resources for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Debug("Connection", "Failed to list resources for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 		resources = nil
 	}
 	prompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("SessionConnection", "Failed to list prompts for user %s, server %s: %v",
-			logging.TruncateSessionID(sub), serverInfo.Name, err)
+		logging.Debug("Connection", "Failed to list prompts for user %s, server %s: %v",
+			logging.TruncateIdentifier(sub), serverInfo.Name, err)
 		prompts = nil
 	}
 
@@ -697,8 +697,8 @@ func EstablishSessionConnectionWithTokenExchange(
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
 
-	logging.Info("SessionConnection", "User %s connected to %s via RFC 8693 token exchange with %d tools",
-		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
+	logging.Info("Connection", "User %s connected to %s via RFC 8693 token exchange with %d tools",
+		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
 
 	return &ConnectionResult{
 		ServerName:    serverInfo.Name,
@@ -717,7 +717,7 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
-		logging.Warn("SessionConnection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
+		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
 		namespace = "default"
 	}
 
@@ -811,7 +811,7 @@ const idTokenExpiryMargin = 30 * time.Second
 // fail the connection flow.
 func notifyMCPServerConnected(serverName, authMethod string) {
 	if err := api.UpdateMCPServerState(serverName, api.StateConnected, api.HealthHealthy, nil); err != nil {
-		logging.Warn("SessionConnection", "Failed to update MCPServer %s state after %s: %v",
+		logging.Warn("Connection", "Failed to update MCPServer %s state after %s: %v",
 			serverName, authMethod, err)
 	}
 }
@@ -920,7 +920,7 @@ func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerIn
 	// From this point on, Teleport IS configured - errors should be explicit
 	if serverInfo.AuthConfig.Teleport == nil {
 		err := fmt.Errorf("teleport auth type configured but teleport settings missing")
-		logging.Error("SessionConnection", err, "Teleport configuration error for %s", serverInfo.Name)
+		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
 		return TeleportClientResult{Configured: true, Error: err}
 	}
 
@@ -928,7 +928,7 @@ func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerIn
 	teleportHandler := api.GetTeleportClient()
 	if teleportHandler == nil {
 		err := fmt.Errorf("teleport client handler not registered - ensure teleport package is initialized")
-		logging.Error("SessionConnection", err, "Teleport initialization error for %s", serverInfo.Name)
+		logging.Error("Connection", err, "Teleport initialization error for %s", serverInfo.Name)
 		return TeleportClientResult{Configured: true, Error: err}
 	}
 
@@ -944,12 +944,12 @@ func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerIn
 	// Validate that exactly one identity source is specified
 	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
 		err := fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-		logging.Error("SessionConnection", err, "Teleport configuration error for %s", serverInfo.Name)
+		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
 		return TeleportClientResult{Configured: true, Error: err}
 	}
 	if clientConfig.IdentityDir != "" && clientConfig.IdentitySecretName != "" {
 		err := fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-		logging.Error("SessionConnection", err, "Teleport configuration error for %s", serverInfo.Name)
+		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
 		return TeleportClientResult{Configured: true, Error: err}
 	}
 
@@ -957,11 +957,11 @@ func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerIn
 	httpClient, err := teleportHandler.GetHTTPClientForConfig(ctx, clientConfig)
 	if err != nil {
 		wrappedErr := fmt.Errorf("failed to get Teleport HTTP client: %w", err)
-		logging.Error("SessionConnection", wrappedErr, "Teleport client error for %s", serverInfo.Name)
+		logging.Error("Connection", wrappedErr, "Teleport client error for %s", serverInfo.Name)
 		return TeleportClientResult{Configured: true, Error: wrappedErr}
 	}
 
-	logging.Debug("SessionConnection", "Got Teleport HTTP client for %s", serverInfo.Name)
+	logging.Debug("Connection", "Got Teleport HTTP client for %s", serverInfo.Name)
 	return TeleportClientResult{Configured: true, Client: httpClient}
 }
 

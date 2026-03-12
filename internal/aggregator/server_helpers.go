@@ -296,7 +296,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			if callErr != nil {
 				if is401Error(callErr) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for user %s - token expired/refresh failed",
-						serverName, logging.TruncateSessionID(sub))
+						serverName, logging.TruncateIdentifier(sub))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", callErr)
@@ -331,7 +331,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			if err != nil {
 				if is401Error(err) {
 					logging.Warn("Aggregator", "Tool call to %s got 401 for user %s - token expired/refresh failed",
-						sName, logging.TruncateSessionID(sub))
+						sName, logging.TruncateIdentifier(sub))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", sName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", err)

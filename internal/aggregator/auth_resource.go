@@ -340,12 +340,12 @@ func (a *AggregatorServer) establishSSOConnection(
 
 	// Token exchange takes precedence over token forwarding
 	if ShouldUseTokenExchange(serverInfo) {
-		result, err = EstablishSessionConnectionWithTokenExchange(
+		result, err = EstablishConnectionWithTokenExchange(
 			ctx, a, sub, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token exchange (RFC 8693)"
 	} else {
-		result, err = EstablishSessionConnectionWithTokenForwarding(
+		result, err = EstablishConnectionWithTokenForwarding(
 			ctx, a, sub, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token forwarding"
