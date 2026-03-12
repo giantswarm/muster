@@ -270,7 +270,7 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 		sName, originalName, err := a.registry.ResolveToolName(exposedName)
 		if err != nil {
 			// If not found in registry, check capability cache for OAuth-protected servers
-			serverName, origName, resolveErr := a.resolveSessionTool(sub, exposedName)
+			serverName, origName, resolveErr := a.resolveUserTool(sub, exposedName)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
 			}

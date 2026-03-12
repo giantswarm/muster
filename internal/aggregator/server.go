@@ -1009,6 +1009,11 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 // This is used after OAuth authentication adds tools from a new server.
 // Since session IDs are no longer tracked, we broadcast to all clients;
 // each client receives its own filtered tool list via sessionToolFilter.
+//
+// Trade-off: every client receives a notification when any user authenticates,
+// even though only that user's tool list changed. For small deployments this is
+// fine; for many concurrent users, consider re-introducing targeted notifications
+// if the extra tool-list refreshes become a performance concern.
 func (a *AggregatorServer) NotifyToolsChanged() {
 	a.mu.RLock()
 	mcpServer := a.mcpServer
@@ -1236,7 +1241,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		if serverInfo.Status == StatusAuthRequired && sub != "" {
 			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for user %s",
 				serverName, logging.TruncateSessionID(sub))
-			_, sessionOriginalName, sessionErr := a.resolveSessionTool(sub, toolName)
+			_, sessionOriginalName, sessionErr := a.resolveUserTool(sub, toolName)
 			if sessionErr == nil {
 				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
 				client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sub)
@@ -1263,7 +1268,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// Check capability cache for OAuth-protected servers (Issue #343)
 	// This handles tools that are only available through user-specific connections
 	if sub != "" {
-		sessionServerName, originalName, sessionErr := a.resolveSessionTool(sub, toolName)
+		sessionServerName, originalName, sessionErr := a.resolveUserTool(sub, toolName)
 		if sessionErr == nil {
 			logging.Debug("Aggregator", "Tool %s found in capability cache (server: %s)", toolName, sessionServerName)
 			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sessionServerName, sub)
@@ -1781,12 +1786,12 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resolveSessionTool attempts to resolve a tool name through the CapabilityCache.
+// resolveUserTool attempts to resolve a tool name through the CapabilityCache.
 // This is used for OAuth-protected servers where tools are cached per-user.
 //
 // Returns the server name and original tool name, or an error if not found.
 // Callers create an on-demand client via getOrCreateClientForToolCall.
-func (a *AggregatorServer) resolveSessionTool(sub, exposedName string) (string, string, error) {
+func (a *AggregatorServer) resolveUserTool(sub, exposedName string) (string, string, error) {
 	if a.capabilityCache == nil {
 		return "", "", fmt.Errorf("capability cache not initialized")
 	}

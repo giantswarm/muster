@@ -334,7 +334,7 @@ func (a *AggregatorServer) establishSSOConnection(
 		}
 	}
 
-	var result *SessionConnectionResult
+	var result *ConnectionResult
 	var err error
 	var ssoMethod string
 

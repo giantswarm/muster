@@ -13,42 +13,42 @@ import (
 type issuerMockOAuthHandler struct {
 	enabled          bool
 	findTokenResult  *api.OAuthToken
-	getFullTokenFunc func(sessionID, issuer string) *api.OAuthToken
+	getFullTokenFunc func(sub, issuer string) *api.OAuthToken
 }
 
 func (m *issuerMockOAuthHandler) IsEnabled() bool {
 	return m.enabled
 }
 
-func (m *issuerMockOAuthHandler) GetToken(sessionID, serverName string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetToken(sub, serverName string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetTokenByIssuer(sub, issuer string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sub, issuer string) *api.OAuthToken {
 	if m.getFullTokenFunc != nil {
-		return m.getFullTokenFunc(sessionID, issuer)
+		return m.getFullTokenFunc(sub, issuer)
 	}
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
 	return m.findTokenResult
 }
 
-func (m *issuerMockOAuthHandler) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+func (m *issuerMockOAuthHandler) StoreToken(sub, issuer string, token *api.OAuthToken) {
 }
 
-func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sessionID, issuer string) {
+func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sub, issuer string) {
 }
 
 func (m *issuerMockOAuthHandler) DeleteTokensByUser(subject string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(ctx context.Context, sub, serverName, issuer, scope string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 
@@ -112,7 +112,7 @@ func TestGetMusterIssuer_WithOAuthServerConfig(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	// Should return the BaseURL from the config
 	if issuer != "https://muster.example.com" {
@@ -147,7 +147,7 @@ func TestGetMusterIssuer_WithEmptyBaseURL(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should fall back to FindTokenWithIDToken
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	// Should return the issuer from the fallback token
 	if issuer != "https://fallback-issuer.example.com" {
@@ -178,7 +178,7 @@ func TestGetMusterIssuer_OAuthNotEnabled(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty because OAuth handler is not enabled
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer when OAuth not enabled, got '%s'", issuer)
@@ -204,7 +204,7 @@ func TestGetMusterIssuer_NoOAuthHandler(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty because no OAuth handler
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer when no OAuth handler, got '%s'", issuer)
@@ -236,7 +236,7 @@ func TestGetMusterIssuer_ConfigNotOAuthServerConfig(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should fall back to FindTokenWithIDToken
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	// Should return the issuer from the fallback token
 	if issuer != "https://fallback-issuer.example.com" {
@@ -265,7 +265,7 @@ func TestGetMusterIssuer_NoFallbackToken(t *testing.T) {
 	provider := NewAuthToolProvider(aggregator)
 
 	// Call getMusterIssuer - should return empty
-	issuer := provider.getMusterIssuer("test-session-id")
+	issuer := provider.getMusterIssuer("test-user-sub")
 
 	if issuer != "" {
 		t.Errorf("expected empty issuer, got '%s'", issuer)

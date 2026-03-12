@@ -61,7 +61,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
-		token := getIDTokenForForwarding(ctx, "test-session", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
 
 		assert.Equal(t, validToken, token)
 	})
@@ -69,7 +69,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	t.Run("returns empty when no token in context and no OAuth handler", func(t *testing.T) {
 		ctx := context.Background()
 
-		token := getIDTokenForForwarding(ctx, "test-session", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})
@@ -79,7 +79,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
 		// Even with an issuer, context token should be returned
-		token := getIDTokenForForwarding(ctx, "test-session", "")
+		token := getIDTokenForForwarding(ctx, "test-user", "")
 
 		assert.Equal(t, validToken, token)
 	})
@@ -88,7 +88,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, "")
 
-		token := getIDTokenForForwarding(ctx, "test-session", "https://accounts.google.com")
+		token := getIDTokenForForwarding(ctx, "test-user", "https://accounts.google.com")
 
 		assert.Empty(t, token)
 	})

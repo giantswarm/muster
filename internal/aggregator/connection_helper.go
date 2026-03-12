@@ -20,10 +20,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// SessionConnectionResult contains the result of establishing a session connection.
+// ConnectionResult contains the result of establishing a session connection.
 // This is returned by establishSessionConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
-type SessionConnectionResult struct {
+type ConnectionResult struct {
 	// ServerName is the name of the server that was connected
 	ServerName string
 	// ToolCount is the number of tools available from the server
@@ -60,7 +60,7 @@ func establishSessionConnection(
 	ctx context.Context,
 	a *AggregatorServer,
 	sub, serverName, serverURL, issuer, scope, accessToken string,
-) (*SessionConnectionResult, error) {
+) (*ConnectionResult, error) {
 	// Get OAuth handler for dynamic token refresh
 	oauthHandler := api.GetOAuthHandler()
 
@@ -132,7 +132,7 @@ func establishSessionConnection(
 	logging.Info("SessionConnection", "User %s connected to %s with %d tools, %d resources, %d prompts",
 		logging.TruncateSessionID(sub), serverName, len(tools), len(resources), len(prompts))
 
-	return &SessionConnectionResult{
+	return &ConnectionResult{
 		ServerName:    serverName,
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
@@ -142,7 +142,7 @@ func establishSessionConnection(
 
 // FormatAsAPIResult formats the connection result as an api.CallToolResult.
 // Used by AuthToolProvider.tryConnectWithToken.
-func (r *SessionConnectionResult) FormatAsAPIResult() *api.CallToolResult {
+func (r *ConnectionResult) FormatAsAPIResult() *api.CallToolResult {
 	return &api.CallToolResult{
 		Content: []interface{}{fmt.Sprintf(
 			api.AuthMsgSuccessfullyConnected+" to '%s'!\n\n"+
@@ -159,7 +159,7 @@ func (r *SessionConnectionResult) FormatAsAPIResult() *api.CallToolResult {
 
 // FormatAsMCPResult formats the connection result as an mcp.CallToolResult.
 // Used by AggregatorServer.tryConnectWithToken.
-func (r *SessionConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
+func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.NewTextContent(fmt.Sprintf(
@@ -236,7 +236,7 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
 // Returns:
-//   - *SessionConnectionResult: The connection result if successful
+//   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
 func EstablishSessionConnectionWithTokenForwarding(
 	ctx context.Context,
@@ -244,7 +244,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
-) (*SessionConnectionResult, error) {
+) (*ConnectionResult, error) {
 	// Guard against concurrent connection attempts using CapabilityCache.
 	// If the cache entry exists and is not expired, skip re-establishment.
 	fwdSub := api.GetSubjectFromContext(ctx)
@@ -255,7 +255,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 		if entry, exists := a.capabilityCache.Get(fwdSub, serverInfo.Name); exists && !entry.IsExpired() {
 			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token forwarding",
 				logging.TruncateSessionID(fwdSub), serverInfo.Name)
-			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
 
@@ -370,7 +370,7 @@ func EstablishSessionConnectionWithTokenForwarding(
 	logging.Info("SessionConnection", "User %s connected to %s via SSO token forwarding with %d tools",
 		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
 
-	return &SessionConnectionResult{
+	return &ConnectionResult{
 		ServerName:    serverInfo.Name,
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
@@ -461,7 +461,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
 // Returns:
-//   - *SessionConnectionResult: The connection result if successful
+//   - *ConnectionResult: The connection result if successful
 //   - error: The error if connection failed
 func EstablishSessionConnectionWithTokenExchange(
 	ctx context.Context,
@@ -469,7 +469,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
-) (*SessionConnectionResult, error) {
+) (*ConnectionResult, error) {
 	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
@@ -484,7 +484,7 @@ func EstablishSessionConnectionWithTokenExchange(
 		if entry, exists := a.capabilityCache.Get(exchSub, serverInfo.Name); exists && !entry.IsExpired() {
 			logging.Debug("SessionConnection", "User %s already connected to %s, skipping token exchange",
 				logging.TruncateSessionID(exchSub), serverInfo.Name)
-			return &SessionConnectionResult{ServerName: serverInfo.Name}, nil
+			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
 
@@ -700,7 +700,7 @@ func EstablishSessionConnectionWithTokenExchange(
 	logging.Info("SessionConnection", "User %s connected to %s via RFC 8693 token exchange with %d tools",
 		logging.TruncateSessionID(sub), serverInfo.Name, len(tools))
 
-	return &SessionConnectionResult{
+	return &ConnectionResult{
 		ServerName:    serverInfo.Name,
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
