@@ -38,7 +38,7 @@ func (s *testTokenStore) SaveToken(_ context.Context, token *transport.Token) er
 var _ transport.TokenStore = (*testTokenStore)(nil)
 
 // testSessionIDRoundTripper wraps an http.RoundTripper to track server-issued session IDs.
-// On each response, it reads the X-Muster-Session-ID header and stores the server's
+// On each response, it reads the Mcp-Session-Id header and stores the server's
 // authoritative session ID. On each request, it overrides the session ID header with
 // the server-issued value so that subsequent requests reuse the same server-side session.
 type testSessionIDRoundTripper struct {

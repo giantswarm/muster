@@ -62,12 +62,12 @@ type AuthHandler interface {
 
 	// GetSessionIDForEndpoint returns the server-issued session ID for the given endpoint.
 	// Session IDs are scoped per-endpoint and stored locally after being received
-	// from the server's X-Muster-Session-ID response header.
+	// from the server's Mcp-Session-Id response header.
 	// Returns empty string if no session ID exists for this endpoint.
 	GetSessionIDForEndpoint(endpoint string) string
 
 	// UpdateSessionID stores a server-issued session ID for the given endpoint.
-	// This is called after reading the X-Muster-Session-ID response header.
+	// This is called after reading the Mcp-Session-Id response header.
 	UpdateSessionID(endpoint, sessionID string)
 
 	// Close cleans up any resources held by the auth handler.

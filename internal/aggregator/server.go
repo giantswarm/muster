@@ -199,6 +199,17 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		serverVersion = "dev"
 	}
 
+	// Create hooks for proactive SSO via OnAfterInitialize.
+	// When a client completes the MCP initialize handshake, trigger proactive SSO
+	// to automatically connect SSO-enabled servers using the user's ID token.
+	hooks := &mcpserver.Hooks{}
+	hooks.AddAfterInitialize(func(ctx context.Context, id any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		session := mcpserver.ClientSessionFromContext(ctx)
+		if session != nil {
+			go a.handleSessionInit(ctx, session.SessionID())
+		}
+	})
+
 	// Create MCP server with full capabilities enabled
 	// WithToolFilter enables session-specific tool visibility for OAuth-authenticated servers
 	// (see ADR-006: Session-Scoped Tool Visibility)
@@ -209,6 +220,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		mcpserver.WithResourceCapabilities(true, true), // Enable resources with subscribe and listChanged
 		mcpserver.WithPromptCapabilities(true),         // Enable prompt retrieval
 		mcpserver.WithToolFilter(a.sessionToolFilter),  // Return session-specific tools for OAuth servers
+		mcpserver.WithHooks(hooks),                     // Proactive SSO on client initialize
 	)
 
 	a.mcpServer = mcpSrv
@@ -340,7 +352,11 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		fallthrough
 	default:
 		// Streamable HTTP transport (default) - HTTP-based streaming protocol
-		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer)
+		sessionIdManager := NewMusterSessionIdManager(a.sessionRegistry)
+		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer,
+			mcpserver.WithSessionIdManager(sessionIdManager),
+			mcpserver.WithHTTPContextFunc(a.httpContextFunc),
+		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
 		handler, err := a.createHTTPMux(a.streamableHTTPServer)
@@ -845,9 +861,9 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	// Session invalidation endpoint for client-initiated logout
 	mux.HandleFunc("DELETE /session", a.handleSessionInvalidation)
 
-	// Mount the MCP handler as the default for all other paths
-	// Wrap with clientSessionIDMiddleware to enable server-side session lifecycle
-	mux.Handle("/", a.clientSessionIDMiddleware(mcpHandler))
+	// Mount the MCP handler as the default for all other paths.
+	// Session lifecycle is managed by mcp-go's SessionIdManager (MusterSessionIdManager).
+	mux.Handle("/", mcpHandler)
 
 	return mux
 }
@@ -865,11 +881,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
-	// Wrap the MCP handler with clientSessionIDMiddleware to enable server-side session lifecycle
-	// This must be done before OAuth middleware so the session ID is available in context
-	wrappedHandler := a.clientSessionIDMiddleware(mcpHandler)
-
-	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, wrappedHandler, a.config.Debug)
+	// Session lifecycle is managed by mcp-go's SessionIdManager (MusterSessionIdManager).
+	// The mcpHandler already has session management wired via WithSessionIdManager.
+	oauthHTTPServer, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth HTTP server: %w", err)
 	}
@@ -1733,176 +1747,40 @@ const defaultSessionID = "default-session"
 
 // getSessionIDFromContext extracts the session ID from context.
 //
-// Session ID precedence (first match wins):
-//  1. Client-provided session ID via X-Muster-Session-ID header (enables CLI persistence)
-//  2. MCP session ID from mcp-go library (per-connection, random UUID)
-//  3. Default session ID for stdio transport (single-user mode)
-//
-// The client-provided session ID (via header) is critical for CLI tools where each
-// invocation creates a new connection. Without it, MCP server tokens would be lost
-// between CLI invocations because the mcp-go session ID changes on each connection.
-// See ADR-004 for the design rationale.
-//
-// SECURITY: The client-provided session ID is trusted because:
-//   - It's sent by the authenticated CLI client (aggregator auth validates the user)
-//   - Token lookup still requires matching (sessionID, issuer, scope)
-//   - A malicious client can only access tokens it previously stored with that session ID
+// Uses mcp-go's native Mcp-Session-Id (set by the library) as the primary source.
+// Falls back to the default session ID for stdio transport (single-user mode).
 func getSessionIDFromContext(ctx context.Context) string {
-	// 1. Check for client-provided session ID (CLI persistence)
-	if clientSessionID, ok := api.GetClientSessionIDFromContext(ctx); ok {
-		return clientSessionID
-	}
-
-	// 2. Try to get session ID from MCP client session (set by mcp-go library)
 	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-		sessionID := session.SessionID()
-		if sessionID != "" {
-			return sessionID
+		if id := session.SessionID(); id != "" {
+			return id
 		}
 	}
 
-	// 3. Fall back to default session ID for stdio transport only.
-	// This is a security limitation for stdio which is inherently single-user.
-	// For HTTP transports (SSE/Streamable HTTP), the mcp-go library always provides
-	// a unique session ID, so this fallback should only trigger for stdio.
+	// Fall back to default session ID for stdio transport only.
+	// For HTTP transports, mcp-go always provides a session ID.
 	logging.Warn("OAuth", "No MCP session in context, using default session (stdio mode). "+
 		"Token isolation is not enforced for stdio transport.")
 	return defaultSessionID
 }
 
-// clientSessionIDMiddleware handles server-side session ID lifecycle.
+// httpContextFunc is passed to mcp-go's WithHTTPContextFunc to inject
+// identity binding per-request. It runs after mcp-go has set the session in
+// context but before the MCP handler processes the request.
 //
-// For every authenticated request, it:
-//  1. Validates the client-provided X-Muster-Session-ID (if any)
-//  2. Creates a new server-side session if none exists or the provided ID is unknown
-//  3. Validates identity binding (session must match authenticated user)
-//  4. Sets the X-Muster-Session-ID response header on every response
-//
-// Edge case handling:
-//   - No session ID header: Create new session, return ID in response header
-//   - Valid session ID, matching identity: Reuse session
-//   - Valid session ID, different identity: Reject with 403
-//   - Unknown session ID (not in store): Create new session, return new ID (with warning)
-//   - Malformed session ID (not UUID): Reject with 400
-//   - Session ID exceeds max length: Reject with 400
-func (a *AggregatorServer) clientSessionIDMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientSessionID := r.Header.Get(api.ClientSessionIDHeader)
-
-		// Extract authenticated subject from context (set by OAuth ValidateToken middleware).
-		// For unprotected endpoints, subject will be empty and identity binding is skipped.
-		subject := api.GetSubjectFromContext(r.Context())
-
-		var sessionID string
-
-		switch {
-		case clientSessionID == "":
-			// No session ID: create a new server-side session
-			session, err := a.sessionRegistry.CreateSessionForSubject(subject)
-			if err != nil {
-				logging.Warn("Aggregator", "Failed to create session: %v", err)
-				http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-				return
-			}
-			sessionID = session.SessionID
-			logging.Debug("Aggregator", "Created new server-side session: %s", logging.TruncateSessionID(sessionID))
-
-		case len(clientSessionID) > MaxSessionIDLength:
-			// Session ID exceeds max length: reject before running regex
-			logging.Warn("Aggregator", "Rejected oversized session ID (length %d)", len(clientSessionID))
-			http.Error(w, "Bad Request: session ID too long", http.StatusBadRequest)
-			return
-
-		case !IsValidUUIDv4(clientSessionID):
-			// Malformed session ID (not UUID v4 format): reject with 400
-			logging.Warn("Aggregator", "Rejected malformed session ID (not UUID v4): %s",
-				logging.TruncateSessionID(clientSessionID))
-			http.Error(w, "Bad Request: malformed session ID (expected UUID v4 format)", http.StatusBadRequest)
-			return
-
-		default:
-			// Client provided a UUID v4 session ID: validate it
-			if err := ValidateSessionID(clientSessionID); err != nil {
-				logging.Warn("Aggregator", "Rejected invalid session ID: %v", err)
-				http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			session, exists := a.sessionRegistry.GetSession(clientSessionID)
-			if !exists {
-				// Unknown session ID (not in store): deduplicate both the warning
-				// and session creation across concurrent requests with the same
-				// stale ID. sync.Once ensures the session is created exactly once;
-				// concurrent and slightly-late requests share the cached result. (#435)
-				//
-				// Size cap: if the dedup map is too large (possible DoS via unique
-				// stale IDs), skip dedup and create the session directly.
-				if a.staleSessionDedupCount.Load() >= staleSessionDedupMaxEntries {
-					logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session (dedup map full)",
-						logging.TruncateSessionID(clientSessionID))
-					newSession, createErr := a.sessionRegistry.CreateSessionForSubject(subject)
-					if createErr != nil {
-						logging.Warn("Aggregator", "Failed to create session: %v", createErr)
-						http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-						return
-					}
-					sessionID = newSession.SessionID
-				} else {
-					val, loaded := a.staleSessionDedup.LoadOrStore(clientSessionID, &staleSessionEntry{createdAt: time.Now()})
-					entry := val.(*staleSessionEntry)
-					if !loaded {
-						a.staleSessionDedupCount.Add(1)
-					}
-					// sync.Once ensures only one goroutine creates the session.
-					// If creation fails (e.g., session limit exceeded), the error
-					// is cached for the lifetime of this entry (staleSessionDedupTTL).
-					// Concurrent requests sharing this entry will receive the same
-					// error. This is acceptable because the TTL is short (5s) and
-					// the underlying condition (session limit) is unlikely to clear
-					// within that window.
-					entry.once.Do(func() {
-						logging.Warn("Aggregator", "Unknown session ID %s (not in server store), issuing new session",
-							logging.TruncateSessionID(clientSessionID))
-						newSession, createErr := a.sessionRegistry.CreateSessionForSubject(subject)
-						if createErr != nil {
-							entry.err = createErr
-							return
-						}
-						entry.sessionID = newSession.SessionID
-					})
-
-					if entry.err != nil {
-						logging.Warn("Aggregator", "Failed to create session: %v", entry.err)
-						http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-						return
-					}
-					sessionID = entry.sessionID
-				}
-			} else {
-				// Session exists: validate identity binding
-				if subject != "" {
-					if err := a.sessionRegistry.ValidateSessionIdentity(clientSessionID, subject); err != nil {
-						if _, ok := err.(*SessionIdentityMismatchError); ok {
-							logging.Warn("Aggregator", "Session identity mismatch: %v", err)
-							http.Error(w, "Forbidden: session identity mismatch - clear your session and re-authenticate", http.StatusForbidden)
-							return
-						}
-					}
-				}
-				sessionID = session.SessionID
-				session.UpdateActivity()
+// This binds the authenticated user's subject (from OAuth middleware) to the
+// mcp-go session, replacing the identity binding that was previously done in
+// clientSessionIDMiddleware.
+func (a *AggregatorServer) httpContextFunc(ctx context.Context, r *http.Request) context.Context {
+	subject := api.GetSubjectFromContext(ctx)
+	session := mcpserver.ClientSessionFromContext(ctx)
+	if session != nil && subject != "" {
+		if err := a.sessionRegistry.ValidateSessionIdentity(session.SessionID(), subject); err != nil {
+			if _, ok := err.(*SessionIdentityMismatchError); ok {
+				logging.Warn("Aggregator", "Session identity mismatch: %v", err)
 			}
 		}
-
-		// Set the session ID in the response header on every authenticated response
-		w.Header().Set(api.ClientSessionIDHeader, sessionID)
-
-		// Add session ID to context for downstream handlers
-		ctx := api.WithClientSessionID(r.Context(), sessionID)
-		r = r.WithContext(ctx)
-
-		next.ServeHTTP(w, r)
-	})
+	}
+	return ctx
 }
 
 // startStaleSessionDedupCleanup runs a background goroutine that periodically
@@ -1943,7 +1821,7 @@ func (a *AggregatorServer) cleanupStaleSessionDedup() {
 }
 
 // handleSessionInvalidation handles DELETE /session requests for client-initiated logout.
-// The client sends the session ID via the X-Muster-Session-ID header.
+// The client sends the session ID via the Mcp-Session-Id header.
 // The server deletes the session from the registry and closes all connections.
 //
 // This endpoint does not require OAuth authentication because:

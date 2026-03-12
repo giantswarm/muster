@@ -69,7 +69,7 @@ type Client struct {
 	cacheEnabled      bool
 	formatters        *Formatters
 	NotificationChan  chan mcp.JSONRPCNotification
-	headers           map[string]string           // Custom HTTP headers (e.g., X-Muster-Session-ID)
+	headers           map[string]string           // Custom HTTP headers
 	oauthConfig       *transport.OAuthConfig      // OAuth config for mcp-go transport
 	agentTokenStore   *agentoauth.AgentTokenStore // Token store for agent OAuth
 	sessionIDCallback func(sessionID string)      // Called when server returns a session ID in response header
@@ -259,8 +259,8 @@ func isValidUUIDv4Format(s string) bool {
 }
 
 // sessionIDRoundTripper wraps an http.RoundTripper to intercept server-issued session IDs
-// from the X-Muster-Session-ID response header. When a session ID is received, the callback
-// is invoked and the session ID header is updated for subsequent requests.
+// from the Mcp-Session-Id response header. When a session ID is received, the callback
+// is invoked for disk persistence (enabling CLI reconnection across invocations).
 type sessionIDRoundTripper struct {
 	wrapped  http.RoundTripper
 	callback func(sessionID string)
@@ -293,8 +293,8 @@ func (rt *sessionIDRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 // createAndConnectClient creates and connects an MCP client based on transport type.
 // When OAuth is configured via SetOAuthConfig, it uses mcp-go's built-in OAuth handler
 // for automatic bearer token injection and typed 401 error handling.
-// Non-auth headers (e.g., X-Muster-Session-ID) are always applied.
-// A custom HTTP client with a session ID interceptor is used to capture server-issued session IDs.
+// A custom HTTP client with a session ID interceptor captures server-issued Mcp-Session-Id
+// for disk persistence across CLI invocations.
 func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, error) {
 	if c.transport != TransportSSE && c.transport != TransportStreamableHTTP {
 		return nil, fmt.Errorf("unsupported transport type: %s", c.transport)

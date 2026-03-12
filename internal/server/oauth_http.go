@@ -383,9 +383,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 // - Re-authentication (logout + login with new ID token)
 // - Token refresh (server-side refresh gets new access token)
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
-	// Get session ID from the request header directly.
-	// We can't rely on context here because clientSessionIDMiddleware runs
-	// AFTER this middleware in the chain (it wraps the MCP handler, not the OAuth chain).
+	// Get session ID from the Mcp-Session-Id request header.
+	// mcp-go's client transport sends this header on every request after initialize.
+	// We can't use ClientSessionFromContext here because mcp-go processes the
+	// request after this middleware in the chain.
 	sessionID := r.Header.Get(api.ClientSessionIDHeader)
 	if sessionID == "" {
 		logging.Debug("OAuth", "SSO: No session ID header, skipping session init")
@@ -464,7 +465,6 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 		// This context won't be canceled when the HTTP request completes.
 		bgCtx := context.Background()
 		bgCtx = ContextWithIDToken(bgCtx, idToken)
-		bgCtx = api.WithClientSessionID(bgCtx, sessionID)
 
 		callback(bgCtx, sessionID)
 	}()
