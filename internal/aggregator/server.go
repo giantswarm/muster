@@ -2039,8 +2039,10 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// TODO(Phase 2A): Invalidate CapabilityCache for the user when wired into AggregatorServer.
-	// a.capabilityCache.InvalidateUser(sub)
+	// Invalidate all CapabilityCache entries for this user on full logout.
+	if a.capabilityCache != nil {
+		a.capabilityCache.InvalidateUser(sub)
+	}
 
 	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateSessionID(sub))
 	w.WriteHeader(http.StatusNoContent)
@@ -2097,8 +2099,10 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
-	// TODO(Phase 2A): Invalidate CapabilityCache entry when wired into AggregatorServer.
-	// a.capabilityCache.Invalidate(sub, serverName)
+	// Invalidate the CapabilityCache entry for this user+server on per-server disconnect.
+	if a.capabilityCache != nil {
+		a.capabilityCache.Invalidate(sub, serverName)
+	}
 
 	logging.Info("Aggregator", "Server %s disconnected for user via DELETE /auth/{server}: %s",
 		serverName, logging.TruncateSessionID(sub))
