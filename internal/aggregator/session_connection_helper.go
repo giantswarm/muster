@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -126,11 +125,15 @@ func establishSessionConnection(
 		}
 	}
 
-	// Create the session connection
+	// Close the initial client now that capabilities have been fetched.
+	// Clients are created on demand for tool execution (Phase 2B).
+	client.Close()
+
+	// Create the session connection without a long-lived client.
 	conn := &SessionConnection{
 		ServerName:  serverName,
 		Status:      StatusSessionConnected,
-		Client:      client,
+		Client:      nil,
 		TokenKey:    tokenKey,
 		ConnectedAt: time.Now(),
 	}
@@ -283,7 +286,9 @@ func EstablishSessionConnectionWithTokenForwarding(
 			if conn.IsTokenExpired(idTokenExpiryMargin) {
 				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token forwarding",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				conn.Client.Close()
+				if conn.Client != nil {
+					conn.Client.Close()
+				}
 			} else {
 				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token forwarding",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
@@ -393,12 +398,16 @@ func EstablishSessionConnectionWithTokenForwarding(
 		Issuer:  musterIssuer,
 	}
 
-	// Create the session connection with token expiry tracking
+	// Close the initial client now that capabilities have been fetched.
+	// Clients are created on demand for tool execution (Phase 2B).
+	client.Close()
+
+	// Create the session connection without a long-lived client.
 	tokenExpiry := getTokenExpiryTime(idToken)
 	conn := &SessionConnection{
 		ServerName:     serverInfo.Name,
 		Status:         StatusSessionConnected,
-		Client:         client,
+		Client:         nil,
 		TokenKey:       tokenKey,
 		ConnectedAt:    time.Now(),
 		TokenExpiresAt: tokenExpiry,
@@ -545,7 +554,9 @@ func EstablishSessionConnectionWithTokenExchange(
 			if conn.IsTokenExpired(idTokenExpiryMargin) {
 				logging.Info("SessionConnection", "Session %s connection to %s has expired token, re-establishing via token exchange",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				conn.Client.Close()
+				if conn.Client != nil {
+					conn.Client.Close()
+				}
 			} else {
 				logging.Debug("SessionConnection", "Session %s already connected to %s, skipping token exchange",
 					logging.TruncateSessionID(sessionID), serverInfo.Name)
@@ -697,78 +708,11 @@ func EstablishSessionConnectionWithTokenExchange(
 		Details:   fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
 	})
 
-	// Create a dynamic header function that caches the exchanged token and
-	// lazily re-exchanges when the cached token is near expiry.
-	//
-	// connRef is set after the SessionConnection is created (below) so the
-	// closure can update conn.TokenExpiresAt after a successful re-exchange.
-	// This prevents the re-init guard from tearing down a working connection
-	// whose initial token has expired but whose headerFunc already re-exchanged.
-	var (
-		cachedToken    = exchangedToken
-		cachedExpiry   = getTokenExpiryTime(exchangedToken)
-		tokenMu        sync.Mutex
-		exchangeConfig = serverInfo.AuthConfig.TokenExchange
-		connRef        *SessionConnection // set after conn creation
-	)
-
+	// Create a simple header function using the exchanged token.
+	// No token refresh logic needed since the client is short-lived (one capability fetch).
+	// If the token expires during fetch, the server returns 401.
 	headerFunc := func(_ context.Context) map[string]string {
-		tokenMu.Lock()
-		defer tokenMu.Unlock()
-
-		// Check if the cached token is still valid (with margin)
-		if !cachedExpiry.IsZero() && time.Now().Add(idTokenExpiryMargin).After(cachedExpiry) {
-			logging.Info("SessionConnection", "Token expired, refreshing exchanged token for session %s to %s",
-				logging.TruncateSessionID(sessionID), serverInfo.Name)
-
-			// Get a fresh source ID token for re-exchange.
-			// Use context.Background() because the original request context is stale.
-			freshIDToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
-			if freshIDToken == "" || isIDTokenExpired(freshIDToken) {
-				logging.Warn("SessionConnection", "Authentication failed: no fresh ID token for re-exchange, session %s to %s",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				// Return stale token; server will return 401
-				return map[string]string{"Authorization": "Bearer " + cachedToken}
-			}
-
-			freshUserID := extractUserIDFromToken(freshIDToken)
-			if freshUserID == "" {
-				logging.Warn("SessionConnection", "Authentication failed: cannot extract user ID for re-exchange, session %s to %s",
-					logging.TruncateSessionID(sessionID), serverInfo.Name)
-				return map[string]string{"Authorization": "Bearer " + cachedToken}
-			}
-
-			// Re-exchange the token
-			var newToken string
-			var exchangeErr error
-			if teleportResult.Client != nil {
-				newToken, exchangeErr = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-					context.Background(), freshIDToken, freshUserID, exchangeConfig, teleportResult.Client,
-				)
-			} else {
-				newToken, exchangeErr = oauthHandler.ExchangeTokenForRemoteCluster(
-					context.Background(), freshIDToken, freshUserID, exchangeConfig,
-				)
-			}
-
-			if exchangeErr != nil {
-				logging.Warn("SessionConnection", "Authentication failed: token re-exchange failed for session %s to %s: %v",
-					logging.TruncateSessionID(sessionID), serverInfo.Name, exchangeErr)
-				return map[string]string{"Authorization": "Bearer " + cachedToken}
-			}
-
-			cachedToken = newToken
-			cachedExpiry = getTokenExpiryTime(newToken)
-			// Update the SessionConnection's TokenExpiresAt so the re-init guard
-			// sees the refreshed expiry instead of the stale initial value.
-			if connRef != nil {
-				connRef.SetTokenExpiresAt(cachedExpiry)
-			}
-			logging.Info("SessionConnection", "Token expired, refreshing: re-exchanged token for session %s to %s (new expiry: %v)",
-				logging.TruncateSessionID(sessionID), serverInfo.Name, cachedExpiry)
-		}
-
-		return map[string]string{"Authorization": "Bearer " + cachedToken}
+		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
 	// Create a client with the dynamic header function.
@@ -821,12 +765,16 @@ func EstablishSessionConnectionWithTokenExchange(
 		Issuer:  musterIssuer,
 	}
 
-	// Create the session connection with token expiry tracking
+	// Close the initial client now that capabilities have been fetched.
+	// Clients are created on demand for tool execution (Phase 2B).
+	client.Close()
+
+	// Create the session connection without a long-lived client.
 	tokenExpiry := getTokenExpiryTime(exchangedToken)
 	conn := &SessionConnection{
 		ServerName:     serverInfo.Name,
 		Status:         StatusSessionConnected,
-		Client:         client,
+		Client:         nil,
 		TokenKey:       tokenKey,
 		ConnectedAt:    time.Now(),
 		TokenExpiresAt: tokenExpiry,
@@ -846,11 +794,6 @@ func EstablishSessionConnectionWithTokenExchange(
 	if a.capabilityCache != nil {
 		a.capabilityCache.Set(exchSubject, serverInfo.Name, tools, resources, prompts)
 	}
-
-	// Wire up the connRef so the headerFunc closure can update TokenExpiresAt
-	// after a successful re-exchange (prevents the guard from tearing down a
-	// working connection whose initial token has expired).
-	connRef = conn
 
 	session.SetConnection(serverInfo.Name, conn)
 

@@ -14,11 +14,13 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/coreos/go-systemd/v22/activation"
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -1310,14 +1312,19 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
-		// For auth-required servers, try session-scoped client
+		// For auth-required servers, try session-scoped on-demand client
 		if serverInfo.Status == StatusAuthRequired && sessionID != "" {
 			logging.Debug("Aggregator", "Server %s requires auth, trying session connection for session %s",
 				serverName, logging.TruncateSessionID(sessionID))
-			_, sessionClient, sessionOriginalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
-			if sessionErr == nil && sessionClient != nil {
-				logging.Debug("Aggregator", "Using session client for tool %s", toolName)
-				return sessionClient.CallTool(ctx, sessionOriginalName, args)
+			_, sessionOriginalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
+			if sessionErr == nil {
+				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
+				client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID)
+				if clientErr != nil {
+					return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
+				}
+				defer cleanup()
+				return client.CallTool(ctx, sessionOriginalName, args)
 			}
 			logging.Debug("Aggregator", "No session connection found for tool %s: %v", toolName, sessionErr)
 		}
@@ -1336,10 +1343,15 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// Check session connections for OAuth-protected servers (Issue #343)
 	// This handles tools that are only available through session-specific connections
 	if sessionID != "" {
-		serverName, sessionClient, originalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
-		if sessionErr == nil && sessionClient != nil {
-			logging.Debug("Aggregator", "Tool %s found in session connection (server: %s)", toolName, serverName)
-			return sessionClient.CallTool(ctx, originalName, args)
+		sessionServerName, originalName, sessionErr := a.resolveSessionTool(sessionID, toolName)
+		if sessionErr == nil {
+			logging.Debug("Aggregator", "Tool %s found in session connection (server: %s)", toolName, sessionServerName)
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sessionServerName, sessionID)
+			if clientErr != nil {
+				return nil, fmt.Errorf("failed to connect to server %s: %w", sessionServerName, clientErr)
+			}
+			defer cleanup()
+			return client.CallTool(ctx, originalName, args)
 		}
 	}
 
@@ -2112,16 +2124,17 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 // resolveSessionTool attempts to resolve a tool name through session connections.
 // This is used for OAuth-protected servers where tools are stored per-session.
 //
-// Returns the server name, session-specific client, original tool name, or an error if not found.
-func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (string, MCPClient, string, error) {
+// Returns the server name and original tool name, or an error if not found.
+// Callers create an on-demand client via getOrCreateClientForToolCall.
+func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (string, string, error) {
 	session, exists := a.sessionRegistry.GetSession(sessionID)
 	if !exists {
-		return "", nil, "", fmt.Errorf("session not found: %s", logging.TruncateSessionID(sessionID))
+		return "", "", fmt.Errorf("session not found: %s", logging.TruncateSessionID(sessionID))
 	}
 
 	// Iterate through all session connections to find the tool
 	for serverName, conn := range session.GetAllConnections() {
-		if conn.Status != StatusSessionConnected || conn.Client == nil {
+		if conn.Status != StatusSessionConnected {
 			continue
 		}
 
@@ -2129,12 +2142,173 @@ func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (st
 		for _, tool := range conn.GetTools() {
 			exposedToolName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
 			if exposedToolName == exposedName {
-				return serverName, conn.Client, tool.Name, nil
+				return serverName, tool.Name, nil
 			}
 		}
 	}
 
-	return "", nil, "", fmt.Errorf("tool not found in session connections")
+	return "", "", fmt.Errorf("tool not found in session connections")
+}
+
+// getOrCreateClientForToolCall creates a short-lived MCP client on demand for
+// tool execution against an OAuth-protected server. The caller must call the
+// returned cleanup function when done to close the client.
+//
+// The auth method is determined from ServerInfo.AuthConfig:
+//   - Token exchange (RFC 8693): exchanges a fresh ID token for a server-specific token
+//   - Token forwarding: forwards the user's ID token directly
+//   - Standard OAuth (DynamicAuthClient): uses the session's stored OAuth tokens
+func (a *AggregatorServer) getOrCreateClientForToolCall(
+	ctx context.Context,
+	serverName string,
+	sessionID string,
+) (MCPClient, func(), error) {
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists {
+		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
+	}
+
+	session, sessionExists := a.sessionRegistry.GetSession(sessionID)
+	if !sessionExists {
+		return nil, nil, fmt.Errorf("session not found: %s", logging.TruncateSessionID(sessionID))
+	}
+
+	conn, hasConn := session.GetConnection(serverName)
+	if !hasConn || conn == nil {
+		return nil, nil, fmt.Errorf("no connection found for server %s in session %s", serverName, logging.TruncateSessionID(sessionID))
+	}
+
+	var client MCPClient
+
+	if ShouldUseTokenExchange(serverInfo) {
+		// Token exchange: exchange a fresh ID token for a server-specific token
+		musterIssuer := a.getMusterIssuer()
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler == nil || !oauthHandler.IsEnabled() {
+			return nil, nil, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
+		}
+
+		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		if idToken == "" {
+			return nil, nil, fmt.Errorf("no ID token available for token exchange to %s", serverName)
+		}
+
+		if isIDTokenExpired(idToken) {
+			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		}
+
+		userID := extractUserIDFromToken(idToken)
+		if userID == "" {
+			return nil, nil, fmt.Errorf("failed to extract user ID from token for %s", serverName)
+		}
+
+		// Make a local copy of the token exchange config to avoid mutating the
+		// shared registry pointer under concurrent tool calls.
+		exchangeConfig := *serverInfo.AuthConfig.TokenExchange
+
+		// Load client credentials if configured
+		if exchangeConfig.ClientCredentialsSecretRef != nil {
+			credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
+			}
+			exchangeConfig.ClientID = credentials.ClientID
+			exchangeConfig.ClientSecret = credentials.ClientSecret
+		}
+
+		// Append RequiredAudiences as cross-client scopes (same as establishment flow)
+		if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
+			updatedScopes, err := dex.AppendAudienceScopes(
+				exchangeConfig.Scopes,
+				serverInfo.AuthConfig.RequiredAudiences,
+			)
+			if err != nil {
+				logging.Warn("Aggregator", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+					serverName, err)
+			} else {
+				exchangeConfig.Scopes = updatedScopes
+			}
+		}
+
+		// Check for Teleport
+		teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+		if teleportResult.Configured && teleportResult.Error != nil {
+			return nil, nil, fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
+		}
+
+		// Perform token exchange
+		var exchangedToken string
+		var err error
+		if teleportResult.Client != nil {
+			exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
+				ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
+			)
+		} else {
+			exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
+				ctx, idToken, userID, &exchangeConfig,
+			)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
+		}
+
+		headerFunc := func(_ context.Context) map[string]string {
+			return map[string]string{"Authorization": "Bearer " + exchangedToken}
+		}
+
+		if teleportResult.Client != nil {
+			client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
+		} else {
+			client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+		}
+
+	} else if ShouldUseTokenForwarding(serverInfo) {
+		// Token forwarding: forward the user's ID token directly
+		musterIssuer := a.getMusterIssuer()
+		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+		if idToken == "" {
+			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
+		}
+
+		headerFunc := func(_ context.Context) map[string]string {
+			// Resolve latest token; for a short-lived client the initial token
+			// is usually still valid, but check the store for a refreshed one.
+			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+			if latestToken == "" {
+				// No token available (session deleted or revoked) -- send empty
+				// auth so the downstream server returns 401 rather than accepting
+				// a potentially revoked token.
+				return map[string]string{}
+			}
+			return map[string]string{"Authorization": "Bearer " + latestToken}
+		}
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+
+	} else if conn.TokenKey != nil && conn.TokenKey.Issuer != "" {
+		// Standard OAuth: use DynamicAuthClient with stored tokens
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler == nil || !oauthHandler.IsEnabled() {
+			return nil, nil, fmt.Errorf("OAuth handler not available for %s", serverName)
+		}
+
+		tokenStore := internalmcp.NewMusterTokenStore(sessionID, conn.TokenKey.Issuer, oauthHandler)
+		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, conn.TokenKey.Scope)
+
+	} else {
+		return nil, nil, fmt.Errorf("unable to determine auth method for server %s", serverName)
+	}
+
+	// Initialize the on-demand client
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
+	}
+
+	cleanup := func() {
+		client.Close()
+	}
+
+	return client, cleanup, nil
 }
 
 // ============================================================================
