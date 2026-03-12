@@ -37,7 +37,7 @@ const DefaultConnectionCheckTimeout = 5 * time.Second
 const DefaultHTTPClientTimeout = 5 * time.Second
 
 // SessionIDFilename is the name of the file storing the persistent CLI session ID.
-// This session ID is used for X-Muster-Session-ID header to enable MCP server
+// This session ID is used for Mcp-Session-Id header to enable MCP server
 // token persistence across CLI invocations.
 const SessionIDFilename = "session-id"
 
@@ -114,7 +114,7 @@ func NewAuthAdapterWithConfig(cfg AuthAdapterConfig) (*AuthAdapter, error) {
 
 // Note: Client-side session ID generation has been removed.
 // Session IDs are now generated server-side and returned via the
-// X-Muster-Session-ID response header. See issue #414.
+// Mcp-Session-Id response header. See issue #414.
 
 // GetSessionID returns an empty string. Session IDs are now server-issued and per-endpoint.
 // Use GetSessionIDForEndpoint instead.

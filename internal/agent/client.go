@@ -131,7 +131,7 @@ func (c *Client) SetHeader(key, value string) {
 }
 
 // SetSessionIDCallback sets a callback that is called when the server returns
-// a session ID in the X-Muster-Session-ID response header. This enables
+// a session ID in the Mcp-Session-Id response header. This enables
 // the client to persist server-issued session IDs for future requests.
 func (c *Client) SetSessionIDCallback(cb func(sessionID string)) {
 	c.mu.Lock()
