@@ -2270,10 +2270,20 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
 
+		if isIDTokenExpired(idToken) {
+			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		}
+
 		headerFunc := func(_ context.Context) map[string]string {
 			// Resolve latest token; for a short-lived client the initial token
 			// is usually still valid, but check the store for a refreshed one.
 			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+			if latestToken == "" {
+				// OAuth store lookup failed (token may only exist in request context,
+				// not in the store). Fall back to the token captured at creation time,
+				// matching the pattern in EstablishSessionConnectionWithTokenForwarding.
+				latestToken = idToken
+			}
 			if latestToken == "" {
 				// No token available (session deleted or revoked) -- send empty
 				// auth so the downstream server returns 401 rather than accepting
