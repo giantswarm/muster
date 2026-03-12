@@ -105,7 +105,7 @@ steps:
 
   # Step 6: Call core_auth_login on server-b (per ADR-008)
   # Because both servers use "shared-idp", the aggregator should:
-  # 1. Call GetTokenByIssuer(sessionID, "shared-idp") 
+  # 1. Call GetTokenByIssuer(subject, "shared-idp")
   # 2. Find the token we stored when authenticating to server-a
   # 3. Use that token to connect to server-b
   # 4. Return "Successfully connected" without requiring new auth

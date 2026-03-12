@@ -1018,24 +1018,20 @@ func (h *TestToolsHandler) handleGetCurrentUser(ctx context.Context, args map[st
 	}, nil
 }
 
-// handleSimulateMusterReauth simulates re-authentication to muster with a new token
-// while preserving the same MCP session ID. This is used to test session continuity
-// when a user re-authenticates to muster.
+// handleSimulateMusterReauth simulates re-authentication to muster with a new token.
+// This is used to test the token refresh + SSO reconnection flow.
 //
 // The key behavior being tested:
-// - The session ID remains the same across re-authentication
 // - After re-auth, the user can re-establish connections to SSO servers
-// - This tests the session tracking and token refresh paths
+// - This tests the token refresh and SSO reconnection paths
 //
 // This tool:
-// 1. Captures the current session ID from the MCP client
-// 2. Generates a new access token from the mock OAuth server (different from the initial token)
-// 3. Reconnects to muster with the new access token (same session ID)
-// 4. The user can then use test_simulate_oauth_callback to re-authenticate to SSO servers
+// 1. Refreshes the muster access token via the refresh token
+// 2. Reconnects to muster with the new access token
+// 3. The user can then use core_auth_login to re-authenticate to SSO servers
 //
-// Note: This simulates muster re-authentication by generating a new token and reconnecting
-// with the same session ID. For SSO servers to reconnect, the user must explicitly
-// re-authenticate to them (via test_simulate_oauth_callback or core_auth_login).
+// Note: The client session ID is preserved across reconnection for client-side
+// continuity, though user identity is derived from the OAuth subject claim.
 func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not available")
@@ -1336,7 +1332,14 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	// Step 3: Generate an auth code on the mock Dex server
-	authCode := musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+	// If a subject was specified, use it to generate per-user tokens
+	subject, _ := args["subject"].(string)
+	var authCode string
+	if subject != "" {
+		authCode = musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject)
+	} else {
+		authCode = musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod)
+	}
 
 	if h.debug {
 		h.logger.Debug("🔐 Generated Dex auth code: %s...\n", authCode[:min(16, len(authCode))])

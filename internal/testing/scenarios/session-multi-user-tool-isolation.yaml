@@ -4,19 +4,20 @@ concept: "mcpserver"
 description: |
   Verify that multiple users connecting to the same muster instance see different
   tools based on their individual OAuth authentication state.
-  
+
   This is a critical security test for multi-tenant environments. It verifies:
   1. User A authenticates with server-alpha → sees alpha's tools
   2. User B authenticates with server-beta → sees beta's tools (NOT alpha's)
   3. User A still sees only alpha's tools (no cross-contamination from B)
-  4. Tool isolation is maintained per-session
-  
-  This tests the session-scoped tool visibility implementation (ADR-006).
+  4. Tool isolation is maintained per-user via OAuth subject claims
+
+  This tests the subject-scoped tool visibility implementation (ADR-006).
 tags: ["oauth", "multi-user", "session-isolation", "security", "mcpserver"]
 timeout: "3m"
 
 pre_configuration:
   # Single OAuth server for simplicity - both servers use the same IdP
+  # use_as_muster_oauth_server enables per-user identity via OAuth subject claims
   mock_oauth_servers:
     - name: "shared-idp"
       scopes: ["openid", "profile", "mcp:read", "mcp:write"]
@@ -24,6 +25,8 @@ pre_configuration:
       pkce_required: false
       token_lifetime: "1h"
       client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
 
   mcp_servers:
     # Server Alpha - protected by OAuth
@@ -82,7 +85,18 @@ steps:
         - "server-alpha"
         - "server-beta"
 
-  # Step 3: Create User A - first user
+  # Step 3: Authenticate User A to muster with unique subject
+  - id: muster-auth-user-a
+    description: "Authenticate User A to muster with unique subject"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "user-a"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 4: Create User A - uses the muster token from step 3
   - id: create-user-a
     description: "Create a new user session for User A"
     tool: "test_create_user"
@@ -94,7 +108,18 @@ steps:
         - "user-a"
         - "Created user session"
 
-  # Step 4: Create User B - second user
+  # Step 5: Authenticate User B to muster with unique subject
+  - id: muster-auth-user-b
+    description: "Authenticate User B to muster with unique subject"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "user-b"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  # Step 6: Create User B - uses the muster token from step 5
   - id: create-user-b
     description: "Create a new user session for User B"
     tool: "test_create_user"
@@ -106,7 +131,7 @@ steps:
         - "user-b"
         - "Created user session"
 
-  # Step 5: Switch to User A
+  # Step 7: Switch to User A
   - id: switch-to-user-a
     description: "Switch to User A's session"
     tool: "test_switch_user"
@@ -117,7 +142,7 @@ steps:
       contains:
         - "user-a"
 
-  # Step 6: User A lists tools before authentication - should NOT see alpha or beta tools
+  # Step 8: User A lists tools before authentication - should NOT see alpha or beta tools
   - id: user-a-list-tools-before-auth
     description: "User A lists tools before authenticating - no server tools visible"
     tool: "test_list_tools_for_user"
@@ -130,7 +155,7 @@ steps:
         - "x_server-alpha_alpha_operation"
         - "x_server-beta_beta_operation"
 
-  # Step 7: User A authenticates with server-alpha
+  # Step 9: User A authenticates with server-alpha
   - id: user-a-auth-alpha
     as_user: "user-a"
     description: "User A authenticates with server-alpha"
@@ -142,7 +167,7 @@ steps:
       contains:
         - "success"
 
-  # Step 8: User A establishes connection to server-alpha
+  # Step 10: User A establishes connection to server-alpha
   - id: user-a-login-alpha
     as_user: "user-a"
     description: "User A logs in to server-alpha"
@@ -152,7 +177,7 @@ steps:
     expected:
       success: true
 
-  # Step 9: User A lists tools after alpha auth - should see alpha tools
+  # Step 11: User A lists tools after alpha auth - should see alpha tools
   - id: user-a-list-tools-after-alpha
     description: "User A lists tools after authenticating - sees alpha tools"
     tool: "test_list_tools_for_user"
@@ -165,7 +190,7 @@ steps:
       not_contains:
         - "x_server-beta_beta_operation"
 
-  # Step 10: Switch to User B
+  # Step 12: Switch to User B
   - id: switch-to-user-b
     description: "Switch to User B's session"
     tool: "test_switch_user"
@@ -176,7 +201,7 @@ steps:
       contains:
         - "user-b"
 
-  # Step 11: User B lists tools - should NOT see alpha tools (User A's auth)
+  # Step 13: User B lists tools - should NOT see alpha tools (User A's auth)
   - id: user-b-list-tools-before-auth
     description: "User B lists tools before authenticating - should NOT see User A's alpha tools"
     tool: "test_list_tools_for_user"
@@ -188,7 +213,7 @@ steps:
         - "x_server-alpha_alpha_operation"
         - "x_server-beta_beta_operation"
 
-  # Step 12: User B authenticates with server-beta
+  # Step 14: User B authenticates with server-beta
   - id: user-b-auth-beta
     as_user: "user-b"
     description: "User B authenticates with server-beta"
@@ -200,7 +225,7 @@ steps:
       contains:
         - "success"
 
-  # Step 13: User B establishes connection to server-beta
+  # Step 15: User B establishes connection to server-beta
   - id: user-b-login-beta
     as_user: "user-b"
     description: "User B logs in to server-beta"
@@ -210,7 +235,7 @@ steps:
     expected:
       success: true
 
-  # Step 14: User B lists tools after beta auth - should see beta tools ONLY
+  # Step 16: User B lists tools after beta auth - should see beta tools ONLY
   - id: user-b-list-tools-after-beta
     description: "User B lists tools after authenticating - sees beta tools only"
     tool: "test_list_tools_for_user"
@@ -223,7 +248,7 @@ steps:
       not_contains:
         - "x_server-alpha_alpha_operation"
 
-  # Step 15: Verify User A still sees ONLY alpha tools (not beta)
+  # Step 17: Verify User A still sees ONLY alpha tools (not beta)
   - id: verify-user-a-isolation
     description: "Verify User A still sees only alpha tools (not affected by User B's auth)"
     tool: "test_list_tools_for_user"
@@ -236,7 +261,7 @@ steps:
       not_contains:
         - "x_server-beta_beta_operation"
 
-  # Step 16: User A can call alpha tool
+  # Step 18: User A can call alpha tool
   - id: user-a-call-alpha
     as_user: "user-a"
     description: "User A can successfully call alpha operation"
@@ -247,7 +272,7 @@ steps:
       contains:
         - "alpha"
 
-  # Step 17: User B can call beta tool
+  # Step 19: User B can call beta tool
   - id: user-b-call-beta
     as_user: "user-b"
     description: "User B can successfully call beta operation"
