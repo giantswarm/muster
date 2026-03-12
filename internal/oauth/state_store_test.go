@@ -11,13 +11,13 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	sessionID := "session-123"
+	subject := "user-123"
 	serverName := "mcp-kubernetes"
 	issuer := "https://auth.example.com"
 	codeVerifier := "test-code-verifier-abc123"
 
 	// Generate state
-	encodedState, err := ss.GenerateState(sessionID, serverName, issuer, codeVerifier)
+	encodedState, err := ss.GenerateState(subject, serverName, issuer, codeVerifier)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -33,8 +33,8 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	}
 
 	// Verify state contents
-	if state.Subject != sessionID {
-		t.Errorf("Expected subject %q, got %q", sessionID, state.Subject)
+	if state.Subject != subject {
+		t.Errorf("Expected subject %q, got %q", subject, state.Subject)
 	}
 
 	if state.ServerName != serverName {
@@ -59,7 +59,7 @@ func TestStateStore_ValidateRemovesState(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encodedState, err := ss.GenerateState("session", "server", "issuer", "verifier")
+	encodedState, err := ss.GenerateState("user@example.com", "server", "issuer", "verifier")
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestStateStore_ValidateInvalidState(t *testing.T) {
 
 	// Test with valid JSON but non-existent nonce
 	fakeState := OAuthState{
-		Subject:    "session",
+		Subject:    "user@example.com",
 		ServerName: "server",
 		Nonce:      "non-existent-nonce",
 		CreatedAt:  time.Now(),
@@ -118,7 +118,7 @@ func TestStateStore_CodeVerifierNotInEncodedState(t *testing.T) {
 
 	codeVerifier := "super-secret-verifier"
 
-	encodedState, err := ss.GenerateState("session", "server", "issuer", codeVerifier)
+	encodedState, err := ss.GenerateState("user@example.com", "server", "issuer", codeVerifier)
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestStateStore_Delete(t *testing.T) {
 	ss := NewStateStore()
 	defer ss.Stop()
 
-	encodedState, err := ss.GenerateState("session", "server", "issuer", "verifier")
+	encodedState, err := ss.GenerateState("user@example.com", "server", "issuer", "verifier")
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestStateStore_Delete(t *testing.T) {
 	}
 
 	// Regenerate a new state for the delete test
-	encodedState2, err := ss.GenerateState("session", "server", "issuer", "verifier")
+	encodedState2, err := ss.GenerateState("user@example.com", "server", "issuer", "verifier")
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestStateStore_UniqueNonces(t *testing.T) {
 
 	// Generate multiple states and verify nonces are unique
 	for i := 0; i < 100; i++ {
-		encodedState, err := ss.GenerateState("session", "server", "issuer", "verifier")
+		encodedState, err := ss.GenerateState("user@example.com", "server", "issuer", "verifier")
 		if err != nil {
 			t.Fatalf("Failed to generate state: %v", err)
 		}
@@ -219,7 +219,7 @@ func TestStateStore_Cleanup(t *testing.T) {
 	defer ss.Stop()
 
 	// Generate a state
-	_, err := ss.GenerateState("session", "server", "https://issuer.com", "verifier")
+	_, err := ss.GenerateState("user@example.com", "server", "https://issuer.com", "verifier")
 	if err != nil {
 		t.Fatalf("Failed to generate state: %v", err)
 	}

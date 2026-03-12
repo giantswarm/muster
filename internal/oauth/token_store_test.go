@@ -12,7 +12,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid profile",
 	}
@@ -64,7 +64,7 @@ func TestTokenStore_GetExpiredToken(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
@@ -92,7 +92,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid profile email",
 	}
@@ -108,7 +108,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 	ts.Store(key, token)
 
 	// Retrieve by issuer (different scope should still find it)
-	retrieved := ts.GetByIssuer("session-123", "https://auth.example.com")
+	retrieved := ts.GetByIssuer("user-123", "https://auth.example.com")
 	if retrieved == nil {
 		t.Fatal("Expected to retrieve token by issuer, got nil")
 	}
@@ -122,9 +122,9 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
 
-	// Store a token for different session
+	// Store a token for a different user
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
@@ -138,14 +138,14 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 
 	ts.Store(key, token)
 
-	// Try to retrieve with different session
-	retrieved := ts.GetByIssuer("different-session", "https://auth.example.com")
+	// Try to retrieve with different user
+	retrieved := ts.GetByIssuer("different-user", "https://auth.example.com")
 	if retrieved != nil {
-		t.Errorf("Expected nil for different session, got %v", retrieved)
+		t.Errorf("Expected nil for different user, got %v", retrieved)
 	}
 
 	// Try to retrieve with different issuer
-	retrieved = ts.GetByIssuer("session-123", "https://different-issuer.com")
+	retrieved = ts.GetByIssuer("user-123", "https://different-issuer.com")
 	if retrieved != nil {
 		t.Errorf("Expected nil for different issuer, got %v", retrieved)
 	}
@@ -156,7 +156,7 @@ func TestTokenStore_Delete(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
@@ -188,12 +188,12 @@ func TestTokenStore_DeleteByUser(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
 
-	sessionID := "session-to-delete"
+	subject := "user-to-delete"
 
-	// Store multiple tokens for the same session
+	// Store multiple tokens for the same subject
 	for i, issuer := range []string{"https://issuer1.com", "https://issuer2.com", "https://issuer3.com"} {
 		key := TokenKey{
-			Subject: sessionID,
+			Subject: subject,
 			Issuer:  issuer,
 			Scope:   "openid",
 		}
@@ -206,9 +206,9 @@ func TestTokenStore_DeleteByUser(t *testing.T) {
 		ts.Store(key, token)
 	}
 
-	// Store a token for different session
+	// Store a token for a different user
 	otherKey := TokenKey{
-		Subject: "other-session",
+		Subject: "other-user",
 		Issuer:  "https://issuer1.com",
 		Scope:   "openid",
 	}
@@ -224,17 +224,17 @@ func TestTokenStore_DeleteByUser(t *testing.T) {
 		t.Errorf("Expected 4 tokens, got %d", ts.Count())
 	}
 
-	// Delete all tokens for the session
-	ts.DeleteByUser(sessionID)
+	// Delete all tokens for the subject
+	ts.DeleteByUser(subject)
 
-	// Verify only 1 token remains (the other session)
+	// Verify only 1 token remains (the other user)
 	if ts.Count() != 1 {
 		t.Errorf("Expected 1 token after deletion, got %d", ts.Count())
 	}
 
-	// Verify the remaining token is from the other session
+	// Verify the remaining token is from the other user
 	if ts.Get(otherKey) == nil {
-		t.Error("Token from other session should still exist")
+		t.Error("Token from other user should still exist")
 	}
 }
 
@@ -250,7 +250,7 @@ func TestTokenStore_Count(t *testing.T) {
 	// Add tokens
 	for i := 0; i < 5; i++ {
 		key := TokenKey{
-			Subject: "session",
+			Subject: "user@example.com",
 			Issuer:  "issuer",
 			Scope:   string(rune('a' + i)),
 		}
@@ -266,13 +266,13 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
 
-	sessionID := "session-123"
+	subject := "user-123"
 	issuerToDelete := "https://issuer-to-delete.com"
 	issuerToKeep := "https://issuer-to-keep.com"
 
-	// Store tokens for the same session with different issuers
+	// Store tokens for the same subject with different issuers
 	key1 := TokenKey{
-		Subject: sessionID,
+		Subject: subject,
 		Issuer:  issuerToDelete,
 		Scope:   "openid",
 	}
@@ -284,7 +284,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 	})
 
 	key2 := TokenKey{
-		Subject: sessionID,
+		Subject: subject,
 		Issuer:  issuerToDelete,
 		Scope:   "profile", // Same issuer, different scope
 	}
@@ -296,7 +296,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 	})
 
 	key3 := TokenKey{
-		Subject: sessionID,
+		Subject: subject,
 		Issuer:  issuerToKeep,
 		Scope:   "openid",
 	}
@@ -307,9 +307,9 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		Issuer:      issuerToKeep,
 	})
 
-	// Store token for different session (should not be affected)
+	// Store token for different user (should not be affected)
 	key4 := TokenKey{
-		Subject: "other-session",
+		Subject: "other-user",
 		Issuer:  issuerToDelete,
 		Scope:   "openid",
 	}
@@ -325,8 +325,8 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		t.Errorf("Expected 4 tokens, got %d", ts.Count())
 	}
 
-	// Delete tokens for session-123 and issuerToDelete
-	ts.DeleteByIssuer(sessionID, issuerToDelete)
+	// Delete tokens for user-123 and issuerToDelete
+	ts.DeleteByIssuer(subject, issuerToDelete)
 
 	// Verify we have 2 tokens remaining
 	if ts.Count() != 2 {
@@ -346,7 +346,7 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 		t.Error("Token 3 (different issuer) should still exist")
 	}
 	if ts.Get(key4) == nil {
-		t.Error("Token 4 (different session) should still exist")
+		t.Error("Token 4 (different user) should still exist")
 	}
 }
 
@@ -356,7 +356,7 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
@@ -367,8 +367,8 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 		Issuer:      "https://auth.example.com",
 	})
 
-	// Try to delete with non-matching session
-	ts.DeleteByIssuer("non-existent-session", "https://auth.example.com")
+	// Try to delete with non-matching user
+	ts.DeleteByIssuer("non-existent-user", "https://auth.example.com")
 
 	// Token should still exist
 	if ts.Count() != 1 {
@@ -376,7 +376,7 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 	}
 
 	// Try to delete with non-matching issuer
-	ts.DeleteByIssuer("session-123", "https://non-existent-issuer.com")
+	ts.DeleteByIssuer("user-123", "https://non-existent-issuer.com")
 
 	// Token should still exist
 	if ts.Count() != 1 {
@@ -427,22 +427,22 @@ func TestToken_IsExpired(t *testing.T) {
 	}
 }
 
-// TestTokenStore_SessionIsolation verifies that tokens from different sessions
+// TestTokenStore_SubjectIsolation verifies that tokens from different subjects
 // are completely isolated. This is critical for multi-user security - users
 // MUST NOT be able to access each other's OAuth tokens.
-func TestTokenStore_SessionIsolation(t *testing.T) {
+func TestTokenStore_SubjectIsolation(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
 
-	// Simulate two different users with different session IDs
-	user1Session := "uuid-user1-session-abc123"
-	user2Session := "uuid-user2-session-def456"
+	// Simulate two different users with different subjects
+	user1Subject := "user1@example.com"
+	user2Subject := "user2@example.com"
 	commonIssuer := "https://auth.example.com"
 	commonScope := "openid profile"
 
 	// User 1 stores their token
 	user1Key := TokenKey{
-		Subject: user1Session,
+		Subject: user1Subject,
 		Issuer:  commonIssuer,
 		Scope:   commonScope,
 	}
@@ -455,9 +455,9 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 	}
 	ts.Store(user1Key, user1Token)
 
-	// User 2 stores their token (same issuer and scope, different session)
+	// User 2 stores their token (same issuer and scope, different subject)
 	user2Key := TokenKey{
-		Subject: user2Session,
+		Subject: user2Subject,
 		Issuer:  commonIssuer,
 		Scope:   commonScope,
 	}
@@ -488,9 +488,9 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 		t.Errorf("User 2 got wrong token: expected user2-secret-token, got %s", retrievedUser2Token.AccessToken)
 	}
 
-	// CRITICAL SECURITY CHECK: User 1's session should not retrieve User 2's token
+	// CRITICAL SECURITY CHECK: User 1's subject should not retrieve User 2's token
 	wrongKey := TokenKey{
-		Subject: user1Session,
+		Subject: user1Subject,
 		Issuer:  commonIssuer,
 		Scope:   "different-scope", // Even with same issuer, different scope = no token
 	}
@@ -498,15 +498,15 @@ func TestTokenStore_SessionIsolation(t *testing.T) {
 		t.Error("Should not get token for non-matching scope")
 	}
 
-	// CRITICAL SECURITY CHECK: GetByIssuer respects session boundaries
-	user1IssuerToken := ts.GetByIssuer(user1Session, commonIssuer)
+	// CRITICAL SECURITY CHECK: GetByIssuer respects subject boundaries
+	user1IssuerToken := ts.GetByIssuer(user1Subject, commonIssuer)
 	if user1IssuerToken == nil || user1IssuerToken.AccessToken != "user1-secret-token" {
-		t.Error("GetByIssuer should return User 1's token for User 1's session")
+		t.Error("GetByIssuer should return User 1's token for User 1's subject")
 	}
 
-	user2IssuerToken := ts.GetByIssuer(user2Session, commonIssuer)
+	user2IssuerToken := ts.GetByIssuer(user2Subject, commonIssuer)
 	if user2IssuerToken == nil || user2IssuerToken.AccessToken != "user2-secret-token" {
-		t.Error("GetByIssuer should return User 2's token for User 2's session")
+		t.Error("GetByIssuer should return User 2's token for User 2's subject")
 	}
 
 	// CRITICAL: Verify token count (exactly 2 tokens, one per user)
@@ -521,7 +521,7 @@ func TestTokenStore_Cleanup(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
@@ -548,7 +548,7 @@ func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
 
 	// Store an expired token
 	key := TokenKey{
-		Subject: "session-123",
+		Subject: "user-123",
 		Issuer:  "https://auth.example.com",
 		Scope:   "openid",
 	}
