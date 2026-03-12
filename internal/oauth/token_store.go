@@ -14,7 +14,7 @@ import (
 const tokenExpiryMargin = 30 * time.Second
 
 // TokenStore provides thread-safe in-memory storage for OAuth tokens.
-// Tokens are indexed by session ID, issuer, and scope to support SSO.
+// Tokens are indexed by subject, issuer, and scope to support SSO.
 //
 // IMPORTANT: TokenStore starts a background goroutine for cleanup. Callers MUST
 // call Stop() when done to prevent goroutine leaks. Typically this is done via
@@ -52,8 +52,8 @@ func (ts *TokenStore) Store(key TokenKey, token *pkgoauth.Token) {
 	token.SetExpiresAtFromExpiresIn()
 
 	ts.tokens[key] = token
-	logging.Debug("OAuth", "Stored token for session=%s issuer=%s scope=%s (expires: %v)",
-		logging.TruncateSessionID(key.SessionID), key.Issuer, key.Scope, token.ExpiresAt)
+	logging.Debug("OAuth", "Stored token for subject=%s issuer=%s scope=%s (expires: %v)",
+		logging.TruncateSessionID(key.Subject), key.Issuer, key.Scope, token.ExpiresAt)
 }
 
 // Get retrieves a token from the store by key.
@@ -69,21 +69,21 @@ func (ts *TokenStore) Get(key TokenKey) *pkgoauth.Token {
 
 	// Check if token is expired (with margin for clock skew)
 	if token.IsExpiredWithMargin(tokenExpiryMargin) {
-		logging.Debug("OAuth", "Token expired for session=%s issuer=%s", logging.TruncateSessionID(key.SessionID), key.Issuer)
+		logging.Debug("OAuth", "Token expired for subject=%s issuer=%s", logging.TruncateSessionID(key.Subject), key.Issuer)
 		return nil
 	}
 
 	return token
 }
 
-// GetByIssuer finds a token for the given session and issuer, regardless of scope.
+// GetByIssuer finds a token for the given subject and issuer, regardless of scope.
 // This enables SSO when the exact scope doesn't match but the issuer does.
-func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
+func (ts *TokenStore) GetByIssuer(subject, issuer string) *pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	for key, token := range ts.tokens {
-		if key.SessionID == sessionID && key.Issuer == issuer {
+		if key.Subject == subject && key.Issuer == issuer {
 			if !token.IsExpiredWithMargin(tokenExpiryMargin) {
 				return token
 			}
@@ -92,14 +92,14 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	return nil
 }
 
-// GetTokenKeyByIssuer finds the token key for a given session and issuer.
+// GetTokenKeyByIssuer finds the token key for a given subject and issuer.
 // This is useful for linking session connections to their tokens.
-func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
+func (ts *TokenStore) GetTokenKeyByIssuer(subject, issuer string) *TokenKey {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	for key, token := range ts.tokens {
-		if key.SessionID == sessionID && key.Issuer == issuer {
+		if key.Subject == subject && key.Issuer == issuer {
 			if !token.IsExpiredWithMargin(tokenExpiryMargin) {
 				keyCopy := key
 				return &keyCopy
@@ -109,15 +109,15 @@ func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
 	return nil
 }
 
-// GetAllForSession returns all valid tokens for a session.
-// This is useful for listing all servers a session is authenticated with.
-func (ts *TokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token {
+// GetAllForUser returns all valid tokens for a subject.
+// This is useful for listing all servers a user is authenticated with.
+func (ts *TokenStore) GetAllForUser(subject string) map[TokenKey]*pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	result := make(map[TokenKey]*pkgoauth.Token)
 	for key, token := range ts.tokens {
-		if key.SessionID == sessionID && !token.IsExpiredWithMargin(tokenExpiryMargin) {
+		if key.Subject == subject && !token.IsExpiredWithMargin(tokenExpiryMargin) {
 			result[key] = token
 		}
 	}
@@ -130,38 +130,38 @@ func (ts *TokenStore) Delete(key TokenKey) {
 	defer ts.mu.Unlock()
 
 	delete(ts.tokens, key)
-	logging.Debug("OAuth", "Deleted token for session=%s issuer=%s", logging.TruncateSessionID(key.SessionID), key.Issuer)
+	logging.Debug("OAuth", "Deleted token for subject=%s issuer=%s", logging.TruncateSessionID(key.Subject), key.Issuer)
 }
 
-// DeleteBySession removes all tokens for a given session.
-func (ts *TokenStore) DeleteBySession(sessionID string) {
+// DeleteByUser removes all tokens for a given subject.
+func (ts *TokenStore) DeleteByUser(subject string) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	count := 0
 	for key := range ts.tokens {
-		if key.SessionID == sessionID {
+		if key.Subject == subject {
 			delete(ts.tokens, key)
 			count++
 		}
 	}
-	logging.Debug("OAuth", "Deleted %d tokens for session=%s", count, logging.TruncateSessionID(sessionID))
+	logging.Debug("OAuth", "Deleted %d tokens for subject=%s", count, logging.TruncateSessionID(subject))
 }
 
-// DeleteByIssuer removes all tokens for a given session and issuer.
+// DeleteByIssuer removes all tokens for a given subject and issuer.
 // This is used to clear invalid/expired tokens before requesting fresh authentication.
-func (ts *TokenStore) DeleteByIssuer(sessionID, issuer string) {
+func (ts *TokenStore) DeleteByIssuer(subject, issuer string) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	count := 0
 	for key := range ts.tokens {
-		if key.SessionID == sessionID && key.Issuer == issuer {
+		if key.Subject == subject && key.Issuer == issuer {
 			delete(ts.tokens, key)
 			count++
 		}
 	}
-	logging.Debug("OAuth", "Deleted %d tokens for session=%s issuer=%s", count, logging.TruncateSessionID(sessionID), issuer)
+	logging.Debug("OAuth", "Deleted %d tokens for subject=%s issuer=%s", count, logging.TruncateSessionID(subject), issuer)
 }
 
 // Count returns the number of tokens in the store.

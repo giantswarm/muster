@@ -20,13 +20,13 @@ import (
 type stubOAuthHandler struct {
 	enabled      bool
 	fullToken    *api.OAuthToken
-	storedTokens map[string]*api.OAuthToken // key: sessionID+"|"+issuer
+	storedTokens map[string]*api.OAuthToken // key: subject+"|"+issuer
 }
 
 func (m *stubOAuthHandler) IsEnabled() bool { return m.enabled }
-func (m *stubOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+func (m *stubOAuthHandler) GetFullTokenByIssuer(subject, issuer string) *api.OAuthToken {
 	if m.storedTokens != nil {
-		if tok, ok := m.storedTokens[sessionID+"|"+issuer]; ok {
+		if tok, ok := m.storedTokens[subject+"|"+issuer]; ok {
 			return tok
 		}
 	}
@@ -36,11 +36,11 @@ func (m *stubOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 func (m *stubOAuthHandler) GetToken(_, _ string) *api.OAuthToken          { return nil }
 func (m *stubOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken  { return nil }
 func (m *stubOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken { return nil }
-func (m *stubOAuthHandler) StoreToken(sessionID, issuer string, token *api.OAuthToken) {
+func (m *stubOAuthHandler) StoreToken(subject, issuer string, token *api.OAuthToken) {
 	if m.storedTokens == nil {
 		m.storedTokens = make(map[string]*api.OAuthToken)
 	}
-	m.storedTokens[sessionID+"|"+issuer] = token
+	m.storedTokens[subject+"|"+issuer] = token
 }
 func (m *stubOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
 func (m *stubOAuthHandler) RegisterServer(_, _, _ string)                          {}

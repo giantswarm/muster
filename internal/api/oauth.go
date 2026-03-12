@@ -14,12 +14,12 @@ import (
 //
 // Args:
 //   - ctx: Context for the operation
-//   - sessionID: The MCP session ID that authenticated
+//   - subject: The subject (user identity) that authenticated
 //   - serverName: The name of the MCP server that was authenticated to
 //   - accessToken: The access token to use for the connection
 //
 // Returns an error if the connection could not be established.
-type AuthCompletionCallback func(ctx context.Context, sessionID, serverName, accessToken string) error
+type AuthCompletionCallback func(ctx context.Context, subject, serverName, accessToken string) error
 
 // SessionInitCallback is called when a new session is first seen with a valid muster token.
 // The aggregator registers this callback to trigger proactive SSO connections to
@@ -47,36 +47,36 @@ type OAuthHandler interface {
 	// IsEnabled returns whether OAuth proxy functionality is active.
 	IsEnabled() bool
 
-	// GetToken retrieves a valid token for the given session and server.
+	// GetToken retrieves a valid token for the given subject and server.
 	// Returns nil if no valid token exists.
-	GetToken(sessionID, serverName string) *OAuthToken
+	GetToken(subject, serverName string) *OAuthToken
 
-	// GetTokenByIssuer retrieves a valid token for the given session and issuer.
+	// GetTokenByIssuer retrieves a valid token for the given subject and issuer.
 	// This is used for SSO when we have the issuer from a 401 response.
-	GetTokenByIssuer(sessionID, issuer string) *OAuthToken
+	GetTokenByIssuer(subject, issuer string) *OAuthToken
 
 	// GetFullTokenByIssuer retrieves the full token (including ID token if available)
-	// for the given session and issuer. Returns nil if no valid token exists.
+	// for the given subject and issuer. Returns nil if no valid token exists.
 	// The IDToken field may be empty if the token was obtained without an ID token.
-	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
+	GetFullTokenByIssuer(subject, issuer string) *OAuthToken
 
-	// FindTokenWithIDToken searches for any token in the session that has an ID token.
+	// FindTokenWithIDToken searches for any token for the subject that has an ID token.
 	// This is used as a fallback when the muster issuer is not explicitly configured.
 	// Returns the first token found with an ID token, or nil if none exists.
-	FindTokenWithIDToken(sessionID string) *OAuthToken
+	FindTokenWithIDToken(subject string) *OAuthToken
 
-	// StoreToken persists a token for the given session and issuer.
+	// StoreToken persists a token for the given subject and issuer.
 	// This is the write path used by mcp-go's transport.TokenStore.SaveToken()
 	// after a successful token refresh.
-	StoreToken(sessionID, issuer string, token *OAuthToken)
+	StoreToken(subject, issuer string, token *OAuthToken)
 
-	// ClearTokenByIssuer removes all tokens for a given session and issuer.
+	// ClearTokenByIssuer removes all tokens for a given subject and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
-	ClearTokenByIssuer(sessionID, issuer string)
+	ClearTokenByIssuer(subject, issuer string)
 
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
-	CreateAuthChallenge(ctx context.Context, sessionID, serverName, issuer, scope string) (*AuthChallenge, error)
+	CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*AuthChallenge, error)
 
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler

@@ -33,8 +33,8 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	}
 
 	// Verify state contents
-	if state.SessionID != sessionID {
-		t.Errorf("Expected session ID %q, got %q", sessionID, state.SessionID)
+	if state.Subject != sessionID {
+		t.Errorf("Expected subject %q, got %q", sessionID, state.Subject)
 	}
 
 	if state.ServerName != serverName {
@@ -99,7 +99,7 @@ func TestStateStore_ValidateInvalidState(t *testing.T) {
 
 	// Test with valid JSON but non-existent nonce
 	fakeState := OAuthState{
-		SessionID:  "session",
+		Subject:    "session",
 		ServerName: "server",
 		Nonce:      "non-existent-nonce",
 		CreatedAt:  time.Now(),

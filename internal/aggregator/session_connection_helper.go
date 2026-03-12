@@ -120,9 +120,9 @@ func establishSessionConnection(
 	var tokenKey *oauth.TokenKey
 	if issuer != "" {
 		tokenKey = &oauth.TokenKey{
-			SessionID: sessionID,
-			Issuer:    issuer,
-			Scope:     scope,
+			Subject: sessionID,
+			Issuer:  issuer,
+			Scope:   scope,
 		}
 	}
 
@@ -380,8 +380,8 @@ func EstablishSessionConnectionWithTokenForwarding(
 	// Scope is intentionally omitted: this is a forwarded ID token from muster's OAuth,
 	// not a token obtained via server-specific OAuth flow with its own scopes.
 	tokenKey := &oauth.TokenKey{
-		SessionID: sessionID,
-		Issuer:    musterIssuer,
+		Subject: sessionID,
+		Issuer:  musterIssuer,
 	}
 
 	// Create the session connection with token expiry tracking
@@ -796,8 +796,8 @@ func EstablishSessionConnectionWithTokenExchange(
 
 	// Create a token key using the muster issuer (since the original token is from muster's auth).
 	tokenKey := &oauth.TokenKey{
-		SessionID: sessionID,
-		Issuer:    musterIssuer,
+		Subject: sessionID,
+		Issuer:  musterIssuer,
 	}
 
 	// Create the session connection with token expiry tracking
