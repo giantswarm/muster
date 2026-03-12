@@ -446,8 +446,18 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 	accessToken := s.generateAccessToken(entry.ClientID, entry.Scope)
 	refreshToken := generateOpaqueToken()
 
-	// Generate ID token for SSO token forwarding support
-	idToken := s.generateIDToken(entry.ClientID, entry.Scope)
+	// Generate ID token, using subject override from auth code if present
+	var idToken string
+	if entry.Subject != "" {
+		idToken = s.generateIDTokenWithSub(entry.ClientID, entry.Scope, entry.Subject)
+	} else {
+		idToken = s.generateIDToken(entry.ClientID, entry.Scope)
+	}
+
+	sub := entry.Subject
+	if sub == "" {
+		sub = "test-user-123"
+	}
 
 	token := &issuedToken{
 		AccessToken:  accessToken,
@@ -455,6 +465,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 		Scope:        entry.Scope,
 		ClientID:     entry.ClientID,
 		ExpiresAt:    s.clock.Now().Add(s.config.TokenLifetime),
+		Subject:      sub,
 	}
 
 	s.mu.Lock()
@@ -838,13 +849,13 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	newAccessToken := s.generateAccessToken(originalToken.ClientID, originalToken.Scope)
 	newRefreshToken := generateOpaqueToken()
 
-	// Generate new ID token, preserving subject from original token
-	var newIDToken string
-	if originalToken.Subject != "" && originalToken.Subject != "test-user-123" {
-		newIDToken = s.generateIDTokenWithSub(originalToken.ClientID, originalToken.Scope, originalToken.Subject)
-	} else {
-		newIDToken = s.generateIDToken(originalToken.ClientID, originalToken.Scope)
+	// Generate new ID token, preserving subject from original token.
+	// Always use generateIDTokenWithSub to avoid sentinel-value fragility.
+	sub := originalToken.Subject
+	if sub == "" {
+		sub = "test-user-123"
 	}
+	newIDToken := s.generateIDTokenWithSub(originalToken.ClientID, originalToken.Scope, sub)
 
 	newToken := &issuedToken{
 		AccessToken:  newAccessToken,
