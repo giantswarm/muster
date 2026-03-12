@@ -28,3 +28,4 @@ logs
 /muster
 # Stress test results
 stress-test-results/
+.klaus/
