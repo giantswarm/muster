@@ -730,6 +730,141 @@ func (r *ServerRegistry) GetAllPromptsForSession(sessionRegistry *SessionRegistr
 	return allPrompts
 }
 
+// GetAllToolsForUser returns a user-specific view of all available tools.
+//
+// For OAuth servers (StatusAuthRequired), tools are read from the CapabilityCache
+// keyed by the user's subject (sub claim). This decouples listing from the session
+// ID lifecycle, eliminating stale-session bugs.
+//
+// For non-OAuth servers, tools are read from ServerInfo.Tools (same as GetAllTools).
+//
+// Args:
+//   - capabilityCache: The capability cache storing per-user capabilities
+//   - subject: The user's OAuth sub claim (or defaultUser for stdio)
+//
+// Returns a slice of MCP tools visible to this user.
+func (r *ServerRegistry) GetAllToolsForUser(capabilityCache *CapabilityCache, subject string) []mcp.Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allTools []mcp.Tool
+
+	for serverName, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			if capabilityCache == nil {
+				continue
+			}
+			entry, ok := capabilityCache.Get(subject, serverName)
+			if ok {
+				for _, tool := range entry.Tools {
+					exposedTool := tool
+					exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+					allTools = append(allTools, exposedTool)
+				}
+			}
+			continue
+		}
+
+		if !info.IsConnected() {
+			continue
+		}
+
+		info.mu.RLock()
+		for _, tool := range info.Tools {
+			exposedTool := tool
+			exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+			allTools = append(allTools, exposedTool)
+		}
+		info.mu.RUnlock()
+	}
+
+	return allTools
+}
+
+// GetAllResourcesForUser returns a user-specific view of all available resources.
+//
+// For OAuth servers, resources are read from the CapabilityCache.
+// For non-OAuth servers, resources are read from ServerInfo.Resources.
+func (r *ServerRegistry) GetAllResourcesForUser(capabilityCache *CapabilityCache, subject string) []mcp.Resource {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allResources []mcp.Resource
+
+	for serverName, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			if capabilityCache == nil {
+				continue
+			}
+			entry, ok := capabilityCache.Get(subject, serverName)
+			if ok {
+				for _, resource := range entry.Resources {
+					exposedResource := resource
+					exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
+					allResources = append(allResources, exposedResource)
+				}
+			}
+			continue
+		}
+
+		if !info.IsConnected() {
+			continue
+		}
+
+		info.mu.RLock()
+		for _, resource := range info.Resources {
+			exposedResource := resource
+			exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
+			allResources = append(allResources, exposedResource)
+		}
+		info.mu.RUnlock()
+	}
+
+	return allResources
+}
+
+// GetAllPromptsForUser returns a user-specific view of all available prompts.
+//
+// For OAuth servers, prompts are read from the CapabilityCache.
+// For non-OAuth servers, prompts are read from ServerInfo.Prompts.
+func (r *ServerRegistry) GetAllPromptsForUser(capabilityCache *CapabilityCache, subject string) []mcp.Prompt {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allPrompts []mcp.Prompt
+
+	for serverName, info := range r.servers {
+		if info.Status == StatusAuthRequired {
+			if capabilityCache == nil {
+				continue
+			}
+			entry, ok := capabilityCache.Get(subject, serverName)
+			if ok {
+				for _, prompt := range entry.Prompts {
+					exposedPrompt := prompt
+					exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
+					allPrompts = append(allPrompts, exposedPrompt)
+				}
+			}
+			continue
+		}
+
+		if !info.IsConnected() {
+			continue
+		}
+
+		info.mu.RLock()
+		for _, prompt := range info.Prompts {
+			exposedPrompt := prompt
+			exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
+			allPrompts = append(allPrompts, exposedPrompt)
+		}
+		info.mu.RUnlock()
+	}
+
+	return allPrompts
+}
+
 // GetOAuthServers returns a list of servers that require OAuth authentication.
 func (r *ServerRegistry) GetOAuthServers() []*ServerInfo {
 	r.mu.RLock()

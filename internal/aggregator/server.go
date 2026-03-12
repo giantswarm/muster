@@ -82,6 +82,9 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-session rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
+	// Per-user capability cache for OAuth servers (Phase 2A: session ID elimination)
+	capabilityCache *CapabilityCache
+
 	// Deduplication for concurrent requests with the same stale/unknown session ID.
 	// When multiple requests arrive with the same unknown session ID, only the first
 	// creates a new session and logs the warning; concurrent and slightly-late
@@ -149,6 +152,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		// Security hardening: rate limiting and metrics for auth operations (ADR-008)
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
+		capabilityCache: NewCapabilityCache(5 * time.Minute),
 	}
 }
 
@@ -454,6 +458,11 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Stop auth rate limiter background cleanup goroutine
 	if a.authRateLimiter != nil {
 		a.authRateLimiter.Stop()
+	}
+
+	// Stop capability cache background cleanup goroutine
+	if a.capabilityCache != nil {
+		a.capabilityCache.Stop()
 	}
 
 	// Reset internal state to allow for clean restart
@@ -977,32 +986,53 @@ func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
 	return a.registry.GetAllPromptsForSession(a.sessionRegistry, sessionID)
 }
 
-// sessionToolFilter is the WithToolFilter callback that provides session-specific tool views.
+// GetToolsForUser returns a user-specific view of all available tools.
+// For OAuth servers, tools are read from the CapabilityCache keyed by user subject.
+// For non-OAuth servers, tools are read from ServerInfo (same as GetAllTools).
+func (a *AggregatorServer) GetToolsForUser(subject string) []mcp.Tool {
+	return a.registry.GetAllToolsForUser(a.capabilityCache, subject)
+}
+
+// GetResourcesForUser returns a user-specific view of all available resources.
+// For OAuth servers, resources are read from the CapabilityCache keyed by user subject.
+// For non-OAuth servers, resources are read from ServerInfo (same as GetAllResources).
+func (a *AggregatorServer) GetResourcesForUser(subject string) []mcp.Resource {
+	return a.registry.GetAllResourcesForUser(a.capabilityCache, subject)
+}
+
+// GetPromptsForUser returns a user-specific view of all available prompts.
+// For OAuth servers, prompts are read from the CapabilityCache keyed by user subject.
+// For non-OAuth servers, prompts are read from ServerInfo (same as GetAllPrompts).
+func (a *AggregatorServer) GetPromptsForUser(subject string) []mcp.Prompt {
+	return a.registry.GetAllPromptsForUser(a.capabilityCache, subject)
+}
+
+// sessionToolFilter is the WithToolFilter callback that provides user-specific tool views.
 //
-// This is a critical part of the session-scoped tool visibility feature (ADR-006).
+// This is a critical part of the user-scoped tool visibility feature (ADR-006).
 // When a client calls tools/list, this filter intercepts the request and returns
-// only the tools that the specific session is authorized to see based on their
+// only the tools that the specific user is authorized to see based on their
 // OAuth authentication state.
 //
 // The filter:
-//   - Extracts the session ID from the MCP context
+//   - Extracts the user subject from the request context (OAuth sub claim)
 //   - Includes core muster tools (workflow, config, service, etc.)
-//   - Returns session-specific MCP server tools via GetToolsForSession
+//   - Returns user-specific MCP server tools via GetToolsForUser
 //   - For non-OAuth servers, returns global tools
-//   - For OAuth servers, returns tools only if the session has authenticated
+//   - For OAuth servers, returns tools only if the user has authenticated
 //
 // Args:
-//   - ctx: Context containing the MCP session information
-//   - _ : The global tools list (ignored - we compute session-specific tools instead)
+//   - ctx: Context containing the authenticated user's subject
+//   - _ : The global tools list (ignored - we compute user-specific tools instead)
 //
-// Returns a slice of MCP tools specific to the requesting session.
+// Returns a slice of MCP tools specific to the requesting user.
 func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
-	sessionID := getSessionIDFromContext(ctx)
+	subject := getUserSubjectFromContext(ctx)
 
-	// Get session-specific MCP server tools (handles OAuth auth state)
-	mcpServerTools := a.GetToolsForSession(sessionID)
+	// Get user-specific MCP server tools (handles OAuth auth state via CapabilityCache)
+	mcpServerTools := a.GetToolsForUser(subject)
 
-	// Get core muster tools (these are always available to all sessions)
+	// Get core muster tools (these are always available to all users)
 	coreServerTools := a.createToolsFromProviders()
 
 	// Combine both sets of tools
@@ -1014,8 +1044,8 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 		allTools = append(allTools, serverTool.Tool)
 	}
 
-	logging.Debug("Aggregator", "sessionToolFilter: returning %d tools (%d mcp server, %d core) for session %s",
-		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateSessionID(sessionID))
+	logging.Debug("Aggregator", "sessionToolFilter: returning %d tools (%d mcp server, %d core) for subject %s",
+		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateSessionID(subject))
 
 	return allTools
 }
@@ -1733,6 +1763,21 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 // This constant is used to identify tokens stored for the default session.
 const defaultSessionID = "default-session"
 
+// defaultUser is the fallback user identity for stdio transport (single-user mode).
+// Used by the capability listing path when no OAuth subject is available in context.
+const defaultUser = "default-user"
+
+// getUserSubjectFromContext extracts the authenticated user's subject (sub claim)
+// from the request context. For HTTP transports (SSE, Streamable HTTP), this is
+// set by the OAuth middleware after token validation. For stdio transport, it falls
+// back to defaultUser since there is no OAuth token.
+func getUserSubjectFromContext(ctx context.Context) string {
+	if sub := api.GetSubjectFromContext(ctx); sub != "" {
+		return sub
+	}
+	return defaultUser
+}
+
 // getSessionIDFromContext extracts the session ID from context.
 //
 // Session ID precedence (first match wins):
@@ -2095,21 +2140,21 @@ func (a *AggregatorServer) resolveSessionTool(sessionID, exposedName string) (st
 // enabling the metatools package to access tools, resources, and prompts
 // through the aggregator.
 
-// ListToolsForContext returns all available tools for the current session context.
-// This is used by the metatools package to provide session-scoped tool visibility.
+// ListToolsForContext returns all available tools for the current user context.
+// This is used by the metatools package to provide user-scoped tool visibility.
 //
-// The method extracts the session ID from the context and returns tools
-// appropriate for that session's authentication state. This includes:
+// The method extracts the user subject from the context and returns tools
+// appropriate for that user's authentication state. This includes:
 //   - MCP server tools (prefixed with x_<server>_)
 //   - Core muster tools (prefixed with core_) from internal providers
 //
 // The core tools are collected from workflow, service, config, serviceclass,
 // mcpserver, events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
-	sessionID := getSessionIDFromContext(ctx)
+	subject := getUserSubjectFromContext(ctx)
 
-	// Get session-specific MCP server tools (handles OAuth auth state)
-	mcpServerTools := a.GetToolsForSession(sessionID)
+	// Get user-specific MCP server tools (handles OAuth auth state via CapabilityCache)
+	mcpServerTools := a.GetToolsForUser(subject)
 
 	// Get core muster tools (workflow, service, config, etc.)
 	coreTools := a.getAllCoreToolsAsMCPTools()
@@ -2119,24 +2164,24 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
 
-	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for session %s",
-		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateSessionID(sessionID))
+	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for subject %s",
+		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateSessionID(subject))
 
 	return allTools
 }
 
-// ListResourcesForContext returns all available resources for the current session context.
-// This is used by the metatools package to provide session-scoped resource visibility.
+// ListResourcesForContext returns all available resources for the current user context.
+// This is used by the metatools package to provide user-scoped resource visibility.
 func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
-	sessionID := getSessionIDFromContext(ctx)
-	return a.GetResourcesForSession(sessionID)
+	subject := getUserSubjectFromContext(ctx)
+	return a.GetResourcesForUser(subject)
 }
 
-// ListPromptsForContext returns all available prompts for the current session context.
-// This is used by the metatools package to provide session-scoped prompt visibility.
+// ListPromptsForContext returns all available prompts for the current user context.
+// This is used by the metatools package to provide user-scoped prompt visibility.
 func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
-	sessionID := getSessionIDFromContext(ctx)
-	return a.GetPromptsForSession(sessionID)
+	subject := getUserSubjectFromContext(ctx)
+	return a.GetPromptsForUser(subject)
 }
 
 // ReadResource retrieves the contents of a resource by URI.
