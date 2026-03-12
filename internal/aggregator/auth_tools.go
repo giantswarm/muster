@@ -376,11 +376,17 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Clear tokens for this server's issuer if we have auth info
+	// Clear tokens for this server's issuer ONLY if no other server shares it
+	// and it is not muster's upstream issuer. Clearing a shared issuer token
+	// would break other servers (or muster itself) that rely on the same token.
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
+		if p.isIssuerExclusiveToServer(sub, serverName, serverInfo.AuthInfo.Issuer) {
+			oauthHandler := api.GetOAuthHandler()
+			if oauthHandler != nil && oauthHandler.IsEnabled() {
+				oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
+			}
+		} else {
+			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, serverInfo.AuthInfo.Issuer)
 		}
 	}
 
@@ -492,6 +498,29 @@ func (p *AuthToolProvider) getMusterIssuer(sub string) string {
 	}
 
 	return p.aggregator.getMusterIssuerWithFallback(sub)
+}
+
+// isIssuerExclusiveToServer returns true if the given issuer is used ONLY by
+// the specified server and is NOT muster's upstream issuer. When an issuer is
+// shared, clearing it on logout of one server would break other servers (or
+// muster's own token forwarding) that depend on the same token.
+func (p *AuthToolProvider) isIssuerExclusiveToServer(sub, serverName, issuer string) bool {
+	// Check if this issuer is muster's upstream issuer (uses token-aware lookup)
+	if musterIssuer := p.getMusterIssuer(sub); musterIssuer != "" && musterIssuer == issuer {
+		return false
+	}
+
+	// Check if any other registered server uses the same issuer
+	for name, info := range p.aggregator.registry.GetAllServers() {
+		if name == serverName {
+			continue
+		}
+		if info.AuthInfo != nil && info.AuthInfo.Issuer == issuer {
+			return false
+		}
+	}
+
+	return true
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response
