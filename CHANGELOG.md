@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced custom `X-Muster-Session-ID` header with mcp-go's native `Mcp-Session-Id` header for session tracking. The `MusterSessionIdManager` middleware now handles session ID assignment using the standard MCP header.
+
 ## [0.1.0] - 2026-02-23
 
 ### Changed
