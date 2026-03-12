@@ -1123,6 +1123,61 @@ func TestCreateSessionForSubject_SessionLimit(t *testing.T) {
 	}
 }
 
+func TestSessionRegistry_OnSessionRemoved_DeleteSession(t *testing.T) {
+	sr := NewSessionRegistryWithLimits(30*time.Minute, 100)
+	defer sr.Stop()
+
+	var removedIDs []string
+	sr.SetOnSessionRemoved(func(sessionID string) {
+		removedIDs = append(removedIDs, sessionID)
+	})
+
+	// Create a session
+	session := sr.GetOrCreateSession("test-session-1")
+	if session == nil {
+		t.Fatal("GetOrCreateSession returned nil")
+	}
+
+	// Delete it
+	sr.DeleteSession("test-session-1")
+
+	// Callback should have been invoked
+	if len(removedIDs) != 1 || removedIDs[0] != "test-session-1" {
+		t.Errorf("onSessionRemoved called with %v, want [test-session-1]", removedIDs)
+	}
+}
+
+func TestSessionRegistry_OnSessionRemoved_Cleanup(t *testing.T) {
+	// Use a very short timeout so cleanup fires quickly
+	sr := NewSessionRegistryWithLimits(10*time.Millisecond, 100)
+	defer sr.Stop()
+
+	var mu sync.Mutex
+	var removedIDs []string
+	sr.SetOnSessionRemoved(func(sessionID string) {
+		mu.Lock()
+		removedIDs = append(removedIDs, sessionID)
+		mu.Unlock()
+	})
+
+	// Create a session
+	session := sr.GetOrCreateSession("cleanup-test-session")
+	if session == nil {
+		t.Fatal("GetOrCreateSession returned nil")
+	}
+
+	// Wait for session to expire and cleanup to run
+	// Cleanup interval = sessionTimeout/2 = 5ms, but clamped to minCleanupInterval (1s)
+	time.Sleep(1500 * time.Millisecond)
+
+	// Callback should have been invoked for the expired session
+	mu.Lock()
+	defer mu.Unlock()
+	if len(removedIDs) != 1 || removedIDs[0] != "cleanup-test-session" {
+		t.Errorf("onSessionRemoved called with %v, want [cleanup-test-session]", removedIDs)
+	}
+}
+
 func TestValidateSessionIdentity(t *testing.T) {
 	sr := NewSessionRegistry(5 * time.Minute)
 	defer sr.Stop()

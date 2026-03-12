@@ -1,7 +1,6 @@
 package aggregator
 
 import (
-	"sync"
 	"testing"
 	"time"
 )
@@ -45,12 +44,12 @@ func TestAuthRateLimiter_Allow(t *testing.T) {
 			})
 			defer rl.Stop()
 
-			sessionID := "test-session-123"
+			userID := "test-user-123"
 			serverName := "test-server"
 			allowed := 0
 
 			for i := 0; i < tt.attempts; i++ {
-				if rl.Allow(sessionID, serverName) {
+				if rl.Allow(userID, serverName) {
 					allowed++
 				}
 			}
@@ -69,30 +68,30 @@ func TestAuthRateLimiter_RemainingAttempts(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	sessionID := "test-session-123"
+	userID := "test-user-123"
 	serverName := "test-server"
 
 	// Initially should have all attempts remaining
-	if got := rl.RemainingAttempts(sessionID); got != 5 {
+	if got := rl.RemainingAttempts(userID); got != 5 {
 		t.Errorf("RemainingAttempts() = %d, want 5", got)
 	}
 
 	// Use 3 attempts
 	for i := 0; i < 3; i++ {
-		rl.Allow(sessionID, serverName)
+		rl.Allow(userID, serverName)
 	}
 
 	// Should have 2 remaining
-	if got := rl.RemainingAttempts(sessionID); got != 2 {
+	if got := rl.RemainingAttempts(userID); got != 2 {
 		t.Errorf("RemainingAttempts() = %d, want 2", got)
 	}
 
 	// Use remaining 2
-	rl.Allow(sessionID, serverName)
-	rl.Allow(sessionID, serverName)
+	rl.Allow(userID, serverName)
+	rl.Allow(userID, serverName)
 
 	// Should have 0 remaining
-	if got := rl.RemainingAttempts(sessionID); got != 0 {
+	if got := rl.RemainingAttempts(userID); got != 0 {
 		t.Errorf("RemainingAttempts() = %d, want 0", got)
 	}
 }
@@ -104,56 +103,56 @@ func TestAuthRateLimiter_Reset(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	sessionID := "test-session-123"
+	userID := "test-user-123"
 	serverName := "test-server"
 
 	// Use all attempts
 	for i := 0; i < 3; i++ {
-		rl.Allow(sessionID, serverName)
+		rl.Allow(userID, serverName)
 	}
 
 	// Should be blocked
-	if rl.Allow(sessionID, serverName) {
+	if rl.Allow(userID, serverName) {
 		t.Error("Allow() should return false when rate limited")
 	}
 
 	// Reset
-	rl.Reset(sessionID)
+	rl.Reset(userID)
 
 	// Should be allowed again
-	if !rl.Allow(sessionID, serverName) {
+	if !rl.Allow(userID, serverName) {
 		t.Error("Allow() should return true after reset")
 	}
 
 	// Should have remaining attempts
-	if got := rl.RemainingAttempts(sessionID); got != 2 {
+	if got := rl.RemainingAttempts(userID); got != 2 {
 		t.Errorf("RemainingAttempts() = %d, want 2 after reset and one attempt", got)
 	}
 }
 
-func TestAuthRateLimiter_PerSessionIsolation(t *testing.T) {
+func TestAuthRateLimiter_PerUserIsolation(t *testing.T) {
 	rl := NewAuthRateLimiter(AuthRateLimiterConfig{
 		MaxAttempts: 2,
 		Window:      time.Minute,
 	})
 	defer rl.Stop()
 
-	session1 := "session-1"
-	session2 := "session-2"
+	user1 := "user-1"
+	user2 := "user-2"
 	serverName := "test-server"
 
-	// Use all attempts for session1
-	rl.Allow(session1, serverName)
-	rl.Allow(session1, serverName)
+	// Use all attempts for user1
+	rl.Allow(user1, serverName)
+	rl.Allow(user1, serverName)
 
-	// session1 should be blocked
-	if rl.Allow(session1, serverName) {
-		t.Error("session1 should be rate limited")
+	// user1 should be blocked
+	if rl.Allow(user1, serverName) {
+		t.Error("user1 should be rate limited")
 	}
 
-	// session2 should still be allowed (independent rate limiting)
-	if !rl.Allow(session2, serverName) {
-		t.Error("session2 should not be affected by session1's rate limiting")
+	// user2 should still be allowed (independent rate limiting)
+	if !rl.Allow(user2, serverName) {
+		t.Error("user2 should not be affected by user1's rate limiting")
 	}
 }
 
@@ -164,12 +163,12 @@ func TestAuthRateLimiter_Cleanup(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	sessionID := "test-session-123"
+	userID := "test-user-123"
 	serverName := "test-server"
 
 	// Make some attempts
 	for i := 0; i < 3; i++ {
-		rl.Allow(sessionID, serverName)
+		rl.Allow(userID, serverName)
 	}
 
 	// Wait for window to expire
@@ -179,7 +178,7 @@ func TestAuthRateLimiter_Cleanup(t *testing.T) {
 	rl.Cleanup()
 
 	// Should have all attempts available again
-	if got := rl.RemainingAttempts(sessionID); got != 5 {
+	if got := rl.RemainingAttempts(userID); got != 5 {
 		t.Errorf("RemainingAttempts() = %d, want 5 after cleanup", got)
 	}
 }
@@ -222,16 +221,16 @@ func TestAuthRateLimiter_CleanupGoroutine(t *testing.T) {
 	})
 	defer rl.Stop()
 
-	sessionID := "goroutine-test-session"
+	userID := "goroutine-test-user"
 	serverName := "test-server"
 
 	// Record some attempts
 	for i := 0; i < 3; i++ {
-		rl.Allow(sessionID, serverName)
+		rl.Allow(userID, serverName)
 	}
 
 	// Verify attempts were recorded
-	if got := rl.RemainingAttempts(sessionID); got != 2 {
+	if got := rl.RemainingAttempts(userID); got != 2 {
 		t.Fatalf("RemainingAttempts() = %d, want 2", got)
 	}
 
@@ -239,7 +238,7 @@ func TestAuthRateLimiter_CleanupGoroutine(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	// The background goroutine should have cleaned up the stale entries
-	if got := rl.RemainingAttempts(sessionID); got != 5 {
+	if got := rl.RemainingAttempts(userID); got != 5 {
 		t.Errorf("RemainingAttempts() = %d after cleanup goroutine ran, want 5", got)
 	}
 }
@@ -253,59 +252,4 @@ func TestAuthRateLimiter_StopIsIdempotent(t *testing.T) {
 	// Calling Stop multiple times should not panic
 	rl.Stop()
 	rl.Stop()
-}
-
-func TestSessionRegistry_OnSessionRemoved_DeleteSession(t *testing.T) {
-	sr := NewSessionRegistryWithLimits(30*time.Minute, 100)
-	defer sr.Stop()
-
-	var removedIDs []string
-	sr.SetOnSessionRemoved(func(sessionID string) {
-		removedIDs = append(removedIDs, sessionID)
-	})
-
-	// Create a session
-	session := sr.GetOrCreateSession("test-session-1")
-	if session == nil {
-		t.Fatal("GetOrCreateSession returned nil")
-	}
-
-	// Delete it
-	sr.DeleteSession("test-session-1")
-
-	// Callback should have been invoked
-	if len(removedIDs) != 1 || removedIDs[0] != "test-session-1" {
-		t.Errorf("onSessionRemoved called with %v, want [test-session-1]", removedIDs)
-	}
-}
-
-func TestSessionRegistry_OnSessionRemoved_Cleanup(t *testing.T) {
-	// Use a very short timeout so cleanup fires quickly
-	sr := NewSessionRegistryWithLimits(10*time.Millisecond, 100)
-	defer sr.Stop()
-
-	var mu sync.Mutex
-	var removedIDs []string
-	sr.SetOnSessionRemoved(func(sessionID string) {
-		mu.Lock()
-		removedIDs = append(removedIDs, sessionID)
-		mu.Unlock()
-	})
-
-	// Create a session
-	session := sr.GetOrCreateSession("cleanup-test-session")
-	if session == nil {
-		t.Fatal("GetOrCreateSession returned nil")
-	}
-
-	// Wait for session to expire and cleanup to run
-	// Cleanup interval = sessionTimeout/2 = 5ms, but clamped to minCleanupInterval (1s)
-	time.Sleep(1500 * time.Millisecond)
-
-	// Callback should have been invoked for the expired session
-	mu.Lock()
-	defer mu.Unlock()
-	if len(removedIDs) != 1 || removedIDs[0] != "cleanup-test-session" {
-		t.Errorf("onSessionRemoved called with %v, want [cleanup-test-session]", removedIDs)
-	}
 }

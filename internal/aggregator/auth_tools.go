@@ -80,7 +80,7 @@ func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, arg
 // This implements the logic previously in handleSyntheticAuthTool, but as a core tool.
 //
 // Security features:
-//   - Rate limiting: Prevents OAuth flow abuse by limiting attempts per session
+//   - Rate limiting: Prevents OAuth flow abuse by limiting attempts per user
 //   - Metrics: Tracks login attempts, successes, and failures for monitoring
 func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	serverName, ok := args["server"].(string)
@@ -91,17 +91,23 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Get session ID early for rate limiting and metrics
+	// Get session ID early for metrics and session registry calls
 	sessionID := getSessionIDFromContext(ctx)
 
+	// Derive userID for rate limiter: prefer the OAuth sub claim, fall back to sessionID for stdio
+	userID := api.GetSubjectFromContext(ctx)
+	if userID == "" {
+		userID = sessionID // fallback for stdio/unauthenticated requests
+	}
+
 	// Check rate limit before processing
-	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sessionID, serverName) {
+	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(userID, serverName) {
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sessionID)
 		}
 		remaining := 0
 		if p.aggregator.authRateLimiter != nil {
-			remaining = p.aggregator.authRateLimiter.RemainingAttempts(sessionID)
+			remaining = p.aggregator.authRateLimiter.RemainingAttempts(userID)
 		}
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
@@ -206,7 +212,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
 		}
 		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(sessionID)
+			p.aggregator.authRateLimiter.Reset(userID)
 		}
 		return result, nil
 	} else if ShouldUseTokenForwarding(serverInfo) {
@@ -237,7 +243,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
 		}
 		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(sessionID)
+			p.aggregator.authRateLimiter.Reset(userID)
 		}
 		return result, nil
 	}
@@ -315,12 +321,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Try to establish connection using the existing token
 		connectResult, connectErr := p.tryConnectWithToken(ctx, sessionID, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
-			// Record success and reset rate limiter for this session
+			// Record success and reset rate limiter for this user
 			if p.aggregator.authMetrics != nil {
 				p.aggregator.authMetrics.RecordLoginSuccess(serverName, sessionID)
 			}
 			if p.aggregator.authRateLimiter != nil {
-				p.aggregator.authRateLimiter.Reset(sessionID)
+				p.aggregator.authRateLimiter.Reset(userID)
 			}
 			return connectResult, nil
 		}
