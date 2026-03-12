@@ -1,12 +1,15 @@
 ---
 # yamllint disable rule:truthy
+# Muster-specific checks not covered by the architect-orb in CircleCI.
+# Architect-orb already handles: goimports, gofmt, go test, go build,
+# nancy vulnerability scan, and non-ASCII filename checks.
 name: CI Checks
 
 on:
   pull_request:
     branches:
       - main
-  push:  # Also run on pushes to main to catch direct commits
+  push:
     branches:
       - main
 
@@ -21,8 +24,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'  # Match the version used in auto-release
-          cache: true  # Cache Go modules and build cache
+          go-version: '1.26'
+          cache: true
 
       - name: Install Python for yamllint
         uses: actions/setup-python@v6
@@ -41,7 +44,7 @@ jobs:
         run: |
           helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
-      - name: Run Checks (Lint)
+      - name: Lint YAML and Helm
         run: make check
 
       - name: Install controller-gen
@@ -61,34 +64,21 @@ jobs:
       - name: Run Helm unit tests
         run: make helm-test
 
-      - name: Muster unit tests
-        run: make test
-
-      - name: Run govulncheck (Security Scan)
-        run: make govulncheck
-
       - name: Build muster binary
         run: make build
 
       - name: Run muster integration tests
-        # Use higher base port to avoid port exhaustion under high parallelism
-        # See: https://github.com/giantswarm/muster/issues/309
         run: ./muster test --parallel 50 --base-port 30000
 
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
-          # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
           version: "~> v2"
           install-only: true
 
       - name: Run Release Dry-Run
-        # Only run on PRs, not on direct pushes to main
-        # Uses fast config (linux/amd64 only) to validate release works
         if: github.event_name == 'pull_request'
         run: make release-dry-run-fast
         env:
-          # GoReleaser needs a GITHUB_TOKEN even for dry runs
-          # to check API rate limits, etc.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
