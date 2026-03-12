@@ -7,12 +7,12 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// AuthRateLimiter provides per-session rate limiting for authentication operations.
-// This prevents OAuth flow abuse by limiting the number of auth attempts per session.
+// AuthRateLimiter provides per-user rate limiting for authentication operations.
+// This prevents OAuth flow abuse by limiting the number of auth attempts per user.
 //
 // Rate limiting is implemented using a sliding window approach:
-//   - Each session can make at most MaxAuthAttempts auth attempts within the time window
-//   - Attempts are tracked per session, not globally
+//   - Each user can make at most MaxAuthAttempts auth attempts within the time window
+//   - Attempts are tracked per user (sub claim), not globally
 //   - Old attempts are automatically cleaned up via a background goroutine
 //
 // Callers MUST call Stop() when done to prevent goroutine leaks.
@@ -20,11 +20,11 @@ type AuthRateLimiter struct {
 	mu sync.RWMutex
 
 	// Configuration
-	maxAttempts int           // Maximum attempts per session within the window
+	maxAttempts int           // Maximum attempts per user within the window
 	window      time.Duration // Time window for rate limiting
 
-	// Per-session attempt tracking
-	attempts map[string][]time.Time // sessionID -> list of attempt timestamps
+	// Per-user attempt tracking
+	attempts map[string][]time.Time // userID (sub claim) -> list of attempt timestamps
 
 	// Lifecycle management
 	stopCh chan struct{} // Closed to signal the cleanup goroutine to exit
@@ -32,7 +32,7 @@ type AuthRateLimiter struct {
 
 // AuthRateLimiterConfig holds configuration for the rate limiter.
 type AuthRateLimiterConfig struct {
-	// MaxAttempts is the maximum number of auth attempts per session within the window.
+	// MaxAttempts is the maximum number of auth attempts per user within the window.
 	// Default: 10 attempts
 	MaxAttempts int
 
@@ -72,16 +72,16 @@ func NewAuthRateLimiter(config AuthRateLimiterConfig) *AuthRateLimiter {
 	return rl
 }
 
-// Allow checks if an auth attempt is allowed for the given session.
+// Allow checks if an auth attempt is allowed for the given user.
 // If allowed, the attempt is recorded and true is returned.
 // If rate limited, false is returned and the attempt is NOT recorded.
 //
 // Args:
-//   - sessionID: The session making the auth attempt
+//   - userID: The user making the auth attempt (sub claim or session ID fallback)
 //   - serverName: The server being authenticated to (for logging)
 //
 // Returns true if the attempt is allowed, false if rate limited.
-func (rl *AuthRateLimiter) Allow(sessionID, serverName string) bool {
+func (rl *AuthRateLimiter) Allow(userID, serverName string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (rl *AuthRateLimiter) Allow(sessionID, serverName string) bool {
 	windowStart := now.Add(-rl.window)
 
 	// Get existing attempts and filter out old ones
-	existing := rl.attempts[sessionID]
+	existing := rl.attempts[userID]
 	var recent []time.Time
 	for _, t := range existing {
 		if t.After(windowStart) {
@@ -99,32 +99,32 @@ func (rl *AuthRateLimiter) Allow(sessionID, serverName string) bool {
 
 	// Check if we've exceeded the limit
 	if len(recent) >= rl.maxAttempts {
-		logging.Warn("AuthRateLimiter", "Rate limit exceeded for session %s attempting to auth to server %s (%d attempts in %v)",
-			logging.TruncateSessionID(sessionID), serverName, len(recent), rl.window)
+		logging.Warn("AuthRateLimiter", "Rate limit exceeded for user %s attempting to auth to server %s (%d attempts in %v)",
+			logging.TruncateSessionID(userID), serverName, len(recent), rl.window)
 		// Update the filtered list even though we're rejecting
-		rl.attempts[sessionID] = recent
+		rl.attempts[userID] = recent
 		return false
 	}
 
 	// Record this attempt
 	recent = append(recent, now)
-	rl.attempts[sessionID] = recent
+	rl.attempts[userID] = recent
 
-	logging.Debug("AuthRateLimiter", "Auth attempt allowed for session %s server %s (%d/%d attempts)",
-		logging.TruncateSessionID(sessionID), serverName, len(recent), rl.maxAttempts)
+	logging.Debug("AuthRateLimiter", "Auth attempt allowed for user %s server %s (%d/%d attempts)",
+		logging.TruncateSessionID(userID), serverName, len(recent), rl.maxAttempts)
 
 	return true
 }
 
-// RemainingAttempts returns the number of remaining auth attempts for a session.
-func (rl *AuthRateLimiter) RemainingAttempts(sessionID string) int {
+// RemainingAttempts returns the number of remaining auth attempts for a user.
+func (rl *AuthRateLimiter) RemainingAttempts(userID string) int {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
 
 	now := time.Now()
 	windowStart := now.Add(-rl.window)
 
-	existing := rl.attempts[sessionID]
+	existing := rl.attempts[userID]
 	count := 0
 	for _, t := range existing {
 		if t.After(windowStart) {
@@ -139,14 +139,14 @@ func (rl *AuthRateLimiter) RemainingAttempts(sessionID string) int {
 	return remaining
 }
 
-// Reset clears all rate limiting state for a session.
+// Reset clears all rate limiting state for a user.
 // This can be called after successful authentication to reset the counter.
-func (rl *AuthRateLimiter) Reset(sessionID string) {
+func (rl *AuthRateLimiter) Reset(userID string) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	delete(rl.attempts, sessionID)
-	logging.Debug("AuthRateLimiter", "Rate limit reset for session %s", logging.TruncateSessionID(sessionID))
+	delete(rl.attempts, userID)
+	logging.Debug("AuthRateLimiter", "Rate limit reset for user %s", logging.TruncateSessionID(userID))
 }
 
 // Stop terminates the background cleanup goroutine.
@@ -193,7 +193,7 @@ func (rl *AuthRateLimiter) Cleanup() {
 	now := time.Now()
 	windowStart := now.Add(-rl.window)
 
-	for sessionID, attempts := range rl.attempts {
+	for userID, attempts := range rl.attempts {
 		var recent []time.Time
 		for _, t := range attempts {
 			if t.After(windowStart) {
@@ -202,9 +202,9 @@ func (rl *AuthRateLimiter) Cleanup() {
 		}
 
 		if len(recent) == 0 {
-			delete(rl.attempts, sessionID)
+			delete(rl.attempts, userID)
 		} else {
-			rl.attempts[sessionID] = recent
+			rl.attempts[userID] = recent
 		}
 	}
 }

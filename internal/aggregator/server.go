@@ -138,12 +138,6 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 	sessionReg := NewSessionRegistry(DefaultSessionTimeout)
 
-	// When a session is removed, also clean up its rate limiter entries to prevent
-	// unbounded growth of the attempts map (see #426).
-	sessionReg.SetOnSessionRemoved(func(sessionID string) {
-		rateLimiter.Reset(sessionID)
-	})
-
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
