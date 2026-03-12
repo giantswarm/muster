@@ -65,7 +65,7 @@ func TestAdapter_GetToken(t *testing.T) {
 	adapter := NewAdapter(manager)
 
 	// Initially nil
-	token := adapter.GetToken("session", "server")
+	token := adapter.GetToken("user@example.com", "server")
 	if token != nil {
 		t.Error("Expected nil token initially")
 	}
@@ -88,7 +88,7 @@ func TestAdapter_GetTokenByIssuer(t *testing.T) {
 	adapter := NewAdapter(manager)
 
 	// Initially nil
-	token := adapter.GetTokenByIssuer("session", "issuer")
+	token := adapter.GetTokenByIssuer("user@example.com", "issuer")
 	if token != nil {
 		t.Error("Expected nil token initially")
 	}
@@ -111,7 +111,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 	adapter := NewAdapter(manager)
 
 	issuer := "https://auth.example.com"
-	sessionID := "session-123"
+	subject := "user-123"
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
@@ -121,19 +121,19 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(sessionID, testToken)
+	manager.client.StoreToken(subject, testToken)
 
 	// Verify token exists
-	token := adapter.GetTokenByIssuer(sessionID, issuer)
+	token := adapter.GetTokenByIssuer(subject, issuer)
 	if token == nil {
 		t.Fatal("Expected token before clearing")
 	}
 
 	// Clear the token via adapter
-	adapter.ClearTokenByIssuer(sessionID, issuer)
+	adapter.ClearTokenByIssuer(subject, issuer)
 
 	// Verify token is gone
-	token = adapter.GetTokenByIssuer(sessionID, issuer)
+	token = adapter.GetTokenByIssuer(subject, issuer)
 	if token != nil {
 		t.Error("Expected nil token after clearing")
 	}

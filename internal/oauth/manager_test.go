@@ -177,7 +177,7 @@ func TestManager_GetToken_NoServerConfig(t *testing.T) {
 	defer manager.Stop()
 
 	// No server registered, should return nil
-	token := manager.GetToken("session-123", "unknown-server")
+	token := manager.GetToken("user-123", "unknown-server")
 	if token != nil {
 		t.Error("Expected nil token for unknown server")
 	}
@@ -185,7 +185,7 @@ func TestManager_GetToken_NoServerConfig(t *testing.T) {
 
 func TestManager_GetToken_NilManager(t *testing.T) {
 	var manager *Manager
-	token := manager.GetToken("session", "server")
+	token := manager.GetToken("user@example.com", "server")
 	if token != nil {
 		t.Error("Expected nil token for nil manager")
 	}
@@ -193,7 +193,7 @@ func TestManager_GetToken_NilManager(t *testing.T) {
 
 func TestManager_GetTokenByIssuer_NilManager(t *testing.T) {
 	var manager *Manager
-	token := manager.GetTokenByIssuer("session", "issuer")
+	token := manager.GetTokenByIssuer("user@example.com", "issuer")
 	if token != nil {
 		t.Error("Expected nil token for nil manager")
 	}
@@ -239,7 +239,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 	serverName := "mcp-kubernetes"
 	issuer := "https://auth.example.com"
 	scope := "openid profile"
-	sessionID := "session-123"
+	subject := "user-123"
 
 	// Register the server
 	manager.RegisterServer(serverName, issuer, scope)
@@ -252,10 +252,10 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 		Scope:       scope,
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(sessionID, testToken)
+	manager.client.StoreToken(subject, testToken)
 
 	// Now GetToken should return the token
-	token := manager.GetToken(sessionID, serverName)
+	token := manager.GetToken(subject, serverName)
 	if token == nil {
 		t.Fatal("Expected token")
 	}
@@ -280,7 +280,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 	defer manager.Stop()
 
 	issuer := "https://auth.example.com"
-	sessionID := "session-123"
+	subject := "user-123"
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
@@ -290,10 +290,10 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(sessionID, testToken)
+	manager.client.StoreToken(subject, testToken)
 
 	// GetTokenByIssuer should find it
-	token := manager.GetTokenByIssuer(sessionID, issuer)
+	token := manager.GetTokenByIssuer(subject, issuer)
 	if token == nil {
 		t.Fatal("Expected token")
 	}
@@ -318,7 +318,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 	defer manager.Stop()
 
 	issuer := "https://auth.example.com"
-	sessionID := "session-123"
+	subject := "user-123"
 
 	// Store a token directly
 	testToken := &pkgoauth.Token{
@@ -328,19 +328,19 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(sessionID, testToken)
+	manager.client.StoreToken(subject, testToken)
 
 	// Verify token exists
-	token := manager.GetTokenByIssuer(sessionID, issuer)
+	token := manager.GetTokenByIssuer(subject, issuer)
 	if token == nil {
 		t.Fatal("Expected token before clearing")
 	}
 
 	// Clear the token
-	manager.ClearTokenByIssuer(sessionID, issuer)
+	manager.ClearTokenByIssuer(subject, issuer)
 
 	// Verify token is gone
-	token = manager.GetTokenByIssuer(sessionID, issuer)
+	token = manager.GetTokenByIssuer(subject, issuer)
 	if token != nil {
 		t.Error("Expected nil token after clearing")
 	}
@@ -349,7 +349,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 func TestManager_ClearTokenByIssuer_NilManager(t *testing.T) {
 	var manager *Manager
 	// Should not panic
-	manager.ClearTokenByIssuer("session", "issuer")
+	manager.ClearTokenByIssuer("user@example.com", "issuer")
 }
 
 func TestManager_GetCIMDPath(t *testing.T) {
@@ -440,7 +440,7 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "session", "server", "", "")
+	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "server", "", "")
 	if err == nil {
 		t.Error("Expected error for nil manager")
 	}
@@ -496,7 +496,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := "openid profile"
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "session-123", "mcp-server", issuer, scope)
+	_, err := manager.CreateAuthChallenge(ctx, "user-123", "mcp-server", issuer, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine

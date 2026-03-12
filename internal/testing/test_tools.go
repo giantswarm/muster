@@ -353,7 +353,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 
 		// Note: The token is now stored in muster's OAuth manager.
 		// The NEXT call to any protected tool (or the authenticate tool) will:
-		// 1. Find the token via GetTokenByIssuer(sessionID, issuer)
+		// 1. Find the token via GetTokenByIssuer(subject, issuer)
 		// 2. Use it to connect to the protected MCP server
 		// 3. Make the protected tools available
 		// We do NOT call authenticate a second time here - that was a workaround

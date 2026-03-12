@@ -70,12 +70,12 @@ func TestClient_GetToken(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	sessionID := "session-123"
+	subject := "user-123"
 	issuer := "https://auth.example.com"
 	scope := "openid profile"
 
 	// Initially no token
-	token := client.GetToken(sessionID, issuer, scope)
+	token := client.GetToken(subject, issuer, scope)
 	if token != nil {
 		t.Error("Expected nil token initially")
 	}
@@ -88,10 +88,10 @@ func TestClient_GetToken(t *testing.T) {
 		Scope:       scope,
 		Issuer:      issuer,
 	}
-	client.StoreToken(sessionID, testToken)
+	client.StoreToken(subject, testToken)
 
 	// Now should be retrievable
-	token = client.GetToken(sessionID, issuer, scope)
+	token = client.GetToken(subject, issuer, scope)
 	if token == nil {
 		t.Fatal("Expected token after storing")
 	}
@@ -105,7 +105,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
-	sessionID := "session-123"
+	subject := "user-123"
 	issuer := "https://auth.example.com"
 	scope1 := "openid profile"
 	scope2 := "openid email" // Different scope
@@ -118,10 +118,10 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 		Scope:       scope1,
 		Issuer:      issuer,
 	}
-	client.StoreToken(sessionID, testToken)
+	client.StoreToken(subject, testToken)
 
 	// Request with scope2 should still find the token via SSO fallback
-	token := client.GetToken(sessionID, issuer, scope2)
+	token := client.GetToken(subject, issuer, scope2)
 	if token == nil {
 		t.Fatal("Expected token via SSO fallback")
 	}
@@ -254,7 +254,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, "session-123", "mcp-kubernetes", server.URL, "openid profile")
+	authURL, err := client.GenerateAuthURL(ctx, "user-123", "mcp-kubernetes", server.URL, "openid profile")
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}
