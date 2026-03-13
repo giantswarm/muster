@@ -285,7 +285,7 @@ func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 		tracker.StartSSOInit(sub)
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
-		status := aggServer.determineSessionAuthStatus(sub, "sso-server", info)
+		status := aggServer.determineSessionAuthStatus(sub, sub, "sso-server", info)
 		if status != pkgoauth.ServerStatusSSOPending {
 			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
 		}
@@ -320,7 +320,7 @@ func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 		tracker.StartSSOInit(sub)
 
 		info := getServerInfo(t, aggServer.registry, "exchange-server")
-		status := aggServer.determineSessionAuthStatus(sub, "exchange-server", info)
+		status := aggServer.determineSessionAuthStatus(sub, sub, "exchange-server", info)
 		if status != pkgoauth.ServerStatusSSOPending {
 			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
 		}
@@ -347,7 +347,7 @@ func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 
 		// No StartSSOInit call -- SSO is not in progress
 		info := getServerInfo(t, aggServer.registry, "sso-server")
-		status := aggServer.determineSessionAuthStatus(sub, "sso-server", info)
+		status := aggServer.determineSessionAuthStatus(sub, sub, "sso-server", info)
 		if status != pkgoauth.ServerStatusAuthRequired {
 			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
 		}
@@ -376,7 +376,7 @@ func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 		tracker.MarkSSOFailed(sub, "sso-server")
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
-		status := aggServer.determineSessionAuthStatus(sub, "sso-server", info)
+		status := aggServer.determineSessionAuthStatus(sub, sub, "sso-server", info)
 		if status != pkgoauth.ServerStatusAuthRequired {
 			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
 		}
@@ -404,7 +404,7 @@ func TestDetermineSessionAuthStatus_SSOPending(t *testing.T) {
 		tracker.StartSSOInit(sub)
 
 		info := getServerInfo(t, aggServer.registry, "non-sso-server")
-		status := aggServer.determineSessionAuthStatus(sub, "non-sso-server", info)
+		status := aggServer.determineSessionAuthStatus(sub, sub, "non-sso-server", info)
 		if status != pkgoauth.ServerStatusAuthRequired {
 			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
 		}

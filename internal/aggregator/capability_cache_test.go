@@ -18,7 +18,7 @@ func TestCapabilityCache_GetSetRoundTrip(t *testing.T) {
 	resources := []mcp.Resource{{Name: "res1"}}
 	prompts := []mcp.Prompt{{Name: "prompt1"}}
 
-	cache.Set("user1", "server1", tools, resources, prompts)
+	cache.Set("user1", "server1", "test-user", tools, resources, prompts)
 
 	entry, ok := cache.Get("user1", "server1")
 	require.True(t, ok)
@@ -42,8 +42,8 @@ func TestCapabilityCache_SetOverwritesPrevious(t *testing.T) {
 	cache := NewCapabilityCache(5 * time.Minute)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "old"}}, nil, nil)
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "new"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "old"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "new"}}, nil, nil)
 
 	entry, ok := cache.Get("user1", "server1")
 	require.True(t, ok)
@@ -56,7 +56,7 @@ func TestCapabilityCache_TTLExpiry(t *testing.T) {
 	cache := NewCapabilityCache(ttl)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "t1"}}, nil, nil)
 
 	// Fresh entry
 	entry, ok := cache.Get("user1", "server1")
@@ -85,7 +85,7 @@ func TestCapabilityCache_SetWithTTL(t *testing.T) {
 	defer cache.Stop()
 
 	customTTL := 50 * time.Millisecond
-	cache.SetWithTTL("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil, customTTL)
+	cache.SetWithTTL("user1", "server1", "test-user", []mcp.Tool{{Name: "t1"}}, nil, nil, customTTL)
 
 	entry, ok := cache.Get("user1", "server1")
 	require.True(t, ok)
@@ -103,9 +103,9 @@ func TestCapabilityCache_InvalidateUser(t *testing.T) {
 	cache := NewCapabilityCache(5 * time.Minute)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
-	cache.Set("user1", "server2", []mcp.Tool{{Name: "t2"}}, nil, nil)
-	cache.Set("user2", "server1", []mcp.Tool{{Name: "t3"}}, nil, nil)
+	cache.Set("user1", "server1", "user1", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("user1", "server2", "user1", []mcp.Tool{{Name: "t2"}}, nil, nil)
+	cache.Set("user2", "server1", "user2", []mcp.Tool{{Name: "t3"}}, nil, nil)
 
 	cache.InvalidateUser("user1")
 
@@ -124,9 +124,9 @@ func TestCapabilityCache_InvalidateServer(t *testing.T) {
 	cache := NewCapabilityCache(5 * time.Minute)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
-	cache.Set("user2", "server1", []mcp.Tool{{Name: "t2"}}, nil, nil)
-	cache.Set("user1", "server2", []mcp.Tool{{Name: "t3"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("user2", "server1", "test-user", []mcp.Tool{{Name: "t2"}}, nil, nil)
+	cache.Set("user1", "server2", "test-user", []mcp.Tool{{Name: "t3"}}, nil, nil)
 
 	cache.InvalidateServer("server1")
 
@@ -145,8 +145,8 @@ func TestCapabilityCache_InvalidateSpecific(t *testing.T) {
 	cache := NewCapabilityCache(5 * time.Minute)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
-	cache.Set("user1", "server2", []mcp.Tool{{Name: "t2"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("user1", "server2", "test-user", []mcp.Tool{{Name: "t2"}}, nil, nil)
 
 	cache.Invalidate("user1", "server1")
 
@@ -175,7 +175,7 @@ func TestCapabilityCache_ConcurrentAccess(t *testing.T) {
 				subject = "user2"
 				server = "server2"
 			}
-			cache.Set(subject, server, []mcp.Tool{{Name: "tool"}}, nil, nil)
+			cache.Set(subject, server, "test-user", []mcp.Tool{{Name: "tool"}}, nil, nil)
 		}(i)
 	}
 
@@ -208,7 +208,7 @@ func TestCapabilityCache_BackgroundCleanup(t *testing.T) {
 	cache := NewCapabilityCache(ttl)
 	defer cache.Stop()
 
-	cache.Set("user1", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("user1", "server1", "test-user", []mcp.Tool{{Name: "t1"}}, nil, nil)
 
 	// The grace period is 2x TTL. The cleanup goroutine runs every TTL/2.
 	// Use Eventually to avoid flakiness on slow CI runners.

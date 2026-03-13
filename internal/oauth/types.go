@@ -5,12 +5,13 @@ import (
 )
 
 // TokenKey uniquely identifies a token in the store.
-// Tokens are indexed by subject, issuer, and scope to enable SSO.
-// This is server-specific as it handles subject-scoped token storage.
+// Tokens are indexed by session ID (token family), issuer, and scope to enable
+// per-login-session isolation. Each login creates a new token family, and tokens
+// are scoped to that family so logout on one device does not affect another.
 type TokenKey struct {
-	Subject string
-	Issuer  string
-	Scope   string
+	SessionID string
+	Issuer    string
+	Scope     string
 }
 
 // OAuthState represents the state parameter data for OAuth flows.
@@ -18,8 +19,11 @@ type TokenKey struct {
 // the callback to the original request.
 // This is server-specific as it handles CSRF protection for server-side OAuth.
 type OAuthState struct {
-	// Subject links the OAuth flow to the user's identity.
-	Subject string `json:"subject"`
+	// SessionID links the OAuth flow to the login session (token family ID).
+	SessionID string `json:"session_id"`
+
+	// UserID is the user's identity (sub claim), carried for token store indexing.
+	UserID string `json:"user_id"`
 
 	// ServerName is the MCP server that requires authentication.
 	ServerName string `json:"server_name"`

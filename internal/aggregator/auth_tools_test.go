@@ -39,16 +39,19 @@ func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sub string) *api.OAuthToke
 	return m.findTokenResult
 }
 
-func (m *issuerMockOAuthHandler) StoreToken(sub, issuer string, token *api.OAuthToken) {
+func (m *issuerMockOAuthHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {
 }
 
-func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sub, issuer string) {
+func (m *issuerMockOAuthHandler) ClearTokenByIssuer(_, _ string) {
 }
 
-func (m *issuerMockOAuthHandler) DeleteTokensByUser(subject string) {
+func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(ctx context.Context, sub, serverName, issuer, scope string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
+}
+
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 

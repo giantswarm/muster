@@ -65,45 +65,40 @@ func (c *Client) GetCIMDURL() string {
 	return c.clientID
 }
 
-// GetToken retrieves a valid token for the given subject and issuer.
+// GetToken retrieves a valid token for the given session and issuer.
 // Returns nil if no valid token exists.
-func (c *Client) GetToken(subject, issuer, scope string) *pkgoauth.Token {
-	// First try exact match
+func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 	key := TokenKey{
-		Subject: subject,
-		Issuer:  issuer,
-		Scope:   scope,
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     scope,
 	}
 	if token := c.tokenStore.Get(key); token != nil {
 		return token
 	}
 
 	// Fall back to issuer-only match for SSO
-	return c.tokenStore.GetByIssuer(subject, issuer)
+	return c.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
 // GenerateAuthURL creates an OAuth authorization URL for user authentication.
 // Returns the URL. The code verifier is stored with the state for later retrieval.
-func (c *Client) GenerateAuthURL(ctx context.Context, subject, serverName, issuer, scope string) (string, error) {
-	// Fetch OAuth metadata for the issuer using shared client
+func (c *Client) GenerateAuthURL(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (string, error) {
 	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
 
-	// Generate PKCE code verifier and challenge using shared implementation
 	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate PKCE: %w", err)
 	}
 
-	// Generate state parameter (includes issuer and code verifier)
-	state, err := c.stateStore.GenerateState(subject, serverName, issuer, pkce.CodeVerifier)
+	state, err := c.stateStore.GenerateState(sessionID, userID, serverName, issuer, pkce.CodeVerifier)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 
-	// Build authorization URL using shared client
 	authURL, err := c.oauthClient.BuildAuthorizationURL(
 		metadata.AuthorizationEndpoint,
 		c.clientID,
@@ -116,8 +111,8 @@ func (c *Client) GenerateAuthURL(ctx context.Context, subject, serverName, issue
 		return "", fmt.Errorf("failed to build authorization URL: %w", err)
 	}
 
-	logging.Debug("OAuth", "Generated auth URL for subject=%s server=%s issuer=%s",
-		logging.TruncateIdentifier(subject), serverName, issuer)
+	logging.Debug("OAuth", "Generated auth URL for session=%s server=%s issuer=%s",
+		logging.TruncateIdentifier(sessionID), serverName, issuer)
 
 	return authURL, nil
 }
@@ -153,13 +148,13 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer st
 }
 
 // StoreToken stores a token in the token store.
-func (c *Client) StoreToken(subject string, token *pkgoauth.Token) {
+func (c *Client) StoreToken(sessionID, userID string, token *pkgoauth.Token) {
 	key := TokenKey{
-		Subject: subject,
-		Issuer:  token.Issuer,
-		Scope:   token.Scope,
+		SessionID: sessionID,
+		Issuer:    token.Issuer,
+		Scope:     token.Scope,
 	}
-	c.tokenStore.Store(key, token)
+	c.tokenStore.Store(key, token, userID)
 }
 
 // Stop stops background cleanup goroutines.

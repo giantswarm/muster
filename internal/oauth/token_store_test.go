@@ -12,9 +12,9 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid profile",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid profile",
 	}
 
 	token := &pkgoauth.Token{
@@ -26,7 +26,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	}
 
 	// Store the token
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Retrieve the token
 	retrieved := ts.Get(key)
@@ -48,9 +48,9 @@ func TestTokenStore_GetNonExistent(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "non-existent",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "non-existent",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 
 	retrieved := ts.Get(key)
@@ -64,9 +64,9 @@ func TestTokenStore_GetExpiredToken(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 
 	// Create an expired token
@@ -77,7 +77,7 @@ func TestTokenStore_GetExpiredToken(t *testing.T) {
 		Issuer:      "https://auth.example.com",
 	}
 
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Should return nil for expired token
 	retrieved := ts.Get(key)
@@ -92,9 +92,9 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid profile email",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid profile email",
 	}
 
 	token := &pkgoauth.Token{
@@ -105,7 +105,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		Issuer:      "https://auth.example.com",
 	}
 
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Retrieve by issuer (different scope should still find it)
 	retrieved := ts.GetByIssuer("user-123", "https://auth.example.com")
@@ -124,9 +124,9 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 
 	// Store a token for a different user
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 
 	token := &pkgoauth.Token{
@@ -136,7 +136,7 @@ func TestTokenStore_GetByIssuerNotFound(t *testing.T) {
 		Issuer:      "https://auth.example.com",
 	}
 
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Try to retrieve with different user
 	retrieved := ts.GetByIssuer("different-user", "https://auth.example.com")
@@ -156,9 +156,9 @@ func TestTokenStore_Delete(t *testing.T) {
 	defer ts.Stop()
 
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 
 	token := &pkgoauth.Token{
@@ -168,7 +168,7 @@ func TestTokenStore_Delete(t *testing.T) {
 		Issuer:      "https://auth.example.com",
 	}
 
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Verify token exists
 	if ts.Get(key) == nil {
@@ -190,12 +190,12 @@ func TestTokenStore_DeleteByUser(t *testing.T) {
 
 	subject := "user-to-delete"
 
-	// Store multiple tokens for the same subject
+	// Store multiple tokens for the same subject (userID = subject for DeleteByUser)
 	for i, issuer := range []string{"https://issuer1.com", "https://issuer2.com", "https://issuer3.com"} {
 		key := TokenKey{
-			Subject: subject,
-			Issuer:  issuer,
-			Scope:   "openid",
+			SessionID: subject,
+			Issuer:    issuer,
+			Scope:     "openid",
 		}
 		token := &pkgoauth.Token{
 			AccessToken: "token-" + string(rune('a'+i)),
@@ -203,21 +203,21 @@ func TestTokenStore_DeleteByUser(t *testing.T) {
 			ExpiresIn:   3600,
 			Issuer:      issuer,
 		}
-		ts.Store(key, token)
+		ts.Store(key, token, subject)
 	}
 
 	// Store a token for a different user
 	otherKey := TokenKey{
-		Subject: "other-user",
-		Issuer:  "https://issuer1.com",
-		Scope:   "openid",
+		SessionID: "other-user",
+		Issuer:    "https://issuer1.com",
+		Scope:     "openid",
 	}
 	ts.Store(otherKey, &pkgoauth.Token{
 		AccessToken: "other-token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      "https://issuer1.com",
-	})
+	}, "other-user")
 
 	// Verify we have 4 tokens
 	if ts.Count() != 4 {
@@ -250,11 +250,11 @@ func TestTokenStore_Count(t *testing.T) {
 	// Add tokens
 	for i := 0; i < 5; i++ {
 		key := TokenKey{
-			Subject: "user@example.com",
-			Issuer:  "issuer",
-			Scope:   string(rune('a' + i)),
+			SessionID: "user@example.com",
+			Issuer:    "issuer",
+			Scope:     string(rune('a' + i)),
 		}
-		ts.Store(key, &pkgoauth.Token{AccessToken: "token", ExpiresIn: 3600})
+		ts.Store(key, &pkgoauth.Token{AccessToken: "token", ExpiresIn: 3600}, "test-user")
 	}
 
 	if ts.Count() != 5 {
@@ -272,53 +272,53 @@ func TestTokenStore_DeleteByIssuer(t *testing.T) {
 
 	// Store tokens for the same subject with different issuers
 	key1 := TokenKey{
-		Subject: subject,
-		Issuer:  issuerToDelete,
-		Scope:   "openid",
+		SessionID: subject,
+		Issuer:    issuerToDelete,
+		Scope:     "openid",
 	}
 	ts.Store(key1, &pkgoauth.Token{
 		AccessToken: "token-1",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      issuerToDelete,
-	})
+	}, "test-user")
 
 	key2 := TokenKey{
-		Subject: subject,
-		Issuer:  issuerToDelete,
-		Scope:   "profile", // Same issuer, different scope
+		SessionID: subject,
+		Issuer:    issuerToDelete,
+		Scope:     "profile", // Same issuer, different scope
 	}
 	ts.Store(key2, &pkgoauth.Token{
 		AccessToken: "token-2",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      issuerToDelete,
-	})
+	}, "test-user")
 
 	key3 := TokenKey{
-		Subject: subject,
-		Issuer:  issuerToKeep,
-		Scope:   "openid",
+		SessionID: subject,
+		Issuer:    issuerToKeep,
+		Scope:     "openid",
 	}
 	ts.Store(key3, &pkgoauth.Token{
 		AccessToken: "token-3",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      issuerToKeep,
-	})
+	}, "test-user")
 
 	// Store token for different user (should not be affected)
 	key4 := TokenKey{
-		Subject: "other-user",
-		Issuer:  issuerToDelete,
-		Scope:   "openid",
+		SessionID: "other-user",
+		Issuer:    issuerToDelete,
+		Scope:     "openid",
 	}
 	ts.Store(key4, &pkgoauth.Token{
 		AccessToken: "token-4",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      issuerToDelete,
-	})
+	}, "test-user")
 
 	// Verify we have 4 tokens
 	if ts.Count() != 4 {
@@ -356,16 +356,16 @@ func TestTokenStore_DeleteByIssuer_NoMatch(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 	ts.Store(key, &pkgoauth.Token{
 		AccessToken: "token",
 		TokenType:   "Bearer",
 		ExpiresIn:   3600,
 		Issuer:      "https://auth.example.com",
-	})
+	}, "test-user")
 
 	// Try to delete with non-matching user
 	ts.DeleteByIssuer("non-existent-user", "https://auth.example.com")
@@ -442,9 +442,9 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 
 	// User 1 stores their token
 	user1Key := TokenKey{
-		Subject: user1Subject,
-		Issuer:  commonIssuer,
-		Scope:   commonScope,
+		SessionID: user1Subject,
+		Issuer:    commonIssuer,
+		Scope:     commonScope,
 	}
 	user1Token := &pkgoauth.Token{
 		AccessToken: "user1-secret-token",
@@ -453,13 +453,13 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 		Issuer:      commonIssuer,
 		Scope:       commonScope,
 	}
-	ts.Store(user1Key, user1Token)
+	ts.Store(user1Key, user1Token, "test-user")
 
 	// User 2 stores their token (same issuer and scope, different subject)
 	user2Key := TokenKey{
-		Subject: user2Subject,
-		Issuer:  commonIssuer,
-		Scope:   commonScope,
+		SessionID: user2Subject,
+		Issuer:    commonIssuer,
+		Scope:     commonScope,
 	}
 	user2Token := &pkgoauth.Token{
 		AccessToken: "user2-secret-token",
@@ -468,7 +468,7 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 		Issuer:      commonIssuer,
 		Scope:       commonScope,
 	}
-	ts.Store(user2Key, user2Token)
+	ts.Store(user2Key, user2Token, "test-user")
 
 	// CRITICAL SECURITY CHECK: User 1 should only get their own token
 	retrievedUser1Token := ts.Get(user1Key)
@@ -490,9 +490,9 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 
 	// CRITICAL SECURITY CHECK: User 1's subject should not retrieve User 2's token
 	wrongKey := TokenKey{
-		Subject: user1Subject,
-		Issuer:  commonIssuer,
-		Scope:   "different-scope", // Even with same issuer, different scope = no token
+		SessionID: user1Subject,
+		Issuer:    commonIssuer,
+		Scope:     "different-scope", // Even with same issuer, different scope = no token
 	}
 	if ts.Get(wrongKey) != nil {
 		t.Error("Should not get token for non-matching scope")
@@ -521,9 +521,9 @@ func TestTokenStore_Cleanup(t *testing.T) {
 
 	// Store a token
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 	token := &pkgoauth.Token{
 		AccessToken: "access-token",
@@ -531,7 +531,7 @@ func TestTokenStore_Cleanup(t *testing.T) {
 		ExpiresIn:   3600,
 		Issuer:      "https://auth.example.com",
 	}
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Call cleanup directly - since no tokens are expired, nothing should happen
 	ts.cleanup()
@@ -548,9 +548,9 @@ func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
 
 	// Store an expired token
 	key := TokenKey{
-		Subject: "user-123",
-		Issuer:  "https://auth.example.com",
-		Scope:   "openid",
+		SessionID: "user-123",
+		Issuer:    "https://auth.example.com",
+		Scope:     "openid",
 	}
 	token := &pkgoauth.Token{
 		AccessToken: "expired-token",
@@ -558,7 +558,7 @@ func TestTokenStore_CleanupExpiredTokens(t *testing.T) {
 		ExpiresAt:   time.Now().Add(-time.Hour), // Expired an hour ago
 		Issuer:      "https://auth.example.com",
 	}
-	ts.Store(key, token)
+	ts.Store(key, token, "test-user")
 
 	// Verify token was stored (but Get will return nil because it's expired)
 	if ts.Count() != 1 {

@@ -238,14 +238,13 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 	})
 
-	t.Run("invalidates capability cache for the requesting user only", func(t *testing.T) {
+	t.Run("invalidates capability cache for the requesting session only", func(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		cache := NewCapabilityCache(5 * time.Minute)
-		// Populate cache for two users
-		cache.Set("user@example.com", "target-server", nil, nil, nil)
-		cache.Set("other-user@example.com", "target-server", nil, nil, nil)
+		cache.Set("session-A", "target-server", "user@example.com", nil, nil, nil)
+		cache.Set("session-B", "target-server", "other-user@example.com", nil, nil, nil)
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()
@@ -261,7 +260,9 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/target-server", nil)
 		req.SetPathValue("server", "target-server")
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "session-A")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		a.handleAuthServerDeletion(w, req)
@@ -269,13 +270,11 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		// The requesting user's cache should have been invalidated
-		if _, ok := cache.Get("user@example.com", "target-server"); ok {
-			t.Error("expected requesting user's cache entry to be invalidated")
+		if _, ok := cache.Get("session-A", "target-server"); ok {
+			t.Error("expected requesting session's cache entry to be invalidated")
 		}
-		// The other user's cache should NOT have been invalidated
-		if _, ok := cache.Get("other-user@example.com", "target-server"); !ok {
-			t.Error("other user's cache entry should still exist")
+		if _, ok := cache.Get("session-B", "target-server"); !ok {
+			t.Error("other session's cache entry should still exist")
 		}
 	})
 
@@ -351,34 +350,33 @@ func (d *deleteCaptureMockHandler) GetFullTokenByIssuer(sub, issuer string) *api
 func (d *deleteCaptureMockHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
 	return d.inner.FindTokenWithIDToken(sub)
 }
-func (d *deleteCaptureMockHandler) StoreToken(sub, issuer string, token *api.OAuthToken) {
-	d.inner.StoreToken(sub, issuer, token)
-}
-func (d *deleteCaptureMockHandler) ClearTokenByIssuer(sub, issuer string) {
-	d.inner.ClearTokenByIssuer(sub, issuer)
-}
+func (d *deleteCaptureMockHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {}
+func (d *deleteCaptureMockHandler) ClearTokenByIssuer(_, _ string)               {}
 func (d *deleteCaptureMockHandler) DeleteTokensByUser(subject string) {
 	if d.onDelete != nil {
 		d.onDelete(subject)
 	}
 }
-func (d *deleteCaptureMockHandler) CreateAuthChallenge(ctx context.Context, sub, name, issuer, scope string) (*api.AuthChallenge, error) {
+func (d *deleteCaptureMockHandler) DeleteTokensBySession(_ string) {}
+func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
 func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
-func (d *deleteCaptureMockHandler) GetCIMDPath() string          { return "/.well-known/oauth-client.json" }
-func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool        { return true }
+func (d *deleteCaptureMockHandler) GetCIMDPath() string {
+	return "/.well-known/oauth-client.json"
+}
+func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool { return true }
 func (d *deleteCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 	return nil
 }
-func (d *deleteCaptureMockHandler) RegisterServer(name, issuer, scope string)               {}
-func (d *deleteCaptureMockHandler) SetAuthCompletionCallback(cb api.AuthCompletionCallback) {}
-func (d *deleteCaptureMockHandler) Stop()                                                   {}
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig) (string, error) {
+func (d *deleteCaptureMockHandler) RegisterServer(_, _, _ string)                          {}
+func (d *deleteCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
+func (d *deleteCaptureMockHandler) Stop()                                                  {}
+func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }
-func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig, client *http.Client) (string, error) {
+func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }
 
@@ -402,31 +400,32 @@ func (c *clearCaptureMockHandler) GetFullTokenByIssuer(sub, issuer string) *api.
 func (c *clearCaptureMockHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
 	return c.inner.FindTokenWithIDToken(sub)
 }
-func (c *clearCaptureMockHandler) StoreToken(sub, issuer string, token *api.OAuthToken) {
-	c.inner.StoreToken(sub, issuer, token)
-}
+func (c *clearCaptureMockHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {}
 func (c *clearCaptureMockHandler) ClearTokenByIssuer(subject, issuer string) {
 	if c.onClear != nil {
 		c.onClear(subject, issuer)
 	}
 }
-func (c *clearCaptureMockHandler) DeleteTokensByUser(subject string) {}
-func (c *clearCaptureMockHandler) CreateAuthChallenge(ctx context.Context, sub, name, issuer, scope string) (*api.AuthChallenge, error) {
+func (c *clearCaptureMockHandler) DeleteTokensByUser(_ string)    {}
+func (c *clearCaptureMockHandler) DeleteTokensBySession(_ string) {}
+func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
 func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
-func (c *clearCaptureMockHandler) GetCIMDPath() string          { return "/.well-known/oauth-client.json" }
-func (c *clearCaptureMockHandler) ShouldServeCIMD() bool        { return true }
+func (c *clearCaptureMockHandler) GetCIMDPath() string {
+	return "/.well-known/oauth-client.json"
+}
+func (c *clearCaptureMockHandler) ShouldServeCIMD() bool { return true }
 func (c *clearCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
 	return nil
 }
-func (c *clearCaptureMockHandler) RegisterServer(name, issuer, scope string)               {}
-func (c *clearCaptureMockHandler) SetAuthCompletionCallback(cb api.AuthCompletionCallback) {}
-func (c *clearCaptureMockHandler) Stop()                                                   {}
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig) (string, error) {
+func (c *clearCaptureMockHandler) RegisterServer(_, _, _ string)                          {}
+func (c *clearCaptureMockHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
+func (c *clearCaptureMockHandler) Stop()                                                  {}
+func (c *clearCaptureMockHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
 	return "", nil
 }
-func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(ctx context.Context, local, userID string, cfg *api.TokenExchangeConfig, client *http.Client) (string, error) {
+func (c *clearCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
 	return "", nil
 }

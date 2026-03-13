@@ -504,7 +504,7 @@ func (am *AggregatorManager) isServerSSOBased(serverName string) bool {
 //
 // This callback is registered with the OAuth manager and called from the OAuth
 // callback handler after a user successfully authenticates in the browser.
-func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sub, serverName, accessToken string) error {
+func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID, userID, serverName, accessToken string) error {
 	am.mu.RLock()
 	aggregatorServer := am.aggregatorServer
 	am.mu.RUnlock()
@@ -513,30 +513,29 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sub, serv
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	// Get the server URL from the registry
 	serverInfo, exists := aggregatorServer.GetRegistry().GetServerInfo(serverName)
 	if !exists {
 		return fmt.Errorf("server %s not found", serverName)
 	}
 
-	// Get issuer and scope from AuthInfo for dynamic token refresh
 	var issuer, scope string
 	if serverInfo.AuthInfo != nil {
 		issuer = serverInfo.AuthInfo.Issuer
 		scope = serverInfo.AuthInfo.Scope
 	}
 
-	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing connection for user=%s server=%s",
-		sub, serverName)
+	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing connection for session=%s server=%s",
+		logging.TruncateIdentifier(sessionID), serverName)
 
-	// Use the aggregator server's tryConnectWithToken to establish the connection
-	// Pass issuer and scope to enable dynamic token refresh
-	result, err := aggregatorServer.tryConnectWithToken(ctx, sub, serverName, serverInfo.URL, issuer, scope, accessToken)
+	// Inject session ID and subject into the context for establishConnection
+	ctx = api.WithSessionID(ctx, sessionID)
+	ctx = api.WithSubject(ctx, userID)
+
+	result, err := aggregatorServer.tryConnectWithToken(ctx, serverName, serverInfo.URL, issuer, scope, accessToken)
 	if err != nil {
 		return fmt.Errorf("failed to establish connection: %w", err)
 	}
 
-	// Log success (result contains success message)
 	if result != nil && len(result.Content) > 0 {
 		logging.Debug("Aggregator-Manager", "Connection established successfully")
 	}

@@ -14,23 +14,24 @@ import (
 //
 // Args:
 //   - ctx: Context for the operation
-//   - subject: The subject (user identity) that authenticated
+//   - sessionID: The session ID (token family) that authenticated
+//   - userID: The user's identity (sub claim)
 //   - serverName: The name of the MCP server that was authenticated to
 //   - accessToken: The access token to use for the connection
 //
 // Returns an error if the connection could not be established.
-type AuthCompletionCallback func(ctx context.Context, subject, serverName, accessToken string) error
+type AuthCompletionCallback func(ctx context.Context, sessionID, userID, serverName, accessToken string) error
 
-// SessionInitCallback is called when a new user is first seen with a valid muster token.
+// SessionInitCallback is called when a new session is first seen with a valid muster token.
 // The aggregator registers this callback to trigger proactive SSO connections to
 // all SSO-enabled servers (forwardToken: true) using muster's ID token.
 //
-// This callback is triggered on the first authenticated MCP request for a user,
+// This callback is triggered on the first authenticated MCP request for a session,
 // enabling seamless SSO: users authenticate once to muster (via `muster auth login`)
 // and automatically gain access to all SSO-enabled MCP servers.
 //
 // Args:
-//   - ctx: Context containing the ID token for forwarding
+//   - ctx: Context containing the ID token for forwarding, session ID, and subject
 //   - sub: The user subject (from OAuth token)
 //
 // The callback should not return an error - SSO connection failures are logged
@@ -43,44 +44,52 @@ type SessionInitCallback func(ctx context.Context, sub string)
 //
 // The OAuth handler acts as a proxy, managing OAuth flows on behalf of users
 // without exposing sensitive tokens to the Muster Agent.
+//
+// Session-scoped methods use sessionID (token family ID) for per-login isolation.
+// User-scoped methods use userID (sub claim) for bulk operations across sessions.
 type OAuthHandler interface {
 	// IsEnabled returns whether OAuth proxy functionality is active.
 	IsEnabled() bool
 
-	// GetToken retrieves a valid token for the given subject and server.
+	// GetToken retrieves a valid token for the given session and server.
 	// Returns nil if no valid token exists.
-	GetToken(subject, serverName string) *OAuthToken
+	GetToken(sessionID, serverName string) *OAuthToken
 
-	// GetTokenByIssuer retrieves a valid token for the given subject and issuer.
+	// GetTokenByIssuer retrieves a valid token for the given session and issuer.
 	// This is used for SSO when we have the issuer from a 401 response.
-	GetTokenByIssuer(subject, issuer string) *OAuthToken
+	GetTokenByIssuer(sessionID, issuer string) *OAuthToken
 
 	// GetFullTokenByIssuer retrieves the full token (including ID token if available)
-	// for the given subject and issuer. Returns nil if no valid token exists.
+	// for the given session and issuer. Returns nil if no valid token exists.
 	// The IDToken field may be empty if the token was obtained without an ID token.
-	GetFullTokenByIssuer(subject, issuer string) *OAuthToken
+	GetFullTokenByIssuer(sessionID, issuer string) *OAuthToken
 
-	// FindTokenWithIDToken searches for any token for the subject that has an ID token.
+	// FindTokenWithIDToken searches for any token in the session that has an ID token.
 	// This is used as a fallback when the muster issuer is not explicitly configured.
 	// Returns the first token found with an ID token, or nil if none exists.
-	FindTokenWithIDToken(subject string) *OAuthToken
+	FindTokenWithIDToken(sessionID string) *OAuthToken
 
-	// StoreToken persists a token for the given subject and issuer.
+	// StoreToken persists a token for the given session and issuer.
+	// The userID is stored alongside for reverse-lookup (e.g., "sign out everywhere").
 	// This is the write path used by mcp-go's transport.TokenStore.SaveToken()
 	// after a successful token refresh.
-	StoreToken(subject, issuer string, token *OAuthToken)
+	StoreToken(sessionID, userID, issuer string, token *OAuthToken)
 
-	// ClearTokenByIssuer removes all tokens for a given subject and issuer.
+	// ClearTokenByIssuer removes all tokens for a given session and issuer.
 	// This is used to clear invalid/expired tokens before requesting fresh authentication.
-	ClearTokenByIssuer(subject, issuer string)
+	ClearTokenByIssuer(sessionID, issuer string)
 
-	// DeleteTokensByUser removes all downstream tokens for a given subject.
+	// DeleteTokensByUser removes all downstream tokens for a given user across all sessions.
 	// This is used during "sign out everywhere" to clear all server-side token state.
-	DeleteTokensByUser(subject string)
+	DeleteTokensByUser(userID string)
+
+	// DeleteTokensBySession removes all downstream tokens for a given session.
+	// This is used during per-session logout via token family revocation.
+	DeleteTokensBySession(sessionID string)
 
 	// CreateAuthChallenge creates an authentication challenge for a 401 response.
 	// Returns the challenge containing the auth URL for the user to visit.
-	CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*AuthChallenge, error)
+	CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthChallenge, error)
 
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler

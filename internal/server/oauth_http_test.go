@@ -442,6 +442,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		ctx := ContextWithIDToken(req.Context(), "id-token-A")
 		ctx = ContextWithUpstreamAccessToken(ctx, "access-token-A")
 		ctx = api.WithSubject(ctx, "test-user-1")
+		ctx = api.WithSessionID(ctx, "session-first")
 
 		server.triggerSessionInitIfNeeded(ctx, req)
 
@@ -467,12 +468,14 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		sub := "test-user-2"
 		idToken := "id-token-same"
 		accessToken := "access-token-same"
+		sessionID := "session-same-token"
 
 		// First call with tokens - should trigger callback
 		req1 := httptest.NewRequest("GET", "/", nil)
 		ctx1 := ContextWithIDToken(req1.Context(), idToken)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessToken)
 		ctx1 = api.WithSubject(ctx1, sub)
+		ctx1 = api.WithSessionID(ctx1, sessionID)
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
 		// Wait for first callback
@@ -483,11 +486,12 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 			t.Fatal("First callback was not called within timeout")
 		}
 
-		// Second call with SAME tokens - should NOT trigger callback
+		// Second call with SAME tokens and SAME session ID - should NOT trigger callback
 		req2 := httptest.NewRequest("GET", "/", nil)
 		ctx2 := ContextWithIDToken(req2.Context(), idToken)
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessToken)
 		ctx2 = api.WithSubject(ctx2, sub)
+		ctx2 = api.WithSessionID(ctx2, sessionID)
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
 		// Verify no second callback arrives (short timeout since we're proving a negative)
@@ -524,6 +528,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		ctx1 := ContextWithIDToken(req1.Context(), idTokenA)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenA)
 		ctx1 = api.WithSubject(ctx1, sub)
+		ctx1 = api.WithSessionID(ctx1, "session-reauth-1")
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
 		// Wait for first callback
@@ -534,11 +539,12 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 			t.Fatal("First callback was not called within timeout")
 		}
 
-		// Second call with DIFFERENT tokens (simulating re-authentication)
+		// Second call with DIFFERENT tokens and DIFFERENT session ID (simulating re-authentication)
 		req2 := httptest.NewRequest("GET", "/", nil)
 		ctx2 := ContextWithIDToken(req2.Context(), idTokenB)
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenB)
 		ctx2 = api.WithSubject(ctx2, sub)
+		ctx2 = api.WithSessionID(ctx2, "session-reauth-2")
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
 		// Wait for second callback
@@ -576,6 +582,7 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		ctx1 := ContextWithIDToken(req1.Context(), idToken)
 		ctx1 = ContextWithUpstreamAccessToken(ctx1, accessTokenBefore)
 		ctx1 = api.WithSubject(ctx1, sub)
+		ctx1 = api.WithSessionID(ctx1, "session-refresh-1")
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
 		// Wait for first callback
@@ -586,11 +593,12 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 			t.Fatal("First callback was not called within timeout")
 		}
 
-		// Second call with SAME ID token but DIFFERENT access token (simulating server-side refresh)
+		// Second call with SAME ID token but DIFFERENT access token and DIFFERENT session ID (simulating server-side refresh)
 		req2 := httptest.NewRequest("GET", "/", nil)
 		ctx2 := ContextWithIDToken(req2.Context(), idToken)           // Same ID token
 		ctx2 = ContextWithUpstreamAccessToken(ctx2, accessTokenAfter) // Different access token
 		ctx2 = api.WithSubject(ctx2, sub)
+		ctx2 = api.WithSessionID(ctx2, "session-refresh-2")
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
 		// Wait for second callback
@@ -665,11 +673,14 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 		sub := "test-user-fallback"
 		idTokenA := "id-token-A-fallback"
 		idTokenB := "id-token-B-fallback"
+		sessionIDSame := "session-fallback-same"
+		sessionIDDifferent := "session-fallback-different"
 
 		// First call with ID token only (no upstream access token) - should trigger
 		req1 := httptest.NewRequest("GET", "/", nil)
 		ctx1 := ContextWithIDToken(req1.Context(), idTokenA)
 		ctx1 = api.WithSubject(ctx1, sub)
+		ctx1 = api.WithSessionID(ctx1, sessionIDSame)
 		// Note: NOT setting ContextWithUpstreamAccessToken
 		server.triggerSessionInitIfNeeded(ctx1, req1)
 
@@ -680,10 +691,11 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 			t.Fatal("First callback was not called within timeout")
 		}
 
-		// Second call with SAME ID token (no upstream access token) - should NOT trigger
+		// Second call with SAME ID token and SAME session ID (no upstream access token) - should NOT trigger
 		req2 := httptest.NewRequest("GET", "/", nil)
 		ctx2 := ContextWithIDToken(req2.Context(), idTokenA)
 		ctx2 = api.WithSubject(ctx2, sub)
+		ctx2 = api.WithSessionID(ctx2, sessionIDSame)
 		server.triggerSessionInitIfNeeded(ctx2, req2)
 
 		select {
@@ -693,10 +705,11 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 			// Expected - no callback for same token
 		}
 
-		// Third call with DIFFERENT ID token - should trigger
+		// Third call with DIFFERENT ID token and DIFFERENT session ID - should trigger
 		req3 := httptest.NewRequest("GET", "/", nil)
 		ctx3 := ContextWithIDToken(req3.Context(), idTokenB)
 		ctx3 = api.WithSubject(ctx3, sub)
+		ctx3 = api.WithSessionID(ctx3, sessionIDDifferent)
 		server.triggerSessionInitIfNeeded(ctx3, req3)
 
 		select {
@@ -708,28 +721,6 @@ func TestTriggerSessionInitIfNeeded(t *testing.T) {
 	})
 }
 
-// TestHashToken tests the token hashing function.
-func TestHashToken(t *testing.T) {
-	t.Run("Same token produces same hash", func(t *testing.T) {
-		token := "test-token-123"
-		hash1 := hashToken(token)
-		hash2 := hashToken(token)
-		assert.Equal(t, hash1, hash2)
-	})
-
-	t.Run("Different tokens produce different hashes", func(t *testing.T) {
-		hash1 := hashToken("token-A")
-		hash2 := hashToken("token-B")
-		assert.NotEqual(t, hash1, hash2)
-	})
-
-	t.Run("Hash is fixed length", func(t *testing.T) {
-		hash := hashToken("some-token")
-		// SHA-256 first 8 bytes = 16 hex chars
-		assert.Len(t, hash, 16)
-	})
-}
-
 // TestCleanupExpiredSessions tests the session tracker cleanup logic.
 func TestCleanupExpiredSessions(t *testing.T) {
 	t.Run("Removes expired sessions", func(t *testing.T) {
@@ -737,14 +728,12 @@ func TestCleanupExpiredSessions(t *testing.T) {
 
 		// Add an expired session (last accessed more than TTL ago)
 		expiredEntry := sessionTrackerEntry{
-			tokenHash:  "expired-hash",
 			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL - time.Hour),
 		}
 		server.sessionInitTracker.Store("expired-session", expiredEntry)
 
 		// Add a fresh session (just accessed)
 		freshEntry := sessionTrackerEntry{
-			tokenHash:  "fresh-hash",
 			lastAccess: time.Now(),
 		}
 		server.sessionInitTracker.Store("fresh-session", freshEntry)
@@ -766,7 +755,6 @@ func TestCleanupExpiredSessions(t *testing.T) {
 
 		// Add a session that's just under the TTL
 		almostExpiredEntry := sessionTrackerEntry{
-			tokenHash:  "almost-expired-hash",
 			lastAccess: time.Now().Add(-DefaultSessionTrackerTTL + time.Minute),
 		}
 		server.sessionInitTracker.Store("almost-expired-session", almostExpiredEntry)

@@ -7,15 +7,17 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// CacheKey identifies a cached capability set by user identity and server name.
+// CacheKey identifies a cached capability set by session and server name.
+// Keyed by session ID (token family ID) for per-login-session isolation.
 type CacheKey struct {
-	Subject    string // OAuth sub claim (user identity)
+	SessionID  string // Token family ID from mcp-oauth (per-login session)
 	ServerName string // MCP server name
 }
 
-// CacheEntry holds the cached MCP capabilities for a user+server pair.
+// CacheEntry holds the cached MCP capabilities for a session+server pair.
 // Entries are immutable once stored; Set replaces the entire entry.
 type CacheEntry struct {
+	UserID    string // User identity (sub claim) for bulk invalidation
 	Tools     []mcp.Tool
 	Resources []mcp.Resource
 	Prompts   []mcp.Prompt
@@ -76,27 +78,28 @@ func NewCapabilityCache(defaultTTL time.Duration) *CapabilityCache {
 	return c
 }
 
-// Get returns the cached capabilities for a user+server pair. It returns the
+// Get returns the cached capabilities for a session+server pair. It returns the
 // entry and true if found (even if expired, supporting stale-while-revalidate).
 // The caller should check entry.IsExpired() to decide whether to trigger a
 // background refresh. Returns nil and false only if no entry exists.
-func (c *CapabilityCache) Get(subject, serverName string) (*CacheEntry, bool) {
+func (c *CapabilityCache) Get(sessionID, serverName string) (*CacheEntry, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	entry, ok := c.entries[CacheKey{Subject: subject, ServerName: serverName}]
+	entry, ok := c.entries[CacheKey{SessionID: sessionID, ServerName: serverName}]
 	return entry, ok
 }
 
-// Set stores capabilities for a user+server pair with the default TTL.
-func (c *CapabilityCache) Set(subject, serverName string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt) {
-	c.SetWithTTL(subject, serverName, tools, resources, prompts, c.defaultTTL)
+// Set stores capabilities for a session+server pair with the default TTL.
+func (c *CapabilityCache) Set(sessionID, serverName, userID string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt) {
+	c.SetWithTTL(sessionID, serverName, userID, tools, resources, prompts, c.defaultTTL)
 }
 
-// SetWithTTL stores capabilities for a user+server pair with a custom TTL.
-func (c *CapabilityCache) SetWithTTL(subject, serverName string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt, ttl time.Duration) {
+// SetWithTTL stores capabilities for a session+server pair with a custom TTL.
+func (c *CapabilityCache) SetWithTTL(sessionID, serverName, userID string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt, ttl time.Duration) {
 	now := time.Now()
 	entry := &CacheEntry{
+		UserID:        userID,
 		Tools:         append([]mcp.Tool(nil), tools...),
 		Resources:     append([]mcp.Resource(nil), resources...),
 		Prompts:       append([]mcp.Prompt(nil), prompts...),
@@ -106,17 +109,31 @@ func (c *CapabilityCache) SetWithTTL(subject, serverName string, tools []mcp.Too
 	}
 
 	c.mu.Lock()
-	c.entries[CacheKey{Subject: subject, ServerName: serverName}] = entry
+	c.entries[CacheKey{SessionID: sessionID, ServerName: serverName}] = entry
 	c.mu.Unlock()
 }
 
-// InvalidateUser removes all cached entries for a user (e.g., on logout).
-func (c *CapabilityCache) InvalidateUser(subject string) {
+// InvalidateUser removes all cached entries for a user across all sessions
+// (e.g., "sign out everywhere" via DELETE /user-tokens).
+func (c *CapabilityCache) InvalidateUser(userID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for key, entry := range c.entries {
+		if entry.UserID == userID {
+			delete(c.entries, key)
+		}
+	}
+}
+
+// InvalidateSession removes all cached entries for a session (e.g., on logout
+// via token family revocation).
+func (c *CapabilityCache) InvalidateSession(sessionID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for key := range c.entries {
-		if key.Subject == subject {
+		if key.SessionID == sessionID {
 			delete(c.entries, key)
 		}
 	}
@@ -134,10 +151,10 @@ func (c *CapabilityCache) InvalidateServer(serverName string) {
 	}
 }
 
-// Invalidate removes the cached entry for a specific user+server pair.
-func (c *CapabilityCache) Invalidate(subject, serverName string) {
+// Invalidate removes the cached entry for a specific session+server pair.
+func (c *CapabilityCache) Invalidate(sessionID, serverName string) {
 	c.mu.Lock()
-	delete(c.entries, CacheKey{Subject: subject, ServerName: serverName})
+	delete(c.entries, CacheKey{SessionID: sessionID, ServerName: serverName})
 	c.mu.Unlock()
 }
 

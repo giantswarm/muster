@@ -88,7 +88,7 @@ func TestClient_GetToken(t *testing.T) {
 		Scope:       scope,
 		Issuer:      issuer,
 	}
-	client.StoreToken(subject, testToken)
+	client.StoreToken(subject, "test-user", testToken)
 
 	// Now should be retrievable
 	token = client.GetToken(subject, issuer, scope)
@@ -118,7 +118,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 		Scope:       scope1,
 		Issuer:      issuer,
 	}
-	client.StoreToken(subject, testToken)
+	client.StoreToken(subject, "test-user", testToken)
 
 	// Request with scope2 should still find the token via SSO fallback
 	token := client.GetToken(subject, issuer, scope2)
@@ -254,7 +254,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	defer client.Stop()
 
 	ctx := context.Background()
-	authURL, err := client.GenerateAuthURL(ctx, "user-123", "mcp-kubernetes", server.URL, "openid profile")
+	authURL, err := client.GenerateAuthURL(ctx, "user-123", "test-user", "mcp-kubernetes", server.URL, "openid profile")
 	if err != nil {
 		t.Fatalf("Failed to generate auth URL: %v", err)
 	}

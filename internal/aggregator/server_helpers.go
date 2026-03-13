@@ -265,22 +265,19 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			return nil, fmt.Errorf("tool '%s' is no longer available", exposedName)
 		}
 
-		// Resolve the exposed name back to server and original tool name
 		sub := getUserSubjectFromContext(ctx)
+		sessionID := getSessionIDFromContext(ctx)
 		sName, originalName, err := a.registry.ResolveToolName(exposedName)
 		if err != nil {
-			// If not found in registry, check capability cache for OAuth-protected servers
-			serverName, origName, resolveErr := a.resolveUserTool(sub, exposedName)
+			serverName, origName, resolveErr := a.resolveUserTool(sessionID, exposedName)
 			if resolveErr != nil {
 				return nil, fmt.Errorf("failed to resolve tool name: %w", err)
 			}
-			// Apply destructive tool check
 			if !a.config.Yolo && isDestructiveTool(origName) {
 				logging.Warn("Aggregator", "Blocked destructive tool call: %s (enable --yolo flag to allow)", origName)
 				return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", origName)
 			}
-			// Found in capability cache - create on-demand client for tool execution
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sub)
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
 			if clientErr != nil {
 				return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
 			}
@@ -295,8 +292,8 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			result, callErr := client.CallTool(ctx, origName, args)
 			if callErr != nil {
 				if is401Error(callErr) {
-					logging.Warn("Aggregator", "Tool call to %s got 401 for user %s - token expired/refresh failed",
-						serverName, logging.TruncateIdentifier(sub))
+					logging.Warn("Aggregator", "Tool call to %s got 401 for session %s - token expired/refresh failed",
+						serverName, logging.TruncateIdentifier(sessionID))
 					return nil, fmt.Errorf("authentication to %s expired - please re-authenticate and try again", serverName)
 				}
 				return nil, fmt.Errorf("tool execution failed: %w", callErr)
@@ -304,17 +301,14 @@ func toolHandlerFactory(a *AggregatorServer, exposedName string) func(context.Co
 			return result, nil
 		}
 
-		// Check if tool is destructive and yolo mode is not enabled
 		if !a.config.Yolo && isDestructiveTool(originalName) {
 			logging.Warn("Aggregator", "Blocked destructive tool call: %s (enable --yolo flag to allow)", originalName)
 			return nil, fmt.Errorf("tool '%s' is blocked as it is destructive. Use --yolo flag to allow destructive operations", originalName)
 		}
 
-		// Check if this server is OAuth-protected and needs on-demand client
 		serverInfo, exists := a.registry.GetServerInfo(sName)
 		if exists && serverInfo.Status == StatusAuthRequired {
-			// Create an on-demand client for this tool call
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sName, sub)
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sName, sessionID, sub)
 			if clientErr != nil {
 				return nil, fmt.Errorf("failed to connect to server %s: %w", sName, clientErr)
 			}

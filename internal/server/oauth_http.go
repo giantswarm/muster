@@ -2,11 +2,9 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -133,10 +131,10 @@ func buildDexScopes(requiredAudiences []string) []string {
 	return append(scopes, audienceScopes...)
 }
 
-// sessionTrackerEntry holds the token hash and last access time for a session.
-// This is used to track when sessions can be cleaned up.
+// sessionTrackerEntry holds the last access time for a session.
+// The session ID (token family ID) changes on re-authentication (new login = new family),
+// so no hash comparison is needed -- a new session ID naturally triggers SSO.
 type sessionTrackerEntry struct {
-	tokenHash  string
 	lastAccess time.Time
 }
 
@@ -153,10 +151,9 @@ type OAuthHTTPServer struct {
 	debug        bool
 
 	// sessionInitTracker tracks which sessions have had their init callback called.
-	// This prevents calling the proactive SSO logic on every request.
-	// The value is a sessionTrackerEntry containing the token hash and last access time.
-	// When the token changes (user re-authenticates), proactive SSO is triggered again.
-	sessionInitTracker sync.Map // map[string]sessionTrackerEntry
+	// Keyed by session ID (token family ID). A new login creates a new family,
+	// so new entries naturally trigger proactive SSO without hash comparison.
+	sessionInitTracker sync.Map // map[sessionID]sessionTrackerEntry
 
 	// stopCleanup is closed to signal the cleanup goroutine to stop.
 	stopCleanup chan struct{}
@@ -352,17 +349,17 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// Inject the ID token into context for downstream SSO use
 		ctx = ContextWithIDToken(ctx, idToken)
 
-		// Extract and inject the authenticated user's subject (sub claim) for session identity binding.
-		// This enables the session middleware to verify that sessions are used only by
-		// the identity that created them.
+		// Extract and inject the authenticated user's subject (sub claim) for user identity.
 		if subject := extractSubjectFromIDToken(idToken); subject != "" {
 			ctx = api.WithSubject(ctx, subject)
 		}
 
-		// Also inject the upstream access token for refresh detection.
-		// The access token changes on every token refresh, while the ID token
-		// is preserved during refresh (per OAuth spec). By tracking the access
-		// token, we can detect both re-authentication AND server-side token refresh.
+		// Propagate the session ID (token family ID) from mcp-oauth's ValidateToken
+		// middleware into the api context for per-login-session state isolation.
+		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+			ctx = api.WithSessionID(ctx, sessionID)
+		}
+
 		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
 
@@ -381,88 +378,58 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 }
 
 // triggerSessionInitIfNeeded triggers the session initialization callback if this
-// is the first authenticated request for the user, or if the token has changed.
-// This enables proactive SSO connections to be established after:
-// - Initial muster authentication (first login)
-// - Re-authentication (logout + login with new ID token)
-// - Token refresh (server-side refresh gets new access token)
+// is the first authenticated request for the session. Each login creates a new
+// session ID (token family), so new logins naturally trigger SSO without hash comparison.
 func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
-	// Get user subject from context (set by extractSubjectFromIDToken above)
 	sub := api.GetSubjectFromContext(ctx)
 	if sub == "" {
 		logging.Debug("OAuth", "SSO: No user subject in context, skipping session init")
 		return
 	}
 
-	// Get the ID token from context - we need this for SSO forwarding
+	sessionID := api.GetSessionIDFromContext(ctx)
+	if sessionID == "" {
+		logging.Debug("OAuth", "SSO: No session ID in context for user %s, skipping session init", sub)
+		return
+	}
+
 	idToken, _ := GetIDTokenFromContext(ctx)
 	if idToken == "" {
 		logging.Debug("OAuth", "SSO: No ID token in context for user %s, skipping session init", sub)
 		return
 	}
 
-	// Get the upstream access token for hash computation.
-	// We use the access token (not ID token) because:
-	// - Access token changes on every token refresh
-	// - ID token is preserved during refresh (per OAuth spec)
-	// This allows us to detect both re-authentication AND server-side token refresh.
-	upstreamAccessToken, _ := GetUpstreamAccessTokenFromContext(ctx)
-	if upstreamAccessToken == "" {
-		// Fall back to ID token if upstream access token is not available
-		upstreamAccessToken = idToken
-	}
-
-	// Compute a hash of the upstream access token to detect token changes
-	currentTokenHash := hashToken(upstreamAccessToken)
 	now := time.Now()
 
-	// Check if we've already initialized this user with this token.
-	// If the token has changed (re-authentication or refresh), we need to trigger SSO again.
-	if existingEntry, exists := s.sessionInitTracker.Load(sub); exists {
-		entry := existingEntry.(sessionTrackerEntry)
-		if entry.tokenHash == currentTokenHash {
-			// Already initialized with the same token - just update last access time
-			s.sessionInitTracker.Store(sub, sessionTrackerEntry{
-				tokenHash:  currentTokenHash,
-				lastAccess: now,
-			})
-			logging.Debug("OAuth", "SSO: User %s already initialized with current token, skipping", sub)
-			return
-		}
-		// Token has changed - could be re-authentication or server-side refresh
-		logging.Info("OAuth", "SSO: Token changed for user %s (re-auth or refresh), triggering SSO", sub)
+	// Session ID changes on re-authentication (new login = new token family).
+	// If we've already seen this session, just update last access time.
+	if _, exists := s.sessionInitTracker.Load(sessionID); exists {
+		s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{lastAccess: now})
+		logging.Debug("OAuth", "SSO: Session %s already initialized, skipping", logging.TruncateIdentifier(sessionID))
+		return
 	}
 
-	// Store the current token hash with timestamp
-	s.sessionInitTracker.Store(sub, sessionTrackerEntry{
-		tokenHash:  currentTokenHash,
-		lastAccess: now,
-	})
+	s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{lastAccess: now})
 
-	// Get the session init callback
 	callback := api.GetSessionInitCallback()
 	if callback == nil {
 		logging.Warn("OAuth", "SSO: No session init callback registered, proactive SSO disabled")
 		return
 	}
 
-	// Call the prepare callback synchronously to set SSOInitInProgress before
-	// the goroutine fires. This closes the race window where an auth://status
-	// read between goroutine launch and StartSSOInit could return auth_required.
+	// Set SSOInitInProgress synchronously before the goroutine fires.
 	if prepareCallback := api.GetSessionInitPrepareCallback(); prepareCallback != nil {
 		prepareCallback(sub)
 	}
 
-	// Trigger the callback asynchronously to not block the request.
-	// Use a background context with the necessary values copied over.
 	go func() {
-		logging.Info("OAuth", "SSO: Triggering proactive SSO for user %s (has_id_token=%v)", sub, idToken != "")
+		logging.Info("OAuth", "SSO: Triggering proactive SSO for user %s session %s",
+			sub, logging.TruncateIdentifier(sessionID))
 
-		// Create a background context with the ID token for SSO forwarding.
-		// This context won't be canceled when the HTTP request completes.
 		bgCtx := context.Background()
 		bgCtx = ContextWithIDToken(bgCtx, idToken)
 		bgCtx = api.WithSubject(bgCtx, sub)
+		bgCtx = api.WithSessionID(bgCtx, sessionID)
 
 		callback(bgCtx, sub)
 	}()
@@ -486,15 +453,19 @@ func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handl
 	return s.oauthHandler.ValidateToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// UserInfo is set by ValidateToken middleware
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil || userInfo.ID == "" {
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
 			return
 		}
 
-		// Set the subject in context for downstream handlers
 		ctx = api.WithSubject(ctx, userInfo.ID)
+
+		// Propagate the session ID from mcp-oauth's ValidateToken middleware.
+		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+			ctx = api.WithSessionID(ctx, sessionID)
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}))
 }
@@ -876,11 +847,11 @@ func (s *OAuthHTTPServer) cleanupExpiredSessions() {
 	expiredCount := 0
 
 	s.sessionInitTracker.Range(func(key, value interface{}) bool {
-		sub := key.(string)
+		sessionID := key.(string)
 		entry := value.(sessionTrackerEntry)
 
 		if now.Sub(entry.lastAccess) > DefaultSessionTrackerTTL {
-			s.sessionInitTracker.Delete(sub)
+			s.sessionInitTracker.Delete(sessionID)
 			expiredCount++
 		}
 		return true
@@ -917,12 +888,4 @@ func extractSubjectFromIDToken(idToken string) string {
 	}
 
 	return claims.Sub
-}
-
-// hashToken returns a short hash of the token for comparison purposes.
-// This is used to detect when a user has re-authenticated with a new token.
-// We use only the first 16 characters of the SHA-256 hash for efficiency.
-func hashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:8]) // First 8 bytes = 16 hex chars
 }

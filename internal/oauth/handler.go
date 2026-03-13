@@ -82,10 +82,9 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logging.Debug("OAuth", "Processing OAuth callback for subject=%s server=%s issuer=%s",
-		logging.TruncateIdentifier(state.Subject), state.ServerName, state.Issuer)
+	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s issuer=%s",
+		logging.TruncateIdentifier(state.SessionID), state.ServerName, state.Issuer)
 
-	// Validate we have the required data stored with the state
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
@@ -97,7 +96,6 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exchange the authorization code for tokens
 	token, err := h.client.ExchangeCode(r.Context(), code, state.CodeVerifier, state.Issuer)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
@@ -105,24 +103,20 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store the token
-	h.client.StoreToken(state.Subject, token)
+	h.client.StoreToken(state.SessionID, state.UserID, token)
 
-	logging.Info("OAuth", "Successfully authenticated subject=%s server=%s",
-		logging.TruncateIdentifier(state.Subject), state.ServerName)
+	logging.Info("OAuth", "Successfully authenticated session=%s server=%s",
+		logging.TruncateIdentifier(state.SessionID), state.ServerName)
 
-	// Call the auth completion callback to establish session connection
 	if h.manager != nil {
 		h.manager.mu.RLock()
 		callback := h.manager.authCompletionCallback
 		h.manager.mu.RUnlock()
 
 		if callback != nil {
-			if err := callback(r.Context(), state.Subject, state.ServerName, token.AccessToken); err != nil {
-				// Log the error but don't fail the OAuth flow - the token is already stored
-				// and can be used on the next request
-				logging.Warn("OAuth", "Auth completion callback failed for subject=%s server=%s: %v",
-					logging.TruncateIdentifier(state.Subject), state.ServerName, err)
+			if err := callback(r.Context(), state.SessionID, state.UserID, state.ServerName, token.AccessToken); err != nil {
+				logging.Warn("OAuth", "Auth completion callback failed for session=%s server=%s: %v",
+					logging.TruncateIdentifier(state.SessionID), state.ServerName, err)
 			}
 		}
 	}

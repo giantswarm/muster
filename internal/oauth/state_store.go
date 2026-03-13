@@ -49,8 +49,7 @@ func NewStateStore() *StateStore {
 //   - serverName: The MCP server name requiring authentication
 //   - issuer: The OAuth issuer URL
 //   - codeVerifier: The PKCE code verifier for this flow
-func (ss *StateStore) GenerateState(subject, serverName, issuer, codeVerifier string) (encodedState string, err error) {
-	// Generate a cryptographically random nonce
+func (ss *StateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error) {
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return "", err
@@ -58,7 +57,8 @@ func (ss *StateStore) GenerateState(subject, serverName, issuer, codeVerifier st
 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 	state := &OAuthState{
-		Subject:      subject,
+		SessionID:    sessionID,
+		UserID:       userID,
 		ServerName:   serverName,
 		Nonce:        nonce,
 		CreatedAt:    time.Now(),
@@ -66,7 +66,6 @@ func (ss *StateStore) GenerateState(subject, serverName, issuer, codeVerifier st
 		CodeVerifier: codeVerifier,
 	}
 
-	// Encode the state as JSON then base64 (CodeVerifier is excluded via json:"-")
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
 		return "", err
@@ -74,12 +73,11 @@ func (ss *StateStore) GenerateState(subject, serverName, issuer, codeVerifier st
 
 	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
 
-	// Store the full state (including CodeVerifier) indexed by the nonce
 	ss.mu.Lock()
 	ss.states[nonce] = state
 	ss.mu.Unlock()
 
-	logging.Debug("OAuth", "Generated state for subject=%s server=%s issuer=%s", logging.TruncateIdentifier(subject), serverName, issuer)
+	logging.Debug("OAuth", "Generated state for session=%s server=%s issuer=%s", logging.TruncateIdentifier(sessionID), serverName, issuer)
 	return encodedState, nil
 }
 

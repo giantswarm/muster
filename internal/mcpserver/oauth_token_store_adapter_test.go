@@ -36,14 +36,15 @@ func (m *stubOAuthHandler) GetFullTokenByIssuer(subject, issuer string) *api.OAu
 func (m *stubOAuthHandler) GetToken(_, _ string) *api.OAuthToken          { return nil }
 func (m *stubOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken  { return nil }
 func (m *stubOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken { return nil }
-func (m *stubOAuthHandler) StoreToken(subject, issuer string, token *api.OAuthToken) {
+func (m *stubOAuthHandler) StoreToken(sessionID, _, issuer string, token *api.OAuthToken) {
 	if m.storedTokens == nil {
 		m.storedTokens = make(map[string]*api.OAuthToken)
 	}
-	m.storedTokens[subject+"|"+issuer] = token
+	m.storedTokens[sessionID+"|"+issuer] = token
 }
 func (m *stubOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
 func (m *stubOAuthHandler) DeleteTokensByUser(_ string)                            {}
+func (m *stubOAuthHandler) DeleteTokensBySession(_ string)                         {}
 func (m *stubOAuthHandler) RegisterServer(_, _, _ string)                          {}
 func (m *stubOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
 func (m *stubOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
@@ -52,7 +53,7 @@ func (m *stubOAuthHandler) GetCIMDPath() string                                 
 func (m *stubOAuthHandler) ShouldServeCIMD() bool                                  { return false }
 func (m *stubOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }
 func (m *stubOAuthHandler) Stop()                                                  {}
-func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _ string) (*api.AuthChallenge, error) {
+func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 func (m *stubOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
@@ -74,7 +75,7 @@ func TestMusterTokenStore_GetToken_ReturnsFullToken(t *testing.T) {
 			ExpiresAt:    expiry,
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -90,7 +91,7 @@ func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenEmpty(t *testing.T) {
 		enabled:   true,
 		fullToken: nil,
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -105,7 +106,7 @@ func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenEmptyAccessToken(t *tes
 			AccessToken: "",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -117,7 +118,7 @@ func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) 
 	handler := &stubOAuthHandler{
 		enabled: false,
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	token, err := store.GetToken(t.Context())
 
@@ -126,7 +127,7 @@ func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenDisabled(t *testing.T) 
 }
 
 func TestMusterTokenStore_GetToken_ReturnsErrNoToken_WhenNilHandler(t *testing.T) {
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", nil)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", nil)
 
 	token, err := store.GetToken(t.Context())
 
@@ -142,7 +143,7 @@ func TestMusterTokenStore_GetToken_CachesIDToken(t *testing.T) {
 			IDToken:     "my-id-token",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -157,7 +158,7 @@ func TestMusterTokenStore_GetToken_IDTokenEmpty_WhenNoIDToken(t *testing.T) {
 			AccessToken: "access-token",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	_, err := store.GetToken(t.Context())
 	require.NoError(t, err)
@@ -172,7 +173,7 @@ func TestMusterTokenStore_GetToken_RespectsContextCancellation(t *testing.T) {
 			AccessToken: "token",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -187,7 +188,7 @@ func TestMusterTokenStore_SaveToken_Persists(t *testing.T) {
 	handler := &stubOAuthHandler{
 		enabled: true,
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	expiry := time.Now().Add(30 * time.Minute)
 	err := store.SaveToken(t.Context(), &transport.Token{
@@ -216,7 +217,7 @@ func TestMusterTokenStore_SaveToken_PreservesIDToken(t *testing.T) {
 			IDToken:     "my-id-token",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	// Populate the cached IDToken by calling GetToken first
 	_, err := store.GetToken(t.Context())
@@ -246,7 +247,7 @@ func TestMusterTokenStore_SaveToken_RoundTrips(t *testing.T) {
 			IDToken:      "original-id",
 		},
 	}
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", handler)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
 
 	// GetToken caches IDToken
 	_, err := store.GetToken(t.Context())
@@ -273,21 +274,21 @@ func TestMusterTokenStore_SaveToken_RoundTrips(t *testing.T) {
 }
 
 func TestMusterTokenStore_SaveToken_NilToken(t *testing.T) {
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
 
 	err := store.SaveToken(t.Context(), nil)
 	assert.NoError(t, err)
 }
 
 func TestMusterTokenStore_SaveToken_NilHandler(t *testing.T) {
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", nil)
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", nil)
 
 	err := store.SaveToken(t.Context(), &transport.Token{AccessToken: "token"})
 	assert.NoError(t, err)
 }
 
 func TestMusterTokenStore_SaveToken_RespectsContextCancellation(t *testing.T) {
-	store := NewMusterTokenStore("session-1", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", &stubOAuthHandler{enabled: true})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
