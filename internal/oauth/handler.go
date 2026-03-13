@@ -85,6 +85,12 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	logging.Debug("OAuth", "Processing OAuth callback for session=%s server=%s issuer=%s",
 		logging.TruncateIdentifier(state.SessionID), state.ServerName, state.Issuer)
 
+	if state.SessionID == "" {
+		logging.Warn("OAuth", "Missing session ID in state for nonce=%s (possible rolling-upgrade race)", state.Nonce)
+		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		return
+	}
+
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, "Authentication session invalid. Please try again.")

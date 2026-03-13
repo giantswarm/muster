@@ -297,7 +297,7 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sub string) {
 		wg.Add(1)
 		go func(serverInfo *ServerInfo) {
 			defer wg.Done()
-			a.establishSSOConnection(ctx, sub, serverInfo, musterIssuer)
+			a.establishSSOConnection(ctx, serverInfo, musterIssuer)
 		}(info)
 	}
 	wg.Wait()
@@ -315,11 +315,11 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sub string) {
 // connection and skips if the user already has cached capabilities.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) {
 	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
 
 	// Guard against concurrent connection attempts. The proactive SSO goroutine
 	// (from handleSessionInit) can race with explicit core_auth_login calls.
@@ -338,12 +338,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	// Token exchange takes precedence over token forwarding
 	if ShouldUseTokenExchange(serverInfo) {
 		result, err = EstablishConnectionWithTokenExchange(
-			ctx, a, sub, serverInfo, musterIssuer,
+			ctx, a, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token exchange (RFC 8693)"
 	} else {
 		result, err = EstablishConnectionWithTokenForwarding(
-			ctx, a, sub, serverInfo, musterIssuer,
+			ctx, a, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token forwarding"
 	}

@@ -2076,9 +2076,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
 		}
 
-		capturedSessionID := sessionID
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), capturedSessionID, musterIssuer)
+			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}

@@ -367,10 +367,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
 		}
 
-		// Trigger session initialization callback on first request for this session,
-		// or when the token has changed (re-authentication or refresh).
-		// This enables proactive SSO: after muster auth login or token refresh,
-		// SSO-enabled servers are automatically connected using muster's ID token.
+		// Trigger session initialization callback on first request for this session.
+		// Each login creates a new session ID (token family), so new logins
+		// naturally trigger proactive SSO without token-hash comparison.
 		s.triggerSessionInitIfNeeded(ctx, r)
 
 		next.ServeHTTP(w, r)

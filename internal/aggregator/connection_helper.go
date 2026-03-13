@@ -223,10 +223,11 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 //  2. Forwards it to the downstream MCP server
 //  3. If successful, populates the CapabilityCache and registers tools
 //
+// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
+//
 // Args:
-//   - ctx: Context for the operation
+//   - ctx: Context for the operation (must contain sessionID and sub)
 //   - a: The aggregator server instance
-//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -236,11 +237,11 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 func EstablishConnectionWithTokenForwarding(
 	ctx context.Context,
 	a *AggregatorServer,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
 	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
 
 	if a.capabilityCache != nil {
 		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
@@ -276,12 +277,11 @@ func EstablishConnectionWithTokenForwarding(
 	// because the original request context becomes stale/cancelled after the
 	// connection-establishing request completes. The OAuth token store (keyed by
 	// sub + musterIssuer) is the stable source for refreshed tokens.
-	capturedSessionID := sessionID
 	headerFunc := func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), capturedSessionID, musterIssuer)
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 		if latestToken == "" {
 			logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
-				logging.TruncateIdentifier(capturedSessionID), serverInfo.Name)
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			// Fall back to the original token; the server will return 401 if expired
 			latestToken = idToken
 		} else if latestToken != idToken {
@@ -438,10 +438,11 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  3. Exchanges it for a token valid on the remote cluster's Dex
 //  4. If successful, populates the CapabilityCache and registers tools
 //
+// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
+//
 // Args:
-//   - ctx: Context for the operation
+//   - ctx: Context for the operation (must contain sessionID and sub)
 //   - a: The aggregator server instance
-//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -451,17 +452,15 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
-	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
-	// Guard against concurrent connection attempts using CapabilityCache.
 	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
 	if a.capabilityCache != nil {
 		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
 			logging.Debug("Connection", "Session %s already connected to %s, skipping token exchange",

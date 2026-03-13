@@ -176,7 +176,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	if ShouldUseTokenExchange(serverInfo) {
 		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
 
-		result, err := p.tryTokenExchange(ctx, sub, serverInfo)
+		result, err := p.tryTokenExchange(ctx, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
@@ -207,7 +207,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 		// Get the muster issuer from the OAuth server configuration
 		// For token forwarding, we use the same issuer that muster authenticated the user with
-		result, err := p.tryTokenForwarding(ctx, sub, serverInfo)
+		result, err := p.tryTokenForwarding(ctx, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
@@ -436,16 +436,17 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token exchange failed
-func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	sessionID := getSessionIDFromContext(ctx)
 	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
+		sub := getUserSubjectFromContext(ctx)
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
 	}
 
 	result, err := EstablishConnectionWithTokenExchange(
-		ctx, p.aggregator, sub, serverInfo, musterIssuer,
+		ctx, p.aggregator, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
@@ -460,16 +461,17 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, ser
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token forwarding failed
-func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
 	sessionID := getSessionIDFromContext(ctx)
 	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
+		sub := getUserSubjectFromContext(ctx)
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
 	}
 
 	result, err := EstablishConnectionWithTokenForwarding(
-		ctx, p.aggregator, sub, serverInfo, musterIssuer,
+		ctx, p.aggregator, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
