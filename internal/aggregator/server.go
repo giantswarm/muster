@@ -2219,6 +2219,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 // The method checks each registered server and returns those that:
 //   - Have StatusAuthRequired status
 //   - The session has not yet authenticated to
+//   - Are NOT SSO-configured (token forwarding/exchange)
 //
 // This is part of the server-side meta-tools migration (Issue #343) to provide
 // better visibility into which servers need authentication.
@@ -2233,7 +2234,12 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			continue
 		}
 
-		// Check if session already has a CapabilityCache entry (i.e., authenticated)
+		// SSO-enabled servers (token forwarding/exchange) are authenticated by
+		// the admin, not the user -- manual login cannot fix SSO failures.
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+			continue
+		}
+
 		if a.capabilityCache != nil {
 			if _, exists := a.capabilityCache.Get(sessionID, name); exists {
 				continue
