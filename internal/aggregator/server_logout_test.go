@@ -29,7 +29,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -66,7 +68,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -85,7 +89,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(mockHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -109,7 +115,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		specialUserID := "CgZpZDEyMxIGbG9jYWw"
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
@@ -243,8 +251,8 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		cache := NewCapabilityCache(5 * time.Minute)
-		cache.Set("session-A", "target-server", "user@example.com", nil, nil, nil)
-		cache.Set("session-B", "target-server", "other-user@example.com", nil, nil, nil)
+		cache.Set("session-A", "target-server", nil, nil, nil)
+		cache.Set("session-B", "target-server", nil, nil, nil)
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()

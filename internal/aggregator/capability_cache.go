@@ -17,7 +17,6 @@ type CacheKey struct {
 // CacheEntry holds the cached MCP capabilities for a session+server pair.
 // Entries are immutable once stored; Set replaces the entire entry.
 type CacheEntry struct {
-	UserID    string // User identity (sub claim) for bulk invalidation
 	Tools     []mcp.Tool
 	Resources []mcp.Resource
 	Prompts   []mcp.Prompt
@@ -91,15 +90,14 @@ func (c *CapabilityCache) Get(sessionID, serverName string) (*CacheEntry, bool) 
 }
 
 // Set stores capabilities for a session+server pair with the default TTL.
-func (c *CapabilityCache) Set(sessionID, serverName, userID string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt) {
-	c.SetWithTTL(sessionID, serverName, userID, tools, resources, prompts, c.defaultTTL)
+func (c *CapabilityCache) Set(sessionID, serverName string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt) {
+	c.SetWithTTL(sessionID, serverName, tools, resources, prompts, c.defaultTTL)
 }
 
 // SetWithTTL stores capabilities for a session+server pair with a custom TTL.
-func (c *CapabilityCache) SetWithTTL(sessionID, serverName, userID string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt, ttl time.Duration) {
+func (c *CapabilityCache) SetWithTTL(sessionID, serverName string, tools []mcp.Tool, resources []mcp.Resource, prompts []mcp.Prompt, ttl time.Duration) {
 	now := time.Now()
 	entry := &CacheEntry{
-		UserID:        userID,
 		Tools:         append([]mcp.Tool(nil), tools...),
 		Resources:     append([]mcp.Resource(nil), resources...),
 		Prompts:       append([]mcp.Prompt(nil), prompts...),
@@ -111,19 +109,6 @@ func (c *CapabilityCache) SetWithTTL(sessionID, serverName, userID string, tools
 	c.mu.Lock()
 	c.entries[CacheKey{SessionID: sessionID, ServerName: serverName}] = entry
 	c.mu.Unlock()
-}
-
-// InvalidateUser removes all cached entries for a user across all sessions
-// (e.g., "sign out everywhere" via DELETE /user-tokens).
-func (c *CapabilityCache) InvalidateUser(userID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for key, entry := range c.entries {
-		if entry.UserID == userID {
-			delete(c.entries, key)
-		}
-	}
 }
 
 // InvalidateSession removes all cached entries for a session (e.g., on logout

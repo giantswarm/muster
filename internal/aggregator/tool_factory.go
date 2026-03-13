@@ -60,7 +60,6 @@ func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider
 	for _, toolMeta := range provider.GetTools() {
 		// Meta-tools don't get prefixed - they use their original names
 		toolName := toolMeta.Name
-		a.toolManager.setActive(toolName, true)
 
 		tool := mcpserver.ServerTool{
 			Tool: mcp.Tool{

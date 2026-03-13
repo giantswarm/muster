@@ -73,11 +73,9 @@ type AggregatorServer struct {
 	wg         sync.WaitGroup     // WaitGroup for background goroutines
 	mu         sync.RWMutex       // Protects server state during lifecycle operations
 
-	// Active capability tracking - manages which tools/prompts/resources are currently exposed
-	toolManager     *activeItemManager // Tracks active tools and their handlers
-	promptManager   *activeItemManager // Tracks active prompts and their handlers
-	resourceManager *activeItemManager // Tracks active resources and their handlers
-	isShuttingDown  bool               // Indicates whether the server is currently stopping
+	// Active capability tracking - manages which meta-tools are currently exposed
+	toolManager    *activeItemManager // Tracks active meta-tools
+	isShuttingDown bool               // Indicates whether the server is currently stopping
 
 	// Authentication rate limiting and metrics (security hardening per ADR-008)
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
@@ -268,9 +266,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
-		toolManager:     newActiveItemManager(itemTypeTool),
-		promptManager:   newActiveItemManager(itemTypePrompt),
-		resourceManager: newActiveItemManager(itemTypeResource),
+		toolManager:     newActiveItemManager(),
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
@@ -759,19 +755,15 @@ func (a *AggregatorServer) updateCapabilities() {
 
 	logging.Debug("Aggregator", "Updating capabilities dynamically")
 
-	// Get all registered backend servers
-	servers := a.registry.GetAllServers()
+	// Collect meta-tools once and pass to both remove/add to avoid
+	// redundant createToolsFromProviders calls.
+	metaTools := a.createToolsFromProviders()
 
-	// Collect all items from connected servers AND core providers
-	collected := collectItemsFromServersAndProviders(servers, a.registry, a)
-
-	// Remove obsolete items that are no longer available
-	a.removeObsoleteItems(collected)
-
-	// Add new items that have become available
-	a.addNewItems(servers)
+	a.removeObsoleteMetaTools(metaTools)
+	a.addNewMetaTools(metaTools)
 
 	// Log summary of current capabilities
+	servers := a.registry.GetAllServers()
 	a.logCapabilitiesSummary(servers)
 
 	// Publish tool update event to notify dependent managers (like ServiceClass manager)
@@ -779,114 +771,46 @@ func (a *AggregatorServer) updateCapabilities() {
 	a.publishToolUpdateEvent()
 }
 
-// removeObsoleteItems removes capabilities that are no longer available from any source.
-//
-// This method performs cleanup by identifying tools, prompts, and resources that
-// were previously exposed but are no longer available from any backend server or
-// core provider. It removes these obsolete items from the MCP server to maintain
-// an accurate capability inventory.
-//
-// The removal process handles different item types appropriately:
-//   - Tools and prompts: Batch removal using DeleteTools/DeletePrompts
-//   - Resources: Individual removal due to MCP library limitations
-//
-// Args:
-//   - collected: Result of capability collection containing current available items
-func (a *AggregatorServer) removeObsoleteItems(collected *collectResult) {
-	// Remove obsolete tools using batch operation
-	removeObsoleteItems(
-		a.toolManager,
-		collected.newTools,
-		func(items []string) {
-			a.mcpServer.DeleteTools(items...)
-		},
-	)
+// removeObsoleteMetaTools removes meta-tools that are no longer provided.
+// Downstream server tools are not registered on the MCP server; they are
+// accessed through the call_tool meta-tool.
+func (a *AggregatorServer) removeObsoleteMetaTools(metaTools []mcpserver.ServerTool) {
+	currentTools := make(map[string]struct{}, len(metaTools))
+	for _, tool := range metaTools {
+		currentTools[tool.Tool.Name] = struct{}{}
+	}
 
-	// Remove obsolete prompts using batch operation
-	removeObsoleteItems(
-		a.promptManager,
-		collected.newPrompts,
-		func(items []string) {
-			a.mcpServer.DeletePrompts(items...)
-		},
-	)
-
-	// Remove obsolete resources (individual removal required)
-	removeObsoleteItems(
-		a.resourceManager,
-		collected.newResources,
-		func(items []string) {
-			// Note: The MCP server API doesn't provide a batch removal method for resources
-			// (unlike DeleteTools and DeletePrompts), so we have to remove them one by one.
-			// This will cause multiple notifications to the client.
-			// TODO: Consider requesting a RemoveResources/DeleteResources method in the MCP library
-			for _, uri := range items {
-				a.mcpServer.RemoveResource(uri)
-			}
-		},
-	)
+	obsolete := a.toolManager.getInactiveItems(currentTools)
+	if len(obsolete) > 0 {
+		logging.Debug("Aggregator", "Removing %d obsolete meta-tools: %v", len(obsolete), obsolete)
+		a.mcpServer.DeleteTools(obsolete...)
+		a.toolManager.removeItems(obsolete)
+	}
 }
 
-// addNewItems discovers and adds new capabilities from all available sources.
+// addNewMetaTools registers meta-tools from core muster components on the MCP server.
 //
-// This method processes all registered backend servers and core providers to
-// identify new tools, prompts, and resources that should be exposed through
-// the aggregator. It creates appropriate MCP handlers for each item and
-// registers them with the MCP server in batches for efficiency.
+// Only meta-tools (list_tools, call_tool, etc.) are registered on the MCP server.
+// Downstream server tools are NOT registered -- they are accessed exclusively
+// through the call_tool meta-tool which routes via CallToolInternal -> ServerRegistry.
 //
-// The process includes:
-//   - Processing each connected backend server for new capabilities
-//   - Processing auth_required servers for synthetic authentication tools
-//   - Integrating core tools from muster components (workflow, etc.)
-//   - Creating MCP-compatible handlers for all new items
-//   - Batch registration to minimize client notifications
-//
-// Args:
-//   - servers: Map of all registered backend servers and their information
-func (a *AggregatorServer) addNewItems(servers map[string]*ServerInfo) {
-	var toolsToAdd []mcpserver.ServerTool
-	var promptsToAdd []mcpserver.ServerPrompt
-	var resourcesToAdd []mcpserver.ServerResource
-
-	// Process each registered backend server
-	for serverName, info := range servers {
-		// Handle servers requiring authentication - add synthetic auth tools
-		if info.Status == StatusAuthRequired {
-			toolsToAdd = append(toolsToAdd, processToolsForServer(a, serverName, info)...)
-			continue
+// Only genuinely new tools (not already tracked by toolManager) are added to
+// the MCP server. This prevents spurious tools/list_changed notifications that
+// the mcp-go library sends automatically on every AddTools call.
+func (a *AggregatorServer) addNewMetaTools(metaTools []mcpserver.ServerTool) {
+	var newTools []mcpserver.ServerTool
+	for _, tool := range metaTools {
+		if !a.toolManager.isActive(tool.Tool.Name) {
+			newTools = append(newTools, tool)
 		}
+	}
 
-		if !info.IsConnected() {
-			continue
+	if len(newTools) > 0 {
+		logging.Debug("Aggregator", "Adding %d new meta-tools in batch", len(newTools))
+		a.mcpServer.AddTools(newTools...)
+		for _, tool := range newTools {
+			a.toolManager.track(tool.Tool.Name)
 		}
-
-		// Process tools for this server and create handlers
-		toolsToAdd = append(toolsToAdd, processToolsForServer(a, serverName, info)...)
-
-		// Process prompts for this server and create handlers
-		promptsToAdd = append(promptsToAdd, processPromptsForServer(a, serverName, info)...)
-
-		// Process resources for this server and create handlers
-		resourcesToAdd = append(resourcesToAdd, processResourcesForServer(a, serverName, info)...)
-	}
-
-	// Add tools from core muster components (workflow, etc.)
-	toolsToAdd = append(toolsToAdd, a.createToolsFromProviders()...)
-
-	// Register all new items in batches to minimize client notifications
-	if len(toolsToAdd) > 0 {
-		logging.Debug("Aggregator", "Adding %d tools in batch", len(toolsToAdd))
-		a.mcpServer.AddTools(toolsToAdd...)
-	}
-
-	if len(promptsToAdd) > 0 {
-		logging.Debug("Aggregator", "Adding %d prompts in batch", len(promptsToAdd))
-		a.mcpServer.AddPrompts(promptsToAdd...)
-	}
-
-	if len(resourcesToAdd) > 0 {
-		logging.Debug("Aggregator", "Adding %d resources in batch", len(resourcesToAdd))
-		a.mcpServer.AddResources(resourcesToAdd...)
 	}
 }
 
@@ -1094,142 +1018,34 @@ func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
 	return a.registry.GetAllPromptsForSession(a.capabilityCache, sessionID)
 }
 
-// sessionToolFilter is the WithToolFilter callback that provides session-specific tool views.
+// sessionToolFilter is the WithToolFilter callback for MCP tools/list.
 //
-// This is a critical part of the session-scoped tool visibility feature (ADR-006).
-// When a client calls tools/list, this filter intercepts the request and returns
-// only the tools visible to the requesting login session based on its
-// OAuth authentication state.
+// This filter ensures that MCP tools/list only returns the meta-tools
+// (list_tools, call_tool, etc.) -- NOT downstream server tools. Downstream
+// tools are accessible exclusively through the call_tool meta-tool, which
+// routes through CallToolInternal -> ServerRegistry.
 //
-// The filter:
-//   - Extracts the session ID and user subject from the request context
-//   - Includes core muster tools (workflow, config, service, etc.)
-//   - Returns session-specific MCP server tools via GetToolsForSession
-//   - For non-OAuth servers, returns global tools
-//   - For OAuth servers, returns tools only if the session has authenticated
-//
-// Returns a slice of MCP tools specific to the requesting session.
+// This prevents the client from seeing 200+ tools and receiving constant
+// tools/list_changed notifications as SSO connections are established.
 func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
 	subject := getUserSubjectFromContext(ctx)
-	sessionID := getSessionIDFromContext(ctx)
 
 	// Track subject -> MCP session mapping for targeted notifications
 	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 		a.subjectSessions.Track(subject, session.SessionID())
 	}
 
-	// Get session-specific MCP server tools (handles OAuth auth state via CapabilityCache)
-	mcpServerTools := a.GetToolsForSession(sessionID)
-
-	// Get core muster tools (these are always available to all users)
+	// Only return meta-tools -- downstream tools are accessed via call_tool
 	coreServerTools := a.createToolsFromProviders()
-
-	// Combine both sets of tools
-	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreServerTools))
-	allTools = append(allTools, mcpServerTools...)
-
-	// Convert core ServerTools to mcp.Tool
+	allTools := make([]mcp.Tool, 0, len(coreServerTools))
 	for _, serverTool := range coreServerTools {
 		allTools = append(allTools, serverTool.Tool)
 	}
 
-	logging.Debug("Aggregator", "sessionToolFilter: returning %d tools (%d mcp server, %d core) for subject %s",
-		len(allTools), len(mcpServerTools), len(coreServerTools), logging.TruncateIdentifier(subject))
+	logging.Debug("Aggregator", "sessionToolFilter: returning %d meta-tools for subject %s",
+		len(allTools), logging.TruncateIdentifier(subject))
 
 	return allTools
-}
-
-// NotifyToolsChanged sends a tools/list_changed notification to the specific user's
-// MCP sessions. Only the sessions belonging to the given subject are notified,
-// avoiding unnecessary tool-list refreshes for other users.
-func (a *AggregatorServer) NotifyToolsChanged(sub string) {
-	a.sendUserNotification(sub, "notifications/tools/list_changed")
-}
-
-// NotifyResourcesChanged sends a resources/list_changed notification to the specific
-// user's MCP sessions.
-func (a *AggregatorServer) NotifyResourcesChanged(sub string) {
-	a.sendUserNotification(sub, "notifications/resources/list_changed")
-}
-
-// registerSessionTools registers tools from an OAuth-protected server connection with the mcp-go server.
-// This ensures that tools from session-specific connections have handlers registered and can be called.
-// The handler routes calls through the session's connection client.
-func (a *AggregatorServer) registerSessionTools(serverName string, tools []mcp.Tool) {
-	a.mu.RLock()
-	mcpServer := a.mcpServer
-	a.mu.RUnlock()
-
-	if mcpServer == nil {
-		logging.Warn("Aggregator", "Cannot register session tools - MCP server not available")
-		return
-	}
-
-	var toolsToAdd []mcpserver.ServerTool
-	for _, tool := range tools {
-		// Apply the standard tool name prefixing
-		exposedName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
-
-		// Check if already registered
-		if a.toolManager.isActive(exposedName) {
-			continue
-		}
-
-		// Mark as active
-		a.toolManager.setActive(exposedName, true)
-
-		// Create the tool with a handler that routes through session connections
-		serverTool := mcpserver.ServerTool{
-			Tool: mcp.Tool{
-				Name:        exposedName,
-				Description: tool.Description,
-				InputSchema: tool.InputSchema,
-			},
-			Handler: toolHandlerFactory(a, exposedName),
-		}
-		toolsToAdd = append(toolsToAdd, serverTool)
-	}
-
-	if len(toolsToAdd) > 0 {
-		logging.Debug("Aggregator", "Registering %d session-specific tools for server %s", len(toolsToAdd), serverName)
-		mcpServer.AddTools(toolsToAdd...)
-	}
-}
-
-// NotifyPromptsChanged sends a prompts/list_changed notification to the specific
-// user's MCP sessions.
-func (a *AggregatorServer) NotifyPromptsChanged(sub string) {
-	a.sendUserNotification(sub, "notifications/prompts/list_changed")
-}
-
-// sendUserNotification sends an MCP notification to all sessions belonging to
-// the given user subject. Errors on individual sessions are logged but do not
-// prevent notification of remaining sessions.
-func (a *AggregatorServer) sendUserNotification(sub, method string) {
-	a.mu.RLock()
-	mcpServer := a.mcpServer
-	a.mu.RUnlock()
-
-	if mcpServer == nil {
-		logging.Warn("Aggregator", "Cannot notify client: MCP server not initialized")
-		return
-	}
-
-	sessionIDs := a.subjectSessions.GetSessionIDs(sub)
-	if len(sessionIDs) == 0 {
-		logging.Debug("Aggregator", "No sessions found for subject %s, skipping %s notification",
-			logging.TruncateIdentifier(sub), method)
-		return
-	}
-
-	for _, sid := range sessionIDs {
-		if err := mcpServer.SendNotificationToSpecificClient(sid, method, nil); err != nil {
-			logging.Debug("Aggregator", "Failed to send %s to session %s for subject %s: %v",
-				method, sid, logging.TruncateIdentifier(sub), err)
-		}
-	}
-	logging.Debug("Aggregator", "Sent %s notification to %d session(s) for subject %s",
-		method, len(sessionIDs), logging.TruncateIdentifier(sub))
 }
 
 // GetToolsWithStatus returns all available tools along with their security blocking status.
@@ -1866,8 +1682,11 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	if a.capabilityCache != nil {
-		a.capabilityCache.InvalidateUser(sub)
+	// Invalidate capability cache entries for all of this user's sessions
+	if a.capabilityCache != nil && a.subjectSessions != nil {
+		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
+			a.capabilityCache.InvalidateSession(sid)
+		}
 	}
 
 	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateIdentifier(sub))
@@ -2219,6 +2038,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 // The method checks each registered server and returns those that:
 //   - Have StatusAuthRequired status
 //   - The session has not yet authenticated to
+//   - Are NOT SSO-configured (token forwarding/exchange)
 //
 // This is part of the server-side meta-tools migration (Issue #343) to provide
 // better visibility into which servers need authentication.
@@ -2233,7 +2053,12 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			continue
 		}
 
-		// Check if session already has a CapabilityCache entry (i.e., authenticated)
+		// SSO-enabled servers (token forwarding/exchange) are authenticated by
+		// the admin, not the user -- manual login cannot fix SSO failures.
+		if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+			continue
+		}
+
 		if a.capabilityCache != nil {
 			if _, exists := a.capabilityCache.Get(sessionID, name); exists {
 				continue
