@@ -13,29 +13,29 @@ import (
 type issuerMockOAuthHandler struct {
 	enabled          bool
 	findTokenResult  *api.OAuthToken
-	getFullTokenFunc func(sub, issuer string) *api.OAuthToken
+	getFullTokenFunc func(sessionID, issuer string) *api.OAuthToken
 }
 
 func (m *issuerMockOAuthHandler) IsEnabled() bool {
 	return m.enabled
 }
 
-func (m *issuerMockOAuthHandler) GetToken(sub, serverName string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetToken(sessionID, serverName string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetTokenByIssuer(sub, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sub, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	if m.getFullTokenFunc != nil {
-		return m.getFullTokenFunc(sub, issuer)
+		return m.getFullTokenFunc(sessionID, issuer)
 	}
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 	return m.findTokenResult
 }
 

@@ -41,7 +41,7 @@ func (e *CacheEntry) IsStale() bool {
 	return now.After(e.ExpiresAt) && !now.After(e.graceDeadline)
 }
 
-// CapabilityCache stores per-user, per-server MCP capabilities independently
+// CapabilityCache stores per-session, per-server MCP capabilities independently
 // of connection state. It supports TTL-based expiry with stale-while-revalidate
 // semantics: expired entries are still returned by Get so callers can serve
 // stale data while triggering a background refresh.

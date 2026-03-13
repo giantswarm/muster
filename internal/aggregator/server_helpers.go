@@ -508,17 +508,10 @@ func processResourcesForServer(a *AggregatorServer, serverName string, info *Ser
 	return resourcesToAdd
 }
 
-// enrichMCPServerWithSessionData adds user-specific state to an MCPServerInfo.
-// This includes the user's connection status and tools count from the CapabilityCache.
-//
-// Args:
-//   - serverInfo: The MCPServerInfo map from the mcpserver_list response
-//   - cache: The CapabilityCache (may be nil)
-//   - sub: The user's subject
-//
-// Returns the enriched serverInfo map with session fields added.
-func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, cache *CapabilityCache, sub string) map[string]interface{} {
-	if cache == nil || sub == "" {
+// enrichMCPServerWithSessionData adds session-specific state to an MCPServerInfo.
+// This includes the session's connection status and tools count from the CapabilityCache.
+func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, cache *CapabilityCache, sessionID string) map[string]interface{} {
+	if cache == nil || sessionID == "" {
 		return serverInfo
 	}
 
@@ -527,7 +520,7 @@ func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, cache *Ca
 		return serverInfo
 	}
 
-	entry, exists := cache.Get(sub, serverName)
+	entry, exists := cache.Get(sessionID, serverName)
 	if !exists {
 		return serverInfo
 	}
@@ -545,18 +538,11 @@ func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, cache *Ca
 	return serverInfo
 }
 
-// enrichMCPServerListResponse enriches the mcpserver_list response with user-specific data
+// enrichMCPServerListResponse enriches the mcpserver_list response with session-specific data
 // from the CapabilityCache. It modifies the response in place to add sessionStatus,
 // toolsCount, and connectedAt fields to each server.
-//
-// Args:
-//   - result: The mcp.CallToolResult from mcpserver_list
-//   - cache: The CapabilityCache (may be nil)
-//   - sub: The user's subject
-//
-// Returns the enriched result.
-func enrichMCPServerListResponse(result *mcp.CallToolResult, cache *CapabilityCache, sub string) *mcp.CallToolResult {
-	if cache == nil || sub == "" || result == nil || len(result.Content) == 0 {
+func enrichMCPServerListResponse(result *mcp.CallToolResult, cache *CapabilityCache, sessionID string) *mcp.CallToolResult {
+	if cache == nil || sessionID == "" || result == nil || len(result.Content) == 0 {
 		return result
 	}
 
@@ -583,7 +569,7 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, cache *CapabilityCa
 			if !ok {
 				continue
 			}
-			servers[j] = enrichMCPServerWithSessionData(serverMap, cache, sub)
+			servers[j] = enrichMCPServerWithSessionData(serverMap, cache, sessionID)
 		}
 		responseMap["mcpServers"] = servers
 

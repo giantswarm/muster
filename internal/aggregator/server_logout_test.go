@@ -16,16 +16,15 @@ import (
 
 func TestHandleUserTokensDeletion(t *testing.T) {
 	t.Run("returns 204 when subject is present and OAuthHandler deletes tokens", func(t *testing.T) {
-		var deleteCalledWithSubject string
+		var deleteCalledWithUserID string
 
 		mockHandler := &issuerMockOAuthHandler{
 			enabled: true,
 		}
-		// Override DeleteTokensByUser to capture the subject
 		var captureHandler deleteCaptureMockHandler
 		captureHandler.inner = mockHandler
-		captureHandler.onDelete = func(subject string) {
-			deleteCalledWithSubject = subject
+		captureHandler.onDelete = func(userID string) {
+			deleteCalledWithUserID = userID
 		}
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
@@ -41,8 +40,8 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		if deleteCalledWithSubject != "user@example.com" {
-			t.Errorf("expected DeleteTokensByUser to be called with 'user@example.com', got %q", deleteCalledWithSubject)
+		if deleteCalledWithUserID != "user@example.com" {
+			t.Errorf("expected DeleteTokensByUser to be called with 'user@example.com', got %q", deleteCalledWithUserID)
 		}
 	})
 
@@ -99,22 +98,22 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		}
 	})
 
-	t.Run("subject with special characters is forwarded correctly", func(t *testing.T) {
-		var capturedSubject string
+	t.Run("user ID with special characters is forwarded correctly", func(t *testing.T) {
+		var capturedUserID string
 
 		var captureHandler deleteCaptureMockHandler
 		captureHandler.inner = &issuerMockOAuthHandler{enabled: true}
-		captureHandler.onDelete = func(subject string) {
-			capturedSubject = subject
+		captureHandler.onDelete = func(userID string) {
+			capturedUserID = userID
 		}
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		a := &AggregatorServer{}
 
-		specialSubject := "CgZpZDEyMxIGbG9jYWw"
+		specialUserID := "CgZpZDEyMxIGbG9jYWw"
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
-		req = req.WithContext(api.WithSubject(req.Context(), specialSubject))
+		req = req.WithContext(api.WithSubject(req.Context(), specialUserID))
 		w := httptest.NewRecorder()
 
 		a.handleUserTokensDeletion(w, req)
@@ -122,8 +121,8 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		if capturedSubject != specialSubject {
-			t.Errorf("expected subject %q, got %q", specialSubject, capturedSubject)
+		if capturedUserID != specialUserID {
+			t.Errorf("expected user ID %q, got %q", specialUserID, capturedUserID)
 		}
 	})
 }
@@ -138,14 +137,13 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		var captureHandler clearCaptureMockHandler
 		captureHandler.inner = &issuerMockOAuthHandler{enabled: true}
-		captureHandler.onClear = func(subject, issuer string) {
+		captureHandler.onClear = func(sessionID, issuer string) {
 			clearCalledWithIssuer = issuer
 		}
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 		reg := NewServerRegistry("")
-		// Directly insert a server with AuthInfo
 		reg.mu.Lock()
 		reg.servers["my-server"] = &ServerInfo{
 			Name: "my-server",
@@ -161,7 +159,9 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/my-server", nil)
 		req.SetPathValue("server", "my-server")
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "session-123")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		a.handleAuthServerDeletion(w, req)
@@ -334,27 +334,27 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 // calls to DeleteTokensByUser for assertion.
 type deleteCaptureMockHandler struct {
 	inner    *issuerMockOAuthHandler
-	onDelete func(subject string)
+	onDelete func(userID string)
 }
 
 func (d *deleteCaptureMockHandler) IsEnabled() bool { return d.inner.IsEnabled() }
-func (d *deleteCaptureMockHandler) GetToken(sub, name string) *api.OAuthToken {
-	return d.inner.GetToken(sub, name)
+func (d *deleteCaptureMockHandler) GetToken(sessionID, name string) *api.OAuthToken {
+	return d.inner.GetToken(sessionID, name)
 }
-func (d *deleteCaptureMockHandler) GetTokenByIssuer(sub, issuer string) *api.OAuthToken {
-	return d.inner.GetTokenByIssuer(sub, issuer)
+func (d *deleteCaptureMockHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	return d.inner.GetTokenByIssuer(sessionID, issuer)
 }
-func (d *deleteCaptureMockHandler) GetFullTokenByIssuer(sub, issuer string) *api.OAuthToken {
-	return d.inner.GetFullTokenByIssuer(sub, issuer)
+func (d *deleteCaptureMockHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	return d.inner.GetFullTokenByIssuer(sessionID, issuer)
 }
-func (d *deleteCaptureMockHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
-	return d.inner.FindTokenWithIDToken(sub)
+func (d *deleteCaptureMockHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+	return d.inner.FindTokenWithIDToken(sessionID)
 }
 func (d *deleteCaptureMockHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {}
 func (d *deleteCaptureMockHandler) ClearTokenByIssuer(_, _ string)               {}
-func (d *deleteCaptureMockHandler) DeleteTokensByUser(subject string) {
+func (d *deleteCaptureMockHandler) DeleteTokensByUser(userID string) {
 	if d.onDelete != nil {
-		d.onDelete(subject)
+		d.onDelete(userID)
 	}
 }
 func (d *deleteCaptureMockHandler) DeleteTokensBySession(_ string) {}
@@ -384,26 +384,26 @@ func (d *deleteCaptureMockHandler) ExchangeTokenForRemoteClusterWithClient(_ con
 // calls to ClearTokenByIssuer for assertion.
 type clearCaptureMockHandler struct {
 	inner   *issuerMockOAuthHandler
-	onClear func(subject, issuer string)
+	onClear func(sessionID, issuer string)
 }
 
 func (c *clearCaptureMockHandler) IsEnabled() bool { return c.inner.IsEnabled() }
-func (c *clearCaptureMockHandler) GetToken(sub, name string) *api.OAuthToken {
-	return c.inner.GetToken(sub, name)
+func (c *clearCaptureMockHandler) GetToken(sessionID, name string) *api.OAuthToken {
+	return c.inner.GetToken(sessionID, name)
 }
-func (c *clearCaptureMockHandler) GetTokenByIssuer(sub, issuer string) *api.OAuthToken {
-	return c.inner.GetTokenByIssuer(sub, issuer)
+func (c *clearCaptureMockHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	return c.inner.GetTokenByIssuer(sessionID, issuer)
 }
-func (c *clearCaptureMockHandler) GetFullTokenByIssuer(sub, issuer string) *api.OAuthToken {
-	return c.inner.GetFullTokenByIssuer(sub, issuer)
+func (c *clearCaptureMockHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	return c.inner.GetFullTokenByIssuer(sessionID, issuer)
 }
-func (c *clearCaptureMockHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
-	return c.inner.FindTokenWithIDToken(sub)
+func (c *clearCaptureMockHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
+	return c.inner.FindTokenWithIDToken(sessionID)
 }
 func (c *clearCaptureMockHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {}
-func (c *clearCaptureMockHandler) ClearTokenByIssuer(subject, issuer string) {
+func (c *clearCaptureMockHandler) ClearTokenByIssuer(sessionID, issuer string) {
 	if c.onClear != nil {
-		c.onClear(subject, issuer)
+		c.onClear(sessionID, issuer)
 	}
 }
 func (c *clearCaptureMockHandler) DeleteTokensByUser(_ string)    {}
