@@ -86,8 +86,8 @@ func getEndpointFromConfig() (string, error) {
 // createConnectedClient creates and connects an authenticated client to the aggregator.
 // Uses mcp-go's OAuth transport for automatic token injection.
 // The caller is responsible for calling client.Close() when done.
-func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
-	client, err := createStatusClient(ctx, handler, endpoint)
+func createConnectedClient(ctx context.Context, endpoint string) (*agent.Client, error) {
+	client, err := createStatusClient(ctx, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 // createStatusClient creates a lightweight client that can query resources
 // without loading the full tool/resource/prompt caches. This avoids blocking
 // on listTools which waits for all SSO connections to complete.
-func createStatusClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
+func createStatusClient(ctx context.Context, endpoint string) (*agent.Client, error) {
 	logger := agent.NewDevNullLogger()
 	agentTransportType := agent.TransportStreamableHTTP
 	if strings.HasSuffix(endpoint, "/sse") {
@@ -137,7 +137,7 @@ func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint str
 	connCtx, cancel := context.WithTimeout(ctx, DefaultStatusCheckTimeout)
 	defer cancel()
 
-	client, err := createStatusClient(connCtx, handler, endpoint)
+	client, err := createStatusClient(connCtx, endpoint)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func ensureAuthenticatedAndGetStatus(ctx context.Context, handler api.AuthHandle
 
 // getAuthStatusFromAggregator queries the auth://status resource from the aggregator.
 func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint string) (*pkgoauth.AuthStatusResponse, error) {
-	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
+	client, err := createConnectedClient(ctx, aggregatorEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func DefaultAuthWaitConfig() AuthWaitConfig {
 
 // triggerMCPServerAuthWithWait triggers the OAuth flow and optionally waits for completion.
 func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName, authTool string, waitCfg AuthWaitConfig) error {
-	client, err := createConnectedClient(ctx, handler, aggregatorEndpoint)
+	client, err := createConnectedClient(ctx, aggregatorEndpoint)
 	if err != nil {
 		return err
 	}
@@ -427,7 +427,7 @@ func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint
 	ctx, cancel := context.WithTimeout(ctx, DefaultSSOWaitTimeout)
 	defer cancel()
 
-	client, err := createStatusClient(ctx, handler, endpoint)
+	client, err := createStatusClient(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect for SSO status check: %w", err)
 	}
