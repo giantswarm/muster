@@ -73,6 +73,26 @@ func TestListServersRequiringAuth(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
+	t.Run("skips SSO server while SSO init is pending", func(t *testing.T) {
+		reg := NewServerRegistry("x")
+		err := reg.RegisterPendingAuthWithConfig(
+			"sso-pending",
+			"https://sso-pending.example.com",
+			"ssopending",
+			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			&api.MCPServerAuth{ForwardToken: true},
+		)
+		require.NoError(t, err)
+
+		tracker := newSSOTracker()
+		tracker.StartSSOInit("user@example.com")
+
+		agg := &AggregatorServer{registry: reg, ssoTracker: tracker}
+
+		result := agg.ListServersRequiringAuth(context.Background())
+		assert.Empty(t, result, "manual login cannot perform SSO")
+	})
+
 	t.Run("always skips SSO server regardless of failure state", func(t *testing.T) {
 		reg := NewServerRegistry("x")
 		err := reg.RegisterPendingAuthWithConfig(
