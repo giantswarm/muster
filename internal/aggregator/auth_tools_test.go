@@ -13,42 +13,45 @@ import (
 type issuerMockOAuthHandler struct {
 	enabled          bool
 	findTokenResult  *api.OAuthToken
-	getFullTokenFunc func(sub, issuer string) *api.OAuthToken
+	getFullTokenFunc func(sessionID, issuer string) *api.OAuthToken
 }
 
 func (m *issuerMockOAuthHandler) IsEnabled() bool {
 	return m.enabled
 }
 
-func (m *issuerMockOAuthHandler) GetToken(sub, serverName string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetToken(sessionID, serverName string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetTokenByIssuer(sub, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sub, issuer string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
 	if m.getFullTokenFunc != nil {
-		return m.getFullTokenFunc(sub, issuer)
+		return m.getFullTokenFunc(sessionID, issuer)
 	}
 	return nil
 }
 
-func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sub string) *api.OAuthToken {
+func (m *issuerMockOAuthHandler) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 	return m.findTokenResult
 }
 
-func (m *issuerMockOAuthHandler) StoreToken(sub, issuer string, token *api.OAuthToken) {
+func (m *issuerMockOAuthHandler) StoreToken(_, _, _ string, _ *api.OAuthToken) {
 }
 
-func (m *issuerMockOAuthHandler) ClearTokenByIssuer(sub, issuer string) {
+func (m *issuerMockOAuthHandler) ClearTokenByIssuer(_, _ string) {
 }
 
-func (m *issuerMockOAuthHandler) DeleteTokensByUser(subject string) {
+func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 }
 
-func (m *issuerMockOAuthHandler) CreateAuthChallenge(ctx context.Context, sub, serverName, issuer, scope string) (*api.AuthChallenge, error) {
+func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
+}
+
+func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
 	return nil, nil
 }
 

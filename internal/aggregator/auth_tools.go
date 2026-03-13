@@ -93,8 +93,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 	// Get user subject for identity-based operations
 	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
-	// Check rate limit before processing
+	// Check rate limit before processing (rate limiting is user-scoped)
 	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sub, serverName) {
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sub)
@@ -144,11 +145,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this user already has cached capabilities for this server.
-	// This can happen after proactive SSO or previous authentication.
+	// Check if this session already has cached capabilities for this server.
 	if p.aggregator.capabilityCache != nil {
-		if _, ok := p.aggregator.capabilityCache.Get(sub, serverName); ok {
-			logging.Debug("AuthTools", "User %s already has capabilities for server %s", sub, serverName)
+		if _, ok := p.aggregator.capabilityCache.Get(sessionID, serverName); ok {
+			logging.Debug("AuthTools", "Session %s already has capabilities for server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
 				IsError: false,
@@ -176,7 +176,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	if ShouldUseTokenExchange(serverInfo) {
 		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
 
-		result, err := p.tryTokenExchange(ctx, sub, serverInfo)
+		result, err := p.tryTokenExchange(ctx, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
@@ -207,7 +207,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 
 		// Get the muster issuer from the OAuth server configuration
 		// For token forwarding, we use the same issuer that muster authenticated the user with
-		result, err := p.tryTokenForwarding(ctx, sub, serverInfo)
+		result, err := p.tryTokenForwarding(ctx, serverInfo)
 		if err != nil {
 			logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
 			if p.aggregator.authMetrics != nil {
@@ -275,14 +275,14 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// Check if we already have a valid token for this server/issuer (SSO).
 	// This enables single sign-on: if the user authenticated to another server
 	// with the same OAuth issuer, we can reuse that token.
-	token := oauthHandler.GetTokenByIssuer(sub, authInfo.Issuer)
+	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
 
 	if token != nil {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
 			serverName, authInfo.Issuer)
 
 		// Try to establish connection using the existing token
-		connectResult, connectErr := p.tryConnectWithToken(ctx, sub, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
+		connectResult, connectErr := p.tryConnectWithToken(ctx, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
 			// Record success and reset rate limiter for this user
 			if p.aggregator.authMetrics != nil {
@@ -297,7 +297,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		// Check if the error is a 401 - token is expired/invalid
 		if is401Error(connectErr) {
 			logging.Info("AuthTools", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			oauthHandler.ClearTokenByIssuer(sub, authInfo.Issuer)
+			oauthHandler.ClearTokenByIssuer(sessionID, authInfo.Issuer)
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
@@ -315,7 +315,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sub, serverName, authInfo.Issuer, authInfo.Scope)
+	challenge, err := oauthHandler.CreateAuthChallenge(ctx, sessionID, sub, serverName, authInfo.Issuer, authInfo.Scope)
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
 		if p.aggregator.authMetrics != nil {
@@ -357,17 +357,15 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	// Get user subject for identity-based operations
 	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
-	// Record the logout attempt in metrics
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLogoutAttempt(serverName, sub)
 	}
 
 	logging.Info("AuthTools", "Handling auth logout for server: %s (user=%s)", serverName, sub)
 
-	// Get server info from registry
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
 	if !exists {
 		return &api.CallToolResult{
@@ -380,20 +378,19 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 	// and it is not muster's upstream issuer. Clearing a shared issuer token
 	// would break other servers (or muster itself) that rely on the same token.
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		if p.isIssuerExclusiveToServer(sub, serverName, serverInfo.AuthInfo.Issuer) {
+		if p.isIssuerExclusiveToServer(sessionID, serverName, serverInfo.AuthInfo.Issuer) {
 			oauthHandler := api.GetOAuthHandler()
 			if oauthHandler != nil && oauthHandler.IsEnabled() {
-				oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
+				oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
 			}
 		} else {
 			logging.Debug("AuthTools", "Skipping issuer token clear for server %s: issuer %s is shared with other servers or muster", serverName, serverInfo.AuthInfo.Issuer)
 		}
 	}
 
-	// Invalidate CapabilityCache so that GetAllToolsForUser no longer returns
-	// cached tools for this server after logout.
+	// Invalidate CapabilityCache for this session+server after logout
 	if p.aggregator.capabilityCache != nil {
-		p.aggregator.capabilityCache.Invalidate(sub, serverName)
+		p.aggregator.capabilityCache.Invalidate(sessionID, serverName)
 	}
 
 	// Clear SSO failure state so re-authentication can trigger fresh SSO
@@ -424,9 +421,9 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 }
 
 // tryConnectWithToken attempts to establish a connection to an MCP server using an OAuth token.
-// This delegates to the shared establishConnection helper to avoid code duplication.
-func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
-	result, err := establishConnection(ctx, p.aggregator, sub, serverName, serverURL, issuer, scope, accessToken)
+// The ctx must contain sessionID and sub (set by OAuth middleware).
+func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, serverURL, issuer, scope, accessToken string) (*api.CallToolResult, error) {
+	result, err := establishConnection(ctx, p.aggregator, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -439,16 +436,17 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, sub, serverN
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token exchange failed
-func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
-	// Get the muster issuer from the configuration
-	musterIssuer := p.getMusterIssuer(sub)
+func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+	sessionID := getSessionIDFromContext(ctx)
+	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
+		sub := getUserSubjectFromContext(ctx)
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
 	}
 
 	result, err := EstablishConnectionWithTokenExchange(
-		ctx, p.aggregator, sub, serverInfo, musterIssuer,
+		ctx, p.aggregator, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
@@ -463,17 +461,17 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, sub string, ser
 // Returns:
 //   - *api.CallToolResult: The connection result if successful
 //   - error: The error if token forwarding failed
-func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sub string, serverInfo *ServerInfo) (*api.CallToolResult, error) {
-	// Get the muster issuer from the configuration
-	// We need to find what issuer muster used to authenticate the user
-	musterIssuer := p.getMusterIssuer(sub)
+func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
+	sessionID := getSessionIDFromContext(ctx)
+	musterIssuer := p.getMusterIssuer(sessionID)
 	if musterIssuer == "" {
+		sub := getUserSubjectFromContext(ctx)
 		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, user %s", sub)
 		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
 	}
 
 	result, err := EstablishConnectionWithTokenForwarding(
-		ctx, p.aggregator, sub, serverInfo, musterIssuer,
+		ctx, p.aggregator, serverInfo, musterIssuer,
 	)
 	if err != nil {
 		return nil, err
@@ -492,23 +490,21 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, sub string, s
 //   - No OAuth handler is registered
 //   - The OAuth handler is not enabled
 //   - No issuer could be determined from config or tokens
-func (p *AuthToolProvider) getMusterIssuer(sub string) string {
-	// OAuth handler must be registered and enabled for token forwarding to work
+func (p *AuthToolProvider) getMusterIssuer(sessionID string) string {
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	return p.aggregator.getMusterIssuerWithFallback(sub)
+	return p.aggregator.getMusterIssuerWithFallback(sessionID)
 }
 
 // isIssuerExclusiveToServer returns true if the given issuer is used ONLY by
 // the specified server and is NOT muster's upstream issuer. When an issuer is
 // shared, clearing it on logout of one server would break other servers (or
 // muster's own token forwarding) that depend on the same token.
-func (p *AuthToolProvider) isIssuerExclusiveToServer(sub, serverName, issuer string) bool {
-	// Check if this issuer is muster's upstream issuer (uses token-aware lookup)
-	if musterIssuer := p.getMusterIssuer(sub); musterIssuer != "" && musterIssuer == issuer {
+func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issuer string) bool {
+	if musterIssuer := p.getMusterIssuer(sessionID); musterIssuer != "" && musterIssuer == issuer {
 		return false
 	}
 

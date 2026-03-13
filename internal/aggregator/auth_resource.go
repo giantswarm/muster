@@ -58,8 +58,8 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // during session initialization (see handleSessionInit), not during auth status reads.
 // This ensures auth://status is a pure read operation without side effects.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	// Get user subject from context for user-specific auth status
 	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
 	servers := a.registry.GetAllServers()
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
@@ -83,9 +83,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		// Determine status from CapabilityCache (per-user state)
-		// This is the source of truth for connection/auth state per issue #292
-		status.Status = a.determineSessionAuthStatus(sub, name, info)
+		status.Status = a.determineSessionAuthStatus(sub, sessionID, name, info)
 
 		// If auth is required for this session, include auth tool info
 		if status.Status == pkgoauth.ServerStatusAuthRequired && info.AuthInfo != nil {
@@ -133,16 +131,16 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // This cleanly separates:
 //   - Infrastructure state (CRD State: Running/Connected/Failed/etc.)
 //   - Per-user state (this function: connected/auth_required/etc.)
-func (a *AggregatorServer) determineSessionAuthStatus(sub, serverName string, info *ServerInfo) string {
+func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName string, info *ServerInfo) string {
 	// Handle unreachable servers first - no auth possible
 	if info.Status == StatusUnreachable {
 		return pkgoauth.ServerStatusUnreachable
 	}
 
-	// Check CapabilityCache for per-user connection state
+	// Check CapabilityCache keyed by session ID for per-login-session state
 	if a.capabilityCache != nil {
-		if _, ok := a.capabilityCache.Get(sub, serverName); ok {
-			logging.Debug("Aggregator", "User %s has cached capabilities for %s", sub, serverName)
+		if _, ok := a.capabilityCache.Get(sessionID, serverName); ok {
+			logging.Debug("Aggregator", "Session %s has cached capabilities for %s", logging.TruncateIdentifier(sessionID), serverName)
 			return pkgoauth.ServerStatusConnected
 		}
 	}
@@ -206,32 +204,29 @@ func (a *AggregatorServer) getMusterIssuer() string {
 }
 
 // getMusterIssuerWithFallback returns the OAuth issuer URL, with a fallback to
-// finding any token for the user that has an ID token.
+// finding any token in the session that has an ID token.
 //
-// This is useful when we need to determine the issuer for a specific user
+// This is useful when we need to determine the issuer for a specific session
 // but the configuration might not be explicitly set. The fallback searches
 // the OAuth proxy token store for any token with an ID token.
 //
 // Args:
-//   - sub: The user subject to search for fallback tokens (only used if config lookup fails)
+//   - sessionID: The session ID (token family) to search for fallback tokens
 //
 // Returns the issuer URL, or empty string if none can be determined.
-func (a *AggregatorServer) getMusterIssuerWithFallback(sub string) string {
-	// First, try to get from configuration
+func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string {
 	if issuer := a.getMusterIssuer(); issuer != "" {
 		return issuer
 	}
 
-	// Fallback: Look for any token for the user that has an ID token.
-	// This is a best-effort approach when the configured issuer is not available.
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return ""
 	}
 
-	fullToken := oauthHandler.FindTokenWithIDToken(sub)
+	fullToken := oauthHandler.FindTokenWithIDToken(sessionID)
 	if fullToken != nil && fullToken.Issuer != "" {
-		logging.Debug("Aggregator", "Using fallback issuer from user token: %s", fullToken.Issuer)
+		logging.Debug("Aggregator", "Using fallback issuer from session token: %s", fullToken.Issuer)
 		return fullToken.Issuer
 	}
 
@@ -302,7 +297,7 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sub string) {
 		wg.Add(1)
 		go func(serverInfo *ServerInfo) {
 			defer wg.Done()
-			a.establishSSOConnection(ctx, sub, serverInfo, musterIssuer)
+			a.establishSSOConnection(ctx, serverInfo, musterIssuer)
 		}(info)
 	}
 	wg.Wait()
@@ -320,16 +315,18 @@ func (a *AggregatorServer) handleSessionInit(ctx context.Context, sub string) {
 // connection and skips if the user already has cached capabilities.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) {
+	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
+
 	// Guard against concurrent connection attempts. The proactive SSO goroutine
 	// (from handleSessionInit) can race with explicit core_auth_login calls.
 	if a.capabilityCache != nil {
-		if _, ok := a.capabilityCache.Get(sub, serverInfo.Name); ok {
-			logging.Debug("Aggregator", "Session init: User %s already has capabilities for %s, skipping SSO",
-				sub, serverInfo.Name)
+		if _, ok := a.capabilityCache.Get(sessionID, serverInfo.Name); ok {
+			logging.Debug("Aggregator", "Session init: Session %s already has capabilities for %s, skipping SSO",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return
 		}
 	}
@@ -341,12 +338,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	// Token exchange takes precedence over token forwarding
 	if ShouldUseTokenExchange(serverInfo) {
 		result, err = EstablishConnectionWithTokenExchange(
-			ctx, a, sub, serverInfo, musterIssuer,
+			ctx, a, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token exchange (RFC 8693)"
 	} else {
 		result, err = EstablishConnectionWithTokenForwarding(
-			ctx, a, sub, serverInfo, musterIssuer,
+			ctx, a, serverInfo, musterIssuer,
 		)
 		ssoMethod = "token forwarding"
 	}

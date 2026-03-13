@@ -10,8 +10,8 @@ import (
 )
 
 // MusterTokenStore is a thin context-binder that implements mcp-go's
-// transport.TokenStore interface by binding {subject, issuer} context
-// to the single backing store exposed through api.OAuthHandler.
+// transport.TokenStore interface by binding {sessionID, userID, issuer}
+// context to the single backing store exposed through api.OAuthHandler.
 //
 // It has no storage of its own -- all reads and writes go through
 // api.OAuthHandler. The only local state is a cached copy of the ID token,
@@ -21,7 +21,8 @@ import (
 // the current token as-is and persists whatever mcp-go writes back after
 // a successful refresh.
 type MusterTokenStore struct {
-	subject      string
+	sessionID    string
+	userID       string
 	issuer       string
 	oauthHandler api.OAuthHandler
 
@@ -30,10 +31,11 @@ type MusterTokenStore struct {
 }
 
 // NewMusterTokenStore creates a new token store that binds the given
-// subject and issuer context to the api.OAuthHandler backing store.
-func NewMusterTokenStore(subject, issuer string, oauthHandler api.OAuthHandler) *MusterTokenStore {
+// session ID, user ID, and issuer context to the api.OAuthHandler backing store.
+func NewMusterTokenStore(sessionID, userID, issuer string, oauthHandler api.OAuthHandler) *MusterTokenStore {
 	return &MusterTokenStore{
-		subject:      subject,
+		sessionID:    sessionID,
+		userID:       userID,
 		issuer:       issuer,
 		oauthHandler: oauthHandler,
 	}
@@ -54,7 +56,7 @@ func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, erro
 		return nil, transport.ErrNoToken
 	}
 
-	fullToken := s.oauthHandler.GetFullTokenByIssuer(s.subject, s.issuer)
+	fullToken := s.oauthHandler.GetFullTokenByIssuer(s.sessionID, s.issuer)
 	if fullToken == nil || fullToken.AccessToken == "" {
 		return nil, transport.ErrNoToken
 	}
@@ -92,7 +94,7 @@ func (s *MusterTokenStore) SaveToken(ctx context.Context, token *transport.Token
 	cachedIDToken := s.idToken
 	s.mu.RUnlock()
 
-	s.oauthHandler.StoreToken(s.subject, s.issuer, &api.OAuthToken{
+	s.oauthHandler.StoreToken(s.sessionID, s.userID, s.issuer, &api.OAuthToken{
 		AccessToken:  token.AccessToken,
 		TokenType:    token.TokenType,
 		RefreshToken: token.RefreshToken,

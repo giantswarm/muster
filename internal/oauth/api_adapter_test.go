@@ -121,7 +121,7 @@ func TestAdapter_ClearTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(subject, testToken)
+	manager.client.StoreToken(subject, "test-user", testToken)
 
 	// Verify token exists
 	token := adapter.GetTokenByIssuer(subject, issuer)
@@ -308,27 +308,24 @@ func TestAdapter_DeleteTokensByUser(t *testing.T) {
 
 		adapter := NewAdapter(manager)
 
-		subject := "user@example.com"
+		sessionID := "session-123"
+		userID := "user@example.com"
 		issuer := "https://auth.example.com"
 
-		// Store a token directly via manager internals
-		manager.client.StoreToken(subject, &pkgoauth.Token{
+		manager.client.StoreToken(sessionID, userID, &pkgoauth.Token{
 			AccessToken: "access-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 			Issuer:      issuer,
 		})
 
-		// Verify the token exists via the adapter
-		if adapter.GetTokenByIssuer(subject, issuer) == nil {
+		if adapter.GetTokenByIssuer(sessionID, issuer) == nil {
 			t.Fatal("expected token to exist before deletion")
 		}
 
-		// Delete via adapter
-		adapter.DeleteTokensByUser(subject)
+		adapter.DeleteTokensByUser(userID)
 
-		// Token should be gone
-		if adapter.GetTokenByIssuer(subject, issuer) != nil {
+		if adapter.GetTokenByIssuer(sessionID, issuer) != nil {
 			t.Error("expected token to be deleted after DeleteTokensByUser")
 		}
 	})
@@ -349,35 +346,33 @@ func TestAdapter_DeleteTokensByUser(t *testing.T) {
 
 		adapter := NewAdapter(manager)
 
-		targetSubject := "target@example.com"
-		otherSubject := "other@example.com"
+		targetUserID := "target@example.com"
+		otherUserID := "other@example.com"
+		sessionA := "session-A"
+		sessionB := "session-B"
 		issuer := "https://auth.example.com"
 
-		// Store tokens for both subjects
-		manager.client.StoreToken(targetSubject, &pkgoauth.Token{
+		manager.client.StoreToken(sessionA, targetUserID, &pkgoauth.Token{
 			AccessToken: "target-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 			Issuer:      issuer,
 		})
-		manager.client.StoreToken(otherSubject, &pkgoauth.Token{
+		manager.client.StoreToken(sessionB, otherUserID, &pkgoauth.Token{
 			AccessToken: "other-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 			Issuer:      issuer,
 		})
 
-		// Delete only target subject's tokens
-		adapter.DeleteTokensByUser(targetSubject)
+		adapter.DeleteTokensByUser(targetUserID)
 
-		// Target subject's token should be gone
-		if adapter.GetTokenByIssuer(targetSubject, issuer) != nil {
-			t.Error("expected target subject's token to be deleted")
+		if adapter.GetTokenByIssuer(sessionA, issuer) != nil {
+			t.Error("expected target user's token to be deleted")
 		}
 
-		// Other subject's token should still exist
-		if adapter.GetTokenByIssuer(otherSubject, issuer) == nil {
-			t.Error("expected other subject's token to remain")
+		if adapter.GetTokenByIssuer(sessionB, issuer) == nil {
+			t.Error("expected other user's token to remain")
 		}
 	})
 

@@ -20,3 +20,23 @@ func GetSubjectFromContext(ctx context.Context) string {
 func WithSubject(ctx context.Context, subject string) context.Context {
 	return context.WithValue(ctx, SubjectContextKey{}, subject)
 }
+
+// sessionIDContextKey is the context key for storing the session ID (token family ID).
+// The session ID is derived from the mcp-oauth token family and provides per-login-session
+// state isolation. Unlike the subject (user identity), the session ID changes on each
+// new login, enabling multi-device isolation.
+type sessionIDContextKey struct{}
+
+// GetSessionIDFromContext extracts the session ID from context.
+// Returns the session ID if found, or empty string if not present.
+func GetSessionIDFromContext(ctx context.Context) string {
+	if sessionID, ok := ctx.Value(sessionIDContextKey{}).(string); ok {
+		return sessionID
+	}
+	return ""
+}
+
+// WithSessionID returns a new context with the session ID set.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionIDContextKey{}, sessionID)
+}

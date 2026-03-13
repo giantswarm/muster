@@ -45,10 +45,13 @@ type ConnectionResult struct {
 //  3. Populates the CapabilityCache and registers tools
 //  4. Broadcasts tool change notifications
 //
+// Both sessionID and sub are extracted from the context. The sessionID is used
+// as the cache key for per-login-session isolation, while sub is used for user
+// identity operations (notifications).
+//
 // Args:
-//   - ctx: Context for the operation
+//   - ctx: Context for the operation (must contain sessionID and sub)
 //   - a: The aggregator server instance
-//   - sub: The user subject to populate the CapabilityCache for
 //   - serverName: Name of the MCP server
 //   - serverURL: URL of the MCP server
 //   - issuer: OAuth issuer URL (empty for non-OAuth servers)
@@ -59,29 +62,26 @@ type ConnectionResult struct {
 func establishConnection(
 	ctx context.Context,
 	a *AggregatorServer,
-	sub, serverName, serverURL, issuer, scope, accessToken string,
+	serverName, serverURL, issuer, scope, accessToken string,
 ) (*ConnectionResult, error) {
-	// Get OAuth handler for dynamic token refresh
+	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
+
 	oauthHandler := api.GetOAuthHandler()
 
-	// Create the appropriate client based on OAuth availability.
-	// If OAuth handler is available, use DynamicAuthClient with mcp-go's built-in
-	// OAuth handler for automatic token injection and typed 401 errors.
-	// Otherwise, fall back to static headers (backwards compatibility).
 	var client internalmcp.MCPClient
 	if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
-		tokenStore := internalmcp.NewMusterTokenStore(sub, issuer, oauthHandler)
+		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope)
-		logging.Debug("Connection", "Using DynamicAuthClient for user %s, server %s (issuer=%s)",
-			logging.TruncateIdentifier(sub), serverName, issuer)
+		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
+			logging.TruncateIdentifier(sessionID), serverName, issuer)
 	} else {
-		// Fallback to static headers
 		headers := map[string]string{
 			"Authorization": "Bearer " + accessToken,
 		}
 		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, headers)
-		logging.Debug("Connection", "Using static auth headers for user %s, server %s",
-			logging.TruncateIdentifier(sub), serverName)
+		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
+			logging.TruncateIdentifier(sessionID), serverName)
 	}
 
 	// Try to initialize the client
@@ -115,9 +115,9 @@ func establishConnection(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache for the user-based listing path
+	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sub, serverName, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverName, sub, tools, resources, prompts)
 	}
 
 	// Register tools with the mcp-go server so they can be called
@@ -182,41 +182,36 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 //  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
 //     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
 //  2. OAuth proxy token store - contains tokens when user authenticated WITH remote servers
-//     via core_auth_login. These are keyed by (sub, issuer).
+//     via core_auth_login. These are keyed by (sessionID, issuer).
 //
 // The context token takes priority because it represents the user's current authentication
 // to muster, which is what we want to forward for SSO.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
-//   - sub: The user subject
+//   - sessionID: The session ID (token family ID) for token store lookups
 //   - musterIssuer: The issuer URL to look up in the OAuth proxy store
 //
 // Returns the ID token string, or empty string if no token is available.
-func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) string {
-	// First, check the request context for an ID token from muster's OAuth server protection.
-	// This is the primary SSO use case: user authenticates TO muster, and we forward that
-	// token to downstream servers that trust muster's OAuth client ID.
+func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string) string {
 	if idToken, ok := server.GetIDTokenFromContext(ctx); ok && idToken != "" {
-		logging.Debug("Connection", "Found ID token in request context for user %s",
-			logging.TruncateIdentifier(sub))
+		logging.Debug("Connection", "Found ID token in request context for session %s",
+			logging.TruncateIdentifier(sessionID))
 		return idToken
 	}
 
-	// Fallback: check the OAuth proxy token store.
-	// This handles the case where tokens were obtained via a previous core_auth_login call.
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() && musterIssuer != "" {
-		fullToken := oauthHandler.GetFullTokenByIssuer(sub, musterIssuer)
+		fullToken := oauthHandler.GetFullTokenByIssuer(sessionID, musterIssuer)
 		if fullToken != nil && fullToken.IDToken != "" {
-			logging.Debug("Connection", "Found ID token in OAuth proxy store for user %s, issuer %s",
-				logging.TruncateIdentifier(sub), musterIssuer)
+			logging.Debug("Connection", "Found ID token in OAuth proxy store for session %s, issuer %s",
+				logging.TruncateIdentifier(sessionID), musterIssuer)
 			return fullToken.IDToken
 		}
 	}
 
-	logging.Debug("Connection", "No ID token found for user %s",
-		logging.TruncateIdentifier(sub))
+	logging.Debug("Connection", "No ID token found for session %s",
+		logging.TruncateIdentifier(sessionID))
 	return ""
 }
 
@@ -228,10 +223,11 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 //  2. Forwards it to the downstream MCP server
 //  3. If successful, populates the CapabilityCache and registers tools
 //
+// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
+//
 // Args:
-//   - ctx: Context for the operation
+//   - ctx: Context for the operation (must contain sessionID and sub)
 //   - a: The aggregator server instance
-//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -241,32 +237,21 @@ func getIDTokenForForwarding(ctx context.Context, sub, musterIssuer string) stri
 func EstablishConnectionWithTokenForwarding(
 	ctx context.Context,
 	a *AggregatorServer,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
-	// Guard against concurrent connection attempts using CapabilityCache.
-	// If the cache entry exists and is not expired, skip re-establishment.
-	fwdSub := api.GetSubjectFromContext(ctx)
-	if fwdSub == "" {
-		fwdSub = defaultUser
-	}
+	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
+
 	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(fwdSub, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("Connection", "User %s already connected to %s, skipping token forwarding",
-				logging.TruncateIdentifier(fwdSub), serverInfo.Name)
+		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
+			logging.Debug("Connection", "Session %s already connected to %s, skipping token forwarding",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
 
-	// Try to get ID token from multiple sources (in priority order):
-	// 1. Request context (for tokens from muster's OAuth server protection)
-	// 2. OAuth proxy token store (for tokens obtained via core_auth_login to remote servers)
-	//
-	// When a user authenticates TO muster (via Google/Dex OAuth), the token is
-	// injected into the request context by createAccessTokenInjectorMiddleware.
-	// This is the primary SSO use case.
-	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -293,10 +278,10 @@ func EstablishConnectionWithTokenForwarding(
 	// connection-establishing request completes. The OAuth token store (keyed by
 	// sub + musterIssuer) is the stable source for refreshed tokens.
 	headerFunc := func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sub, musterIssuer)
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 		if latestToken == "" {
-			logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for user %s to %s, using original token",
-				logging.TruncateIdentifier(sub), serverInfo.Name)
+			logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			// Fall back to the original token; the server will return 401 if expired
 			latestToken = idToken
 		} else if latestToken != idToken {
@@ -353,9 +338,9 @@ func EstablishConnectionWithTokenForwarding(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache
+	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sub, serverInfo.Name, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
 	}
 
 	// Register tools with the mcp-go server
@@ -453,10 +438,11 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  3. Exchanges it for a token valid on the remote cluster's Dex
 //  4. If successful, populates the CapabilityCache and registers tools
 //
+// Both sessionID and sub are extracted from ctx (set by OAuth middleware).
+//
 // Args:
-//   - ctx: Context for the operation
+//   - ctx: Context for the operation (must contain sessionID and sub)
 //   - a: The aggregator server instance
-//   - sub: The user subject
 //   - serverInfo: The server info containing URL and auth config
 //   - musterIssuer: The issuer URL of muster's OAuth provider (used to get the ID token)
 //
@@ -466,24 +452,19 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 func EstablishConnectionWithTokenExchange(
 	ctx context.Context,
 	a *AggregatorServer,
-	sub string,
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
-	// Defensive check: validate preconditions that should be ensured by ShouldUseTokenExchange
 	if serverInfo == nil || serverInfo.AuthConfig == nil || serverInfo.AuthConfig.TokenExchange == nil {
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
-	// Guard against concurrent connection attempts using CapabilityCache.
-	exchSub := api.GetSubjectFromContext(ctx)
-	if exchSub == "" {
-		exchSub = defaultUser
-	}
+	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
 	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(exchSub, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("Connection", "User %s already connected to %s, skipping token exchange",
-				logging.TruncateIdentifier(exchSub), serverInfo.Name)
+		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
+			logging.Debug("Connection", "Session %s already connected to %s, skipping token exchange",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
 	}
@@ -497,7 +478,7 @@ func EstablishConnectionWithTokenExchange(
 	// Get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
 	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
-	idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -683,9 +664,9 @@ func EstablishConnectionWithTokenExchange(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache
+	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sub, serverInfo.Name, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
 	}
 
 	// Register tools with the mcp-go server

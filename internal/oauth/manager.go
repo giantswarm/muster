@@ -18,7 +18,7 @@ import (
 )
 
 // AuthCompletionCallback is called after successful OAuth authentication.
-type AuthCompletionCallback func(ctx context.Context, subject, serverName, accessToken string) error
+type AuthCompletionCallback func(ctx context.Context, sessionID, userID, serverName, accessToken string) error
 
 // Manager coordinates OAuth flows for remote MCP server authentication.
 // It manages the OAuth MCP client, HTTP handlers, and integrates with the aggregator.
@@ -209,10 +209,10 @@ func (m *Manager) GetServerConfig(serverName string) *AuthServerConfig {
 	return m.serverConfigs[serverName]
 }
 
-// GetToken retrieves a valid token for the given subject and server.
+// GetToken retrieves a valid token for the given session and server.
 // mcp-go handles token refresh via its transport layer, so this method
 // simply returns the stored token without proactive refresh.
-func (m *Manager) GetToken(subject, serverName string) *pkgoauth.Token {
+func (m *Manager) GetToken(sessionID, serverName string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
@@ -225,61 +225,69 @@ func (m *Manager) GetToken(subject, serverName string) *pkgoauth.Token {
 		return nil
 	}
 
-	return m.client.GetToken(subject, serverCfg.Issuer, serverCfg.Scope)
+	return m.client.GetToken(sessionID, serverCfg.Issuer, serverCfg.Scope)
 }
 
-// GetTokenByIssuer retrieves a valid token for the given subject and issuer.
+// GetTokenByIssuer retrieves a valid token for the given session and issuer.
 // This is used for SSO when we have the issuer from a 401 response.
-// mcp-go handles token refresh via its transport layer, so this method
-// simply returns the stored token without proactive refresh.
-func (m *Manager) GetTokenByIssuer(subject, issuer string) *pkgoauth.Token {
+func (m *Manager) GetTokenByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	if m == nil {
 		return nil
 	}
 
-	return m.client.tokenStore.GetByIssuer(subject, issuer)
+	return m.client.tokenStore.GetByIssuer(sessionID, issuer)
 }
 
-// ClearTokenByIssuer removes all tokens for a given subject and issuer.
-// This is used to clear invalid/expired tokens before requesting fresh authentication.
-func (m *Manager) ClearTokenByIssuer(subject, issuer string) {
+// ClearTokenByIssuer removes all tokens for a given session and issuer.
+func (m *Manager) ClearTokenByIssuer(sessionID, issuer string) {
 	if m == nil {
 		return
 	}
 
-	m.client.tokenStore.DeleteByIssuer(subject, issuer)
-	logging.Debug("OAuth", "Cleared tokens for subject=%s issuer=%s", logging.TruncateIdentifier(subject), issuer)
+	m.client.tokenStore.DeleteByIssuer(sessionID, issuer)
+	logging.Debug("OAuth", "Cleared tokens for session=%s issuer=%s", logging.TruncateIdentifier(sessionID), issuer)
 }
 
-// DeleteTokensByUser removes all downstream tokens for a given subject.
+// DeleteTokensByUser removes all downstream tokens for a given user across all sessions.
 // This is used during "sign out everywhere" to clear all server-side token state.
-func (m *Manager) DeleteTokensByUser(subject string) {
+func (m *Manager) DeleteTokensByUser(userID string) {
 	if m == nil {
 		return
 	}
 
-	m.client.tokenStore.DeleteByUser(subject)
-	logging.Debug("OAuth", "Deleted all tokens for subject=%s", logging.TruncateIdentifier(subject))
+	m.client.tokenStore.DeleteByUser(userID)
+	logging.Debug("OAuth", "Deleted all tokens for user=%s", logging.TruncateIdentifier(userID))
 }
 
-// StoreToken persists a token for the given subject and issuer.
-// This is the write path used by mcp-go's transport after a successful token refresh.
-func (m *Manager) StoreToken(subject, issuer string, token *pkgoauth.Token) {
+// DeleteTokensBySession removes all downstream tokens for a given session.
+// This is used during per-session logout via token family revocation.
+func (m *Manager) DeleteTokensBySession(sessionID string) {
+	if m == nil {
+		return
+	}
+
+	m.client.tokenStore.DeleteBySession(sessionID)
+	logging.Debug("OAuth", "Deleted all tokens for session=%s", logging.TruncateIdentifier(sessionID))
+}
+
+// StoreToken persists a token for the given session and issuer.
+// The userID is stored alongside for reverse-lookup by user.
+func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.Token) {
 	if m == nil || token == nil {
 		return
 	}
 
 	key := TokenKey{
-		Subject: subject,
-		Issuer:  issuer,
-		Scope:   token.Scope,
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     token.Scope,
 	}
-	m.client.tokenStore.Store(key, token)
+	m.client.tokenStore.Store(key, token, userID)
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.
 // Returns the auth URL the user should visit and the challenge response.
-func (m *Manager) CreateAuthChallenge(ctx context.Context, subject, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
+func (m *Manager) CreateAuthChallenge(ctx context.Context, sessionID, userID, serverName, issuer, scope string) (*AuthRequiredResponse, error) {
 	if m == nil {
 		return nil, fmt.Errorf("OAuth proxy is disabled")
 	}
@@ -288,7 +296,7 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, subject, serverName, 
 	m.RegisterServer(serverName, issuer, scope)
 
 	// Generate authorization URL (code verifier is stored with the state)
-	authURL, err := m.client.GenerateAuthURL(ctx, subject, serverName, issuer, scope)
+	authURL, err := m.client.GenerateAuthURL(ctx, sessionID, userID, serverName, issuer, scope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate auth URL: %w", err)
 	}
@@ -300,8 +308,8 @@ func (m *Manager) CreateAuthChallenge(ctx context.Context, subject, serverName, 
 		Message:    fmt.Sprintf("Authentication required for %s. Please visit the link below to authenticate.", serverName),
 	}
 
-	logging.Info("OAuth", "Created auth challenge for subject=%s server=%s",
-		subject, serverName)
+	logging.Info("OAuth", "Created auth challenge for session=%s server=%s",
+		logging.TruncateIdentifier(sessionID), serverName)
 
 	return challenge, nil
 }
@@ -349,11 +357,11 @@ func (m *Manager) HandleCallback(ctx context.Context, code, state string) error 
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
 
-	// Store the token
-	m.client.StoreToken(stateData.Subject, token)
+	// Store the token keyed by session ID, with user ID for reverse lookup
+	m.client.StoreToken(stateData.SessionID, stateData.UserID, token)
 
-	logging.Info("OAuth", "Successfully completed OAuth flow for subject=%s server=%s",
-		stateData.Subject, stateData.ServerName)
+	logging.Info("OAuth", "Successfully completed OAuth flow for session=%s server=%s",
+		logging.TruncateIdentifier(stateData.SessionID), stateData.ServerName)
 
 	return nil
 }

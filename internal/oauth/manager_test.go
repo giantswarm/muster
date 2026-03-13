@@ -252,7 +252,7 @@ func TestManager_GetToken_WithToken(t *testing.T) {
 		Scope:       scope,
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(subject, testToken)
+	manager.client.StoreToken(subject, "test-user", testToken)
 
 	// Now GetToken should return the token
 	token := manager.GetToken(subject, serverName)
@@ -290,7 +290,7 @@ func TestManager_GetTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(subject, testToken)
+	manager.client.StoreToken(subject, "test-user", testToken)
 
 	// GetTokenByIssuer should find it
 	token := manager.GetTokenByIssuer(subject, issuer)
@@ -328,7 +328,7 @@ func TestManager_ClearTokenByIssuer(t *testing.T) {
 		Scope:       "openid",
 		Issuer:      issuer,
 	}
-	manager.client.StoreToken(subject, testToken)
+	manager.client.StoreToken(subject, "test-user", testToken)
 
 	// Verify token exists
 	token := manager.GetTokenByIssuer(subject, issuer)
@@ -440,7 +440,7 @@ func TestManager_GetCIMDHandler_NilManager(t *testing.T) {
 func TestManager_CreateAuthChallenge_NilManager(t *testing.T) {
 	var manager *Manager
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "server", "", "")
+	_, err := manager.CreateAuthChallenge(ctx, "user@example.com", "test-user", "server", "", "")
 	if err == nil {
 		t.Error("Expected error for nil manager")
 	}
@@ -496,7 +496,7 @@ func TestManager_CreateAuthChallenge(t *testing.T) {
 	scope := "openid profile"
 
 	ctx := context.Background()
-	_, err := manager.CreateAuthChallenge(ctx, "user-123", "mcp-server", issuer, scope)
+	_, err := manager.CreateAuthChallenge(ctx, "user-123", "test-user", "mcp-server", issuer, scope)
 	// Expected to fail because the issuer doesn't return valid metadata
 	if err == nil {
 		// If it succeeds (unlikely), that's also fine
@@ -529,12 +529,13 @@ func TestManager_DeleteTokensByUser(t *testing.T) {
 		}
 		defer manager.Stop()
 
-		subject := "user@example.com"
-		otherSubject := "other@example.com"
+		targetUserID := "target-user"
+		otherUserID := "other-user"
+		sessionA := "session-A"
+		sessionB := "session-B"
 
-		// Store tokens for the target subject under two different issuers
 		for _, issuer := range []string{"https://issuer1.example.com", "https://issuer2.example.com"} {
-			manager.client.StoreToken(subject, &pkgoauth.Token{
+			manager.client.StoreToken(sessionA, targetUserID, &pkgoauth.Token{
 				AccessToken: "token-for-" + issuer,
 				TokenType:   "Bearer",
 				ExpiresIn:   3600,
@@ -542,38 +543,32 @@ func TestManager_DeleteTokensByUser(t *testing.T) {
 			})
 		}
 
-		// Store a token for a different subject that must not be removed
-		manager.client.StoreToken(otherSubject, &pkgoauth.Token{
+		manager.client.StoreToken(sessionB, otherUserID, &pkgoauth.Token{
 			AccessToken: "other-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 			Issuer:      "https://issuer1.example.com",
 		})
 
-		// Verify 3 tokens exist
 		if manager.client.tokenStore.Count() != 3 {
 			t.Fatalf("expected 3 tokens before deletion, got %d", manager.client.tokenStore.Count())
 		}
 
-		// Delete all tokens for the target subject
-		manager.DeleteTokensByUser(subject)
+		manager.DeleteTokensByUser(targetUserID)
 
-		// Only the other subject's token should remain
 		if manager.client.tokenStore.Count() != 1 {
 			t.Errorf("expected 1 token after deletion, got %d", manager.client.tokenStore.Count())
 		}
 
-		// Verify target subject's tokens are gone
-		if manager.GetTokenByIssuer(subject, "https://issuer1.example.com") != nil {
-			t.Error("expected issuer1 token to be deleted for target subject")
+		if manager.GetTokenByIssuer(sessionA, "https://issuer1.example.com") != nil {
+			t.Error("expected issuer1 token to be deleted for target user")
 		}
-		if manager.GetTokenByIssuer(subject, "https://issuer2.example.com") != nil {
-			t.Error("expected issuer2 token to be deleted for target subject")
+		if manager.GetTokenByIssuer(sessionA, "https://issuer2.example.com") != nil {
+			t.Error("expected issuer2 token to be deleted for target user")
 		}
 
-		// Verify other subject's token still exists
-		if manager.GetTokenByIssuer(otherSubject, "https://issuer1.example.com") == nil {
-			t.Error("expected other subject's token to remain after deletion")
+		if manager.GetTokenByIssuer(sessionB, "https://issuer1.example.com") == nil {
+			t.Error("expected other user's token to remain after deletion")
 		}
 	})
 

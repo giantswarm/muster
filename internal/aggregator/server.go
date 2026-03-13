@@ -41,9 +41,9 @@ import (
 // transport protocols simultaneously and provides both external MCP compatibility
 // and internal tool calling capabilities.
 //
-// User-Scoped Tool Visibility:
-// For OAuth-protected servers, each user's tool view is determined by the
-// CapabilityCache keyed by (subject, serverName). There is no session registry;
+// Session-Scoped Tool Visibility:
+// For OAuth-protected servers, each login session's tool view is determined by the
+// CapabilityCache keyed by (sessionID, serverName). There is no session registry;
 // connections are created on demand for each tool call.
 //
 // Thread Safety:
@@ -83,7 +83,7 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
-	// Per-user capability cache for OAuth servers (Phase 2A: session ID elimination)
+	// Per-session capability cache for OAuth servers
 	capabilityCache *CapabilityCache
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
@@ -255,7 +255,7 @@ func (s *ssoTracker) CleanupExpired() {
 // The server is configured with:
 //   - A server registry using the specified muster prefix
 //   - Active item managers for tracking capabilities
-//   - Per-user capability cache and SSO tracker for OAuth servers
+//   - Per-session capability cache and SSO tracker for OAuth servers
 //   - Default transport settings based on configuration
 //
 // Args:
@@ -1001,6 +1001,20 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
+	// Register a revocation handler so that per-session state is cleaned up
+	// when a token family is revoked (e.g., on logout via POST /oauth/revoke).
+	oauthHTTPServer.GetOAuthServer().SetTokenFamilyRevocationHandler(func(ctx context.Context, userID, familyID string) {
+		if a.capabilityCache != nil {
+			a.capabilityCache.InvalidateSession(familyID)
+		}
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler != nil && oauthHandler.IsEnabled() {
+			oauthHandler.DeleteTokensBySession(familyID)
+		}
+		logging.Info("Aggregator", "Cleaned up session state for revoked token family %s (user %s)",
+			logging.TruncateIdentifier(familyID), logging.TruncateIdentifier(userID))
+	})
+
 	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
 
 	oauthMux := oauthHTTPServer.CreateMux()
@@ -1053,64 +1067,59 @@ func (a *AggregatorServer) GetEndpoint() string {
 // conflicts would otherwise occur, following the pattern:
 // {muster_prefix}_{server_prefix}_{original_name}
 //
-// Note: This returns the global tool view. For user-specific tool visibility,
-// use GetToolsForUser instead.
+// Note: This returns the global tool view. For session-specific tool visibility,
+// use GetToolsForSession instead.
 //
 // Returns a slice of MCP tools ready for client consumption.
 func (a *AggregatorServer) GetTools() []mcp.Tool {
 	return a.registry.GetAllTools()
 }
 
-// GetToolsForUser returns a user-specific view of all available tools.
-// For OAuth servers, tools are read from the CapabilityCache keyed by user subject.
+// GetToolsForSession returns a session-specific view of all available tools.
+// For OAuth servers, tools are read from the CapabilityCache keyed by session ID.
 // For non-OAuth servers, tools are read from ServerInfo (same as GetAllTools).
-func (a *AggregatorServer) GetToolsForUser(subject string) []mcp.Tool {
-	return a.registry.GetAllToolsForUser(a.capabilityCache, subject)
+func (a *AggregatorServer) GetToolsForSession(sessionID string) []mcp.Tool {
+	return a.registry.GetAllToolsForSession(a.capabilityCache, sessionID)
 }
 
-// GetResourcesForUser returns a user-specific view of all available resources.
-// For OAuth servers, resources are read from the CapabilityCache keyed by user subject.
-// For non-OAuth servers, resources are read from ServerInfo (same as GetAllResources).
-func (a *AggregatorServer) GetResourcesForUser(subject string) []mcp.Resource {
-	return a.registry.GetAllResourcesForUser(a.capabilityCache, subject)
+// GetResourcesForSession returns a session-specific view of all available resources.
+// For OAuth servers, resources are read from the CapabilityCache keyed by session ID.
+func (a *AggregatorServer) GetResourcesForSession(sessionID string) []mcp.Resource {
+	return a.registry.GetAllResourcesForSession(a.capabilityCache, sessionID)
 }
 
-// GetPromptsForUser returns a user-specific view of all available prompts.
-// For OAuth servers, prompts are read from the CapabilityCache keyed by user subject.
-// For non-OAuth servers, prompts are read from ServerInfo (same as GetAllPrompts).
-func (a *AggregatorServer) GetPromptsForUser(subject string) []mcp.Prompt {
-	return a.registry.GetAllPromptsForUser(a.capabilityCache, subject)
+// GetPromptsForSession returns a session-specific view of all available prompts.
+// For OAuth servers, prompts are read from the CapabilityCache keyed by session ID.
+func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
+	return a.registry.GetAllPromptsForSession(a.capabilityCache, sessionID)
 }
 
-// sessionToolFilter is the WithToolFilter callback that provides user-specific tool views.
+// sessionToolFilter is the WithToolFilter callback that provides session-specific tool views.
 //
-// This is a critical part of the user-scoped tool visibility feature (ADR-006).
+// This is a critical part of the session-scoped tool visibility feature (ADR-006).
 // When a client calls tools/list, this filter intercepts the request and returns
-// only the tools that the specific user is authorized to see based on their
+// only the tools visible to the requesting login session based on its
 // OAuth authentication state.
 //
 // The filter:
-//   - Extracts the user subject from the request context (OAuth sub claim)
+//   - Extracts the session ID and user subject from the request context
 //   - Includes core muster tools (workflow, config, service, etc.)
-//   - Returns user-specific MCP server tools via GetToolsForUser
+//   - Returns session-specific MCP server tools via GetToolsForSession
 //   - For non-OAuth servers, returns global tools
-//   - For OAuth servers, returns tools only if the user has authenticated
+//   - For OAuth servers, returns tools only if the session has authenticated
 //
-// Args:
-//   - ctx: Context containing the authenticated user's subject
-//   - _ : The global tools list (ignored - we compute user-specific tools instead)
-//
-// Returns a slice of MCP tools specific to the requesting user.
+// Returns a slice of MCP tools specific to the requesting session.
 func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
 	subject := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
 	// Track subject -> MCP session mapping for targeted notifications
 	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 		a.subjectSessions.Track(subject, session.SessionID())
 	}
 
-	// Get user-specific MCP server tools (handles OAuth auth state via CapabilityCache)
-	mcpServerTools := a.GetToolsForUser(subject)
+	// Get session-specific MCP server tools (handles OAuth auth state via CapabilityCache)
+	mcpServerTools := a.GetToolsForSession(sessionID)
 
 	// Get core muster tools (these are always available to all users)
 	coreServerTools := a.createToolsFromProviders()
@@ -1345,31 +1354,28 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	logging.Debug("Aggregator", "CallToolInternal called for tool: %s", toolName)
 
 	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
-	// First, try to resolve the tool name through the registry (backend servers)
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
 		logging.Debug("Aggregator", "Tool %s found in registry (server: %s, original: %s)", toolName, serverName, originalName)
-		// Found in registry - check if server is connected or needs on-demand client
 		serverInfo, exists := a.registry.GetServerInfo(serverName)
 		if !exists || serverInfo == nil {
 			return nil, fmt.Errorf("server not found: %s", serverName)
 		}
 
-		// For connected servers with a working client, use the global client
 		if serverInfo.Status == StatusConnected && serverInfo.Client != nil {
 			logging.Debug("Aggregator", "Using global client for server %s", serverName)
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
-		// For auth-required servers, try on-demand client via CapabilityCache
-		if serverInfo.Status == StatusAuthRequired && sub != "" {
-			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for user %s",
-				serverName, logging.TruncateIdentifier(sub))
-			_, sessionOriginalName, sessionErr := a.resolveUserTool(sub, toolName)
+		if serverInfo.Status == StatusAuthRequired && sessionID != "" {
+			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for session %s",
+				serverName, logging.TruncateIdentifier(sessionID))
+			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 			if sessionErr == nil {
 				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
-				client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sub)
+				client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
 				if clientErr != nil {
 					return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
 				}
@@ -1379,24 +1385,20 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			logging.Debug("Aggregator", "No cached capabilities found for tool %s: %v", toolName, sessionErr)
 		}
 
-		// If no client is available, return an error
 		if serverInfo.Client == nil {
 			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.Status)
 		}
 
-		// Fallback to global client (may fail for auth-required servers)
 		return serverInfo.Client.CallTool(ctx, originalName, args)
 	}
 
 	logging.Debug("Aggregator", "Tool %s not found in registry (error: %v), checking capability cache", toolName, err)
 
-	// Check capability cache for OAuth-protected servers (Issue #343)
-	// This handles tools that are only available through user-specific connections
-	if sub != "" {
-		sessionServerName, originalName, sessionErr := a.resolveUserTool(sub, toolName)
+	if sessionID != "" {
+		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 		if sessionErr == nil {
 			logging.Debug("Aggregator", "Tool %s found in capability cache (server: %s)", toolName, sessionServerName)
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sessionServerName, sub)
+			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sessionServerName, sessionID, sub)
 			if clientErr != nil {
 				return nil, fmt.Errorf("failed to connect to server %s: %w", sessionServerName, clientErr)
 			}
@@ -1575,10 +1577,10 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			mcpResult := convertToMCPResult(result)
 
-			// Enrich mcpserver_list responses with user-specific data from CapabilityCache
+			// Enrich mcpserver_list responses with session-specific data from CapabilityCache
 			if originalToolName == "mcpserver_list" {
-				sub := getUserSubjectFromContext(ctx)
-				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityCache, sub)
+				sessionID := getSessionIDFromContext(ctx)
+				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityCache, sessionID)
 			}
 
 			return mcpResult, nil
@@ -1755,8 +1757,8 @@ func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
 // This method delegates to the shared establishConnection helper to avoid code duplication.
 // The issuer and scope parameters are used to create a MusterTokenStore that provides
 // automatic token refresh via mcp-go's built-in OAuth handler.
-func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, sub, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
-	result, err := establishConnection(ctx, a, sub, serverName, serverURL, issuer, scope, accessToken)
+func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, serverName, serverURL, issuer, scope, accessToken string) (*mcp.CallToolResult, error) {
+	result, err := establishConnection(ctx, a, serverName, serverURL, issuer, scope, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1820,8 +1822,8 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 	return result, nil
 }
 
-// defaultUser is the fallback user identity for stdio transport (single-user mode).
-// Used by the capability listing path when no OAuth subject is available in context.
+// defaultUser is the fallback identity for stdio transport (single-user mode).
+// Used as both subject and session ID when no OAuth context is available.
 const defaultUser = "default-user"
 
 // getUserSubjectFromContext extracts the authenticated user's subject (sub claim)
@@ -1835,9 +1837,19 @@ func getUserSubjectFromContext(ctx context.Context) string {
 	return defaultUser
 }
 
+// getSessionIDFromContext extracts the session ID (token family ID) from the
+// request context. For stdio/no-auth mode, falls back to defaultUser.
+func getSessionIDFromContext(ctx context.Context) string {
+	if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
+		return sessionID
+	}
+	return defaultUser
+}
+
 // handleUserTokensDeletion handles DELETE /user-tokens for "sign out everywhere".
-// It clears all downstream tokens for the authenticated user and invalidates
-// the capability cache. This endpoint requires a valid Bearer token (ValidateToken middleware).
+// It clears all downstream tokens for the authenticated user across all sessions
+// and invalidates all capability cache entries. This endpoint requires a valid
+// Bearer token (ValidateToken middleware).
 //
 // Responses:
 //   - 204 No Content: All downstream tokens cleared
@@ -1877,56 +1889,55 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		return
 	}
 
+	sessionID := getSessionIDFromContext(r.Context())
+
 	serverName := r.PathValue("server")
 	if serverName == "" {
 		http.Error(w, "Bad Request: missing server name", http.StatusBadRequest)
 		return
 	}
 
-	// Resolve server from registry. Return 204 regardless of existence to
-	// prevent server name enumeration via distinct 404 vs 204 responses.
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// Clear the downstream token for this server's issuer
+	// Clear the downstream token for this server's issuer (session-scoped)
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sub, serverInfo.AuthInfo.Issuer)
+			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
 		}
 	}
 
-	// Invalidate the CapabilityCache entry for this user+server on per-server disconnect.
+	// Invalidate the CapabilityCache entry for this session+server.
 	if a.capabilityCache != nil {
-		a.capabilityCache.Invalidate(sub, serverName)
+		a.capabilityCache.Invalidate(sessionID, serverName)
 	}
 
-	logging.Info("Aggregator", "Server %s disconnected for user via DELETE /auth/{server}: %s",
-		serverName, logging.TruncateIdentifier(sub))
+	logging.Info("Aggregator", "Server %s disconnected for session via DELETE /auth/{server}: %s",
+		serverName, logging.TruncateIdentifier(sessionID))
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // resolveUserTool attempts to resolve a tool name through the CapabilityCache.
-// This is used for OAuth-protected servers where tools are cached per-user.
+// This is used for OAuth-protected servers where tools are cached per-session.
 //
 // Returns the server name and original tool name, or an error if not found.
 // Callers create an on-demand client via getOrCreateClientForToolCall.
-func (a *AggregatorServer) resolveUserTool(sub, exposedName string) (string, string, error) {
+func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (string, string, error) {
 	if a.capabilityCache == nil {
 		return "", "", fmt.Errorf("capability cache not initialized")
 	}
 
-	// Iterate through all auth-required servers and check the cache
 	servers := a.registry.GetAllServers()
 	for serverName, info := range servers {
 		if info.Status != StatusAuthRequired {
 			continue
 		}
 
-		entry, exists := a.capabilityCache.Get(sub, serverName)
+		entry, exists := a.capabilityCache.Get(sessionID, serverName)
 		if !exists {
 			continue
 		}
@@ -1949,10 +1960,11 @@ func (a *AggregatorServer) resolveUserTool(sub, exposedName string) (string, str
 // The auth method is determined from ServerInfo.AuthConfig:
 //   - Token exchange (RFC 8693): exchanges a fresh ID token for a server-specific token
 //   - Token forwarding: forwards the user's ID token directly
-//   - Standard OAuth (DynamicAuthClient): uses the token store via sub
+//   - Standard OAuth (DynamicAuthClient): uses the token store via session ID
 func (a *AggregatorServer) getOrCreateClientForToolCall(
 	ctx context.Context,
 	serverName string,
+	sessionID string,
 	sub string,
 ) (MCPClient, func(), error) {
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
@@ -1960,9 +1972,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
 	}
 
-	// Verify user has a cache entry (i.e., has authenticated to this server)
+	// Verify session has a cache entry (i.e., has authenticated to this server)
 	if a.capabilityCache != nil {
-		if _, hasCacheEntry := a.capabilityCache.Get(sub, serverName); !hasCacheEntry {
+		if _, hasCacheEntry := a.capabilityCache.Get(sessionID, serverName); !hasCacheEntry {
 			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
 		}
 	}
@@ -1977,7 +1989,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 		}
 
-		idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
+		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for token exchange to %s", serverName)
 		}
@@ -1991,8 +2003,6 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("failed to extract user ID from token for %s", serverName)
 		}
 
-		// Make a local copy of the token exchange config to avoid mutating the
-		// shared registry pointer under concurrent tool calls.
 		exchangeConfig := *serverInfo.AuthConfig.TokenExchange
 
 		// Load client credentials if configured
@@ -2052,9 +2062,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
-		// Token forwarding: forward the user's ID token directly
 		musterIssuer := a.getMusterIssuer()
-		idToken := getIDTokenForForwarding(ctx, sub, musterIssuer)
+		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 		if idToken == "" {
 			return nil, nil, fmt.Errorf("no ID token available for forwarding to %s", serverName)
 		}
@@ -2064,7 +2073,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		}
 
 		headerFunc := func(_ context.Context) map[string]string {
-			latestToken := getIDTokenForForwarding(context.Background(), sub, musterIssuer)
+			latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 			if latestToken == "" {
 				latestToken = idToken
 			}
@@ -2076,7 +2085,6 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	} else if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		// Standard OAuth: use DynamicAuthClient with stored tokens via sub
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler == nil || !oauthHandler.IsEnabled() {
 			return nil, nil, fmt.Errorf("OAuth handler not available for %s", serverName)
@@ -2084,7 +2092,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 		issuer := serverInfo.AuthInfo.Issuer
 		scope := serverInfo.AuthInfo.Scope
-		tokenStore := internalmcp.NewMusterTokenStore(sub, issuer, oauthHandler)
+		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope)
 
 	} else {
@@ -2114,45 +2122,39 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 // ListToolsForContext returns all available tools for the current user context.
 // This is used by the metatools package to provide user-scoped tool visibility.
 //
-// The method extracts the user subject from the context and returns tools
-// appropriate for that user's authentication state. This includes:
+// The method extracts the session ID from the context and returns tools
+// appropriate for that session's authentication state. This includes:
 //   - MCP server tools (prefixed with x_<server>_)
 //   - Core muster tools (prefixed with core_) from internal providers
 //
 // The core tools are collected from workflow, service, config, serviceclass,
 // mcpserver, events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
-	subject := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 
-	// Get user-specific MCP server tools (handles OAuth auth state via CapabilityCache)
-	mcpServerTools := a.GetToolsForUser(subject)
-
-	// Get core muster tools (workflow, service, config, etc.)
+	mcpServerTools := a.GetToolsForSession(sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
 
-	// Combine both sets of tools
 	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreTools))
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
 
-	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for subject %s",
-		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateIdentifier(subject))
+	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for session %s",
+		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateIdentifier(sessionID))
 
 	return allTools
 }
 
-// ListResourcesForContext returns all available resources for the current user context.
-// This is used by the metatools package to provide user-scoped resource visibility.
+// ListResourcesForContext returns all available resources for the current session context.
 func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
-	subject := getUserSubjectFromContext(ctx)
-	return a.GetResourcesForUser(subject)
+	sessionID := getSessionIDFromContext(ctx)
+	return a.GetResourcesForSession(sessionID)
 }
 
-// ListPromptsForContext returns all available prompts for the current user context.
-// This is used by the metatools package to provide user-scoped prompt visibility.
+// ListPromptsForContext returns all available prompts for the current session context.
 func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
-	subject := getUserSubjectFromContext(ctx)
-	return a.GetPromptsForUser(subject)
+	sessionID := getSessionIDFromContext(ctx)
+	return a.GetPromptsForSession(sessionID)
 }
 
 // ReadResource retrieves the contents of a resource by URI.
@@ -2221,25 +2223,23 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 // This is part of the server-side meta-tools migration (Issue #343) to provide
 // better visibility into which servers need authentication.
 func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
-	sub := getUserSubjectFromContext(ctx)
+	sessionID := getSessionIDFromContext(ctx)
 	servers := a.registry.GetAllServers()
 
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		// Only include servers that require auth
 		if info.Status != StatusAuthRequired {
 			continue
 		}
 
-		// Check if user already has a CapabilityCache entry (i.e., authenticated)
+		// Check if session already has a CapabilityCache entry (i.e., authenticated)
 		if a.capabilityCache != nil {
-			if _, exists := a.capabilityCache.Get(sub, name); exists {
+			if _, exists := a.capabilityCache.Get(sessionID, name); exists {
 				continue
 			}
 		}
 
-		// Server requires auth for this user
 		authRequired = append(authRequired, api.ServerAuthInfo{
 			Name:     name,
 			Status:   "auth_required",
@@ -2247,8 +2247,8 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 		})
 	}
 
-	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for user %s",
-		len(authRequired), logging.TruncateIdentifier(sub))
+	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for session %s",
+		len(authRequired), logging.TruncateIdentifier(sessionID))
 
 	return authRequired
 }

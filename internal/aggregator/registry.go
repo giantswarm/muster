@@ -580,20 +580,12 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 	return nil
 }
 
-// GetAllToolsForUser returns a user-specific view of all available tools.
+// GetAllToolsForSession returns the tools visible to a specific login session.
 //
 // For OAuth servers (StatusAuthRequired), tools are read from the CapabilityCache
-// keyed by the user's subject (sub claim). This decouples listing from the session
-// ID lifecycle, eliminating stale-session bugs.
-//
-// For non-OAuth servers, tools are read from ServerInfo.Tools (same as GetAllTools).
-//
-// Args:
-//   - capabilityCache: The capability cache storing per-user capabilities
-//   - subject: The user's OAuth sub claim (or defaultUser for stdio)
-//
-// Returns a slice of MCP tools visible to this user.
-func (r *ServerRegistry) GetAllToolsForUser(capabilityCache *CapabilityCache, subject string) []mcp.Tool {
+// keyed by session ID (token family). For non-OAuth servers, tools are read from
+// ServerInfo.Tools (same as GetAllTools).
+func (r *ServerRegistry) GetAllToolsForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -604,7 +596,7 @@ func (r *ServerRegistry) GetAllToolsForUser(capabilityCache *CapabilityCache, su
 			if capabilityCache == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(subject, serverName)
+			entry, ok := capabilityCache.Get(sessionID, serverName)
 			if ok {
 				for _, tool := range entry.Tools {
 					exposedTool := tool
@@ -631,11 +623,11 @@ func (r *ServerRegistry) GetAllToolsForUser(capabilityCache *CapabilityCache, su
 	return allTools
 }
 
-// GetAllResourcesForUser returns a user-specific view of all available resources.
+// GetAllResourcesForSession returns the resources visible to a specific login session.
 //
 // For OAuth servers, resources are read from the CapabilityCache.
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
-func (r *ServerRegistry) GetAllResourcesForUser(capabilityCache *CapabilityCache, subject string) []mcp.Resource {
+func (r *ServerRegistry) GetAllResourcesForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -646,7 +638,7 @@ func (r *ServerRegistry) GetAllResourcesForUser(capabilityCache *CapabilityCache
 			if capabilityCache == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(subject, serverName)
+			entry, ok := capabilityCache.Get(sessionID, serverName)
 			if ok {
 				for _, resource := range entry.Resources {
 					exposedResource := resource
@@ -673,11 +665,11 @@ func (r *ServerRegistry) GetAllResourcesForUser(capabilityCache *CapabilityCache
 	return allResources
 }
 
-// GetAllPromptsForUser returns a user-specific view of all available prompts.
+// GetAllPromptsForSession returns the prompts visible to a specific login session.
 //
 // For OAuth servers, prompts are read from the CapabilityCache.
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
-func (r *ServerRegistry) GetAllPromptsForUser(capabilityCache *CapabilityCache, subject string) []mcp.Prompt {
+func (r *ServerRegistry) GetAllPromptsForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Prompt {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -688,7 +680,7 @@ func (r *ServerRegistry) GetAllPromptsForUser(capabilityCache *CapabilityCache, 
 			if capabilityCache == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(subject, serverName)
+			entry, ok := capabilityCache.Get(sessionID, serverName)
 			if ok {
 				for _, prompt := range entry.Prompts {
 					exposedPrompt := prompt
