@@ -755,11 +755,12 @@ func (a *AggregatorServer) updateCapabilities() {
 
 	logging.Debug("Aggregator", "Updating capabilities dynamically")
 
-	// Remove obsolete meta-tools that are no longer available
-	a.removeObsoleteMetaTools()
+	// Collect meta-tools once and pass to both remove/add to avoid
+	// redundant createToolsFromProviders calls.
+	metaTools := a.createToolsFromProviders()
 
-	// Add new meta-tools that have become available
-	a.addNewMetaTools()
+	a.removeObsoleteMetaTools(metaTools)
+	a.addNewMetaTools(metaTools)
 
 	// Log summary of current capabilities
 	servers := a.registry.GetAllServers()
@@ -773,9 +774,9 @@ func (a *AggregatorServer) updateCapabilities() {
 // removeObsoleteMetaTools removes meta-tools that are no longer provided.
 // Downstream server tools are not registered on the MCP server; they are
 // accessed through the call_tool meta-tool.
-func (a *AggregatorServer) removeObsoleteMetaTools() {
-	currentTools := make(map[string]struct{})
-	for _, tool := range a.createToolsFromProviders() {
+func (a *AggregatorServer) removeObsoleteMetaTools(metaTools []mcpserver.ServerTool) {
+	currentTools := make(map[string]struct{}, len(metaTools))
+	for _, tool := range metaTools {
 		currentTools[tool.Tool.Name] = struct{}{}
 	}
 
@@ -796,11 +797,9 @@ func (a *AggregatorServer) removeObsoleteMetaTools() {
 // Only genuinely new tools (not already tracked by toolManager) are added to
 // the MCP server. This prevents spurious tools/list_changed notifications that
 // the mcp-go library sends automatically on every AddTools call.
-func (a *AggregatorServer) addNewMetaTools() {
-	allTools := a.createToolsFromProviders()
-
+func (a *AggregatorServer) addNewMetaTools(metaTools []mcpserver.ServerTool) {
 	var newTools []mcpserver.ServerTool
-	for _, tool := range allTools {
+	for _, tool := range metaTools {
 		if !a.toolManager.isActive(tool.Tool.Name) {
 			newTools = append(newTools, tool)
 		}
@@ -810,7 +809,7 @@ func (a *AggregatorServer) addNewMetaTools() {
 		logging.Debug("Aggregator", "Adding %d new meta-tools in batch", len(newTools))
 		a.mcpServer.AddTools(newTools...)
 		for _, tool := range newTools {
-			a.toolManager.setActive(tool.Tool.Name, true)
+			a.toolManager.track(tool.Tool.Name)
 		}
 	}
 }

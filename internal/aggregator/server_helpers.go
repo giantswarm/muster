@@ -23,25 +23,21 @@ func newActiveItemManager() *activeItemManager {
 	}
 }
 
-// isActive checks if an item is active
+// isActive checks if an item is currently tracked.
 func (m *activeItemManager) isActive(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.items[name]
 }
 
-// setActive marks an item as active
-func (m *activeItemManager) setActive(name string, active bool) {
+// track marks an item as active.
+func (m *activeItemManager) track(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if active {
-		m.items[name] = true
-	} else {
-		delete(m.items, name)
-	}
+	m.items[name] = true
 }
 
-// getInactiveItems returns items that are no longer in the new set
+// getInactiveItems returns tracked items that are absent from newItems.
 func (m *activeItemManager) getInactiveItems(newItems map[string]struct{}) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -55,7 +51,7 @@ func (m *activeItemManager) getInactiveItems(newItems map[string]struct{}) []str
 	return inactive
 }
 
-// removeItems removes the specified items from the active set
+// removeItems removes the specified items from the tracked set.
 func (m *activeItemManager) removeItems(items []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
