@@ -354,7 +354,6 @@ func (a *AuthAdapter) interactiveLogin(ctx context.Context, mgr *oauth.AuthManag
 	}
 
 	fmt.Printf("\nSuccessfully authenticated to %s\n", endpoint)
-	fmt.Println("SSO-enabled servers will be connected automatically on first request.")
 	return nil
 }
 

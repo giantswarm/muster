@@ -410,8 +410,9 @@ const (
 
 // waitForSSOCompletion polls auth://status until no servers are in sso_pending state.
 // It reuses a single connected client for all polls to avoid creating many connections.
+// The optional progressFn is called on each poll with the current status.
 // Returns the final auth status (which may still contain sso_pending servers on timeout).
-func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint string) (*pkgoauth.AuthStatusResponse, error) {
+func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint string, progressFn func(*pkgoauth.AuthStatusResponse)) (*pkgoauth.AuthStatusResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultSSOWaitTimeout)
 	defer cancel()
 
@@ -436,11 +437,31 @@ func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint
 				continue // transient error, keep polling
 			}
 			lastStatus = status
+			if progressFn != nil {
+				progressFn(status)
+			}
 			if !hasSSOPending(status) {
 				return status, nil
 			}
 		}
 	}
+}
+
+// countSSOProgress counts connected and total SSO-enabled servers from an auth status response.
+func countSSOProgress(status *pkgoauth.AuthStatusResponse) (connected, total int) {
+	if status == nil {
+		return 0, 0
+	}
+	for _, srv := range status.Servers {
+		if !srv.TokenForwardingEnabled && !srv.TokenExchangeEnabled {
+			continue
+		}
+		total++
+		if srv.Status == pkgoauth.ServerStatusConnected {
+			connected++
+		}
+	}
+	return connected, total
 }
 
 // hasSSOPending returns true if any server in the auth status response is in sso_pending state.

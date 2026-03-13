@@ -1849,13 +1849,11 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Clear all downstream tokens for this user via the OAuthHandler.
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler != nil && oauthHandler.IsEnabled() {
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Invalidate all CapabilityCache entries for this user on full logout.
 	if a.capabilityCache != nil {
 		a.capabilityCache.InvalidateUser(sub)
 	}

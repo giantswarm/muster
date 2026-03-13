@@ -134,7 +134,7 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		}
 		if serverInfo.Status == pkgoauth.ServerStatusSSOPending {
 			authPrint("SSO authentication is in progress for '%s'. Waiting for completion...\n", serverName)
-			finalStatus, err := waitForSSOCompletion(ctx, handler, aggregatorEndpoint)
+			finalStatus, err := waitForSSOCompletion(ctx, handler, aggregatorEndpoint, nil)
 			if err != nil {
 				authPrint("Warning: Timed out waiting for SSO to complete for '%s'.\n", serverName)
 				authPrintln("SSO may still complete in the background. Check with: muster auth status --server " + serverName)
@@ -223,27 +223,39 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 // then prints a summary of any that failed. Returns nil on success or timeout
 // (timeout is not treated as an error since SSO may still complete).
 func waitAndPrintSSOSummary(ctx context.Context, handler api.AuthHandler, endpoint string) error {
-	authStatus, err := waitForSSOCompletion(ctx, handler, endpoint)
+	authPrint("Establishing SSO connections...")
+
+	progressFn := func(status *pkgoauth.AuthStatusResponse) {
+		connected, total := countSSOProgress(status)
+		if total > 0 {
+			authPrint("\rEstablishing SSO connections (%d/%d)...", connected, total)
+		}
+	}
+
+	authStatus, err := waitForSSOCompletion(ctx, handler, endpoint, progressFn)
 	if err != nil {
-		// Timeout or connection failure -- not fatal, SSO continues in background
+		authPrintln()
 		if authStatus != nil && hasSSOPending(authStatus) {
 			authPrintln("Note: Some SSO servers are still connecting. Check with: muster auth status")
 		}
 		return nil
 	}
 
-	// Print summary of SSO results
 	var failedSSO []string
 	for _, srv := range authStatus.Servers {
 		if srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 			failedSSO = append(failedSSO, srv.Name)
 		}
 	}
+
 	if len(failedSSO) > 0 {
-		authPrint("\nSSO failed for %d server(s):\n", len(failedSSO))
+		authPrintln()
+		authPrint("SSO failed for %d server(s):\n", len(failedSSO))
 		for _, name := range failedSSO {
 			authPrint("  - %s\n", name)
 		}
+	} else {
+		authPrintln(" done")
 	}
 	return nil
 }
