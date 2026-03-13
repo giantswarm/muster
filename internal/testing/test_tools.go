@@ -975,32 +975,69 @@ func (h *TestToolsHandler) handleListToolsForUser(ctx context.Context, args map[
 		userName = name
 	}
 
-	// Get the client for this user
 	client, exists := h.userClients[userName]
 	if !exists {
 		return nil, fmt.Errorf("user '%s' not found", userName)
 	}
 
 	if h.debug {
-		h.logger.Debug("🛠️  Listing tools for user '%s'\n", userName)
+		h.logger.Debug("Listing tools for user '%s' via list_tools meta-tool\n", userName)
 	}
 
-	// List tools using this user's client
-	tools, err := client.ListTools(ctx)
+	// Call list_tools meta-tool directly (not through call_tool wrapper).
+	// MCP tools/list only returns meta-tools; downstream tools are discovered via list_tools.
+	result, err := client.CallToolDirect(ctx, "list_tools", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools for user '%s': %w", userName, err)
 	}
 
+	toolNames, err := extractToolNamesFromResult(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse list_tools response for user '%s': %w", userName, err)
+	}
+
 	if h.debug {
-		h.logger.Debug("🛠️  User '%s' has %d tools\n", userName, len(tools))
+		h.logger.Debug("User '%s' has %d tools\n", userName, len(toolNames))
 	}
 
 	return map[string]interface{}{
 		"success":    true,
 		"user":       userName,
-		"tool_count": len(tools),
-		"tools":      tools,
+		"tool_count": len(toolNames),
+		"tools":      toolNames,
 	}, nil
+}
+
+// extractToolNamesFromResult parses the list_tools meta-tool response
+// and extracts tool names from the JSON content.
+func extractToolNamesFromResult(result *mcp.CallToolResult) ([]string, error) {
+	if result == nil {
+		return nil, fmt.Errorf("nil result from list_tools")
+	}
+
+	for _, content := range result.Content {
+		textContent, ok := mcp.AsTextContent(content)
+		if !ok {
+			continue
+		}
+
+		var parsed struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal([]byte(textContent.Text), &parsed); err != nil {
+			continue
+		}
+
+		names := make([]string, 0, len(parsed.Tools))
+		for _, t := range parsed.Tools {
+			names = append(names, t.Name)
+		}
+		return names, nil
+	}
+
+	return nil, fmt.Errorf("no parseable tool list found in response")
 }
 
 // handleGetCurrentUser returns the name of the currently active user.

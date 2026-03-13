@@ -141,7 +141,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 
 		cache := NewCapabilityCache(5 * time.Minute)
 		defer cache.Stop()
-		cache.Set("test-session", "cached-server", "user1",
+		cache.Set("test-session", "cached-server",
 			[]mcp.Tool{{Name: "t"}}, nil, nil)
 
 		ctx := api.WithSessionID(context.Background(), "test-session")

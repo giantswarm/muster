@@ -476,8 +476,12 @@ type MCPTestClient interface {
 	// ConnectWithAuth establishes connection to the MCP aggregator with an access token.
 	// This is used when muster's OAuth server is enabled and requires authentication.
 	ConnectWithAuth(ctx context.Context, endpoint, accessToken string) error
-	// CallTool invokes an MCP tool with the given args
+	// CallTool invokes an MCP tool with the given args (wrapped through call_tool meta-tool)
 	CallTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error)
+	// CallToolDirect invokes an MCP tool directly without wrapping through call_tool.
+	// Use this for calling meta-tools (list_tools, describe_tool, etc.) that are
+	// registered on the MCP server but cannot be dispatched through CallToolInternal.
+	CallToolDirect(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 	// ListTools returns available MCP tools
 	ListTools(ctx context.Context) ([]string, error)
 	// ListToolsWithSchemas returns available MCP tools with their full schemas

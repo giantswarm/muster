@@ -206,6 +206,32 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 	return unwrappedResult, nil
 }
 
+// CallToolDirect invokes an MCP tool directly on the server without wrapping through call_tool.
+// This is needed for calling meta-tools (list_tools, describe_tool, etc.) that are registered
+// on the MCP server but cannot be dispatched through CallToolInternal.
+func (c *mcpTestClient) CallToolDirect(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("MCP client not connected")
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	request := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: args,
+		},
+	}
+
+	result, err := c.client.CallTool(callCtx, request)
+	if err != nil {
+		return nil, fmt.Errorf("direct tool call %s failed: %w", toolName, err)
+	}
+
+	return result, nil
+}
+
 // unwrapMetaToolResponse extracts the actual tool result from a call_tool meta-tool response.
 // The call_tool meta-tool wraps tool results in a JSON structure for proper serialization.
 func (c *mcpTestClient) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName string) (*mcp.CallToolResult, error) {

@@ -117,14 +117,8 @@ func establishConnection(
 
 	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverName, sub, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverName, tools, resources, prompts)
 	}
-
-	// Register tools with the mcp-go server so they can be called
-	a.registerSessionTools(serverName, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
@@ -340,14 +334,8 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverInfo.Name, tools, resources, prompts)
 	}
-
-	// Register tools with the mcp-go server
-	a.registerSessionTools(serverInfo.Name, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
@@ -666,14 +654,8 @@ func EstablishConnectionWithTokenExchange(
 
 	// Populate the CapabilityCache keyed by session ID for per-login isolation
 	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
+		a.capabilityCache.Set(sessionID, serverInfo.Name, tools, resources, prompts)
 	}
-
-	// Register tools with the mcp-go server
-	a.registerSessionTools(serverInfo.Name, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
 
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
