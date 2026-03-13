@@ -87,6 +87,23 @@ func getEndpointFromConfig() (string, error) {
 // Uses mcp-go's OAuth transport for automatic token injection.
 // The caller is responsible for calling client.Close() when done.
 func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
+	client, err := createStatusClient(ctx, handler, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := client.InitializeAndLoadData(ctx); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
+	}
+
+	return client, nil
+}
+
+// createStatusClient creates a lightweight client that can query resources
+// without loading the full tool/resource/prompt caches. This avoids blocking
+// on listTools which waits for all SSO connections to complete.
+func createStatusClient(ctx context.Context, handler api.AuthHandler, endpoint string) (*agent.Client, error) {
 	logger := agent.NewDevNullLogger()
 	agentTransportType := agent.TransportStreamableHTTP
 	if strings.HasSuffix(endpoint, "/sse") {
@@ -95,7 +112,6 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 
 	client := agent.NewClient(endpoint, logger, agentTransportType)
 
-	// Set up mcp-go OAuth transport for automatic token injection
 	oauthCfg, agentStore, err := oauth.SetupOAuthConfig(endpoint)
 	if err == nil {
 		client.SetOAuthConfig(*oauthCfg, agentStore)
@@ -103,11 +119,6 @@ func createConnectedClient(ctx context.Context, handler api.AuthHandler, endpoin
 
 	if err := client.Connect(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
-	}
-
-	if err := client.InitializeAndLoadData(ctx); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 
 	return client, nil
@@ -126,7 +137,7 @@ func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint str
 	connCtx, cancel := context.WithTimeout(ctx, DefaultStatusCheckTimeout)
 	defer cancel()
 
-	client, err := createConnectedClient(connCtx, handler, endpoint)
+	client, err := createStatusClient(connCtx, handler, endpoint)
 	if err != nil {
 		return err
 	}
@@ -416,7 +427,7 @@ func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint
 	ctx, cancel := context.WithTimeout(ctx, DefaultSSOWaitTimeout)
 	defer cancel()
 
-	client, err := createConnectedClient(ctx, handler, endpoint)
+	client, err := createStatusClient(ctx, handler, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect for SSO status check: %w", err)
 	}
