@@ -397,6 +397,11 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}
 	}
 
+	// Evict pooled connection for this session+server
+	if p.aggregator.connPool != nil {
+		p.aggregator.connPool.Evict(sessionID, serverName)
+	}
+
 	// Clear SSO failure state so re-authentication can trigger fresh SSO
 	if p.aggregator.ssoTracker != nil {
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
@@ -424,6 +429,12 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 	if err != nil {
 		return nil, err
 	}
+
+	if result.Client != nil && p.aggregator.connPool != nil {
+		sessionID := getSessionIDFromContext(ctx)
+		p.aggregator.connPool.Put(sessionID, serverName, result.Client)
+	}
+
 	return result.FormatAsAPIResult(), nil
 }
 
@@ -449,6 +460,10 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, serverInfo *Ser
 		return nil, err
 	}
 
+	if result.Client != nil && p.aggregator.connPool != nil {
+		p.aggregator.connPool.Put(sessionID, serverInfo.Name, result.Client)
+	}
+
 	return result.FormatAsAPIResult(), nil
 }
 
@@ -472,6 +487,10 @@ func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, serverInfo *S
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if result.Client != nil && p.aggregator.connPool != nil {
+		p.aggregator.connPool.Put(sessionID, serverInfo.Name, result.Client)
 	}
 
 	return result.FormatAsAPIResult(), nil

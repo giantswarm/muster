@@ -45,7 +45,7 @@ import (
 //
 // Session-Scoped Tool Visibility:
 // For OAuth-protected servers, each login session's tool view is determined by the
-// CapabilityCache keyed by (sessionID, serverName). There is no session registry;
+// CapabilityStore keyed by (sessionID, serverName). There is no session registry;
 // connections are created on demand for each tool call.
 //
 // Thread Safety:
@@ -85,6 +85,9 @@ type AggregatorServer struct {
 
 	// Per-session capability store for OAuth servers (on-demand population).
 	capabilityStore CapabilityStore
+
+	// Per-session connection pool for reusing live MCP clients across tool calls.
+	connPool *SessionConnectionPool
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
@@ -296,6 +299,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		connPool:        NewSessionConnectionPool(),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
 	}
@@ -589,6 +593,12 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Wait for all background routines to complete
 	a.wg.Wait()
 
+	// Drain the connection pool before deregistering servers so that
+	// pooled clients are closed cleanly.
+	if a.connPool != nil {
+		a.connPool.DrainAll()
+	}
+
 	// Clean up all registered backend servers
 	for name := range a.registry.GetAllServers() {
 		if err := a.registry.Deregister(name); err != nil {
@@ -660,6 +670,11 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 		if err := a.capabilityStore.DeleteServer(context.Background(), name); err != nil {
 			logging.Warn("Aggregator", "Failed to delete server %s from capability store: %v", name, err)
 		}
+	}
+
+	// Evict all pooled connections for this server across all sessions.
+	if a.connPool != nil {
+		a.connPool.EvictServer(name)
 	}
 
 	return a.registry.Deregister(name)
@@ -976,6 +991,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
 					logging.TruncateIdentifier(familyID), err)
 			}
+		}
+		if a.connPool != nil {
+			a.connPool.EvictSession(familyID)
 		}
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
@@ -1439,7 +1457,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			mcpResult := convertToMCPResult(result)
 
-			// Enrich mcpserver_list responses with session-specific data from CapabilityCache
+			// Enrich mcpserver_list responses with session-specific data from CapabilityStore
 			if originalToolName == "mcpserver_list" {
 				sessionID := getSessionIDFromContext(ctx)
 				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityStore, sessionID)
@@ -1624,6 +1642,12 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, serverName, 
 	if err != nil {
 		return nil, err
 	}
+
+	if result.Client != nil && a.connPool != nil {
+		sessionID := getSessionIDFromContext(ctx)
+		a.connPool.Put(sessionID, serverName, result.Client)
+	}
+
 	return result.FormatAsMCPResult(), nil
 }
 
@@ -1728,12 +1752,17 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Delete capability store entries for all of this user's sessions
-	if a.capabilityStore != nil && a.subjectSessions != nil {
+	// Delete capability store entries and pooled connections for all of this user's sessions
+	if a.subjectSessions != nil {
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
-			if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
-				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
-					logging.TruncateIdentifier(sid), err)
+			if a.capabilityStore != nil {
+				if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
+					logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
+						logging.TruncateIdentifier(sid), err)
+				}
+			}
+			if a.connPool != nil {
+				a.connPool.EvictSession(sid)
 			}
 		}
 	}
@@ -1787,6 +1816,11 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
+	// Evict the pooled connection for this session+server.
+	if a.connPool != nil {
+		a.connPool.Evict(sessionID, serverName)
+	}
+
 	logging.Info("Aggregator", "Server %s disconnected for session via DELETE /auth/{server}: %s",
 		serverName, logging.TruncateIdentifier(sessionID))
 	w.WriteHeader(http.StatusNoContent)
@@ -1824,9 +1858,12 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 	return "", "", fmt.Errorf("tool not found in capability store")
 }
 
-// getOrCreateClientForToolCall creates a short-lived MCP client on demand for
-// tool execution against an OAuth-protected server. The caller must call the
-// returned cleanup function when done to close the client.
+// getOrCreateClientForToolCall returns a pooled or freshly created MCP client
+// for tool execution against an OAuth-protected server.
+//
+// The lookup order is:
+//  1. Connection pool hit -> return pooled client with no-op cleanup
+//  2. Pool miss -> create client, initialize, pool it, return with no-op cleanup
 //
 // The auth method is determined from ServerInfo.AuthConfig:
 //   - Token exchange (RFC 8693): exchanges a fresh ID token for a server-specific token
@@ -1848,6 +1885,15 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverName)
 		if !exists {
 			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
+		}
+	}
+
+	// Check the connection pool first.
+	if a.connPool != nil {
+		if pooledClient, ok := a.connPool.Get(sessionID, serverName); ok {
+			logging.Debug("Aggregator", "Pool hit for session %s, server %s",
+				logging.TruncateIdentifier(sessionID), serverName)
+			return pooledClient, func() {}, nil
 		}
 	}
 
@@ -1977,11 +2023,14 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
 
-	cleanup := func() {
-		client.Close()
+	// Pool the client for future reuse.
+	if a.connPool != nil {
+		a.connPool.Put(sessionID, serverName, client)
+		logging.Debug("Aggregator", "Pooled new client for session %s, server %s",
+			logging.TruncateIdentifier(sessionID), serverName)
 	}
 
-	return client, cleanup, nil
+	return client, func() {}, nil
 }
 
 // ============================================================================

@@ -46,12 +46,12 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // handleAuthStatusResource handles requests for the auth://status resource.
 // It returns the authentication status of all registered MCP servers.
 //
-// IMPORTANT: Per issue #292, this handler uses the CapabilityCache as the
+// IMPORTANT: Per issue #292, this handler uses the CapabilityStore as the
 // source of truth for per-user connection/auth state, NOT the MCPServer CRD status.
 //
 // Status determination (per issue #292):
 //   - Infrastructure availability: From aggregator's internal registry (reachable, unreachable)
-//   - Per-user auth/connection: From CapabilityCache (connected, auth_required, etc.)
+//   - Per-user auth/connection: From CapabilityStore (connected, auth_required, etc.)
 //
 // The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user state.
@@ -359,9 +359,15 @@ func (a *AggregatorServer) establishSSOConnection(
 	}
 
 	if err == nil && result != nil {
+		if result.Client != nil && a.connPool != nil {
+			a.connPool.Put(sessionID, serverInfo.Name, result.Client)
+		}
 		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)
 	} else {
+		if result != nil && result.Client != nil {
+			result.Client.Close()
+		}
 		logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s: %v",
 			serverInfo.Name, sub, err)
 

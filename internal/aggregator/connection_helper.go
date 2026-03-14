@@ -23,6 +23,9 @@ import (
 // ConnectionResult contains the result of establishing a session connection.
 // This is returned by establishConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
+//
+// The Client field holds the live, initialized MCP client. Ownership is
+// transferred to the caller, who must either pool or close it.
 type ConnectionResult struct {
 	// ServerName is the name of the server that was connected
 	ServerName string
@@ -32,17 +35,20 @@ type ConnectionResult struct {
 	ResourceCount int
 	// PromptCount is the number of prompts available from the server
 	PromptCount int
+	// Client is the live MCP client. The caller owns its lifecycle and must
+	// either pool it for reuse or close it when done.
+	Client MCPClient
 }
 
 // establishConnection creates a connection to an MCP server and populates
-// the CapabilityCache. This is the shared implementation used by both:
+// the CapabilityStore. This is the shared implementation used by both:
 //   - AuthToolProvider.tryConnectWithToken (core_auth_login tool)
 //   - AggregatorServer.tryConnectWithToken (OAuth browser callback, manager.go)
 //
 // This method:
 //  1. Creates the appropriate client (DynamicAuthClient or static headers)
 //  2. Initializes the connection and fetches capabilities
-//  3. Populates the CapabilityCache and registers tools
+//  3. Populates the CapabilityStore and registers tools
 //  4. Broadcasts tool change notifications
 //
 // Both sessionID and sub are extracted from the context. The sessionID is used
@@ -111,10 +117,6 @@ func establishConnection(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
@@ -136,6 +138,7 @@ func establishConnection(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
 	}, nil
 }
 
@@ -220,7 +223,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 // The function:
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Forwards it to the downstream MCP server
-//  3. If successful, populates the CapabilityCache and registers tools
+//  3. If successful, populates the CapabilityStore and registers tools
 //
 // Both sessionID and sub are extracted from ctx (set by OAuth middleware).
 //
@@ -334,10 +337,6 @@ func EstablishConnectionWithTokenForwarding(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
@@ -359,6 +358,7 @@ func EstablishConnectionWithTokenForwarding(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
 	}, nil
 }
 
@@ -435,7 +435,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Extracts the user ID (sub claim) from the token
 //  3. Exchanges it for a token valid on the remote cluster's Dex
-//  4. If successful, populates the CapabilityCache and registers tools
+//  4. If successful, populates the CapabilityStore and registers tools
 //
 // Both sessionID and sub are extracted from ctx (set by OAuth middleware).
 //
@@ -659,10 +659,6 @@ func EstablishConnectionWithTokenExchange(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
 	// Populate the CapabilityStore keyed by session ID for per-login isolation
 	if a.capabilityStore != nil {
 		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
@@ -684,6 +680,7 @@ func EstablishConnectionWithTokenExchange(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
 	}, nil
 }
 
