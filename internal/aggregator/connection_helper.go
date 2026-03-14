@@ -115,9 +115,14 @@ func establishConnection(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverName, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); err != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
 	}
 
 	// Sync service state to Connected now that authentication succeeded
@@ -237,8 +242,9 @@ func EstablishConnectionWithTokenForwarding(
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 
-	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
+	if a.capabilityStore != nil {
+		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name)
+		if exists {
 			logging.Debug("Connection", "Session %s already connected to %s, skipping token forwarding",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
@@ -332,9 +338,14 @@ func EstablishConnectionWithTokenForwarding(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); err != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
 	}
 
 	// Sync service state to Connected now that SSO succeeded
@@ -449,8 +460,8 @@ func EstablishConnectionWithTokenExchange(
 
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
-	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
+	if a.capabilityStore != nil {
+		if exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name); exists {
 			logging.Debug("Connection", "Session %s already connected to %s, skipping token exchange",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
@@ -652,9 +663,14 @@ func EstablishConnectionWithTokenExchange(
 	// Clients are created on demand for tool execution (Phase 2B).
 	client.Close()
 
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); storeErr != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, storeErr)
+		}
 	}
 
 	// Sync service state to Connected now that token exchange succeeded

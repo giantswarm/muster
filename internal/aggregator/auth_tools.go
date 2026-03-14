@@ -145,9 +145,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has cached capabilities for this server.
-	if p.aggregator.capabilityCache != nil {
-		if _, ok := p.aggregator.capabilityCache.Get(sessionID, serverName); ok {
+	// Check if this session already has stored capabilities for this server.
+	if p.aggregator.capabilityStore != nil {
+		exists, _ := p.aggregator.capabilityStore.Exists(ctx, sessionID, serverName)
+		if exists {
 			logging.Debug("AuthTools", "Session %s already has capabilities for server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
@@ -388,22 +389,18 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}
 	}
 
-	// Invalidate CapabilityCache for this session+server after logout
-	if p.aggregator.capabilityCache != nil {
-		p.aggregator.capabilityCache.Invalidate(sessionID, serverName)
+	// Remove capabilities for this session+server after logout
+	if p.aggregator.capabilityStore != nil {
+		if err := p.aggregator.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
+			logging.Warn("AuthTools", "Failed to delete entry %s/%s from capability store: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
 	}
 
 	// Clear SSO failure state so re-authentication can trigger fresh SSO
 	if p.aggregator.ssoTracker != nil {
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
 	}
-
-	// NOTE: We intentionally do NOT clear the sessionInitTracker entry here.
-	// After logout, the user must explicitly re-authenticate via core_auth_login.
-	// If we cleared the tracker, the next MCP request would trigger proactive SSO
-	// reconnect, which defeats the purpose of logging out (see #423, #440).
-	// Proactive SSO will naturally re-trigger when the muster access token is
-	// refreshed (new token hash detected by triggerSessionInitIfNeeded).
 
 	// Record logout success
 	if p.aggregator.authMetrics != nil {

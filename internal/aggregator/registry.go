@@ -582,10 +582,10 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 
 // GetAllToolsForSession returns the tools visible to a specific login session.
 //
-// For OAuth servers (StatusAuthRequired), tools are read from the CapabilityCache
+// For OAuth servers (StatusAuthRequired), tools are read from the CapabilityStore
 // keyed by session ID (token family). For non-OAuth servers, tools are read from
 // ServerInfo.Tools (same as GetAllTools).
-func (r *ServerRegistry) GetAllToolsForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Tool {
+func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -593,16 +593,17 @@ func (r *ServerRegistry) GetAllToolsForSession(capabilityCache *CapabilityCache,
 
 	for serverName, info := range r.servers {
 		if info.Status == StatusAuthRequired {
-			if capabilityCache == nil {
+			if store == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(sessionID, serverName)
-			if ok {
-				for _, tool := range entry.Tools {
-					exposedTool := tool
-					exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
-					allTools = append(allTools, exposedTool)
-				}
+			caps, err := store.Get(ctx, sessionID, serverName)
+			if err != nil || caps == nil {
+				continue
+			}
+			for _, tool := range caps.Tools {
+				exposedTool := tool
+				exposedTool.Name = r.nameTracker.GetExposedToolName(serverName, tool.Name)
+				allTools = append(allTools, exposedTool)
 			}
 			continue
 		}
@@ -625,9 +626,9 @@ func (r *ServerRegistry) GetAllToolsForSession(capabilityCache *CapabilityCache,
 
 // GetAllResourcesForSession returns the resources visible to a specific login session.
 //
-// For OAuth servers, resources are read from the CapabilityCache.
+// For OAuth servers, resources are read from the CapabilityStore.
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
-func (r *ServerRegistry) GetAllResourcesForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Resource {
+func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -635,16 +636,17 @@ func (r *ServerRegistry) GetAllResourcesForSession(capabilityCache *CapabilityCa
 
 	for serverName, info := range r.servers {
 		if info.Status == StatusAuthRequired {
-			if capabilityCache == nil {
+			if store == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(sessionID, serverName)
-			if ok {
-				for _, resource := range entry.Resources {
-					exposedResource := resource
-					exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
-					allResources = append(allResources, exposedResource)
-				}
+			caps, err := store.Get(ctx, sessionID, serverName)
+			if err != nil || caps == nil {
+				continue
+			}
+			for _, resource := range caps.Resources {
+				exposedResource := resource
+				exposedResource.URI = r.nameTracker.GetExposedResourceURI(serverName, resource.URI)
+				allResources = append(allResources, exposedResource)
 			}
 			continue
 		}
@@ -667,9 +669,9 @@ func (r *ServerRegistry) GetAllResourcesForSession(capabilityCache *CapabilityCa
 
 // GetAllPromptsForSession returns the prompts visible to a specific login session.
 //
-// For OAuth servers, prompts are read from the CapabilityCache.
+// For OAuth servers, prompts are read from the CapabilityStore.
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
-func (r *ServerRegistry) GetAllPromptsForSession(capabilityCache *CapabilityCache, sessionID string) []mcp.Prompt {
+func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Prompt {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -677,16 +679,17 @@ func (r *ServerRegistry) GetAllPromptsForSession(capabilityCache *CapabilityCach
 
 	for serverName, info := range r.servers {
 		if info.Status == StatusAuthRequired {
-			if capabilityCache == nil {
+			if store == nil {
 				continue
 			}
-			entry, ok := capabilityCache.Get(sessionID, serverName)
-			if ok {
-				for _, prompt := range entry.Prompts {
-					exposedPrompt := prompt
-					exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
-					allPrompts = append(allPrompts, exposedPrompt)
-				}
+			caps, err := store.Get(ctx, sessionID, serverName)
+			if err != nil || caps == nil {
+				continue
+			}
+			for _, prompt := range caps.Prompts {
+				exposedPrompt := prompt
+				exposedPrompt.Name = r.nameTracker.GetExposedPromptName(serverName, prompt.Name)
+				allPrompts = append(allPrompts, exposedPrompt)
 			}
 			continue
 		}

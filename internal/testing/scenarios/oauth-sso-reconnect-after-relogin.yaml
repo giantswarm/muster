@@ -2,16 +2,13 @@ name: "oauth-sso-reconnect-after-relogin"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Tests that SSO servers can be reconnected after logout and re-login.
-  
-  This scenario tests the complete logout + re-login user flow:
-  1. User authenticates to muster → connects to SSO server via core_auth_login
-  2. User logs out from the SSO server → session connection is cleared
-  3. User re-authenticates with NEW token
-  4. User can reconnect to SSO server via core_auth_login (token forwarding)
-  
-  This verifies that token forwarding works correctly across the full
-  authentication lifecycle (login → logout → relogin).
+  Tests SSO session lifecycle: login establishes connections, logout clears
+  them, and re-login re-establishes them.
+
+  SSO connections are established synchronously during the OAuth login flow
+  (SessionCreationHandler). After logout from an individual SSO server the
+  capability store entry is removed and the server shows as auth_required.
+  A fresh login re-establishes the connection.
 tags: ["oauth", "sso", "session", "relogin", "token-forwarding", "regression"]
 timeout: "2m"
 
@@ -25,7 +22,6 @@ pre_configuration:
       token_lifetime: "1h"
       client_id: "relogin-test-client"
       client_secret: "relogin-test-secret"
-      # Enable this as muster's OAuth server for SSO token forwarding
       use_as_muster_oauth_server: true
 
   # SSO-enabled MCP server that trusts muster's forwarded ID tokens
@@ -37,7 +33,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "relogin-test-idp"
           scope: "mcp:admin"
-          # Enable token forwarding - muster should forward its ID token
           forward_token: true
         tools:
           - name: "check_connection"
@@ -51,8 +46,7 @@ steps:
   # =========================================================================
   # PHASE 1: Initial Authentication and SSO Connection
   # =========================================================================
-  
-  # Step 1: Verify OAuth server is running
+
   - id: verify-oauth-server
     description: "Verify the OAuth server is running"
     tool: "test_get_oauth_server_info"
@@ -64,7 +58,6 @@ steps:
         - "relogin-test-idp"
         - "issuer_url"
 
-  # Step 2: Verify MCP server is registered
   - id: verify-server-registered
     description: "Verify the MCP server is registered"
     tool: "core_mcpserver_list"
@@ -74,8 +67,6 @@ steps:
       contains:
         - "relogin-sso-server"
 
-  # Step 3: First authentication to muster (simulates `muster auth login`)
-  # This stores the ID token in muster's token store for SSO forwarding
   - id: muster-auth-login
     description: "Authenticate to muster via OAuth (stores ID token for SSO)"
     tool: "test_muster_auth_login"
@@ -86,18 +77,18 @@ steps:
         - "success"
         - "ID token stored"
 
-  # Step 4: Verify SSO connected the server
-  - id: verify-sso-connected-first
-    description: "Verify SSO connected the server after first auth"
-    tool: "core_auth_login"
+  - id: verify-sso-connected
+    description: "Verify SSO connected the server during login"
+    tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
     expected:
       success: true
-      # Should say already authenticated because SSO connected it
+      contains:
+        - "relogin-sso-server"
+        - "connected"
 
-  # Step 5: Verify protected tool works with initial connection
-  - id: verify-connection-first
+  - id: verify-connection
     description: "Call protected tool to verify SSO authentication succeeded"
     tool: "x_relogin-sso-server_check_connection"
     args: {}
@@ -107,25 +98,12 @@ steps:
         - "success"
         - "Connection verified"
 
-  # Step 6: Verify auth status shows connected
-  - id: check-auth-status-connected
-    description: "Verify auth status shows connected after first auth"
-    tool: "test_read_auth_status"
-    args:
-      server: "relogin-sso-server"
-    expected:
-      success: true
-      contains:
-        - "relogin-sso-server"
-        - "connected"
-
   # =========================================================================
-  # PHASE 2: Logout (Disconnect the session connection)
+  # PHASE 2: Logout clears cache, re-login reconnects
   # =========================================================================
 
-  # Step 7: Logout from the SSO server
   - id: logout-from-server
-    description: "Logout from SSO server to disconnect the session connection"
+    description: "Logout from SSO server clears cached capabilities"
     tool: "core_auth_logout"
     args:
       server: "relogin-sso-server"
@@ -134,9 +112,10 @@ steps:
       contains:
         - "logged out"
 
-  # Step 8: Verify server is now disconnected (requires auth)
-  - id: verify-server-disconnected
-    description: "Verify server is disconnected after logout"
+  # After logout, the SSO server is no longer connected for this session.
+  # SSO connections are only established during login, not on every request.
+  - id: verify-disconnected-after-logout
+    description: "Verify server shows as auth_required after logout"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -146,38 +125,19 @@ steps:
         - "relogin-sso-server"
         - "auth_required"
 
-  # =========================================================================
-  # PHASE 3: Re-authentication (should reconnect the server)
-  # =========================================================================
-
-  # Step 9: Re-authenticate to muster with new token
-  # This simulates a user re-authenticating after logging out.
-  # Uses test_simulate_muster_reauth which:
-  # - Gets a new token from the OAuth server via refresh
-  # - Reconnects to muster with the new access token
-  - id: reauth-to-muster
-    description: "Re-authenticate to muster with new token (fresh connection)"
-    tool: "test_simulate_muster_reauth"
+  # Re-login re-establishes SSO connections via SessionCreationHandler.
+  - id: muster-reauth
+    description: "Re-authenticate to muster to re-establish SSO"
+    tool: "test_muster_auth_login"
     args: {}
     expected:
       success: true
       contains:
         - "success"
-        - "re-authenticated"
+        - "ID token stored"
 
-  # Step 10: Reconnect to the SSO server using token forwarding
-  # After re-authentication, the user can reconnect via core_auth_login
-  - id: reconnect-sso-server
-    description: "Reconnect to SSO server via token forwarding"
-    tool: "core_auth_login"
-    args:
-      server: "relogin-sso-server"
-    expected:
-      success: true
-
-  # Step 11: Verify auth status shows connected after reconnection
-  - id: verify-sso-reconnected
-    description: "Verify auth status shows connected after reconnection"
+  - id: verify-reconnected-after-relogin
+    description: "Verify SSO server reconnected after re-login"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -186,6 +146,3 @@ steps:
       contains:
         - "relogin-sso-server"
         - "connected"
-
-  # Note: Tool calls after re-authentication are tested via auth status verification above.
-  # The session connection state is the key verification point for re-login flow.

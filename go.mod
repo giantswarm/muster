@@ -11,13 +11,14 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/giantswarm/mcp-oauth v0.2.81
+	github.com/giantswarm/mcp-oauth v0.2.82
 	github.com/go-logr/logr v1.4.3
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.7.8
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	github.com/valkey-io/valkey-go v1.0.72
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -86,7 +87,6 @@ require (
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
-	github.com/valkey-io/valkey-go v1.0.72 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
