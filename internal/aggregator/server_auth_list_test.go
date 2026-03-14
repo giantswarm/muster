@@ -139,7 +139,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		cache := NewCapabilityCache(5 * time.Minute)
+		cache := NewCapabilityCache(30 * time.Minute)
 		defer cache.Stop()
 		cache.Set("test-session", "cached-server",
 			[]mcp.Tool{{Name: "t"}}, nil, nil)

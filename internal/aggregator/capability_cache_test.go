@@ -11,7 +11,7 @@ import (
 )
 
 func TestCapabilityCache_GetSetRoundTrip(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	tools := []mcp.Tool{{Name: "tool1"}}
@@ -30,7 +30,7 @@ func TestCapabilityCache_GetSetRoundTrip(t *testing.T) {
 }
 
 func TestCapabilityCache_GetNonexistent(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	entry, ok := cache.Get("nouser", "noserver")
@@ -39,7 +39,7 @@ func TestCapabilityCache_GetNonexistent(t *testing.T) {
 }
 
 func TestCapabilityCache_SetOverwritesPrevious(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	cache.Set("user1", "server1", []mcp.Tool{{Name: "old"}}, nil, nil)
@@ -100,7 +100,7 @@ func TestCapabilityCache_SetWithTTL(t *testing.T) {
 }
 
 func TestCapabilityCache_InvalidateViaSubjectSessions(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	tracker := newSubjectSessionTracker()
@@ -128,7 +128,7 @@ func TestCapabilityCache_InvalidateViaSubjectSessions(t *testing.T) {
 }
 
 func TestCapabilityCache_InvalidateServer(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	cache.Set("session-A", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
@@ -149,7 +149,7 @@ func TestCapabilityCache_InvalidateServer(t *testing.T) {
 }
 
 func TestCapabilityCache_InvalidateSpecific(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	cache.Set("session-A", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
@@ -165,7 +165,7 @@ func TestCapabilityCache_InvalidateSpecific(t *testing.T) {
 }
 
 func TestCapabilityCache_ConcurrentAccess(t *testing.T) {
-	cache := NewCapabilityCache(5 * time.Minute)
+	cache := NewCapabilityCache(30 * time.Minute)
 	defer cache.Stop()
 
 	var wg sync.WaitGroup
@@ -244,6 +244,78 @@ func TestCapabilityCache_StopHaltsCleanup(t *testing.T) {
 
 	// Calling Stop again should not block.
 	cache.Stop()
+}
+
+func TestCapabilityCache_Touch(t *testing.T) {
+	ttl := 50 * time.Millisecond
+	cache := NewCapabilityCache(ttl)
+	defer cache.Stop()
+
+	cache.Set("session-A", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
+
+	// Wait until the entry is expired but still within grace
+	time.Sleep(ttl + 10*time.Millisecond)
+	entry, ok := cache.Get("session-A", "server1")
+	require.True(t, ok)
+	assert.True(t, entry.IsExpired(), "entry should be expired before touch")
+
+	// Touch should renew the TTL
+	touched := cache.Touch("session-A", "server1")
+	assert.True(t, touched)
+
+	entry, ok = cache.Get("session-A", "server1")
+	require.True(t, ok)
+	assert.False(t, entry.IsExpired(), "entry should be fresh after touch")
+	assert.Equal(t, "t1", entry.Tools[0].Name, "capabilities should be preserved")
+}
+
+func TestCapabilityCache_TouchNonexistent(t *testing.T) {
+	cache := NewCapabilityCache(5 * time.Minute)
+	defer cache.Stop()
+
+	touched := cache.Touch("no-session", "no-server")
+	assert.False(t, touched)
+}
+
+func TestCapabilityCache_TouchSession(t *testing.T) {
+	ttl := 50 * time.Millisecond
+	cache := NewCapabilityCache(ttl)
+	defer cache.Stop()
+
+	cache.Set("session-A", "server1", []mcp.Tool{{Name: "t1"}}, nil, nil)
+	cache.Set("session-A", "server2", []mcp.Tool{{Name: "t2"}}, nil, nil)
+	cache.Set("session-B", "server1", []mcp.Tool{{Name: "t3"}}, nil, nil)
+
+	// Wait until entries are expired
+	time.Sleep(ttl + 10*time.Millisecond)
+	entry, _ := cache.Get("session-A", "server1")
+	require.True(t, entry.IsExpired())
+
+	// TouchSession should renew all entries for session-A
+	count := cache.TouchSession("session-A")
+	assert.Equal(t, 2, count)
+
+	// session-A entries should be fresh
+	entry, ok := cache.Get("session-A", "server1")
+	require.True(t, ok)
+	assert.False(t, entry.IsExpired(), "session-A/server1 should be fresh after touch")
+
+	entry, ok = cache.Get("session-A", "server2")
+	require.True(t, ok)
+	assert.False(t, entry.IsExpired(), "session-A/server2 should be fresh after touch")
+
+	// session-B should still be expired
+	entry, ok = cache.Get("session-B", "server1")
+	require.True(t, ok)
+	assert.True(t, entry.IsExpired(), "session-B should not be affected")
+}
+
+func TestCapabilityCache_TouchSessionNonexistent(t *testing.T) {
+	cache := NewCapabilityCache(5 * time.Minute)
+	defer cache.Stop()
+
+	count := cache.TouchSession("no-session")
+	assert.Equal(t, 0, count)
 }
 
 func TestCacheEntry_IsExpired(t *testing.T) {
