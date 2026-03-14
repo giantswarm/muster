@@ -262,7 +262,7 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 	sub := "test-user-sso"
 	sessionID := "session-abc-123"
 
-	t.Run("returns auth_required for SSO token forwarding server without cached capabilities", func(t *testing.T) {
+	t.Run("returns sso_pending for SSO token forwarding server without cached capabilities", func(t *testing.T) {
 		aggServer := &AggregatorServer{
 			registry:   NewServerRegistry("x"),
 			ssoTracker: newSSOTracker(),
@@ -281,12 +281,12 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.ServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
 		}
 	})
 
-	t.Run("returns auth_required for SSO token exchange server without cached capabilities", func(t *testing.T) {
+	t.Run("returns sso_pending for SSO token exchange server without cached capabilities", func(t *testing.T) {
 		aggServer := &AggregatorServer{
 			registry:   NewServerRegistry("x"),
 			ssoTracker: newSSOTracker(),
@@ -312,8 +312,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "exchange-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "exchange-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.ServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
 		}
 	})
 

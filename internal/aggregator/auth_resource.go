@@ -147,6 +147,14 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 
 	// No cached capabilities - check infrastructure state
 	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
+		// SSO-enabled servers are connected on demand via triggerOnDemandSSO.
+		// Return sso_pending (not auth_required) so clients don't prompt for
+		// manual core_auth_login while the automatic connection is pending.
+		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
+			a.ssoTracker != nil &&
+			!a.ssoTracker.HasSSOFailed(sub, serverName) {
+			return pkgoauth.ServerStatusSSOPending
+		}
 		return pkgoauth.ServerStatusAuthRequired
 	}
 
