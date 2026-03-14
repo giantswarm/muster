@@ -65,32 +65,6 @@ func TestShowToolDiff(t *testing.T) {
 	client.showToolDiff(oldTools, newTools)
 }
 
-func TestCountTools(t *testing.T) {
-	logger := NewLogger(false, false, false)
-
-	// Test with map structure
-	result1 := map[string]interface{}{
-		"tools": []interface{}{
-			map[string]interface{}{"name": "tool1"},
-			map[string]interface{}{"name": "tool2"},
-			map[string]interface{}{"name": "tool3"},
-		},
-	}
-	assert.Equal(t, 3, logger.countTools(result1))
-
-	// Test with empty tools
-	result2 := map[string]interface{}{
-		"tools": []interface{}{},
-	}
-	assert.Equal(t, 0, logger.countTools(result2))
-
-	// Test with invalid structure
-	result3 := map[string]interface{}{
-		"nottools": "something",
-	}
-	assert.Equal(t, -1, logger.countTools(result3))
-}
-
 func TestGetToolByName(t *testing.T) {
 	logger := NewLogger(false, false, false)
 	client := NewClient("http://localhost:8090/mcp", logger, TransportStreamableHTTP)

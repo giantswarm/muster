@@ -250,19 +250,20 @@ func (l *Logger) Success(format string, args ...interface{}) {
 // messages, while JSON-RPC mode shows complete protocol details.
 //
 // Args:
-//   - method: The MCP method name (e.g., "tools/list", "initialize")
+//   - method: The MCP method name (e.g., "initialize", "resources/list")
 //   - params: The request args (logged in JSON-RPC mode only)
 //
 // In simple mode, this maps method names to user-friendly messages.
 // In JSON-RPC mode, this shows complete request details with proper formatting.
+//
+// Note: tool listing is handled via the list_tools meta-tool and logs
+// directly through Info/Success rather than through this method.
 func (l *Logger) Request(method string, params interface{}) {
 	if !l.jsonRPCMode {
 		// Simple mode - just log what we're doing with user-friendly messages
 		switch method {
 		case "initialize":
 			l.Info("Initializing MCP session...")
-		case "tools/list":
-			l.Info("Listing available tools...")
 		case "resources/list":
 			l.Info("Listing available resources...")
 		case "prompts/list":
@@ -311,14 +312,6 @@ func (l *Logger) Response(method string, result interface{}) {
 				}
 			} else {
 				l.Success("Session initialized successfully")
-			}
-		case "tools/list":
-			// Try to count tools
-			toolCount := l.countTools(result)
-			if toolCount >= 0 {
-				l.Success("Found %d tools", toolCount)
-			} else {
-				l.Success("Retrieved tool list")
 			}
 		case "resources/list":
 			// Try to count resources
@@ -458,41 +451,6 @@ func (l *Logger) prettyJSON(v interface{}) string {
 func (l *Logger) Write(p []byte) (n int, err error) {
 	l.Debug("%s", string(p))
 	return len(p), nil
-}
-
-// countTools attempts to count the number of tools in a tools/list response.
-// This is used by the simple logging mode to provide meaningful summary
-// information instead of raw protocol details.
-//
-// Args:
-//   - result: The response result from a tools/list operation
-//
-// Returns:
-//   - Number of tools found, or -1 if count cannot be determined
-func (l *Logger) countTools(result interface{}) int {
-	// Try to extract tools array from various response structures
-	switch v := result.(type) {
-	case map[string]interface{}:
-		if tools, ok := v["tools"]; ok {
-			if toolsArray, ok := tools.([]interface{}); ok {
-				return len(toolsArray)
-			}
-		}
-	}
-
-	// Try type assertion for the specific ListToolsResult type
-	type toolsResult struct {
-		Tools []interface{} `json:"tools"`
-	}
-
-	if jsonBytes, err := json.Marshal(result); err == nil {
-		var tr toolsResult
-		if err := json.Unmarshal(jsonBytes, &tr); err == nil && tr.Tools != nil {
-			return len(tr.Tools)
-		}
-	}
-
-	return -1 // Indicate we couldn't count
 }
 
 // countResources attempts to count the number of resources in a resources/list response.
