@@ -150,7 +150,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 
 	// No cached capabilities - check infrastructure state
 	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-		// SSO-enabled servers are connected on demand via triggerOnDemandSSO.
+		// SSO-enabled servers are connected synchronously during login via initSSOForSession.
 		// Return sso_pending while the connection attempt is in flight, but
 		// fall back to auth_required if the pending timeout has elapsed.
 		// This prevents the client from being stuck in sso_pending forever
@@ -237,46 +237,33 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 	return ""
 }
 
-// onDemandSSOTimeout caps how long the first synchronous SSO round can block.
-const onDemandSSOTimeout = 15 * time.Second
+// initSSOTimeout caps how long synchronous SSO connections may block the
+// login flow. Individual servers that exceed this deadline are skipped.
+const initSSOTimeout = 15 * time.Second
 
-// triggerOnDemandSSO extends the session TTL and connects to any SSO-enabled
-// servers that are missing from the capability store.
+// initSSOForSession is called synchronously during token issuance
+// (SessionCreationHandler) to establish SSO connections for a new session.
 //
-// Behaviour depends on whether the session already has cached capabilities:
-//   - Empty cache (first request or after inactivity): SSO connections run
-//     synchronously so the response includes SSO server tools immediately.
-//   - Populated cache (active session with some servers missing): SSO
-//     connections run in the background for eventual consistency.
-func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID string) {
-	if sessionID == "" {
-		return
-	}
-
-	// Extend the session TTL on every authenticated request so that
-	// capabilities remain available as long as the user is active.
-	sessionExists := false
-	if a.capabilityStore != nil {
-		sessionExists, _ = a.capabilityStore.Touch(ctx, sessionID)
-	}
-
+// Because this runs inside ExchangeAuthorizationCode, the SSO servers are
+// fully connected before the client receives its access token.
+// Connections to individual servers run in parallel with a shared timeout
+// so that a single slow server cannot block the entire login flow.
+func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessionID, idToken string) {
 	musterIssuer := a.getMusterIssuer()
 	if musterIssuer == "" {
 		return
 	}
 
-	sub := getUserSubjectFromContext(ctx)
-
-	// Build a detached context for SSO goroutines. The incoming ctx is the
-	// HTTP request context and will be cancelled when the handler returns.
-	bgCtx := context.Background()
-	bgCtx = api.WithSubject(bgCtx, sub)
+	// Build a detached context with a timeout -- the token-exchange request
+	// context may be cancelled before SSO work finishes.
+	bgCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
+	defer cancel()
+	bgCtx = api.WithSubject(bgCtx, userID)
 	bgCtx = api.WithSessionID(bgCtx, sessionID)
-	if idToken, ok := server.GetIDTokenFromContext(ctx); ok {
+	if idToken != "" {
 		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
 	}
 
-	// Collect SSO servers that need connections.
 	var pending []*ServerInfo
 	servers := a.registry.GetAllServers()
 	for _, info := range servers {
@@ -286,13 +273,7 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
 			continue
 		}
-		if a.capabilityStore != nil {
-			exists, _ := a.capabilityStore.Exists(bgCtx, sessionID, info.Name)
-			if exists {
-				continue
-			}
-		}
-		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sub, info.Name) {
+		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(userID, info.Name) {
 			continue
 		}
 		pending = append(pending, info)
@@ -302,44 +283,15 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 		return
 	}
 
-	// Mark all pending servers so auth://status can report sso_pending.
-	if a.ssoTracker != nil {
-		for _, info := range pending {
-			a.ssoTracker.MarkSSOPending(sub, info.Name)
-		}
-	}
-
-	if !sessionExists {
-		// Cache is empty -- block until all SSO connections complete (or timeout).
-		a.connectSSOServersSynchronously(bgCtx, pending, musterIssuer)
-		return
-	}
-
-	// Cache exists but some servers are missing -- connect in background.
-	for _, info := range pending {
-		serverInfo := info
-		go a.establishSSOConnection(bgCtx, serverInfo, musterIssuer)
-	}
-}
-
-// connectSSOServersSynchronously establishes SSO connections to all given
-// servers in parallel and blocks until they all complete or the timeout fires.
-func (a *AggregatorServer) connectSSOServersSynchronously(
-	ctx context.Context,
-	servers []*ServerInfo,
-	musterIssuer string,
-) {
-	logging.Info("Aggregator", "SSO: Synchronous init for %d servers", len(servers))
-
-	ctx, cancel := context.WithTimeout(ctx, onDemandSSOTimeout)
-	defer cancel()
+	logging.Info("Aggregator", "SSO: Connecting %d servers for session %s",
+		len(pending), logging.TruncateIdentifier(sessionID))
 
 	var wg sync.WaitGroup
-	for _, info := range servers {
+	for _, info := range pending {
 		wg.Add(1)
 		go func(si *ServerInfo) {
 			defer wg.Done()
-			a.establishSSOConnection(ctx, si, musterIssuer)
+			a.establishSSOConnection(bgCtx, si, musterIssuer)
 		}(info)
 	}
 
@@ -351,9 +303,11 @@ func (a *AggregatorServer) connectSSOServersSynchronously(
 
 	select {
 	case <-done:
-		logging.Debug("Aggregator", "SSO: Synchronous init completed for %d servers", len(servers))
-	case <-ctx.Done():
-		logging.Warn("Aggregator", "SSO: Synchronous init timed out after %v", onDemandSSOTimeout)
+		logging.Debug("Aggregator", "SSO: All %d servers connected for session %s",
+			len(pending), logging.TruncateIdentifier(sessionID))
+	case <-bgCtx.Done():
+		logging.Warn("Aggregator", "SSO: Init timed out after %v for session %s",
+			initSSOTimeout, logging.TruncateIdentifier(sessionID))
 	}
 }
 

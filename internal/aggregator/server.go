@@ -20,8 +20,10 @@ import (
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
+	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"golang.org/x/oauth2"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -943,15 +945,32 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
-	// On every authenticated request, extend the capability store TTL and trigger
-	// on-demand SSO for any uncached SSO servers.
+	// On every authenticated request, extend the capability store TTL.
+	// If the session has expired (e.g. user returns after inactivity, or
+	// Valkey was restarted), re-establish SSO connections in the background.
 	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
-		a.triggerOnDemandSSO(ctx, sessionID)
+		if a.capabilityStore == nil {
+			return
+		}
+		alive, _ := a.capabilityStore.Touch(ctx, sessionID)
+		if alive {
+			return
+		}
+		userID := getUserSubjectFromContext(ctx)
+		idToken, _ := server.GetIDTokenFromContext(ctx)
+		go a.initSSOForSession(ctx, userID, sessionID, idToken)
 	})
 
-	// Register a revocation handler so that per-session state is cleaned up
-	// when a token family is revoked (e.g., on logout via POST /oauth/revoke).
-	oauthHTTPServer.GetOAuthServer().SetTokenFamilyRevocationHandler(func(ctx context.Context, userID, familyID string) {
+	// Establish SSO connections synchronously during login (token issuance).
+	// This fires inside ExchangeAuthorizationCode, so SSO servers are connected
+	// before the client receives its access token.
+	oauthServer := oauthHTTPServer.GetOAuthServer()
+
+	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
+		a.initSSOForSession(ctx, userID, familyID, oauthserver.ExtractIDToken(token))
+	})
+
+	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
 		if a.capabilityStore != nil {
 			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
 				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
@@ -962,7 +981,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.DeleteTokensBySession(familyID)
 		}
-		logging.Info("Aggregator", "Cleaned up session state for revoked token family %s (user %s)",
+		logging.Info("Aggregator", "Cleaned up session state for revoked session %s (user %s)",
 			logging.TruncateIdentifier(familyID), logging.TruncateIdentifier(userID))
 	})
 

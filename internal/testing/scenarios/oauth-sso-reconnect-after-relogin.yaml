@@ -2,16 +2,13 @@ name: "oauth-sso-reconnect-after-relogin"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Tests that SSO servers are automatically reconnected by on-demand SSO.
-  
-  SSO servers are managed automatically -- users don't manually login/logout.
-  This scenario verifies:
-  1. User authenticates to muster -> SSO server connects automatically
-  2. Even after clearing the capability store entry (simulated via logout),
-     the on-demand SSO mechanism reconnects the server on the next request
-  
-  This verifies that the on-demand SSO model correctly re-establishes
-  connections when capability store entries are missing.
+  Tests SSO session lifecycle: login establishes connections, logout clears
+  them, and re-login re-establishes them.
+
+  SSO connections are established synchronously during the OAuth login flow
+  (SessionCreationHandler). After logout from an individual SSO server the
+  capability store entry is removed and the server shows as auth_required.
+  A fresh login re-establishes the connection.
 tags: ["oauth", "sso", "session", "relogin", "token-forwarding", "regression"]
 timeout: "2m"
 
@@ -25,7 +22,6 @@ pre_configuration:
       token_lifetime: "1h"
       client_id: "relogin-test-client"
       client_secret: "relogin-test-secret"
-      # Enable this as muster's OAuth server for SSO token forwarding
       use_as_muster_oauth_server: true
 
   # SSO-enabled MCP server that trusts muster's forwarded ID tokens
@@ -37,7 +33,6 @@ pre_configuration:
           required: true
           mock_oauth_server_ref: "relogin-test-idp"
           scope: "mcp:admin"
-          # Enable token forwarding - muster should forward its ID token
           forward_token: true
         tools:
           - name: "check_connection"
@@ -51,8 +46,7 @@ steps:
   # =========================================================================
   # PHASE 1: Initial Authentication and SSO Connection
   # =========================================================================
-  
-  # Step 1: Verify OAuth server is running
+
   - id: verify-oauth-server
     description: "Verify the OAuth server is running"
     tool: "test_get_oauth_server_info"
@@ -64,7 +58,6 @@ steps:
         - "relogin-test-idp"
         - "issuer_url"
 
-  # Step 2: Verify MCP server is registered
   - id: verify-server-registered
     description: "Verify the MCP server is registered"
     tool: "core_mcpserver_list"
@@ -74,7 +67,6 @@ steps:
       contains:
         - "relogin-sso-server"
 
-  # Step 3: Authenticate to muster (simulates `muster auth login`)
   - id: muster-auth-login
     description: "Authenticate to muster via OAuth (stores ID token for SSO)"
     tool: "test_muster_auth_login"
@@ -85,9 +77,8 @@ steps:
         - "success"
         - "ID token stored"
 
-  # Step 4: Verify SSO connected the server automatically
   - id: verify-sso-connected
-    description: "Verify SSO connected the server after auth"
+    description: "Verify SSO connected the server during login"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -97,7 +88,6 @@ steps:
         - "relogin-sso-server"
         - "connected"
 
-  # Step 5: Verify protected tool works
   - id: verify-connection
     description: "Call protected tool to verify SSO authentication succeeded"
     tool: "x_relogin-sso-server_check_connection"
@@ -109,10 +99,9 @@ steps:
         - "Connection verified"
 
   # =========================================================================
-  # PHASE 2: Logout clears cache, on-demand SSO reconnects automatically
+  # PHASE 2: Logout clears cache, re-login reconnects
   # =========================================================================
 
-  # Step 6: Logout from the SSO server (clears capability store entry)
   - id: logout-from-server
     description: "Logout from SSO server clears cached capabilities"
     tool: "core_auth_logout"
@@ -123,11 +112,32 @@ steps:
       contains:
         - "logged out"
 
-  # Step 7: On the next request, on-demand SSO reconnects automatically.
-  # The server should be connected again (not auth_required) because
-  # triggerOnDemandSSO fires on every authenticated request.
-  - id: verify-auto-reconnect
-    description: "Verify on-demand SSO automatically reconnects after logout"
+  # After logout, the SSO server is no longer connected for this session.
+  # SSO connections are only established during login, not on every request.
+  - id: verify-disconnected-after-logout
+    description: "Verify server shows as auth_required after logout"
+    tool: "test_read_auth_status"
+    args:
+      server: "relogin-sso-server"
+    expected:
+      success: true
+      contains:
+        - "relogin-sso-server"
+        - "auth_required"
+
+  # Re-login re-establishes SSO connections via SessionCreationHandler.
+  - id: muster-reauth
+    description: "Re-authenticate to muster to re-establish SSO"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+
+  - id: verify-reconnected-after-relogin
+    description: "Verify SSO server reconnected after re-login"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"

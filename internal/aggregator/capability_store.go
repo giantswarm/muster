@@ -65,8 +65,10 @@ type CapabilityStore interface {
 }
 
 // DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
-// Matches the access token TTL (30 min).
-const DefaultCapabilityStoreTTL = 30 * time.Minute
+// Set to 30 days so that cached capabilities survive normal inactivity,
+// weekends, and vacations. The cache is explicitly cleared on logout via
+// the SessionRevocationHandler, so stale entries are not a concern.
+const DefaultCapabilityStoreTTL = 30 * 24 * time.Hour
 
 // --- In-memory implementation ---
 
