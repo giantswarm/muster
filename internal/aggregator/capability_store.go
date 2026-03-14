@@ -15,6 +15,17 @@ type Capabilities struct {
 	Prompts   []mcp.Prompt
 }
 
+func (c *Capabilities) deepCopy() *Capabilities {
+	if c == nil {
+		return nil
+	}
+	return &Capabilities{
+		Tools:     append([]mcp.Tool(nil), c.Tools...),
+		Resources: append([]mcp.Resource(nil), c.Resources...),
+		Prompts:   append([]mcp.Prompt(nil), c.Prompts...),
+	}
+}
+
 // CapabilityStore is the interface for storing per-session, per-server MCP
 // capabilities. Implementations must be safe for concurrent use.
 //
@@ -92,7 +103,7 @@ func (s *InMemoryCapabilityStore) Get(_ context.Context, sessionID, serverName s
 	if !ok {
 		return nil, nil
 	}
-	return caps, nil
+	return caps.deepCopy(), nil
 }
 
 func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (map[string]*Capabilities, error) {
@@ -108,7 +119,7 @@ func (s *InMemoryCapabilityStore) GetAll(_ context.Context, sessionID string) (m
 	}
 	result := make(map[string]*Capabilities, len(sess.servers))
 	for k, v := range sess.servers {
-		result[k] = v
+		result[k] = v.deepCopy()
 	}
 	return result, nil
 }

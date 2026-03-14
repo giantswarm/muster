@@ -129,7 +129,7 @@ func (s *ValkeyCapabilityStore) DeleteEntry(ctx context.Context, sessionID, serv
 }
 
 func (s *ValkeyCapabilityStore) DeleteServer(ctx context.Context, serverName string) error {
-	// SCAN for all session hashes and HDEL the server field from each.
+	// SCAN for all session hashes and pipeline HDEL for the server field.
 	// This is O(N) across sessions but deregistration is rare.
 	var cursor uint64
 	for {
@@ -144,10 +144,16 @@ func (s *ValkeyCapabilityStore) DeleteServer(ctx context.Context, serverName str
 			return fmt.Errorf("valkey SCAN decode: %w", err)
 		}
 
-		for _, key := range entry.Elements {
-			delCmd := s.client.B().Hdel().Key(key).Field(serverName).Build()
-			if err := s.client.Do(ctx, delCmd).Error(); err != nil {
-				logging.Warn("CapabilityStore", "Failed to HDEL %s from %s: %v", serverName, key, err)
+		if len(entry.Elements) > 0 {
+			cmds := make(valkey.Commands, 0, len(entry.Elements))
+			for _, key := range entry.Elements {
+				cmds = append(cmds, s.client.B().Hdel().Key(key).Field(serverName).Build())
+			}
+			for i, resp := range s.client.DoMulti(ctx, cmds...) {
+				if err := resp.Error(); err != nil {
+					logging.Warn("CapabilityStore", "Failed to HDEL %s from %s: %v",
+						serverName, entry.Elements[i], err)
+				}
 			}
 		}
 

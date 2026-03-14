@@ -288,7 +288,7 @@ func TestInMemoryCapabilityStore_NewServerPopulatesAfterExpiry(t *testing.T) {
 	assert.Equal(t, "t1-refreshed", got.Tools[0].Name)
 }
 
-func TestInMemoryCapabilityStore_DeepCopy(t *testing.T) {
+func TestInMemoryCapabilityStore_DeepCopyOnSet(t *testing.T) {
 	store := NewInMemoryCapabilityStore(30 * time.Minute)
 	defer store.Stop()
 	ctx := context.Background()
@@ -302,4 +302,21 @@ func TestInMemoryCapabilityStore_DeepCopy(t *testing.T) {
 	got, _ := store.Get(ctx, "s1", "srv1")
 	require.NotNil(t, got)
 	assert.Equal(t, "original", got.Tools[0].Name, "store should deep copy on Set")
+}
+
+func TestInMemoryCapabilityStore_DeepCopyOnGet(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "s1", "srv1", &Capabilities{Tools: []mcp.Tool{{Name: "original"}}})
+
+	// Mutating the returned slice should not affect the stored copy
+	got1, _ := store.Get(ctx, "s1", "srv1")
+	require.NotNil(t, got1)
+	got1.Tools[0].Name = "mutated-by-caller"
+
+	got2, _ := store.Get(ctx, "s1", "srv1")
+	require.NotNil(t, got2)
+	assert.Equal(t, "original", got2.Tools[0].Name, "store should deep copy on Get")
 }

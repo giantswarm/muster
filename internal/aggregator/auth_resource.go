@@ -8,6 +8,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -250,6 +251,18 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 		return
 	}
 
+	sub := getUserSubjectFromContext(ctx)
+
+	// Build a detached context for background goroutines. The incoming ctx is
+	// the HTTP request context and will be cancelled when the handler returns.
+	// Background SSO connections must outlive the request.
+	bgCtx := context.Background()
+	bgCtx = api.WithSubject(bgCtx, sub)
+	bgCtx = api.WithSessionID(bgCtx, sessionID)
+	if idToken, ok := server.GetIDTokenFromContext(ctx); ok {
+		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
+	}
+
 	servers := a.registry.GetAllServers()
 	for _, info := range servers {
 		if info.Status != StatusAuthRequired {
@@ -259,23 +272,19 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 			continue
 		}
 
-		// Skip if already cached
 		if a.capabilityStore != nil {
-			exists, _ := a.capabilityStore.Exists(ctx, sessionID, info.Name)
+			exists, _ := a.capabilityStore.Exists(bgCtx, sessionID, info.Name)
 			if exists {
 				continue
 			}
 		}
 
-		// Skip if SSO already failed for this user/server
-		sub := getUserSubjectFromContext(ctx)
 		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sub, info.Name) {
 			continue
 		}
 
-		// Fire background SSO connection
 		serverInfo := info
-		go a.establishSSOConnection(ctx, serverInfo, musterIssuer)
+		go a.establishSSOConnection(bgCtx, serverInfo, musterIssuer)
 	}
 }
 

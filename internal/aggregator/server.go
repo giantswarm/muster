@@ -983,20 +983,20 @@ func (a *AggregatorServer) GetTools() []mcp.Tool {
 // GetToolsForSession returns a session-specific view of all available tools.
 // For OAuth servers, tools are read from the CapabilityStore keyed by session ID.
 // For non-OAuth servers, tools are read from ServerInfo (same as GetAllTools).
-func (a *AggregatorServer) GetToolsForSession(sessionID string) []mcp.Tool {
-	return a.registry.GetAllToolsForSession(a.capabilityStore, sessionID)
+func (a *AggregatorServer) GetToolsForSession(ctx context.Context, sessionID string) []mcp.Tool {
+	return a.registry.GetAllToolsForSession(ctx, a.capabilityStore, sessionID)
 }
 
 // GetResourcesForSession returns a session-specific view of all available resources.
 // For OAuth servers, resources are read from the CapabilityStore keyed by session ID.
-func (a *AggregatorServer) GetResourcesForSession(sessionID string) []mcp.Resource {
-	return a.registry.GetAllResourcesForSession(a.capabilityStore, sessionID)
+func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID string) []mcp.Resource {
+	return a.registry.GetAllResourcesForSession(ctx, a.capabilityStore, sessionID)
 }
 
 // GetPromptsForSession returns a session-specific view of all available prompts.
 // For OAuth servers, prompts are read from the CapabilityStore keyed by session ID.
-func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
-	return a.registry.GetAllPromptsForSession(a.capabilityStore, sessionID)
+func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID string) []mcp.Prompt {
+	return a.registry.GetAllPromptsForSession(ctx, a.capabilityStore, sessionID)
 }
 
 // sessionToolFilter is the WithToolFilter callback for MCP tools/list.
@@ -1939,7 +1939,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 
-	mcpServerTools := a.GetToolsForSession(sessionID)
+	mcpServerTools := a.GetToolsForSession(ctx, sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
 
 	allTools := make([]mcp.Tool, 0, len(mcpServerTools)+len(coreTools))
@@ -1955,13 +1955,13 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 // ListResourcesForContext returns all available resources for the current session context.
 func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
 	sessionID := getSessionIDFromContext(ctx)
-	return a.GetResourcesForSession(sessionID)
+	return a.GetResourcesForSession(ctx, sessionID)
 }
 
 // ListPromptsForContext returns all available prompts for the current session context.
 func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
 	sessionID := getSessionIDFromContext(ctx)
-	return a.GetPromptsForSession(sessionID)
+	return a.GetPromptsForSession(ctx, sessionID)
 }
 
 // ReadResource retrieves the contents of a resource by URI.

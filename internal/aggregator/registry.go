@@ -585,7 +585,7 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 // For OAuth servers (StatusAuthRequired), tools are read from the CapabilityStore
 // keyed by session ID (token family). For non-OAuth servers, tools are read from
 // ServerInfo.Tools (same as GetAllTools).
-func (r *ServerRegistry) GetAllToolsForSession(store CapabilityStore, sessionID string) []mcp.Tool {
+func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -596,7 +596,7 @@ func (r *ServerRegistry) GetAllToolsForSession(store CapabilityStore, sessionID 
 			if store == nil {
 				continue
 			}
-			caps, err := store.Get(context.Background(), sessionID, serverName)
+			caps, err := store.Get(ctx, sessionID, serverName)
 			if err != nil || caps == nil {
 				continue
 			}
@@ -628,7 +628,7 @@ func (r *ServerRegistry) GetAllToolsForSession(store CapabilityStore, sessionID 
 //
 // For OAuth servers, resources are read from the CapabilityStore.
 // For non-OAuth servers, resources are read from ServerInfo.Resources.
-func (r *ServerRegistry) GetAllResourcesForSession(store CapabilityStore, sessionID string) []mcp.Resource {
+func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -639,7 +639,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(store CapabilityStore, sessio
 			if store == nil {
 				continue
 			}
-			caps, err := store.Get(context.Background(), sessionID, serverName)
+			caps, err := store.Get(ctx, sessionID, serverName)
 			if err != nil || caps == nil {
 				continue
 			}
@@ -671,7 +671,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(store CapabilityStore, sessio
 //
 // For OAuth servers, prompts are read from the CapabilityStore.
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
-func (r *ServerRegistry) GetAllPromptsForSession(store CapabilityStore, sessionID string) []mcp.Prompt {
+func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Prompt {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -682,7 +682,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(store CapabilityStore, sessionI
 			if store == nil {
 				continue
 			}
-			caps, err := store.Get(context.Background(), sessionID, serverName)
+			caps, err := store.Get(ctx, sessionID, serverName)
 			if err != nil || caps == nil {
 				continue
 			}
