@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentoauth "github.com/giantswarm/muster/internal/agent/oauth"
+	"github.com/giantswarm/muster/internal/metatools"
 )
 
 // TransportType defines the transport type for MCP connections.
@@ -454,32 +455,18 @@ func (c *Client) initialize(ctx context.Context) error {
 // This method handles both initial loading and refresh scenarios, with intelligent
 // diff tracking for notification-driven updates.
 //
+// It calls the list_tools meta-tool (rather than native tools/list) to discover
+// all actual tools (core_*, x_*, workflow_*) exposed through the aggregator.
+//
 // Args:
 //   - ctx: Context for cancellation and timeout control
 //   - initial: Whether this is the first time loading tools (affects diff display)
-//
-// The method performs the following operations:
-//   - Sends tools/list request to the MCP server
-//   - Updates the local tool cache (if caching is enabled)
-//   - Displays differences from the previous cache state (if not initial)
-//   - Handles errors with appropriate logging
-//
-// This method is called automatically during initialization and when tool
-// change notifications are received.
 func (c *Client) listTools(ctx context.Context, initial bool) error {
-	req := mcp.ListToolsRequest{}
-
-	// Log request only if logger is available
 	if c.logger != nil {
-		c.logger.Request("tools/list", req.Params)
+		c.logger.Info("Listing available tools...")
 	}
 
-	// Create timeout context to prevent hanging operations
-	timeoutCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	// Send request
-	result, err := c.client.ListTools(timeoutCtx, req)
+	result, err := c.callToolDirect(ctx, metatools.ToolListTools, map[string]interface{}{})
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Error("ListTools failed: %v", err)
@@ -487,37 +474,113 @@ func (c *Client) listTools(ctx context.Context, initial bool) error {
 		return err
 	}
 
-	// Log response only if logger is available
-	if c.logger != nil {
-		c.logger.Response("tools/list", result)
+	if result.IsError {
+		var errorMsgs []string
+		for _, content := range result.Content {
+			if textContent, ok := mcp.AsTextContent(content); ok {
+				errorMsgs = append(errorMsgs, textContent.Text)
+			}
+		}
+		joined := strings.Join(errorMsgs, "; ")
+		if c.logger != nil {
+			c.logger.Error("list_tools failed: %s", joined)
+		}
+		return fmt.Errorf("list_tools failed: %s", joined)
 	}
 
-	// Only do caching and diff comparison if caching is enabled
+	tools, err := c.parseListToolsResponse(result)
+	if err != nil {
+		if c.logger != nil {
+			c.logger.Error("Failed to parse list_tools response: %v", err)
+		}
+		return err
+	}
+
+	if c.logger != nil {
+		c.logger.Success("Found %d tools", len(tools))
+	}
+
 	if c.cacheEnabled {
-		// Compare with cache if not initial to show what changed
 		if !initial {
 			c.mu.RLock()
 			oldTools := c.toolCache
 			c.mu.RUnlock()
 
-			// Update cache with new data
 			c.mu.Lock()
-			c.toolCache = result.Tools
+			c.toolCache = tools
 			c.mu.Unlock()
 
-			// Show differences only if logger is available
 			if c.logger != nil {
-				c.showToolDiff(oldTools, result.Tools)
+				c.showToolDiff(oldTools, tools)
 			}
 		} else {
-			// Initial load - just populate the cache
 			c.mu.Lock()
-			c.toolCache = result.Tools
+			c.toolCache = tools
 			c.mu.Unlock()
 		}
 	}
 
 	return nil
+}
+
+// parseListToolsResponse extracts []mcp.Tool from a list_tools meta-tool response.
+func (c *Client) parseListToolsResponse(result *mcp.CallToolResult) ([]mcp.Tool, error) {
+	for _, content := range result.Content {
+		textContent, ok := mcp.AsTextContent(content)
+		if !ok {
+			continue
+		}
+
+		var response metatools.ListToolsResponse
+		if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+			return nil, fmt.Errorf("failed to parse list_tools response: %w", err)
+		}
+
+		tools := make([]mcp.Tool, len(response.Tools))
+		for i, t := range response.Tools {
+			tools[i] = mcp.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: convertInputSchema(t.InputSchema),
+			}
+		}
+		return tools, nil
+	}
+
+	return nil, fmt.Errorf("no content in list_tools response")
+}
+
+// convertInputSchema converts the untyped InputSchema from ToolInfo into mcp.ToolInputSchema.
+func convertInputSchema(raw interface{}) mcp.ToolInputSchema {
+	schema := mcp.ToolInputSchema{
+		Type: "object",
+	}
+	if raw == nil {
+		return schema
+	}
+
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return schema
+	}
+
+	if t, ok := m["type"].(string); ok {
+		schema.Type = t
+	}
+	if props, ok := m["properties"].(map[string]interface{}); ok {
+		schema.Properties = props
+	}
+	if req, ok := m["required"].([]interface{}); ok {
+		required := make([]string, 0, len(req))
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				required = append(required, s)
+			}
+		}
+		schema.Required = required
+	}
+
+	return schema
 }
 
 // listResources retrieves all available resources from the MCP server and updates the cache.
