@@ -57,6 +57,11 @@ type CapabilityStore interface {
 
 	// Exists checks whether capabilities exist for a session+server pair.
 	Exists(ctx context.Context, sessionID, serverName string) (bool, error)
+
+	// Touch resets the session-level TTL without modifying stored capabilities.
+	// This keeps the cache alive as long as the user is actively making requests.
+	// Returns true if the session existed and was touched.
+	Touch(ctx context.Context, sessionID string) (bool, error)
 }
 
 // DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
@@ -210,6 +215,36 @@ func (s *InMemoryCapabilityStore) Exists(_ context.Context, sessionID, serverNam
 	}
 	_, ok = sess.servers[serverName]
 	return ok, nil
+}
+
+func (s *InMemoryCapabilityStore) Touch(_ context.Context, sessionID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return false, nil
+	}
+	if time.Now().After(sess.expireAt) {
+		return false, nil
+	}
+
+	sess.expireAt = time.Now().Add(s.ttl)
+	if sess.timer != nil {
+		sess.timer.Stop()
+	}
+	sess.timer = time.AfterFunc(s.ttl, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if sess2, exists := s.sessions[sessionID]; exists && time.Now().After(sess2.expireAt) {
+			if sess2.timer != nil {
+				sess2.timer.Stop()
+			}
+			delete(s.sessions, sessionID)
+		}
+	})
+
+	return true, nil
 }
 
 // Stop cleans up all timers. Should be called when the store is no longer needed.

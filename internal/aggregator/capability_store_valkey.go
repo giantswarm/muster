@@ -165,6 +165,19 @@ func (s *ValkeyCapabilityStore) DeleteServer(ctx context.Context, serverName str
 	return nil
 }
 
+func (s *ValkeyCapabilityStore) Touch(ctx context.Context, sessionID string) (bool, error) {
+	cmd := s.client.B().Expire().Key(s.key(sessionID)).Seconds(int64(s.ttl.Seconds())).Build()
+	result := s.client.Do(ctx, cmd)
+	if err := result.Error(); err != nil {
+		return false, fmt.Errorf("valkey EXPIRE: %w", err)
+	}
+	b, err := result.AsBool()
+	if err != nil {
+		return false, nil
+	}
+	return b, nil
+}
+
 func (s *ValkeyCapabilityStore) Exists(ctx context.Context, sessionID, serverName string) (bool, error) {
 	cmd := s.client.B().Hexists().Key(s.key(sessionID)).Field(serverName).Build()
 	result := s.client.Do(ctx, cmd)

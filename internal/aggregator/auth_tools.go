@@ -145,6 +145,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
+	// Clear any SSO suppression from a prior explicit logout so that
+	// automatic SSO can function again after this explicit login attempt.
+	if p.aggregator.ssoTracker != nil {
+		p.aggregator.ssoTracker.UnsuppressSSO(sub, serverName)
+	}
+
 	// Check if this session already has stored capabilities for this server.
 	if p.aggregator.capabilityStore != nil {
 		exists, _ := p.aggregator.capabilityStore.Exists(ctx, sessionID, serverName)
@@ -397,9 +403,12 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}
 	}
 
-	// Clear SSO failure state so re-authentication can trigger fresh SSO
+	// Clear SSO failure state and suppress automatic SSO reconnection.
+	// The user explicitly logged out, so they should re-authenticate via
+	// core_auth_login. UnsuppressSSO is called when core_auth_login runs.
 	if p.aggregator.ssoTracker != nil {
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
+		p.aggregator.ssoTracker.SuppressSSO(sub, serverName)
 	}
 
 	// Record logout success

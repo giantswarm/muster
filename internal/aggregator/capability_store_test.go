@@ -304,6 +304,59 @@ func TestInMemoryCapabilityStore_DeepCopyOnSet(t *testing.T) {
 	assert.Equal(t, "original", got.Tools[0].Name, "store should deep copy on Set")
 }
 
+func TestInMemoryCapabilityStore_TouchExtendsTTL(t *testing.T) {
+	ttl := 100 * time.Millisecond
+	store := NewInMemoryCapabilityStore(ttl)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+
+	// Wait 70% of TTL, then Touch to extend it
+	time.Sleep(70 * time.Millisecond)
+	touched, err := store.Touch(ctx, "session1")
+	require.NoError(t, err)
+	assert.True(t, touched, "Touch should return true for existing session")
+
+	// Wait another 70% of original TTL - session should still be alive
+	// because Touch reset the TTL
+	time.Sleep(70 * time.Millisecond)
+	got, err := store.Get(ctx, "session1", "server1")
+	require.NoError(t, err)
+	require.NotNil(t, got, "entry should still be alive after Touch")
+	assert.Equal(t, "t1", got.Tools[0].Name)
+}
+
+func TestInMemoryCapabilityStore_TouchNonexistent(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	touched, err := store.Touch(ctx, "nonexistent")
+	assert.NoError(t, err)
+	assert.False(t, touched, "Touch should return false for nonexistent session")
+}
+
+func TestInMemoryCapabilityStore_TouchExpiredSession(t *testing.T) {
+	ttl := 50 * time.Millisecond
+	store := NewInMemoryCapabilityStore(ttl)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "session1", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+
+	// Wait past TTL
+	require.Eventually(t, func() bool {
+		got, _ := store.Get(ctx, "session1", "server1")
+		return got == nil
+	}, 5*time.Second, 5*time.Millisecond, "entry should expire")
+
+	// Touch on expired session should return false
+	touched, err := store.Touch(ctx, "session1")
+	assert.NoError(t, err)
+	assert.False(t, touched, "Touch should return false for expired session")
+}
+
 func TestInMemoryCapabilityStore_DeepCopyOnGet(t *testing.T) {
 	store := NewInMemoryCapabilityStore(30 * time.Minute)
 	defer store.Stop()

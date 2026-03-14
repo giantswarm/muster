@@ -157,17 +157,102 @@ type ssoFailedEntry struct {
 // Once expired, proactive SSO will retry the server on the next session init.
 const ssoTrackerFailureTTL = 30 * time.Minute
 
-// ssoTracker tracks SSO failure state per user subject and server.
-// Used by on-demand SSO to record and check SSO connection failures.
+// ssoTrackerPendingTimeout is how long sso_pending is reported before falling
+// back to auth_required. This prevents the client from being stuck in a pending
+// state when an SSO attempt silently fails without being recorded.
+const ssoTrackerPendingTimeout = 30 * time.Second
+
+// ssoTracker tracks SSO pending, failure, and suppression state per user subject and server.
+// Used by on-demand SSO to record and check SSO connection status.
 type ssoTracker struct {
-	mu            sync.RWMutex
-	failedServers map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
+	mu               sync.RWMutex
+	pendingServers   map[string]map[string]time.Time       // sub -> serverName -> firstSeen
+	failedServers    map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
+	suppressedByUser map[string]map[string]bool            // sub -> serverName -> true (explicit logout)
 }
 
 func newSSOTracker() *ssoTracker {
 	return &ssoTracker{
-		failedServers: make(map[string]map[string]*ssoFailedEntry),
+		pendingServers:   make(map[string]map[string]time.Time),
+		failedServers:    make(map[string]map[string]*ssoFailedEntry),
+		suppressedByUser: make(map[string]map[string]bool),
 	}
+}
+
+// MarkSSOPending records that an SSO connection attempt has been triggered for
+// a user/server pair. Only records the first occurrence; subsequent calls for the
+// same pair are no-ops so the original timestamp is preserved.
+func (s *ssoTracker) MarkSSOPending(sub, serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingServers[sub] == nil {
+		s.pendingServers[sub] = make(map[string]time.Time)
+	}
+	if _, exists := s.pendingServers[sub][serverName]; !exists {
+		s.pendingServers[sub][serverName] = time.Now()
+	}
+}
+
+// IsSSOPendingWithinTimeout returns true if SSO is pending AND the pending
+// duration has not exceeded ssoTrackerPendingTimeout.
+func (s *ssoTracker) IsSSOPendingWithinTimeout(sub, serverName string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if m, ok := s.pendingServers[sub]; ok {
+		if firstSeen, exists := m[serverName]; exists {
+			return time.Since(firstSeen) < ssoTrackerPendingTimeout
+		}
+	}
+	return false
+}
+
+// ClearSSOPending removes the pending record for a user/server pair.
+// Called when SSO completes (success or failure).
+func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.pendingServers[sub]; ok {
+		delete(m, serverName)
+		if len(m) == 0 {
+			delete(s.pendingServers, sub)
+		}
+	}
+}
+
+// SuppressSSO marks that a user explicitly logged out from a server,
+// preventing automatic SSO reconnection until the user explicitly
+// re-authenticates via core_auth_login.
+func (s *ssoTracker) SuppressSSO(sub, serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.suppressedByUser[sub] == nil {
+		s.suppressedByUser[sub] = make(map[string]bool)
+	}
+	s.suppressedByUser[sub][serverName] = true
+}
+
+// UnsuppressSSO removes the SSO suppression for a user/server pair,
+// allowing automatic SSO to proceed again (e.g., after core_auth_login).
+func (s *ssoTracker) UnsuppressSSO(sub, serverName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.suppressedByUser[sub]; ok {
+		delete(m, serverName)
+		if len(m) == 0 {
+			delete(s.suppressedByUser, sub)
+		}
+	}
+}
+
+// IsSSOSuppressed returns true if the user has explicitly logged out from
+// this server and automatic SSO should not be attempted.
+func (s *ssoTracker) IsSSOSuppressed(sub, serverName string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if m, ok := s.suppressedByUser[sub]; ok {
+		return m[serverName]
+	}
+	return false
 }
 
 // MarkSSOFailed records that SSO failed for a user/server pair with a timestamp.
@@ -896,9 +981,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
-	// Trigger on-demand SSO from the HTTP middleware on every authenticated request.
-	// triggerOnDemandSSO is idempotent: it skips servers that are already cached or
-	// have failed SSO, so calling it on every request is a fast no-op in steady state.
+	// On every authenticated request, extend the capability store TTL and trigger
+	// on-demand SSO for any uncached SSO servers.
 	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
 		a.triggerOnDemandSSO(ctx, sessionID)
 	})

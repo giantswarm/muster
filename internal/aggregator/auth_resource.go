@@ -3,6 +3,8 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -149,11 +151,14 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// No cached capabilities - check infrastructure state
 	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
 		// SSO-enabled servers are connected on demand via triggerOnDemandSSO.
-		// Return sso_pending (not auth_required) so clients don't prompt for
-		// manual core_auth_login while the automatic connection is pending.
+		// Return sso_pending while the connection attempt is in flight, but
+		// fall back to auth_required if the pending timeout has elapsed.
+		// This prevents the client from being stuck in sso_pending forever
+		// when an SSO attempt silently fails.
 		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
 			a.ssoTracker != nil &&
-			!a.ssoTracker.HasSSOFailed(sub, serverName) {
+			!a.ssoTracker.HasSSOFailed(sub, serverName) &&
+			a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
 			return pkgoauth.ServerStatusSSOPending
 		}
 		return pkgoauth.ServerStatusAuthRequired
@@ -232,18 +237,27 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 	return ""
 }
 
-// triggerOnDemandSSO checks for SSO-enabled servers that don't yet have cached
-// capabilities for this session and triggers background SSO connections for them.
+// onDemandSSOTimeout caps how long the first synchronous SSO round can block.
+const onDemandSSOTimeout = 15 * time.Second
+
+// triggerOnDemandSSO extends the session TTL and connects to any SSO-enabled
+// servers that are missing from the capability store.
 //
-// This implements the on-demand population model: instead of proactively connecting
-// to all SSO servers during session initialization, connections are established
-// lazily when the user first lists tools (or resources/prompts).
-//
-// Connections are fired as background goroutines so list_tools returns immediately.
-// The next list_tools call will find the cached capabilities from completed connections.
+// Behaviour depends on whether the session already has cached capabilities:
+//   - Empty cache (first request or after inactivity): SSO connections run
+//     synchronously so the response includes SSO server tools immediately.
+//   - Populated cache (active session with some servers missing): SSO
+//     connections run in the background for eventual consistency.
 func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID string) {
 	if sessionID == "" {
 		return
+	}
+
+	// Extend the session TTL on every authenticated request so that
+	// capabilities remain available as long as the user is active.
+	sessionExists := false
+	if a.capabilityStore != nil {
+		sessionExists, _ = a.capabilityStore.Touch(ctx, sessionID)
 	}
 
 	musterIssuer := a.getMusterIssuer()
@@ -253,9 +267,8 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 
 	sub := getUserSubjectFromContext(ctx)
 
-	// Build a detached context for background goroutines. The incoming ctx is
-	// the HTTP request context and will be cancelled when the handler returns.
-	// Background SSO connections must outlive the request.
+	// Build a detached context for SSO goroutines. The incoming ctx is the
+	// HTTP request context and will be cancelled when the handler returns.
 	bgCtx := context.Background()
 	bgCtx = api.WithSubject(bgCtx, sub)
 	bgCtx = api.WithSessionID(bgCtx, sessionID)
@@ -263,6 +276,8 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 		bgCtx = server.ContextWithIDToken(bgCtx, idToken)
 	}
 
+	// Collect SSO servers that need connections.
+	var pending []*ServerInfo
 	servers := a.registry.GetAllServers()
 	for _, info := range servers {
 		if info.Status != StatusAuthRequired {
@@ -271,20 +286,79 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
 			continue
 		}
-
 		if a.capabilityStore != nil {
 			exists, _ := a.capabilityStore.Exists(bgCtx, sessionID, info.Name)
 			if exists {
 				continue
 			}
 		}
-
-		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sub, info.Name) {
-			continue
+		if a.ssoTracker != nil {
+			if a.ssoTracker.HasSSOFailed(sub, info.Name) {
+				continue
+			}
+			if a.ssoTracker.IsSSOSuppressed(sub, info.Name) {
+				continue
+			}
 		}
+		pending = append(pending, info)
+	}
 
+	if len(pending) == 0 {
+		return
+	}
+
+	// Mark all pending servers so auth://status can report sso_pending.
+	if a.ssoTracker != nil {
+		for _, info := range pending {
+			a.ssoTracker.MarkSSOPending(sub, info.Name)
+		}
+	}
+
+	if !sessionExists {
+		// Cache is empty -- block until all SSO connections complete (or timeout).
+		a.connectSSOServersSynchronously(bgCtx, pending, musterIssuer)
+		return
+	}
+
+	// Cache exists but some servers are missing -- connect in background.
+	for _, info := range pending {
 		serverInfo := info
 		go a.establishSSOConnection(bgCtx, serverInfo, musterIssuer)
+	}
+}
+
+// connectSSOServersSynchronously establishes SSO connections to all given
+// servers in parallel and blocks until they all complete or the timeout fires.
+func (a *AggregatorServer) connectSSOServersSynchronously(
+	ctx context.Context,
+	servers []*ServerInfo,
+	musterIssuer string,
+) {
+	logging.Info("Aggregator", "SSO: Synchronous init for %d servers", len(servers))
+
+	ctx, cancel := context.WithTimeout(ctx, onDemandSSOTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for _, info := range servers {
+		wg.Add(1)
+		go func(si *ServerInfo) {
+			defer wg.Done()
+			a.establishSSOConnection(ctx, si, musterIssuer)
+		}(info)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logging.Debug("Aggregator", "SSO: Synchronous init completed for %d servers", len(servers))
+	case <-ctx.Done():
+		logging.Warn("Aggregator", "SSO: Synchronous init timed out after %v", onDemandSSOTimeout)
 	}
 }
 
@@ -330,15 +404,18 @@ func (a *AggregatorServer) establishSSOConnection(
 		ssoMethod = "token forwarding"
 	}
 
+	// Clear pending state regardless of outcome.
+	if a.ssoTracker != nil {
+		a.ssoTracker.ClearSSOPending(sub, serverInfo.Name)
+	}
+
 	if err == nil && result != nil {
 		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)
 	} else {
-		// Log at Warn level for visibility - SSO failures should be investigated
 		logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s: %v",
 			serverInfo.Name, sub, err)
 
-		// Track the SSO failure so the UI can show "SSO failed"
 		if a.ssoTracker != nil {
 			a.ssoTracker.MarkSSOFailed(sub, serverInfo.Name)
 		}
