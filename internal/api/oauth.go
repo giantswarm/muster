@@ -22,22 +22,6 @@ import (
 // Returns an error if the connection could not be established.
 type AuthCompletionCallback func(ctx context.Context, sessionID, userID, serverName, accessToken string) error
 
-// SessionInitCallback is called when a new session is first seen with a valid muster token.
-// The aggregator registers this callback to trigger proactive SSO connections to
-// all SSO-enabled servers (forwardToken: true) using muster's ID token.
-//
-// This callback is triggered on the first authenticated MCP request for a session,
-// enabling seamless SSO: users authenticate once to muster (via `muster auth login`)
-// and automatically gain access to all SSO-enabled MCP servers.
-//
-// Args:
-//   - ctx: Context containing the ID token for forwarding, session ID, and subject
-//   - sub: The user subject (from OAuth token)
-//
-// The callback should not return an error - SSO connection failures are logged
-// but don't prevent the request from proceeding.
-type SessionInitCallback func(ctx context.Context, sub string)
-
 // OAuthHandler defines the interface for OAuth proxy functionality.
 // This handler manages OAuth authentication flows for remote MCP servers,
 // including token storage, authentication challenges, and callback handling.
@@ -146,97 +130,9 @@ type OAuthHandler interface {
 	Stop()
 }
 
-// SessionActivityCallback is called on every authenticated MCP request for an
-// already-initialized session. The aggregator registers this callback to renew
-// capability cache TTLs, keeping cache entries alive as long as the session's
-// token is valid and the user is actively making requests.
-//
-// Args:
-//   - sessionID: The session ID (token family) whose cache entries should be renewed
-//
-// This callback is lightweight (just a TTL reset) and safe to call on every request.
-type SessionActivityCallback func(sessionID string)
-
 // oauthHandler stores the registered OAuth handler implementation.
 var oauthHandler OAuthHandler
 var oauthMutex sync.RWMutex
-
-// SessionInitPrepareCallback is called synchronously before the async session init
-// goroutine fires. The aggregator registers this to set SSOInitInProgress before
-// the goroutine starts, closing the race window where auth://status could return
-// auth_required instead of sso_pending.
-type SessionInitPrepareCallback func(sub string)
-
-// sessionInitCallback stores the registered session initialization callback.
-var sessionInitCallback SessionInitCallback
-var sessionInitPrepareCallback SessionInitPrepareCallback
-var sessionActivityCallback SessionActivityCallback
-var sessionInitMutex sync.RWMutex
-
-// RegisterSessionInitCallback registers a callback for session initialization.
-// This callback is triggered on the first authenticated MCP request for a session,
-// enabling proactive SSO connections to be established.
-//
-// Thread-safe: Yes, protected by sessionInitMutex.
-func RegisterSessionInitCallback(cb SessionInitCallback) {
-	sessionInitMutex.Lock()
-	defer sessionInitMutex.Unlock()
-	logging.Debug("API", "Registering session init callback: %v", cb != nil)
-	sessionInitCallback = cb
-}
-
-// GetSessionInitCallback returns the registered session initialization callback.
-// Returns nil if no callback has been registered.
-//
-// Thread-safe: Yes, protected by sessionInitMutex read lock.
-func GetSessionInitCallback() SessionInitCallback {
-	sessionInitMutex.RLock()
-	defer sessionInitMutex.RUnlock()
-	return sessionInitCallback
-}
-
-// RegisterSessionInitPrepareCallback registers a callback that runs synchronously
-// before the async session init goroutine. This is used to set SSOInitInProgress
-// before the goroutine fires, closing the race window where an auth://status read
-// between goroutine launch and StartSSOInit could return auth_required.
-//
-// Thread-safe: Yes, protected by sessionInitMutex.
-func RegisterSessionInitPrepareCallback(cb SessionInitPrepareCallback) {
-	sessionInitMutex.Lock()
-	defer sessionInitMutex.Unlock()
-	sessionInitPrepareCallback = cb
-}
-
-// GetSessionInitPrepareCallback returns the registered prepare callback.
-// Returns nil if no callback has been registered.
-//
-// Thread-safe: Yes, protected by sessionInitMutex read lock.
-func GetSessionInitPrepareCallback() SessionInitPrepareCallback {
-	sessionInitMutex.RLock()
-	defer sessionInitMutex.RUnlock()
-	return sessionInitPrepareCallback
-}
-
-// RegisterSessionActivityCallback registers a callback for session activity.
-// This callback is triggered on every authenticated MCP request for an
-// already-initialized session, enabling the aggregator to renew cache TTLs.
-//
-// Thread-safe: Yes, protected by sessionInitMutex.
-func RegisterSessionActivityCallback(cb SessionActivityCallback) {
-	sessionInitMutex.Lock()
-	defer sessionInitMutex.Unlock()
-	sessionActivityCallback = cb
-}
-
-// GetSessionActivityCallback returns the registered session activity callback.
-// Returns nil if no callback has been registered.
-//
-// Thread-safe: Yes, protected by sessionInitMutex read lock.
-func GetSessionActivityCallback() SessionActivityCallback {
-	sessionInitMutex.RLock()
-	defer sessionInitMutex.RUnlock()
-	return sessionActivityCallback
-}
 
 // RegisterOAuthHandler registers the OAuth handler implementation.
 // This handler provides OAuth proxy functionality for remote MCP server authentication.

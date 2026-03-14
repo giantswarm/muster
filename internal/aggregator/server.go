@@ -81,8 +81,8 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
-	// Per-session capability cache for OAuth servers
-	capabilityCache *CapabilityCache
+	// Per-session capability store for OAuth servers (on-demand population).
+	capabilityStore CapabilityStore
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
@@ -157,41 +157,17 @@ type ssoFailedEntry struct {
 // Once expired, proactive SSO will retry the server on the next session init.
 const ssoTrackerFailureTTL = 30 * time.Minute
 
-// ssoTracker tracks SSO initialization state per user subject.
-// This is a lightweight replacement for the SSO tracking methods that were
-// previously in SessionRegistry.
+// ssoTracker tracks SSO failure state per user subject and server.
+// Used by on-demand SSO to record and check SSO connection failures.
 type ssoTracker struct {
-	mu             sync.RWMutex
-	initInProgress map[string]bool                       // sub -> bool
-	failedServers  map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
+	mu            sync.RWMutex
+	failedServers map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
 }
 
 func newSSOTracker() *ssoTracker {
 	return &ssoTracker{
-		initInProgress: make(map[string]bool),
-		failedServers:  make(map[string]map[string]*ssoFailedEntry),
+		failedServers: make(map[string]map[string]*ssoFailedEntry),
 	}
-}
-
-// StartSSOInit marks that SSO initialization is in progress for a user.
-func (s *ssoTracker) StartSSOInit(sub string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.initInProgress[sub] = true
-}
-
-// EndSSOInit marks that SSO initialization has completed for a user.
-func (s *ssoTracker) EndSSOInit(sub string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.initInProgress, sub)
-}
-
-// IsSSOInitInProgress returns true if SSO initialization is currently running for the user.
-func (s *ssoTracker) IsSSOInitInProgress(sub string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.initInProgress[sub]
 }
 
 // MarkSSOFailed records that SSO failed for a user/server pair with a timestamp.
@@ -270,7 +246,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
-		capabilityCache: NewCapabilityCache(server.DefaultAccessTokenTTL),
+		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
 	}
@@ -357,22 +333,6 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// This allows agents to poll for auth requirements and enable SSO detection
 	// NOTE: Must be called after releasing lock since registerAuthStatusResource acquires RLock
 	a.registerAuthStatusResource()
-
-	// Register the session init callback for proactive SSO.
-	// This callback is triggered on first authenticated MCP request for a session,
-	// enabling seamless SSO: users authenticate once to muster and automatically
-	// gain access to all SSO-enabled MCP servers.
-	api.RegisterSessionInitCallback(a.handleSessionInit)
-	api.RegisterSessionInitPrepareCallback(a.handleSessionInitPrepare)
-
-	// Register session activity callback to renew capability cache TTLs.
-	// On every authenticated request for an already-initialized session,
-	// this resets the cache TTL so entries survive for the full token lifetime.
-	api.RegisterSessionActivityCallback(func(sessionID string) {
-		if a.capabilityCache != nil {
-			a.capabilityCache.TouchSession(sessionID)
-		}
-	})
 
 	// Register this aggregator as the MetaToolsDataProvider (Issue #343)
 	// This enables the metatools package to access tools, resources, and prompts
@@ -592,9 +552,9 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 		a.authRateLimiter.Stop()
 	}
 
-	// Stop capability cache background cleanup goroutine
-	if a.capabilityCache != nil {
-		a.capabilityCache.Stop()
+	// Stop capability store (cleans up timers for in-memory impl).
+	if store, ok := a.capabilityStore.(*InMemoryCapabilityStore); ok {
+		store.Stop()
 	}
 
 	// Reset internal state to allow for clean restart
@@ -646,9 +606,11 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 func (a *AggregatorServer) DeregisterServer(name string) error {
 	logging.Debug("Aggregator", "DeregisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
 
-	// Invalidate CapabilityCache entries for this server across all users.
-	if a.capabilityCache != nil {
-		a.capabilityCache.InvalidateServer(name)
+	// Remove capabilities for this server across all sessions.
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.DeleteServer(context.Background(), name); err != nil {
+			logging.Warn("Aggregator", "Failed to delete server %s from capability store: %v", name, err)
+		}
 	}
 
 	return a.registry.Deregister(name)
@@ -937,8 +899,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Register a revocation handler so that per-session state is cleaned up
 	// when a token family is revoked (e.g., on logout via POST /oauth/revoke).
 	oauthHTTPServer.GetOAuthServer().SetTokenFamilyRevocationHandler(func(ctx context.Context, userID, familyID string) {
-		if a.capabilityCache != nil {
-			a.capabilityCache.InvalidateSession(familyID)
+		if a.capabilityStore != nil {
+			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
+				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
+					logging.TruncateIdentifier(familyID), err)
+			}
 		}
 		oauthHandler := api.GetOAuthHandler()
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
@@ -1009,22 +974,22 @@ func (a *AggregatorServer) GetTools() []mcp.Tool {
 }
 
 // GetToolsForSession returns a session-specific view of all available tools.
-// For OAuth servers, tools are read from the CapabilityCache keyed by session ID.
+// For OAuth servers, tools are read from the CapabilityStore keyed by session ID.
 // For non-OAuth servers, tools are read from ServerInfo (same as GetAllTools).
 func (a *AggregatorServer) GetToolsForSession(sessionID string) []mcp.Tool {
-	return a.registry.GetAllToolsForSession(a.capabilityCache, sessionID)
+	return a.registry.GetAllToolsForSession(a.capabilityStore, sessionID)
 }
 
 // GetResourcesForSession returns a session-specific view of all available resources.
-// For OAuth servers, resources are read from the CapabilityCache keyed by session ID.
+// For OAuth servers, resources are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetResourcesForSession(sessionID string) []mcp.Resource {
-	return a.registry.GetAllResourcesForSession(a.capabilityCache, sessionID)
+	return a.registry.GetAllResourcesForSession(a.capabilityStore, sessionID)
 }
 
 // GetPromptsForSession returns a session-specific view of all available prompts.
-// For OAuth servers, prompts are read from the CapabilityCache keyed by session ID.
+// For OAuth servers, prompts are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetPromptsForSession(sessionID string) []mcp.Prompt {
-	return a.registry.GetAllPromptsForSession(a.capabilityCache, sessionID)
+	return a.registry.GetAllPromptsForSession(a.capabilityStore, sessionID)
 }
 
 // sessionToolFilter is the WithToolFilter callback for MCP tools/list.
@@ -1405,7 +1370,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			// Enrich mcpserver_list responses with session-specific data from CapabilityCache
 			if originalToolName == "mcpserver_list" {
 				sessionID := getSessionIDFromContext(ctx)
-				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityCache, sessionID)
+				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityStore, sessionID)
 			}
 
 			return mcpResult, nil
@@ -1691,10 +1656,13 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Invalidate capability cache entries for all of this user's sessions
-	if a.capabilityCache != nil && a.subjectSessions != nil {
+	// Delete capability store entries for all of this user's sessions
+	if a.capabilityStore != nil && a.subjectSessions != nil {
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
-			a.capabilityCache.InvalidateSession(sid)
+			if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
+				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
+					logging.TruncateIdentifier(sid), err)
+			}
 		}
 	}
 
@@ -1739,9 +1707,12 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
-	// Invalidate the CapabilityCache entry for this session+server.
-	if a.capabilityCache != nil {
-		a.capabilityCache.Invalidate(sessionID, serverName)
+	// Remove the capability entry for this session+server.
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.DeleteEntry(context.Background(), sessionID, serverName); err != nil {
+			logging.Warn("Aggregator", "Failed to delete entry %s/%s from capability store: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
 	}
 
 	logging.Info("Aggregator", "Server %s disconnected for session via DELETE /auth/{server}: %s",
@@ -1749,14 +1720,14 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resolveUserTool attempts to resolve a tool name through the CapabilityCache.
+// resolveUserTool attempts to resolve a tool name through the CapabilityStore.
 // This is used for OAuth-protected servers where tools are cached per-session.
 //
 // Returns the server name and original tool name, or an error if not found.
 // Callers create an on-demand client via getOrCreateClientForToolCall.
 func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (string, string, error) {
-	if a.capabilityCache == nil {
-		return "", "", fmt.Errorf("capability cache not initialized")
+	if a.capabilityStore == nil {
+		return "", "", fmt.Errorf("capability store not initialized")
 	}
 
 	servers := a.registry.GetAllServers()
@@ -1765,12 +1736,12 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 			continue
 		}
 
-		entry, exists := a.capabilityCache.Get(sessionID, serverName)
-		if !exists {
+		caps, err := a.capabilityStore.Get(context.Background(), sessionID, serverName)
+		if err != nil || caps == nil {
 			continue
 		}
 
-		for _, tool := range entry.Tools {
+		for _, tool := range caps.Tools {
 			exposedToolName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
 			if exposedToolName == exposedName {
 				return serverName, tool.Name, nil
@@ -1778,7 +1749,7 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 		}
 	}
 
-	return "", "", fmt.Errorf("tool not found in capability cache")
+	return "", "", fmt.Errorf("tool not found in capability store")
 }
 
 // getOrCreateClientForToolCall creates a short-lived MCP client on demand for
@@ -1800,9 +1771,10 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
 	}
 
-	// Verify session has a cache entry (i.e., has authenticated to this server)
-	if a.capabilityCache != nil {
-		if _, hasCacheEntry := a.capabilityCache.Get(sessionID, serverName); !hasCacheEntry {
+	// Verify session has a capability entry (i.e., has authenticated to this server)
+	if a.capabilityStore != nil {
+		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverName)
+		if !exists {
 			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
 		}
 	}
@@ -1960,6 +1932,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
 
+	// Trigger on-demand SSO connections for servers with cache misses.
+	// This replaces the former batch "session init" phase: SSO connections are
+	// established lazily when the user first lists tools, not proactively on login.
+	a.triggerOnDemandSSO(ctx, sessionID)
+
 	mcpServerTools := a.GetToolsForSession(sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
 
@@ -2068,8 +2045,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			continue
 		}
 
-		if a.capabilityCache != nil {
-			if _, exists := a.capabilityCache.Get(sessionID, name); exists {
+		if a.capabilityStore != nil {
+			exists, _ := a.capabilityStore.Exists(ctx, sessionID, name)
+			if exists {
 				continue
 			}
 		}

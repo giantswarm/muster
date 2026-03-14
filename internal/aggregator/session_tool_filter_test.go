@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -78,14 +79,14 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		cache := NewCapabilityCache(0)
-		defer cache.Stop()
-		cache.Set("session-123", "oauth-server",
-			[]mcp.Tool{{Name: "secret_tool"}}, nil, nil)
+		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		defer store.Stop()
+		_ = store.Set(context.Background(), "session-123", "oauth-server",
+			&Capabilities{Tools: []mcp.Tool{{Name: "secret_tool"}}})
 
 		agg := &AggregatorServer{
 			registry:        reg,
-			capabilityCache: cache,
+			capabilityStore: store,
 			toolManager:     newActiveItemManager(),
 			subjectSessions: newSubjectSessionTracker(),
 		}
@@ -146,14 +147,14 @@ func TestSessionToolFilter_ReturnsOnlyMetaTools(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		cache := NewCapabilityCache(0)
-		defer cache.Stop()
-		cache.Set("session-abc", "auth-server",
-			[]mcp.Tool{{Name: "auth_tool_1"}, {Name: "auth_tool_2"}, {Name: "auth_tool_3"}}, nil, nil)
+		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		defer store.Stop()
+		_ = store.Set(context.Background(), "session-abc", "auth-server",
+			&Capabilities{Tools: []mcp.Tool{{Name: "auth_tool_1"}, {Name: "auth_tool_2"}, {Name: "auth_tool_3"}}})
 
 		agg := &AggregatorServer{
 			registry:        reg,
-			capabilityCache: cache,
+			capabilityStore: store,
 			toolManager:     newActiveItemManager(),
 			subjectSessions: newSubjectSessionTracker(),
 		}

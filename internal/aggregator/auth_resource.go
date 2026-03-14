@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
-	"sync"
 
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -54,8 +53,8 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user state.
 //
-// Note: Proactive SSO connections for servers with forwardToken: true are established
-// during session initialization (see handleSessionInit), not during auth status reads.
+// Note: SSO connections for servers with forwardToken: true are established on demand
+// when the user first accesses tools, not during auth status reads.
 // This ensures auth://status is a pure read operation without side effects.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	sub := getUserSubjectFromContext(ctx)
@@ -121,7 +120,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // determineSessionAuthStatus determines the auth/connection status for a specific
 // user and server combination.
 //
-// Per issue #292, this function uses the CapabilityCache as the primary source
+// Per issue #292, this function uses the CapabilityStore as the primary source
 // of truth for per-user state:
 //   - If user has cached capabilities (tools) -> "connected"
 //   - If server infrastructure is unreachable -> "unreachable" (no auth possible)
@@ -137,9 +136,10 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 		return pkgoauth.ServerStatusUnreachable
 	}
 
-	// Check CapabilityCache keyed by session ID for per-login-session state
-	if a.capabilityCache != nil {
-		if _, ok := a.capabilityCache.Get(sessionID, serverName); ok {
+	// Check CapabilityStore keyed by session ID for per-login-session state
+	if a.capabilityStore != nil {
+		exists, _ := a.capabilityStore.Exists(context.Background(), sessionID, serverName)
+		if exists {
 			logging.Debug("Aggregator", "Session %s has cached capabilities for %s", logging.TruncateIdentifier(sessionID), serverName)
 			return pkgoauth.ServerStatusConnected
 		}
@@ -147,16 +147,6 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 
 	// No cached capabilities - check infrastructure state
 	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-		// If the server is SSO-enabled and SSO init is in progress for this user,
-		// return sso_pending instead of auth_required. This prevents clients from
-		// calling core_auth_login while SSO is still completing.
-		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
-			a.ssoTracker != nil &&
-			a.ssoTracker.IsSSOInitInProgress(sub) &&
-			!a.ssoTracker.HasSSOFailed(sub, serverName) {
-			return pkgoauth.ServerStatusSSOPending
-		}
-		// Server requires auth globally but this user hasn't authenticated
 		return pkgoauth.ServerStatusAuthRequired
 	}
 
@@ -233,86 +223,60 @@ func (a *AggregatorServer) getMusterIssuerWithFallback(sessionID string) string 
 	return ""
 }
 
-// handleSessionInitPrepare is called synchronously before the async SSO goroutine.
-// It sets SSOInitInProgress early to close the race window where an auth://status
-// read between goroutine launch and the actual StartSSOInit call inside
-// handleSessionInit could return auth_required instead of sso_pending.
+// triggerOnDemandSSO checks for SSO-enabled servers that don't yet have cached
+// capabilities for this session and triggers background SSO connections for them.
 //
-// This is a best-effort operation: it sets the flag even if there turn out to be
-// no SSO servers. handleSessionInit's defer EndSSOInit clears it immediately in
-// that case, so the window of a false positive is negligible.
-func (a *AggregatorServer) handleSessionInitPrepare(sub string) {
-	if a.ssoTracker != nil {
-		a.ssoTracker.StartSSOInit(sub)
-	}
-}
-
-// handleSessionInit is called on the first authenticated MCP request for a user.
-// It triggers proactive SSO connections to all SSO-enabled servers (forwardToken: true)
-// using muster's ID token.
+// This implements the on-demand population model: instead of proactively connecting
+// to all SSO servers during session initialization, connections are established
+// lazily when the user first lists tools (or resources/prompts).
 //
-// This enables seamless SSO: users authenticate once to muster (via `muster auth login`)
-// and automatically gain access to all SSO-enabled MCP servers without needing to call
-// `core_auth_login` for each server individually.
-//
-// SSO connections are established in parallel to minimize total time and prevent race
-// conditions with session timeouts. All servers are attempted concurrently using goroutines.
-//
-// Note: This callback runs asynchronously and should not block.
-func (a *AggregatorServer) handleSessionInit(ctx context.Context, sub string) {
-	if a.ssoTracker != nil {
-		defer a.ssoTracker.EndSSOInit(sub)
+// Connections are fired as background goroutines so list_tools returns immediately.
+// The next list_tools call will find the cached capabilities from completed connections.
+func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID string) {
+	if sessionID == "" {
+		return
 	}
 
-	// Get muster issuer for SSO token forwarding
 	musterIssuer := a.getMusterIssuer()
 	if musterIssuer == "" {
-		logging.Debug("Aggregator", "Session init: No muster issuer configured, skipping proactive SSO")
 		return
 	}
 
 	servers := a.registry.GetAllServers()
-	var ssoServers []*ServerInfo
-
-	// Find all SSO-enabled servers that require authentication
-	// SSO can be via token exchange (RFC 8693) or token forwarding
 	for _, info := range servers {
-		if info.Status == StatusAuthRequired && (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) {
-			ssoServers = append(ssoServers, info)
+		if info.Status != StatusAuthRequired {
+			continue
 		}
+		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
+			continue
+		}
+
+		// Skip if already cached
+		if a.capabilityStore != nil {
+			exists, _ := a.capabilityStore.Exists(ctx, sessionID, info.Name)
+			if exists {
+				continue
+			}
+		}
+
+		// Skip if SSO already failed for this user/server
+		sub := getUserSubjectFromContext(ctx)
+		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sub, info.Name) {
+			continue
+		}
+
+		// Fire background SSO connection
+		serverInfo := info
+		go a.establishSSOConnection(ctx, serverInfo, musterIssuer)
 	}
-
-	if len(ssoServers) == 0 {
-		logging.Debug("Aggregator", "Session init: No SSO-enabled servers require authentication")
-		return
-	}
-
-	logging.Info("Aggregator", "Session init: Establishing proactive SSO connections for user %s to %d servers (parallel)",
-		sub, len(ssoServers))
-
-	// Attempt to connect to all SSO-enabled servers in parallel
-	// This minimizes total time and prevents race conditions with session timeouts
-	var wg sync.WaitGroup
-	for _, info := range ssoServers {
-		wg.Add(1)
-		go func(serverInfo *ServerInfo) {
-			defer wg.Done()
-			a.establishSSOConnection(ctx, serverInfo, musterIssuer)
-		}(info)
-	}
-	wg.Wait()
-
-	// Note: Individual SSO failures are logged within establishSSOConnection.
-	// Context cancellation will cause all goroutines to fail gracefully.
-	logging.Debug("Aggregator", "Session init: Completed SSO initialization for user %s", sub)
 }
 
 // establishSSOConnection attempts to establish an SSO connection to a single server.
-// This is called from handleSessionInit for each SSO-enabled server.
+// This is called on demand when a cache miss is detected for an SSO-enabled server,
+// or when the user explicitly calls core_auth_login.
 //
-// This method is safe against concurrent calls (e.g., proactive SSO goroutine racing
-// with an explicit core_auth_login). It checks the CapabilityCache before attempting
-// connection and skips if the user already has cached capabilities.
+// This method is safe against concurrent calls. It checks the CapabilityStore before
+// attempting connection and skips if the user already has cached capabilities.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	serverInfo *ServerInfo,
@@ -321,11 +285,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 
-	// Guard against concurrent connection attempts. The proactive SSO goroutine
-	// (from handleSessionInit) can race with explicit core_auth_login calls.
-	if a.capabilityCache != nil {
-		if _, ok := a.capabilityCache.Get(sessionID, serverInfo.Name); ok {
-			logging.Debug("Aggregator", "Session init: Session %s already has capabilities for %s, skipping SSO",
+	// Guard against concurrent connection attempts. On-demand SSO goroutines
+	// can race with explicit core_auth_login calls.
+	if a.capabilityStore != nil {
+		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name)
+		if exists {
+			logging.Debug("Aggregator", "SSO: Session %s already has capabilities for %s, skipping SSO",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return
 		}
@@ -349,11 +314,11 @@ func (a *AggregatorServer) establishSSOConnection(
 	}
 
 	if err == nil && result != nil {
-		logging.Info("Aggregator", "Session init: Connected user %s to SSO server %s via %s",
+		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)
 	} else {
 		// Log at Warn level for visibility - SSO failures should be investigated
-		logging.Warn("Aggregator", "Session init: SSO connection to %s failed for user %s: %v",
+		logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s: %v",
 			serverInfo.Name, sub, err)
 
 		// Track the SSO failure so the UI can show "SSO failed"

@@ -73,7 +73,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
-	t.Run("skips SSO server while SSO init is pending", func(t *testing.T) {
+	t.Run("skips SSO server from auth required list", func(t *testing.T) {
 		reg := NewServerRegistry("x")
 		err := reg.RegisterPendingAuthWithConfig(
 			"sso-pending",
@@ -84,10 +84,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		tracker := newSSOTracker()
-		tracker.StartSSOInit("user@example.com")
-
-		agg := &AggregatorServer{registry: reg, ssoTracker: tracker}
+		agg := &AggregatorServer{registry: reg, ssoTracker: newSSOTracker()}
 
 		result := agg.ListServersRequiringAuth(context.Background())
 		assert.Empty(t, result, "manual login cannot perform SSO")
@@ -139,15 +136,15 @@ func TestListServersRequiringAuth(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		cache := NewCapabilityCache(30 * time.Minute)
-		defer cache.Stop()
-		cache.Set("test-session", "cached-server",
-			[]mcp.Tool{{Name: "t"}}, nil, nil)
+		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		defer store.Stop()
+		_ = store.Set(context.Background(), "test-session", "cached-server",
+			&Capabilities{Tools: []mcp.Tool{{Name: "t"}}})
 
 		ctx := api.WithSessionID(context.Background(), "test-session")
 		agg := &AggregatorServer{
 			registry:        reg,
-			capabilityCache: cache,
+			capabilityStore: store,
 		}
 
 		result := agg.ListServersRequiringAuth(ctx)
