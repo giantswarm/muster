@@ -250,7 +250,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		cache := NewCapabilityCache(5 * time.Minute)
+		cache := NewCapabilityCache(30 * time.Minute)
 		cache.Set("session-A", "target-server", nil, nil, nil)
 		cache.Set("session-B", "target-server", nil, nil, nil)
 

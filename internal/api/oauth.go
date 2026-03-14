@@ -146,6 +146,17 @@ type OAuthHandler interface {
 	Stop()
 }
 
+// SessionActivityCallback is called on every authenticated MCP request for an
+// already-initialized session. The aggregator registers this callback to renew
+// capability cache TTLs, keeping cache entries alive as long as the session's
+// token is valid and the user is actively making requests.
+//
+// Args:
+//   - sessionID: The session ID (token family) whose cache entries should be renewed
+//
+// This callback is lightweight (just a TTL reset) and safe to call on every request.
+type SessionActivityCallback func(sessionID string)
+
 // oauthHandler stores the registered OAuth handler implementation.
 var oauthHandler OAuthHandler
 var oauthMutex sync.RWMutex
@@ -159,6 +170,7 @@ type SessionInitPrepareCallback func(sub string)
 // sessionInitCallback stores the registered session initialization callback.
 var sessionInitCallback SessionInitCallback
 var sessionInitPrepareCallback SessionInitPrepareCallback
+var sessionActivityCallback SessionActivityCallback
 var sessionInitMutex sync.RWMutex
 
 // RegisterSessionInitCallback registers a callback for session initialization.
@@ -203,6 +215,27 @@ func GetSessionInitPrepareCallback() SessionInitPrepareCallback {
 	sessionInitMutex.RLock()
 	defer sessionInitMutex.RUnlock()
 	return sessionInitPrepareCallback
+}
+
+// RegisterSessionActivityCallback registers a callback for session activity.
+// This callback is triggered on every authenticated MCP request for an
+// already-initialized session, enabling the aggregator to renew cache TTLs.
+//
+// Thread-safe: Yes, protected by sessionInitMutex.
+func RegisterSessionActivityCallback(cb SessionActivityCallback) {
+	sessionInitMutex.Lock()
+	defer sessionInitMutex.Unlock()
+	sessionActivityCallback = cb
+}
+
+// GetSessionActivityCallback returns the registered session activity callback.
+// Returns nil if no callback has been registered.
+//
+// Thread-safe: Yes, protected by sessionInitMutex read lock.
+func GetSessionActivityCallback() SessionActivityCallback {
+	sessionInitMutex.RLock()
+	defer sessionInitMutex.RUnlock()
+	return sessionActivityCallback
 }
 
 // RegisterOAuthHandler registers the OAuth handler implementation.

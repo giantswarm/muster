@@ -401,9 +401,13 @@ func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *htt
 	now := time.Now()
 
 	// Session ID changes on re-authentication (new login = new token family).
-	// If we've already seen this session, just update last access time.
+	// If we've already seen this session, just update last access time and
+	// renew capability cache TTLs so they survive for the full token lifetime.
 	if _, exists := s.sessionInitTracker.Load(sessionID); exists {
 		s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{lastAccess: now})
+		if activityCb := api.GetSessionActivityCallback(); activityCb != nil {
+			activityCb(sessionID)
+		}
 		logging.Debug("OAuth", "SSO: Session %s already initialized, skipping", logging.TruncateIdentifier(sessionID))
 		return
 	}

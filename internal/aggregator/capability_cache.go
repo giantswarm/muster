@@ -111,6 +111,48 @@ func (c *CapabilityCache) SetWithTTL(sessionID, serverName string, tools []mcp.T
 	c.mu.Unlock()
 }
 
+// Touch resets the TTL for a specific session+server cache entry without
+// re-fetching capabilities. This is used to renew cache lifetime when the
+// session's access token is refreshed or the session is actively used.
+// Returns true if the entry was found and touched, false otherwise.
+func (c *CapabilityCache) Touch(sessionID, serverName string) bool {
+	now := time.Now()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	key := CacheKey{SessionID: sessionID, ServerName: serverName}
+	entry, ok := c.entries[key]
+	if !ok {
+		return false
+	}
+
+	entry.ExpiresAt = now.Add(c.defaultTTL)
+	entry.graceDeadline = now.Add(2 * c.defaultTTL)
+	return true
+}
+
+// TouchSession resets the TTL for all cache entries belonging to a session.
+// This is used to renew cache lifetime when the session's access token is
+// refreshed, keeping capabilities alive for the full token lifetime.
+// Returns the number of entries touched.
+func (c *CapabilityCache) TouchSession(sessionID string) int {
+	now := time.Now()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	count := 0
+	for key, entry := range c.entries {
+		if key.SessionID == sessionID {
+			entry.ExpiresAt = now.Add(c.defaultTTL)
+			entry.graceDeadline = now.Add(2 * c.defaultTTL)
+			count++
+		}
+	}
+	return count
+}
+
 // InvalidateSession removes all cached entries for a session (e.g., on logout
 // via token family revocation).
 func (c *CapabilityCache) InvalidateSession(sessionID string) {

@@ -270,7 +270,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
-		capabilityCache: NewCapabilityCache(5 * time.Minute),
+		capabilityCache: NewCapabilityCache(server.DefaultAccessTokenTTL),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
 	}
@@ -364,6 +364,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// gain access to all SSO-enabled MCP servers.
 	api.RegisterSessionInitCallback(a.handleSessionInit)
 	api.RegisterSessionInitPrepareCallback(a.handleSessionInitPrepare)
+
+	// Register session activity callback to renew capability cache TTLs.
+	// On every authenticated request for an already-initialized session,
+	// this resets the cache TTL so entries survive for the full token lifetime.
+	api.RegisterSessionActivityCallback(func(sessionID string) {
+		if a.capabilityCache != nil {
+			a.capabilityCache.TouchSession(sessionID)
+		}
+	})
 
 	// Register this aggregator as the MetaToolsDataProvider (Issue #343)
 	// This enables the metatools package to access tools, resources, and prompts
