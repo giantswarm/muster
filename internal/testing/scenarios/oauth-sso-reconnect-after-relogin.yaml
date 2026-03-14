@@ -2,16 +2,16 @@ name: "oauth-sso-reconnect-after-relogin"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Tests that SSO servers can be reconnected after logout and re-login.
+  Tests that SSO servers are automatically reconnected by on-demand SSO.
   
-  This scenario tests the complete logout + re-login user flow:
-  1. User authenticates to muster → connects to SSO server via core_auth_login
-  2. User logs out from the SSO server → session connection is cleared
-  3. User re-authenticates with NEW token
-  4. User can reconnect to SSO server via core_auth_login (token forwarding)
+  SSO servers are managed automatically -- users don't manually login/logout.
+  This scenario verifies:
+  1. User authenticates to muster -> SSO server connects automatically
+  2. Even after clearing the capability store entry (simulated via logout),
+     the on-demand SSO mechanism reconnects the server on the next request
   
-  This verifies that token forwarding works correctly across the full
-  authentication lifecycle (login → logout → relogin).
+  This verifies that the on-demand SSO model correctly re-establishes
+  connections when capability store entries are missing.
 tags: ["oauth", "sso", "session", "relogin", "token-forwarding", "regression"]
 timeout: "2m"
 
@@ -74,8 +74,7 @@ steps:
       contains:
         - "relogin-sso-server"
 
-  # Step 3: First authentication to muster (simulates `muster auth login`)
-  # This stores the ID token in muster's token store for SSO forwarding
+  # Step 3: Authenticate to muster (simulates `muster auth login`)
   - id: muster-auth-login
     description: "Authenticate to muster via OAuth (stores ID token for SSO)"
     tool: "test_muster_auth_login"
@@ -86,18 +85,20 @@ steps:
         - "success"
         - "ID token stored"
 
-  # Step 4: Verify SSO connected the server
-  - id: verify-sso-connected-first
-    description: "Verify SSO connected the server after first auth"
-    tool: "core_auth_login"
+  # Step 4: Verify SSO connected the server automatically
+  - id: verify-sso-connected
+    description: "Verify SSO connected the server after auth"
+    tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
     expected:
       success: true
-      # Should say already authenticated because SSO connected it
+      contains:
+        - "relogin-sso-server"
+        - "connected"
 
-  # Step 5: Verify protected tool works with initial connection
-  - id: verify-connection-first
+  # Step 5: Verify protected tool works
+  - id: verify-connection
     description: "Call protected tool to verify SSO authentication succeeded"
     tool: "x_relogin-sso-server_check_connection"
     args: {}
@@ -107,25 +108,13 @@ steps:
         - "success"
         - "Connection verified"
 
-  # Step 6: Verify auth status shows connected
-  - id: check-auth-status-connected
-    description: "Verify auth status shows connected after first auth"
-    tool: "test_read_auth_status"
-    args:
-      server: "relogin-sso-server"
-    expected:
-      success: true
-      contains:
-        - "relogin-sso-server"
-        - "connected"
-
   # =========================================================================
-  # PHASE 2: Logout (Disconnect the session connection)
+  # PHASE 2: Logout clears cache, on-demand SSO reconnects automatically
   # =========================================================================
 
-  # Step 7: Logout from the SSO server
+  # Step 6: Logout from the SSO server (clears capability store entry)
   - id: logout-from-server
-    description: "Logout from SSO server to disconnect the session connection"
+    description: "Logout from SSO server clears cached capabilities"
     tool: "core_auth_logout"
     args:
       server: "relogin-sso-server"
@@ -134,50 +123,11 @@ steps:
       contains:
         - "logged out"
 
-  # Step 8: Verify server is now disconnected (requires auth)
-  - id: verify-server-disconnected
-    description: "Verify server is disconnected after logout"
-    tool: "test_read_auth_status"
-    args:
-      server: "relogin-sso-server"
-    expected:
-      success: true
-      contains:
-        - "relogin-sso-server"
-        - "auth_required"
-
-  # =========================================================================
-  # PHASE 3: Re-authentication (should reconnect the server)
-  # =========================================================================
-
-  # Step 9: Re-authenticate to muster with new token
-  # This simulates a user re-authenticating after logging out.
-  # Uses test_simulate_muster_reauth which:
-  # - Gets a new token from the OAuth server via refresh
-  # - Reconnects to muster with the new access token
-  - id: reauth-to-muster
-    description: "Re-authenticate to muster with new token (fresh connection)"
-    tool: "test_simulate_muster_reauth"
-    args: {}
-    expected:
-      success: true
-      contains:
-        - "success"
-        - "re-authenticated"
-
-  # Step 10: Reconnect to the SSO server using token forwarding
-  # After re-authentication, the user can reconnect via core_auth_login
-  - id: reconnect-sso-server
-    description: "Reconnect to SSO server via token forwarding"
-    tool: "core_auth_login"
-    args:
-      server: "relogin-sso-server"
-    expected:
-      success: true
-
-  # Step 11: Verify auth status shows connected after reconnection
-  - id: verify-sso-reconnected
-    description: "Verify auth status shows connected after reconnection"
+  # Step 7: On the next request, on-demand SSO reconnects automatically.
+  # The server should be connected again (not auth_required) because
+  # triggerOnDemandSSO fires on every authenticated request.
+  - id: verify-auto-reconnect
+    description: "Verify on-demand SSO automatically reconnects after logout"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -186,6 +136,3 @@ steps:
       contains:
         - "relogin-sso-server"
         - "connected"
-
-  # Note: Tool calls after re-authentication are tested via auth status verification above.
-  # The session connection state is the key verification point for re-login flow.

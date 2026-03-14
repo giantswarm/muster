@@ -162,20 +162,18 @@ const ssoTrackerFailureTTL = 30 * time.Minute
 // state when an SSO attempt silently fails without being recorded.
 const ssoTrackerPendingTimeout = 30 * time.Second
 
-// ssoTracker tracks SSO pending, failure, and suppression state per user subject and server.
+// ssoTracker tracks SSO pending and failure state per user subject and server.
 // Used by on-demand SSO to record and check SSO connection status.
 type ssoTracker struct {
-	mu               sync.RWMutex
-	pendingServers   map[string]map[string]time.Time       // sub -> serverName -> firstSeen
-	failedServers    map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
-	suppressedByUser map[string]map[string]bool            // sub -> serverName -> true (explicit logout)
+	mu             sync.RWMutex
+	pendingServers map[string]map[string]time.Time       // sub -> serverName -> firstSeen
+	failedServers  map[string]map[string]*ssoFailedEntry // sub -> serverName -> entry
 }
 
 func newSSOTracker() *ssoTracker {
 	return &ssoTracker{
-		pendingServers:   make(map[string]map[string]time.Time),
-		failedServers:    make(map[string]map[string]*ssoFailedEntry),
-		suppressedByUser: make(map[string]map[string]bool),
+		pendingServers: make(map[string]map[string]time.Time),
+		failedServers:  make(map[string]map[string]*ssoFailedEntry),
 	}
 }
 
@@ -217,42 +215,6 @@ func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
 			delete(s.pendingServers, sub)
 		}
 	}
-}
-
-// SuppressSSO marks that a user explicitly logged out from a server,
-// preventing automatic SSO reconnection until the user explicitly
-// re-authenticates via core_auth_login.
-func (s *ssoTracker) SuppressSSO(sub, serverName string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.suppressedByUser[sub] == nil {
-		s.suppressedByUser[sub] = make(map[string]bool)
-	}
-	s.suppressedByUser[sub][serverName] = true
-}
-
-// UnsuppressSSO removes the SSO suppression for a user/server pair,
-// allowing automatic SSO to proceed again (e.g., after core_auth_login).
-func (s *ssoTracker) UnsuppressSSO(sub, serverName string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if m, ok := s.suppressedByUser[sub]; ok {
-		delete(m, serverName)
-		if len(m) == 0 {
-			delete(s.suppressedByUser, sub)
-		}
-	}
-}
-
-// IsSSOSuppressed returns true if the user has explicitly logged out from
-// this server and automatic SSO should not be attempted.
-func (s *ssoTracker) IsSSOSuppressed(sub, serverName string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if m, ok := s.suppressedByUser[sub]; ok {
-		return m[serverName]
-	}
-	return false
 }
 
 // MarkSSOFailed records that SSO failed for a user/server pair with a timestamp.

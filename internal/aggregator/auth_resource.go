@@ -292,13 +292,8 @@ func (a *AggregatorServer) triggerOnDemandSSO(ctx context.Context, sessionID str
 				continue
 			}
 		}
-		if a.ssoTracker != nil {
-			if a.ssoTracker.HasSSOFailed(sub, info.Name) {
-				continue
-			}
-			if a.ssoTracker.IsSSOSuppressed(sub, info.Name) {
-				continue
-			}
+		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(sub, info.Name) {
+			continue
 		}
 		pending = append(pending, info)
 	}

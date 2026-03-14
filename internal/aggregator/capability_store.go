@@ -228,6 +228,9 @@ func (s *InMemoryCapabilityStore) Touch(_ context.Context, sessionID string) (bo
 	if time.Now().After(sess.expireAt) {
 		return false, nil
 	}
+	if len(sess.servers) == 0 {
+		return false, nil
+	}
 
 	sess.expireAt = time.Now().Add(s.ttl)
 	if sess.timer != nil {
