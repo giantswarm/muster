@@ -127,13 +127,14 @@ func buildDexScopes(requiredAudiences []string) []string {
 // It provides both OAuth server functionality (authorization, token issuance)
 // and resource server protection (token validation middleware).
 type OAuthHTTPServer struct {
-	config       config.OAuthServerConfig
-	oauthServer  *oauth.Server
-	oauthHandler *oauth.Handler
-	tokenStore   storage.TokenStore
-	httpServer   *http.Server
-	mcpHandler   http.Handler
-	debug        bool
+	config          config.OAuthServerConfig
+	oauthServer     *oauth.Server
+	oauthHandler    *oauth.Handler
+	tokenStore      storage.TokenStore
+	httpServer      *http.Server
+	mcpHandler      http.Handler
+	debug           bool
+	onAuthenticated func(ctx context.Context, sessionID string)
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -165,6 +166,14 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 	}
 
 	return server, nil
+}
+
+// SetOnAuthenticated registers a callback that fires on every authenticated
+// MCP request after the session ID has been extracted. The aggregator uses
+// this to trigger on-demand SSO connections from the HTTP middleware rather
+// than from individual MCP operations.
+func (s *OAuthHTTPServer) SetOnAuthenticated(fn func(ctx context.Context, sessionID string)) {
+	s.onAuthenticated = fn
 }
 
 // CreateMux creates an HTTP mux that routes to both OAuth and MCP handlers.
@@ -271,8 +280,8 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 // OAuth access token into the request context. This token can then be used
 // for downstream authentication (e.g., to remote MCP servers).
 //
-// SSO connections to downstream servers are established on demand when users
-// access tools, not proactively during session initialization.
+// After extracting credentials, the middleware fires the onAuthenticated callback
+// (if set) to trigger on-demand SSO connections for any uncached SSO servers.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -333,6 +342,12 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
+
+		if s.onAuthenticated != nil {
+			if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
+				s.onAuthenticated(ctx, sessionID)
+			}
+		}
 
 		if s.debug {
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))

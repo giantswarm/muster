@@ -896,6 +896,13 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
+	// Trigger on-demand SSO from the HTTP middleware on every authenticated request.
+	// triggerOnDemandSSO is idempotent: it skips servers that are already cached or
+	// have failed SSO, so calling it on every request is a fast no-op in steady state.
+	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+		a.triggerOnDemandSSO(ctx, sessionID)
+	})
+
 	// Register a revocation handler so that per-session state is cleaned up
 	// when a token family is revoked (e.g., on logout via POST /oauth/revoke).
 	oauthHTTPServer.GetOAuthServer().SetTokenFamilyRevocationHandler(func(ctx context.Context, userID, familyID string) {
@@ -1931,11 +1938,6 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 // mcpserver, events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
-
-	// Trigger on-demand SSO connections for servers with cache misses.
-	// This replaces the former batch "session init" phase: SSO connections are
-	// established lazily when the user first lists tools, not proactively on login.
-	a.triggerOnDemandSSO(ctx, sessionID)
 
 	mcpServerTools := a.GetToolsForSession(sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
