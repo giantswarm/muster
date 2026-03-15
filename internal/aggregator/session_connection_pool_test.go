@@ -369,6 +369,70 @@ func TestSessionConnectionPool_StopIsIdempotent(t *testing.T) {
 	pool.Stop()
 }
 
+func TestSessionConnectionPool_IsTokenExpired(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	t.Run("returns false for healthy token", func(t *testing.T) {
+		pool.PutWithExpiry("s1", "srv-healthy", &poolTestClient{}, time.Now().Add(10*time.Minute))
+		assert.False(t, pool.IsTokenExpired("s1", "srv-healthy"))
+	})
+
+	t.Run("returns true for expired token", func(t *testing.T) {
+		pool.PutWithExpiry("s1", "srv-expired", &poolTestClient{}, time.Now().Add(-5*time.Second))
+		assert.True(t, pool.IsTokenExpired("s1", "srv-expired"))
+	})
+
+	t.Run("returns false for no expiry tracked", func(t *testing.T) {
+		pool.Put("s1", "srv-noexpiry", &poolTestClient{})
+		assert.False(t, pool.IsTokenExpired("s1", "srv-noexpiry"))
+	})
+
+	t.Run("returns false for nonexistent entry", func(t *testing.T) {
+		assert.False(t, pool.IsTokenExpired("s1", "srv-nonexistent"))
+	})
+}
+
+func TestSessionConnectionPool_PutWithDeferredClose(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	old := &poolTestClient{}
+	replacement := &poolTestClient{}
+
+	pool.PutWithExpiry("s1", "srv-a", old, time.Now().Add(5*time.Minute))
+
+	// Replace with deferred close. Use a very short delay for testing.
+	pool.PutWithDeferredClose("s1", "srv-a", replacement, time.Now().Add(30*time.Minute), 50*time.Millisecond)
+
+	// Old client should NOT be closed immediately.
+	assert.Equal(t, int32(0), old.closeCount.Load(), "old client should not be closed immediately")
+
+	// New client should be retrievable.
+	got, ok := pool.Get("s1", "srv-a")
+	require.True(t, ok)
+	assert.Equal(t, replacement, got)
+
+	// Wait for the deferred close to fire.
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, int32(1), old.closeCount.Load(), "old client should be closed after delay")
+	assert.Equal(t, int32(0), replacement.closeCount.Load(), "replacement client should not be closed")
+}
+
+func TestSessionConnectionPool_PutWithDeferredClose_NoOldEntry(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	client := &poolTestClient{}
+
+	// PutWithDeferredClose on an empty key should not panic.
+	pool.PutWithDeferredClose("s1", "srv-new", client, time.Now().Add(30*time.Minute), 50*time.Millisecond)
+
+	got, ok := pool.Get("s1", "srv-new")
+	require.True(t, ok)
+	assert.Equal(t, client, got)
+}
+
 func TestSessionConnectionPool_EvictIdleMixedEntries(t *testing.T) {
 	maxAge := 100 * time.Millisecond
 	pool := NewSessionConnectionPool(maxAge)

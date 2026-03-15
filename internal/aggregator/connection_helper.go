@@ -811,10 +811,17 @@ func extractUserIDFromToken(idToken string) string {
 const idTokenExpiryMargin = 30 * time.Second
 
 // tokenExchangeRefreshMargin is the time before expiry at which a pooled
-// token-exchange client is proactively evicted and re-exchanged. This avoids
-// the 401 round-trip that would otherwise trigger the reactive retry in
-// callToolWithTokenExchangeRetry.
-const tokenExchangeRefreshMargin = 30 * time.Second
+// token-exchange client triggers a background re-exchange. Dex access tokens
+// typically live for 30 minutes, so a 5-minute margin gives ample time for
+// the background goroutine to complete the exchange + client initialization
+// without blocking the user's request.
+const tokenExchangeRefreshMargin = 5 * time.Minute
+
+// deferredCloseDelay is how long to wait before closing a replaced pooled
+// client during background token refresh. This gives any in-flight request
+// using the old client time to complete before the underlying connection is
+// torn down.
+const deferredCloseDelay = 60 * time.Second
 
 // notifyMCPServerConnected updates the MCPServer service state to Connected after
 // successful authentication. This syncs the session-level connection success to

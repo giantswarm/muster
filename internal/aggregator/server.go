@@ -24,6 +24,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/singleflight"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -97,6 +98,11 @@ type AggregatorServer struct {
 	// Per-session connection pool for reusing live MCP clients across tool calls.
 	// Always non-nil after NewAggregatorServer.
 	connPool *SessionConnectionPool
+
+	// tokenRefreshGroup deduplicates concurrent background token refresh
+	// goroutines for the same (sessionID, serverName) key. This prevents
+	// multiple tool calls from spawning parallel token exchanges.
+	tokenRefreshGroup singleflight.Group
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
@@ -1891,6 +1897,99 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 	return "", "", fmt.Errorf("tool not found in capability store")
 }
 
+// exchangeTokenAndCreateClient performs a token exchange for the given server
+// and returns an uninitialized MCP client together with the exchanged token's
+// expiry time. The caller is responsible for initializing and pooling the
+// client.
+//
+// This is the single implementation of the token exchange + client creation
+// flow, used by both getOrCreateClientForToolCall (synchronous path) and
+// backgroundTokenRefresh (async path).
+func (a *AggregatorServer) exchangeTokenAndCreateClient(
+	ctx context.Context,
+	serverInfo *ServerInfo,
+	sessionID string,
+) (MCPClient, time.Time, error) {
+	serverName := serverInfo.Name
+	musterIssuer := a.getMusterIssuer()
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return nil, time.Time{}, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
+	}
+
+	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
+	if idToken == "" {
+		return nil, time.Time{}, fmt.Errorf("no ID token available for token exchange to %s", serverName)
+	}
+	if isIDTokenExpired(idToken) {
+		return nil, time.Time{}, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+	}
+
+	userID := extractUserIDFromToken(idToken)
+	if userID == "" {
+		return nil, time.Time{}, fmt.Errorf("failed to extract user ID from token for %s", serverName)
+	}
+
+	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
+
+	if exchangeConfig.ClientCredentialsSecretRef != nil {
+		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
+		}
+		exchangeConfig.ClientID = credentials.ClientID
+		exchangeConfig.ClientSecret = credentials.ClientSecret
+	}
+
+	if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
+		updatedScopes, err := dex.AppendAudienceScopes(
+			exchangeConfig.Scopes,
+			serverInfo.AuthConfig.RequiredAudiences,
+		)
+		if err != nil {
+			logging.Warn("Aggregator", "Failed to format audience scopes for %s: %v (continuing without audiences)",
+				serverName, err)
+		} else {
+			exchangeConfig.Scopes = updatedScopes
+		}
+	}
+
+	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
+	if teleportResult.Configured && teleportResult.Error != nil {
+		return nil, time.Time{}, fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
+	}
+
+	var exchangedToken string
+	var err error
+	if teleportResult.Client != nil {
+		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
+			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
+		)
+	} else {
+		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
+			ctx, idToken, userID, &exchangeConfig,
+		)
+	}
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
+	}
+
+	tokenExpiry := getTokenExpiryTime(exchangedToken)
+
+	headerFunc := func(_ context.Context) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + exchangedToken}
+	}
+
+	var client MCPClient
+	if teleportResult.Client != nil {
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
+	} else {
+		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	}
+
+	return client, tokenExpiry, nil
+}
+
 // getOrCreateClientForToolCall returns a pooled or freshly created MCP client
 // for tool execution against an OAuth-protected server.
 //
@@ -1924,15 +2023,33 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// Check the connection pool first.
 	if a.connPool != nil {
 		if pooledClient, ok := a.connPool.Get(sessionID, serverName); ok {
-			// For token-exchange servers, check if the exchanged token is about
-			// to expire. If so, proactively evict the stale client and fall
-			// through to create a fresh one with a re-exchanged token.
-			if ShouldUseTokenExchange(serverInfo) &&
-				a.connPool.IsTokenExpiringSoon(sessionID, serverName, tokenExchangeRefreshMargin) {
-				logging.Info("Aggregator", "Proactive token refresh for %s (session %s): exchanged token expiring soon",
+			if !ShouldUseTokenExchange(serverInfo) {
+				logging.Debug("Aggregator", "Pool hit for session %s, server %s",
+					logging.TruncateIdentifier(sessionID), serverName)
+				return pooledClient, func() {}, nil
+			}
+
+			tokenExpired := a.connPool.IsTokenExpired(sessionID, serverName)
+			tokenExpiringSoon := a.connPool.IsTokenExpiringSoon(sessionID, serverName, tokenExchangeRefreshMargin)
+
+			switch {
+			case tokenExpired:
+				// Token is dead -- must renew synchronously.
+				logging.Info("Aggregator", "Token expired for %s (session %s), synchronous re-exchange required",
 					serverName, logging.TruncateIdentifier(sessionID))
 				a.connPool.Evict(sessionID, serverName)
-			} else {
+				// Fall through to pool-miss path.
+
+			case tokenExpiringSoon:
+				// Token still valid but nearing expiry -- return it immediately
+				// and refresh in the background via singleflight.
+				logging.Info("Aggregator", "Token expiring soon for %s (session %s), triggering background refresh",
+					serverName, logging.TruncateIdentifier(sessionID))
+				a.triggerBackgroundTokenRefresh(sessionID, serverName, sub)
+				return pooledClient, func() {}, nil
+
+			default:
+				// Token is healthy.
 				logging.Debug("Aggregator", "Pool hit for session %s, server %s",
 					logging.TruncateIdentifier(sessionID), serverName)
 				return pooledClient, func() {}, nil
@@ -1944,85 +2061,10 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	var tokenExpiry time.Time
 
 	if ShouldUseTokenExchange(serverInfo) {
-		// Token exchange: exchange a fresh ID token for a server-specific token
-		musterIssuer := a.getMusterIssuer()
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler == nil || !oauthHandler.IsEnabled() {
-			return nil, nil, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
-		}
-
-		idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
-		if idToken == "" {
-			return nil, nil, fmt.Errorf("no ID token available for token exchange to %s", serverName)
-		}
-
-		if isIDTokenExpired(idToken) {
-			return nil, nil, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
-		}
-
-		userID := extractUserIDFromToken(idToken)
-		if userID == "" {
-			return nil, nil, fmt.Errorf("failed to extract user ID from token for %s", serverName)
-		}
-
-		exchangeConfig := *serverInfo.AuthConfig.TokenExchange
-
-		// Load client credentials if configured
-		if exchangeConfig.ClientCredentialsSecretRef != nil {
-			credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
-			}
-			exchangeConfig.ClientID = credentials.ClientID
-			exchangeConfig.ClientSecret = credentials.ClientSecret
-		}
-
-		// Append RequiredAudiences as cross-client scopes (same as establishment flow)
-		if len(serverInfo.AuthConfig.RequiredAudiences) > 0 {
-			updatedScopes, err := dex.AppendAudienceScopes(
-				exchangeConfig.Scopes,
-				serverInfo.AuthConfig.RequiredAudiences,
-			)
-			if err != nil {
-				logging.Warn("Aggregator", "Failed to format audience scopes for %s: %v (continuing without audiences)",
-					serverName, err)
-			} else {
-				exchangeConfig.Scopes = updatedScopes
-			}
-		}
-
-		// Check for Teleport
-		teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-		if teleportResult.Configured && teleportResult.Error != nil {
-			return nil, nil, fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
-		}
-
-		// Perform token exchange
-		var exchangedToken string
 		var err error
-		if teleportResult.Client != nil {
-			exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-				ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
-			)
-		} else {
-			exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-				ctx, idToken, userID, &exchangeConfig,
-			)
-		}
+		client, tokenExpiry, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
-		}
-
-		tokenExpiry = getTokenExpiryTime(exchangedToken)
-
-		headerFunc := func(_ context.Context) map[string]string {
-			return map[string]string{"Authorization": "Bearer " + exchangedToken}
-		}
-
-		if teleportResult.Client != nil {
-			client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-		} else {
-			client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+			return nil, nil, err
 		}
 
 	} else if ShouldUseTokenForwarding(serverInfo) {
@@ -2128,6 +2170,57 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	defer retryCleanup()
 
 	return retryClient.CallTool(ctx, originalToolName, args)
+}
+
+// triggerBackgroundTokenRefresh launches a background goroutine to re-exchange
+// the token for a token-exchange server and replace the pooled client.
+// Concurrent calls for the same (sessionID, serverName) are deduplicated via
+// singleflight -- only the first caller spawns the goroutine.
+func (a *AggregatorServer) triggerBackgroundTokenRefresh(sessionID, serverName, sub string) {
+	sfKey := sessionID + "/" + serverName
+	go func() {
+		_, _, _ = a.tokenRefreshGroup.Do(sfKey, func() (interface{}, error) {
+			a.backgroundTokenRefresh(sessionID, serverName, sub)
+			return nil, nil
+		})
+	}()
+}
+
+// backgroundTokenRefresh performs a token re-exchange and replaces the pooled
+// client with a freshly authenticated one. The old client is closed after a
+// delay (deferredCloseDelay) to let any in-flight requests complete.
+//
+// Failures are logged but never propagated -- the caller already received the
+// still-valid pooled client, and callToolWithTokenExchangeRetry handles the
+// case where the token expires before the background refresh succeeds.
+func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub string) {
+	ctx := context.Background()
+
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists || !ShouldUseTokenExchange(serverInfo) {
+		return
+	}
+
+	client, tokenExpiry, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
+	if err != nil {
+		logging.Warn("Aggregator", "Background token refresh failed for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
+		return
+	}
+
+	if err := client.Initialize(ctx); err != nil {
+		client.Close()
+		logging.Warn("Aggregator", "Background refresh: client init failed for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
+		return
+	}
+
+	if a.connPool != nil {
+		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)
+	}
+
+	logging.Info("Aggregator", "Background token refresh completed for %s (session %s)",
+		serverName, logging.TruncateIdentifier(sessionID))
 }
 
 // ============================================================================

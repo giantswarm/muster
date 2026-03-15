@@ -193,6 +193,41 @@ func (p *SessionConnectionPool) IsTokenExpiringSoon(sessionID, serverName string
 	return time.Now().Add(margin).After(entry.TokenExpiry)
 }
 
+// IsTokenExpired returns true if the pooled entry's token has already expired.
+// This is equivalent to IsTokenExpiringSoon with a zero margin.
+func (p *SessionConnectionPool) IsTokenExpired(sessionID, serverName string) bool {
+	return p.IsTokenExpiringSoon(sessionID, serverName, 0)
+}
+
+// PutWithDeferredClose stores a new client in the pool and schedules the
+// replaced client (if any) for deferred close after closeDelay.
+//
+// This is used by background token refresh: the old client may still be
+// serving an in-flight request, so we cannot close it immediately. The
+// delay gives in-flight requests time to complete before the old client's
+// underlying connection is torn down.
+func (p *SessionConnectionPool) PutWithDeferredClose(sessionID, serverName string, client MCPClient, tokenExpiry time.Time, closeDelay time.Duration) {
+	key := poolKey{SessionID: sessionID, ServerName: serverName}
+
+	now := time.Now()
+
+	p.mu.Lock()
+	old, exists := p.pool[key]
+	p.pool[key] = &poolEntry{
+		Client:      client,
+		CreatedAt:   now,
+		LastUsedAt:  now,
+		TokenExpiry: tokenExpiry,
+	}
+	p.mu.Unlock()
+
+	if exists && old.Client != nil {
+		time.AfterFunc(closeDelay, func() {
+			closeQuietly(old.Client, sessionID, serverName, "deferred-close")
+		})
+	}
+}
+
 // Evict removes and closes a single pooled entry.
 func (p *SessionConnectionPool) Evict(sessionID, serverName string) {
 	key := poolKey{SessionID: sessionID, ServerName: serverName}

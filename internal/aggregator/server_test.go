@@ -748,7 +748,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	assert.Equal(t, 1, a.connPool.Len(), "pool entry should NOT be evicted for non-401 error")
 }
 
-func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.T) {
+func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgroundRefresh(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
@@ -769,17 +769,55 @@ func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.
 	})
 	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
-	// Pool a client with a token that expires in 10 seconds (within the 30s margin).
-	mockClient := &callToolMockClient{callToolResult: &mcp.CallToolResult{}}
-	a.connPool.PutWithExpiry(sessionID, serverName, mockClient, time.Now().Add(10*time.Second))
+	// Pool a client with a token that expires in 2 minutes (within the 5-minute margin).
+	expectedResult := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent("ok")},
+	}
+	mockClient := &callToolMockClient{callToolResult: expectedResult}
+	a.connPool.PutWithExpiry(sessionID, serverName, mockClient, time.Now().Add(2*time.Minute))
 
-	// getOrCreateClientForToolCall should detect the near-expiry and evict,
-	// then attempt to create a fresh client (which will fail because there's
-	// no OAuth handler, but the eviction is the key behavior).
+	// getOrCreateClientForToolCall should return the still-valid pooled client
+	// immediately and trigger background refresh (which will fail silently
+	// because there's no OAuth handler, but that's fine for this test).
+	client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "user-sub")
+	require.NoError(t, clientErr)
+	defer cleanup()
+
+	assert.Equal(t, mockClient, client, "should return the still-valid pooled client")
+	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain (background refresh is async)")
+}
+
+func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing.T) {
+	a := newTestAggregatorWithPool(t)
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
+
+	// Pool a client with a token that already expired 10 seconds ago.
+	mockClient := &callToolMockClient{callToolResult: &mcp.CallToolResult{}}
+	a.connPool.PutWithExpiry(sessionID, serverName, mockClient, time.Now().Add(-10*time.Second))
+
+	// getOrCreateClientForToolCall should evict the expired entry and try to
+	// create a fresh client synchronously (which fails -- no OAuth handler).
 	_, _, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "user-sub")
 
 	require.Error(t, clientErr, "should fail because no OAuth handler for re-exchange")
-	assert.Equal(t, 0, a.connPool.Len(), "expiring pool entry must be proactively evicted")
+	assert.Equal(t, 0, a.connPool.Len(), "expired pool entry must be evicted synchronously")
 }
 
 func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
