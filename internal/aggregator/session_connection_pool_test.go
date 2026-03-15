@@ -334,7 +334,7 @@ func TestSessionConnectionPool_GetResetsIdleTimer(t *testing.T) {
 	assert.Equal(t, int32(0), client.closeCount.Load(), "client should not be closed after Get refresh")
 }
 
-func TestSessionConnectionPool_ReaperRunsAutomatically(t *testing.T) {
+func TestSessionConnectionPool_EvictIdleAllStale(t *testing.T) {
 	maxAge := 50 * time.Millisecond
 	pool := NewSessionConnectionPool(maxAge)
 	defer pool.Stop()
@@ -346,17 +346,12 @@ func TestSessionConnectionPool_ReaperRunsAutomatically(t *testing.T) {
 	}
 	require.Equal(t, 3, pool.Len())
 
-	// Backdate all entries so the reaper will pick them up.
 	pool.mu.Lock()
-	for key, entry := range pool.pool {
-		_ = key
+	for _, entry := range pool.pool {
 		entry.LastUsedAt = time.Now().Add(-2 * maxAge)
 	}
 	pool.mu.Unlock()
 
-	// The reaper interval is maxAge/2 = 25ms (clamped to 1s minimum).
-	// Since 25ms < 1s, the interval is 1s. We call evictIdle directly
-	// to avoid waiting for the ticker in a unit test.
 	pool.evictIdle()
 
 	assert.Equal(t, 0, pool.Len(), "all idle entries should be reaped")

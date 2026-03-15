@@ -40,6 +40,15 @@ type SessionAuthStore interface {
 // --- In-memory implementation ---
 
 // inMemoryAuthSession holds authenticated server names for a single session.
+//
+// Expiry uses two complementary mechanisms:
+//   - expireAt: a soft deadline checked in IsAuthenticated (under RLock).
+//     This provides immediate correctness without waiting for the timer.
+//   - timer: a hard cleanup that fires after the TTL to delete the session
+//     from the map, preventing unbounded memory growth from abandoned sessions.
+//
+// Both are needed: the soft check is fast and lock-friendly; the hard timer
+// is the actual garbage collector.
 type inMemoryAuthSession struct {
 	servers  map[string]bool
 	timer    *time.Timer
@@ -89,21 +98,7 @@ func (s *InMemorySessionAuthStore) MarkAuthenticated(_ context.Context, sessionI
 	}
 
 	sess.servers[serverName] = true
-
-	sess.expireAt = time.Now().Add(s.ttl)
-	if sess.timer != nil {
-		sess.timer.Stop()
-	}
-	sess.timer = time.AfterFunc(s.ttl, func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if sess2, exists := s.sessions[sessionID]; exists && time.Now().After(sess2.expireAt) {
-			if sess2.timer != nil {
-				sess2.timer.Stop()
-			}
-			delete(s.sessions, sessionID)
-		}
-	})
+	s.resetSessionTTL(sessionID, sess)
 
 	return nil
 }
@@ -156,6 +151,14 @@ func (s *InMemorySessionAuthStore) Touch(_ context.Context, sessionID string) (b
 		return false, nil
 	}
 
+	s.resetSessionTTL(sessionID, sess)
+
+	return true, nil
+}
+
+// resetSessionTTL updates the soft expireAt deadline and restarts the hard
+// cleanup timer for the given session. The caller must hold s.mu (write lock).
+func (s *InMemorySessionAuthStore) resetSessionTTL(sessionID string, sess *inMemoryAuthSession) {
 	sess.expireAt = time.Now().Add(s.ttl)
 	if sess.timer != nil {
 		sess.timer.Stop()
@@ -170,8 +173,6 @@ func (s *InMemorySessionAuthStore) Touch(_ context.Context, sessionID string) (b
 			delete(s.sessions, sessionID)
 		}
 	})
-
-	return true, nil
 }
 
 // Stop cleans up all timers. Should be called when the store is no longer needed.

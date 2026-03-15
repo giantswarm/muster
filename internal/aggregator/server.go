@@ -86,12 +86,16 @@ type AggregatorServer struct {
 	// Per-session auth store tracks which sessions have authenticated to which servers.
 	// Separated from capabilityStore so that clearing stale capabilities does not
 	// accidentally revoke authentication (see capability freshness plan).
+	// Always non-nil after NewAggregatorServer; nil checks in methods exist only
+	// for test code that constructs partial AggregatorServer instances.
 	authStore SessionAuthStore
 
 	// Per-session capability store for OAuth servers (on-demand population).
+	// Always non-nil after NewAggregatorServer.
 	capabilityStore CapabilityStore
 
 	// Per-session connection pool for reusing live MCP clients across tool calls.
+	// Always non-nil after NewAggregatorServer.
 	connPool *SessionConnectionPool
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)

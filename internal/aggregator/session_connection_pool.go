@@ -111,16 +111,10 @@ func (p *SessionConnectionPool) evictIdle() {
 	cutoff := time.Now().Add(-p.maxAge)
 
 	p.mu.Lock()
-	var evicted []struct {
-		key   poolKey
-		entry poolEntry
-	}
+	var evicted []evictedPoolEntry
 	for key, entry := range p.pool {
 		if entry.LastUsedAt.Before(cutoff) {
-			evicted = append(evicted, struct {
-				key   poolKey
-				entry poolEntry
-			}{key, *entry})
+			evicted = append(evicted, evictedPoolEntry{key, *entry})
 			delete(p.pool, key)
 		}
 	}
@@ -281,6 +275,13 @@ func (p *SessionConnectionPool) Len() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.pool)
+}
+
+// evictedPoolEntry pairs a poolKey with a snapshot of the poolEntry that was
+// removed. Used by evictIdle to defer Close calls outside the write lock.
+type evictedPoolEntry struct {
+	key   poolKey
+	entry poolEntry
 }
 
 // closeQuietly closes a client and logs any errors at debug level.
