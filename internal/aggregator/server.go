@@ -305,7 +305,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		authMetrics:     NewAuthMetrics(),
 		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
-		connPool:        NewSessionConnectionPool(),
+		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
 	}
@@ -599,9 +599,10 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Wait for all background routines to complete
 	a.wg.Wait()
 
-	// Drain the connection pool before deregistering servers so that
-	// pooled clients are closed cleanly.
+	// Stop the reaper and drain the connection pool before deregistering
+	// servers so that pooled clients are closed cleanly.
 	if a.connPool != nil {
+		a.connPool.Stop()
 		a.connPool.DrainAll()
 	}
 

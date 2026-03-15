@@ -602,18 +602,24 @@ func (m *callToolMockClient) Ping(_ context.Context) error { return nil }
 // newTestAggregatorWithPool creates a minimal AggregatorServer for testing
 // callToolWithTokenExchangeRetry. The server is NOT started; only the
 // registry, auth store, capability store, and connection pool are wired.
-func newTestAggregatorWithPool() *AggregatorServer {
+// The connection pool's reaper goroutine is stopped automatically when
+// the test finishes.
+func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
+	t.Helper()
+	pool := NewSessionConnectionPool(DefaultCapabilityStoreTTL)
+	t.Cleanup(pool.Stop)
+
 	return &AggregatorServer{
 		config:          AggregatorConfig{MusterPrefix: "x"},
 		registry:        NewServerRegistry("x"),
 		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
-		connPool:        NewSessionConnectionPool(),
+		connPool:        pool,
 	}
 }
 
 func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "exchange-server"
@@ -648,7 +654,7 @@ func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 }
 
 func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "exchange-server"
@@ -683,7 +689,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 }
 
 func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "forward-server"
@@ -711,7 +717,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 }
 
 func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "exchange-server"
@@ -743,7 +749,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 }
 
 func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "exchange-server"
@@ -777,7 +783,7 @@ func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.
 }
 
 func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
-	a := newTestAggregatorWithPool()
+	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
 	sessionID := "test-session"
 	serverName := "exchange-server"
