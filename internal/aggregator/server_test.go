@@ -3,9 +3,13 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/giantswarm/muster/internal/api"
+
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -562,4 +566,241 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 	// Verify only server2's tool is available (no stale handlers from server1)
 	assert.Len(t, tools, 1, "Should have exactly 1 tool")
 	assert.Equal(t, "x_server2_common-tool", tools[0].Name, "Tool should be named x_server2_common-tool")
+}
+
+// callToolMockClient is a mock MCP client that returns configurable results
+// from CallTool. Used to test retry-on-401 logic.
+type callToolMockClient struct {
+	callToolResult *mcp.CallToolResult
+	callToolErr    error
+	callCount      int
+}
+
+func (m *callToolMockClient) Initialize(_ context.Context) error { return nil }
+func (m *callToolMockClient) Close() error                       { return nil }
+func (m *callToolMockClient) ListTools(_ context.Context) ([]mcp.Tool, error) {
+	return nil, nil
+}
+func (m *callToolMockClient) CallTool(_ context.Context, _ string, _ map[string]interface{}) (*mcp.CallToolResult, error) {
+	m.callCount++
+	return m.callToolResult, m.callToolErr
+}
+func (m *callToolMockClient) ListResources(_ context.Context) ([]mcp.Resource, error) {
+	return nil, nil
+}
+func (m *callToolMockClient) ReadResource(_ context.Context, _ string) (*mcp.ReadResourceResult, error) {
+	return nil, nil
+}
+func (m *callToolMockClient) ListPrompts(_ context.Context) ([]mcp.Prompt, error) {
+	return nil, nil
+}
+func (m *callToolMockClient) GetPrompt(_ context.Context, _ string, _ map[string]interface{}) (*mcp.GetPromptResult, error) {
+	return nil, nil
+}
+func (m *callToolMockClient) Ping(_ context.Context) error { return nil }
+
+// newTestAggregatorWithPool creates a minimal AggregatorServer for testing
+// callToolWithTokenExchangeRetry. The server is NOT started; only the
+// registry, capability store, and connection pool are wired.
+func newTestAggregatorWithPool() *AggregatorServer {
+	return &AggregatorServer{
+		config:          AggregatorConfig{MusterPrefix: "x"},
+		registry:        NewServerRegistry("x"),
+		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		connPool:        NewSessionConnectionPool(),
+	}
+}
+
+func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	expectedResult := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent("ok")},
+	}
+	mockClient := &callToolMockClient{callToolResult: expectedResult}
+	a.connPool.Put(sessionID, serverName, mockClient)
+
+	result, err := a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
+
+	require.NoError(t, err)
+	assert.Equal(t, expectedResult, result)
+	assert.Equal(t, 1, mockClient.callCount, "should call tool exactly once")
+	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
+}
+
+func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	unauthorizedErr := fmt.Errorf("failed to call tool: %w", transport.ErrUnauthorized)
+	mockClient := &callToolMockClient{callToolErr: unauthorizedErr}
+	a.connPool.Put(sessionID, serverName, mockClient)
+
+	_, err = a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
+
+	// The retry attempt will fail (no OAuth handler for re-exchange),
+	// but the pool entry must have been evicted before the retry.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "retry after token re-exchange failed")
+	assert.Equal(t, 0, a.connPool.Len(), "stale pool entry must be evicted")
+	assert.Equal(t, 1, mockClient.callCount, "original client called once before eviction")
+}
+
+func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "forward-server"
+
+	forwardAuth := &api.MCPServerAuth{
+		ForwardToken: true,
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, forwardAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	unauthorizedErr := fmt.Errorf("failed to call tool: %w", transport.ErrUnauthorized)
+	mockClient := &callToolMockClient{callToolErr: unauthorizedErr}
+	a.connPool.Put(sessionID, serverName, mockClient)
+
+	_, err = a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
+
+	require.Error(t, err)
+	assert.True(t, is401Error(err), "original 401 error should be returned as-is")
+	assert.Equal(t, 1, a.connPool.Len(), "pool entry should NOT be evicted for non-token-exchange server")
+}
+
+func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	nonAuthErr := errors.New("connection reset by peer")
+	mockClient := &callToolMockClient{callToolErr: nonAuthErr}
+	a.connPool.Put(sessionID, serverName, mockClient)
+
+	_, err = a.callToolWithTokenExchangeRetry(ctx, serverName, "my-tool", nil, sessionID, "user-sub")
+
+	require.Error(t, err)
+	assert.Equal(t, nonAuthErr, err, "original error should be returned as-is")
+	assert.Equal(t, 1, a.connPool.Len(), "pool entry should NOT be evicted for non-401 error")
+}
+
+func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	// Pool a client with a token that expires in 10 seconds (within the 30s margin).
+	mockClient := &callToolMockClient{callToolResult: &mcp.CallToolResult{}}
+	a.connPool.PutWithExpiry(sessionID, serverName, mockClient, time.Now().Add(10*time.Second))
+
+	// getOrCreateClientForToolCall should detect the near-expiry and evict,
+	// then attempt to create a fresh client (which will fail because there's
+	// no OAuth handler, but the eviction is the key behavior).
+	_, _, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "user-sub")
+
+	require.Error(t, clientErr, "should fail because no OAuth handler for re-exchange")
+	assert.Equal(t, 0, a.connPool.Len(), "expiring pool entry must be proactively evicted")
+}
+
+func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
+	a := newTestAggregatorWithPool()
+	ctx := context.Background()
+	sessionID := "test-session"
+	serverName := "exchange-server"
+
+	tokenExchangeAuth := &api.MCPServerAuth{
+		TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://dex.example.com/token",
+			ConnectorID:      "ldap",
+		},
+	}
+	err := a.registry.RegisterPendingAuthWithConfig(serverName, "https://server.example.com", "", nil, tokenExchangeAuth)
+	require.NoError(t, err)
+
+	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+		Tools: []mcp.Tool{{Name: "my-tool"}},
+	})
+
+	// Pool a client with a token that expires in 10 minutes (well within safe range).
+	expectedResult := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent("ok")},
+	}
+	mockClient := &callToolMockClient{callToolResult: expectedResult}
+	a.connPool.PutWithExpiry(sessionID, serverName, mockClient, time.Now().Add(10*time.Minute))
+
+	client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "user-sub")
+	require.NoError(t, clientErr)
+	defer cleanup()
+
+	assert.Equal(t, mockClient, client, "should return the pooled client without eviction")
+	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
 }

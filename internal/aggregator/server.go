@@ -1255,12 +1255,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 			if sessionErr == nil {
 				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
-				client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
-				if clientErr != nil {
-					return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, clientErr)
-				}
-				defer cleanup()
-				return client.CallTool(ctx, sessionOriginalName, args)
+				return a.callToolWithTokenExchangeRetry(ctx, serverName, sessionOriginalName, args, sessionID, sub)
 			}
 			logging.Debug("Aggregator", "No cached capabilities found for tool %s: %v", toolName, sessionErr)
 		}
@@ -1278,12 +1273,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 		if sessionErr == nil {
 			logging.Debug("Aggregator", "Tool %s found in capability cache (server: %s)", toolName, sessionServerName)
-			client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, sessionServerName, sessionID, sub)
-			if clientErr != nil {
-				return nil, fmt.Errorf("failed to connect to server %s: %w", sessionServerName, clientErr)
-			}
-			defer cleanup()
-			return client.CallTool(ctx, originalName, args)
+			return a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
 		}
 	}
 
@@ -1891,13 +1881,24 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// Check the connection pool first.
 	if a.connPool != nil {
 		if pooledClient, ok := a.connPool.Get(sessionID, serverName); ok {
-			logging.Debug("Aggregator", "Pool hit for session %s, server %s",
-				logging.TruncateIdentifier(sessionID), serverName)
-			return pooledClient, func() {}, nil
+			// For token-exchange servers, check if the exchanged token is about
+			// to expire. If so, proactively evict the stale client and fall
+			// through to create a fresh one with a re-exchanged token.
+			if ShouldUseTokenExchange(serverInfo) &&
+				a.connPool.IsTokenExpiringSoon(sessionID, serverName, tokenExchangeRefreshMargin) {
+				logging.Info("Aggregator", "Proactive token refresh for %s (session %s): exchanged token expiring soon",
+					serverName, logging.TruncateIdentifier(sessionID))
+				a.connPool.Evict(sessionID, serverName)
+			} else {
+				logging.Debug("Aggregator", "Pool hit for session %s, server %s",
+					logging.TruncateIdentifier(sessionID), serverName)
+				return pooledClient, func() {}, nil
+			}
 		}
 	}
 
 	var client MCPClient
+	var tokenExpiry time.Time
 
 	if ShouldUseTokenExchange(serverInfo) {
 		// Token exchange: exchange a fresh ID token for a server-specific token
@@ -1969,6 +1970,8 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			return nil, nil, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 		}
 
+		tokenExpiry = getTokenExpiryTime(exchangedToken)
+
 		headerFunc := func(_ context.Context) map[string]string {
 			return map[string]string{"Authorization": "Bearer " + exchangedToken}
 		}
@@ -2023,14 +2026,65 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
 
-	// Pool the client for future reuse.
+	// Pool the client for future reuse. For token-exchange clients,
+	// record the token expiry to enable proactive refresh.
 	if a.connPool != nil {
-		a.connPool.Put(sessionID, serverName, client)
+		a.connPool.PutWithExpiry(sessionID, serverName, client, tokenExpiry)
 		logging.Debug("Aggregator", "Pooled new client for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
 
 	return client, func() {}, nil
+}
+
+// callToolWithTokenExchangeRetry calls a tool on a session-scoped client,
+// retrying once if the server returns 401 and uses token exchange.
+//
+// Token exchange produces a fixed-lifetime token baked into the client's
+// headerFunc. If the token expires while the client is pooled, the downstream
+// server returns 401. This method detects that case, evicts the stale pool
+// entry, creates a fresh client (which re-exchanges the token), and retries.
+//
+// Token forwarding clients do not need this retry because their headerFunc
+// dynamically resolves the latest token on each request.
+func (a *AggregatorServer) callToolWithTokenExchangeRetry(
+	ctx context.Context,
+	serverName string,
+	originalToolName string,
+	args map[string]interface{},
+	sessionID string,
+	sub string,
+) (*mcp.CallToolResult, error) {
+	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
+	}
+	defer cleanup()
+
+	result, callErr := client.CallTool(ctx, originalToolName, args)
+	if callErr == nil {
+		return result, nil
+	}
+
+	serverInfo, exists := a.registry.GetServerInfo(serverName)
+	if !exists || !ShouldUseTokenExchange(serverInfo) || !is401Error(callErr) {
+		return nil, callErr
+	}
+
+	logging.Info("Aggregator", "Token expired for token-exchange server %s (session %s), evicting pooled client and re-exchanging",
+		serverName, logging.TruncateIdentifier(sessionID))
+
+	if a.connPool != nil {
+		a.connPool.Evict(sessionID, serverName)
+	}
+
+	retryClient, retryCleanup, retryErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
+	if retryErr != nil {
+		return nil, fmt.Errorf("retry after token re-exchange failed for %s: %w", serverName, retryErr)
+	}
+	defer retryCleanup()
+
+	return retryClient.CallTool(ctx, originalToolName, args)
 }
 
 // ============================================================================

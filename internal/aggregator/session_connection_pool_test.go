@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -196,4 +197,59 @@ func TestSessionConnectionPool_ConcurrentAccess(t *testing.T) {
 	// Pool should still be in a consistent state.
 	pool.DrainAll()
 	assert.Equal(t, 0, pool.Len())
+}
+
+func TestSessionConnectionPool_PutWithExpiry(t *testing.T) {
+	pool := NewSessionConnectionPool()
+	client := &poolTestClient{}
+	expiry := time.Now().Add(10 * time.Minute)
+
+	pool.PutWithExpiry("s1", "srv-a", client, expiry)
+
+	got, ok := pool.Get("s1", "srv-a")
+	require.True(t, ok)
+	assert.Equal(t, client, got)
+}
+
+func TestSessionConnectionPool_IsTokenExpiringSoon(t *testing.T) {
+	pool := NewSessionConnectionPool()
+
+	t.Run("returns false when no pool entry exists", func(t *testing.T) {
+		assert.False(t, pool.IsTokenExpiringSoon("s1", "srv-a", 30*time.Second))
+	})
+
+	t.Run("returns false when no expiry is tracked", func(t *testing.T) {
+		pool.Put("s1", "srv-a", &poolTestClient{})
+		assert.False(t, pool.IsTokenExpiringSoon("s1", "srv-a", 30*time.Second))
+	})
+
+	t.Run("returns false when token has enough remaining lifetime", func(t *testing.T) {
+		pool.PutWithExpiry("s1", "srv-b", &poolTestClient{}, time.Now().Add(10*time.Minute))
+		assert.False(t, pool.IsTokenExpiringSoon("s1", "srv-b", 30*time.Second))
+	})
+
+	t.Run("returns true when token expires within margin", func(t *testing.T) {
+		pool.PutWithExpiry("s1", "srv-c", &poolTestClient{}, time.Now().Add(15*time.Second))
+		assert.True(t, pool.IsTokenExpiringSoon("s1", "srv-c", 30*time.Second))
+	})
+
+	t.Run("returns true when token is already expired", func(t *testing.T) {
+		pool.PutWithExpiry("s1", "srv-d", &poolTestClient{}, time.Now().Add(-5*time.Second))
+		assert.True(t, pool.IsTokenExpiringSoon("s1", "srv-d", 30*time.Second))
+	})
+}
+
+func TestSessionConnectionPool_PutWithExpiryReplacesOld(t *testing.T) {
+	pool := NewSessionConnectionPool()
+	old := &poolTestClient{}
+	replacement := &poolTestClient{}
+
+	pool.PutWithExpiry("s1", "srv-a", old, time.Now().Add(5*time.Minute))
+	pool.PutWithExpiry("s1", "srv-a", replacement, time.Now().Add(10*time.Minute))
+
+	assert.Equal(t, int32(1), old.closeCount.Load())
+
+	got, ok := pool.Get("s1", "srv-a")
+	require.True(t, ok)
+	assert.Equal(t, replacement, got)
 }

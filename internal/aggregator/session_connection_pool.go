@@ -17,14 +17,24 @@ type poolKey struct {
 type poolEntry struct {
 	Client    MCPClient
 	CreatedAt time.Time
+
+	// TokenExpiry records when the client's bearer token expires. A zero value
+	// means no expiry is tracked (e.g., token forwarding clients whose
+	// headerFunc dynamically resolves fresh tokens). Token-exchange clients
+	// set this so the pool can proactively evict entries before they expire.
+	TokenExpiry time.Time
 }
 
 // SessionConnectionPool maintains a per-(session, server) pool of live MCP
 // clients. It is orthogonal to the CapabilityStore: the store caches what
 // tools exist; the pool caches the live connection used to call them.
 //
-// Token rotation is handled transparently by the headerFunc / MusterTokenStore
-// pattern — persistent clients resolve fresh tokens on every HTTP request.
+// For token-forwarding and DynamicAuth clients, token rotation is handled
+// transparently by the headerFunc / MusterTokenStore pattern.
+//
+// For token-exchange clients, the pool tracks the exchanged token's expiry
+// time. Callers can check IsTokenExpiringSoon to proactively evict and
+// re-exchange before the downstream server returns 401.
 //
 // All methods are safe for concurrent use.
 type SessionConnectionPool struct {
@@ -54,21 +64,46 @@ func (p *SessionConnectionPool) Get(sessionID, serverName string) (MCPClient, bo
 }
 
 // Put stores a client in the pool, closing any previously pooled client for
-// the same (session, server) key.
+// the same (session, server) key. No token expiry is tracked; use
+// PutWithExpiry for token-exchange clients that need proactive refresh.
 func (p *SessionConnectionPool) Put(sessionID, serverName string, client MCPClient) {
+	p.PutWithExpiry(sessionID, serverName, client, time.Time{})
+}
+
+// PutWithExpiry stores a client in the pool with an associated token expiry
+// time. When tokenExpiry is non-zero, IsTokenExpiringSoon can be used to
+// proactively evict the entry before the token expires.
+func (p *SessionConnectionPool) PutWithExpiry(sessionID, serverName string, client MCPClient, tokenExpiry time.Time) {
 	key := poolKey{SessionID: sessionID, ServerName: serverName}
 
 	p.mu.Lock()
 	old, exists := p.pool[key]
 	p.pool[key] = &poolEntry{
-		Client:    client,
-		CreatedAt: time.Now(),
+		Client:      client,
+		CreatedAt:   time.Now(),
+		TokenExpiry: tokenExpiry,
 	}
 	p.mu.Unlock()
 
 	if exists && old.Client != nil {
 		closeQuietly(old.Client, sessionID, serverName, "replaced")
 	}
+}
+
+// IsTokenExpiringSoon returns true if the pooled entry's token will expire
+// within the given margin. Returns false if there is no pool entry, the
+// entry has no tracked expiry (zero time), or the token has enough remaining
+// lifetime.
+func (p *SessionConnectionPool) IsTokenExpiringSoon(sessionID, serverName string, margin time.Duration) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	key := poolKey{SessionID: sessionID, ServerName: serverName}
+	entry, ok := p.pool[key]
+	if !ok || entry.TokenExpiry.IsZero() {
+		return false
+	}
+	return time.Now().Add(margin).After(entry.TokenExpiry)
 }
 
 // Evict removes and closes a single pooled entry.

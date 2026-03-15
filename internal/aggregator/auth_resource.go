@@ -360,7 +360,7 @@ func (a *AggregatorServer) establishSSOConnection(
 
 	if err == nil && result != nil {
 		if result.Client != nil && a.connPool != nil {
-			a.connPool.Put(sessionID, serverInfo.Name, result.Client)
+			a.connPool.PutWithExpiry(sessionID, serverInfo.Name, result.Client, result.TokenExpiry)
 		}
 		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)

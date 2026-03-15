@@ -38,6 +38,10 @@ type ConnectionResult struct {
 	// Client is the live MCP client. The caller owns its lifecycle and must
 	// either pool it for reuse or close it when done.
 	Client MCPClient
+	// TokenExpiry records when the client's bearer token expires. Zero means
+	// no expiry tracking (e.g., token forwarding clients). Callers should pass
+	// this to SessionConnectionPool.PutWithExpiry for proactive refresh.
+	TokenExpiry time.Time
 }
 
 // establishConnection creates a connection to an MCP server and populates
@@ -611,9 +615,16 @@ func EstablishConnectionWithTokenExchange(
 		Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
 	})
 
-	// Create a simple header function using the exchanged token.
-	// No token refresh logic needed since the client is short-lived (one capability fetch).
-	// If the token expires during fetch, the server returns 401.
+	// Extract the exchanged token's expiry for proactive pool refresh.
+	// If the token is near expiry, getOrCreateClientForToolCall will
+	// proactively evict the pooled client and re-exchange before the
+	// downstream server returns 401.
+	tokenExpiry := getTokenExpiryTime(exchangedToken)
+
+	// Create a header function using the exchanged token. The token has a fixed
+	// lifetime; if it expires while the client is pooled, the downstream server
+	// returns 401. In that case, callToolWithTokenExchangeRetry evicts the stale
+	// pool entry, re-exchanges a fresh token, and retries the tool call.
 	headerFunc := func(_ context.Context) map[string]string {
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
@@ -681,6 +692,7 @@ func EstablishConnectionWithTokenExchange(
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
 		Client:        client,
+		TokenExpiry:   tokenExpiry,
 	}, nil
 }
 
@@ -777,6 +789,12 @@ func extractUserIDFromToken(idToken string) string {
 // idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
 // This accounts for clock skew and network latency during forwarding.
 const idTokenExpiryMargin = 30 * time.Second
+
+// tokenExchangeRefreshMargin is the time before expiry at which a pooled
+// token-exchange client is proactively evicted and re-exchanged. This avoids
+// the 401 round-trip that would otherwise trigger the reactive retry in
+// callToolWithTokenExchangeRetry.
+const tokenExchangeRefreshMargin = 30 * time.Second
 
 // notifyMCPServerConnected updates the MCPServer service state to Connected after
 // successful authentication. This syncs the session-level connection success to

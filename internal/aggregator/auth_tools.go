@@ -461,7 +461,7 @@ func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, serverInfo *Ser
 	}
 
 	if result.Client != nil && p.aggregator.connPool != nil {
-		p.aggregator.connPool.Put(sessionID, serverInfo.Name, result.Client)
+		p.aggregator.connPool.PutWithExpiry(sessionID, serverInfo.Name, result.Client, result.TokenExpiry)
 	}
 
 	return result.FormatAsAPIResult(), nil
