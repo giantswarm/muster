@@ -340,7 +340,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			ctx = api.WithSessionID(ctx, sessionID)
 		}
 
-		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
 
 		if s.onAuthenticated != nil {

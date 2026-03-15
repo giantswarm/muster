@@ -28,10 +28,6 @@ func (c *Capabilities) deepCopy() *Capabilities {
 
 // CapabilityStore is the interface for storing per-session, per-server MCP
 // capabilities. Implementations must be safe for concurrent use.
-//
-// Two implementations are provided:
-//   - InMemoryCapabilityStore: map-based with per-session TTL timers (dev/test)
-//   - ValkeyCapabilityStore: hash-per-session with EXPIRE (production, cross-replica)
 type CapabilityStore interface {
 	// Get returns the capabilities for a session+server pair.
 	// Returns nil and no error on cache miss.

@@ -19,3 +19,4 @@ Each ADR follows this structure:
 - [ADR-008: Unified Authentication Architecture](008-unified-authentication.md)
 - [ADR-009: SSO Token Forwarding](009-sso-token-forwarding.md)
 - [ADR-010: Server-Side Meta-Tools Migration](010-server-side-meta-tools.md)
+- [ADR-011: Session Connection Pool and Auth/Capability Separation](011-session-connection-pool.md)

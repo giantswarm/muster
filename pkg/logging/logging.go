@@ -21,22 +21,6 @@ const (
 	LevelError
 )
 
-// String makes LogLevel satisfy the fmt.Stringer interface.
-func (l LogLevel) String() string {
-	switch l {
-	case LevelDebug:
-		return "DEBUG"
-	case LevelInfo:
-		return "INFO"
-	case LevelWarn:
-		return "WARN"
-	case LevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
-	}
-}
-
 func (l LogLevel) SlogLevel() slog.Level {
 	switch l {
 	case LevelDebug:

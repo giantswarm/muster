@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"net/http"
 	"testing"
 )
 
@@ -209,64 +208,6 @@ func TestAuthChallenge_GetIssuer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.challenge.GetIssuer(); got != tt.want {
 				t.Errorf("GetIssuer() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseWWWAuthenticateFromResponse(t *testing.T) {
-	tests := []struct {
-		name       string
-		resp       *http.Response
-		wantNil    bool
-		wantIssuer string
-	}{
-		{
-			name:    "nil response",
-			resp:    nil,
-			wantNil: true,
-		},
-		{
-			name: "200 OK",
-			resp: &http.Response{
-				StatusCode: 200,
-				Header:     http.Header{"Www-Authenticate": []string{`Bearer realm="https://auth.example.com"`}},
-			},
-			wantNil: true,
-		},
-		{
-			name: "401 without header",
-			resp: &http.Response{
-				StatusCode: 401,
-				Header:     http.Header{},
-			},
-			wantNil: true,
-		},
-		{
-			name: "401 with header",
-			resp: &http.Response{
-				StatusCode: 401,
-				Header:     http.Header{"Www-Authenticate": []string{`Bearer realm="https://auth.example.com"`}},
-			},
-			wantNil:    false,
-			wantIssuer: "https://auth.example.com",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ParseWWWAuthenticateFromResponse(tt.resp)
-			if tt.wantNil {
-				if got != nil {
-					t.Errorf("ParseWWWAuthenticateFromResponse() = %v, want nil", got)
-				}
-				return
-			}
-			if got == nil {
-				t.Fatal("ParseWWWAuthenticateFromResponse() = nil, want non-nil")
-			}
-			if got.GetIssuer() != tt.wantIssuer {
-				t.Errorf("Issuer = %q, want %q", got.GetIssuer(), tt.wantIssuer)
 			}
 		})
 	}
