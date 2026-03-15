@@ -83,6 +83,11 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
+	// Per-session auth store tracks which sessions have authenticated to which servers.
+	// Separated from capabilityStore so that clearing stale capabilities does not
+	// accidentally revoke authentication (see capability freshness plan).
+	authStore SessionAuthStore
+
 	// Per-session capability store for OAuth servers (on-demand population).
 	capabilityStore CapabilityStore
 
@@ -298,6 +303,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
+		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
 		connPool:        NewSessionConnectionPool(),
 		ssoTracker:      newSSOTracker(),
@@ -609,6 +615,11 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Stop auth rate limiter background cleanup goroutine
 	if a.authRateLimiter != nil {
 		a.authRateLimiter.Stop()
+	}
+
+	// Stop auth store (cleans up timers for in-memory impl).
+	if store, ok := a.authStore.(*InMemorySessionAuthStore); ok {
+		store.Stop()
 	}
 
 	// Stop capability store (cleans up timers for in-memory impl).
