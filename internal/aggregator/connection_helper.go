@@ -131,6 +131,13 @@ func establishConnection(
 		}
 	}
 
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverName); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
+
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
 
@@ -346,6 +353,13 @@ func EstablishConnectionWithTokenForwarding(
 			Tools: tools, Resources: resources, Prompts: prompts,
 		}); err != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
+	}
+
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
 		}
 	}
@@ -676,6 +690,13 @@ func EstablishConnectionWithTokenExchange(
 		}); storeErr != nil {
 			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name, storeErr)
+		}
+	}
+
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
 		}
 	}
 

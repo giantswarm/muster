@@ -676,7 +676,12 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 func (a *AggregatorServer) DeregisterServer(name string) error {
 	logging.Debug("Aggregator", "DeregisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
 
-	// Remove capabilities for this server across all sessions.
+	// Remove auth state and capabilities for this server across all sessions.
+	if a.authStore != nil {
+		if err := a.authStore.RevokeServer(context.Background(), name); err != nil {
+			logging.Warn("Aggregator", "Failed to revoke auth for server %s: %v", name, err)
+		}
+	}
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.DeleteServer(context.Background(), name); err != nil {
 			logging.Warn("Aggregator", "Failed to delete server %s from capability store: %v", name, err)
@@ -978,8 +983,12 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		if a.capabilityStore == nil {
 			return
 		}
-		alive, _ := a.capabilityStore.Touch(ctx, sessionID)
-		if alive {
+		var authAlive bool
+		if a.authStore != nil {
+			authAlive, _ = a.authStore.Touch(ctx, sessionID)
+		}
+		_, _ = a.capabilityStore.Touch(ctx, sessionID)
+		if authAlive {
 			return
 		}
 		userID := getUserSubjectFromContext(ctx)
@@ -997,6 +1006,12 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	})
 
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
+		if a.authStore != nil {
+			if err := a.authStore.RevokeSession(ctx, familyID); err != nil {
+				logging.Warn("Aggregator", "Failed to revoke auth session %s: %v",
+					logging.TruncateIdentifier(familyID), err)
+			}
+		}
 		if a.capabilityStore != nil {
 			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
 				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
@@ -1753,9 +1768,15 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Delete capability store entries and pooled connections for all of this user's sessions
+	// Delete auth state, capability store entries, and pooled connections for all of this user's sessions
 	if a.subjectSessions != nil {
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
+			if a.authStore != nil {
+				if err := a.authStore.RevokeSession(context.Background(), sid); err != nil {
+					logging.Warn("Aggregator", "Failed to revoke auth session %s: %v",
+						logging.TruncateIdentifier(sid), err)
+				}
+			}
 			if a.capabilityStore != nil {
 				if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
 					logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
@@ -1809,7 +1830,13 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
-	// Remove the capability entry for this session+server.
+	// Remove auth state and capability entry for this session+server.
+	if a.authStore != nil {
+		if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
+			logging.Warn("Aggregator", "Failed to revoke auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.DeleteEntry(context.Background(), sessionID, serverName); err != nil {
 			logging.Warn("Aggregator", "Failed to delete entry %s/%s from capability store: %v",
