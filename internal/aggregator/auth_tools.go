@@ -329,6 +329,21 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
+	// SSO servers are connected/disconnected automatically -- manual logout is not supported.
+	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) {
+		logging.Debug("AuthTools", "Rejecting manual auth_logout for SSO server %s (session %s)",
+			serverName, logging.TruncateIdentifier(sessionID))
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf(
+				"Server '%s' uses SSO and is managed automatically.\n\n"+
+					"Manual logout via core_auth_logout is not supported for SSO servers.\n"+
+					"To disconnect, re-authenticate to muster or contact your administrator.",
+				serverName,
+			)},
+			IsError: true,
+		}, nil
+	}
+
 	// Clear tokens for this server's issuer ONLY if no other server shares it
 	// and it is not muster's upstream issuer. Clearing a shared issuer token
 	// would break other servers (or muster itself) that rely on the same token.
