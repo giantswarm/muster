@@ -1881,11 +1881,12 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
 	}
 
-	if a.authStore != nil {
-		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
-		if !authenticated {
-			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
-		}
+	if a.authStore == nil {
+		return nil, nil, fmt.Errorf("auth store not initialized")
+	}
+	authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+	if !authenticated {
+		return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
 	}
 
 	// Check the connection pool first.

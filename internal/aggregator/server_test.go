@@ -601,11 +601,12 @@ func (m *callToolMockClient) Ping(_ context.Context) error { return nil }
 
 // newTestAggregatorWithPool creates a minimal AggregatorServer for testing
 // callToolWithTokenExchangeRetry. The server is NOT started; only the
-// registry, capability store, and connection pool are wired.
+// registry, auth store, capability store, and connection pool are wired.
 func newTestAggregatorWithPool() *AggregatorServer {
 	return &AggregatorServer{
 		config:          AggregatorConfig{MusterPrefix: "x"},
 		registry:        NewServerRegistry("x"),
+		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
 		connPool:        NewSessionConnectionPool(),
 	}
@@ -630,6 +631,7 @@ func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	expectedResult := &mcp.CallToolResult{
 		Content: []mcp.Content{mcp.NewTextContent("ok")},
@@ -664,6 +666,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	unauthorizedErr := fmt.Errorf("failed to call tool: %w", transport.ErrUnauthorized)
 	mockClient := &callToolMockClient{callToolErr: unauthorizedErr}
@@ -694,6 +697,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNonTokenExchange(t *testing.T)
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	unauthorizedErr := fmt.Errorf("failed to call tool: %w", transport.ErrUnauthorized)
 	mockClient := &callToolMockClient{callToolErr: unauthorizedErr}
@@ -725,6 +729,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	nonAuthErr := errors.New("connection reset by peer")
 	mockClient := &callToolMockClient{callToolErr: nonAuthErr}
@@ -756,6 +761,7 @@ func TestGetOrCreateClientForToolCall_ProactiveRefreshEvictsExpiring(t *testing.
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	// Pool a client with a token that expires in 10 seconds (within the 30s margin).
 	mockClient := &callToolMockClient{callToolResult: &mcp.CallToolResult{}}
@@ -789,6 +795,7 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	_ = a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
 		Tools: []mcp.Tool{{Name: "my-tool"}},
 	})
+	_ = a.authStore.MarkAuthenticated(ctx, sessionID, serverName)
 
 	// Pool a client with a token that expires in 10 minutes (well within safe range).
 	expectedResult := &mcp.CallToolResult{
