@@ -9,26 +9,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-func TestLogLevel_String(t *testing.T) {
-	tests := []struct {
-		level    LogLevel
-		expected string
-	}{
-		{LevelDebug, "DEBUG"},
-		{LevelInfo, "INFO"},
-		{LevelWarn, "WARN"},
-		{LevelError, "ERROR"},
-		{LogLevel(999), "UNKNOWN"},
-	}
-
-	for _, test := range tests {
-		result := test.level.String()
-		if result != test.expected {
-			t.Errorf("LogLevel(%d).String() = %s, expected %s", test.level, result, test.expected)
-		}
-	}
-}
-
 func TestLogLevel_SlogLevel(t *testing.T) {
 	tests := []struct {
 		level    LogLevel

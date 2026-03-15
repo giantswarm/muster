@@ -3,7 +3,6 @@ package oauth
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -88,26 +87,6 @@ func parseAuthParams(paramStr string) map[string]string {
 	}
 
 	return params
-}
-
-// ParseWWWAuthenticateFromResponse extracts auth challenge from a 401 response.
-// Returns nil if no WWW-Authenticate header is present or if parsing fails.
-func ParseWWWAuthenticateFromResponse(resp *http.Response) *AuthChallenge {
-	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
-		return nil
-	}
-
-	header := resp.Header.Get("WWW-Authenticate")
-	if header == "" {
-		return nil
-	}
-
-	challenge, err := ParseWWWAuthenticate(header)
-	if err != nil {
-		return nil
-	}
-
-	return challenge
 }
 
 // IsOAuthUnauthorizedError checks if an error indicates an OAuth authorization

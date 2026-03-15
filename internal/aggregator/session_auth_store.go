@@ -14,10 +14,6 @@ import (
 // cached capabilities can evolve independently -- clearing stale capabilities
 // (e.g. on tool-change detection or server health transitions) does not
 // accidentally revoke a user's authentication.
-//
-// Two implementations are provided:
-//   - InMemorySessionAuthStore: map-based with per-session TTL timers (dev/test)
-//   - ValkeySessionAuthStore: hash-per-session with EXPIRE (production, cross-replica)
 type SessionAuthStore interface {
 	// IsAuthenticated returns true if the session has authenticated to the server.
 	IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error)
