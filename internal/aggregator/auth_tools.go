@@ -145,11 +145,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has stored capabilities for this server.
-	if p.aggregator.capabilityStore != nil {
-		exists, _ := p.aggregator.capabilityStore.Exists(ctx, sessionID, serverName)
-		if exists {
-			logging.Debug("AuthTools", "Session %s already has capabilities for server %s", logging.TruncateIdentifier(sessionID), serverName)
+	if p.aggregator.authStore != nil {
+		authenticated, _ := p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		if authenticated {
+			logging.Debug("AuthTools", "Session %s already authenticated to server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
 				IsError: false,

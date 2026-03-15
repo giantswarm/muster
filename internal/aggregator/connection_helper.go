@@ -187,11 +187,10 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 // Token sources are checked in priority order:
 //  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
 //     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
-//  2. OAuth proxy token store - contains tokens when user authenticated WITH remote servers
-//     via core_auth_login. These are keyed by (sessionID, issuer).
+//  2. OAuth proxy token store - contains the token from muster's own OAuth session, looked up
+//     by (sessionID, musterIssuer).
 //
-// The context token takes priority because it represents the user's current authentication
-// to muster, which is what we want to forward for SSO.
+// The context token takes priority because it's directly available without a store lookup.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
@@ -249,10 +248,10 @@ func EstablishConnectionWithTokenForwarding(
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 
-	if a.capabilityStore != nil {
-		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name)
-		if exists {
-			logging.Debug("Connection", "Session %s already connected to %s, skipping token forwarding",
+	if a.authStore != nil {
+		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
+		if authenticated {
+			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token forwarding",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
@@ -464,9 +463,9 @@ func EstablishConnectionWithTokenExchange(
 
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
-	if a.capabilityStore != nil {
-		if exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name); exists {
-			logging.Debug("Connection", "Session %s already connected to %s, skipping token exchange",
+	if a.authStore != nil {
+		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
+			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
@@ -480,7 +479,7 @@ func EstablishConnectionWithTokenExchange(
 
 	// Get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
-	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
+	// 2. OAuth proxy token store (for tokens from muster's own OAuth session)
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",

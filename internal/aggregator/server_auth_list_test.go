@@ -126,7 +126,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
-	t.Run("skips servers already in capability cache", func(t *testing.T) {
+	t.Run("skips servers already authenticated", func(t *testing.T) {
 		reg := NewServerRegistry("x")
 		err := reg.RegisterPendingAuth(
 			"cached-server",
@@ -136,15 +136,14 @@ func TestListServersRequiringAuth(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		store := NewInMemoryCapabilityStore(30 * time.Minute)
-		defer store.Stop()
-		_ = store.Set(context.Background(), "test-session", "cached-server",
-			&Capabilities{Tools: []mcp.Tool{{Name: "t"}}})
+		authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+		defer authStore.Stop()
+		_ = authStore.MarkAuthenticated(context.Background(), "test-session", "cached-server")
 
 		ctx := api.WithSessionID(context.Background(), "test-session")
 		agg := &AggregatorServer{
-			registry:        reg,
-			capabilityStore: store,
+			registry:  reg,
+			authStore: authStore,
 		}
 
 		result := agg.ListServersRequiringAuth(ctx)

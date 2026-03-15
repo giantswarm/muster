@@ -46,12 +46,12 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // handleAuthStatusResource handles requests for the auth://status resource.
 // It returns the authentication status of all registered MCP servers.
 //
-// IMPORTANT: Per issue #292, this handler uses the CapabilityStore as the
-// source of truth for per-user connection/auth state, NOT the MCPServer CRD status.
+// IMPORTANT: Per issue #292, this handler uses the SessionAuthStore as the
+// source of truth for per-user auth state, NOT the MCPServer CRD status.
 //
 // Status determination (per issue #292):
 //   - Infrastructure availability: From aggregator's internal registry (reachable, unreachable)
-//   - Per-user auth/connection: From CapabilityStore (connected, auth_required, etc.)
+//   - Per-user auth/connection: From SessionAuthStore (connected, auth_required, etc.)
 //
 // The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user state.
@@ -139,11 +139,10 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 		return pkgoauth.ServerStatusUnreachable
 	}
 
-	// Check CapabilityStore keyed by session ID for per-login-session state
-	if a.capabilityStore != nil {
-		exists, _ := a.capabilityStore.Exists(context.Background(), sessionID, serverName)
-		if exists {
-			logging.Debug("Aggregator", "Session %s has cached capabilities for %s", logging.TruncateIdentifier(sessionID), serverName)
+	if a.authStore != nil {
+		authenticated, _ := a.authStore.IsAuthenticated(context.Background(), sessionID, serverName)
+		if authenticated {
+			logging.Debug("Aggregator", "Session %s is authenticated to %s", logging.TruncateIdentifier(sessionID), serverName)
 			return pkgoauth.ServerStatusConnected
 		}
 	}
@@ -312,11 +311,11 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 }
 
 // establishSSOConnection attempts to establish an SSO connection to a single server.
-// This is called on demand when a cache miss is detected for an SSO-enabled server,
-// or when the user explicitly calls core_auth_login.
+// This is called on demand when a cache miss is detected for an SSO-enabled server
+// (token forwarding or token exchange). Manual-auth servers use core_auth_login instead.
 //
-// This method is safe against concurrent calls. It checks the CapabilityStore before
-// attempting connection and skips if the user already has cached capabilities.
+// This method is safe against concurrent calls. It checks the AuthStore before
+// attempting connection and skips if the session is already authenticated.
 func (a *AggregatorServer) establishSSOConnection(
 	ctx context.Context,
 	serverInfo *ServerInfo,
@@ -325,12 +324,11 @@ func (a *AggregatorServer) establishSSOConnection(
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 
-	// Guard against concurrent connection attempts. On-demand SSO goroutines
-	// can race with explicit core_auth_login calls.
-	if a.capabilityStore != nil {
-		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverInfo.Name)
-		if exists {
-			logging.Debug("Aggregator", "SSO: Session %s already has capabilities for %s, skipping SSO",
+	// Guard against concurrent SSO connection attempts for the same session+server.
+	if a.authStore != nil {
+		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
+		if authenticated {
+			logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return
 		}

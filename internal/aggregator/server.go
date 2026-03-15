@@ -1881,10 +1881,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
 	}
 
-	// Verify session has a capability entry (i.e., has authenticated to this server)
-	if a.capabilityStore != nil {
-		exists, _ := a.capabilityStore.Exists(ctx, sessionID, serverName)
-		if !exists {
+	if a.authStore != nil {
+		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		if !authenticated {
 			return nil, nil, fmt.Errorf("user not authenticated to server %s", serverName)
 		}
 	}
@@ -2226,9 +2225,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			continue
 		}
 
-		if a.capabilityStore != nil {
-			exists, _ := a.capabilityStore.Exists(ctx, sessionID, name)
-			if exists {
+		if a.authStore != nil {
+			authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, name)
+			if authenticated {
 				continue
 			}
 		}
