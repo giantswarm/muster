@@ -45,11 +45,10 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	name := filepath.Base(configPath)
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 
-	// Create the MCP server
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("mock-%s", name),
 		"1.0.0",
-		server.WithToolCapabilities(false),
+		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(false, false),
 		server.WithPromptCapabilities(false),
 	)
@@ -121,6 +120,33 @@ func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.Ca
 		}
 
 		return mcp.NewToolResultText(""), nil
+	}
+}
+
+// AddDynamicTool adds a tool to the running MCP server at runtime.
+// The mcp-go library automatically sends a notifications/tools/list_changed
+// notification to all connected clients.
+func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
+	handler := NewToolHandler(toolConfig, s.templateEngine, s.debug)
+	s.toolHandlers[toolConfig.Name] = handler
+
+	tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
+	s.mcpServer.AddTool(tool, s.createToolHandler(toolConfig.Name))
+
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "🔧 Dynamically added tool '%s' to mock server '%s'\n", toolConfig.Name, s.name)
+	}
+}
+
+// RemoveDynamicTool removes a tool from the running MCP server at runtime.
+// The mcp-go library automatically sends a notifications/tools/list_changed
+// notification to all connected clients.
+func (s *Server) RemoveDynamicTool(toolName string) {
+	delete(s.toolHandlers, toolName)
+	s.mcpServer.DeleteTools(toolName)
+
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "🔧 Dynamically removed tool '%s' from mock server '%s'\n", toolName, s.name)
 	}
 }
 

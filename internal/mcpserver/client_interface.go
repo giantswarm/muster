@@ -227,12 +227,18 @@ func (b *baseMCPClient) ping(ctx context.Context) error {
 	return b.client.Ping(ctx)
 }
 
-// onNotification stores a notification handler to be wired after the
-// underlying mcp-go client is created during Initialize.
+// onNotification stores a notification handler. If the underlying mcp-go
+// client is already initialized, the handler is wired immediately.
 func (b *baseMCPClient) onNotification(handler func(mcp.JSONRPCNotification)) {
 	b.notifMu.Lock()
-	defer b.notifMu.Unlock()
 	b.notifHandler = handler
+	b.notifMu.Unlock()
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.connected && b.client != nil && handler != nil {
+		b.client.OnNotification(handler)
+	}
 }
 
 // wireNotificationHandler registers the stored notification handler on the

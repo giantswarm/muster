@@ -42,13 +42,16 @@ type ProtectedMCPServerConfig struct {
 
 // ProtectedMCPServer is a mock MCP server that requires OAuth authentication
 type ProtectedMCPServer struct {
-	config     ProtectedMCPServerConfig
-	mockServer *Server
-	httpServer *http.Server
-	listener   net.Listener
-	port       int
-	running    bool
-	mu         sync.RWMutex
+	config         ProtectedMCPServerConfig
+	mockServer     *Server
+	mcpServer      *server.MCPServer
+	templateEngine *template.Engine
+	toolHandlers   map[string]*ToolHandler
+	httpServer     *http.Server
+	listener       net.Listener
+	port           int
+	running        bool
+	mu             sync.RWMutex
 }
 
 // NewProtectedMCPServer creates a new OAuth-protected mock MCP server
@@ -171,18 +174,21 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("protected-%s", s.config.Name),
 		"1.0.0",
-		server.WithToolCapabilities(false),
+		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(false, false),
 		server.WithPromptCapabilities(false),
 	)
+	s.mcpServer = mcpServer
 
 	// Create template engine for response rendering
-	templateEngine := template.New()
+	s.templateEngine = template.New()
+	s.toolHandlers = make(map[string]*ToolHandler)
 
 	// Register tools if provided
 	for _, toolConfig := range s.config.Tools {
-		handler := NewToolHandler(toolConfig, templateEngine, s.config.Debug)
+		handler := NewToolHandler(toolConfig, s.templateEngine, s.config.Debug)
 		if handler != nil {
+			s.toolHandlers[toolConfig.Name] = handler
 			mcpServer.AddTool(handler.createMCPTool(), handler.createMCPHandler())
 		}
 	}
@@ -198,7 +204,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 			server.WithMessageEndpoint("/message"),
 		)
 	default:
-		underlyingHandler = server.NewStreamableHTTPServer(mcpServer)
+		underlyingHandler = server.NewStreamableHTTPServer(mcpServer, server.WithStateful(true))
 	}
 
 	// Create OAuth protection middleware
@@ -335,6 +341,43 @@ func (s *ProtectedMCPServer) WaitForReady(ctx context.Context) error {
 				}
 			}
 		}
+	}
+}
+
+// AddDynamicTool adds a tool to the running protected MCP server at runtime.
+// This triggers a notifications/tools/list_changed notification to connected clients.
+func (s *ProtectedMCPServer) AddDynamicTool(toolConfig ToolConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.mcpServer == nil || s.templateEngine == nil {
+		return
+	}
+
+	handler := NewToolHandler(toolConfig, s.templateEngine, s.config.Debug)
+	s.toolHandlers[toolConfig.Name] = handler
+	s.mcpServer.AddTool(handler.createMCPTool(), handler.createMCPHandler())
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔧 Dynamically added tool '%s' to protected server '%s'\n", toolConfig.Name, s.config.Name)
+	}
+}
+
+// RemoveDynamicTool removes a tool from the running protected MCP server at runtime.
+// This triggers a notifications/tools/list_changed notification to connected clients.
+func (s *ProtectedMCPServer) RemoveDynamicTool(toolName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.mcpServer == nil {
+		return
+	}
+
+	delete(s.toolHandlers, toolName)
+	s.mcpServer.DeleteTools(toolName)
+
+	if s.config.Debug {
+		fmt.Fprintf(os.Stderr, "🔧 Dynamically removed tool '%s' from protected server '%s'\n", toolName, s.config.Name)
 	}
 }
 

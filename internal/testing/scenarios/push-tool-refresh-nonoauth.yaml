@@ -1,0 +1,101 @@
+name: "push-tool-refresh-nonoauth"
+description: "Test push-based tool refresh via notifications/tools/list_changed for non-OAuth MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "notifications", "tools", "push-refresh"]
+timeout: "2m"
+
+# Test Story: Push-Based Tool Refresh for Non-OAuth Servers
+# Given: A non-OAuth MCP server with one initial tool
+# When: A new tool is dynamically added to the server
+# Then: The aggregator receives a notifications/tools/list_changed notification
+# And:  The new tool becomes available to clients without polling
+# When: The original tool is removed from the server
+# Then: The aggregator updates its registry and the tool is no longer available
+
+pre_configuration:
+  mcp_servers:
+    - name: "notif-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "initial_tool"
+            description: "A tool that exists from startup"
+            input_schema:
+              type: "object"
+              properties:
+                msg:
+                  type: "string"
+            responses:
+              - response:
+                  status: "ok"
+                  message: "initial: {{ .msg }}"
+
+steps:
+  # Phase 1: Verify the initial tool is available
+  - id: "verify-initial-tool"
+    tool: "x_notif-server_initial_tool"
+    args:
+      msg: "hello"
+    expected:
+      success: true
+      contains: ["initial: hello"]
+    timeout: "30s"
+
+  # Phase 2: Dynamically add a new tool and verify it becomes visible
+  - id: "add-dynamic-tool"
+    tool: "test_add_mock_tool"
+    args:
+      server: "notif-server"
+      tool_name: "dynamic_tool"
+      tool_description: "A tool added at runtime"
+    expected:
+      success: true
+      contains: ["Added tool"]
+    timeout: "10s"
+
+  - id: "verify-dynamic-tool-available"
+    tool: "x_notif-server_dynamic_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["dynamic_tool"]
+      wait_for_state: "10s"
+    timeout: "15s"
+
+  - id: "verify-initial-tool-still-works"
+    tool: "x_notif-server_initial_tool"
+    args:
+      msg: "still here"
+    expected:
+      success: true
+      contains: ["initial: still here"]
+    timeout: "10s"
+
+  # Phase 3: Remove the initial tool and verify it becomes unavailable
+  - id: "remove-initial-tool"
+    tool: "test_remove_mock_tool"
+    args:
+      server: "notif-server"
+      tool_name: "initial_tool"
+    expected:
+      success: true
+      contains: ["Removed tool"]
+    timeout: "10s"
+
+  - id: "verify-initial-tool-gone"
+    tool: "x_notif-server_initial_tool"
+    args:
+      msg: "should fail"
+    expected:
+      success: false
+      wait_for_state: "10s"
+    timeout: "15s"
+
+  - id: "verify-dynamic-tool-still-works"
+    tool: "x_notif-server_dynamic_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["dynamic_tool"]
+    timeout: "10s"

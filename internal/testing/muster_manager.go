@@ -951,6 +951,28 @@ func sanitizeFileName(name string) string {
 	return sanitized
 }
 
+// GetMockHTTPServer returns a mock HTTP server for the given instance and server name.
+func (m *musterInstanceManager) GetMockHTTPServer(instanceID, serverName string) *mock.HTTPServer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if servers, ok := m.mockHTTPServers[instanceID]; ok {
+		return servers[serverName]
+	}
+	return nil
+}
+
+// GetProtectedMCPServer returns a protected MCP server for the given instance and server name.
+func (m *musterInstanceManager) GetProtectedMCPServer(instanceID, serverName string) *mock.ProtectedMCPServer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if servers, ok := m.protectedMCPServers[instanceID]; ok {
+		return servers[serverName]
+	}
+	return nil
+}
+
 // stopMockHTTPServers stops all mock HTTP servers for a given instance
 func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanceID string, logger TestLogger) {
 	// Use provided logger or fall back to manager's logger

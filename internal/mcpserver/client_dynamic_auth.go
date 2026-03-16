@@ -74,6 +74,18 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
 	}
 
+	// Start with a background context so the continuous GET listener goroutine
+	// survives after the caller's initialization context (which may be short-lived) completes.
+	// The listener goroutine is separately cancelled when the client is closed.
+	if err := mcpClient.Start(context.Background()); err != nil {
+		mcpClient.Close()
+		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
+			logging.Debug("DynamicAuthClient", "Authentication required for URL: %s", c.url)
+			return authErr
+		}
+		return fmt.Errorf("failed to start StreamableHTTP transport: %w", err)
+	}
+
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: struct {
 			ProtocolVersion string                 `json:"protocolVersion"`
