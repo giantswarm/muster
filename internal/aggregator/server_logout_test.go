@@ -29,7 +29,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -66,7 +68,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -85,7 +89,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(mockHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
 		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
@@ -109,7 +115,9 @@ func TestHandleUserTokensDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&captureHandler)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		a := &AggregatorServer{}
+		a := &AggregatorServer{
+			subjectSessions: newSubjectSessionTracker(),
+		}
 
 		specialUserID := "CgZpZDEyMxIGbG9jYWw"
 		req := httptest.NewRequest(http.MethodDelete, "/user-tokens", nil)
@@ -242,9 +250,10 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		api.RegisterOAuthHandler(&issuerMockOAuthHandler{enabled: true})
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-		cache := NewCapabilityCache(5 * time.Minute)
-		cache.Set("session-A", "target-server", "user@example.com", nil, nil, nil)
-		cache.Set("session-B", "target-server", "other-user@example.com", nil, nil, nil)
+		store := NewInMemoryCapabilityStore(30 * time.Minute)
+		defer store.Stop()
+		_ = store.Set(context.Background(), "session-A", "target-server", &Capabilities{})
+		_ = store.Set(context.Background(), "session-B", "target-server", &Capabilities{})
 
 		reg := NewServerRegistry("")
 		reg.mu.Lock()
@@ -256,7 +265,7 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 		reg.mu.Unlock()
 
-		a := &AggregatorServer{registry: reg, capabilityCache: cache}
+		a := &AggregatorServer{registry: reg, capabilityStore: store}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/target-server", nil)
 		req.SetPathValue("server", "target-server")
@@ -270,11 +279,13 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
 		}
-		if _, ok := cache.Get("session-A", "target-server"); ok {
-			t.Error("expected requesting session's cache entry to be invalidated")
+		caps, _ := store.Get(context.Background(), "session-A", "target-server")
+		if caps != nil {
+			t.Error("expected requesting session's store entry to be deleted")
 		}
-		if _, ok := cache.Get("session-B", "target-server"); !ok {
-			t.Error("other session's cache entry should still exist")
+		caps, _ = store.Get(context.Background(), "session-B", "target-server")
+		if caps == nil {
+			t.Error("other session's store entry should still exist")
 		}
 	})
 

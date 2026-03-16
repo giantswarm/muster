@@ -544,7 +544,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 				logger.Debug("⚠️  Resource availability check timed out, checking what's available...\n")
 				// Show what's available for debugging
 				if len(expectedTools) > 0 {
-					if availableTools, err := mcpClient.ListTools(context.Background()); err == nil {
+					if availableTools, err := m.listToolsViaMeta(mcpClient, context.Background()); err == nil {
 						logger.Debug("🛠️  Available tools: %v\n", availableTools)
 						logger.Debug("🎯 Expected tools: %v\n", expectedTools)
 					}
@@ -561,9 +561,11 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			allReady := true
 			var notReadyReasons []string
 
-			// Check tools availability
+			// Check tools availability via the list_tools meta-tool.
+			// MCP tools/list only returns meta-tools; downstream tools are
+			// discovered through the list_tools meta-tool.
 			if len(expectedTools) > 0 {
-				availableTools, err := mcpClient.ListTools(resourceCtx)
+				availableTools, err := m.listToolsViaMeta(mcpClient, resourceCtx)
 				if err != nil {
 					if m.debug {
 						logger.Debug("🔍 Failed to list tools: %v\n", err)
@@ -677,6 +679,18 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 // extractExpectedToolsFromInstance gets the expected tools stored in the instance
 func (m *musterInstanceManager) extractExpectedToolsFromInstance(instance *MusterInstance) []string {
 	return instance.ExpectedTools
+}
+
+// listToolsViaMeta queries the list_tools meta-tool to discover all available
+// tools (meta-tools + downstream server tools). MCP tools/list only returns
+// meta-tools, so this is the correct way to check downstream tool availability.
+func (m *musterInstanceManager) listToolsViaMeta(client MCPTestClient, ctx context.Context) ([]string, error) {
+	result, err := client.CallToolDirect(ctx, "list_tools", nil)
+	if err != nil {
+		return nil, fmt.Errorf("list_tools meta-tool call failed: %w", err)
+	}
+
+	return extractToolNamesFromResult(result)
 }
 
 // findMissingTools returns tools that are expected but not found in available tools
@@ -935,6 +949,28 @@ func sanitizeFileName(name string) string {
 	}
 
 	return sanitized
+}
+
+// GetMockHTTPServer returns a mock HTTP server for the given instance and server name.
+func (m *musterInstanceManager) GetMockHTTPServer(instanceID, serverName string) *mock.HTTPServer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if servers, ok := m.mockHTTPServers[instanceID]; ok {
+		return servers[serverName]
+	}
+	return nil
+}
+
+// GetProtectedMCPServer returns a protected MCP server for the given instance and server name.
+func (m *musterInstanceManager) GetProtectedMCPServer(instanceID, serverName string) *mock.ProtectedMCPServer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if servers, ok := m.protectedMCPServers[instanceID]; ok {
+		return servers[serverName]
+	}
+	return nil
 }
 
 // stopMockHTTPServers stops all mock HTTP servers for a given instance

@@ -90,6 +90,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.wireNotificationHandler()
 
 	logging.Debug("SSEClient", "SSE client initialized. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
@@ -135,4 +136,9 @@ func (c *SSEClient) GetPrompt(ctx context.Context, name string, args map[string]
 // Ping checks if the server is responsive
 func (c *SSEClient) Ping(ctx context.Context) error {
 	return c.ping(ctx)
+}
+
+// OnNotification registers a handler for server-pushed notifications.
+func (c *SSEClient) OnNotification(handler func(mcp.JSONRPCNotification)) {
+	c.onNotification(handler)
 }

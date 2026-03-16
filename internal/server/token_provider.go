@@ -10,18 +10,11 @@ import (
 // contextKey is a custom type for context keys to avoid collisions.
 type contextKey string
 
-const (
-	// idTokenKey is the context key for storing the user's OIDC ID token.
-	// This token can be used for downstream API authentication.
-	//nolint:gosec // G101 false positive - this is a context key name, not a credential
-	idTokenKey contextKey = "oauth_id_token"
-
-	// upstreamAccessTokenKey is the context key for storing the upstream IdP's access token.
-	// This is used to detect token refresh (the access token changes on refresh,
-	// even when the ID token is preserved).
-	//nolint:gosec // G101 false positive - this is a context key name, not a credential
-	upstreamAccessTokenKey contextKey = "oauth_upstream_access_token"
-)
+// idTokenKey is the context key for storing the user's OIDC ID token.
+// This token can be used for downstream API authentication.
+//
+//nolint:gosec // G101 false positive - this is a context key name, not a credential
+const idTokenKey contextKey = "oauth_id_token"
 
 // UserInfo represents user information from an OAuth provider.
 // This is a type alias for the library's providers.UserInfo type.
@@ -38,21 +31,6 @@ func ContextWithIDToken(ctx context.Context, idToken string) context.Context {
 // Returns the ID token and true if present, or empty string and false if not available.
 func GetIDTokenFromContext(ctx context.Context) (string, bool) {
 	token, ok := ctx.Value(idTokenKey).(string)
-	return token, ok && token != ""
-}
-
-// ContextWithUpstreamAccessToken creates a context with the upstream IdP's access token.
-// This is used for detecting token refresh - the access token changes on refresh,
-// even when the ID token is preserved. By tracking the access token, we can
-// detect both re-authentication (new ID token) and token refresh (new access token).
-func ContextWithUpstreamAccessToken(ctx context.Context, accessToken string) context.Context {
-	return context.WithValue(ctx, upstreamAccessTokenKey, accessToken)
-}
-
-// GetUpstreamAccessTokenFromContext retrieves the upstream IdP's access token from context.
-// Returns the access token and true if present, or empty string and false if not available.
-func GetUpstreamAccessTokenFromContext(ctx context.Context) (string, bool) {
-	token, ok := ctx.Value(upstreamAccessTokenKey).(string)
 	return token, ok && token != ""
 }
 

@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -79,13 +78,6 @@ const (
 	// logEmailPrefixLength is the number of characters to show when logging emails.
 	// Only a prefix is logged for privacy reasons.
 	logEmailPrefixLength = 8
-
-	// DefaultSessionTrackerTTL is how long session entries are kept before cleanup.
-	// Sessions inactive for longer than this will be removed to prevent memory leaks.
-	DefaultSessionTrackerTTL = 24 * time.Hour
-
-	// DefaultSessionTrackerCleanupInterval is how often the session tracker cleanup runs.
-	DefaultSessionTrackerCleanupInterval = 1 * time.Hour
 )
 
 var (
@@ -131,32 +123,18 @@ func buildDexScopes(requiredAudiences []string) []string {
 	return append(scopes, audienceScopes...)
 }
 
-// sessionTrackerEntry holds the last access time for a session.
-// The session ID (token family ID) changes on re-authentication (new login = new family),
-// so no hash comparison is needed -- a new session ID naturally triggers SSO.
-type sessionTrackerEntry struct {
-	lastAccess time.Time
-}
-
 // OAuthHTTPServer wraps an MCP HTTP handler with OAuth 2.1 authentication.
 // It provides both OAuth server functionality (authorization, token issuance)
 // and resource server protection (token validation middleware).
 type OAuthHTTPServer struct {
-	config       config.OAuthServerConfig
-	oauthServer  *oauth.Server
-	oauthHandler *oauth.Handler
-	tokenStore   storage.TokenStore
-	httpServer   *http.Server
-	mcpHandler   http.Handler
-	debug        bool
-
-	// sessionInitTracker tracks which sessions have had their init callback called.
-	// Keyed by session ID (token family ID). A new login creates a new family,
-	// so new entries naturally trigger proactive SSO without hash comparison.
-	sessionInitTracker sync.Map // map[sessionID]sessionTrackerEntry
-
-	// stopCleanup is closed to signal the cleanup goroutine to stop.
-	stopCleanup chan struct{}
+	config          config.OAuthServerConfig
+	oauthServer     *oauth.Server
+	oauthHandler    *oauth.Handler
+	tokenStore      storage.TokenStore
+	httpServer      *http.Server
+	mcpHandler      http.Handler
+	debug           bool
+	onAuthenticated func(ctx context.Context, sessionID string)
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -185,13 +163,17 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		tokenStore:   tokenStore,
 		mcpHandler:   mcpHandler,
 		debug:        debug,
-		stopCleanup:  make(chan struct{}),
 	}
 
-	// Start background cleanup goroutine for session tracker
-	go server.runSessionTrackerCleanup()
-
 	return server, nil
+}
+
+// SetOnAuthenticated registers a callback that fires on every authenticated
+// MCP request after the session ID has been extracted. The aggregator uses
+// this to trigger on-demand SSO connections from the HTTP middleware rather
+// than from individual MCP operations.
+func (s *OAuthHTTPServer) SetOnAuthenticated(fn func(ctx context.Context, sessionID string)) {
+	s.onAuthenticated = fn
 }
 
 // CreateMux creates an HTTP mux that routes to both OAuth and MCP handlers.
@@ -298,10 +280,8 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 // OAuth access token into the request context. This token can then be used
 // for downstream authentication (e.g., to remote MCP servers).
 //
-// Additionally, on the first request for a new session, this middleware triggers
-// the session initialization callback (if registered). This enables proactive SSO:
-// when a user authenticates to muster, SSO-enabled servers are automatically
-// connected using muster's ID token.
+// After extracting credentials, the middleware fires the onAuthenticated callback
+// (if set) to trigger on-demand SSO connections for any uncached SSO servers.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -360,78 +340,20 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			ctx = api.WithSessionID(ctx, sessionID)
 		}
 
-		ctx = ContextWithUpstreamAccessToken(ctx, token.AccessToken)
 		r = r.WithContext(ctx)
+
+		if s.onAuthenticated != nil {
+			if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
+				s.onAuthenticated(ctx, sessionID)
+			}
+		}
 
 		if s.debug {
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
 		}
 
-		// Trigger session initialization callback on first request for this session.
-		// Each login creates a new session ID (token family), so new logins
-		// naturally trigger proactive SSO without token-hash comparison.
-		s.triggerSessionInitIfNeeded(ctx, r)
-
 		next.ServeHTTP(w, r)
 	})
-}
-
-// triggerSessionInitIfNeeded triggers the session initialization callback if this
-// is the first authenticated request for the session. Each login creates a new
-// session ID (token family), so new logins naturally trigger SSO without hash comparison.
-func (s *OAuthHTTPServer) triggerSessionInitIfNeeded(ctx context.Context, r *http.Request) {
-	sub := api.GetSubjectFromContext(ctx)
-	if sub == "" {
-		logging.Debug("OAuth", "SSO: No user subject in context, skipping session init")
-		return
-	}
-
-	sessionID := api.GetSessionIDFromContext(ctx)
-	if sessionID == "" {
-		logging.Debug("OAuth", "SSO: No session ID in context for user %s, skipping session init", sub)
-		return
-	}
-
-	idToken, _ := GetIDTokenFromContext(ctx)
-	if idToken == "" {
-		logging.Debug("OAuth", "SSO: No ID token in context for user %s, skipping session init", sub)
-		return
-	}
-
-	now := time.Now()
-
-	// Session ID changes on re-authentication (new login = new token family).
-	// If we've already seen this session, just update last access time.
-	if _, exists := s.sessionInitTracker.Load(sessionID); exists {
-		s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{lastAccess: now})
-		logging.Debug("OAuth", "SSO: Session %s already initialized, skipping", logging.TruncateIdentifier(sessionID))
-		return
-	}
-
-	s.sessionInitTracker.Store(sessionID, sessionTrackerEntry{lastAccess: now})
-
-	callback := api.GetSessionInitCallback()
-	if callback == nil {
-		logging.Warn("OAuth", "SSO: No session init callback registered, proactive SSO disabled")
-		return
-	}
-
-	// Set SSOInitInProgress synchronously before the goroutine fires.
-	if prepareCallback := api.GetSessionInitPrepareCallback(); prepareCallback != nil {
-		prepareCallback(sub)
-	}
-
-	go func() {
-		logging.Info("OAuth", "SSO: Triggering proactive SSO for user %s session %s",
-			sub, logging.TruncateIdentifier(sessionID))
-
-		bgCtx := context.Background()
-		bgCtx = ContextWithIDToken(bgCtx, idToken)
-		bgCtx = api.WithSubject(bgCtx, sub)
-		bgCtx = api.WithSessionID(bgCtx, sessionID)
-
-		callback(bgCtx, sub)
-	}()
 }
 
 // GetOAuthServer returns the underlying OAuth server for testing or direct access.
@@ -476,11 +398,6 @@ func (s *OAuthHTTPServer) GetTokenStore() storage.TokenStore {
 
 // Shutdown gracefully shuts down the server.
 func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
-	// Stop the session tracker cleanup goroutine
-	if s.stopCleanup != nil {
-		close(s.stopCleanup)
-	}
-
 	// Shutdown OAuth server (handles rate limiters, storage cleanup, etc.)
 	if s.oauthServer != nil {
 		if err := s.oauthServer.Shutdown(ctx); err != nil {
@@ -819,46 +736,6 @@ func extractBearerToken(r *http.Request) string {
 		return auth[len(prefix):]
 	}
 	return ""
-}
-
-// runSessionTrackerCleanup runs a background goroutine that periodically removes
-// expired session entries from the session init tracker. This prevents unbounded
-// memory growth in long-running servers.
-func (s *OAuthHTTPServer) runSessionTrackerCleanup() {
-	ticker := time.NewTicker(DefaultSessionTrackerCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.stopCleanup:
-			logging.Debug("OAuth", "Session tracker cleanup goroutine stopped")
-			return
-		case <-ticker.C:
-			s.cleanupExpiredSessions()
-		}
-	}
-}
-
-// cleanupExpiredSessions removes tracker entries that haven't been accessed
-// within the TTL period.
-func (s *OAuthHTTPServer) cleanupExpiredSessions() {
-	now := time.Now()
-	expiredCount := 0
-
-	s.sessionInitTracker.Range(func(key, value interface{}) bool {
-		sessionID := key.(string)
-		entry := value.(sessionTrackerEntry)
-
-		if now.Sub(entry.lastAccess) > DefaultSessionTrackerTTL {
-			s.sessionInitTracker.Delete(sessionID)
-			expiredCount++
-		}
-		return true
-	})
-
-	if expiredCount > 0 {
-		logging.Info("OAuth", "Cleaned up %d expired session tracker entries", expiredCount)
-	}
 }
 
 // extractSubjectFromIDToken extracts the subject (sub) claim from a JWT ID token.

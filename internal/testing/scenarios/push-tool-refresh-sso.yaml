@@ -1,0 +1,131 @@
+name: "push-tool-refresh-sso"
+description: "Test push-based tool refresh via notifications/tools/list_changed for SSO-protected MCP servers"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "notifications", "tools", "push-refresh", "oauth", "sso"]
+timeout: "2m"
+
+# Test Story: Push-Based Tool Refresh for SSO-Protected Servers
+# Given: An SSO-protected MCP server with one initial tool
+# And:   A user authenticated to the server via SSO token forwarding
+# When:  A new tool is dynamically added to the server
+# Then:  The aggregator receives a notifications/tools/list_changed notification
+# And:   The new tool becomes visible to the authenticated user
+# When:  The original tool is removed from the server
+# Then:  The tool is no longer available to the user
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "sso-notif-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          scope: "mcp:admin"
+          forward_token: true
+        tools:
+          - name: "initial_sso_tool"
+            description: "A tool that exists from startup on the SSO server"
+            responses:
+              - response:
+                  source: "sso-notif-server"
+                  status: "initial-tool-ok"
+
+steps:
+  # Phase 1: Authenticate and verify initial tools
+  - id: "verify-server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["sso-notif-server"]
+    timeout: "30s"
+
+  - id: "muster-auth-login"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+    timeout: "30s"
+
+  - id: "login-with-sso"
+    tool: "core_auth_login"
+    args:
+      server: "sso-notif-server"
+    expected:
+      success: true
+    timeout: "30s"
+
+  - id: "verify-initial-tool"
+    tool: "x_sso-notif-server_initial_sso_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["initial-tool-ok"]
+    timeout: "15s"
+
+  # Phase 2: Dynamically add a tool and verify it propagates
+  - id: "add-dynamic-tool"
+    tool: "test_add_mock_tool"
+    args:
+      server: "sso-notif-server"
+      tool_name: "dynamic_sso_tool"
+      tool_description: "A tool added at runtime to the SSO server"
+    expected:
+      success: true
+      contains: ["Added tool"]
+    timeout: "10s"
+
+  - id: "verify-dynamic-tool-available"
+    tool: "x_sso-notif-server_dynamic_sso_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["dynamic_sso_tool"]
+    timeout: "15s"
+
+  - id: "verify-initial-tool-still-works"
+    tool: "x_sso-notif-server_initial_sso_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["initial-tool-ok"]
+    timeout: "10s"
+
+  # Phase 3: Remove the initial tool and verify it becomes unavailable
+  - id: "remove-initial-tool"
+    tool: "test_remove_mock_tool"
+    args:
+      server: "sso-notif-server"
+      tool_name: "initial_sso_tool"
+    expected:
+      success: true
+      contains: ["Removed tool"]
+    timeout: "10s"
+
+  - id: "verify-initial-tool-gone"
+    tool: "x_sso-notif-server_initial_sso_tool"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+  - id: "verify-dynamic-tool-still-works"
+    tool: "x_sso-notif-server_dynamic_sso_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["dynamic_sso_tool"]
+    timeout: "10s"

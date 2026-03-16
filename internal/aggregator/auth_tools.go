@@ -145,10 +145,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if this session already has cached capabilities for this server.
-	if p.aggregator.capabilityCache != nil {
-		if _, ok := p.aggregator.capabilityCache.Get(sessionID, serverName); ok {
-			logging.Debug("AuthTools", "Session %s already has capabilities for server %s", logging.TruncateIdentifier(sessionID), serverName)
+	if p.aggregator.authStore != nil {
+		authenticated, _ := p.aggregator.authStore.IsAuthenticated(ctx, sessionID, serverName)
+		if authenticated {
+			logging.Debug("AuthTools", "Session %s already authenticated to server %s", logging.TruncateIdentifier(sessionID), serverName)
 			return &api.CallToolResult{
 				Content: []interface{}{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
 				IsError: false,
@@ -172,66 +172,21 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Check if RFC 8693 token exchange is enabled for this server (takes precedence over forwarding)
-	if ShouldUseTokenExchange(serverInfo) {
-		logging.Info("AuthTools", "Token exchange (RFC 8693) is enabled for server %s, attempting cross-cluster SSO", serverName)
-
-		result, err := p.tryTokenExchange(ctx, serverInfo)
-		if err != nil {
-			logging.Warn("AuthTools", "Token exchange failed for server %s: %v", serverName, err)
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "token_exchange_failed")
-			}
-			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf(
-					"RFC 8693 token exchange failed for '%s'.\n\n"+
-						"Error: %v\n\n"+
-						"Please check that the remote Dex is configured with an OIDC connector for your cluster.",
-					serverName, err,
-				)},
-				IsError: true,
-			}, nil
-		}
-
-		// Token exchange succeeded
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sub)
-		}
-		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(sub)
-		}
-		return result, nil
-	} else if ShouldUseTokenForwarding(serverInfo) {
-		// Check if token forwarding is enabled for this server
-		logging.Info("AuthTools", "Token forwarding is enabled for server %s, attempting SSO", serverName)
-
-		// Get the muster issuer from the OAuth server configuration
-		// For token forwarding, we use the same issuer that muster authenticated the user with
-		result, err := p.tryTokenForwarding(ctx, serverInfo)
-		if err != nil {
-			logging.Warn("AuthTools", "Token forwarding failed for server %s: %v", serverName, err)
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "token_forwarding_failed")
-			}
-			return &api.CallToolResult{
-				Content: []interface{}{fmt.Sprintf(
-					"SSO token forwarding failed for '%s'.\n\n"+
-						"Error: %v\n\n"+
-						"Please check that the downstream server is configured to trust muster's client ID in its TrustedAudiences.",
-					serverName, err,
-				)},
-				IsError: true,
-			}, nil
-		}
-
-		// Token forwarding succeeded
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginSuccess(serverName, sub)
-		}
-		if p.aggregator.authRateLimiter != nil {
-			p.aggregator.authRateLimiter.Reset(sub)
-		}
-		return result, nil
+	// SSO servers (token exchange or token forwarding) are connected automatically
+	// during session creation via initSSOForSession. Manual login is not supported.
+	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) {
+		logging.Debug("AuthTools", "Rejecting manual auth_login for SSO server %s (session %s)",
+			serverName, logging.TruncateIdentifier(sessionID))
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf(
+				"Server '%s' uses SSO and is connected automatically.\n\n"+
+					"Manual login via core_auth_login is not supported for SSO servers.\n"+
+					"SSO connections are established when your session starts. "+
+					"If the server is not connected, check your SSO configuration or re-authenticate to muster.",
+				serverName,
+			)},
+			IsError: true,
+		}, nil
 	}
 
 	// Get the auth info for this server
@@ -374,6 +329,21 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
+	// SSO servers are connected/disconnected automatically -- manual logout is not supported.
+	if ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo) {
+		logging.Debug("AuthTools", "Rejecting manual auth_logout for SSO server %s (session %s)",
+			serverName, logging.TruncateIdentifier(sessionID))
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf(
+				"Server '%s' uses SSO and is managed automatically.\n\n"+
+					"Manual logout via core_auth_logout is not supported for SSO servers.\n"+
+					"To disconnect, re-authenticate to muster or contact your administrator.",
+				serverName,
+			)},
+			IsError: true,
+		}, nil
+	}
+
 	// Clear tokens for this server's issuer ONLY if no other server shares it
 	// and it is not muster's upstream issuer. Clearing a shared issuer token
 	// would break other servers (or muster itself) that rely on the same token.
@@ -388,22 +358,29 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}
 	}
 
-	// Invalidate CapabilityCache for this session+server after logout
-	if p.aggregator.capabilityCache != nil {
-		p.aggregator.capabilityCache.Invalidate(sessionID, serverName)
+	// Remove auth state and capabilities for this session+server after logout
+	if p.aggregator.authStore != nil {
+		if err := p.aggregator.authStore.Revoke(ctx, sessionID, serverName); err != nil {
+			logging.Warn("AuthTools", "Failed to revoke auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
+	if p.aggregator.capabilityStore != nil {
+		if err := p.aggregator.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
+			logging.Warn("AuthTools", "Failed to delete entry %s/%s from capability store: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
+
+	// Evict pooled connection for this session+server
+	if p.aggregator.connPool != nil {
+		p.aggregator.connPool.Evict(sessionID, serverName)
 	}
 
 	// Clear SSO failure state so re-authentication can trigger fresh SSO
 	if p.aggregator.ssoTracker != nil {
 		p.aggregator.ssoTracker.ClearSSOFailed(sub, serverName)
 	}
-
-	// NOTE: We intentionally do NOT clear the sessionInitTracker entry here.
-	// After logout, the user must explicitly re-authenticate via core_auth_login.
-	// If we cleared the tracker, the next MCP request would trigger proactive SSO
-	// reconnect, which defeats the purpose of logging out (see #423, #440).
-	// Proactive SSO will naturally re-trigger when the muster access token is
-	// refreshed (new token hash detected by triggerSessionInitIfNeeded).
 
 	// Record logout success
 	if p.aggregator.authMetrics != nil {
@@ -427,54 +404,10 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 	if err != nil {
 		return nil, err
 	}
-	return result.FormatAsAPIResult(), nil
-}
 
-// tryTokenExchange attempts to establish a connection using RFC 8693 token exchange.
-// This is used when an MCPServer has tokenExchange configured for cross-cluster SSO.
-//
-// Returns:
-//   - *api.CallToolResult: The connection result if successful
-//   - error: The error if token exchange failed
-func (p *AuthToolProvider) tryTokenExchange(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	musterIssuer := p.getMusterIssuer(sessionID)
-	if musterIssuer == "" {
-		sub := getUserSubjectFromContext(ctx)
-		logging.Warn("AuthTools", "Cannot determine muster issuer for token exchange, user %s", sub)
-		return nil, fmt.Errorf("cannot determine muster issuer for token exchange")
-	}
-
-	result, err := EstablishConnectionWithTokenExchange(
-		ctx, p.aggregator, serverInfo, musterIssuer,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return result.FormatAsAPIResult(), nil
-}
-
-// tryTokenForwarding attempts to establish a connection using ID token forwarding.
-// This is used when an MCPServer has forwardToken: true configured.
-//
-// Returns:
-//   - *api.CallToolResult: The connection result if successful
-//   - error: The error if token forwarding failed
-func (p *AuthToolProvider) tryTokenForwarding(ctx context.Context, serverInfo *ServerInfo) (*api.CallToolResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	musterIssuer := p.getMusterIssuer(sessionID)
-	if musterIssuer == "" {
-		sub := getUserSubjectFromContext(ctx)
-		logging.Warn("AuthTools", "Cannot determine muster issuer for token forwarding, user %s", sub)
-		return nil, fmt.Errorf("cannot determine muster issuer for token forwarding")
-	}
-
-	result, err := EstablishConnectionWithTokenForwarding(
-		ctx, p.aggregator, serverInfo, musterIssuer,
-	)
-	if err != nil {
-		return nil, err
+	if result.Client != nil && p.aggregator.connPool != nil {
+		sessionID := getSessionIDFromContext(ctx)
+		p.aggregator.connPool.Put(sessionID, serverName, result.Client)
 	}
 
 	return result.FormatAsAPIResult(), nil

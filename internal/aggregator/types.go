@@ -56,6 +56,10 @@ type MCPClient interface {
 	// Ping checks if the server is responsive.
 	// This is used for health checking and connection validation.
 	Ping(ctx context.Context) error
+
+	// OnNotification registers a handler for server-pushed JSON-RPC
+	// notifications (e.g. notifications/tools/list_changed).
+	OnNotification(handler func(mcp.JSONRPCNotification))
 }
 
 // ServerInfo contains information about a registered MCP server.

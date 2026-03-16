@@ -23,6 +23,9 @@ import (
 // ConnectionResult contains the result of establishing a session connection.
 // This is returned by establishConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
+//
+// The Client field holds the live, initialized MCP client. Ownership is
+// transferred to the caller, who must either pool or close it.
 type ConnectionResult struct {
 	// ServerName is the name of the server that was connected
 	ServerName string
@@ -32,17 +35,24 @@ type ConnectionResult struct {
 	ResourceCount int
 	// PromptCount is the number of prompts available from the server
 	PromptCount int
+	// Client is the live MCP client. The caller owns its lifecycle and must
+	// either pool it for reuse or close it when done.
+	Client MCPClient
+	// TokenExpiry records when the client's bearer token expires. Zero means
+	// no expiry tracking (e.g., token forwarding clients). Callers should pass
+	// this to SessionConnectionPool.PutWithExpiry for proactive refresh.
+	TokenExpiry time.Time
 }
 
 // establishConnection creates a connection to an MCP server and populates
-// the CapabilityCache. This is the shared implementation used by both:
+// the CapabilityStore. This is the shared implementation used by both:
 //   - AuthToolProvider.tryConnectWithToken (core_auth_login tool)
 //   - AggregatorServer.tryConnectWithToken (OAuth browser callback, manager.go)
 //
 // This method:
 //  1. Creates the appropriate client (DynamicAuthClient or static headers)
 //  2. Initializes the connection and fetches capabilities
-//  3. Populates the CapabilityCache and registers tools
+//  3. Populates the CapabilityStore and registers tools
 //  4. Broadcasts tool change notifications
 //
 // Both sessionID and sub are extracted from the context. The sessionID is used
@@ -111,20 +121,22 @@ func establishConnection(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverName, sub, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Set(ctx, sessionID, serverName, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); err != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
 	}
 
-	// Register tools with the mcp-go server so they can be called
-	a.registerSessionTools(serverName, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverName); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
 
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
@@ -137,6 +149,7 @@ func establishConnection(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
 	}, nil
 }
 
@@ -181,11 +194,10 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 // Token sources are checked in priority order:
 //  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
 //     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
-//  2. OAuth proxy token store - contains tokens when user authenticated WITH remote servers
-//     via core_auth_login. These are keyed by (sessionID, issuer).
+//  2. OAuth proxy token store - contains the token from muster's own OAuth session, looked up
+//     by (sessionID, musterIssuer).
 //
-// The context token takes priority because it represents the user's current authentication
-// to muster, which is what we want to forward for SSO.
+// The context token takes priority because it's directly available without a store lookup.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
@@ -221,7 +233,7 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 // The function:
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Forwards it to the downstream MCP server
-//  3. If successful, populates the CapabilityCache and registers tools
+//  3. If successful, populates the CapabilityStore and registers tools
 //
 // Both sessionID and sub are extracted from ctx (set by OAuth middleware).
 //
@@ -243,9 +255,10 @@ func EstablishConnectionWithTokenForwarding(
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
 
-	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("Connection", "Session %s already connected to %s, skipping token forwarding",
+	if a.authStore != nil {
+		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
+		if authenticated {
+			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token forwarding",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
@@ -334,20 +347,22 @@ func EstablishConnectionWithTokenForwarding(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); err != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
 	}
 
-	// Register tools with the mcp-go server
-	a.registerSessionTools(serverInfo.Name, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
+	}
 
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
@@ -360,6 +375,7 @@ func EstablishConnectionWithTokenForwarding(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
 	}, nil
 }
 
@@ -436,7 +452,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 //  1. Gets the user's ID token from muster's OAuth session
 //  2. Extracts the user ID (sub claim) from the token
 //  3. Exchanges it for a token valid on the remote cluster's Dex
-//  4. If successful, populates the CapabilityCache and registers tools
+//  4. If successful, populates the CapabilityStore and registers tools
 //
 // Both sessionID and sub are extracted from ctx (set by OAuth middleware).
 //
@@ -461,9 +477,9 @@ func EstablishConnectionWithTokenExchange(
 
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
-	if a.capabilityCache != nil {
-		if entry, exists := a.capabilityCache.Get(sessionID, serverInfo.Name); exists && !entry.IsExpired() {
-			logging.Debug("Connection", "Session %s already connected to %s, skipping token exchange",
+	if a.authStore != nil {
+		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
+			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 			return &ConnectionResult{ServerName: serverInfo.Name}, nil
 		}
@@ -477,7 +493,7 @@ func EstablishConnectionWithTokenExchange(
 
 	// Get ID token from multiple sources (in priority order):
 	// 1. Request context (for tokens from muster's OAuth server protection)
-	// 2. OAuth proxy token store (for tokens obtained via core_auth_login)
+	// 2. OAuth proxy token store (for tokens from muster's own OAuth session)
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
 		logging.Debug("Connection", "No ID token available for user %s",
@@ -612,9 +628,16 @@ func EstablishConnectionWithTokenExchange(
 		Details: fmt.Sprintf("endpoint=%s connector=%s", serverInfo.AuthConfig.TokenExchange.DexTokenEndpoint, serverInfo.AuthConfig.TokenExchange.ConnectorID),
 	})
 
-	// Create a simple header function using the exchanged token.
-	// No token refresh logic needed since the client is short-lived (one capability fetch).
-	// If the token expires during fetch, the server returns 401.
+	// Extract the exchanged token's expiry for proactive pool refresh.
+	// If the token is near expiry, getOrCreateClientForToolCall will
+	// proactively evict the pooled client and re-exchange before the
+	// downstream server returns 401.
+	tokenExpiry := getTokenExpiryTime(exchangedToken)
+
+	// Create a header function using the exchanged token. The token has a fixed
+	// lifetime; if it expires while the client is pooled, the downstream server
+	// returns 401. In that case, callToolWithTokenExchangeRetry evicts the stale
+	// pool entry, re-exchanges a fresh token, and retries the tool call.
 	headerFunc := func(_ context.Context) map[string]string {
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
@@ -660,20 +683,22 @@ func EstablishConnectionWithTokenExchange(
 		prompts = nil
 	}
 
-	// Close the initial client now that capabilities have been fetched.
-	// Clients are created on demand for tool execution (Phase 2B).
-	client.Close()
-
-	// Populate the CapabilityCache keyed by session ID for per-login isolation
-	if a.capabilityCache != nil {
-		a.capabilityCache.Set(sessionID, serverInfo.Name, sub, tools, resources, prompts)
+	// Populate the CapabilityStore keyed by session ID for per-login isolation
+	if a.capabilityStore != nil {
+		if storeErr := a.capabilityStore.Set(ctx, sessionID, serverInfo.Name, &Capabilities{
+			Tools: tools, Resources: resources, Prompts: prompts,
+		}); storeErr != nil {
+			logging.Warn("Connection", "Failed to store capabilities for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, storeErr)
+		}
 	}
 
-	// Register tools with the mcp-go server
-	a.registerSessionTools(serverInfo.Name, tools)
-
-	// Notify the authenticating user's sessions about new tools
-	a.NotifyToolsChanged(sub)
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+		}
+	}
 
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")
@@ -686,6 +711,8 @@ func EstablishConnectionWithTokenExchange(
 		ToolCount:     len(tools),
 		ResourceCount: len(resources),
 		PromptCount:   len(prompts),
+		Client:        client,
+		TokenExpiry:   tokenExpiry,
 	}, nil
 }
 
@@ -782,6 +809,19 @@ func extractUserIDFromToken(idToken string) string {
 // idTokenExpiryMargin is the minimum time before expiry that we consider a token valid.
 // This accounts for clock skew and network latency during forwarding.
 const idTokenExpiryMargin = 30 * time.Second
+
+// tokenExchangeRefreshMargin is the time before expiry at which a pooled
+// token-exchange client triggers a background re-exchange. Dex access tokens
+// typically live for 30 minutes, so a 5-minute margin gives ample time for
+// the background goroutine to complete the exchange + client initialization
+// without blocking the user's request.
+const tokenExchangeRefreshMargin = 5 * time.Minute
+
+// deferredCloseDelay is how long to wait before closing a replaced pooled
+// client during background token refresh. This gives any in-flight request
+// using the old client time to complete before the underlying connection is
+// torn down.
+const deferredCloseDelay = 60 * time.Second
 
 // notifyMCPServerConnected updates the MCPServer service state to Connected after
 // successful authentication. This syncs the session-level connection success to
