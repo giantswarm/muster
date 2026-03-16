@@ -19,22 +19,34 @@ func (a *AggregatorServer) refreshContext() context.Context {
 	return context.Background()
 }
 
-// handleNonOAuthToolListChanged handles a notifications/tools/list_changed
-// notification from a non-OAuth server. Concurrent re-fetches for the same
-// server are deduplicated via singleflight.
-func (a *AggregatorServer) handleNonOAuthToolListChanged(serverName string) {
-	sfKey := "notif-tools/" + serverName
+// isCapabilityNotification returns true if the notification method indicates
+// a server-side capability change (tools, resources, or prompts).
+func isCapabilityNotification(method string) bool {
+	switch method {
+	case "notifications/tools/list_changed",
+		"notifications/resources/list_changed",
+		"notifications/prompts/list_changed":
+		return true
+	}
+	return false
+}
+
+// handleNonOAuthCapabilityChanged handles a capability-change notification
+// from a non-OAuth server. Concurrent re-fetches for the same server are
+// deduplicated via singleflight.
+func (a *AggregatorServer) handleNonOAuthCapabilityChanged(serverName string) {
+	sfKey := "notif-caps/" + serverName
 	go func() {
 		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (interface{}, error) {
-			a.refreshNonOAuthTools(serverName)
+			a.refreshNonOAuthCapabilities(serverName)
 			return nil, nil
 		})
 	}()
 }
 
-// refreshNonOAuthTools re-fetches tools, resources, and prompts from a
+// refreshNonOAuthCapabilities re-fetches tools, resources, and prompts from a
 // non-OAuth server and updates the registry if anything changed.
-func (a *AggregatorServer) refreshNonOAuthTools(serverName string) {
+func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string) {
 	info, exists := a.registry.GetServerInfo(serverName)
 	if !exists || info.Client == nil {
 		logging.Warn("Aggregator", "Notification refresh: server %s not found or has no client", serverName)
@@ -88,57 +100,53 @@ func (a *AggregatorServer) refreshNonOAuthTools(serverName string) {
 	a.registry.notifyUpdate()
 }
 
-// handleSSOToolListChanged handles a notifications/tools/list_changed
-// notification from an SSO (OAuth) server. Concurrent re-fetches for the
-// same server are deduplicated via singleflight.
-func (a *AggregatorServer) handleSSOToolListChanged(serverName string) {
-	sfKey := "notif-sso/" + serverName
+// handleSessionCapabilityChanged handles a capability-change notification
+// from an authenticated server for a specific session. Concurrent re-fetches
+// for the same (sessionID, serverName) pair are deduplicated via singleflight.
+func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID string, client MCPClient) {
+	sfKey := sessionID + "/" + serverName
 	go func() {
 		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (interface{}, error) {
-			a.refreshSSOCapabilities(serverName)
+			ctx := a.refreshContext()
+			a.refreshSessionCapabilities(ctx, serverName, sessionID, client)
 			return nil, nil
 		})
 	}()
 }
 
-// refreshSSOCapabilities re-fetches tools, resources, and prompts from
-// an SSO server using any available pooled client, and updates the
-// CapabilityStore for all sessions that have cached data for the server.
-func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
-	if a.connPool == nil || a.capabilityStore == nil {
-		logging.Warn("Aggregator", "SSO notification refresh: pool or capability store not initialized for %s", serverName)
-		return
-	}
-
-	client := a.connPool.GetAnyForServer(serverName)
-	if client == nil {
-		logging.Warn("Aggregator", "SSO notification refresh: no pooled client for %s", serverName)
-		return
-	}
-
-	ctx := a.refreshContext()
-
+// refreshSessionCapabilities re-fetches capabilities for a single session
+// using that session's own client, and updates the CapabilityStore if anything
+// changed.
+func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient) {
 	newTools, err := client.ListTools(ctx)
 	if err != nil {
-		logging.Warn("Aggregator", "SSO notification refresh: failed to list tools for %s: %v", serverName, err)
+		logging.Warn("Aggregator", "Session notification refresh: failed to list tools for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
 		return
 	}
 
 	newResources, err := client.ListResources(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "SSO notification refresh: failed to list resources for %s: %v", serverName, err)
+		logging.Debug("Aggregator", "Session notification refresh: failed to list resources for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
 		newResources = nil
 	}
 
 	newPrompts, err := client.ListPrompts(ctx)
 	if err != nil {
-		logging.Debug("Aggregator", "SSO notification refresh: failed to list prompts for %s: %v", serverName, err)
+		logging.Debug("Aggregator", "Session notification refresh: failed to list prompts for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
 		newPrompts = nil
 	}
 
-	if !a.ssoCapabilitiesChanged(ctx, serverName, newTools, newResources, newPrompts) {
-		logging.Debug("Aggregator", "SSO notification refresh: no capability changes for %s", serverName)
-		return
+	cached, _ := a.capabilityStore.Get(ctx, sessionID, serverName)
+	if cached != nil {
+		toolsChanged := !toolListsEqual(cached.Tools, newTools)
+		resourcesChanged := newResources != nil && !resourceListsEqual(cached.Resources, newResources)
+		promptsChanged := newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
+		if !toolsChanged && !resourcesChanged && !promptsChanged {
+			return
+		}
 	}
 
 	caps := &Capabilities{
@@ -147,33 +155,14 @@ func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
 		Prompts:   newPrompts,
 	}
 
-	if err := a.capabilityStore.UpdateServer(ctx, serverName, caps); err != nil {
-		logging.Warn("Aggregator", "SSO notification refresh: failed to update capability store for %s: %v", serverName, err)
+	if err := a.capabilityStore.Set(ctx, sessionID, serverName, caps); err != nil {
+		logging.Warn("Aggregator", "Session notification refresh: failed to update store for %s (session %s): %v",
+			serverName, logging.TruncateIdentifier(sessionID), err)
 		return
 	}
 
-	logging.Info("Aggregator", "SSO notification refresh: updated capabilities for %s (%d tools, %d resources, %d prompts)",
-		serverName, len(newTools), len(newResources), len(newPrompts))
-}
-
-// ssoCapabilitiesChanged checks whether the fetched capabilities differ from
-// what is currently cached. It samples any pooled session's cached data for
-// comparison since all sessions receive the same server-side capabilities.
-func (a *AggregatorServer) ssoCapabilitiesChanged(ctx context.Context, serverName string, newTools []mcp.Tool, newResources []mcp.Resource, newPrompts []mcp.Prompt) bool {
-	sessionID, ok := a.connPool.GetAnySessionForServer(serverName)
-	if !ok {
-		return true
-	}
-
-	cached, err := a.capabilityStore.Get(ctx, sessionID, serverName)
-	if err != nil || cached == nil {
-		return true
-	}
-
-	toolsChanged := !toolListsEqual(cached.Tools, newTools)
-	resourcesChanged := newResources != nil && !resourceListsEqual(cached.Resources, newResources)
-	promptsChanged := newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
-	return toolsChanged || resourcesChanged || promptsChanged
+	logging.Info("Aggregator", "Session notification refresh: updated capabilities for %s (session %s: %d tools, %d resources, %d prompts)",
+		serverName, logging.TruncateIdentifier(sessionID), len(newTools), len(newResources), len(newPrompts))
 }
 
 // toolListsEqual compares two tool lists by name, description, and

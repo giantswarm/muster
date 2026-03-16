@@ -94,7 +94,6 @@ steps:
     expected:
       success: true
       contains: ["dynamic_sso_tool"]
-      wait_for_state: "10s"
     timeout: "15s"
 
   - id: "verify-initial-tool-still-works"
@@ -121,7 +120,6 @@ steps:
     args: {}
     expected:
       success: false
-      wait_for_state: "10s"
     timeout: "15s"
 
   - id: "verify-dynamic-tool-still-works"

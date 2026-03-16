@@ -674,25 +674,25 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
 	client.OnNotification(func(notif mcp.JSONRPCNotification) {
-		if notif.Method == "notifications/tools/list_changed" {
-			a.handleNonOAuthToolListChanged(name)
+		if isCapabilityNotification(notif.Method) {
+			a.handleNonOAuthCapabilityChanged(name)
 		}
 	})
 
 	return a.registry.Register(ctx, name, client, toolPrefix)
 }
 
-// wirePoolNotificationCallbackForSSO sets up a notification callback on the
-// connection pool so that whenever a new client is pooled for the given SSO
-// server, OnNotification is wired to listen for tools/list_changed.
-func (a *AggregatorServer) wirePoolNotificationCallbackForSSO(serverName string) {
+// wirePoolNotificationCallback sets up a notification callback on the
+// connection pool so that whenever a new client is pooled for the given
+// authenticated server, OnNotification is wired to listen for capability-change notifications.
+func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 	if a.connPool == nil {
 		return
 	}
-	a.connPool.SetNotificationCallback(serverName, func(client MCPClient) {
+	a.connPool.SetNotificationCallback(serverName, func(sessionID string, client MCPClient) {
 		client.OnNotification(func(notif mcp.JSONRPCNotification) {
-			if notif.Method == "notifications/tools/list_changed" {
-				a.handleSSOToolListChanged(serverName)
+			if isCapabilityNotification(notif.Method) {
+				a.handleSessionCapabilityChanged(serverName, sessionID, client)
 			}
 		})
 	})

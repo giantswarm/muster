@@ -399,10 +399,10 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return err
 	}
 
-	// Wire pool notification callback for SSO servers so that
+	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
 	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
-		am.aggregatorServer.wirePoolNotificationCallbackForSSO(serverName)
+		am.aggregatorServer.wirePoolNotificationCallback(serverName)
 	}
 
 	return nil

@@ -159,7 +159,15 @@ func (m *notifMockClient) setTools(tools []mcp.Tool) {
 	m.tools = tools
 }
 
-func TestRefreshNonOAuthTools_UpdatesTools(t *testing.T) {
+func TestIsCapabilityNotification(t *testing.T) {
+	assert.True(t, isCapabilityNotification("notifications/tools/list_changed"))
+	assert.True(t, isCapabilityNotification("notifications/resources/list_changed"))
+	assert.True(t, isCapabilityNotification("notifications/prompts/list_changed"))
+	assert.False(t, isCapabilityNotification("notifications/other"))
+	assert.False(t, isCapabilityNotification(""))
+}
+
+func TestRefreshNonOAuthCapabilities_UpdatesTools(t *testing.T) {
 	registry := NewServerRegistry("x")
 	a := &AggregatorServer{registry: registry}
 
@@ -181,14 +189,14 @@ func TestRefreshNonOAuthTools_UpdatesTools(t *testing.T) {
 	}
 	client.setTools(updatedTools)
 
-	a.refreshNonOAuthTools("srv")
+	a.refreshNonOAuthCapabilities("srv")
 
 	info.mu.RLock()
 	assert.Len(t, info.Tools, 2)
 	info.mu.RUnlock()
 }
 
-func TestRefreshNonOAuthTools_NoChangeSkipsUpdate(t *testing.T) {
+func TestRefreshNonOAuthCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 	registry := NewServerRegistry("x")
 	a := &AggregatorServer{registry: registry}
 
@@ -204,7 +212,7 @@ func TestRefreshNonOAuthTools_NoChangeSkipsUpdate(t *testing.T) {
 	default:
 	}
 
-	a.refreshNonOAuthTools("srv")
+	a.refreshNonOAuthCapabilities("srv")
 
 	select {
 	case <-registry.GetUpdateChannel():
@@ -213,15 +221,15 @@ func TestRefreshNonOAuthTools_NoChangeSkipsUpdate(t *testing.T) {
 	}
 }
 
-func TestRefreshNonOAuthTools_ServerNotFound(t *testing.T) {
+func TestRefreshNonOAuthCapabilities_ServerNotFound(t *testing.T) {
 	registry := NewServerRegistry("x")
 	a := &AggregatorServer{registry: registry}
 
 	// Should not panic for a missing server
-	a.refreshNonOAuthTools("nonexistent")
+	a.refreshNonOAuthCapabilities("nonexistent")
 }
 
-func TestHandleNonOAuthToolListChanged_TriggersRefresh(t *testing.T) {
+func TestHandleNonOAuthCapabilityChanged_TriggersRefresh(t *testing.T) {
 	registry := NewServerRegistry("x")
 	a := &AggregatorServer{registry: registry}
 
@@ -234,9 +242,8 @@ func TestHandleNonOAuthToolListChanged_TriggersRefresh(t *testing.T) {
 
 	client.setTools(updatedTools)
 
-	a.handleNonOAuthToolListChanged("srv")
+	a.handleNonOAuthCapabilityChanged("srv")
 
-	// handleNonOAuthToolListChanged runs async; wait for completion
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&client.listToolsCalls) >= 2
 	}, 2*time.Second, 10*time.Millisecond)
@@ -247,7 +254,7 @@ func TestHandleNonOAuthToolListChanged_TriggersRefresh(t *testing.T) {
 	info.mu.RUnlock()
 }
 
-func TestHandleNonOAuthToolListChanged_SingleflightDedup(t *testing.T) {
+func TestHandleNonOAuthCapabilityChanged_SingleflightDedup(t *testing.T) {
 	registry := NewServerRegistry("x")
 	a := &AggregatorServer{registry: registry}
 
@@ -259,119 +266,87 @@ func TestHandleNonOAuthToolListChanged_SingleflightDedup(t *testing.T) {
 
 	baseCount := atomic.LoadInt32(&client.listToolsCalls)
 
-	// Fire many notifications concurrently
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			a.handleNonOAuthToolListChanged("srv")
+			a.handleNonOAuthCapabilityChanged("srv")
 		}()
 	}
 	wg.Wait()
 
-	// Wait for async goroutines to finish
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&client.listToolsCalls) > baseCount
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// singleflight should collapse 20 concurrent calls into very few fetches
 	calls := atomic.LoadInt32(&client.listToolsCalls) - baseCount
 	assert.LessOrEqual(t, calls, int32(5),
 		"singleflight should deduplicate concurrent calls, got %d", calls)
 }
 
-func TestRefreshSSOCapabilities_UpdatesCapabilityStore(t *testing.T) {
-	registry := NewServerRegistry("x")
+func TestRefreshSessionCapabilities_UpdatesStore(t *testing.T) {
 	capStore := NewInMemoryCapabilityStore(time.Hour)
-	pool := NewSessionConnectionPool(time.Hour)
-	defer pool.Stop()
 
 	a := &AggregatorServer{
-		registry:        registry,
+		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
-		connPool:        pool,
 	}
 
-	// Pre-populate the capability store with old data for two sessions.
 	oldCaps := &Capabilities{
-		Tools: []mcp.Tool{{Name: "old-tool", Description: "v1"}},
+		Tools: []mcp.Tool{{Name: "old-tool"}},
 	}
 	require.NoError(t, capStore.Set(context.Background(), "session-1", "sso-srv", oldCaps))
-	require.NoError(t, capStore.Set(context.Background(), "session-2", "sso-srv", oldCaps))
 
-	// Pool a mock client that returns updated tools.
-	updatedTools := []mcp.Tool{
-		{Name: "old-tool", Description: "v1"},
-		{Name: "new-tool", Description: "v2"},
-	}
-	client := &notifMockClient{tools: updatedTools}
-	pool.Put("session-1", "sso-srv", client)
+	client := &notifMockClient{tools: []mcp.Tool{{Name: "tool-a"}, {Name: "tool-b"}}}
 
-	a.refreshSSOCapabilities("sso-srv")
+	a.refreshSessionCapabilities(context.Background(), "sso-srv", "session-1", client)
 
-	// Both sessions should see the updated capabilities.
-	caps1, err := capStore.Get(context.Background(), "session-1", "sso-srv")
+	caps, err := capStore.Get(context.Background(), "session-1", "sso-srv")
 	require.NoError(t, err)
-	require.NotNil(t, caps1)
-	assert.Len(t, caps1.Tools, 2)
-
-	caps2, err := capStore.Get(context.Background(), "session-2", "sso-srv")
-	require.NoError(t, err)
-	require.NotNil(t, caps2)
-	assert.Len(t, caps2.Tools, 2)
+	require.NotNil(t, caps)
+	assert.Len(t, caps.Tools, 2, "session-1 should see the updated tools")
 }
 
-func TestRefreshSSOCapabilities_NoPooledClient(t *testing.T) {
-	registry := NewServerRegistry("x")
+func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 	capStore := NewInMemoryCapabilityStore(time.Hour)
-	pool := NewSessionConnectionPool(time.Hour)
-	defer pool.Stop()
 
 	a := &AggregatorServer{
-		registry:        registry,
+		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
-		connPool:        pool,
 	}
 
-	// Should not panic when no client is pooled.
-	a.refreshSSOCapabilities("nonexistent-srv")
+	tools := []mcp.Tool{{Name: "t1"}}
+	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &Capabilities{Tools: tools}))
+
+	client := &notifMockClient{tools: tools}
+
+	a.refreshSessionCapabilities(context.Background(), "sso-srv", "sess", client)
+
+	caps, err := capStore.Get(context.Background(), "sess", "sso-srv")
+	require.NoError(t, err)
+	require.NotNil(t, caps)
+	assert.Len(t, caps.Tools, 1, "unchanged tools should not be overwritten")
 }
 
-func TestRefreshSSOCapabilities_NilPoolOrStore(t *testing.T) {
-	registry := NewServerRegistry("x")
-	a := &AggregatorServer{registry: registry}
-
-	// Should not panic with nil pool and store.
-	a.refreshSSOCapabilities("srv")
-}
-
-func TestHandleSSOToolListChanged_TriggersRefresh(t *testing.T) {
-	registry := NewServerRegistry("x")
+func TestHandleSessionCapabilityChanged_TriggersRefresh(t *testing.T) {
 	capStore := NewInMemoryCapabilityStore(time.Hour)
-	pool := NewSessionConnectionPool(time.Hour)
-	defer pool.Stop()
 
 	a := &AggregatorServer{
-		registry:        registry,
+		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
-		connPool:        pool,
 	}
 
-	// Pre-populate the store with old data.
 	oldCaps := &Capabilities{
 		Tools: []mcp.Tool{{Name: "t1"}},
 	}
 	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", oldCaps))
 
-	// Pool a client with updated tools.
 	updatedTools := []mcp.Tool{{Name: "t1"}, {Name: "t2"}}
 	client := &notifMockClient{tools: updatedTools}
-	pool.Put("sess", "sso-srv", client)
 
-	a.handleSSOToolListChanged("sso-srv")
+	a.handleSessionCapabilityChanged("sso-srv", "sess", client)
 
-	// handleSSOToolListChanged runs async; wait for the ListTools call.
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&client.listToolsCalls) >= 1
 	}, 2*time.Second, 10*time.Millisecond)
@@ -382,46 +357,34 @@ func TestHandleSSOToolListChanged_TriggersRefresh(t *testing.T) {
 	assert.Len(t, caps.Tools, 2)
 }
 
-func TestHandleSSOToolListChanged_SingleflightDedup(t *testing.T) {
-	registry := NewServerRegistry("x")
+func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {
 	capStore := NewInMemoryCapabilityStore(time.Hour)
-	pool := NewSessionConnectionPool(time.Hour)
-	defer pool.Stop()
 
 	a := &AggregatorServer{
-		registry:        registry,
+		registry:        NewServerRegistry("x"),
 		capabilityStore: capStore,
-		connPool:        pool,
 	}
 
-	// Pre-populate the store.
-	oldCaps := &Capabilities{
-		Tools: []mcp.Tool{{Name: "t1"}},
-	}
-	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", oldCaps))
+	tools := []mcp.Tool{{Name: "t1"}}
+	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &Capabilities{Tools: tools}))
 
-	client := &notifMockClient{tools: []mcp.Tool{{Name: "t1"}}}
-	pool.Put("sess", "sso-srv", client)
+	client := &notifMockClient{tools: tools}
 
-	baseCount := atomic.LoadInt32(&client.listToolsCalls)
-
-	// Fire many notifications concurrently.
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			a.handleSSOToolListChanged("sso-srv")
+			a.handleSessionCapabilityChanged("sso-srv", "sess", client)
 		}()
 	}
 	wg.Wait()
 
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&client.listToolsCalls) > baseCount
+		return atomic.LoadInt32(&client.listToolsCalls) >= 1
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// singleflight should collapse 20 concurrent calls into very few fetches
-	calls := atomic.LoadInt32(&client.listToolsCalls) - baseCount
+	calls := atomic.LoadInt32(&client.listToolsCalls)
 	assert.LessOrEqual(t, calls, int32(5),
 		"singleflight should deduplicate concurrent calls, got %d", calls)
 }

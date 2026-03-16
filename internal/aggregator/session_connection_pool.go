@@ -58,7 +58,7 @@ type SessionConnectionPool struct {
 	stop   chan struct{}
 
 	notifCallbacksMu sync.RWMutex
-	notifCallbacks   map[string]func(MCPClient)
+	notifCallbacks   map[string]func(string, MCPClient)
 }
 
 // NewSessionConnectionPool creates an empty connection pool with a background
@@ -71,7 +71,7 @@ func NewSessionConnectionPool(maxAge time.Duration) *SessionConnectionPool {
 		pool:           make(map[poolKey]*poolEntry),
 		maxAge:         maxAge,
 		stop:           make(chan struct{}),
-		notifCallbacks: make(map[string]func(MCPClient)),
+		notifCallbacks: make(map[string]func(string, MCPClient)),
 	}
 
 	reaperInterval := maxAge / 2
@@ -180,7 +180,7 @@ func (p *SessionConnectionPool) PutWithExpiry(sessionID, serverName string, clie
 		closeQuietly(old.Client, sessionID, serverName, "replaced")
 	}
 
-	p.invokeNotifCallback(serverName, client)
+	p.invokeNotifCallback(sessionID, serverName, client)
 }
 
 // IsTokenExpiringSoon returns true if the pooled entry's token will expire
@@ -233,7 +233,7 @@ func (p *SessionConnectionPool) PutWithDeferredClose(sessionID, serverName strin
 		})
 	}
 
-	p.invokeNotifCallback(serverName, client)
+	p.invokeNotifCallback(sessionID, serverName, client)
 }
 
 // Evict removes and closes a single pooled entry.
@@ -315,53 +315,23 @@ func (p *SessionConnectionPool) DrainAll() {
 
 // SetNotificationCallback registers a callback that is invoked whenever a
 // new client is stored for the given server (via Put, PutWithExpiry, or
-// PutWithDeferredClose). This allows auto-wiring OnNotification handlers on
-// every pooled client for SSO servers.
-func (p *SessionConnectionPool) SetNotificationCallback(serverName string, cb func(MCPClient)) {
+// PutWithDeferredClose). The callback receives the sessionID that owns the
+// client, enabling session-aware notification handling for SSO servers.
+func (p *SessionConnectionPool) SetNotificationCallback(serverName string, cb func(sessionID string, client MCPClient)) {
 	p.notifCallbacksMu.Lock()
 	defer p.notifCallbacksMu.Unlock()
 	p.notifCallbacks[serverName] = cb
 }
 
-// GetAnyForServer returns any pooled client for the given server, regardless
-// of session. Returns nil if no client is pooled for that server. This is
-// useful for server-level operations (e.g. re-fetching tools after a
-// notification) where the specific session does not matter.
-func (p *SessionConnectionPool) GetAnyForServer(serverName string) MCPClient {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	for key, entry := range p.pool {
-		if key.ServerName == serverName && entry.Client != nil {
-			return entry.Client
-		}
-	}
-	return nil
-}
-
-// GetAnySessionForServer returns the session ID of any pooled entry for the
-// given server. Returns ("", false) if no entry exists.
-func (p *SessionConnectionPool) GetAnySessionForServer(serverName string) (string, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	for key := range p.pool {
-		if key.ServerName == serverName {
-			return key.SessionID, true
-		}
-	}
-	return "", false
-}
-
 // invokeNotifCallback calls the registered notification callback for the
 // server, if one exists. Called after a client is stored in the pool.
-func (p *SessionConnectionPool) invokeNotifCallback(serverName string, client MCPClient) {
+func (p *SessionConnectionPool) invokeNotifCallback(sessionID, serverName string, client MCPClient) {
 	p.notifCallbacksMu.RLock()
 	cb := p.notifCallbacks[serverName]
 	p.notifCallbacksMu.RUnlock()
 
 	if cb != nil {
-		cb(client)
+		cb(sessionID, client)
 	}
 }
 
