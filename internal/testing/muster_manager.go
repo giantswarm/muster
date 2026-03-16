@@ -1205,7 +1205,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		},
 	}
 
-	// Apply custom main config if provided (deep-merging map values).
+	// Apply custom main config if provided (shallow-merging one level of nested map values).
 	if config != nil && config.MainConfig != nil {
 		for key, value := range config.MainConfig.Config {
 			existing, existsInMain := mainConfig[key]

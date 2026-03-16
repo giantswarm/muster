@@ -157,15 +157,23 @@ func TestPollAllServers_ConnectedAndAuthRequired(t *testing.T) {
 	require.NoError(t, capStore.Set(context.Background(), "sess-1", "auth-srv",
 		&Capabilities{Tools: []mcp.Tool{{Name: "auth-t1"}}}))
 
+	baseNonAuth := atomic.LoadInt32(&nonAuthClient.listToolsCalls)
+
 	a.pollAllServers()
 
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&nonAuthClient.listToolsCalls), int32(2))
+	assert.Equal(t, baseNonAuth+1, atomic.LoadInt32(&nonAuthClient.listToolsCalls),
+		"pollAllServers should trigger exactly one ListTools call for the non-auth server")
 }
 
 func TestRunCapabilityPoller_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	registry := NewServerRegistry("x")
+	client := &notifMockClient{tools: []mcp.Tool{{Name: "t1"}}}
+	require.NoError(t, registry.Register(context.Background(), "srv", client, ""))
+
+	baseCount := atomic.LoadInt32(&client.listToolsCalls)
+
 	a := &AggregatorServer{
 		ctx:      ctx,
 		registry: registry,
@@ -177,7 +185,10 @@ func TestRunCapabilityPoller_StopsOnContextCancel(t *testing.T) {
 	a.wg.Add(1)
 	go a.runCapabilityPoller()
 
-	time.Sleep(100 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&client.listToolsCalls)-baseCount >= 1
+	}, 5*time.Second, 10*time.Millisecond,
+		"poller should have polled at least once before cancel")
 
 	cancel()
 

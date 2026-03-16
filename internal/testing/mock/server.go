@@ -199,10 +199,16 @@ func injectToolSilently(srv *server.MCPServer, name string, st server.ServerTool
 	v := reflect.ValueOf(srv).Elem()
 
 	muField := v.FieldByName("toolsMu")
+	if !muField.IsValid() {
+		panic("injectToolSilently: mcp-go MCPServer no longer has field 'toolsMu' -- check for upstream changes")
+	}
 	//nolint:gosec // Test-only code: accessing unexported field via unsafe.
 	mu := (*sync.RWMutex)(unsafe.Pointer(muField.UnsafeAddr()))
 
 	toolsField := v.FieldByName("tools")
+	if !toolsField.IsValid() {
+		panic("injectToolSilently: mcp-go MCPServer no longer has field 'tools' -- check for upstream changes")
+	}
 	//nolint:gosec // Test-only code: accessing unexported field via unsafe.
 	toolsPtr := (*map[string]server.ServerTool)(unsafe.Pointer(toolsField.UnsafeAddr()))
 
