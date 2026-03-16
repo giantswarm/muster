@@ -78,6 +78,69 @@ func (a *AggregatorServer) refreshNonOAuthTools(serverName string) {
 	a.registry.notifyUpdate()
 }
 
+// handleSSOToolListChanged handles a notifications/tools/list_changed
+// notification from an SSO (OAuth) server. Concurrent re-fetches for the
+// same server are deduplicated via singleflight.
+func (a *AggregatorServer) handleSSOToolListChanged(serverName string) {
+	sfKey := "notif-sso/" + serverName
+	go func() {
+		_, _, _ = a.notifRefreshGroup.Do(sfKey, func() (interface{}, error) {
+			a.refreshSSOCapabilities(serverName)
+			return nil, nil
+		})
+	}()
+}
+
+// refreshSSOCapabilities re-fetches tools, resources, and prompts from
+// an SSO server using any available pooled client, and updates the
+// CapabilityStore for all sessions that have cached data for the server.
+func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
+	if a.connPool == nil || a.capabilityStore == nil {
+		logging.Warn("Aggregator", "SSO notification refresh: pool or capability store not initialized for %s", serverName)
+		return
+	}
+
+	client := a.connPool.GetAnyForServer(serverName)
+	if client == nil {
+		logging.Warn("Aggregator", "SSO notification refresh: no pooled client for %s", serverName)
+		return
+	}
+
+	ctx := context.Background()
+
+	newTools, err := client.ListTools(ctx)
+	if err != nil {
+		logging.Warn("Aggregator", "SSO notification refresh: failed to list tools for %s: %v", serverName, err)
+		return
+	}
+
+	newResources, err := client.ListResources(ctx)
+	if err != nil {
+		logging.Debug("Aggregator", "SSO notification refresh: failed to list resources for %s: %v", serverName, err)
+		newResources = nil
+	}
+
+	newPrompts, err := client.ListPrompts(ctx)
+	if err != nil {
+		logging.Debug("Aggregator", "SSO notification refresh: failed to list prompts for %s: %v", serverName, err)
+		newPrompts = nil
+	}
+
+	caps := &Capabilities{
+		Tools:     newTools,
+		Resources: newResources,
+		Prompts:   newPrompts,
+	}
+
+	if err := a.capabilityStore.UpdateServer(ctx, serverName, caps); err != nil {
+		logging.Warn("Aggregator", "SSO notification refresh: failed to update capability store for %s: %v", serverName, err)
+		return
+	}
+
+	logging.Info("Aggregator", "SSO notification refresh: updated capabilities for %s (%d tools, %d resources, %d prompts)",
+		serverName, len(newTools), len(newResources), len(newPrompts))
+}
+
 // toolListsEqual compares two tool lists by name, description, and
 // JSON-marshaled InputSchema.
 func toolListsEqual(a, b []mcp.Tool) bool {

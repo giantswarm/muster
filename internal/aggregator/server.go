@@ -683,6 +683,22 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 	return a.registry.Register(ctx, name, client, toolPrefix)
 }
 
+// wirePoolNotificationCallbackForSSO sets up a notification callback on the
+// connection pool so that whenever a new client is pooled for the given SSO
+// server, OnNotification is wired to listen for tools/list_changed.
+func (a *AggregatorServer) wirePoolNotificationCallbackForSSO(serverName string) {
+	if a.connPool == nil {
+		return
+	}
+	a.connPool.SetNotificationCallback(serverName, func(client MCPClient) {
+		client.OnNotification(func(notif mcp.JSONRPCNotification) {
+			if notif.Method == "notifications/tools/list_changed" {
+				a.handleSSOToolListChanged(serverName)
+			}
+		})
+	})
+}
+
 // DeregisterServer removes a backend MCP server from the aggregator.
 //
 // This method cleanly removes a backend server from the aggregator, which will

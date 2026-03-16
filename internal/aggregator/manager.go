@@ -399,8 +399,11 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return err
 	}
 
-	// Per ADR-008: No synthetic auth tools are created.
-	// Users authenticate via core_auth_login tool with server parameter.
+	// Wire pool notification callback for SSO servers so that
+	// OnNotification is auto-wired on every pooled client.
+	if authConfig != nil && (authConfig.ForwardToken || (authConfig.TokenExchange != nil && authConfig.TokenExchange.Enabled)) {
+		am.aggregatorServer.wirePoolNotificationCallbackForSSO(serverName)
+	}
 
 	return nil
 }
