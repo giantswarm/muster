@@ -2,13 +2,15 @@ name: "oauth-sso-reconnect-after-relogin"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  Tests SSO session lifecycle: login establishes connections, logout clears
-  them, and re-login re-establishes them.
+  Tests SSO session lifecycle: login establishes connections, manual logout
+  is rejected for SSO servers, and re-login re-establishes connections after
+  session revocation.
 
   SSO connections are established synchronously during the OAuth login flow
-  (SessionCreationHandler). After logout from an individual SSO server the
-  capability store entry is removed and the server shows as auth_required.
-  A fresh login re-establishes the connection.
+  (SessionCreationHandler). Manual logout via core_auth_logout is blocked for
+  SSO servers because their lifecycle is managed automatically. To disconnect,
+  users must re-authenticate to muster (which revokes the old session and
+  creates a new one with fresh SSO connections).
 tags: ["oauth", "sso", "session", "relogin", "token-forwarding", "regression"]
 timeout: "2m"
 
@@ -99,23 +101,22 @@ steps:
         - "Connection verified"
 
   # =========================================================================
-  # PHASE 2: Logout clears cache, re-login reconnects
+  # PHASE 2: Manual logout is blocked for SSO servers
   # =========================================================================
 
-  - id: logout-from-server
-    description: "Logout from SSO server clears cached capabilities"
+  - id: logout-from-sso-server-rejected
+    description: "Manual logout from SSO server is rejected"
     tool: "core_auth_logout"
     args:
       server: "relogin-sso-server"
     expected:
-      success: true
+      success: false
       contains:
-        - "logged out"
+        - "SSO"
+        - "not supported"
 
-  # After logout, the SSO server is no longer connected for this session.
-  # SSO connections are only established during login, not on every request.
-  - id: verify-disconnected-after-logout
-    description: "Verify server shows as auth_required after logout"
+  - id: verify-still-connected-after-rejected-logout
+    description: "SSO server remains connected after rejected logout"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
@@ -123,11 +124,14 @@ steps:
       success: true
       contains:
         - "relogin-sso-server"
-        - "auth_required"
+        - "connected"
 
-  # Re-login re-establishes SSO connections via SessionCreationHandler.
+  # =========================================================================
+  # PHASE 3: Re-login re-establishes SSO connections
+  # =========================================================================
+
   - id: muster-reauth
-    description: "Re-authenticate to muster to re-establish SSO"
+    description: "Re-authenticate to muster to get a fresh session with SSO"
     tool: "test_muster_auth_login"
     args: {}
     expected:
@@ -137,7 +141,7 @@ steps:
         - "ID token stored"
 
   - id: verify-reconnected-after-relogin
-    description: "Verify SSO server reconnected after re-login"
+    description: "Verify SSO server connected in the new session"
     tool: "test_read_auth_status"
     args:
       server: "relogin-sso-server"
