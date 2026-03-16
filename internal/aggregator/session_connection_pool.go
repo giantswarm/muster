@@ -339,6 +339,20 @@ func (p *SessionConnectionPool) GetAnyForServer(serverName string) MCPClient {
 	return nil
 }
 
+// GetAnySessionForServer returns the session ID of any pooled entry for the
+// given server. Returns ("", false) if no entry exists.
+func (p *SessionConnectionPool) GetAnySessionForServer(serverName string) (string, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	for key := range p.pool {
+		if key.ServerName == serverName {
+			return key.SessionID, true
+		}
+	}
+	return "", false
+}
+
 // invokeNotifCallback calls the registered notification callback for the
 // server, if one exists. Called after a client is stored in the pool.
 func (p *SessionConnectionPool) invokeNotifCallback(serverName string, client MCPClient) {

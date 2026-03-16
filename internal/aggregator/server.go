@@ -673,10 +673,9 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, clie
 
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
-	serverName := name
 	client.OnNotification(func(notif mcp.JSONRPCNotification) {
 		if notif.Method == "notifications/tools/list_changed" {
-			a.handleNonOAuthToolListChanged(serverName)
+			a.handleNonOAuthToolListChanged(name)
 		}
 	})
 

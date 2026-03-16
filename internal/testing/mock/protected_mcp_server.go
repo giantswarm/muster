@@ -359,7 +359,7 @@ func (s *ProtectedMCPServer) AddDynamicTool(toolConfig ToolConfig) {
 	s.mcpServer.AddTool(handler.createMCPTool(), handler.createMCPHandler())
 
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔧 Dynamically added tool '%s' to protected server '%s'\n", toolConfig.Name, s.config.Name)
+		fmt.Fprintf(os.Stderr, "Dynamically added tool '%s' to protected server '%s'\n", toolConfig.Name, s.config.Name)
 	}
 }
 
@@ -377,7 +377,7 @@ func (s *ProtectedMCPServer) RemoveDynamicTool(toolName string) {
 	s.mcpServer.DeleteTools(toolName)
 
 	if s.config.Debug {
-		fmt.Fprintf(os.Stderr, "🔧 Dynamically removed tool '%s' from protected server '%s'\n", toolName, s.config.Name)
+		fmt.Fprintf(os.Stderr, "Dynamically removed tool '%s' from protected server '%s'\n", toolName, s.config.Name)
 	}
 }
 

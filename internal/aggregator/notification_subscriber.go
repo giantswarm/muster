@@ -9,6 +9,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// refreshContext returns the aggregator's lifecycle context for notification
+// refresh operations. Falls back to context.Background() for test code that
+// constructs partial AggregatorServer instances without calling Start().
+func (a *AggregatorServer) refreshContext() context.Context {
+	if a.ctx != nil {
+		return a.ctx
+	}
+	return context.Background()
+}
+
 // handleNonOAuthToolListChanged handles a notifications/tools/list_changed
 // notification from a non-OAuth server. Concurrent re-fetches for the same
 // server are deduplicated via singleflight.
@@ -31,7 +41,7 @@ func (a *AggregatorServer) refreshNonOAuthTools(serverName string) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := a.refreshContext()
 
 	newTools, err := info.Client.ListTools(ctx)
 	if err != nil {
@@ -106,7 +116,7 @@ func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := a.refreshContext()
 
 	newTools, err := client.ListTools(ctx)
 	if err != nil {
@@ -126,6 +136,11 @@ func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
 		newPrompts = nil
 	}
 
+	if !a.ssoCapabilitiesChanged(ctx, serverName, newTools, newResources, newPrompts) {
+		logging.Debug("Aggregator", "SSO notification refresh: no capability changes for %s", serverName)
+		return
+	}
+
 	caps := &Capabilities{
 		Tools:     newTools,
 		Resources: newResources,
@@ -139,6 +154,26 @@ func (a *AggregatorServer) refreshSSOCapabilities(serverName string) {
 
 	logging.Info("Aggregator", "SSO notification refresh: updated capabilities for %s (%d tools, %d resources, %d prompts)",
 		serverName, len(newTools), len(newResources), len(newPrompts))
+}
+
+// ssoCapabilitiesChanged checks whether the fetched capabilities differ from
+// what is currently cached. It samples any pooled session's cached data for
+// comparison since all sessions receive the same server-side capabilities.
+func (a *AggregatorServer) ssoCapabilitiesChanged(ctx context.Context, serverName string, newTools []mcp.Tool, newResources []mcp.Resource, newPrompts []mcp.Prompt) bool {
+	sessionID, ok := a.connPool.GetAnySessionForServer(serverName)
+	if !ok {
+		return true
+	}
+
+	cached, err := a.capabilityStore.Get(ctx, sessionID, serverName)
+	if err != nil || cached == nil {
+		return true
+	}
+
+	toolsChanged := !toolListsEqual(cached.Tools, newTools)
+	resourcesChanged := newResources != nil && !resourceListsEqual(cached.Resources, newResources)
+	promptsChanged := newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
+	return toolsChanged || resourcesChanged || promptsChanged
 }
 
 // toolListsEqual compares two tool lists by name, description, and
@@ -171,6 +206,8 @@ func toolListsEqual(a, b []mcp.Tool) bool {
 }
 
 // resourceListsEqual compares two resource lists by URI, name, and description.
+// Fields like MimeType are intentionally excluded because they don't affect
+// the tool/resource contract exposed to clients.
 func resourceListsEqual(a, b []mcp.Resource) bool {
 	if len(a) != len(b) {
 		return false
@@ -194,6 +231,8 @@ func resourceListsEqual(a, b []mcp.Resource) bool {
 }
 
 // promptListsEqual compares two prompt lists by name and description.
+// The Arguments field is excluded because argument metadata changes don't
+// alter which prompts are available or their identity.
 func promptListsEqual(a, b []mcp.Prompt) bool {
 	if len(a) != len(b) {
 		return false

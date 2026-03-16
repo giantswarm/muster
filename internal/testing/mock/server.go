@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/giantswarm/muster/internal/template"
 
@@ -23,6 +24,7 @@ type Server struct {
 	templateEngine *template.Engine
 	mcpServer      *server.MCPServer
 	debug          bool
+	mu             sync.RWMutex
 }
 
 // NewServerFromFile creates a new mock MCP server from a configuration file
@@ -86,7 +88,9 @@ func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 // createToolHandler creates an MCP tool handler function for the given tool name
 func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		s.mu.RLock()
 		handler, exists := s.toolHandlers[toolName]
+		s.mu.RUnlock()
 		if !exists {
 			return mcp.NewToolResultError(fmt.Sprintf("tool %s not found", toolName)), nil
 		}
@@ -128,13 +132,16 @@ func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.Ca
 // notification to all connected clients.
 func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
 	handler := NewToolHandler(toolConfig, s.templateEngine, s.debug)
+
+	s.mu.Lock()
 	s.toolHandlers[toolConfig.Name] = handler
+	s.mu.Unlock()
 
 	tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
 	s.mcpServer.AddTool(tool, s.createToolHandler(toolConfig.Name))
 
 	if s.debug {
-		fmt.Fprintf(os.Stderr, "🔧 Dynamically added tool '%s' to mock server '%s'\n", toolConfig.Name, s.name)
+		fmt.Fprintf(os.Stderr, "Dynamically added tool '%s' to mock server '%s'\n", toolConfig.Name, s.name)
 	}
 }
 
@@ -142,11 +149,14 @@ func (s *Server) AddDynamicTool(toolConfig ToolConfig) {
 // The mcp-go library automatically sends a notifications/tools/list_changed
 // notification to all connected clients.
 func (s *Server) RemoveDynamicTool(toolName string) {
+	s.mu.Lock()
 	delete(s.toolHandlers, toolName)
+	s.mu.Unlock()
+
 	s.mcpServer.DeleteTools(toolName)
 
 	if s.debug {
-		fmt.Fprintf(os.Stderr, "🔧 Dynamically removed tool '%s' from mock server '%s'\n", toolName, s.name)
+		fmt.Fprintf(os.Stderr, "Dynamically removed tool '%s' from mock server '%s'\n", toolName, s.name)
 	}
 }
 

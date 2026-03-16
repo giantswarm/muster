@@ -130,10 +130,11 @@ func (m *notifMockClient) GetPrompt(_ context.Context, _ string, _ map[string]in
 }
 
 func (m *notifMockClient) ListTools(_ context.Context) ([]mcp.Tool, error) {
-	atomic.AddInt32(&m.listToolsCalls, 1)
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.tools, nil
+	tools := m.tools
+	m.mu.Unlock()
+	atomic.AddInt32(&m.listToolsCalls, 1)
+	return tools, nil
 }
 
 func (m *notifMockClient) ListResources(_ context.Context) ([]mcp.Resource, error) {
@@ -274,10 +275,10 @@ func TestHandleNonOAuthToolListChanged_SingleflightDedup(t *testing.T) {
 		return atomic.LoadInt32(&client.listToolsCalls) > baseCount
 	}, 2*time.Second, 10*time.Millisecond)
 
-	// singleflight should collapse many calls into very few actual fetches
+	// singleflight should collapse 20 concurrent calls into very few fetches
 	calls := atomic.LoadInt32(&client.listToolsCalls) - baseCount
-	assert.LessOrEqual(t, calls, int32(20),
-		"singleflight should deduplicate concurrent calls")
+	assert.LessOrEqual(t, calls, int32(5),
+		"singleflight should deduplicate concurrent calls, got %d", calls)
 }
 
 func TestRefreshSSOCapabilities_UpdatesCapabilityStore(t *testing.T) {
@@ -419,9 +420,10 @@ func TestHandleSSOToolListChanged_SingleflightDedup(t *testing.T) {
 		return atomic.LoadInt32(&client.listToolsCalls) > baseCount
 	}, 2*time.Second, 10*time.Millisecond)
 
+	// singleflight should collapse 20 concurrent calls into very few fetches
 	calls := atomic.LoadInt32(&client.listToolsCalls) - baseCount
-	assert.LessOrEqual(t, calls, int32(20),
-		"singleflight should deduplicate concurrent calls")
+	assert.LessOrEqual(t, calls, int32(5),
+		"singleflight should deduplicate concurrent calls, got %d", calls)
 }
 
 func TestToolListsEqual_SchemaChanged_JSON(t *testing.T) {
