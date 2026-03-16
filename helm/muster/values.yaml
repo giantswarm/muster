@@ -406,3 +406,5 @@ ciliumNetworkPolicy:
   labels: {}
   # Additional annotations to add to the CiliumNetworkPolicy
   annotations: {}
+  # Additional egress rules to add to the CiliumNetworkPolicy
+  extraEgress: []

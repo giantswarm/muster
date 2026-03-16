@@ -558,6 +558,13 @@
         },
         "annotations": {
           "type": "object"
+        },
+        "extraEgress": {
+          "type": "array",
+          "description": "Additional egress rules to add to the CiliumNetworkPolicy",
+          "items": {
+            "type": "object"
+          }
         }
       }
     }
