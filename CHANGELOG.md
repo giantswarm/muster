@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add `ciliumNetworkPolicy.extraEgress` Helm value to allow configuring additional egress rules per installation.
+
 ## [0.1.0] - 2026-02-23
 
 ### Changed
