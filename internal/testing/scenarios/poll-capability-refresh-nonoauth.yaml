@@ -1,0 +1,76 @@
+name: "poll-capability-refresh-nonoauth"
+description: "Test periodic capability polling detects tool changes without notifications"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "polling", "tools", "capability-freshness"]
+timeout: "2m"
+
+# Test Story: Capability Poller Detects Silent Tool Changes
+# Given: A non-OAuth MCP server with one initial tool
+# When: A new tool is silently added (no notifications/tools/list_changed sent)
+# Then: The capability poller detects the change and the new tool becomes available
+
+pre_configuration:
+  main_config:
+    config:
+      aggregator:
+        capabilityPollInterval: "2s"
+  mcp_servers:
+    - name: "poll-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "initial_tool"
+            description: "A tool that exists from startup"
+            input_schema:
+              type: "object"
+              properties:
+                msg:
+                  type: "string"
+            responses:
+              - response:
+                  status: "ok"
+                  message: "initial: {{ .msg }}"
+
+steps:
+  # Phase 1: Verify the initial tool is available
+  - id: "verify-initial-tool"
+    tool: "x_poll-server_initial_tool"
+    args:
+      msg: "hello"
+    expected:
+      success: true
+      contains: ["initial: hello"]
+    timeout: "30s"
+
+  # Phase 2: Silently add a tool (no notification sent).
+  # The test handler waits for the poller to detect the change before returning.
+  - id: "add-tool-silently"
+    tool: "test_add_mock_tool_silently"
+    args:
+      server: "poll-server"
+      tool_name: "silent_tool"
+      tool_description: "A tool added without notification"
+    expected:
+      success: true
+      contains: ["poller detected"]
+    timeout: "60s"
+
+  # Phase 3: Call the silently-added tool (already detected by poller in previous step)
+  - id: "verify-silent-tool-detected"
+    tool: "x_poll-server_silent_tool"
+    args: {}
+    expected:
+      success: true
+      contains: ["silent_tool"]
+    timeout: "10s"
+
+  # Phase 4: Verify the initial tool still works
+  - id: "verify-initial-tool-still-works"
+    tool: "x_poll-server_initial_tool"
+    args:
+      msg: "still here"
+    expected:
+      success: true
+      contains: ["initial: still here"]
+    timeout: "10s"

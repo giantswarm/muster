@@ -342,6 +342,33 @@ func (p *SessionConnectionPool) Len() int {
 	return len(p.pool)
 }
 
+// PooledSession pairs a session ID with a live MCP client for iteration.
+// Used by the capability poller to re-fetch capabilities for authenticated
+// servers across all active sessions.
+type PooledSession struct {
+	SessionID string
+	Client    MCPClient
+}
+
+// GetSessionsForServer returns a snapshot of all currently pooled sessions
+// for the given server name. No lock is held after return; callers must
+// handle the case where a session was evicted between snapshot and use.
+func (p *SessionConnectionPool) GetSessionsForServer(serverName string) []PooledSession {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var sessions []PooledSession
+	for key, entry := range p.pool {
+		if key.ServerName == serverName && entry.Client != nil {
+			sessions = append(sessions, PooledSession{
+				SessionID: key.SessionID,
+				Client:    entry.Client,
+			})
+		}
+	}
+	return sessions
+}
+
 // evictedPoolEntry pairs a poolKey with a snapshot of the poolEntry that was
 // removed. Used by evictIdle to defer Close calls outside the write lock.
 type evictedPoolEntry struct {

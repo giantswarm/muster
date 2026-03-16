@@ -393,6 +393,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.wg.Add(1)
 	go a.runSSOTrackerCleanup()
 
+	// Start periodic capability polling for silent redeployment detection
+	a.wg.Add(1)
+	go a.runCapabilityPoller()
+
 	// Subscribe to tool update events from workflow and other managers
 	// This ensures the aggregator stays synchronized with core muster components
 	logging.Info("Aggregator", "Subscribing to tool update events...")
