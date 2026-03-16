@@ -162,6 +162,90 @@ func TestInMemoryCapabilityStore_DeleteServer(t *testing.T) {
 	assert.Equal(t, "t3", got.Tools[0].Name)
 }
 
+func TestInMemoryCapabilityStore_UpdateServer(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "old-A"}}})
+	_ = store.Set(ctx, "session-B", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "old-B"}}})
+	_ = store.Set(ctx, "session-A", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "unrelated"}}})
+
+	updated := &Capabilities{Tools: []mcp.Tool{{Name: "new-tool"}}}
+	err := store.UpdateServer(ctx, "server1", updated)
+	require.NoError(t, err)
+
+	gotA, _ := store.Get(ctx, "session-A", "server1")
+	require.NotNil(t, gotA)
+	require.Len(t, gotA.Tools, 1)
+	assert.Equal(t, "new-tool", gotA.Tools[0].Name)
+
+	gotB, _ := store.Get(ctx, "session-B", "server1")
+	require.NotNil(t, gotB)
+	require.Len(t, gotB.Tools, 1)
+	assert.Equal(t, "new-tool", gotB.Tools[0].Name)
+
+	gotOther, _ := store.Get(ctx, "session-A", "server2")
+	require.NotNil(t, gotOther)
+	assert.Equal(t, "unrelated", gotOther.Tools[0].Name)
+}
+
+func TestInMemoryCapabilityStore_UpdateServer_SkipsSessionsWithoutEntry(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t1"}}})
+	_ = store.Set(ctx, "session-B", "server2", &Capabilities{Tools: []mcp.Tool{{Name: "t2"}}})
+
+	updated := &Capabilities{Tools: []mcp.Tool{{Name: "new"}}}
+	err := store.UpdateServer(ctx, "server1", updated)
+	require.NoError(t, err)
+
+	gotA, _ := store.Get(ctx, "session-A", "server1")
+	require.NotNil(t, gotA)
+	assert.Equal(t, "new", gotA.Tools[0].Name)
+
+	gotB, _ := store.Get(ctx, "session-B", "server1")
+	assert.Nil(t, gotB, "session-B should not get an entry for server1")
+
+	gotB2, _ := store.Get(ctx, "session-B", "server2")
+	require.NotNil(t, gotB2)
+	assert.Equal(t, "t2", gotB2.Tools[0].Name)
+}
+
+func TestInMemoryCapabilityStore_UpdateServer_DeepCopy(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	_ = store.Set(ctx, "session-A", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "old"}}})
+	_ = store.Set(ctx, "session-B", "server1", &Capabilities{Tools: []mcp.Tool{{Name: "old"}}})
+
+	caps := &Capabilities{Tools: []mcp.Tool{{Name: "original"}}}
+	_ = store.UpdateServer(ctx, "server1", caps)
+
+	caps.Tools[0].Name = "mutated"
+
+	gotA, _ := store.Get(ctx, "session-A", "server1")
+	require.NotNil(t, gotA)
+	assert.Equal(t, "original", gotA.Tools[0].Name, "mutation of input should not affect stored copy")
+
+	gotA.Tools[0].Name = "mutated-by-reader"
+	gotB, _ := store.Get(ctx, "session-B", "server1")
+	require.NotNil(t, gotB)
+	assert.Equal(t, "original", gotB.Tools[0].Name, "sessions should have independent copies")
+}
+
+func TestInMemoryCapabilityStore_UpdateServer_NoSessions(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	err := store.UpdateServer(ctx, "server1", &Capabilities{Tools: []mcp.Tool{{Name: "t"}}})
+	assert.NoError(t, err, "should not error when no sessions exist")
+}
+
 func TestInMemoryCapabilityStore_Exists(t *testing.T) {
 	store := NewInMemoryCapabilityStore(30 * time.Minute)
 	defer store.Stop()

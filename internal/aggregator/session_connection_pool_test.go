@@ -434,6 +434,111 @@ func TestSessionConnectionPool_PutWithDeferredClose_NoOldEntry(t *testing.T) {
 	assert.Equal(t, client, got)
 }
 
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPut(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackClient MCPClient
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		callbackClient = c
+		callbackCount.Add(1)
+	})
+
+	client := &poolTestClient{}
+	pool.Put("s1", "srv-a", client)
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+	assert.Equal(t, client, callbackClient)
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPutWithExpiry(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		callbackCount.Add(1)
+	})
+
+	pool.PutWithExpiry("s1", "srv-a", &poolTestClient{}, time.Now().Add(10*time.Minute))
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPutWithDeferredClose(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		callbackCount.Add(1)
+	})
+
+	pool.PutWithDeferredClose("s1", "srv-a", &poolTestClient{}, time.Now().Add(10*time.Minute), 50*time.Millisecond)
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_NotInvokedForOtherServer(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		callbackCount.Add(1)
+	})
+
+	pool.Put("s1", "srv-b", &poolTestClient{})
+
+	assert.Equal(t, int32(0), callbackCount.Load())
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_ReplacesCallback(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var firstCount, secondCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		firstCount.Add(1)
+	})
+	pool.SetNotificationCallback("srv-a", func(c MCPClient) {
+		secondCount.Add(1)
+	})
+
+	pool.Put("s1", "srv-a", &poolTestClient{})
+
+	assert.Equal(t, int32(0), firstCount.Load(), "old callback should not be invoked")
+	assert.Equal(t, int32(1), secondCount.Load(), "new callback should be invoked")
+}
+
+func TestSessionConnectionPool_GetAnyForServer(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	t.Run("returns nil when no entry exists", func(t *testing.T) {
+		got := pool.GetAnyForServer("srv-a")
+		assert.Nil(t, got)
+	})
+
+	t.Run("returns a pooled client for the server", func(t *testing.T) {
+		c1 := &poolTestClient{}
+		c2 := &poolTestClient{}
+		pool.Put("s1", "srv-a", c1)
+		pool.Put("s2", "srv-a", c2)
+
+		got := pool.GetAnyForServer("srv-a")
+		require.NotNil(t, got)
+		assert.True(t, got == c1 || got == c2, "should return one of the pooled clients")
+	})
+
+	t.Run("does not return client for different server", func(t *testing.T) {
+		pool.Put("s1", "srv-b", &poolTestClient{})
+		got := pool.GetAnyForServer("srv-nonexistent")
+		assert.Nil(t, got)
+	})
+}
+
 func TestSessionConnectionPool_EvictIdleMixedEntries(t *testing.T) {
 	maxAge := 100 * time.Millisecond
 	pool := NewSessionConnectionPool(maxAge)

@@ -58,6 +58,13 @@ type CapabilityStore interface {
 	// This keeps the cache alive as long as the user is actively making requests.
 	// Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
+
+	// UpdateServer updates the capabilities for a given server across all
+	// sessions that have a cached entry for it. Sessions without an entry
+	// for the server are not affected. This is used for push-based tool
+	// refresh where a notification indicates the server's capabilities
+	// have changed and all sessions should see the updated tools.
+	UpdateServer(ctx context.Context, serverName string, caps *Capabilities) error
 }
 
 // DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
@@ -196,6 +203,20 @@ func (s *InMemoryCapabilityStore) DeleteServer(_ context.Context, serverName str
 
 	for _, sess := range s.sessions {
 		delete(sess.servers, serverName)
+	}
+	return nil
+}
+
+func (s *InMemoryCapabilityStore) UpdateServer(_ context.Context, serverName string, caps *Capabilities) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stored := caps.deepCopy()
+
+	for _, sess := range s.sessions {
+		if _, ok := sess.servers[serverName]; ok {
+			sess.servers[serverName] = stored.deepCopy()
+		}
 	}
 	return nil
 }
