@@ -113,6 +113,8 @@ func (m *mockMCPClient) Ping(ctx context.Context) error {
 	return m.pingErr
 }
 
+func (m *mockMCPClient) OnNotification(func(mcp.JSONRPCNotification)) {}
+
 func TestAggregatorServer_HandlerTracking(t *testing.T) {
 	ctx := context.Background()
 	config := AggregatorConfig{
@@ -597,7 +599,8 @@ func (m *callToolMockClient) ListPrompts(_ context.Context) ([]mcp.Prompt, error
 func (m *callToolMockClient) GetPrompt(_ context.Context, _ string, _ map[string]interface{}) (*mcp.GetPromptResult, error) {
 	return nil, nil
 }
-func (m *callToolMockClient) Ping(_ context.Context) error { return nil }
+func (m *callToolMockClient) Ping(_ context.Context) error                 { return nil }
+func (m *callToolMockClient) OnNotification(func(mcp.JSONRPCNotification)) {}
 
 // newTestAggregatorWithPool creates a minimal AggregatorServer for testing
 // callToolWithTokenExchangeRetry. The server is NOT started; only the

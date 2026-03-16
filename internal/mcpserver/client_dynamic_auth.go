@@ -67,6 +67,8 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 		}))
 	}
 
+	opts = append(opts, transport.WithContinuousListening())
+
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create StreamableHTTP client: %w", err)
@@ -99,6 +101,7 @@ func (c *DynamicAuthClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.wireNotificationHandler()
 
 	logging.Debug("DynamicAuthClient", "StreamableHTTP client initialized with OAuth handler. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)
@@ -144,4 +147,9 @@ func (c *DynamicAuthClient) GetPrompt(ctx context.Context, name string, args map
 // Ping checks if the server is responsive
 func (c *DynamicAuthClient) Ping(ctx context.Context) error {
 	return c.ping(ctx)
+}
+
+// OnNotification registers a handler for server-pushed notifications.
+func (c *DynamicAuthClient) OnNotification(handler func(mcp.JSONRPCNotification)) {
+	c.onNotification(handler)
 }

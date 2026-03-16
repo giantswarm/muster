@@ -31,6 +31,10 @@ type MCPClient interface {
 	GetPrompt(ctx context.Context, name string, args map[string]interface{}) (*mcp.GetPromptResult, error)
 	// Ping checks if the server is responsive
 	Ping(ctx context.Context) error
+	// OnNotification registers a handler that is called when the server
+	// sends a JSON-RPC notification (e.g. notifications/tools/list_changed).
+	// The handler is wired to the underlying mcp-go client during Initialize.
+	OnNotification(handler func(mcp.JSONRPCNotification))
 }
 
 // Compile-time interface compliance checks
@@ -38,6 +42,7 @@ var (
 	_ MCPClient = (*StdioClient)(nil)
 	_ MCPClient = (*SSEClient)(nil)
 	_ MCPClient = (*StreamableHTTPClient)(nil)
+	_ MCPClient = (*DynamicAuthClient)(nil)
 )
 
 // baseMCPClient provides common functionality for all MCP client implementations.
@@ -47,6 +52,9 @@ type baseMCPClient struct {
 	client    client.MCPClient
 	mu        sync.RWMutex
 	connected bool
+
+	notifMu      sync.Mutex
+	notifHandler func(mcp.JSONRPCNotification)
 }
 
 // checkConnected verifies the client is connected and returns an error if not.
@@ -217,4 +225,25 @@ func (b *baseMCPClient) ping(ctx context.Context) error {
 	}
 
 	return b.client.Ping(ctx)
+}
+
+// onNotification stores a notification handler to be wired after the
+// underlying mcp-go client is created during Initialize.
+func (b *baseMCPClient) onNotification(handler func(mcp.JSONRPCNotification)) {
+	b.notifMu.Lock()
+	defer b.notifMu.Unlock()
+	b.notifHandler = handler
+}
+
+// wireNotificationHandler registers the stored notification handler on the
+// underlying mcp-go client. Must be called while holding b.mu (write lock)
+// and after b.client has been assigned.
+func (b *baseMCPClient) wireNotificationHandler() {
+	b.notifMu.Lock()
+	handler := b.notifHandler
+	b.notifMu.Unlock()
+
+	if handler != nil && b.client != nil {
+		b.client.OnNotification(handler)
+	}
 }

@@ -104,6 +104,10 @@ type AggregatorServer struct {
 	// multiple tool calls from spawning parallel token exchanges.
 	tokenRefreshGroup singleflight.Group
 
+	// notifRefreshGroup deduplicates concurrent capability re-fetches
+	// triggered by server-pushed notifications/tools/list_changed.
+	notifRefreshGroup singleflight.Group
+
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
 
@@ -666,6 +670,16 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 // or communication problems with the backend server.
 func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
 	logging.Debug("Aggregator", "RegisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
+
+	// Wire the notification handler before registration so Initialize()
+	// (called inside Register) forwards it to the underlying mcp-go client.
+	serverName := name
+	client.OnNotification(func(notif mcp.JSONRPCNotification) {
+		if notif.Method == "notifications/tools/list_changed" {
+			a.handleNonOAuthToolListChanged(serverName)
+		}
+	})
+
 	return a.registry.Register(ctx, name, client, toolPrefix)
 }
 
