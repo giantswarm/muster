@@ -95,6 +95,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 	c.client = mcpClient
 	c.connected = true
+	c.wireNotificationHandler()
 
 	// Log server capabilities
 	if initResult.Capabilities.Tools != nil {
@@ -148,6 +149,11 @@ func (c *StdioClient) GetPrompt(ctx context.Context, name string, args map[strin
 // Ping checks if the server is responsive
 func (c *StdioClient) Ping(ctx context.Context) error {
 	return c.ping(ctx)
+}
+
+// OnNotification registers a handler for server-pushed notifications.
+func (c *StdioClient) OnNotification(handler func(mcp.JSONRPCNotification)) {
+	c.onNotification(handler)
 }
 
 // GetStderr returns a reader for the stderr output of the subprocess

@@ -56,6 +56,9 @@ type SessionConnectionPool struct {
 	pool   map[poolKey]*poolEntry
 	maxAge time.Duration
 	stop   chan struct{}
+
+	notifCallbacksMu sync.RWMutex
+	notifCallbacks   map[string]func(string, MCPClient)
 }
 
 // NewSessionConnectionPool creates an empty connection pool with a background
@@ -65,9 +68,10 @@ type SessionConnectionPool struct {
 // Callers must call Stop followed by DrainAll during shutdown.
 func NewSessionConnectionPool(maxAge time.Duration) *SessionConnectionPool {
 	p := &SessionConnectionPool{
-		pool:   make(map[poolKey]*poolEntry),
-		maxAge: maxAge,
-		stop:   make(chan struct{}),
+		pool:           make(map[poolKey]*poolEntry),
+		maxAge:         maxAge,
+		stop:           make(chan struct{}),
+		notifCallbacks: make(map[string]func(string, MCPClient)),
 	}
 
 	reaperInterval := maxAge / 2
@@ -175,6 +179,8 @@ func (p *SessionConnectionPool) PutWithExpiry(sessionID, serverName string, clie
 	if exists && old.Client != nil {
 		closeQuietly(old.Client, sessionID, serverName, "replaced")
 	}
+
+	p.invokeNotifCallback(sessionID, serverName, client)
 }
 
 // IsTokenExpiringSoon returns true if the pooled entry's token will expire
@@ -226,6 +232,8 @@ func (p *SessionConnectionPool) PutWithDeferredClose(sessionID, serverName strin
 			closeQuietly(old.Client, sessionID, serverName, "deferred-close")
 		})
 	}
+
+	p.invokeNotifCallback(sessionID, serverName, client)
 }
 
 // Evict removes and closes a single pooled entry.
@@ -303,6 +311,28 @@ func (p *SessionConnectionPool) DrainAll() {
 	}
 
 	logging.Debug("ConnPool", "Drained %d pooled connections", len(entries))
+}
+
+// SetNotificationCallback registers a callback that is invoked whenever a
+// new client is stored for the given server (via Put, PutWithExpiry, or
+// PutWithDeferredClose). The callback receives the sessionID that owns the
+// client, enabling session-aware notification handling for SSO servers.
+func (p *SessionConnectionPool) SetNotificationCallback(serverName string, cb func(sessionID string, client MCPClient)) {
+	p.notifCallbacksMu.Lock()
+	defer p.notifCallbacksMu.Unlock()
+	p.notifCallbacks[serverName] = cb
+}
+
+// invokeNotifCallback calls the registered notification callback for the
+// server, if one exists. Called after a client is stored in the pool.
+func (p *SessionConnectionPool) invokeNotifCallback(sessionID, serverName string, client MCPClient) {
+	p.notifCallbacksMu.RLock()
+	cb := p.notifCallbacks[serverName]
+	p.notifCallbacksMu.RUnlock()
+
+	if cb != nil {
+		cb(sessionID, client)
+	}
 }
 
 // Len returns the current number of pooled connections (useful for testing).

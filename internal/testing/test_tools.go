@@ -48,6 +48,12 @@ const (
 	// TestToolMusterAuthLogin simulates `muster auth login` by completing the OAuth
 	// callback to muster's token store. This is required for SSO token forwarding tests.
 	TestToolMusterAuthLogin = "test_muster_auth_login"
+	// TestToolAddMockTool dynamically adds a tool to a running mock MCP server.
+	// This triggers a notifications/tools/list_changed notification to all connected clients.
+	TestToolAddMockTool = "test_add_mock_tool"
+	// TestToolRemoveMockTool dynamically removes a tool from a running mock MCP server.
+	// This triggers a notifications/tools/list_changed notification to all connected clients.
+	TestToolRemoveMockTool = "test_remove_mock_tool"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -158,7 +164,9 @@ func IsTestTool(toolName string) bool {
 		TestToolListToolsForUser,
 		TestToolGetCurrentUser,
 		TestToolSimulateMusterReauth,
-		TestToolMusterAuthLogin:
+		TestToolMusterAuthLogin,
+		TestToolAddMockTool,
+		TestToolRemoveMockTool:
 		return true
 	}
 	return false
@@ -195,6 +203,10 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleSimulateMusterReauth(ctx, args)
 	case TestToolMusterAuthLogin:
 		return h.handleMusterAuthLogin(ctx, args)
+	case TestToolAddMockTool:
+		return h.handleAddMockTool(ctx, args)
+	case TestToolRemoveMockTool:
+		return h.handleRemoveMockTool(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1463,5 +1475,168 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		"message":      "Muster auth login completed - ID token stored for SSO forwarding",
 		"oauth_server": musterOAuthServerName,
 		"issuer_url":   musterOAuthServerInfo.IssuerURL,
+	}, nil
+}
+
+// waitForToolVisibility polls the aggregator's list_tools meta-tool until the
+// expected tool is present (when present=true) or absent (when present=false).
+// This ensures that notification-driven capability updates have fully propagated
+// before the test tool returns, eliminating the need for time-based
+// wait_for_state in scenarios.
+func (h *TestToolsHandler) waitForToolVisibility(ctx context.Context, expectedTool string, present bool) error {
+	client := h.GetCurrentClient()
+	if client == nil {
+		return nil
+	}
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if present {
+				return fmt.Errorf("timed out waiting for tool %s to become visible", expectedTool)
+			}
+			return fmt.Errorf("timed out waiting for tool %s to be removed", expectedTool)
+		case <-ticker.C:
+			result, err := client.CallToolDirect(ctx, "list_tools", nil)
+			if err != nil {
+				continue
+			}
+			names, err := extractToolNamesFromResult(result)
+			if err != nil {
+				continue
+			}
+			found := false
+			for _, t := range names {
+				if t == expectedTool {
+					found = true
+					break
+				}
+			}
+			if found == present {
+				return nil
+			}
+		}
+	}
+}
+
+// handleAddMockTool dynamically adds a tool to a running mock MCP HTTP server.
+// The mcp-go library automatically sends notifications/tools/list_changed to all
+// connected clients, triggering the aggregator's push-based tool refresh.
+// This handler waits for the notification to propagate before returning.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server to add the tool to.
+//   - tool_name: Required. Name of the new tool to add.
+//   - tool_description: Optional. Description of the new tool.
+func (h *TestToolsHandler) handleAddMockTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+
+	toolName, ok := args["tool_name"].(string)
+	if !ok || toolName == "" {
+		return nil, fmt.Errorf("tool_name argument is required")
+	}
+
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	description, _ := args["tool_description"].(string)
+
+	toolConfig := mock.ToolConfig{
+		Name:        toolName,
+		Description: description,
+		Responses: []mock.ToolResponse{
+			{Response: map[string]interface{}{"status": "ok", "tool": toolName}},
+		},
+	}
+
+	httpServer := h.instanceManager.GetMockHTTPServer(h.currentInstance.ID, serverName)
+	if httpServer != nil {
+		httpServer.AddDynamicTool(toolConfig)
+	} else {
+		protectedServer := h.instanceManager.GetProtectedMCPServer(h.currentInstance.ID, serverName)
+		if protectedServer == nil {
+			return nil, fmt.Errorf("mock server %s not found for instance %s (checked both HTTP and protected servers)", serverName, h.currentInstance.ID)
+		}
+		protectedServer.AddDynamicTool(toolConfig)
+	}
+
+	expectedToolName := fmt.Sprintf("x_%s_%s", serverName, toolName)
+	if err := h.waitForToolVisibility(ctx, expectedToolName, true); err != nil {
+		return nil, fmt.Errorf("tool added to mock server but notification did not propagate: %w", err)
+	}
+
+	if h.debug {
+		h.logger.Debug("Added mock tool '%s' to server '%s'\n", toolName, serverName)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Added tool '%s' to mock server '%s'", toolName, serverName),
+		"server":  serverName,
+		"tool":    toolName,
+	}, nil
+}
+
+// handleRemoveMockTool dynamically removes a tool from a running mock MCP HTTP server.
+// The mcp-go library automatically sends notifications/tools/list_changed to all
+// connected clients, triggering the aggregator's push-based tool refresh.
+// This handler waits for the notification to propagate before returning.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server to remove the tool from.
+//   - tool_name: Required. Name of the tool to remove.
+func (h *TestToolsHandler) handleRemoveMockTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+
+	toolName, ok := args["tool_name"].(string)
+	if !ok || toolName == "" {
+		return nil, fmt.Errorf("tool_name argument is required")
+	}
+
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	httpServer := h.instanceManager.GetMockHTTPServer(h.currentInstance.ID, serverName)
+	if httpServer != nil {
+		httpServer.RemoveDynamicTool(toolName)
+	} else {
+		protectedServer := h.instanceManager.GetProtectedMCPServer(h.currentInstance.ID, serverName)
+		if protectedServer == nil {
+			return nil, fmt.Errorf("mock server %s not found for instance %s (checked both HTTP and protected servers)", serverName, h.currentInstance.ID)
+		}
+		protectedServer.RemoveDynamicTool(toolName)
+	}
+
+	expectedToolName := fmt.Sprintf("x_%s_%s", serverName, toolName)
+	if err := h.waitForToolVisibility(ctx, expectedToolName, false); err != nil {
+		return nil, fmt.Errorf("tool removed from mock server but notification did not propagate: %w", err)
+	}
+
+	if h.debug {
+		h.logger.Debug("Removed mock tool '%s' from server '%s'\n", toolName, serverName)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Removed tool '%s' from mock server '%s'", toolName, serverName),
+		"server":  serverName,
+		"tool":    toolName,
 	}, nil
 }

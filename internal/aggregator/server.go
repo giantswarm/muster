@@ -104,6 +104,10 @@ type AggregatorServer struct {
 	// multiple tool calls from spawning parallel token exchanges.
 	tokenRefreshGroup singleflight.Group
 
+	// notifRefreshGroup deduplicates concurrent capability re-fetches
+	// triggered by server-pushed notifications/tools/list_changed.
+	notifRefreshGroup singleflight.Group
+
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
 
@@ -666,7 +670,32 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 // or communication problems with the backend server.
 func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
 	logging.Debug("Aggregator", "RegisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
+
+	// Wire the notification handler before registration so Initialize()
+	// (called inside Register) forwards it to the underlying mcp-go client.
+	client.OnNotification(func(notif mcp.JSONRPCNotification) {
+		if isCapabilityNotification(notif.Method) {
+			a.handleNonOAuthCapabilityChanged(name)
+		}
+	})
+
 	return a.registry.Register(ctx, name, client, toolPrefix)
+}
+
+// wirePoolNotificationCallback sets up a notification callback on the
+// connection pool so that whenever a new client is pooled for the given
+// authenticated server, OnNotification is wired to listen for capability-change notifications.
+func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
+	if a.connPool == nil {
+		return
+	}
+	a.connPool.SetNotificationCallback(serverName, func(sessionID string, client MCPClient) {
+		client.OnNotification(func(notif mcp.JSONRPCNotification) {
+			if isCapabilityNotification(notif.Method) {
+				a.handleSessionCapabilityChanged(serverName, sessionID, client)
+			}
+		})
+	})
 }
 
 // DeregisterServer removes a backend MCP server from the aggregator.

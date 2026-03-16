@@ -75,7 +75,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	case HTTPTransportStreamableHTTP:
 		fallthrough
 	default:
-		return server.NewStreamableHTTPServer(s.mockServer.mcpServer)
+		return server.NewStreamableHTTPServer(s.mockServer.mcpServer, server.WithStateful(true))
 	}
 }
 
@@ -238,6 +238,18 @@ func (s *HTTPServer) Endpoint() string {
 	default:
 		return fmt.Sprintf("http://localhost:%d/mcp", s.port)
 	}
+}
+
+// AddDynamicTool adds a tool to the running mock server at runtime.
+// This triggers a notifications/tools/list_changed notification to connected clients.
+func (s *HTTPServer) AddDynamicTool(toolConfig ToolConfig) {
+	s.mockServer.AddDynamicTool(toolConfig)
+}
+
+// RemoveDynamicTool removes a tool from the running mock server at runtime.
+// This triggers a notifications/tools/list_changed notification to connected clients.
+func (s *HTTPServer) RemoveDynamicTool(toolName string) {
+	s.mockServer.RemoveDynamicTool(toolName)
 }
 
 // GetError returns any error that occurred during server operation

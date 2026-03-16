@@ -34,7 +34,8 @@ func (c *poolTestClient) ListPrompts(context.Context) ([]mcp.Prompt, error) { re
 func (c *poolTestClient) GetPrompt(context.Context, string, map[string]interface{}) (*mcp.GetPromptResult, error) {
 	return nil, nil
 }
-func (c *poolTestClient) Ping(context.Context) error { return nil }
+func (c *poolTestClient) Ping(context.Context) error                   { return nil }
+func (c *poolTestClient) OnNotification(func(mcp.JSONRPCNotification)) {}
 
 const testPoolMaxAge = 30 * time.Minute
 
@@ -431,6 +432,93 @@ func TestSessionConnectionPool_PutWithDeferredClose_NoOldEntry(t *testing.T) {
 	got, ok := pool.Get("s1", "srv-new")
 	require.True(t, ok)
 	assert.Equal(t, client, got)
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPut(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackClient MCPClient
+	var callbackSessionID string
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		callbackSessionID = sessionID
+		callbackClient = c
+		callbackCount.Add(1)
+	})
+
+	client := &poolTestClient{}
+	pool.Put("s1", "srv-a", client)
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+	assert.Equal(t, client, callbackClient)
+	assert.Equal(t, "s1", callbackSessionID)
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPutWithExpiry(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackSessionID string
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		callbackSessionID = sessionID
+		callbackCount.Add(1)
+	})
+
+	pool.PutWithExpiry("s1", "srv-a", &poolTestClient{}, time.Now().Add(10*time.Minute))
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+	assert.Equal(t, "s1", callbackSessionID)
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_InvokedOnPutWithDeferredClose(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackSessionID string
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		callbackSessionID = sessionID
+		callbackCount.Add(1)
+	})
+
+	pool.PutWithDeferredClose("s1", "srv-a", &poolTestClient{}, time.Now().Add(10*time.Minute), 50*time.Millisecond)
+
+	assert.Equal(t, int32(1), callbackCount.Load())
+	assert.Equal(t, "s1", callbackSessionID)
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_NotInvokedForOtherServer(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var callbackCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		callbackCount.Add(1)
+	})
+
+	pool.Put("s1", "srv-b", &poolTestClient{})
+
+	assert.Equal(t, int32(0), callbackCount.Load())
+}
+
+func TestSessionConnectionPool_SetNotificationCallback_ReplacesCallback(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	var firstCount, secondCount atomic.Int32
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		firstCount.Add(1)
+	})
+	pool.SetNotificationCallback("srv-a", func(sessionID string, c MCPClient) {
+		secondCount.Add(1)
+	})
+
+	pool.Put("s1", "srv-a", &poolTestClient{})
+
+	assert.Equal(t, int32(0), firstCount.Load(), "old callback should not be invoked")
+	assert.Equal(t, int32(1), secondCount.Load(), "new callback should be invoked")
 }
 
 func TestSessionConnectionPool_EvictIdleMixedEntries(t *testing.T) {
