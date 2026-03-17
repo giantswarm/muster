@@ -203,6 +203,10 @@ type AggregatorConfig struct {
 
 	// Debug enables debug logging
 	Debug bool
+
+	// CapabilityPollInterval is the interval between periodic capability
+	// re-fetches from downstream servers. Zero uses DefaultCapabilityPollInterval.
+	CapabilityPollInterval time.Duration
 }
 
 // OAuthServerConfig holds OAuth server configuration for protecting the Muster Server.

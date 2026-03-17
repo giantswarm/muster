@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/giantswarm/muster/internal/template"
 
@@ -158,6 +160,61 @@ func (s *Server) RemoveDynamicTool(toolName string) {
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "Dynamically removed tool '%s' from mock server '%s'\n", toolName, s.name)
 	}
+}
+
+// AddDynamicToolSilently adds a tool to the server so that ListTools
+// returns it, but WITHOUT sending a notifications/tools/list_changed
+// notification. This simulates a silent server redeployment where the
+// tool list changes without the connected client being notified.
+//
+// It bypasses the mcp-go library's AddTool (which always sends a
+// notification) by writing directly to the internal tools map via
+// reflect + unsafe. This is acceptable because this code is used
+// exclusively in test scenarios.
+func (s *Server) AddDynamicToolSilently(toolConfig ToolConfig) {
+	handler := NewToolHandler(toolConfig, s.templateEngine, s.debug)
+
+	s.mu.Lock()
+	s.toolHandlers[toolConfig.Name] = handler
+	s.mu.Unlock()
+
+	tool := mcp.NewTool(toolConfig.Name, mcp.WithDescription(toolConfig.Description))
+	st := server.ServerTool{
+		Tool:    tool,
+		Handler: s.createToolHandler(toolConfig.Name),
+	}
+
+	injectToolSilently(s.mcpServer, toolConfig.Name, st)
+
+	if s.debug {
+		fmt.Fprintf(os.Stderr, "Silently added tool '%s' to mock server '%s' (no notification)\n", toolConfig.Name, s.name)
+	}
+}
+
+// injectToolSilently writes a ServerTool directly into the MCPServer's
+// unexported tools map, acquiring the toolsMu lock but skipping the
+// notification that AddTool/AddTools normally sends. This is test-only
+// code that uses reflect + unsafe to access unexported struct fields.
+func injectToolSilently(srv *server.MCPServer, name string, st server.ServerTool) {
+	v := reflect.ValueOf(srv).Elem()
+
+	muField := v.FieldByName("toolsMu")
+	if !muField.IsValid() {
+		panic("injectToolSilently: mcp-go MCPServer no longer has field 'toolsMu' -- check for upstream changes")
+	}
+	//nolint:gosec // Test-only code: accessing unexported field via unsafe.
+	mu := (*sync.RWMutex)(unsafe.Pointer(muField.UnsafeAddr()))
+
+	toolsField := v.FieldByName("tools")
+	if !toolsField.IsValid() {
+		panic("injectToolSilently: mcp-go MCPServer no longer has field 'tools' -- check for upstream changes")
+	}
+	//nolint:gosec // Test-only code: accessing unexported field via unsafe.
+	toolsPtr := (*map[string]server.ServerTool)(unsafe.Pointer(toolsField.UnsafeAddr()))
+
+	mu.Lock()
+	(*toolsPtr)[name] = st
+	mu.Unlock()
 }
 
 // Start starts the mock MCP server using stdio transport

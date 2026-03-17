@@ -252,6 +252,12 @@ func (s *HTTPServer) RemoveDynamicTool(toolName string) {
 	s.mockServer.RemoveDynamicTool(toolName)
 }
 
+// AddDynamicToolSilently adds a tool without sending notifications.
+// Used to simulate silent server redeployments for capability poller testing.
+func (s *HTTPServer) AddDynamicToolSilently(toolConfig ToolConfig) {
+	s.mockServer.AddDynamicToolSilently(toolConfig)
+}
+
 // GetError returns any error that occurred during server operation
 func (s *HTTPServer) GetError() error {
 	s.mu.RLock()

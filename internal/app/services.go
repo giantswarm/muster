@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	mcpserverPkg "github.com/giantswarm/muster/internal/mcpserver"
 	aggregatorService "github.com/giantswarm/muster/internal/services/aggregator"
@@ -240,15 +241,23 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		effectiveClientID := mergedOAuthMCPClientConfig.GetEffectiveClientID()
 
 		// Convert config types
+		var capPollInterval time.Duration
+		if raw := cfg.MusterConfig.Aggregator.CapabilityPollInterval; raw != "" {
+			if d, err := time.ParseDuration(raw); err == nil {
+				capPollInterval = d
+			}
+		}
+
 		aggConfig := aggregator.AggregatorConfig{
-			Port:         cfg.MusterConfig.Aggregator.Port,
-			Host:         cfg.MusterConfig.Aggregator.Host,
-			Transport:    cfg.MusterConfig.Aggregator.Transport,
-			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
-			Version:      cfg.Version,
-			Yolo:         cfg.Yolo,
-			ConfigDir:    cfg.ConfigPath,
-			Debug:        cfg.Debug,
+			Port:                   cfg.MusterConfig.Aggregator.Port,
+			Host:                   cfg.MusterConfig.Aggregator.Host,
+			Transport:              cfg.MusterConfig.Aggregator.Transport,
+			MusterPrefix:           cfg.MusterConfig.Aggregator.MusterPrefix,
+			Version:                cfg.Version,
+			Yolo:                   cfg.Yolo,
+			ConfigDir:              cfg.ConfigPath,
+			Debug:                  cfg.Debug,
+			CapabilityPollInterval: capPollInterval,
 			OAuth: aggregator.OAuthProxyConfig{
 				Enabled:      oauthMCPClientEnabled,
 				PublicURL:    oauthPublicURL,
