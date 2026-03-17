@@ -60,7 +60,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "cluster-a-idp"
-          scope: "mcp:admin"
           forward_token: true
         tools:
           - name: "local_status"
@@ -78,14 +77,13 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "cluster-b-idp"
-          scope: "mcp:admin"
           # Configure token exchange with explicit expected_issuer
           # This simulates accessing Dex through a proxy where the
           # access URL differs from the actual issuer
           token_exchange:
             oauth_server_ref: "cluster-b-idp"
             connector_id: "cluster-a-dex"
-            scopes: "openid profile email groups mcp:admin"
+            scopes: "openid profile email groups"
             # In a real scenario, expected_issuer would be the actual Dex issuer
             # (e.g., https://dex.cluster.internal) while oauth_server_ref provides
             # the proxy URL. Here we use the same server for testing.

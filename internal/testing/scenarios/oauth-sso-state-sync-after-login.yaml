@@ -40,7 +40,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "sync-test-idp"
-          scope: "mcp:admin"
           # Enable token forwarding - muster should forward its ID token
           forward_token: true
         tools:

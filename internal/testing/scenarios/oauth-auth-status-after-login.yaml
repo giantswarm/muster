@@ -37,7 +37,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "muster-idp"
-          scope: "mcp:admin"
           # Enable token forwarding - muster forwards its ID token to this server
           forward_token: true
         tools:
