@@ -179,7 +179,9 @@ type ssoFailedEntry struct {
 
 // ssoTrackerFailureTTL is the duration after which SSO failure entries expire.
 // Once expired, proactive SSO will retry the server on the next session init.
-const ssoTrackerFailureTTL = 30 * time.Minute
+// Kept short (5 min) so transient failures (e.g. token storage hiccup, brief
+// network partition) don't block SSO for an entire session.
+const ssoTrackerFailureTTL = 5 * time.Minute
 
 // ssoTrackerPendingTimeout is how long sso_pending is reported before falling
 // back to auth_required. This prevents the client from being stuck in a pending
@@ -274,6 +276,15 @@ func (s *ssoTracker) ClearSSOFailed(sub, serverName string) {
 			delete(s.failedServers, sub)
 		}
 	}
+}
+
+// ClearAllSSOFailed removes all SSO failure records for a user.
+// Called when the session is being re-initialized (e.g. after pod restart
+// or session expiry) so that previously failed servers are retried.
+func (s *ssoTracker) ClearAllSSOFailed(sub string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.failedServers, sub)
 }
 
 // CleanupExpired removes SSO failure entries older than ssoTrackerFailureTTL.
@@ -1033,6 +1044,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		}
 		userID := getUserSubjectFromContext(ctx)
 		idToken, _ := server.GetIDTokenFromContext(ctx)
+
+		// Clear prior SSO failures so all servers are retried. Without this,
+		// servers that failed during a previous init (e.g. before a pod
+		// restart or after a transient token-storage error) would be skipped
+		// for ssoTrackerFailureTTL even though the underlying cause may have
+		// been resolved.
+		if a.ssoTracker != nil && userID != "" {
+			a.ssoTracker.ClearAllSSOFailed(userID)
+		}
+
 		go a.initSSOForSession(ctx, userID, sessionID, idToken)
 	})
 
