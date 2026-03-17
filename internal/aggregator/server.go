@@ -1086,6 +1086,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.DeleteTokensBySession(familyID)
 		}
+		if cache := api.GetIDTokenCache(); cache != nil {
+			cache.Delete(familyID)
+		}
 		logging.Info("Aggregator", "Cleaned up session state for revoked session %s (user %s)",
 			logging.TruncateIdentifier(familyID), logging.TruncateIdentifier(userID))
 	})

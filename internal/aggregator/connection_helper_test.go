@@ -92,6 +92,55 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 		assert.Empty(t, token)
 	})
+
+	t.Run("returns token from session cache when context has none", func(t *testing.T) {
+		cache := server.NewSessionIDTokenCache()
+		defer api.RegisterIDTokenCache(nil)
+
+		cache.Store("session-abc", validToken)
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+
+		assert.Equal(t, validToken, token)
+	})
+
+	t.Run("context token takes priority over session cache", func(t *testing.T) {
+		cache := server.NewSessionIDTokenCache()
+		defer api.RegisterIDTokenCache(nil)
+
+		cachedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
+		cache.Store("session-abc", cachedToken)
+
+		ctx := context.Background()
+		ctx = server.ContextWithIDToken(ctx, validToken)
+
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+		assert.Equal(t, validToken, token)
+	})
+
+	t.Run("returns empty when cache has no entry for session", func(t *testing.T) {
+		_ = server.NewSessionIDTokenCache()
+		defer api.RegisterIDTokenCache(nil)
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, "unknown-session", "https://accounts.google.com")
+
+		assert.Empty(t, token)
+	})
+
+	t.Run("cache returns empty after session is deleted", func(t *testing.T) {
+		cache := server.NewSessionIDTokenCache()
+		defer api.RegisterIDTokenCache(nil)
+
+		cache.Store("session-abc", validToken)
+		cache.Delete("session-abc")
+
+		ctx := context.Background()
+		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
+
+		assert.Empty(t, token)
+	})
 }
 
 func TestShouldUseTokenForwarding(t *testing.T) {
