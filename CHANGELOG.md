@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 - Add `ciliumNetworkPolicy.extraEgress` Helm value to allow configuring additional egress rules per installation.
 
+### Changed
+
+- Remove `groups` from `DefaultOAuthCIMDScopes` -- it is Dex-specific and should not be a universal default for CIMD scopes across all providers.
+
+### Fixed
+
+- Bump `mcp-oauth` to v0.2.84 with provider-aware scope filtering: Google now drops unsupported scopes like `groups`, and `openid` is force-merged for OIDC providers even when clients send non-standard scopes.
+
 ## [0.1.0] - 2026-02-23
 
 ### Changed
