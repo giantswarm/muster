@@ -107,13 +107,17 @@ func TestPromptListsEqual(t *testing.T) {
 
 // notifMockClient is a mock MCPClient that counts ListTools calls and
 // returns configurable tools. Used exclusively in notification subscriber tests.
+// When listToolsGate is non-nil, ListTools blocks until the channel is closed,
+// allowing singleflight dedup tests to force concurrent call overlap.
 type notifMockClient struct {
-	mu             sync.Mutex
-	tools          []mcp.Tool
-	resources      []mcp.Resource
-	prompts        []mcp.Prompt
-	listToolsCalls int32
-	notifHandler   func(mcp.JSONRPCNotification)
+	mu               sync.Mutex
+	tools            []mcp.Tool
+	resources        []mcp.Resource
+	prompts          []mcp.Prompt
+	listToolsCalls   int32
+	listToolsArrived int32
+	listToolsGate    chan struct{}
+	notifHandler     func(mcp.JSONRPCNotification)
 }
 
 func (m *notifMockClient) Initialize(_ context.Context) error { return nil }
@@ -130,6 +134,10 @@ func (m *notifMockClient) GetPrompt(_ context.Context, _ string, _ map[string]in
 }
 
 func (m *notifMockClient) ListTools(_ context.Context) ([]mcp.Tool, error) {
+	if m.listToolsGate != nil {
+		atomic.AddInt32(&m.listToolsArrived, 1)
+		<-m.listToolsGate
+	}
 	m.mu.Lock()
 	tools := m.tools
 	m.mu.Unlock()
@@ -266,6 +274,9 @@ func TestHandleNonOAuthCapabilityChanged_SingleflightDedup(t *testing.T) {
 
 	baseCount := atomic.LoadInt32(&client.listToolsCalls)
 
+	gate := make(chan struct{})
+	client.listToolsGate = gate
+
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
@@ -275,6 +286,11 @@ func TestHandleNonOAuthCapabilityChanged_SingleflightDedup(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&client.listToolsArrived) >= 1
+	}, 2*time.Second, 1*time.Millisecond)
+	close(gate)
 
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&client.listToolsCalls) > baseCount
@@ -368,7 +384,8 @@ func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {
 	tools := []mcp.Tool{{Name: "t1"}}
 	require.NoError(t, capStore.Set(context.Background(), "sess", "sso-srv", &Capabilities{Tools: tools}))
 
-	client := &notifMockClient{tools: tools}
+	gate := make(chan struct{})
+	client := &notifMockClient{tools: tools, listToolsGate: gate}
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
@@ -379,6 +396,11 @@ func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&client.listToolsArrived) >= 1
+	}, 2*time.Second, 1*time.Millisecond)
+	close(gate)
 
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&client.listToolsCalls) >= 1

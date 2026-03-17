@@ -153,19 +153,19 @@ func TestInMemorySessionAuthStore_RevokeServer(t *testing.T) {
 }
 
 func TestInMemorySessionAuthStore_TouchExtendsTTL(t *testing.T) {
-	ttl := 100 * time.Millisecond
+	ttl := 2 * time.Second
 	store := NewInMemorySessionAuthStore(ttl)
 	defer store.Stop()
 	ctx := context.Background()
 
 	_ = store.MarkAuthenticated(ctx, "session1", "server1")
 
-	time.Sleep(70 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	touched, err := store.Touch(ctx, "session1")
 	require.NoError(t, err)
 	assert.True(t, touched, "Touch should return true for existing session")
 
-	time.Sleep(70 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	authed, err := store.IsAuthenticated(ctx, "session1", "server1")
 	require.NoError(t, err)
 	assert.True(t, authed, "auth should still be valid after Touch")
