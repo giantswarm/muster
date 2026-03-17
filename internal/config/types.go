@@ -324,6 +324,10 @@ type ValkeyConfig struct {
 	// TLSEnabled enables TLS for Valkey connections.
 	TLSEnabled bool `yaml:"tlsEnabled,omitempty"`
 
+	// TLSServerName overrides the server name used for TLS certificate verification.
+	// Use this when the Valkey server certificate CN/SAN differs from the connection address.
+	TLSServerName string `yaml:"tlsServerName,omitempty"`
+
 	// KeyPrefix is the prefix for all Valkey keys (default: "muster:").
 	KeyPrefix string `yaml:"keyPrefix,omitempty"`
 

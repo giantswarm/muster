@@ -12,6 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"encoding/base64"
+	"net/url"
+
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -21,6 +24,7 @@ import (
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
+	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -121,6 +125,13 @@ type AggregatorServer struct {
 	// when Valkey storage is configured. Nil when using in-memory stores.
 	// Closed during Stop().
 	valkeyClient valkey.Client
+
+	// valkeyKeyPrefix is the key prefix used by all Valkey stores (default "muster:").
+	valkeyKeyPrefix string
+
+	// valkeyEncryptor provides AES-256-GCM encryption at rest for sensitive values
+	// stored in Valkey (tokens, state). Nil when encryption is not configured.
+	valkeyEncryptor *security.Encryptor
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -128,6 +139,17 @@ type AggregatorServer struct {
 // client with the OAuth token/state stores.
 func (a *AggregatorServer) getValkeyClient() valkey.Client {
 	return a.valkeyClient
+}
+
+// getValkeyKeyPrefix returns the configured key prefix for Valkey stores.
+func (a *AggregatorServer) getValkeyKeyPrefix() string {
+	return a.valkeyKeyPrefix
+}
+
+// getValkeyEncryptor returns the AES-256-GCM encryptor for Valkey stores,
+// or nil if encryption is not configured.
+func (a *AggregatorServer) getValkeyEncryptor() *security.Encryptor {
+	return a.valkeyEncryptor
 }
 
 // subjectSessionTracker maps user subjects to their MCP client session IDs.
@@ -335,7 +357,24 @@ func (s *ssoTracker) CleanupExpired() {
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 
-	authStore, capStore, vClient := createStores(aggConfig)
+	authStore, capStore, vClient, keyPrefix := createStores(aggConfig)
+
+	var enc *security.Encryptor
+	if vClient != nil {
+		if oauthCfg, ok := aggConfig.OAuthServer.Config.(config.OAuthServerConfig); ok && oauthCfg.EncryptionKey != "" {
+			keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
+			if err != nil {
+				logging.Warn("Aggregator", "Failed to decode encryption key for Valkey stores: %v", err)
+			} else {
+				enc, err = security.NewEncryptor(keyBytes)
+				if err != nil {
+					logging.Warn("Aggregator", "Failed to create encryptor for Valkey stores: %v", err)
+				} else if enc.IsEnabled() {
+					logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
+				}
+			}
+		}
+	}
 
 	return &AggregatorServer{
 		config:          aggConfig,
@@ -350,32 +389,39 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
 		valkeyClient:    vClient,
+		valkeyKeyPrefix: keyPrefix,
+		valkeyEncryptor: enc,
 	}
 }
 
 // createStores builds the session auth and capability stores based on the
 // OAuthServer storage configuration. When the storage type is "valkey", a
 // shared valkey.Client is created and both stores use it. Otherwise in-memory
-// stores are returned.
-func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valkey.Client) {
+// stores are returned. The effective keyPrefix is also returned for downstream use.
+func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valkey.Client, string) {
 	oauthCfg, ok := cfg.OAuthServer.Config.(config.OAuthServerConfig)
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
+		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
+		if keyPrefix == "" {
+			keyPrefix = "muster:"
+		}
+
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
 		if err != nil {
 			logging.Warn("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory: %v", err)
 			return NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-				NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil
+				NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil, keyPrefix
 		}
 
 		logging.Info("Aggregator", "Using Valkey-backed session auth and capability stores (address: %s)",
-			oauthCfg.Storage.Valkey.URL)
-		return NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL),
-			NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL), client
+			redactURL(oauthCfg.Storage.Valkey.URL))
+		return NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix), client, keyPrefix
 	}
 
 	logging.Info("Aggregator", "Using in-memory session auth and capability stores")
 	return NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-		NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil
+		NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil, "muster:"
 }
 
 // newValkeyClient creates a valkey.Client from the shared ValkeyConfig.
@@ -390,9 +436,13 @@ func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
 		opts.SelectDB = cfg.DB
 	}
 	if cfg.TLSEnabled {
-		opts.TLSConfig = &tls.Config{
+		tlsCfg := &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
+		if cfg.TLSServerName != "" {
+			tlsCfg.ServerName = cfg.TLSServerName
+		}
+		opts.TLSConfig = tlsCfg
 	}
 
 	client, err := valkey.NewClient(opts)
@@ -400,6 +450,27 @@ func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
 		return nil, fmt.Errorf("valkey connect: %w", err)
 	}
 	return client, nil
+}
+
+// redactURL removes any userinfo (user:password@) from a URL or address string
+// before logging. Returns the input unchanged if it is not a parseable URL.
+func redactURL(raw string) string {
+	if !strings.Contains(raw, "@") {
+		return raw
+	}
+	normalized := raw
+	if !strings.Contains(raw, "://") {
+		normalized = "redis://" + raw
+	}
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return raw
+	}
+	u.User = nil
+	if !strings.Contains(raw, "://") {
+		return u.Host + u.Path
+	}
+	return u.String()
 }
 
 // Start initializes and starts the aggregator server with all configured transports.

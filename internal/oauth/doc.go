@@ -37,6 +37,22 @@
 // (default) and Valkey-backed implementations via functional options on the
 // Manager constructor.
 //
+// ## Encryption at Rest (Valkey)
+//
+// When using Valkey storage, token values (access tokens, refresh tokens, ID tokens,
+// and OAuth state including code verifiers) are encrypted at rest using AES-256-GCM
+// if an encryption key is configured (oauthServer.encryptionKey or encryptionKeyFile).
+// The same key protects both the mcp-oauth server stores and the OAuth proxy stores.
+//
+// Production deployments using Valkey MUST:
+//   - Configure an AES-256 encryption key (32 bytes, base64-encoded)
+//   - Enable TLS for Valkey connections (storage.valkey.tlsEnabled: true)
+//   - Use Valkey ACLs to restrict access to the muster key prefix
+//   - Ensure the Valkey storage volume is encrypted (e.g., via StorageClass)
+//
+// Without encryption, a Valkey compromise (unauthorized access, RDB dump exfiltration,
+// or replication snooping) exposes all stored tokens in plaintext.
+//
 // ## Session Isolation
 //
 // Tokens are stored with a composite key of (SessionID, Issuer, Scope), where SessionID

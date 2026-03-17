@@ -10,35 +10,36 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// valkeyAuthKeyPrefix is the key prefix for auth store hashes.
-const valkeyAuthKeyPrefix = "muster:auth:"
-
-// valkeyAuthFieldValue is stored as the hash field value.
-// Auth entries only need to track presence, not payload.
-const valkeyAuthFieldValue = "1"
-
 // ValkeySessionAuthStore stores per-session authentication state in Valkey hashes.
 //
 // Data model:
 //
-//	Key:    muster:auth:{sessionID}
+//	Key:    {keyPrefix}auth:{sessionID}
 //	Fields: {serverName} -> "1"
 //	TTL:    session-level, reset on every MarkAuthenticated via EXPIRE
 type ValkeySessionAuthStore struct {
-	client valkey.Client
-	ttl    time.Duration
+	client    valkey.Client
+	ttl       time.Duration
+	keyPrefix string
 }
 
 // NewValkeySessionAuthStore creates a Valkey-backed session auth store.
-func NewValkeySessionAuthStore(client valkey.Client, ttl time.Duration) *ValkeySessionAuthStore {
+// keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
+func NewValkeySessionAuthStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeySessionAuthStore {
+	if keyPrefix == "" {
+		keyPrefix = "muster:"
+	}
 	return &ValkeySessionAuthStore{
-		client: client,
-		ttl:    ttl,
+		client:    client,
+		ttl:       ttl,
+		keyPrefix: keyPrefix,
 	}
 }
 
+const valkeyAuthFieldValue = "1"
+
 func (s *ValkeySessionAuthStore) key(sessionID string) string {
-	return valkeyAuthKeyPrefix + sessionID
+	return s.keyPrefix + "auth:" + sessionID
 }
 
 func (s *ValkeySessionAuthStore) IsAuthenticated(ctx context.Context, sessionID, serverName string) (bool, error) {
@@ -86,9 +87,10 @@ func (s *ValkeySessionAuthStore) RevokeSession(ctx context.Context, sessionID st
 }
 
 func (s *ValkeySessionAuthStore) RevokeServer(ctx context.Context, serverName string) error {
+	scanPrefix := s.keyPrefix + "auth:*"
 	var cursor uint64
 	for {
-		cmd := s.client.B().Scan().Cursor(cursor).Match(valkeyAuthKeyPrefix + "*").Count(100).Build()
+		cmd := s.client.B().Scan().Cursor(cursor).Match(scanPrefix).Count(100).Build()
 		result := s.client.Do(ctx, cmd)
 		if err := result.Error(); err != nil {
 			return fmt.Errorf("valkey SCAN: %w", err)

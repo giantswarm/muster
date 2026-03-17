@@ -11,31 +11,34 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// valkeyKeyPrefix is the key prefix for capability store hashes.
-const valkeyKeyPrefix = "muster:cap:"
-
 // ValkeyCapabilityStore stores per-session capabilities in Valkey hashes.
 //
 // Data model:
 //
-//	Key:    muster:cap:{sessionID}
+//	Key:    {keyPrefix}cap:{sessionID}
 //	Fields: {serverName} -> JSON{tools, resources, prompts}
 //	TTL:    session-level, reset on every Set via EXPIRE
 type ValkeyCapabilityStore struct {
-	client valkey.Client
-	ttl    time.Duration
+	client    valkey.Client
+	ttl       time.Duration
+	keyPrefix string
 }
 
 // NewValkeyCapabilityStore creates a Valkey-backed capability store.
-func NewValkeyCapabilityStore(client valkey.Client, ttl time.Duration) *ValkeyCapabilityStore {
+// keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
+func NewValkeyCapabilityStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeyCapabilityStore {
+	if keyPrefix == "" {
+		keyPrefix = "muster:"
+	}
 	return &ValkeyCapabilityStore{
-		client: client,
-		ttl:    ttl,
+		client:    client,
+		ttl:       ttl,
+		keyPrefix: keyPrefix,
 	}
 }
 
 func (s *ValkeyCapabilityStore) key(sessionID string) string {
-	return valkeyKeyPrefix + sessionID
+	return s.keyPrefix + "cap:" + sessionID
 }
 
 func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName string) (*Capabilities, error) {
@@ -128,9 +131,10 @@ func (s *ValkeyCapabilityStore) DeleteEntry(ctx context.Context, sessionID, serv
 }
 
 func (s *ValkeyCapabilityStore) DeleteServer(ctx context.Context, serverName string) error {
+	scanPrefix := s.keyPrefix + "cap:*"
 	var cursor uint64
 	for {
-		cmd := s.client.B().Scan().Cursor(cursor).Match(valkeyKeyPrefix + "*").Count(100).Build()
+		cmd := s.client.B().Scan().Cursor(cursor).Match(scanPrefix).Count(100).Build()
 		result := s.client.Do(ctx, cmd)
 		if err := result.Error(); err != nil {
 			return fmt.Errorf("valkey SCAN: %w", err)

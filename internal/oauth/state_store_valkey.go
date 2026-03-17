@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/valkey-io/valkey-go"
 )
 
 const (
-	valkeyStateKeyPrefix = "muster:oauth:state:"
-	defaultStateExpiry   = 10 * time.Minute
+	defaultStateExpiry = 10 * time.Minute
 )
 
 // valkeyStateEntry is the JSON-serialized value stored for each state.
@@ -28,29 +28,57 @@ type valkeyStateEntry struct {
 }
 
 // ValkeyStateStore stores OAuth state parameters in Valkey with automatic
-// expiration. Each state is stored as a single key with a 10-minute TTL,
+// expiration and optional AES-256-GCM encryption at rest.
+// Each state is stored as a single key with a 10-minute TTL,
 // matching the in-memory StateStore behaviour.
 //
 // Data model:
 //
-//	Key:   muster:oauth:state:{nonce}
-//	Value: JSON(valkeyStateEntry)
+//	Key:   {keyPrefix}oauth:state:{nonce}
+//	Value: [encrypted] JSON(valkeyStateEntry)
 //	TTL:   10 minutes
 type ValkeyStateStore struct {
 	client      valkey.Client
 	stateExpiry time.Duration
+	keyPrefix   string
+	encryptor   *security.Encryptor
 }
 
 // NewValkeyStateStore creates a Valkey-backed OAuth state store.
-func NewValkeyStateStore(client valkey.Client) *ValkeyStateStore {
+// keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
+// encryptor enables AES-256-GCM encryption at rest; pass nil to disable.
+func NewValkeyStateStore(client valkey.Client, keyPrefix string, encryptor *security.Encryptor) *ValkeyStateStore {
+	if keyPrefix == "" {
+		keyPrefix = "muster:"
+	}
 	return &ValkeyStateStore{
 		client:      client,
 		stateExpiry: defaultStateExpiry,
+		keyPrefix:   keyPrefix,
+		encryptor:   encryptor,
 	}
 }
 
 func (s *ValkeyStateStore) stateKey(nonce string) string {
-	return valkeyStateKeyPrefix + nonce
+	return s.keyPrefix + "oauth:state:" + nonce
+}
+
+func (s *ValkeyStateStore) encryptValue(data []byte) (string, error) {
+	if s.encryptor == nil || !s.encryptor.IsEnabled() {
+		return string(data), nil
+	}
+	return s.encryptor.Encrypt(string(data))
+}
+
+func (s *ValkeyStateStore) decryptValue(stored string) ([]byte, error) {
+	if s.encryptor == nil || !s.encryptor.IsEnabled() {
+		return []byte(stored), nil
+	}
+	plaintext, err := s.encryptor.Decrypt(stored)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(plaintext), nil
 }
 
 func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (string, error) {
@@ -92,8 +120,13 @@ func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, 
 		return "", err
 	}
 
+	value, err := s.encryptValue(entryData)
+	if err != nil {
+		return "", err
+	}
+
 	ctx := context.Background()
-	cmd := s.client.B().Set().Key(s.stateKey(nonce)).Value(string(entryData)).
+	cmd := s.client.B().Set().Key(s.stateKey(nonce)).Value(value).
 		Ex(s.stateExpiry).Build()
 	if err := s.client.Do(ctx, cmd).Error(); err != nil {
 		return "", err
@@ -132,17 +165,28 @@ func (s *ValkeyStateStore) ValidateState(encodedState string) *OAuthState {
 		return nil
 	}
 
-	data, err := result.AsBytes()
+	stored, err := result.ToString()
 	if err != nil {
 		return nil
 	}
 
+	plaintext, err := s.decryptValue(stored)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyStateStore: decryption failed: %v", err)
+		return nil
+	}
+
 	var entry valkeyStateEntry
-	if err := json.Unmarshal(data, &entry); err != nil {
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
 		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal stored state: %v", err)
 		return nil
 	}
 
+	// Defense-in-depth expiry check. Valkey TTL already enforces the 10-minute
+	// window, but we verify CreatedAt as well to guard against clock skew
+	// between the application node that created the state and the node
+	// validating it. Clocks should be NTP-synchronized; with significant skew
+	// (>10 min) legitimate states may be rejected.
 	if time.Since(entry.CreatedAt) > s.stateExpiry {
 		logging.Warn("OAuth", "ValkeyStateStore: state expired: nonce=%s age=%v",
 			state.Nonce, time.Since(entry.CreatedAt))

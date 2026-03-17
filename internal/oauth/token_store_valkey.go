@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/security"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -13,13 +14,13 @@ import (
 )
 
 const (
-	valkeyTokenKeyPrefix     = "muster:oauth:token:"
-	valkeyTokenUserKeyPrefix = "muster:oauth:token:user:"
 	// valkeyTokenFieldSep separates issuer and scope in hash field names.
 	// The issuer (a URL) comes first, so SplitN(field, sep, 2) is safe as long
 	// as issuer URLs don't contain this character. Pipe was chosen because it is
 	// not valid in URL authority/path segments per RFC 3986.
 	valkeyTokenFieldSep = "|"
+
+	countTimeout = 10 * time.Second
 )
 
 // valkeyTokenEntry is the JSON-serialized value stored in each hash field.
@@ -35,36 +36,64 @@ type valkeyTokenEntry struct {
 	UserID       string    `json:"uid"`
 }
 
-// ValkeyTokenStore stores OAuth tokens in Valkey hashes.
+// ValkeyTokenStore stores OAuth tokens in Valkey hashes with optional
+// AES-256-GCM encryption at rest.
 //
 // Data model:
 //
-//	Session key:  muster:oauth:token:{sessionID}
-//	  Fields:     {issuer}|{scope} -> JSON(valkeyTokenEntry)
+//	Session key:  {keyPrefix}oauth:token:{sessionID}
+//	  Fields:     {issuer}|{scope} -> [encrypted] JSON(valkeyTokenEntry)
 //	  TTL:        session-level, reset on every Store
 //
-//	User index:   muster:oauth:token:user:{userID}
+//	User index:   {keyPrefix}oauth:token:user:{userID}
 //	  Members:    sessionIDs (for DeleteByUser reverse lookup)
 //	  TTL:        same as session key
 type ValkeyTokenStore struct {
-	client valkey.Client
-	ttl    time.Duration
+	client    valkey.Client
+	ttl       time.Duration
+	keyPrefix string
+	encryptor *security.Encryptor
 }
 
 // NewValkeyTokenStore creates a Valkey-backed OAuth token store.
-func NewValkeyTokenStore(client valkey.Client, ttl time.Duration) *ValkeyTokenStore {
+// keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
+// encryptor enables AES-256-GCM encryption at rest; pass nil to disable.
+func NewValkeyTokenStore(client valkey.Client, ttl time.Duration, keyPrefix string, encryptor *security.Encryptor) *ValkeyTokenStore {
+	if keyPrefix == "" {
+		keyPrefix = "muster:"
+	}
 	return &ValkeyTokenStore{
-		client: client,
-		ttl:    ttl,
+		client:    client,
+		ttl:       ttl,
+		keyPrefix: keyPrefix,
+		encryptor: encryptor,
 	}
 }
 
 func (s *ValkeyTokenStore) sessionKey(sessionID string) string {
-	return valkeyTokenKeyPrefix + sessionID
+	return s.keyPrefix + "oauth:token:" + sessionID
 }
 
 func (s *ValkeyTokenStore) userKey(userID string) string {
-	return valkeyTokenUserKeyPrefix + userID
+	return s.keyPrefix + "oauth:token:user:" + userID
+}
+
+func (s *ValkeyTokenStore) encryptValue(data []byte) (string, error) {
+	if s.encryptor == nil || !s.encryptor.IsEnabled() {
+		return string(data), nil
+	}
+	return s.encryptor.Encrypt(string(data))
+}
+
+func (s *ValkeyTokenStore) decryptValue(stored string) ([]byte, error) {
+	if s.encryptor == nil || !s.encryptor.IsEnabled() {
+		return []byte(stored), nil
+	}
+	plaintext, err := s.encryptor.Decrypt(stored)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(plaintext), nil
 }
 
 func fieldName(key TokenKey) string {
@@ -111,9 +140,15 @@ func (s *ValkeyTokenStore) Store(key TokenKey, token *pkgoauth.Token, userID str
 
 	token.SetExpiresAtFromExpiresIn()
 	entry := tokenToEntry(token, userID)
-	data, err := json.Marshal(entry)
+	jsonData, err := json.Marshal(entry)
 	if err != nil {
 		logging.Warn("OAuth", "ValkeyTokenStore: failed to marshal token: %v", err)
+		return
+	}
+
+	value, err := s.encryptValue(jsonData)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyTokenStore: failed to encrypt token: %v", err)
 		return
 	}
 
@@ -122,7 +157,7 @@ func (s *ValkeyTokenStore) Store(key TokenKey, token *pkgoauth.Token, userID str
 	ttlSec := int64(s.ttl.Seconds())
 
 	cmds := make(valkey.Commands, 0, 4)
-	cmds = append(cmds, s.client.B().Hset().Key(sessionKey).FieldValue().FieldValue(field, string(data)).Build())
+	cmds = append(cmds, s.client.B().Hset().Key(sessionKey).FieldValue().FieldValue(field, value).Build())
 	cmds = append(cmds, s.client.B().Expire().Key(sessionKey).Seconds(ttlSec).Build())
 
 	if userID != "" {
@@ -155,13 +190,19 @@ func (s *ValkeyTokenStore) Get(key TokenKey) *pkgoauth.Token {
 		return nil
 	}
 
-	data, err := result.AsBytes()
+	stored, err := result.ToString()
 	if err != nil {
 		return nil
 	}
 
+	plaintext, err := s.decryptValue(stored)
+	if err != nil {
+		logging.Warn("OAuth", "ValkeyTokenStore: decryption failed: %v", err)
+		return nil
+	}
+
 	var entry valkeyTokenEntry
-	if err := json.Unmarshal(data, &entry); err != nil {
+	if err := json.Unmarshal(plaintext, &entry); err != nil {
 		logging.Warn("OAuth", "ValkeyTokenStore: unmarshal failed: %v", err)
 		return nil
 	}
@@ -192,12 +233,16 @@ func (s *ValkeyTokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token
 	}
 
 	prefix := issuer + valkeyTokenFieldSep
-	for field, data := range m {
+	for field, stored := range m {
 		if !strings.HasPrefix(field, prefix) {
 			continue
 		}
+		plaintext, err := s.decryptValue(stored)
+		if err != nil {
+			continue
+		}
 		var entry valkeyTokenEntry
-		if err := json.Unmarshal([]byte(data), &entry); err != nil {
+		if err := json.Unmarshal(plaintext, &entry); err != nil {
 			continue
 		}
 		token := entryToToken(&entry)
@@ -226,10 +271,14 @@ func (s *ValkeyTokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgo
 	}
 
 	tokens := make(map[TokenKey]*pkgoauth.Token)
-	for field, data := range m {
+	for field, stored := range m {
 		issuer, scope := parseFieldName(field)
+		plaintext, err := s.decryptValue(stored)
+		if err != nil {
+			continue
+		}
 		var entry valkeyTokenEntry
-		if err := json.Unmarshal([]byte(data), &entry); err != nil {
+		if err := json.Unmarshal(plaintext, &entry); err != nil {
 			continue
 		}
 		token := entryToToken(&entry)
@@ -285,9 +334,39 @@ func (s *ValkeyTokenStore) DeleteByUser(userID string) {
 
 func (s *ValkeyTokenStore) DeleteBySession(sessionID string) {
 	ctx := context.Background()
+	sKey := s.sessionKey(sessionID)
 
-	cmd := s.client.B().Del().Key(s.sessionKey(sessionID)).Build()
-	if err := s.client.Do(ctx, cmd).Error(); err != nil {
+	// Read all entries to extract userIDs for user-index cleanup.
+	cmd := s.client.B().Hgetall().Key(sKey).Build()
+	result := s.client.Do(ctx, cmd)
+	if err := result.Error(); err == nil {
+		if m, err := result.AsStrMap(); err == nil {
+			userIDs := make(map[string]struct{})
+			for _, stored := range m {
+				plaintext, err := s.decryptValue(stored)
+				if err != nil {
+					continue
+				}
+				var entry valkeyTokenEntry
+				if err := json.Unmarshal(plaintext, &entry); err != nil {
+					continue
+				}
+				if entry.UserID != "" {
+					userIDs[entry.UserID] = struct{}{}
+				}
+			}
+			for uid := range userIDs {
+				remCmd := s.client.B().Srem().Key(s.userKey(uid)).Member(sessionID).Build()
+				if err := s.client.Do(ctx, remCmd).Error(); err != nil {
+					logging.Warn("OAuth", "ValkeyTokenStore: DeleteBySession SREM failed for user=%s: %v",
+						logging.TruncateIdentifier(uid), err)
+				}
+			}
+		}
+	}
+
+	delCmd := s.client.B().Del().Key(sKey).Build()
+	if err := s.client.Do(ctx, delCmd).Error(); err != nil {
 		logging.Warn("OAuth", "ValkeyTokenStore: DeleteBySession failed: %v", err)
 	}
 }
@@ -332,15 +411,19 @@ func (s *ValkeyTokenStore) DeleteByIssuer(sessionID, issuer string) {
 }
 
 // Count returns the total number of tokens across all sessions.
-// WARNING: This is an expensive O(N) operation that SCANs all token keys and
-// runs HLEN on each. Avoid calling on hot paths; intended for diagnostics only.
+// This operation is bounded by a 10-second timeout to prevent Valkey overload.
+// Intended for diagnostics only; avoid calling on hot paths.
 func (s *ValkeyTokenStore) Count() int {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), countTimeout)
+	defer cancel()
+
+	tokenPrefix := s.keyPrefix + "oauth:token:"
+	userPrefix := s.keyPrefix + "oauth:token:user:"
 	var total int
 
 	var cursor uint64
 	for {
-		cmd := s.client.B().Scan().Cursor(cursor).Match(valkeyTokenKeyPrefix + "*").Count(100).Build()
+		cmd := s.client.B().Scan().Cursor(cursor).Match(tokenPrefix + "*").Count(100).Build()
 		result := s.client.Do(ctx, cmd)
 		if err := result.Error(); err != nil {
 			logging.Warn("OAuth", "ValkeyTokenStore: Count SCAN failed: %v", err)
@@ -353,7 +436,7 @@ func (s *ValkeyTokenStore) Count() int {
 		}
 
 		for _, key := range entry.Elements {
-			if strings.HasPrefix(key, valkeyTokenUserKeyPrefix) {
+			if strings.HasPrefix(key, userPrefix) {
 				continue
 			}
 			hlenCmd := s.client.B().Hlen().Key(key).Build()
