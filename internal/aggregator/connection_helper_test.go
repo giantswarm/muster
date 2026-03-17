@@ -95,6 +95,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("returns token from session cache when context has none", func(t *testing.T) {
 		cache := server.NewSessionIDTokenCache()
+		defer cache.Close()
 		defer api.RegisterIDTokenCache(nil)
 
 		cache.Store("session-abc", validToken)
@@ -107,6 +108,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("context token takes priority over session cache", func(t *testing.T) {
 		cache := server.NewSessionIDTokenCache()
+		defer cache.Close()
 		defer api.RegisterIDTokenCache(nil)
 
 		cachedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
@@ -120,7 +122,8 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	})
 
 	t.Run("returns empty when cache has no entry for session", func(t *testing.T) {
-		_ = server.NewSessionIDTokenCache()
+		cache := server.NewSessionIDTokenCache()
+		defer cache.Close()
 		defer api.RegisterIDTokenCache(nil)
 
 		ctx := context.Background()
@@ -131,6 +134,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 
 	t.Run("cache returns empty after session is deleted", func(t *testing.T) {
 		cache := server.NewSessionIDTokenCache()
+		defer cache.Close()
 		defer api.RegisterIDTokenCache(nil)
 
 		cache.Store("session-abc", validToken)
