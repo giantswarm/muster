@@ -43,11 +43,12 @@ type ServerRegistry struct {
 
 	// Reverse lookup: exposed name -> origin server + original name.
 	// Populated as a side effect of ExposedToolName/ExposedPromptName/ExposedResourceURI.
-	// Protected by nameMu (separate from mu to avoid RLock->Lock deadlocks when
+	// Protected by nameMu (separate from mu to avoid deadlocks when
 	// GetAllTools/GetAllResources/GetAllPrompts call ExposedXxx while holding mu.RLock).
+	// serverPrefixes is also protected by nameMu because buildExposedNameLocked reads it.
 	nameMapping    map[string]resolvedName
-	nameMu         sync.Mutex
 	serverPrefixes map[string]string // server name -> configured prefix
+	nameMu         sync.RWMutex
 	musterPrefix   string
 }
 
@@ -78,8 +79,8 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 //
 // Pattern: {musterPrefix}_{serverPrefix}_{originalName}
 func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
-	exposed := r.buildExposedName(serverName, toolName)
 	r.nameMu.Lock()
+	exposed := r.buildExposedNameLocked(serverName, toolName)
 	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: toolName, itemType: "tool"}
 	r.nameMu.Unlock()
 	return exposed
@@ -88,8 +89,8 @@ func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
 // ExposedPromptName returns the fully prefixed name for a prompt and records
 // the reverse mapping for later resolution.
 func (r *ServerRegistry) ExposedPromptName(serverName, promptName string) string {
-	exposed := r.buildExposedName(serverName, promptName)
 	r.nameMu.Lock()
+	exposed := r.buildExposedNameLocked(serverName, promptName)
 	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: promptName, itemType: "prompt"}
 	r.nameMu.Unlock()
 	return exposed
@@ -99,21 +100,20 @@ func (r *ServerRegistry) ExposedPromptName(serverName, promptName string) string
 // the reverse mapping for later resolution. URIs with a scheme (e.g. http://)
 // are returned unchanged.
 func (r *ServerRegistry) ExposedResourceURI(serverName, resourceURI string) string {
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
 	if strings.Contains(resourceURI, "://") {
-		r.nameMu.Lock()
 		r.nameMapping[resourceURI] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: "resource"}
-		r.nameMu.Unlock()
 		return resourceURI
 	}
-	exposed := r.buildExposedName(serverName, resourceURI)
-	r.nameMu.Lock()
+	exposed := r.buildExposedNameLocked(serverName, resourceURI)
 	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: resourceURI, itemType: "resource"}
-	r.nameMu.Unlock()
 	return exposed
 }
 
-// buildExposedName constructs {musterPrefix}_{serverPrefix}_{name}.
-func (r *ServerRegistry) buildExposedName(serverName, name string) string {
+// buildExposedNameLocked constructs {musterPrefix}_{serverPrefix}_{name}.
+// Caller must hold nameMu.
+func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string {
 	prefix := r.serverPrefixes[serverName]
 	if prefix == "" {
 		prefix = serverName
@@ -127,8 +127,13 @@ func (r *ServerRegistry) buildExposedName(serverName, name string) string {
 // SetServerPrefix configures the prefix to use for a specific server.
 // If prefix is empty the server name itself is used.
 func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
+	r.setServerPrefixLocked(serverName, prefix)
+}
+
+// setServerPrefixLocked sets the prefix for a server. Caller must hold nameMu.
+func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
 	if prefix == "" {
 		prefix = serverName
 	}
@@ -181,11 +186,9 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 		ToolPrefix: toolPrefix,
 	}
 
-	// Configure the server prefix for name resolution
-	r.serverPrefixes[name] = toolPrefix
-	if toolPrefix == "" {
-		r.serverPrefixes[name] = name
-	}
+	r.nameMu.Lock()
+	r.setServerPrefixLocked(name, toolPrefix)
+	r.nameMu.Unlock()
 
 	// Fetch initial capabilities from the server
 	if err := r.refreshServerCapabilities(ctx, info); err != nil {
@@ -402,9 +405,9 @@ func (r *ServerRegistry) GetAllPrompts() []mcp.Prompt {
 // Returns the server name, original tool name, and nil error if resolution succeeds.
 // Returns empty strings and an error if the name cannot be resolved or refers to a different item type.
 func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, originalName string, err error) {
-	r.nameMu.Lock()
+	r.nameMu.RLock()
 	m, ok := r.nameMapping[exposedName]
-	r.nameMu.Unlock()
+	r.nameMu.RUnlock()
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
 	}
@@ -425,9 +428,9 @@ func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, origin
 // Returns the server name, original prompt name, and nil error if resolution succeeds.
 // Returns empty strings and an error if the name cannot be resolved or refers to a different item type.
 func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, originalName string, err error) {
-	r.nameMu.Lock()
+	r.nameMu.RLock()
 	m, ok := r.nameMapping[exposedName]
-	r.nameMu.Unlock()
+	r.nameMu.RUnlock()
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedName)
 	}
@@ -448,9 +451,9 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 // Returns the server name, original resource URI, and nil error if resolution succeeds.
 // Returns empty strings and an error if the URI cannot be resolved or refers to a different item type.
 func (r *ServerRegistry) ResolveResourceName(exposedURI string) (serverName, originalURI string, err error) {
-	r.nameMu.Lock()
+	r.nameMu.RLock()
 	m, ok := r.nameMapping[exposedURI]
-	r.nameMu.Unlock()
+	r.nameMu.RUnlock()
 	if !ok {
 		return "", "", fmt.Errorf("unknown name: %s", exposedURI)
 	}
@@ -613,11 +616,9 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 		Tools:      nil,   // No tools exposed until authenticated
 	}
 
-	// Configure the server prefix for name resolution
-	r.serverPrefixes[name] = toolPrefix
-	if toolPrefix == "" {
-		r.serverPrefixes[name] = name
-	}
+	r.nameMu.Lock()
+	r.setServerPrefixLocked(name, toolPrefix)
+	r.nameMu.Unlock()
 
 	r.servers[name] = info
 	r.notifyUpdate()

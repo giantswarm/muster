@@ -120,25 +120,14 @@ type AggregatorServer struct {
 	// valkeyClient is the shared Valkey client used by authStore and capabilityStore
 	// when Valkey storage is configured. Nil when using in-memory stores.
 	// Closed during Stop().
-	valkeyClient valkeyCloser
-}
-
-// valkeyCloser is satisfied by valkey.Client for shutdown cleanup.
-type valkeyCloser interface {
-	Close()
+	valkeyClient valkey.Client
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
 // or nil when using in-memory stores. Used by AggregatorManager to share the
 // client with the OAuth token/state stores.
 func (a *AggregatorServer) getValkeyClient() valkey.Client {
-	if a.valkeyClient == nil {
-		return nil
-	}
-	if c, ok := a.valkeyClient.(valkey.Client); ok {
-		return c
-	}
-	return nil
+	return a.valkeyClient
 }
 
 // subjectSessionTracker maps user subjects to their MCP client session IDs.
@@ -346,11 +335,7 @@ func (s *ssoTracker) CleanupExpired() {
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 
-	var authStore SessionAuthStore
-	var capStore CapabilityStore
-	var vClient valkeyCloser
-
-	authStore, capStore, vClient = createStores(aggConfig)
+	authStore, capStore, vClient := createStores(aggConfig)
 
 	return &AggregatorServer{
 		config:          aggConfig,
@@ -372,7 +357,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 // OAuthServer storage configuration. When the storage type is "valkey", a
 // shared valkey.Client is created and both stores use it. Otherwise in-memory
 // stores are returned.
-func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valkeyCloser) {
+func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valkey.Client) {
 	oauthCfg, ok := cfg.OAuthServer.Config.(config.OAuthServerConfig)
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)

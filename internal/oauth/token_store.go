@@ -136,22 +136,6 @@ func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	return nil
 }
 
-// GetTokenKeyByIssuer finds the token key for a given session and issuer.
-func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
-	for key, entry := range ts.tokens {
-		if key.SessionID == sessionID && key.Issuer == issuer {
-			if !entry.token.IsExpiredWithMargin(tokenExpiryMargin) {
-				keyCopy := key
-				return &keyCopy
-			}
-		}
-	}
-	return nil
-}
-
 // GetAllForSession returns all valid tokens for a session.
 func (ts *TokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token {
 	ts.mu.RLock()

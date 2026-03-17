@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -16,7 +15,11 @@ import (
 const (
 	valkeyTokenKeyPrefix     = "muster:oauth:token:"
 	valkeyTokenUserKeyPrefix = "muster:oauth:token:user:"
-	valkeyTokenFieldSep      = "|"
+	// valkeyTokenFieldSep separates issuer and scope in hash field names.
+	// The issuer (a URL) comes first, so SplitN(field, sep, 2) is safe as long
+	// as issuer URLs don't contain this character. Pipe was chosen because it is
+	// not valid in URL authority/path segments per RFC 3986.
+	valkeyTokenFieldSep = "|"
 )
 
 // valkeyTokenEntry is the JSON-serialized value stored in each hash field.
@@ -328,6 +331,9 @@ func (s *ValkeyTokenStore) DeleteByIssuer(sessionID, issuer string) {
 		len(fieldsToDelete), logging.TruncateIdentifier(sessionID), issuer)
 }
 
+// Count returns the total number of tokens across all sessions.
+// WARNING: This is an expensive O(N) operation that SCANs all token keys and
+// runs HLEN on each. Avoid calling on hot paths; intended for diagnostics only.
 func (s *ValkeyTokenStore) Count() int {
 	ctx := context.Background()
 	var total int
@@ -380,17 +386,3 @@ var _ TokenStorer = (*TokenStore)(nil)
 // Tokens self-expire based on their ExpiresAt; this TTL is only for Valkey key
 // garbage collection of abandoned sessions.
 const DefaultTokenStoreTTL = 30 * 24 * time.Hour
-
-// ValkeyTokenStoreError wraps Valkey operation errors for token storage.
-type ValkeyTokenStoreError struct {
-	Op  string
-	Err error
-}
-
-func (e *ValkeyTokenStoreError) Error() string {
-	return fmt.Sprintf("valkey token store %s: %v", e.Op, e.Err)
-}
-
-func (e *ValkeyTokenStoreError) Unwrap() error {
-	return e.Err
-}
