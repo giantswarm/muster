@@ -57,7 +57,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "cluster-a-idp"
-          scope: "mcp:admin"
           # Token forwarding since it uses the same IdP as muster
           forward_token: true
         tools:
@@ -75,14 +74,12 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "cluster-b-idp"
-          scope: "mcp:admin"
           # Configure token exchange instead of token forwarding
           token_exchange:
             # Reference the OAuth server - endpoint will be resolved automatically
             oauth_server_ref: "cluster-b-idp"
             connector_id: "cluster-a-dex"
-            # Include mcp:admin scope to match the required scope for the MCP server
-            scopes: "openid profile email groups mcp:admin"
+            scopes: "openid profile email groups"
         tools:
           - name: "remote_k8s_get_pods"
             description: "List pods on remote cluster (requires cross-cluster SSO)"

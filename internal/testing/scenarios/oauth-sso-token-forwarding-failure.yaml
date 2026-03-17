@@ -34,7 +34,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "muster-idp"
-          scope: "mcp:admin"
           forward_token: true
         tools:
           - name: "sso_operation"

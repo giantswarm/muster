@@ -28,7 +28,6 @@ pre_configuration:
         oauth:
           required: true
           mock_oauth_server_ref: "muster-idp"
-          scope: "mcp:admin"
           # Trust tokens forwarded from muster
           forward_token: true
         tools:

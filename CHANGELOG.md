@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Bump `mcp-oauth` to v0.2.84 with provider-aware scope filtering: Google now drops unsupported scopes like `groups`, and `openid` is force-merged for OIDC providers even when clients send non-standard scopes.
+- Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
 
 ## [0.1.0] - 2026-02-23
 
