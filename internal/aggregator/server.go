@@ -3,17 +3,16 @@ package aggregator
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"encoding/base64"
-	"net/url"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
@@ -357,10 +356,10 @@ func (s *ssoTracker) CleanupExpired() {
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 
-	authStore, capStore, vClient, keyPrefix := createStores(aggConfig)
+	stores := createStores(aggConfig)
 
 	var enc *security.Encryptor
-	if vClient != nil {
+	if stores.valkeyClient != nil {
 		if oauthCfg, ok := aggConfig.OAuthServer.Config.(config.OAuthServerConfig); ok && oauthCfg.EncryptionKey != "" {
 			keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
 			if err != nil {
@@ -383,22 +382,30 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
-		authStore:       authStore,
-		capabilityStore: capStore,
+		authStore:       stores.authStore,
+		capabilityStore: stores.capabilityStore,
 		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
-		valkeyClient:    vClient,
-		valkeyKeyPrefix: keyPrefix,
+		valkeyClient:    stores.valkeyClient,
+		valkeyKeyPrefix: stores.keyPrefix,
 		valkeyEncryptor: enc,
 	}
+}
+
+// storeBundle groups the results of createStores for readability.
+type storeBundle struct {
+	authStore       SessionAuthStore
+	capabilityStore CapabilityStore
+	valkeyClient    valkey.Client
+	keyPrefix       string
 }
 
 // createStores builds the session auth and capability stores based on the
 // OAuthServer storage configuration. When the storage type is "valkey", a
 // shared valkey.Client is created and both stores use it. Otherwise in-memory
-// stores are returned. The effective keyPrefix is also returned for downstream use.
-func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valkey.Client, string) {
+// stores are returned.
+func createStores(cfg AggregatorConfig) storeBundle {
 	oauthCfg, ok := cfg.OAuthServer.Config.(config.OAuthServerConfig)
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
@@ -409,19 +416,29 @@ func createStores(cfg AggregatorConfig) (SessionAuthStore, CapabilityStore, valk
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
 		if err != nil {
 			logging.Warn("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory: %v", err)
-			return NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-				NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil, keyPrefix
+			return storeBundle{
+				authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
+				capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+				keyPrefix:       keyPrefix,
+			}
 		}
 
 		logging.Info("Aggregator", "Using Valkey-backed session auth and capability stores (address: %s)",
 			redactURL(oauthCfg.Storage.Valkey.URL))
-		return NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
-			NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix), client, keyPrefix
+		return storeBundle{
+			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			valkeyClient:    client,
+			keyPrefix:       keyPrefix,
+		}
 	}
 
 	logging.Info("Aggregator", "Using in-memory session auth and capability stores")
-	return NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-		NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL), nil, "muster:"
+	return storeBundle{
+		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
+		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		keyPrefix:       "muster:",
+	}
 }
 
 // newValkeyClient creates a valkey.Client from the shared ValkeyConfig.

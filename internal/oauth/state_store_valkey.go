@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/security"
-	"github.com/giantswarm/muster/pkg/logging"
 	"github.com/valkey-io/valkey-go"
+
+	"github.com/giantswarm/muster/pkg/logging"
 )
 
 const (
@@ -38,10 +39,10 @@ type valkeyStateEntry struct {
 //	Value: [encrypted] JSON(valkeyStateEntry)
 //	TTL:   10 minutes
 type ValkeyStateStore struct {
+	valkeyEncryption
 	client      valkey.Client
 	stateExpiry time.Duration
 	keyPrefix   string
-	encryptor   *security.Encryptor
 }
 
 // NewValkeyStateStore creates a Valkey-backed OAuth state store.
@@ -52,33 +53,15 @@ func NewValkeyStateStore(client valkey.Client, keyPrefix string, encryptor *secu
 		keyPrefix = "muster:"
 	}
 	return &ValkeyStateStore{
-		client:      client,
-		stateExpiry: defaultStateExpiry,
-		keyPrefix:   keyPrefix,
-		encryptor:   encryptor,
+		valkeyEncryption: valkeyEncryption{encryptor: encryptor},
+		client:           client,
+		stateExpiry:      defaultStateExpiry,
+		keyPrefix:        keyPrefix,
 	}
 }
 
 func (s *ValkeyStateStore) stateKey(nonce string) string {
 	return s.keyPrefix + "oauth:state:" + nonce
-}
-
-func (s *ValkeyStateStore) encryptValue(data []byte) (string, error) {
-	if s.encryptor == nil || !s.encryptor.IsEnabled() {
-		return string(data), nil
-	}
-	return s.encryptor.Encrypt(string(data))
-}
-
-func (s *ValkeyStateStore) decryptValue(stored string) ([]byte, error) {
-	if s.encryptor == nil || !s.encryptor.IsEnabled() {
-		return []byte(stored), nil
-	}
-	plaintext, err := s.encryptor.Decrypt(stored)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(plaintext), nil
 }
 
 func (s *ValkeyStateStore) GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (string, error) {

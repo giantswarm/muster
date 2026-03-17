@@ -132,6 +132,19 @@ func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
 	r.setServerPrefixLocked(serverName, prefix)
 }
 
+// purgeServerNames removes all name-mapping entries and the prefix for a server.
+// Caller must NOT hold nameMu.
+func (r *ServerRegistry) purgeServerNames(serverName string) {
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
+	for exposed, m := range r.nameMapping {
+		if m.serverName == serverName {
+			delete(r.nameMapping, exposed)
+		}
+	}
+	delete(r.serverPrefixes, serverName)
+}
+
 // setServerPrefixLocked sets the prefix for a server. Caller must hold nameMu.
 func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
 	if prefix == "" {
@@ -226,14 +239,12 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 // Returns an error if the server is not found in the registry.
 func (r *ServerRegistry) Deregister(name string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	info, exists := r.servers[name]
 	if !exists {
+		r.mu.Unlock()
 		return fmt.Errorf("server %s not found", name)
 	}
 
-	// Close the client connection gracefully (may be nil for auth_required servers)
 	if info.Client != nil {
 		if err := info.Client.Close(); err != nil {
 			logging.Warn("Aggregator", "Error closing client for %s: %v", name, err)
@@ -241,6 +252,9 @@ func (r *ServerRegistry) Deregister(name string) error {
 	}
 
 	delete(r.servers, name)
+	r.mu.Unlock()
+
+	r.purgeServerNames(name)
 	r.notifyUpdate()
 
 	logging.Info("Aggregator", "Deregistered MCP server: %s", name)

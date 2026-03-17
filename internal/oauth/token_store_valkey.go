@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/security"
-	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/pkg/logging"
-	"github.com/valkey-io/valkey-go"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
 
 const (
@@ -25,15 +25,15 @@ const (
 
 // valkeyTokenEntry is the JSON-serialized value stored in each hash field.
 type valkeyTokenEntry struct {
-	AccessToken  string    `json:"at"`
-	TokenType    string    `json:"tt"`
-	RefreshToken string    `json:"rt,omitempty"`
-	ExpiresIn    int       `json:"ei,omitempty"`
-	ExpiresAt    time.Time `json:"ea,omitempty"`
-	Scope        string    `json:"sc,omitempty"`
-	IDToken      string    `json:"id,omitempty"`
-	Issuer       string    `json:"is,omitempty"`
-	UserID       string    `json:"uid"`
+	AccessToken  string    `json:"access_token"`
+	TokenType    string    `json:"token_type"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	ExpiresIn    int       `json:"expires_in,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	Scope        string    `json:"scope,omitempty"`
+	IDToken      string    `json:"id_token,omitempty"`
+	Issuer       string    `json:"issuer,omitempty"`
+	UserID       string    `json:"user_id"`
 }
 
 // ValkeyTokenStore stores OAuth tokens in Valkey hashes with optional
@@ -49,10 +49,10 @@ type valkeyTokenEntry struct {
 //	  Members:    sessionIDs (for DeleteByUser reverse lookup)
 //	  TTL:        same as session key
 type ValkeyTokenStore struct {
+	valkeyEncryption
 	client    valkey.Client
 	ttl       time.Duration
 	keyPrefix string
-	encryptor *security.Encryptor
 }
 
 // NewValkeyTokenStore creates a Valkey-backed OAuth token store.
@@ -63,10 +63,10 @@ func NewValkeyTokenStore(client valkey.Client, ttl time.Duration, keyPrefix stri
 		keyPrefix = "muster:"
 	}
 	return &ValkeyTokenStore{
-		client:    client,
-		ttl:       ttl,
-		keyPrefix: keyPrefix,
-		encryptor: encryptor,
+		valkeyEncryption: valkeyEncryption{encryptor: encryptor},
+		client:           client,
+		ttl:              ttl,
+		keyPrefix:        keyPrefix,
 	}
 }
 
@@ -76,24 +76,6 @@ func (s *ValkeyTokenStore) sessionKey(sessionID string) string {
 
 func (s *ValkeyTokenStore) userKey(userID string) string {
 	return s.keyPrefix + "oauth:token:user:" + userID
-}
-
-func (s *ValkeyTokenStore) encryptValue(data []byte) (string, error) {
-	if s.encryptor == nil || !s.encryptor.IsEnabled() {
-		return string(data), nil
-	}
-	return s.encryptor.Encrypt(string(data))
-}
-
-func (s *ValkeyTokenStore) decryptValue(stored string) ([]byte, error) {
-	if s.encryptor == nil || !s.encryptor.IsEnabled() {
-		return []byte(stored), nil
-	}
-	plaintext, err := s.encryptor.Decrypt(stored)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(plaintext), nil
 }
 
 func fieldName(key TokenKey) string {
