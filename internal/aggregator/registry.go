@@ -133,6 +133,10 @@ func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
 }
 
 // purgeServerNames removes all name-mapping entries and the prefix for a server.
+// This is intended for permanent server removal only (e.g., config deletion).
+// It must NOT be called from Deregister because servers may be temporarily
+// disconnected and re-registered; stale mappings are harmless and allow
+// tool calls to resolve during reconnection windows.
 // Caller must NOT hold nameMu.
 func (r *ServerRegistry) purgeServerNames(serverName string) {
 	r.nameMu.Lock()
@@ -239,9 +243,10 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 // Returns an error if the server is not found in the registry.
 func (r *ServerRegistry) Deregister(name string) error {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	info, exists := r.servers[name]
 	if !exists {
-		r.mu.Unlock()
 		return fmt.Errorf("server %s not found", name)
 	}
 
@@ -252,9 +257,6 @@ func (r *ServerRegistry) Deregister(name string) error {
 	}
 
 	delete(r.servers, name)
-	r.mu.Unlock()
-
-	r.purgeServerNames(name)
 	r.notifyUpdate()
 
 	logging.Info("Aggregator", "Deregistered MCP server: %s", name)
