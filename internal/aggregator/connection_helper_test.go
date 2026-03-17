@@ -52,6 +52,57 @@ func (m *mockTeleportClientHandler) GetHTTPClientForConfig(ctx context.Context, 
 	return m.httpClient, nil
 }
 
+// mockOAuthHandler implements api.OAuthHandler for testing getIDTokenForForwarding.
+type mockOAuthHandler struct {
+	enabled bool
+	tokens  map[string]*api.OAuthToken // key: sessionID+"|"+issuer
+}
+
+var _ api.OAuthHandler = (*mockOAuthHandler)(nil)
+
+func newMockOAuthHandler(enabled bool) *mockOAuthHandler {
+	return &mockOAuthHandler{
+		enabled: enabled,
+		tokens:  make(map[string]*api.OAuthToken),
+	}
+}
+
+func (m *mockOAuthHandler) IsEnabled() bool                                        { return m.enabled }
+func (m *mockOAuthHandler) GetCallbackPath() string                                { return "" }
+func (m *mockOAuthHandler) GetHTTPHandler() http.Handler                           { return nil }
+func (m *mockOAuthHandler) ShouldServeCIMD() bool                                  { return false }
+func (m *mockOAuthHandler) GetCIMDPath() string                                    { return "" }
+func (m *mockOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }
+func (m *mockOAuthHandler) GetToken(_, _ string) *api.OAuthToken                   { return nil }
+func (m *mockOAuthHandler) GetTokenByIssuer(_, _ string) *api.OAuthToken           { return nil }
+func (m *mockOAuthHandler) FindTokenWithIDToken(_ string) *api.OAuthToken          { return nil }
+func (m *mockOAuthHandler) ClearTokenByIssuer(_, _ string)                         {}
+func (m *mockOAuthHandler) DeleteTokensByUser(_ string)                            {}
+func (m *mockOAuthHandler) DeleteTokensBySession(_ string)                         {}
+func (m *mockOAuthHandler) RegisterServer(_, _, _ string)                          {}
+func (m *mockOAuthHandler) SetAuthCompletionCallback(_ api.AuthCompletionCallback) {}
+func (m *mockOAuthHandler) Stop()                                                  {}
+
+func (m *mockOAuthHandler) CreateAuthChallenge(_ context.Context, _, _, _, _, _ string) (*api.AuthChallenge, error) {
+	return nil, nil
+}
+
+func (m *mockOAuthHandler) ExchangeTokenForRemoteCluster(_ context.Context, _, _ string, _ *api.TokenExchangeConfig) (string, error) {
+	return "", nil
+}
+
+func (m *mockOAuthHandler) ExchangeTokenForRemoteClusterWithClient(_ context.Context, _, _ string, _ *api.TokenExchangeConfig, _ *http.Client) (string, error) {
+	return "", nil
+}
+
+func (m *mockOAuthHandler) StoreToken(sessionID, _, issuer string, token *api.OAuthToken) {
+	m.tokens[sessionID+"|"+issuer] = token
+}
+
+func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.OAuthToken {
+	return m.tokens[sessionID+"|"+issuer]
+}
+
 func TestGetIDTokenForForwarding(t *testing.T) {
 	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
 	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
@@ -78,7 +129,6 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
 
-		// Even with an issuer, context token should be returned
 		token := getIDTokenForForwarding(ctx, "test-user", "")
 
 		assert.Equal(t, validToken, token)
@@ -93,12 +143,11 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		assert.Empty(t, token)
 	})
 
-	t.Run("returns token from session cache when context has none", func(t *testing.T) {
-		cache := server.NewSessionIDTokenCache()
-		defer cache.Close()
-		defer api.RegisterIDTokenCache(nil)
-
-		cache.Store("session-abc", validToken)
+	t.Run("returns token from OAuth handler when context has none", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: validToken})
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
 		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")
@@ -106,13 +155,12 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		assert.Equal(t, validToken, token)
 	})
 
-	t.Run("context token takes priority over session cache", func(t *testing.T) {
-		cache := server.NewSessionIDTokenCache()
-		defer cache.Close()
-		defer api.RegisterIDTokenCache(nil)
-
-		cachedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
-		cache.Store("session-abc", cachedToken)
+	t.Run("context token takes priority over OAuth handler token", func(t *testing.T) {
+		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
+		mock := newMockOAuthHandler(true)
+		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: storedToken})
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
 		ctx = server.ContextWithIDToken(ctx, validToken)
@@ -121,10 +169,10 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		assert.Equal(t, validToken, token)
 	})
 
-	t.Run("returns empty when cache has no entry for session", func(t *testing.T) {
-		cache := server.NewSessionIDTokenCache()
-		defer cache.Close()
-		defer api.RegisterIDTokenCache(nil)
+	t.Run("returns empty when OAuth handler has no entry for session", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
 		token := getIDTokenForForwarding(ctx, "unknown-session", "https://accounts.google.com")
@@ -132,13 +180,10 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 		assert.Empty(t, token)
 	})
 
-	t.Run("cache returns empty after session is deleted", func(t *testing.T) {
-		cache := server.NewSessionIDTokenCache()
-		defer cache.Close()
-		defer api.RegisterIDTokenCache(nil)
-
-		cache.Store("session-abc", validToken)
-		cache.Delete("session-abc")
+	t.Run("returns empty when OAuth handler returns nil token", func(t *testing.T) {
+		mock := newMockOAuthHandler(true)
+		api.RegisterOAuthHandler(mock)
+		defer api.RegisterOAuthHandler(nil)
 
 		ctx := context.Background()
 		token := getIDTokenForForwarding(ctx, "session-abc", "https://accounts.google.com")

@@ -135,7 +135,6 @@ type OAuthHTTPServer struct {
 	mcpHandler      http.Handler
 	debug           bool
 	onAuthenticated func(ctx context.Context, sessionID string)
-	idTokenCache    *SessionIDTokenCache
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -164,7 +163,6 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		tokenStore:   tokenStore,
 		mcpHandler:   mcpHandler,
 		debug:        debug,
-		idTokenCache: NewSessionIDTokenCache(),
 	}
 
 	return server, nil
@@ -340,13 +338,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// middleware into the api context for per-login-session state isolation.
 		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
 			ctx = api.WithSessionID(ctx, sessionID)
-
-			// Cache the fresh ID token so that background closures (headerFunc)
-			// can resolve it after the original token expires. The middleware
-			// runs on every authenticated request, keeping the cache up to date.
-			if s.idTokenCache != nil {
-				s.idTokenCache.Store(sessionID, idToken)
-			}
 		}
 
 		r = r.WithContext(ctx)

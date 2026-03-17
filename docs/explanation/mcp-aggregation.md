@@ -92,7 +92,6 @@ The aggregator engine manages the actual tool execution and server coordination:
 type Aggregator struct {
     servers    map[string]*MCPServer
     tools      map[string]*AggregatedTool
-    nameTracker *NameTracker
     registry   *ToolRegistry
 }
 
@@ -148,14 +147,12 @@ sequenceDiagram
     participant A as Aggregator
     participant S as MCP Server
     participant R as Tool Registry
-    participant N as Name Tracker
     
     A->>S: Connect to MCP Server
     S->>A: Connection Established
     A->>S: List Available Tools
     S->>A: Tool Definitions
-    N->>A: Resolved Tool Names
-    A->>R: Register Tools with Resolved Names
+    A->>R: Register Tools with Prefixed Names
     R->>A: Registration Complete
     A->>A: Update Aggregated Tool List
 ```

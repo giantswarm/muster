@@ -99,11 +99,27 @@ Every path that invalidates session or server state now covers all three stores:
 
 Removed unreachable code identified by analysis:
 
-- `ValkeyCapabilityStore` and `ValkeySessionAuthStore` (no wiring existed)
 - `RedactedToken` type (no constructor, zero callers)
 - `GetUpstreamAccessTokenFromContext` / `ContextWithUpstreamAccessToken` (context value written but never read)
 - `ParseWWWAuthenticateFromResponse` (only called by its own test)
 - `LogLevel.String()` (never called through `fmt.Stringer`)
+
+### 7. Valkey-Backed Session Stores
+
+`ValkeyCapabilityStore` and `ValkeySessionAuthStore` are wired into `NewAggregatorServer` via the existing `OAuthServerConfig.Storage` configuration. When `storage.type: valkey` is set, both stores share a single `valkey.Client` created from the same `ValkeyConfig` used by the mcp-oauth token store. In-memory stores remain the default for dev/test. The shared Valkey client is closed during `Stop()`.
+
+### 8. Valkey-Backed OAuth Token and State Stores
+
+The OAuth proxy's `TokenStore` (downstream OAuth access/refresh tokens) and `StateStore` (transient CSRF state parameters) are also Valkey-backed when `storage.type: valkey` is configured. This closes a gap where auth/capability state was shared across pods via Valkey, but the actual tokens needed to call downstream servers were stuck in a single pod's memory.
+
+**Interfaces:** `TokenStorer` and `StateStorer` interfaces are defined in `internal/oauth/` alongside the existing in-memory implementations. This follows the same pattern as `SessionAuthStore` and `CapabilityStore`.
+
+**Valkey data model:**
+
+- `ValkeyTokenStore`: Per-session hash at `muster:oauth:token:{sessionID}` with fields `{issuer}|{scope}` → JSON token entry. A reverse index at `muster:oauth:token:user:{userID}` (Set of session IDs) enables `DeleteByUser` for "sign out everywhere". Session keys get a 30-day TTL; token expiry is checked client-side.
+- `ValkeyStateStore`: Per-nonce key at `muster:oauth:state:{nonce}` → JSON state entry with a 10-minute TTL. `GETDEL` provides atomic consume-on-validate semantics.
+
+**Wiring:** `NewAggregatorManager` retrieves the shared `valkey.Client` from the `AggregatorServer` and injects Valkey-backed stores into the OAuth `Manager` via functional options (`WithValkeyTokenStore`, `WithValkeyStateStore`). This reuses the same Valkey connection pool as the auth/capability stores.
 
 ## Consequences
 
@@ -114,13 +130,13 @@ Removed unreachable code identified by analysis:
 3. **Proactive token refresh**: Token-exchange connections are refreshed before expiry, avoiding 401 round-trips
 4. **No connection leaks**: Background reaper cleans up idle connections; all eviction paths are covered
 5. **Fail-closed security**: Auth gate denies access when the auth store is unavailable, rather than silently allowing unauthenticated calls
-6. **Less dead code**: Removal of unused Valkey stores and utility types reduces maintenance surface
+6. **Multi-pod ready**: Valkey-backed session auth, capability, OAuth token, and OAuth state stores enable horizontal scaling without sticky sessions
 
 ### Negative
 
 1. **Memory overhead**: Pooled connections hold open sockets. Mitigated by the 1-hour idle reaper.
 2. **Increased state surface**: Three stores (auth, capability, pool) must be kept in sync across all eviction paths. Mitigated by the eviction coverage table above ensuring completeness.
-3. **In-memory only**: Both `InMemorySessionAuthStore` and `SessionConnectionPool` are single-pod. Multi-pod deployments will need distributed alternatives (deferred -- Valkey stores were pre-built but removed as dead code since no wiring existed).
+3. **Connection pool is in-memory only**: `SessionConnectionPool` is single-pod (pooled TCP connections cannot be shared). Multi-pod deployments share auth/capability state via Valkey but each pod maintains its own connection pool.
 
 ### Neutral
 

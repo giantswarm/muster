@@ -84,7 +84,6 @@ internal/aggregator/
 ├── tool_factory.go    # Dynamic tool creation and proxying
 ├── event_handler.go   # Server lifecycle event processing
 ├── denylist.go        # Tool filtering and access control
-├── name_tracker.go    # Tool name conflict resolution
 ├── manager.go         # High-level orchestration
 └── types.go          # Core data structures
 ```
@@ -248,47 +247,6 @@ func (d *Denylist) IsAllowed(toolName, serverID string) bool {
     }
     
     return true
-}
-```
-
-### Name Tracker (`name_tracker.go`)
-
-**Purpose**: Handle tool name conflicts when multiple servers provide tools with the same name
-
-**Conflict Resolution Strategies**:
-1. **First-Come-First-Served**: First registered tool takes precedence
-2. **Server Priority**: Configure server priority order
-3. **Namespacing**: Automatically namespace conflicting tools
-
-**Implementation**:
-```go
-type NameTracker struct {
-    toolOwners    map[string]string  // tool name -> server ID
-    conflicts     map[string][]string // tool name -> conflicting server IDs
-    resolutionStrategy ConflictResolution
-}
-
-func (nt *NameTracker) RegisterTool(toolName, serverID string) (finalName string, conflict bool) {
-    existing, exists := nt.toolOwners[toolName]
-    
-    if !exists {
-        nt.toolOwners[toolName] = serverID
-        return toolName, false
-    }
-    
-    if existing == serverID {
-        return toolName, false // Same server re-registering
-    }
-    
-    // Handle conflict based on strategy
-    switch nt.resolutionStrategy {
-    case FirstComeFirstServed:
-        return nt.createNamespacedName(toolName, serverID), true
-    case ServerPriority:
-        return nt.resolveByPriority(toolName, existing, serverID), true
-    default:
-        return nt.createNamespacedName(toolName, serverID), true
-    }
 }
 ```
 

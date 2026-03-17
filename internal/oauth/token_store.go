@@ -13,6 +13,43 @@ import (
 // This accounts for clock skew between systems and network latency.
 const tokenExpiryMargin = 30 * time.Second
 
+// TokenStorer is the interface for OAuth token storage. Implementations must
+// be safe for concurrent use. The aggregator-side OAuth proxy stores tokens
+// here after successful authentication flows.
+type TokenStorer interface {
+	// Store saves a token indexed by the given key, recording userID for
+	// reverse-lookup operations (e.g., "sign out everywhere").
+	Store(key TokenKey, token *pkgoauth.Token, userID string)
+
+	// Get retrieves a token by exact key. Returns nil if not found or expired.
+	Get(key TokenKey) *pkgoauth.Token
+
+	// GetByIssuer finds a token for the given session and issuer, regardless
+	// of scope. Returns nil if not found or expired.
+	GetByIssuer(sessionID, issuer string) *pkgoauth.Token
+
+	// GetAllForSession returns all valid (non-expired) tokens for a session.
+	GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token
+
+	// Delete removes a single token by key.
+	Delete(key TokenKey)
+
+	// DeleteByUser removes all tokens for a user across all sessions.
+	DeleteByUser(userID string)
+
+	// DeleteBySession removes all tokens for a session.
+	DeleteBySession(sessionID string)
+
+	// DeleteByIssuer removes all tokens for a session+issuer combination.
+	DeleteByIssuer(sessionID, issuer string)
+
+	// Count returns the total number of tokens in the store.
+	Count() int
+
+	// Stop releases resources (background goroutines, connections, etc.).
+	Stop()
+}
+
 // tokenEntry wraps a token with its owning user ID for reverse-lookup by user.
 type tokenEntry struct {
 	token  *pkgoauth.Token

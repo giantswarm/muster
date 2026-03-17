@@ -28,12 +28,14 @@
 //
 // ## Token Storage
 //
-// Tokens are stored in-memory only and are never persisted to disk. This means:
-//   - Tokens are lost when the Muster Server restarts
-//   - Users must re-authenticate after a restart
-//   - No encryption-at-rest is needed since tokens exist only in process memory
+// By default, tokens are stored in-memory and are lost when the Muster Server
+// restarts. When Valkey storage is configured (storage.type: valkey), tokens
+// are persisted in Valkey, surviving pod restarts and enabling multi-pod
+// deployments without sticky sessions.
 //
-// For persistent token storage in future versions, encryption would be required.
+// The TokenStorer and StateStorer interfaces allow swapping between in-memory
+// (default) and Valkey-backed implementations via functional options on the
+// Manager constructor.
 //
 // ## Session Isolation
 //

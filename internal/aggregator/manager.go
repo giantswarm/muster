@@ -78,7 +78,17 @@ func NewAggregatorManager(config AggregatorConfig, orchestratorAPI api.Orchestra
 			CallbackPath: config.OAuth.CallbackPath,
 			CAFile:       config.OAuth.CAFile,
 		}
-		manager.oauthManager = oauth.NewManager(oauthMCPClientConfig)
+
+		var oauthOpts []oauth.ManagerOption
+		if vClient := manager.aggregatorServer.getValkeyClient(); vClient != nil {
+			logging.Info("Aggregator-Manager", "Using Valkey-backed OAuth token and state stores")
+			oauthOpts = append(oauthOpts,
+				oauth.WithValkeyTokenStore(oauth.NewValkeyTokenStore(vClient, oauth.DefaultTokenStoreTTL)),
+				oauth.WithValkeyStateStore(oauth.NewValkeyStateStore(vClient)),
+			)
+		}
+
+		manager.oauthManager = oauth.NewManager(oauthMCPClientConfig, oauthOpts...)
 
 		if manager.oauthManager != nil {
 			// Register OAuth handler with the API layer

@@ -97,21 +97,6 @@
 //   - Resilient to temporary failures
 //   - Asynchronous processing for responsiveness
 //
-// ## NameTracker
-//
-// The NameTracker implements intelligent name collision resolution through a consistent
-// prefixing scheme. It maintains bidirectional mappings between exposed (prefixed) names
-// and their original server/name combinations.
-//
-// Naming scheme:
-//
-//	{muster_prefix}_{server_prefix}_{original_name}
-//
-// Examples:
-//   - Original: "list_files" from "github" server
-//   - Exposed: "x_github_list_files" (with muster prefix "x")
-//   - With custom prefix: "x_gh_list_files" (server prefix "gh")
-//
 // # Transport Protocols
 //
 // ## Server-Sent Events (SSE)

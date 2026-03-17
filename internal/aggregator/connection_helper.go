@@ -194,18 +194,16 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 // Token sources are checked in priority order:
 //  1. Request context - contains the ID token when called from within an HTTP request handler.
 //     Injected by createAccessTokenInjectorMiddleware from the Valkey token store.
-//  2. Session-scoped ID token cache - updated by the middleware on every authenticated request.
-//     This is the primary source for background closures (headerFunc) that run outside the
-//     HTTP request lifecycle with context.Background().
-//  3. OAuth proxy token store - contains the token from muster's own OAuth session, looked up
-//     by (sessionID, musterIssuer). This is a fallback for cases where the cache is not yet
-//     populated (e.g., first request).
+//  2. OAuth manager's token store - contains the token populated by SetSessionCreationHandler
+//     and SetTokenRefreshHandler, looked up by (sessionID, musterIssuer). This is the primary
+//     source for background closures (headerFunc) that run outside the HTTP request lifecycle
+//     with context.Background().
 //
 // The context token takes priority because it's the freshest, directly from the current request.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
-//   - sessionID: The session ID (token family ID) for cache and token store lookups
+//   - sessionID: The session ID (token family ID) for token store lookups
 //   - musterIssuer: The issuer URL to look up in the OAuth proxy store
 //
 // Returns the ID token string, or empty string if no token is available.
@@ -214,14 +212,6 @@ func getIDTokenForForwarding(ctx context.Context, sessionID, musterIssuer string
 		logging.Debug("Connection", "Found ID token in request context for session %s",
 			logging.TruncateIdentifier(sessionID))
 		return idToken
-	}
-
-	if cache := api.GetIDTokenCache(); cache != nil {
-		if idToken := cache.Get(sessionID); idToken != "" {
-			logging.Debug("Connection", "Found ID token in session cache for session %s",
-				logging.TruncateIdentifier(sessionID))
-			return idToken
-		}
 	}
 
 	oauthHandler := api.GetOAuthHandler()
