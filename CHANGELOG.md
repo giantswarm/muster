@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Remove `groups` from `DefaultOAuthCIMDScopes` -- it is Dex-specific and should not be a universal default for CIMD scopes across all providers.
+- Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 
 ### Fixed
 
