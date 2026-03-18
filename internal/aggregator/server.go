@@ -1362,6 +1362,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			slog.String("userID", logging.TruncateIdentifier(userID)),
 			slog.Bool("authAlive", authAlive),
 			slog.Bool("hasIDToken", idToken != ""))
+		logIDTokenClaims("Aggregator", "onAuthenticated", idToken)
 
 		if authAlive {
 			if idToken == "" {
@@ -1408,6 +1409,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			slog.String("familyID", logging.TruncateIdentifier(familyID)),
 			slog.Bool("hasIDToken", idToken != ""),
 			slog.Int("idTokenLen", len(idToken)))
+		logIDTokenClaims("Aggregator", "SessionCreationHandler", idToken)
 		a.initSSOForSession(ctx, userID, familyID, idToken)
 		a.storeIDTokenForSSO(familyID, userID, idToken)
 	})
@@ -1424,6 +1426,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 		a.storeIDTokenForSSO(familyID, userID, idToken)
+		logIDTokenClaims("Aggregator", "TokenRefreshHandler", idToken)
 		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
 			logging.TruncateIdentifier(familyID))
 	})
