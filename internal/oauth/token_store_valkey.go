@@ -215,6 +215,7 @@ func (s *ValkeyTokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token
 	}
 
 	prefix := issuer + valkeyTokenFieldSep
+	var fallback *pkgoauth.Token
 	for field, stored := range m {
 		if !strings.HasPrefix(field, prefix) {
 			continue
@@ -229,10 +230,13 @@ func (s *ValkeyTokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token
 		}
 		token := entryToToken(&entry)
 		if !token.IsExpiredWithMargin(tokenExpiryMargin) {
-			return token
+			if token.AccessToken != "" {
+				return token
+			}
+			fallback = token
 		}
 	}
-	return nil
+	return fallback
 }
 
 func (s *ValkeyTokenStore) GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token {

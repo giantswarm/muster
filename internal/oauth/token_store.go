@@ -122,18 +122,27 @@ func (ts *TokenStore) Get(key TokenKey) *pkgoauth.Token {
 
 // GetByIssuer finds a token for the given session and issuer, regardless of scope.
 // This enables SSO when the exact scope doesn't match but the issuer does.
+//
+// When multiple tokens match (e.g., an ID-only token from SetSessionCreationHandler
+// and a full token from a downstream OAuth callback), tokens with an AccessToken
+// are preferred. This prevents non-deterministic map iteration from returning an
+// ID-only token that would cause DynamicAuthClient to report ErrNoToken.
 func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
+	var fallback *pkgoauth.Token
 	for key, entry := range ts.tokens {
 		if key.SessionID == sessionID && key.Issuer == issuer {
 			if !entry.token.IsExpiredWithMargin(tokenExpiryMargin) {
-				return entry.token
+				if entry.token.AccessToken != "" {
+					return entry.token
+				}
+				fallback = entry.token
 			}
 		}
 	}
-	return nil
+	return fallback
 }
 
 // GetAllForSession returns all valid tokens for a session.
