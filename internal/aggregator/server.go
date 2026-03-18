@@ -1209,6 +1209,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 
+		// Don't initiate SSO for stale sessions without a usable ID token.
+		// After a pod restart, Valkey may still have valid access tokens but no ID token
+		// in the OAuth store. Without this gate, downstream connections are established
+		// that immediately start spamming 403 errors.
+		if idToken == "" {
+			logging.Info("Aggregator", "SSO: skipping initSSOForSession for session %s: no ID token available (stale session after restart)",
+				logging.TruncateIdentifier(sessionID))
+			return
+		}
+
 		// Clear prior SSO failures so all servers are retried. Without this,
 		// servers that failed during a previous init (e.g. before a pod
 		// restart or after a transient token-storage error) would be skipped

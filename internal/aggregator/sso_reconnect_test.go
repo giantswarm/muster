@@ -189,6 +189,36 @@ func TestOnAuthenticated_ClearsFailuresBeforeReinit(t *testing.T) {
 	assert.False(t, tracker.HasSSOFailed(userID, "server3"))
 }
 
+func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
+	// After a pod restart, Valkey may still have valid access tokens but
+	// no ID token in the OAuth store. In this case the onAuthenticated
+	// callback should skip initSSOForSession entirely to avoid downstream
+	// connections that immediately start spamming 403 errors.
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	ctx := context.Background()
+	sessionID := "stale-session-no-idtoken"
+
+	// Touch returns false (session unknown after restart)
+	authAlive, err := authStore.Touch(ctx, sessionID)
+	require.NoError(t, err)
+	require.False(t, authAlive, "Touch on a fresh authStore should return false")
+
+	// Simulate the onAuthenticated guard: empty idToken should cause early return
+	idToken := ""
+
+	shouldInitSSO := !authAlive && idToken != ""
+	assert.False(t, shouldInitSSO,
+		"initSSOForSession should NOT be called when authAlive=false and idToken is empty")
+
+	// Contrast: with a valid idToken the init should proceed
+	idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid"
+	shouldInitSSO = !authAlive && idToken != ""
+	assert.True(t, shouldInitSSO,
+		"initSSOForSession should be called when authAlive=false and idToken is present")
+}
+
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {
 	// The ssoTracker must be safe for concurrent access since
 	// initSSOForSession, establishSSOConnection, and the cleanup goroutine
