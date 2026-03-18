@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -797,13 +798,16 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 // Sensitive fields (sub) are truncated; email is masked to "u***@domain".
 func logIDTokenClaims(subsystem, context, idToken string) {
 	if idToken == "" {
-		logging.Info(subsystem, "%s: ID token is empty", context)
+		logging.InfoWithAttrs(subsystem, "ID token is empty",
+			slog.String("context", context))
 		return
 	}
 
 	decoded, err := decodeJWTPayload(idToken)
 	if err != nil {
-		logging.Warn(subsystem, "%s: failed to decode ID token: %v", context, err)
+		logging.WarnWithAttrs(subsystem, "Failed to decode ID token",
+			slog.String("context", context),
+			slog.String("error", err.Error()))
 		return
 	}
 
@@ -814,12 +818,11 @@ func logIDTokenClaims(subsystem, context, idToken string) {
 		Exp   int64       `json:"exp"`
 	}
 	if err := json.Unmarshal(decoded, &claims); err != nil {
-		logging.Warn(subsystem, "%s: failed to parse ID token claims: %v", context, err)
+		logging.WarnWithAttrs(subsystem, "Failed to parse ID token claims",
+			slog.String("context", context),
+			slog.String("error", err.Error()))
 		return
 	}
-
-	maskedEmail := maskEmail(claims.Email)
-	audStr := formatAudience(claims.Aud)
 
 	var expStr string
 	if claims.Exp > 0 {
@@ -830,8 +833,12 @@ func logIDTokenClaims(subsystem, context, idToken string) {
 		expStr = "<missing>"
 	}
 
-	logging.Info(subsystem, "%s: ID token claims: sub=%s, email=%s, aud=%s, exp=%s",
-		context, logging.TruncateIdentifier(claims.Sub), maskedEmail, audStr, expStr)
+	logging.InfoWithAttrs(subsystem, "ID token claims",
+		slog.String("context", context),
+		slog.String("sub", logging.TruncateIdentifier(claims.Sub)),
+		slog.String("email", maskEmail(claims.Email)),
+		slog.String("aud", formatAudience(claims.Aud)),
+		slog.String("exp", expStr))
 }
 
 // maskEmail masks an email for logging: "user@domain.com" -> "u***@domain.com".
