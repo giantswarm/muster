@@ -292,21 +292,7 @@ func EstablishConnectionWithTokenForwarding(
 	// because the original request context becomes stale/cancelled after the
 	// connection-establishing request completes. The OAuth token store (keyed by
 	// sub + musterIssuer) is the stable source for refreshed tokens.
-	headerFunc := func(_ context.Context) map[string]string {
-		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
-		if latestToken == "" {
-			logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			// Fall back to the original token; the server will return 401 if expired
-			latestToken = idToken
-		} else if latestToken != idToken {
-			logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
-				logging.TruncateIdentifier(sub), serverInfo.Name)
-		}
-		return map[string]string{
-			"Authorization": "Bearer " + latestToken,
-		}
-	}
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -818,6 +804,57 @@ const idTokenExpiryMargin = 30 * time.Second
 // the background goroutine to complete the exchange + client initialization
 // without blocking the user's request.
 const tokenExchangeRefreshMargin = 5 * time.Minute
+
+// headerFuncWarnInterval is the minimum interval between WARN-level log messages
+// when the headerFunc closure fails to resolve an ID token. Between warnings,
+// failures are logged at DEBUG to avoid flooding logs from stale sessions.
+const headerFuncWarnInterval = 1 * time.Minute
+
+// makeTokenForwardingHeaderFunc creates the header function closure used by
+// EstablishConnectionWithTokenForwarding. The returned closure resolves the latest
+// ID token from the OAuth store on each invocation and falls back to fallbackToken
+// when the store lookup fails.
+//
+// Warning rate-limiting: when the token lookup fails, a WARN is emitted at most
+// once per headerFuncWarnInterval. Subsequent failures within the window are logged
+// at DEBUG. When the token recovers after a failure period, an INFO is emitted.
+//
+// The closure is safe to call without a mutex because headerFunc is called
+// sequentially per connection by the MCP client.
+func makeTokenForwardingHeaderFunc(
+	sessionID, sub, musterIssuer, serverName, fallbackToken string,
+) func(context.Context) map[string]string {
+	var lastWarnTime time.Time
+	hadToken := true
+	return func(_ context.Context) map[string]string {
+		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
+		if latestToken == "" {
+			if time.Since(lastWarnTime) >= headerFuncWarnInterval {
+				logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
+					logging.TruncateIdentifier(sessionID), serverName)
+				lastWarnTime = time.Now()
+			} else {
+				logging.Debug("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (warning suppressed)",
+					logging.TruncateIdentifier(sessionID), serverName)
+			}
+			hadToken = false
+			latestToken = fallbackToken
+		} else {
+			if !hadToken {
+				logging.Info("Connection", "ID token recovered in OAuth store for session %s to %s",
+					logging.TruncateIdentifier(sessionID), serverName)
+			}
+			hadToken = true
+			if latestToken != fallbackToken {
+				logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",
+					logging.TruncateIdentifier(sub), serverName)
+			}
+		}
+		return map[string]string{
+			"Authorization": "Bearer " + latestToken,
+		}
+	}
+}
 
 // deferredCloseDelay is how long to wait before closing a replaced pooled
 // client during background token refresh. This gives any in-flight request

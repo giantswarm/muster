@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/pkg/logging"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -916,6 +918,61 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 		assert.Nil(t, errorCase.Client)
 		assert.Error(t, errorCase.Error, "should return error when teleport configured but failed")
 	})
+}
+
+func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
+	// Set up a logger that captures output at DEBUG level so we can see all messages.
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-rate-limit"
+	sub := "test-user"
+	musterIssuer := "https://dex.example.com"
+	serverName := "test-server"
+	fallbackToken := "original-token"
+
+	// No OAuth handler registered means getIDTokenForForwarding always returns "".
+	api.RegisterOAuthHandler(nil)
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken)
+
+	// First call: should produce a WARN (interval has not been hit yet).
+	logBuf.Reset()
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
+
+	firstCallLogs := logBuf.String()
+	assert.Contains(t, firstCallLogs, "WARN", "first call should emit a WARN log")
+	assert.NotContains(t, firstCallLogs, "warning suppressed", "first call should not suppress")
+
+	// Second call immediately after: should be suppressed to DEBUG.
+	logBuf.Reset()
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
+
+	secondCallLogs := logBuf.String()
+	assert.NotContains(t, secondCallLogs, "WARN", "second call should NOT emit a WARN (rate-limited)")
+	assert.Contains(t, secondCallLogs, "warning suppressed", "second call should log at DEBUG with suppression note")
+
+	// Third call also immediately after: still suppressed.
+	logBuf.Reset()
+	_ = headerFunc(context.Background())
+	thirdCallLogs := logBuf.String()
+	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
+
+	// Now simulate token recovery by registering an OAuth handler with a token.
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
+	mock := newMockOAuthHandler(true)
+	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
+	api.RegisterOAuthHandler(mock)
+	defer api.RegisterOAuthHandler(nil)
+
+	logBuf.Reset()
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+validToken, headers["Authorization"])
+
+	recoveryLogs := logBuf.String()
+	assert.Contains(t, recoveryLogs, "recovered", "should log token recovery at INFO")
 }
 
 func TestGetTokenExpiryTime(t *testing.T) {
