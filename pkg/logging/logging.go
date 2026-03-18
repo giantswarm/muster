@@ -113,13 +113,7 @@ func Info(subsystem string, messageFmt string, args ...interface{}) {
 
 // InfoWithAttrs logs an informational message with additional structured attributes.
 func InfoWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
-	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), slog.LevelInfo) {
-		return
-	}
-	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
-	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
-	allAttrs = append(allAttrs, attrs...)
-	defaultLogger.LogAttrs(context.Background(), slog.LevelInfo, msg, allAttrs...)
+	logWithAttrs(slog.LevelInfo, subsystem, msg, attrs...)
 }
 
 // Warn logs a warning message.
@@ -129,13 +123,17 @@ func Warn(subsystem string, messageFmt string, args ...interface{}) {
 
 // WarnWithAttrs logs a warning message with additional structured attributes.
 func WarnWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
-	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), slog.LevelWarn) {
+	logWithAttrs(slog.LevelWarn, subsystem, msg, attrs...)
+}
+
+func logWithAttrs(level slog.Level, subsystem string, msg string, attrs ...slog.Attr) {
+	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), level) {
 		return
 	}
 	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
 	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
 	allAttrs = append(allAttrs, attrs...)
-	defaultLogger.LogAttrs(context.Background(), slog.LevelWarn, msg, allAttrs...)
+	defaultLogger.LogAttrs(context.Background(), level, msg, allAttrs...)
 }
 
 // Error logs an error message.
