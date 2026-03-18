@@ -76,6 +76,9 @@ func establishConnection(
 ) (*ConnectionResult, error) {
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return nil, fmt.Errorf("cannot establish connection to %s: no session context available", serverName)
+	}
 
 	oauthHandler := api.GetOAuthHandler()
 
@@ -256,6 +259,9 @@ func EstablishConnectionWithTokenForwarding(
 ) (*ConnectionResult, error) {
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return nil, fmt.Errorf("cannot forward token to %s: no session context available", serverInfo.Name)
+	}
 
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
@@ -465,6 +471,9 @@ func EstablishConnectionWithTokenExchange(
 
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return nil, fmt.Errorf("cannot exchange token for %s: no session context available", serverInfo.Name)
+	}
 	if a.authStore != nil {
 		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
 			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",

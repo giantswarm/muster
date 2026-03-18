@@ -201,6 +201,22 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		}
 	})
 
+	t.Run("returns 401 when session ID is missing", func(t *testing.T) {
+		reg := NewServerRegistry("")
+		a := &AggregatorServer{registry: reg}
+
+		req := httptest.NewRequest(http.MethodDelete, "/auth/some-server", nil)
+		req.SetPathValue("server", "some-server")
+		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		w := httptest.NewRecorder()
+
+		a.handleAuthServerDeletion(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401 for missing session, got %d", w.Code)
+		}
+	})
+
 	t.Run("returns 204 when server not found (prevents enumeration)", func(t *testing.T) {
 		api.RegisterOAuthHandler(nil)
 		t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
@@ -210,7 +226,9 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/nonexistent", nil)
 		req.SetPathValue("server", "nonexistent")
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "test-session")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		a.handleAuthServerDeletion(w, req)
@@ -236,7 +254,9 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/plain-server", nil)
 		req.SetPathValue("server", "plain-server")
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "test-session")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		a.handleAuthServerDeletion(w, req)
@@ -307,10 +327,11 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/server-no-handler", nil)
 		req.SetPathValue("server", "server-no-handler")
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "test-session")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
-		// Should not panic even with nil handler
 		a.handleAuthServerDeletion(w, req)
 
 		if w.Code != http.StatusNoContent {
@@ -325,8 +346,9 @@ func TestHandleAuthServerDeletion(t *testing.T) {
 		a := &AggregatorServer{registry: NewServerRegistry("")}
 
 		req := httptest.NewRequest(http.MethodDelete, "/auth/", nil)
-		// Do not set path value -- PathValue returns "" by default
-		req = req.WithContext(api.WithSubject(req.Context(), "user@example.com"))
+		ctx := api.WithSubject(req.Context(), "user@example.com")
+		ctx = api.WithSessionID(ctx, "test-session")
+		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		a.handleAuthServerDeletion(w, req)

@@ -91,11 +91,15 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	// Get user subject for identity-based operations
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
+	if sub == "" || sessionID == "" {
+		return &api.CallToolResult{
+			Content: []interface{}{"Error: authentication context missing — no active session"},
+			IsError: true,
+		}, nil
+	}
 
-	// Check rate limit before processing (rate limiting is user-scoped)
 	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sub, serverName) {
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sub)
@@ -316,6 +320,12 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
+	if sub == "" || sessionID == "" {
+		return &api.CallToolResult{
+			Content: []interface{}{"Error: authentication context missing — no active session"},
+			IsError: true,
+		}, nil
+	}
 
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLogoutAttempt(serverName, sub)
@@ -409,7 +419,11 @@ func (p *AuthToolProvider) tryConnectWithToken(ctx context.Context, serverName, 
 
 	if result.Client != nil && p.aggregator.connPool != nil {
 		sessionID := getSessionIDFromContext(ctx)
-		p.aggregator.connPool.Put(sessionID, serverName, result.Client)
+		if sessionID != "" {
+			p.aggregator.connPool.Put(sessionID, serverName, result.Client)
+		} else {
+			logging.Warn("AuthTools", "Cannot pool client for server %s: no session ID in context", serverName)
+		}
 	}
 
 	return result.FormatAsAPIResult(), nil

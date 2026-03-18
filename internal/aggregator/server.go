@@ -22,6 +22,7 @@ import (
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/coreos/go-systemd/v22/activation"
+	oauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
@@ -669,6 +670,13 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		a.stdioServer = mcpserver.NewStdioServer(a.mcpServer)
 		stdioServer := a.stdioServer
 		if stdioServer != nil {
+			// Same rationale as createStandardMux: inject a placeholder key so
+			// downstream-auth flows have a session key for the capability store.
+			stdioServer.SetContextFunc(func(ctx context.Context) context.Context {
+				ctx = api.WithSubject(ctx, stdioDefaultUser)
+				ctx = api.WithSessionID(ctx, stdioDefaultUser)
+				return ctx
+			})
 			go func() {
 				if err := stdioServer.Listen(a.ctx, os.Stdin, os.Stdout); err != nil {
 					logging.Error("Aggregator", err, "Stdio server error")
@@ -1136,6 +1144,9 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler,
 
 // createStandardMux creates a standard HTTP mux without OAuth server protection.
 // This is used when OAuth server protection is disabled.
+//
+// Since there is no OAuth middleware to set session/subject in context, this
+// injects stdioDefaultUser as a single-user identity (same as stdio transport).
 func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
@@ -1167,8 +1178,17 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 		}
 	}
 
-	// Mount the MCP handler as the default for all other paths
-	mux.Handle("/", mcpHandler)
+	// Without OAuth, there is no ValidateToken middleware to set session/subject.
+	// Inject stdioDefaultUser so that downstream-auth flows (core_auth_login)
+	// have a key for the session-scoped capability store and connection pool.
+	// StatusConnected servers never use this — they go through the global client.
+	defaultUserMCPHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := api.WithSubject(r.Context(), stdioDefaultUser)
+		ctx = api.WithSessionID(ctx, stdioDefaultUser)
+		mcpHandler.ServeHTTP(w, r.WithContext(ctx))
+	})
+
+	mux.Handle("/", defaultUserMCPHandler)
 
 	return mux
 }
@@ -1529,7 +1549,13 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
-		if serverInfo.Status == StatusAuthRequired && sessionID != "" {
+		if serverInfo.Status == StatusAuthRequired {
+			if sessionID == "" {
+				logging.Warn("Aggregator", "Tool %s requires auth but no session ID in context (server: %s). "+
+					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
+					toolName, serverName)
+				return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
+			}
 			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for session %s",
 				serverName, logging.TruncateIdentifier(sessionID))
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
@@ -1915,7 +1941,11 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, serverName, 
 
 	if result.Client != nil && a.connPool != nil {
 		sessionID := getSessionIDFromContext(ctx)
-		a.connPool.Put(sessionID, serverName, result.Client)
+		if sessionID != "" {
+			a.connPool.Put(sessionID, serverName, result.Client)
+		} else {
+			logging.Warn("Aggregator", "Cannot pool client for server %s: no session ID in context", serverName)
+		}
 	}
 
 	return result.FormatAsMCPResult(), nil
@@ -1978,28 +2008,54 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 	return result, nil
 }
 
-// defaultUser is the fallback identity for stdio transport (single-user mode).
-// Used as both subject and session ID when no OAuth context is available.
-const defaultUser = "default-user"
+// stdioDefaultUser is a placeholder session/subject key for non-OAuth transports.
+//
+// Most tool calls don't need it at all: StatusConnected servers use a global
+// client on ServerInfo.Client and never touch the session-keyed stores.
+//
+// It only matters when a non-OAuth muster instance has auth-required DOWNSTREAM
+// servers (e.g. core_auth_login to an OAuth-protected MCP server). That flow
+// stores capabilities and connections in the session-keyed capability store and
+// connection pool, which require some key. In production (OAuth-protected muster),
+// the real token family ID from the bearer token is used instead.
+//
+// Injected explicitly into context at the transport layer (SetContextFunc for
+// stdio, middleware wrapper for unauthenticated HTTP). Never used as a silent
+// fallback — getSessionIDFromContext returns "" if nothing was injected.
+const stdioDefaultUser = "default-user"
 
 // getUserSubjectFromContext extracts the authenticated user's subject (sub claim)
-// from the request context. For HTTP transports (SSE, Streamable HTTP), this is
-// set by the OAuth middleware after token validation. For stdio transport, it falls
-// back to defaultUser since there is no OAuth token.
+// from the request context. Returns "" if no subject is available.
+//
+// Resolution order:
+//  1. api.SubjectContextKey (set by createAccessTokenInjectorMiddleware)
+//  2. oauth.UserInfo.ID (set by mcp-oauth ValidateToken — survives middleware early-exit)
+//  3. "" (no subject — caller must handle)
 func getUserSubjectFromContext(ctx context.Context) string {
 	if sub := api.GetSubjectFromContext(ctx); sub != "" {
 		return sub
 	}
-	return defaultUser
+	if userInfo, ok := oauth.UserInfoFromContext(ctx); ok && userInfo != nil && userInfo.ID != "" {
+		return userInfo.ID
+	}
+	return ""
 }
 
 // getSessionIDFromContext extracts the session ID (token family ID) from the
-// request context. For stdio/no-auth mode, falls back to defaultUser.
+// request context. Returns "" if no session is available.
+//
+// Resolution order:
+//  1. api.sessionIDContextKey (set by createAccessTokenInjectorMiddleware)
+//  2. oauth.sessionIDKey (set by mcp-oauth ValidateToken — survives middleware early-exit)
+//  3. "" (no session — caller must handle)
 func getSessionIDFromContext(ctx context.Context) string {
 	if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
 		return sessionID
 	}
-	return defaultUser
+	if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+		return sessionID
+	}
+	return ""
 }
 
 // handleUserTokensDeletion handles DELETE /user-tokens for "sign out everywhere".
@@ -2063,6 +2119,10 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 	}
 
 	sessionID := getSessionIDFromContext(r.Context())
+	if sessionID == "" {
+		http.Error(w, "Unauthorized: missing session", http.StatusUnauthorized)
+		return
+	}
 
 	serverName := r.PathValue("server")
 	if serverName == "" {
