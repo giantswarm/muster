@@ -3,10 +3,10 @@ package aggregator
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -454,7 +454,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
 		if err != nil {
 			logging.WarnWithAttrs("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory",
-			slog.String("error", err.Error()))
+				slog.String("error", err.Error()))
 			return storeBundle{
 				authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 				capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
@@ -717,7 +717,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		for name, listeners := range listenersWithNames {
 			for i, l := range listeners {
 				logging.InfoWithAttrs("Aggregator", "Systemd listener found",
-				slog.Int("index", i), slog.String("name", name))
+					slog.Int("index", i), slog.String("name", name))
 				systemdListeners = append(systemdListeners, l)
 			}
 		}
@@ -768,7 +768,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			}
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
-			slog.String("addr", addr))
+				slog.String("addr", addr))
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
@@ -831,7 +831,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			}
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
-			slog.String("addr", addr))
+				slog.String("addr", addr))
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
