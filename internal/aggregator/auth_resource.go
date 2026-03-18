@@ -249,7 +249,12 @@ const initSSOTimeout = 15 * time.Second
 // so that a single slow server cannot block the entire login flow.
 func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessionID, idToken string) {
 	musterIssuer := a.getMusterIssuer()
+
+	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, musterIssuer=%s)",
+		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), musterIssuer)
+
 	if musterIssuer == "" {
+		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
 		return
 	}
 
@@ -265,18 +270,25 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 
 	var pending []*ServerInfo
 	servers := a.registry.GetAllServers()
+	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure int
 	for _, info := range servers {
 		if info.Status != StatusAuthRequired {
+			skippedNotAuthRequired++
 			continue
 		}
 		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
+			skippedNotSSO++
 			continue
 		}
 		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(userID, info.Name) {
+			skippedPriorFailure++
 			continue
 		}
 		pending = append(pending, info)
 	}
+
+	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d",
+		len(servers), len(pending), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure)
 
 	if len(pending) == 0 {
 		return
