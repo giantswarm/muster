@@ -317,6 +317,7 @@ func EstablishConnectionWithTokenForwarding(
 
 	logging.Info("Connection", "Attempting ID token forwarding for user %s to server %s",
 		logging.TruncateIdentifier(sub), serverInfo.Name)
+	logIDTokenClaims("Connection", fmt.Sprintf("forwarding to %s", serverInfo.Name), idToken)
 
 	// Create a client with a dynamic header function that resolves the latest
 	// ID token on each request. This ensures token refresh is picked up
@@ -789,6 +790,79 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	}
 
 	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
+}
+
+// logIDTokenClaims logs key claims from a JWT ID token for debugging SSO issues.
+// Extracts sub, email, aud, and exp without cryptographic verification.
+// Sensitive fields (sub) are truncated; email is masked to "u***@domain".
+func logIDTokenClaims(subsystem, context, idToken string) {
+	if idToken == "" {
+		logging.Info(subsystem, "%s: ID token is empty", context)
+		return
+	}
+
+	decoded, err := decodeJWTPayload(idToken)
+	if err != nil {
+		logging.Warn(subsystem, "%s: failed to decode ID token: %v", context, err)
+		return
+	}
+
+	var claims struct {
+		Sub   string      `json:"sub"`
+		Email string      `json:"email"`
+		Aud   interface{} `json:"aud"`
+		Exp   int64       `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		logging.Warn(subsystem, "%s: failed to parse ID token claims: %v", context, err)
+		return
+	}
+
+	maskedEmail := maskEmail(claims.Email)
+	audStr := formatAudience(claims.Aud)
+
+	var expStr string
+	if claims.Exp > 0 {
+		expTime := time.Unix(claims.Exp, 0).UTC()
+		remaining := time.Until(expTime).Round(time.Second)
+		expStr = fmt.Sprintf("%s (remaining: %v)", expTime.Format(time.RFC3339), remaining)
+	} else {
+		expStr = "<missing>"
+	}
+
+	logging.Info(subsystem, "%s: ID token claims: sub=%s, email=%s, aud=%s, exp=%s",
+		context, logging.TruncateIdentifier(claims.Sub), maskedEmail, audStr, expStr)
+}
+
+// maskEmail masks an email for logging: "user@domain.com" -> "u***@domain.com".
+// Returns "<empty>" for empty strings.
+func maskEmail(email string) string {
+	if email == "" {
+		return "<empty>"
+	}
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 {
+		return email[:1] + "***"
+	}
+	return parts[0][:1] + "***@" + parts[1]
+}
+
+// formatAudience formats the JWT aud claim (string or []string) for logging.
+func formatAudience(aud interface{}) string {
+	switch v := aud.(type) {
+	case string:
+		return v
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, a := range v {
+			if s, ok := a.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return "<unknown>"
+	}
 }
 
 // decodeJWTPayload decodes the payload (second part) of a JWT token without
