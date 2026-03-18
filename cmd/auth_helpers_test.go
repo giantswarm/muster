@@ -128,8 +128,8 @@ func TestHasSSOPending(t *testing.T) {
 			name: "no sso_pending servers",
 			status: &pkgoauth.AuthStatusResponse{
 				Servers: []pkgoauth.ServerAuthStatus{
-					{Name: "server1", Status: pkgoauth.ServerStatusConnected},
-					{Name: "server2", Status: pkgoauth.ServerStatusAuthRequired},
+					{Name: "server1", Status: pkgoauth.SessionServerStatusConnected},
+					{Name: "server2", Status: pkgoauth.SessionServerStatusAuthRequired},
 				},
 			},
 			expected: false,
@@ -138,8 +138,8 @@ func TestHasSSOPending(t *testing.T) {
 			name: "one sso_pending server",
 			status: &pkgoauth.AuthStatusResponse{
 				Servers: []pkgoauth.ServerAuthStatus{
-					{Name: "server1", Status: pkgoauth.ServerStatusConnected},
-					{Name: "server2", Status: pkgoauth.ServerStatusSSOPending},
+					{Name: "server1", Status: pkgoauth.SessionServerStatusConnected},
+					{Name: "server2", Status: pkgoauth.SessionServerStatusSSOPending},
 				},
 			},
 			expected: true,
@@ -148,8 +148,8 @@ func TestHasSSOPending(t *testing.T) {
 			name: "all sso_pending",
 			status: &pkgoauth.AuthStatusResponse{
 				Servers: []pkgoauth.ServerAuthStatus{
-					{Name: "server1", Status: pkgoauth.ServerStatusSSOPending},
-					{Name: "server2", Status: pkgoauth.ServerStatusSSOPending},
+					{Name: "server1", Status: pkgoauth.SessionServerStatusSSOPending},
+					{Name: "server2", Status: pkgoauth.SessionServerStatusSSOPending},
 				},
 			},
 			expected: true,

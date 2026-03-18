@@ -286,8 +286,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-		if status != pkgoauth.ServerStatusSSOPending {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
+		if status != pkgoauth.SessionServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusSSOPending, status)
 		}
 	})
 
@@ -320,8 +320,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "exchange-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "exchange-server", info)
-		if status != pkgoauth.ServerStatusSSOPending {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
+		if status != pkgoauth.SessionServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusSSOPending, status)
 		}
 	})
 
@@ -344,8 +344,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-no-pending")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-no-pending", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusAuthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusAuthRequired, status)
 		}
 	})
 
@@ -372,8 +372,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusAuthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusAuthRequired, status)
 		}
 	})
 
@@ -395,8 +395,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "non-sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "non-sso-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusAuthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusAuthRequired, status)
 		}
 	})
 }
@@ -451,21 +451,21 @@ func TestDetermineSessionAuthStatus_SSOPendingTimeout(t *testing.T) {
 
 	// Before MarkSSOPending: should return auth_required (not stuck as sso_pending)
 	status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusAuthRequired {
+	if status != pkgoauth.SessionServerStatusAuthRequired {
 		t.Errorf("expected auth_required before pending, got %q", status)
 	}
 
 	// After MarkSSOPending: should return sso_pending
 	tracker.MarkSSOPending(sub, "sso-server")
 	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusSSOPending {
+	if status != pkgoauth.SessionServerStatusSSOPending {
 		t.Errorf("expected sso_pending after MarkSSOPending, got %q", status)
 	}
 
 	// After ClearSSOPending: should return auth_required again
 	tracker.ClearSSOPending(sub, "sso-server")
 	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusAuthRequired {
+	if status != pkgoauth.SessionServerStatusAuthRequired {
 		t.Errorf("expected auth_required after ClearSSOPending, got %q", status)
 	}
 }

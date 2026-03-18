@@ -466,7 +466,7 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 		return false
 	}
 
-	return info.Status == StatusAuthRequired
+	return info.Status == api.StateAuthRequired
 }
 
 // isServerSSOBased checks if a server is configured for SSO token forwarding or token exchange.

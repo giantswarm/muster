@@ -18,32 +18,32 @@ import (
 func TestFormatMCPServerStatus(t *testing.T) {
 	tests := []struct {
 		name     string
-		status   string
+		status   pkgoauth.SessionServerStatus
 		expected string
 	}{
 		{
 			name:     "connected status",
-			status:   "connected",
+			status:   pkgoauth.SessionServerStatusConnected,
 			expected: text.FgGreen.Sprint("Connected"),
 		},
 		{
 			name:     "auth_required status",
-			status:   "auth_required",
+			status:   pkgoauth.SessionServerStatusAuthRequired,
 			expected: text.FgYellow.Sprint("Not authenticated"),
 		},
 		{
 			name:     "disconnected status",
-			status:   "disconnected",
+			status:   pkgoauth.SessionServerStatusDisconnected,
 			expected: text.FgRed.Sprint("Disconnected"),
 		},
 		{
 			name:     "error status",
-			status:   "error",
+			status:   pkgoauth.SessionServerStatusError,
 			expected: text.FgRed.Sprint("Error"),
 		},
 		{
 			name:     "sso_pending status",
-			status:   "sso_pending",
+			status:   pkgoauth.SessionServerStatusSSOPending,
 			expected: text.FgCyan.Sprint("SSO Pending"),
 		},
 		{
@@ -235,7 +235,7 @@ func TestPrintMCPServerStatuses_SSOFailed(t *testing.T) {
 		servers := []pkgoauth.ServerAuthStatus{
 			{
 				Name:                   "sso-server",
-				Status:                 pkgoauth.ServerStatusAuthRequired,
+				Status:                 pkgoauth.SessionServerStatusAuthRequired,
 				TokenForwardingEnabled: true,
 				SSOAttemptFailed:       true,
 			},
@@ -257,7 +257,7 @@ func TestPrintMCPServerStatuses_SSOFailed(t *testing.T) {
 		servers := []pkgoauth.ServerAuthStatus{
 			{
 				Name:     "regular-server",
-				Status:   pkgoauth.ServerStatusAuthRequired,
+				Status:   pkgoauth.SessionServerStatusAuthRequired,
 				AuthTool: "core_auth_login",
 			},
 		}
@@ -278,7 +278,7 @@ func TestPrintMCPServerStatuses_SSOFailed(t *testing.T) {
 		servers := []pkgoauth.ServerAuthStatus{
 			{
 				Name:                 "exchange-server",
-				Status:               pkgoauth.ServerStatusAuthRequired,
+				Status:               pkgoauth.SessionServerStatusAuthRequired,
 				TokenExchangeEnabled: true,
 				SSOAttemptFailed:     true,
 				// AuthTool intentionally empty (SSO servers don't get it)

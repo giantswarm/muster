@@ -537,10 +537,72 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		serverVersion = "dev"
 	}
 
-	// Set up hooks for session lifecycle tracking
+	// Set up hooks for session lifecycle tracking and MCP protocol logging
 	hooks := &mcpserver.Hooks{}
 	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
+		logging.Info("MCP-Protocol", "Session unregistered: sessionID=%s", logging.TruncateIdentifier(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
+	})
+
+	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
+		logging.Info("MCP-Protocol", "Session registered: sessionID=%s", logging.TruncateIdentifier(session.SessionID()))
+	})
+
+	hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		sessionID := ""
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			sessionID = logging.TruncateIdentifier(session.SessionID())
+		}
+		logging.Info("MCP-Protocol", "Initialize completed: client=%s/%s, protocol=%s, sessionID=%s, serverVersion=%s",
+			msg.Params.ClientInfo.Name, msg.Params.ClientInfo.Version,
+			msg.Params.ProtocolVersion, sessionID, result.ServerInfo.Version)
+	})
+
+	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
+		sessionID := ""
+		subject := getUserSubjectFromContext(ctx)
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			sessionID = logging.TruncateIdentifier(session.SessionID())
+		}
+		toolNames := make([]string, 0, len(result.Tools))
+		for _, t := range result.Tools {
+			toolNames = append(toolNames, t.Name)
+		}
+		logging.Info("MCP-Protocol", "tools/list response: sessionID=%s, subject=%s, toolCount=%d, tools=%v",
+			sessionID, logging.TruncateIdentifier(subject), len(result.Tools), toolNames)
+	})
+
+	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
+		sessionID := ""
+		subject := getUserSubjectFromContext(ctx)
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			sessionID = logging.TruncateIdentifier(session.SessionID())
+		}
+		logging.Info("MCP-Protocol", "tools/call request: sessionID=%s, subject=%s, tool=%s",
+			sessionID, logging.TruncateIdentifier(subject), msg.Params.Name)
+	})
+
+	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
+		sessionID := ""
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			sessionID = logging.TruncateIdentifier(session.SessionID())
+		}
+		if r, ok := result.(*mcp.CallToolResult); ok {
+			logging.Info("MCP-Protocol", "tools/call response: sessionID=%s, tool=%s, isError=%t, contentItems=%d",
+				sessionID, msg.Params.Name, r.IsError, len(r.Content))
+		} else {
+			logging.Info("MCP-Protocol", "tools/call response: sessionID=%s, tool=%s, resultType=%T",
+				sessionID, msg.Params.Name, result)
+		}
+	})
+
+	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
+		sessionID := ""
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			sessionID = logging.TruncateIdentifier(session.SessionID())
+		}
+		logging.Warn("MCP-Protocol", "Error: sessionID=%s, method=%s, id=%v, error=%v",
+			sessionID, method, id, err)
 	})
 
 	// Create MCP server with full capabilities enabled
@@ -1181,7 +1243,7 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	// Without OAuth, there is no ValidateToken middleware to set session/subject.
 	// Inject stdioDefaultUser so that downstream-auth flows (core_auth_login)
 	// have a key for the session-scoped capability store and connection pool.
-	// StatusConnected servers never use this — they go through the global client.
+	// api.StateConnected servers never use this — they go through the global client.
 	defaultUserMCPHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := api.WithSubject(r.Context(), stdioDefaultUser)
 		ctx = api.WithSessionID(ctx, stdioDefaultUser)
@@ -1406,8 +1468,12 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 		allTools = append(allTools, serverTool.Tool)
 	}
 
-	logging.Debug("Aggregator", "sessionToolFilter: returning %d meta-tools for subject %s",
-		len(allTools), logging.TruncateIdentifier(subject))
+	sessionID := ""
+	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+		sessionID = logging.TruncateIdentifier(session.SessionID())
+	}
+	logging.Info("MCP-Protocol", "sessionToolFilter: returning %d meta-tools for subject=%s, sessionID=%s",
+		len(allTools), logging.TruncateIdentifier(subject), sessionID)
 
 	return allTools
 }
@@ -1544,12 +1610,12 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, fmt.Errorf("server not found: %s", serverName)
 		}
 
-		if serverInfo.Status == StatusConnected && serverInfo.Client != nil {
+		if serverInfo.Status == api.StateConnected && serverInfo.Client != nil {
 			logging.Debug("Aggregator", "Using global client for server %s", serverName)
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
-		if serverInfo.Status == StatusAuthRequired {
+		if serverInfo.Status == api.StateAuthRequired {
 			if sessionID == "" {
 				logging.Warn("Aggregator", "Tool %s requires auth but no session ID in context (server: %s). "+
 					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
@@ -2010,7 +2076,7 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 
 // stdioDefaultUser is a placeholder session/subject key for non-OAuth transports.
 //
-// Most tool calls don't need it at all: StatusConnected servers use a global
+// Most tool calls don't need it at all: api.StateConnected servers use a global
 // client on ServerInfo.Client and never touch the session-keyed stores.
 //
 // It only matters when a non-OAuth muster instance has auth-required DOWNSTREAM
@@ -2180,7 +2246,7 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 
 	servers := a.registry.GetAllServers()
 	for serverName, info := range servers {
-		if info.Status != StatusAuthRequired {
+		if info.Status != api.StateAuthRequired {
 			continue
 		}
 
@@ -2631,7 +2697,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 // become visible.
 //
 // The method checks each registered server and returns those that:
-//   - Have StatusAuthRequired status
+//   - Have api.StateAuthRequired status
 //   - The session has not yet authenticated to
 //   - Are NOT SSO-configured (token forwarding/exchange)
 //
@@ -2644,7 +2710,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		if info.Status != StatusAuthRequired {
+		if info.Status != api.StateAuthRequired {
 			continue
 		}
 

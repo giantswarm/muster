@@ -89,8 +89,8 @@ type ServerInfo struct {
 	URL string
 
 	// Status indicates the server's connection/authentication status.
-	// Can be connected, disconnected, or auth_required.
-	Status ServerStatus
+	// Uses api.ServiceState for consistency with the canonical state type.
+	Status api.ServiceState
 
 	// AuthInfo contains OAuth information if authentication is required.
 	// This is populated when a 401 is received during initialization.
@@ -106,7 +106,6 @@ type ServerInfo struct {
 	Tools     []mcp.Tool     // Cached list of available tools
 	Resources []mcp.Resource // Cached list of available resources
 	Prompts   []mcp.Prompt   // Cached list of available prompts
-	Connected bool           // Current connection status (deprecated, use Status)
 }
 
 // UpdateTools safely updates the server's cached tool list.
@@ -136,21 +135,10 @@ func (s *ServerInfo) UpdatePrompts(prompts []mcp.Prompt) {
 	s.Prompts = prompts
 }
 
-// SetConnected safely updates the connection status.
-// This is used to track whether the server is currently
-// available for operations.
-func (s *ServerInfo) SetConnected(connected bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Connected = connected
-}
-
-// IsConnected returns the current connection status.
+// IsConnected reports whether the server is in connected status.
 // This method is thread-safe and can be called concurrently.
 func (s *ServerInfo) IsConnected() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Connected
+	return s.Status == api.StateConnected
 }
 
 // GetNamespace returns the namespace for this server.
@@ -273,29 +261,6 @@ type ToolWithStatus struct {
 	// Blocked tools cannot be executed unless the Yolo flag is enabled.
 	Blocked bool
 }
-
-// ServerStatus represents the connection status of a server
-type ServerStatus string
-
-const (
-	// StatusConnected indicates the server is connected and operational
-	StatusConnected ServerStatus = "connected"
-
-	// StatusDisconnected indicates the server is disconnected
-	StatusDisconnected ServerStatus = "disconnected"
-
-	// StatusAuthRequired indicates the server requires OAuth authentication
-	// before it can complete the MCP protocol handshake
-	StatusAuthRequired ServerStatus = "auth_required"
-
-	// StatusUnreachable indicates the server endpoint cannot be reached.
-	// This is distinct from auth_required - unreachable means network/connectivity failure.
-	//
-	// Related constants:
-	// - api.StateUnreachable (internal/api/service.go)
-	// - pkgoauth.ServerStatusUnreachable (pkg/oauth/types.go)
-	StatusUnreachable ServerStatus = "unreachable"
-)
 
 // AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.
 // It contains OAuth authentication information extracted from a 401 response.

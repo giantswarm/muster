@@ -182,7 +182,7 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 	info := &ServerInfo{
 		Name:       name,
 		Client:     client,
-		Connected:  true,
+		Status:     api.StateConnected,
 		ToolPrefix: toolPrefix,
 	}
 
@@ -300,7 +300,7 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 
 		// Per ADR-008: Servers requiring authentication do NOT expose any tools
 		// Users must use core_auth_login to authenticate first
-		if info.Status == StatusAuthRequired {
+		if info.Status == api.StateAuthRequired {
 			authRequiredCount++
 			logging.Debug("Aggregator", "Server %s requires auth, no tools exposed (use core_auth_login)", serverName)
 			continue
@@ -568,7 +568,7 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 }
 
 // RegisterPendingAuth registers a server that requires authentication before it can be fully connected.
-// This creates a placeholder server entry with StatusAuthRequired. Per ADR-008, no synthetic
+// This creates a placeholder server entry with api.StateAuthRequired. Per ADR-008, no synthetic
 // authentication tools are created - users should use core_auth_login to authenticate.
 //
 // Args:
@@ -607,12 +607,11 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 		Name:       name,
 		URL:        url,
 		ToolPrefix: toolPrefix,
-		Status:     StatusAuthRequired,
+		Status:     api.StateAuthRequired,
 		AuthInfo:   authInfo,
 		AuthConfig: authConfig,
-		Connected:  false, // Not connected until authenticated
-		Client:     nil,   // No client until authentication succeeds
-		Tools:      nil,   // No tools exposed until authenticated
+		Client:     nil, // No client until authentication succeeds
+		Tools:      nil, // No tools exposed until authenticated
 	}
 
 	r.nameMu.Lock()
@@ -649,14 +648,13 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 		return fmt.Errorf("server %s not found", name)
 	}
 
-	if info.Status != StatusAuthRequired {
+	if info.Status != api.StateAuthRequired {
 		return fmt.Errorf("server %s is not in auth_required state", name)
 	}
 
 	// Update server info with the new client
 	info.Client = client
-	info.Status = StatusConnected
-	info.Connected = true
+	info.Status = api.StateConnected
 	info.AuthInfo = nil // Clear auth info after successful auth
 
 	// Fetch actual capabilities from the server
@@ -676,7 +674,7 @@ func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, cl
 
 // GetAllToolsForSession returns the tools visible to a specific login session.
 //
-// For OAuth servers (StatusAuthRequired), tools are read from the CapabilityStore
+// For OAuth servers (api.StateAuthRequired), tools are read from the CapabilityStore
 // keyed by session ID (token family). For non-OAuth servers, tools are read from
 // ServerInfo.Tools (same as GetAllTools).
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
@@ -686,7 +684,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 	var allTools []mcp.Tool
 
 	for serverName, info := range r.servers {
-		if info.Status == StatusAuthRequired {
+		if info.Status == api.StateAuthRequired {
 			if store == nil {
 				continue
 			}
@@ -729,7 +727,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store Ca
 	var allResources []mcp.Resource
 
 	for serverName, info := range r.servers {
-		if info.Status == StatusAuthRequired {
+		if info.Status == api.StateAuthRequired {
 			if store == nil {
 				continue
 			}
@@ -772,7 +770,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store Capa
 	var allPrompts []mcp.Prompt
 
 	for serverName, info := range r.servers {
-		if info.Status == StatusAuthRequired {
+		if info.Status == api.StateAuthRequired {
 			if store == nil {
 				continue
 			}
@@ -811,7 +809,7 @@ func (r *ServerRegistry) GetOAuthServers() []*ServerInfo {
 
 	var servers []*ServerInfo
 	for _, info := range r.servers {
-		if info.Status == StatusAuthRequired {
+		if info.Status == api.StateAuthRequired {
 			servers = append(servers, info)
 		}
 	}
@@ -827,5 +825,5 @@ func (r *ServerRegistry) IsOAuthServer(serverName string) bool {
 	if !exists {
 		return false
 	}
-	return info.Status == StatusAuthRequired
+	return info.Status == api.StateAuthRequired
 }
