@@ -106,6 +106,11 @@ func Debug(subsystem string, messageFmt string, args ...interface{}) {
 	logInternal(LevelDebug, subsystem, nil, messageFmt, args...)
 }
 
+// DebugWithAttrs logs a debug message with additional structured attributes.
+func DebugWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
+	logWithAttrs(slog.LevelDebug, subsystem, msg, attrs...)
+}
+
 // Info logs an informational message.
 func Info(subsystem string, messageFmt string, args ...interface{}) {
 	logInternal(LevelInfo, subsystem, nil, messageFmt, args...)
