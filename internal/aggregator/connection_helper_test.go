@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/giantswarm/muster/internal/api"
@@ -943,8 +942,8 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
 
 	firstCallLogs := logBuf.String()
-	assert.True(t, strings.Contains(firstCallLogs, "WARN"), "first call should emit a WARN log")
-	assert.False(t, strings.Contains(firstCallLogs, "warning suppressed"), "first call should not suppress")
+	assert.Contains(t, firstCallLogs, "WARN", "first call should emit a WARN log")
+	assert.NotContains(t, firstCallLogs, "warning suppressed", "first call should not suppress")
 
 	// Second call immediately after: should be suppressed to DEBUG.
 	logBuf.Reset()
@@ -952,14 +951,14 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
 
 	secondCallLogs := logBuf.String()
-	assert.False(t, strings.Contains(secondCallLogs, "WARN"), "second call should NOT emit a WARN (rate-limited)")
-	assert.True(t, strings.Contains(secondCallLogs, "warning suppressed"), "second call should log at DEBUG with suppression note")
+	assert.NotContains(t, secondCallLogs, "WARN", "second call should NOT emit a WARN (rate-limited)")
+	assert.Contains(t, secondCallLogs, "warning suppressed", "second call should log at DEBUG with suppression note")
 
 	// Third call also immediately after: still suppressed.
 	logBuf.Reset()
 	_ = headerFunc(context.Background())
 	thirdCallLogs := logBuf.String()
-	assert.False(t, strings.Contains(thirdCallLogs, "WARN"), "third call should NOT emit a WARN")
+	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
 
 	// Now simulate token recovery by registering an OAuth handler with a token.
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
@@ -973,7 +972,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.Equal(t, "Bearer "+validToken, headers["Authorization"])
 
 	recoveryLogs := logBuf.String()
-	assert.True(t, strings.Contains(recoveryLogs, "recovered"), "should log token recovery at INFO")
+	assert.Contains(t, recoveryLogs, "recovered", "should log token recovery at INFO")
 }
 
 func TestGetTokenExpiryTime(t *testing.T) {

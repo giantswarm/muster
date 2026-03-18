@@ -50,7 +50,7 @@ func (s *ValkeySessionAuthStore) IsAuthenticated(ctx context.Context, sessionID,
 	}
 	b, err := result.AsBool()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("valkey HEXISTS decode: %w", err)
 	}
 	return b, nil
 }
@@ -130,7 +130,7 @@ func (s *ValkeySessionAuthStore) Touch(ctx context.Context, sessionID string) (b
 	}
 	b, err := result.AsBool()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("valkey EXPIRE decode: %w", err)
 	}
 	return b, nil
 }

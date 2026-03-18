@@ -80,9 +80,9 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 // Pattern: {musterPrefix}_{serverPrefix}_{originalName}
 func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
 	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
 	exposed := r.buildExposedNameLocked(serverName, toolName)
 	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: toolName, itemType: "tool"}
-	r.nameMu.Unlock()
 	return exposed
 }
 
@@ -90,9 +90,9 @@ func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
 // the reverse mapping for later resolution.
 func (r *ServerRegistry) ExposedPromptName(serverName, promptName string) string {
 	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
 	exposed := r.buildExposedNameLocked(serverName, promptName)
 	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: promptName, itemType: "prompt"}
-	r.nameMu.Unlock()
 	return exposed
 }
 
@@ -130,23 +130,6 @@ func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	r.setServerPrefixLocked(serverName, prefix)
-}
-
-// purgeServerNames removes all name-mapping entries and the prefix for a server.
-// This is intended for permanent server removal only (e.g., config deletion).
-// It must NOT be called from Deregister because servers may be temporarily
-// disconnected and re-registered; stale mappings are harmless and allow
-// tool calls to resolve during reconnection windows.
-// Caller must NOT hold nameMu.
-func (r *ServerRegistry) purgeServerNames(serverName string) {
-	r.nameMu.Lock()
-	defer r.nameMu.Unlock()
-	for exposed, m := range r.nameMapping {
-		if m.serverName == serverName {
-			delete(r.nameMapping, exposed)
-		}
-	}
-	delete(r.serverPrefixes, serverName)
 }
 
 // setServerPrefixLocked sets the prefix for a server. Caller must hold nameMu.

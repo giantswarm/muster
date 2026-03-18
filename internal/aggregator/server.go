@@ -355,25 +355,7 @@ func (s *ssoTracker) CleanupExpired() {
 // Returns a configured but unstarted aggregator server ready for initialization.
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
-
 	stores := createStores(aggConfig)
-
-	var enc *security.Encryptor
-	if stores.valkeyClient != nil {
-		if oauthCfg, ok := aggConfig.OAuthServer.Config.(config.OAuthServerConfig); ok && oauthCfg.EncryptionKey != "" {
-			keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
-			if err != nil {
-				logging.Warn("Aggregator", "Failed to decode encryption key for Valkey stores: %v", err)
-			} else {
-				enc, err = security.NewEncryptor(keyBytes)
-				if err != nil {
-					logging.Warn("Aggregator", "Failed to create encryptor for Valkey stores: %v", err)
-				} else if enc.IsEnabled() {
-					logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
-				}
-			}
-		}
-	}
 
 	return &AggregatorServer{
 		config:          aggConfig,
@@ -389,7 +371,7 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		subjectSessions: newSubjectSessionTracker(),
 		valkeyClient:    stores.valkeyClient,
 		valkeyKeyPrefix: stores.keyPrefix,
-		valkeyEncryptor: enc,
+		valkeyEncryptor: stores.encryptor,
 	}
 }
 
@@ -399,6 +381,7 @@ type storeBundle struct {
 	capabilityStore CapabilityStore
 	valkeyClient    valkey.Client
 	keyPrefix       string
+	encryptor       *security.Encryptor
 }
 
 // createStores builds the session auth and capability stores based on the
@@ -423,6 +406,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 			}
 		}
 
+		enc := createEncryptor(oauthCfg)
+
 		logging.Info("Aggregator", "Using Valkey-backed session auth and capability stores (address: %s)",
 			redactURL(oauthCfg.Storage.Valkey.URL))
 		return storeBundle{
@@ -430,6 +415,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
 			valkeyClient:    client,
 			keyPrefix:       keyPrefix,
+			encryptor:       enc,
 		}
 	}
 
@@ -439,6 +425,28 @@ func createStores(cfg AggregatorConfig) storeBundle {
 		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
 		keyPrefix:       "muster:",
 	}
+}
+
+// createEncryptor builds an AES-256-GCM encryptor from the OAuthServerConfig
+// encryption key. Returns nil if no key is configured or creation fails.
+func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
+	if oauthCfg.EncryptionKey == "" {
+		return nil
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
+	if err != nil {
+		logging.Warn("Aggregator", "Failed to decode encryption key for Valkey stores: %v", err)
+		return nil
+	}
+	enc, err := security.NewEncryptor(keyBytes)
+	if err != nil {
+		logging.Warn("Aggregator", "Failed to create encryptor for Valkey stores: %v", err)
+		return nil
+	}
+	if enc.IsEnabled() {
+		logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
+	}
+	return enc
 }
 
 // newValkeyClient creates a valkey.Client from the shared ValkeyConfig.
@@ -1241,31 +1249,12 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		logging.Info("Aggregator", "SSO: SessionCreationHandler fired (userID=%s, familyID=%s, hasIDToken=%v, idTokenLen=%d)",
 			logging.TruncateIdentifier(userID), logging.TruncateIdentifier(familyID), idToken != "", len(idToken))
 		a.initSSOForSession(ctx, userID, familyID, idToken)
-		if idToken != "" && familyID != "" {
-			musterIssuer := a.getMusterIssuer()
-			if musterIssuer != "" {
-				if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-					oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
-				}
-			}
-		}
+		a.storeIDTokenForSSO(familyID, userID, idToken)
 	})
 
 	oauthServer.SetTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
 		idToken := oauthserver.ExtractIDToken(newToken)
-		if idToken == "" || familyID == "" {
-			return
-		}
-		musterIssuer := a.getMusterIssuer()
-		if musterIssuer == "" {
-			return
-		}
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{
-				IDToken: idToken,
-			})
-		}
+		a.storeIDTokenForSSO(familyID, userID, idToken)
 		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
 			logging.TruncateIdentifier(familyID))
 	})

@@ -206,6 +206,22 @@ func (a *AggregatorServer) getMusterIssuer() string {
 	return cfg.BaseURL
 }
 
+// storeIDTokenForSSO persists the muster-level ID token in the OAuth proxy
+// token store so that background headerFunc closures can resolve it for SSO
+// token forwarding. No-op when idToken or familyID is empty.
+func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) {
+	if idToken == "" || familyID == "" {
+		return
+	}
+	musterIssuer := a.getMusterIssuer()
+	if musterIssuer == "" {
+		return
+	}
+	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
+	}
+}
+
 // getMusterIssuerWithFallback returns the OAuth issuer URL, with a fallback to
 // finding any token in the session that has an ID token.
 //

@@ -174,7 +174,7 @@ func (s *ValkeyCapabilityStore) Touch(ctx context.Context, sessionID string) (bo
 	}
 	b, err := result.AsBool()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("valkey EXPIRE decode: %w", err)
 	}
 	return b, nil
 }
@@ -187,7 +187,7 @@ func (s *ValkeyCapabilityStore) Exists(ctx context.Context, sessionID, serverNam
 	}
 	b, err := result.AsBool()
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("valkey HEXISTS decode: %w", err)
 	}
 	return b, nil
 }
