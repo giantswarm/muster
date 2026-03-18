@@ -1198,11 +1198,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			authAlive, _ = a.authStore.Touch(ctx, sessionID)
 		}
 		_, _ = a.capabilityStore.Touch(ctx, sessionID)
+
+		userID := getUserSubjectFromContext(ctx)
+		idToken, _ := server.GetIDTokenFromContext(ctx)
+
+		logging.Info("Aggregator", "SSO: onAuthenticated callback (sessionID=%s, userID=%s, authAlive=%v, hasIDToken=%v)",
+			logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), authAlive, idToken != "")
+
 		if authAlive {
 			return
 		}
-		userID := getUserSubjectFromContext(ctx)
-		idToken, _ := server.GetIDTokenFromContext(ctx)
 
 		// Clear prior SSO failures so all servers are retried. Without this,
 		// servers that failed during a previous init (e.g. before a pod
@@ -1223,6 +1228,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
 		idToken := oauthserver.ExtractIDToken(token)
+		logging.Info("Aggregator", "SSO: SessionCreationHandler fired (userID=%s, familyID=%s, hasIDToken=%v, idTokenLen=%d)",
+			logging.TruncateIdentifier(userID), logging.TruncateIdentifier(familyID), idToken != "", len(idToken))
 		a.initSSOForSession(ctx, userID, familyID, idToken)
 		if idToken != "" && familyID != "" {
 			musterIssuer := a.getMusterIssuer()
