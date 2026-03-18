@@ -99,10 +99,17 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		if status.Status == pkgoauth.SessionServerStatusAuthRequired && info.AuthInfo != nil {
-			status.Issuer = info.AuthInfo.Issuer
-			status.Scope = info.AuthInfo.Scope
-			if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
+		if info.AuthInfo != nil {
+			switch status.Status {
+			case pkgoauth.SessionServerStatusAuthRequired:
+				status.Issuer = info.AuthInfo.Issuer
+				status.Scope = info.AuthInfo.Scope
+				if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
+					status.AuthTool = "core_auth_login"
+				}
+			case pkgoauth.SessionServerStatusReauthRequired:
+				status.Issuer = info.AuthInfo.Issuer
+				status.Scope = info.AuthInfo.Scope
 				status.AuthTool = "core_auth_login"
 			}
 		}
@@ -156,16 +163,20 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 
 	// No cached capabilities - check infrastructure state
 	if info.RequiresSessionAuth() && info.AuthInfo != nil {
-		// SSO-enabled servers are connected synchronously during login via initSSOForSession.
-		// Return sso_pending while the connection attempt is in flight, but
-		// fall back to auth_required if the pending timeout has elapsed.
-		// This prevents the client from being stuck in sso_pending forever
-		// when an SSO attempt silently fails.
-		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
-			a.ssoTracker != nil &&
-			!a.ssoTracker.HasSSOFailed(sub, serverName) &&
-			a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
-			return pkgoauth.SessionServerStatusSSOPending
+		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
+
+		if isSSO && a.ssoTracker != nil {
+			if a.ssoTracker.HasSSOFailed(sub, serverName) {
+				// SSO was attempted but failed. For SSO-enabled servers this
+				// typically means the upstream refresh chain is broken (e.g.
+				// Dex -> GitHub returned 401). Return reauth_required so the
+				// agent can prompt re-authentication rather than the generic
+				// auth_required which might imply initial setup.
+				return pkgoauth.SessionServerStatusReauthRequired
+			}
+			if a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
+				return pkgoauth.SessionServerStatusSSOPending
+			}
 		}
 		return pkgoauth.SessionServerStatusAuthRequired
 	}
@@ -225,6 +236,53 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 	}
 	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
 		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
+	}
+}
+
+// handleUpstreamRefreshFailure is called when the upstream token refresh chain
+// is detected as broken (e.g. Dex -> GitHub returns 401, or the refreshed token
+// has no ID token). It evicts all pooled SSO connections for the session to stop
+// mcp-go's infinite 1-second retry loop, and clears the session's auth store
+// entries so auth://status reports reauth_required instead of connected.
+//
+// This is safe to call multiple times for the same session; all operations are
+// idempotent (evicting an empty pool is a no-op, revoking a revoked session is
+// a no-op).
+func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reason string) {
+	logging.Warn("Aggregator", "SSO: Upstream refresh failure detected for session %s (user %s): %s",
+		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), reason)
+
+	if a.connPool != nil {
+		a.connPool.EvictSession(sessionID)
+		logging.Info("Aggregator", "SSO: Evicted pooled connections for session %s due to refresh failure",
+			logging.TruncateIdentifier(sessionID))
+	}
+
+	if a.authStore != nil {
+		if err := a.authStore.RevokeSession(context.Background(), sessionID); err != nil {
+			logging.Warn("Aggregator", "SSO: Failed to revoke auth session %s after refresh failure: %v",
+				logging.TruncateIdentifier(sessionID), err)
+		}
+	}
+
+	// Clear the stored ID token so headerFunc closures don't keep resolving
+	// stale tokens from the OAuth proxy store.
+	musterIssuer := a.getMusterIssuer()
+	if musterIssuer != "" {
+		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+			oh.ClearTokenByIssuer(sessionID, musterIssuer)
+		}
+	}
+
+	// Mark all SSO servers as failed for this user so initSSOForSession
+	// doesn't immediately retry with expired credentials.
+	if a.ssoTracker != nil && userID != "" {
+		servers := a.registry.GetAllServers()
+		for _, info := range servers {
+			if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+				a.ssoTracker.MarkSSOFailed(userID, info.Name)
+			}
+		}
 	}
 }
 
@@ -303,6 +361,9 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 			continue
 		}
 		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(userID, info.Name) {
+			fc := a.ssoTracker.GetFailureCount(userID, info.Name)
+			logging.Debug("Aggregator", "SSO: skipping %s for user %s (failureCount=%d, backoff=%v)",
+				info.Name, logging.TruncateIdentifier(userID), fc, ssoBackoffDuration(fc))
 			skippedPriorFailure++
 			continue
 		}

@@ -208,21 +208,43 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 	return result
 }
 
-// ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry.
+// ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry
+// with exponential backoff for repeated failures on the same server.
 type ssoFailedEntry struct {
-	failedAt time.Time
+	failedAt     time.Time
+	failureCount int
 }
 
-// ssoTrackerFailureTTL is the duration after which SSO failure entries expire.
-// Once expired, proactive SSO will retry the server on the next session init.
-// Kept short (5 min) so transient failures (e.g. token storage hiccup, brief
-// network partition) don't block SSO for an entire session.
+// ssoTrackerFailureTTL is the base duration after which a first SSO failure
+// entry expires. Subsequent failures for the same user/server pair use
+// exponential backoff (2x per failure) up to ssoBackoffMaxTTL.
 const ssoTrackerFailureTTL = 5 * time.Minute
+
+// ssoBackoffMaxTTL caps the exponential backoff for repeated SSO failures.
+// After this many consecutive failures the retry interval stays constant.
+const ssoBackoffMaxTTL = 30 * time.Minute
 
 // ssoTrackerPendingTimeout is how long sso_pending is reported before falling
 // back to auth_required. This prevents the client from being stuck in a pending
 // state when an SSO attempt silently fails without being recorded.
 const ssoTrackerPendingTimeout = 30 * time.Second
+
+// ssoBackoffDuration returns the backoff duration for the given failure count.
+// The first failure uses ssoTrackerFailureTTL; each subsequent failure doubles
+// the wait, capped at ssoBackoffMaxTTL.
+func ssoBackoffDuration(failureCount int) time.Duration {
+	if failureCount <= 1 {
+		return ssoTrackerFailureTTL
+	}
+	d := ssoTrackerFailureTTL
+	for i := 1; i < failureCount; i++ {
+		d *= 2
+		if d >= ssoBackoffMaxTTL {
+			return ssoBackoffMaxTTL
+		}
+	}
+	return d
+}
 
 // ssoTracker tracks SSO pending and failure state per user subject and server.
 // Used by on-demand SSO to record and check SSO connection status.
@@ -279,27 +301,54 @@ func (s *ssoTracker) ClearSSOPending(sub, serverName string) {
 	}
 }
 
-// MarkSSOFailed records that SSO failed for a user/server pair with a timestamp.
+// MarkSSOFailed records that SSO failed for a user/server pair. If an active
+// (non-expired) failure entry already exists, the failure count is incremented
+// to increase the exponential backoff. Otherwise a new entry is created with
+// failureCount=1.
 func (s *ssoTracker) MarkSSOFailed(sub, serverName string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failedServers[sub] == nil {
 		s.failedServers[sub] = make(map[string]*ssoFailedEntry)
 	}
-	s.failedServers[sub][serverName] = &ssoFailedEntry{failedAt: time.Now()}
+	count := 1
+	if prev, ok := s.failedServers[sub][serverName]; ok {
+		prevBackoff := ssoBackoffDuration(prev.failureCount)
+		if time.Since(prev.failedAt) < prevBackoff {
+			count = prev.failureCount + 1
+		}
+	}
+	s.failedServers[sub][serverName] = &ssoFailedEntry{
+		failedAt:     time.Now(),
+		failureCount: count,
+	}
 }
 
 // HasSSOFailed returns true if SSO has recently failed for this user/server pair.
-// Entries older than ssoTrackerFailureTTL are treated as expired and return false.
+// The effective TTL increases with consecutive failures via exponential backoff:
+// 1st failure → 5 min, 2nd → 10 min, 3rd → 20 min, capped at 30 min.
 func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if m, ok := s.failedServers[sub]; ok {
 		if entry, exists := m[serverName]; exists {
-			return time.Since(entry.failedAt) < ssoTrackerFailureTTL
+			return time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount)
 		}
 	}
 	return false
+}
+
+// GetFailureCount returns the number of consecutive SSO failures recorded for
+// a user/server pair, or 0 if no active failure entry exists.
+func (s *ssoTracker) GetFailureCount(sub, serverName string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if m, ok := s.failedServers[sub]; ok {
+		if entry, exists := m[serverName]; exists {
+			return entry.failureCount
+		}
+	}
+	return 0
 }
 
 // ClearSSOFailed removes the SSO failure record for a user/server pair.
@@ -323,13 +372,14 @@ func (s *ssoTracker) ClearAllSSOFailed(sub string) {
 	delete(s.failedServers, sub)
 }
 
-// CleanupExpired removes SSO failure entries older than ssoTrackerFailureTTL.
+// CleanupExpired removes SSO failure entries whose backoff window has elapsed.
+// Each entry's effective TTL depends on its failure count (exponential backoff).
 func (s *ssoTracker) CleanupExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for sub, servers := range s.failedServers {
 		for serverName, entry := range servers {
-			if time.Since(entry.failedAt) >= ssoTrackerFailureTTL {
+			if time.Since(entry.failedAt) >= ssoBackoffDuration(entry.failureCount) {
 				delete(servers, serverName)
 			}
 		}
@@ -1279,6 +1329,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// On every authenticated request, extend the capability store TTL.
 	// If the session has expired (e.g. user returns after inactivity, or
 	// Valkey was restarted), re-establish SSO connections in the background.
+	// Also detects broken upstream refresh chains: when authAlive is true but
+	// the ID token has disappeared, SSO connections are evicted to stop the
+	// mcp-go retry loop from spamming errors with expired tokens.
 	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
 		if a.capabilityStore == nil {
 			return
@@ -1295,7 +1348,15 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		logging.Info("Aggregator", "SSO: onAuthenticated callback (sessionID=%s, userID=%s, authAlive=%v, hasIDToken=%v)",
 			logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), authAlive, idToken != "")
 
-		if authAlive {
+		if authAlive && idToken != "" {
+			return
+		}
+
+		// Session is known (authAlive) but the ID token is gone: the upstream
+		// refresh chain is broken (e.g. Dex -> GitHub returned 401). Evict
+		// stale SSO connections to stop mcp-go's infinite 1-second retry loop.
+		if authAlive && idToken == "" {
+			a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
 			return
 		}
 
@@ -1336,6 +1397,15 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	oauthServer.SetTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
 		idToken := oauthserver.ExtractIDToken(newToken)
+		if idToken == "" {
+			// The upstream provider refreshed tokens but did not include an
+			// ID token. This signals a degraded refresh chain (e.g. Dex
+			// obtained new access/refresh tokens from GitHub but the OIDC
+			// id_token was dropped). Evict SSO connections so they don't
+			// keep retrying with stale credentials.
+			a.handleUpstreamRefreshFailure(familyID, userID, "TokenRefreshHandler: refreshed token has no ID token")
+			return
+		}
 		a.storeIDTokenForSSO(familyID, userID, idToken)
 		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
 			logging.TruncateIdentifier(familyID))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
@@ -934,7 +935,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -973,6 +974,124 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 
 	recoveryLogs := logBuf.String()
 	assert.Contains(t, recoveryLogs, "recovered", "should log token recovery at INFO")
+}
+
+func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-evict"
+	sub := "test-user"
+	musterIssuer := "https://dex.example.com"
+	serverName := "test-server"
+	fallbackToken := "original-token"
+
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	evicted := make(chan struct{}, 1)
+	onStaleToken := func() {
+		evicted <- struct{}{}
+	}
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+
+	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
+	}
+	select {
+	case <-evicted:
+		t.Fatal("onStaleToken should not fire before reaching maxConsecutiveTokenFailures")
+	default:
+	}
+
+	// One more call should trigger the eviction callback.
+	logBuf.Reset()
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
+
+	select {
+	case <-evicted:
+		// expected
+	case <-time.After(2 * time.Second):
+		t.Fatal("onStaleToken was not called after maxConsecutiveTokenFailures")
+	}
+
+	logs := logBuf.String()
+	assert.Contains(t, logs, "evicting stale connection",
+		"should log eviction message at WARN level")
+
+	// Subsequent calls should NOT fire the callback again.
+	headers = headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
+	select {
+	case <-evicted:
+		t.Fatal("onStaleToken should fire at most once")
+	default:
+	}
+}
+
+func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	sessionID := "test-session-reset"
+	sub := "test-user"
+	musterIssuer := "https://dex.example.com"
+	serverName := "test-server"
+	fallbackToken := "original-token"
+
+	api.RegisterOAuthHandler(nil)
+
+	evictCount := 0
+	onStaleToken := func() {
+		evictCount++
+	}
+
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
+
+	// Accumulate failures just below the threshold.
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headerFunc(context.Background())
+	}
+	assert.Equal(t, 0, evictCount, "should not evict before threshold")
+
+	// Recover by providing a valid token.
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
+	mock := newMockOAuthHandler(true)
+	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
+	api.RegisterOAuthHandler(mock)
+	defer api.RegisterOAuthHandler(nil)
+
+	headers := headerFunc(context.Background())
+	assert.Equal(t, "Bearer "+validToken, headers["Authorization"],
+		"should use recovered token")
+
+	// Now remove the token again and accumulate failures.
+	api.RegisterOAuthHandler(nil)
+	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
+		headerFunc(context.Background())
+	}
+	assert.Equal(t, 0, evictCount,
+		"failure counter should have reset on recovery; should not evict yet")
+}
+
+func TestHeaderFunc_NilCallback(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	api.RegisterOAuthHandler(nil)
+	defer api.RegisterOAuthHandler(nil)
+
+	headerFunc := makeTokenForwardingHeaderFunc("s", "u", "iss", "srv", "tok", nil)
+
+	// Should not panic even after many failures with nil callback.
+	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {
+		headers := headerFunc(context.Background())
+		assert.Equal(t, "Bearer tok", headers["Authorization"])
+	}
 }
 
 func TestGetTokenExpiryTime(t *testing.T) {

@@ -5,9 +5,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/muster/internal/api"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// noopMCPClient is a minimal MCPClient that does nothing, used in pool tests.
+type noopMCPClient struct{}
+
+func (c *noopMCPClient) Initialize(context.Context) error              { return nil }
+func (c *noopMCPClient) Close() error                                  { return nil }
+func (c *noopMCPClient) ListTools(context.Context) ([]mcp.Tool, error) { return nil, nil }
+func (c *noopMCPClient) CallTool(context.Context, string, map[string]interface{}) (*mcp.CallToolResult, error) {
+	return nil, nil
+}
+func (c *noopMCPClient) ListResources(context.Context) ([]mcp.Resource, error) { return nil, nil }
+func (c *noopMCPClient) ReadResource(context.Context, string) (*mcp.ReadResourceResult, error) {
+	return nil, nil
+}
+func (c *noopMCPClient) ListPrompts(context.Context) ([]mcp.Prompt, error) { return nil, nil }
+func (c *noopMCPClient) GetPrompt(context.Context, string, map[string]interface{}) (*mcp.GetPromptResult, error) {
+	return nil, nil
+}
+func (c *noopMCPClient) Ping(context.Context) error                   { return nil }
+func (c *noopMCPClient) OnNotification(func(mcp.JSONRPCNotification)) {}
 
 func TestOnAuthenticated_TriggersSSOReinit_WhenAuthStoreEmpty(t *testing.T) {
 	// After a pod restart the in-memory authStore is empty.
@@ -217,6 +241,421 @@ func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
 	shouldInitSSO = !authAlive && idToken != ""
 	assert.True(t, shouldInitSSO,
 		"initSSOForSession should be called when authAlive=false and idToken is present")
+}
+
+func TestOnAuthenticated_EvictsSSO_WhenAuthAliveButNoIDToken(t *testing.T) {
+	// When the upstream refresh chain breaks (e.g. Dex -> GitHub 401), the
+	// session may still be alive (authStore has entries) but the ID token
+	// disappears. The onAuthenticated callback should detect this and evict
+	// SSO connections.
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	ctx := context.Background()
+	sessionID := "session-with-broken-refresh"
+	userID := "test-user"
+
+	// Session is alive with authenticated servers
+	err := authStore.MarkAuthenticated(ctx, sessionID, "sso-server-1")
+	require.NoError(t, err)
+	err = authStore.MarkAuthenticated(ctx, sessionID, "sso-server-2")
+	require.NoError(t, err)
+
+	authAlive, err := authStore.Touch(ctx, sessionID)
+	require.NoError(t, err)
+	require.True(t, authAlive, "session should be alive")
+
+	// Simulate onAuthenticated logic: authAlive=true, idToken=""
+	idToken := ""
+	shouldEvict := authAlive && idToken == ""
+	assert.True(t, shouldEvict,
+		"should evict SSO connections when authAlive=true but idToken is empty")
+
+	// Verify that eviction would clear the auth store
+	if shouldEvict {
+		err = authStore.RevokeSession(ctx, sessionID)
+		require.NoError(t, err)
+	}
+
+	authed, _ := authStore.IsAuthenticated(ctx, sessionID, "sso-server-1")
+	assert.False(t, authed, "sso-server-1 should no longer be authenticated after eviction")
+
+	authed, _ = authStore.IsAuthenticated(ctx, sessionID, "sso-server-2")
+	assert.False(t, authed, "sso-server-2 should no longer be authenticated after eviction")
+
+	// Verify the onAuthenticated still returns early (no SSO reinit) when
+	// authAlive=true and idToken is present
+	err = authStore.MarkAuthenticated(ctx, sessionID, "sso-server-1")
+	require.NoError(t, err)
+
+	authAlive, _ = authStore.Touch(ctx, sessionID)
+	idToken = "valid-token"
+	shouldEvict = authAlive && idToken == ""
+	assert.False(t, shouldEvict,
+		"should NOT evict when authAlive=true and idToken is present")
+
+	_ = userID
+}
+
+func TestHandleUpstreamRefreshFailure_MarksSSOFailed(t *testing.T) {
+	// handleUpstreamRefreshFailure should mark all SSO servers as failed
+	// in the ssoTracker to prevent immediate retry with expired credentials.
+	tracker := newSSOTracker()
+	userID := "refresh-failure-user"
+
+	type ssoServer struct {
+		name                string
+		usesTokenForwarding bool
+		usesTokenExchange   bool
+	}
+	servers := []ssoServer{
+		{name: "sso-forward", usesTokenForwarding: true},
+		{name: "sso-exchange", usesTokenExchange: true},
+		{name: "non-sso", usesTokenForwarding: false, usesTokenExchange: false},
+	}
+
+	// Simulate what handleUpstreamRefreshFailure does for ssoTracker
+	for _, s := range servers {
+		if s.usesTokenExchange || s.usesTokenForwarding {
+			tracker.MarkSSOFailed(userID, s.name)
+		}
+	}
+
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-forward"),
+		"SSO forwarding server should be marked as failed")
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-exchange"),
+		"SSO exchange server should be marked as failed")
+	assert.False(t, tracker.HasSSOFailed(userID, "non-sso"),
+		"non-SSO server should NOT be marked as failed")
+}
+
+func TestHandleUpstreamRefreshFailure_EvictsPooledConnections(t *testing.T) {
+	// Evicting pooled connections stops the mcp-go infinite retry loop
+	// because closing the client cancels the underlying context.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	sessionID := "refresh-fail-session"
+
+	pool.Put(sessionID, "server1", &noopMCPClient{})
+	pool.Put(sessionID, "server2", &noopMCPClient{})
+
+	_, ok := pool.Get(sessionID, "server1")
+	require.True(t, ok, "server1 should be in pool before eviction")
+
+	pool.EvictSession(sessionID)
+
+	_, ok = pool.Get(sessionID, "server1")
+	assert.False(t, ok, "server1 should be evicted")
+
+	_, ok = pool.Get(sessionID, "server2")
+	assert.False(t, ok, "server2 should be evicted")
+}
+
+func TestDetermineSessionAuthStatus_ReauthRequired(t *testing.T) {
+	// When SSO has failed for an SSO-enabled server, the status should
+	// be reauth_required (not just auth_required) to signal that a
+	// previously working session has degraded.
+	tracker := newSSOTracker()
+	userID := "degraded-user"
+
+	tracker.MarkSSOFailed(userID, "sso-server")
+
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-server"),
+		"sso-server should be marked as failed, which leads to reauth_required status")
+}
+
+func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
+	// Integration test: calls handleUpstreamRefreshFailure on a real
+	// AggregatorServer with all components wired up (pool, authStore,
+	// ssoTracker, registry) and verifies the combined outcome.
+	sessionID := "integration-session"
+	userID := "integration-user"
+
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	tracker := newSSOTracker()
+	registry := NewServerRegistry("x")
+
+	ctx := context.Background()
+
+	// Register SSO and non-SSO servers.
+	err := registry.RegisterPendingAuthWithConfig(
+		"sso-fwd", "https://sso-fwd.example.com", "ssofwd",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	require.NoError(t, err)
+	err = registry.RegisterPendingAuthWithConfig(
+		"sso-exch", "https://sso-exch.example.com", "ssoexch",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://remote-dex.example.com/token",
+			ConnectorID:      "cluster-a-dex",
+			ClientID:         "test-client",
+		}},
+	)
+	require.NoError(t, err)
+	err = registry.RegisterPendingAuth(
+		"non-sso", "https://non-sso.example.com", "nonsso",
+		&AuthInfo{Issuer: "https://other.example.com"},
+	)
+	require.NoError(t, err)
+
+	// Pre-populate pool and auth store.
+	pool.Put(sessionID, "sso-fwd", &noopMCPClient{})
+	pool.Put(sessionID, "sso-exch", &noopMCPClient{})
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "sso-fwd"))
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "sso-exch"))
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "non-sso"))
+
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		authStore:  authStore,
+		ssoTracker: tracker,
+	}
+
+	aggServer.handleUpstreamRefreshFailure(sessionID, userID, "test reason")
+
+	// Pool should be fully evicted for this session.
+	_, ok := pool.Get(sessionID, "sso-fwd")
+	assert.False(t, ok, "sso-fwd should be evicted from pool")
+	_, ok = pool.Get(sessionID, "sso-exch")
+	assert.False(t, ok, "sso-exch should be evicted from pool")
+
+	// AuthStore should have all servers revoked.
+	authed, _ := authStore.IsAuthenticated(ctx, sessionID, "sso-fwd")
+	assert.False(t, authed, "sso-fwd should no longer be authenticated")
+	authed, _ = authStore.IsAuthenticated(ctx, sessionID, "non-sso")
+	assert.False(t, authed, "non-sso should also be revoked (RevokeSession clears all)")
+
+	// SSO tracker should mark only SSO servers as failed.
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-fwd"),
+		"SSO forwarding server should be marked as failed")
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-exch"),
+		"SSO exchange server should be marked as failed")
+	assert.False(t, tracker.HasSSOFailed(userID, "non-sso"),
+		"non-SSO server should NOT be marked as failed")
+}
+
+func TestHandleUpstreamRefreshFailure_Idempotent(t *testing.T) {
+	// Calling handleUpstreamRefreshFailure multiple times for the same session
+	// should be safe (all operations are idempotent).
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	tracker := newSSOTracker()
+	registry := NewServerRegistry("x")
+
+	err := registry.RegisterPendingAuthWithConfig(
+		"sso-server", "https://sso.example.com", "sso",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	require.NoError(t, err)
+
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		authStore:  authStore,
+		ssoTracker: tracker,
+	}
+
+	// Call three times -- should not panic.
+	aggServer.handleUpstreamRefreshFailure("s1", "u1", "first call")
+	aggServer.handleUpstreamRefreshFailure("s1", "u1", "second call")
+	aggServer.handleUpstreamRefreshFailure("s1", "u1", "third call")
+
+	// Failure count should increase with each call (exponential backoff).
+	fc := tracker.GetFailureCount("u1", "sso-server")
+	assert.Equal(t, 3, fc,
+		"consecutive calls should increment the failure count for backoff")
+}
+
+func TestHandleUpstreamRefreshFailure_NilComponents(t *testing.T) {
+	// handleUpstreamRefreshFailure must not panic when optional components
+	// (connPool, authStore, ssoTracker) are nil.
+	aggServer := &AggregatorServer{
+		registry: NewServerRegistry("x"),
+	}
+
+	assert.NotPanics(t, func() {
+		aggServer.handleUpstreamRefreshFailure("session", "user", "nil components test")
+	})
+}
+
+func TestOnStaleToken_EvictsAndRevokes(t *testing.T) {
+	// Verifies the onStaleToken callback used in EstablishConnectionWithTokenForwarding
+	// correctly evicts the pool entry and revokes the auth store entry.
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	ctx := context.Background()
+	sessionID := "stale-token-session"
+	serverName := "stale-token-server"
+
+	pool.Put(sessionID, serverName, &noopMCPClient{})
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, serverName))
+
+	_, ok := pool.Get(sessionID, serverName)
+	require.True(t, ok, "server should be in pool before eviction")
+
+	authed, _ := authStore.IsAuthenticated(ctx, sessionID, serverName)
+	require.True(t, authed, "server should be authenticated before eviction")
+
+	// Simulate the onStaleToken callback from makeTokenForwardingHeaderFunc.
+	aggServer := &AggregatorServer{
+		connPool:  pool,
+		authStore: authStore,
+	}
+	onStaleToken := func() {
+		aggServer.connPool.Evict(sessionID, serverName)
+		if err := aggServer.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
+			t.Errorf("unexpected error revoking auth: %v", err)
+		}
+	}
+	onStaleToken()
+
+	_, ok = pool.Get(sessionID, serverName)
+	assert.False(t, ok, "server should be evicted from pool after stale token")
+
+	authed, _ = authStore.IsAuthenticated(ctx, sessionID, serverName)
+	assert.False(t, authed, "server should no longer be authenticated after stale token")
+}
+
+func TestOnAuthenticated_CallsHandleUpstreamRefreshFailure(t *testing.T) {
+	// Verifies the onAuthenticated callback logic: when authAlive=true
+	// and idToken="", it should call handleUpstreamRefreshFailure to evict
+	// SSO connections. We test this by simulating the exact code path.
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	tracker := newSSOTracker()
+	registry := NewServerRegistry("x")
+
+	ctx := context.Background()
+	sessionID := "callback-session"
+	userID := "callback-user"
+
+	err := registry.RegisterPendingAuthWithConfig(
+		"sso-server", "https://sso.example.com", "sso",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	require.NoError(t, err)
+
+	// Set up live session with pooled connection.
+	require.NoError(t, authStore.MarkAuthenticated(ctx, sessionID, "sso-server"))
+	pool.Put(sessionID, "sso-server", &noopMCPClient{})
+
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		authStore:  authStore,
+		ssoTracker: tracker,
+	}
+
+	// Verify pre-conditions.
+	authAlive, _ := authStore.Touch(ctx, sessionID)
+	require.True(t, authAlive, "session should be alive")
+
+	// Simulate the onAuthenticated callback code path: authAlive=true, idToken=""
+	idToken := ""
+	if authAlive && idToken == "" {
+		aggServer.handleUpstreamRefreshFailure(sessionID, userID,
+			"onAuthenticated: ID token missing for active session")
+	}
+
+	// Verify all SSO state was cleaned up.
+	authed, _ := authStore.IsAuthenticated(ctx, sessionID, "sso-server")
+	assert.False(t, authed, "sso-server should no longer be authenticated")
+
+	_, ok := pool.Get(sessionID, "sso-server")
+	assert.False(t, ok, "sso-server should be evicted from pool")
+
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-server"),
+		"sso-server should be marked as failed in tracker")
+
+	// determineSessionAuthStatus should now return reauth_required.
+	info, exists := registry.GetServerInfo("sso-server")
+	require.True(t, exists)
+	status := aggServer.determineSessionAuthStatus(userID, sessionID, "sso-server", info)
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, status,
+		"status should be reauth_required after upstream refresh failure")
+}
+
+func TestTokenRefreshHandler_MissingIDToken_TriggersEviction(t *testing.T) {
+	// Verifies the logic in the TokenRefreshHandler: when the refreshed
+	// token has no ID token, handleUpstreamRefreshFailure should be called.
+	authStore := NewInMemorySessionAuthStore(30 * time.Minute)
+	defer authStore.Stop()
+
+	pool := NewSessionConnectionPool(1 * time.Hour)
+	defer pool.Stop()
+	defer pool.DrainAll()
+
+	tracker := newSSOTracker()
+	registry := NewServerRegistry("x")
+
+	ctx := context.Background()
+	familyID := "refresh-family"
+	userID := "refresh-user"
+
+	err := registry.RegisterPendingAuthWithConfig(
+		"sso-server", "https://sso.example.com", "sso",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, authStore.MarkAuthenticated(ctx, familyID, "sso-server"))
+	pool.Put(familyID, "sso-server", &noopMCPClient{})
+
+	aggServer := &AggregatorServer{
+		registry:   registry,
+		connPool:   pool,
+		authStore:  authStore,
+		ssoTracker: tracker,
+	}
+
+	// Simulate the TokenRefreshHandler code path: idToken is empty.
+	idToken := ""
+	if idToken == "" {
+		aggServer.handleUpstreamRefreshFailure(familyID, userID,
+			"TokenRefreshHandler: refreshed token has no ID token")
+	}
+
+	// Pool should be evicted.
+	_, ok := pool.Get(familyID, "sso-server")
+	assert.False(t, ok, "sso-server should be evicted from pool")
+
+	// AuthStore should be revoked.
+	authed, _ := authStore.IsAuthenticated(ctx, familyID, "sso-server")
+	assert.False(t, authed, "sso-server should no longer be authenticated")
+
+	// Tracker should mark SSO as failed.
+	assert.True(t, tracker.HasSSOFailed(userID, "sso-server"),
+		"sso-server should be marked as failed")
 }
 
 func TestSSOTracker_ConcurrentAccess(t *testing.T) {

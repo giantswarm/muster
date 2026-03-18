@@ -319,6 +319,14 @@ const (
 	// Clients should NOT call core_auth_login for servers in this state -- they
 	// should wait for the SSO process to complete.
 	SessionServerStatusSSOPending SessionServerStatus = "sso_pending"
+
+	// SessionServerStatusReauthRequired indicates the user's session has a broken
+	// upstream token refresh chain (e.g., Dex -> GitHub returned 401). The ID token
+	// has expired or is no longer available, so SSO connections cannot be maintained.
+	// The user must re-authenticate via 'muster auth login' to restore SSO access.
+	// This is distinct from auth_required (initial auth needed) -- reauth_required
+	// means a previously working session has degraded.
+	SessionServerStatusReauthRequired SessionServerStatus = "reauth_required"
 )
 
 // Display constants for user-facing output.
@@ -347,7 +355,7 @@ type AuthStatusResponse struct {
 //     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
 	Name     string              `json:"name"`
-	Status   SessionServerStatus `json:"status"` // "connected", "auth_required", "sso_pending", "disconnected", "error"
+	Status   SessionServerStatus `json:"status"` // "connected", "auth_required", "reauth_required", "sso_pending", "disconnected", "error"
 	Issuer   string              `json:"issuer,omitempty"`
 	Scope    string              `json:"scope,omitempty"`
 	AuthTool string              `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
