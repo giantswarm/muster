@@ -881,7 +881,9 @@ const maxConsecutiveTokenFailures = 3
 // the onStaleToken callback is invoked asynchronously (in a goroutine) to evict
 // the connection from the pool and close the client. This stops mcp-go's infinite
 // retry loop because closing the client cancels the transport's context.
-// The callback fires at most once per closure lifetime.
+// The callback fires at most once per consecutive failure streak; the counter
+// resets when a valid token is resolved, allowing re-eviction if the token
+// disappears again after recovery.
 //
 // The closure is safe to call without a mutex because headerFunc is called
 // sequentially per connection by the MCP client.

@@ -253,7 +253,6 @@ func TestOnAuthenticated_EvictsSSO_WhenAuthAliveButNoIDToken(t *testing.T) {
 
 	ctx := context.Background()
 	sessionID := "session-with-broken-refresh"
-	userID := "test-user"
 
 	// Session is alive with authenticated servers
 	err := authStore.MarkAuthenticated(ctx, sessionID, "sso-server-1")
@@ -293,8 +292,6 @@ func TestOnAuthenticated_EvictsSSO_WhenAuthAliveButNoIDToken(t *testing.T) {
 	shouldEvict = authAlive && idToken == ""
 	assert.False(t, shouldEvict,
 		"should NOT evict when authAlive=true and idToken is present")
-
-	_ = userID
 }
 
 func TestHandleUpstreamRefreshFailure_MarksSSOFailed(t *testing.T) {

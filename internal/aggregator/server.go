@@ -236,12 +236,13 @@ func ssoBackoffDuration(failureCount int) time.Duration {
 	if failureCount <= 1 {
 		return ssoTrackerFailureTTL
 	}
-	d := ssoTrackerFailureTTL
-	for i := 1; i < failureCount; i++ {
-		d *= 2
-		if d >= ssoBackoffMaxTTL {
-			return ssoBackoffMaxTTL
-		}
+	shift := failureCount - 1
+	if shift > 6 {
+		return ssoBackoffMaxTTL
+	}
+	d := ssoTrackerFailureTTL * (1 << shift)
+	if d > ssoBackoffMaxTTL {
+		return ssoBackoffMaxTTL
 	}
 	return d
 }
@@ -1348,15 +1349,14 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		logging.Info("Aggregator", "SSO: onAuthenticated callback (sessionID=%s, userID=%s, authAlive=%v, hasIDToken=%v)",
 			logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), authAlive, idToken != "")
 
-		if authAlive && idToken != "" {
-			return
-		}
-
-		// Session is known (authAlive) but the ID token is gone: the upstream
-		// refresh chain is broken (e.g. Dex -> GitHub returned 401). Evict
-		// stale SSO connections to stop mcp-go's infinite 1-second retry loop.
-		if authAlive && idToken == "" {
-			a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+		if authAlive {
+			if idToken == "" {
+				// Session is known but the ID token is gone: the upstream
+				// refresh chain is broken (e.g. Dex -> GitHub returned 401).
+				// Evict stale SSO connections to stop mcp-go's infinite
+				// 1-second retry loop.
+				a.handleUpstreamRefreshFailure(sessionID, userID, "onAuthenticated: ID token missing for active session")
+			}
 			return
 		}
 
