@@ -275,56 +275,6 @@ func TestIsIDTokenExpired(t *testing.T) {
 	})
 }
 
-func TestMaskEmail(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"", "<empty>"},
-		{"user@domain.com", "u***@domain.com"},
-		{"a@b.co", "a***@b.co"},
-		{"noemail", "n***"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.expected, maskEmail(tt.input))
-		})
-	}
-}
-
-func TestFormatAudience(t *testing.T) {
-	t.Run("string audience", func(t *testing.T) {
-		assert.Equal(t, "my-client", formatAudience("my-client"))
-	})
-	t.Run("array audience", func(t *testing.T) {
-		aud := []interface{}{"aud1", "aud2"}
-		assert.Equal(t, "[aud1, aud2]", formatAudience(aud))
-	})
-	t.Run("nil audience", func(t *testing.T) {
-		assert.Equal(t, "<unknown>", formatAudience(nil))
-	})
-}
-
-func TestLogIDTokenClaims(t *testing.T) {
-	t.Run("empty token does not panic", func(t *testing.T) {
-		assert.NotPanics(t, func() {
-			logIDTokenClaims("Test", "test-context", "")
-		})
-	})
-	t.Run("valid token does not panic", func(t *testing.T) {
-		// Token with sub, email, aud, exp
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiYXVkIjoibXktY2xpZW50IiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
-		assert.NotPanics(t, func() {
-			logIDTokenClaims("Test", "test-context", token)
-		})
-	})
-	t.Run("malformed token does not panic", func(t *testing.T) {
-		assert.NotPanics(t, func() {
-			logIDTokenClaims("Test", "test-context", "not-a-jwt")
-		})
-	})
-}
-
 func TestShouldUseTokenExchange(t *testing.T) {
 	t.Run("returns false for nil server info", func(t *testing.T) {
 		assert.False(t, ShouldUseTokenExchange(nil))
