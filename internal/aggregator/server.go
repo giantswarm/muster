@@ -1350,7 +1350,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 		logging.Info("Aggregator", "SSO: onAuthenticated callback (sessionID=%s, userID=%s, authAlive=%v, hasIDToken=%v)",
 			logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), authAlive, idToken != "")
-		logIDTokenClaims("Aggregator", "onAuthenticated", idToken)
 
 		if authAlive {
 			if idToken == "" {
@@ -1394,7 +1393,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		idToken := oauthserver.ExtractIDToken(token)
 		logging.Info("Aggregator", "SSO: SessionCreationHandler fired (userID=%s, familyID=%s, hasIDToken=%v, idTokenLen=%d)",
 			logging.TruncateIdentifier(userID), logging.TruncateIdentifier(familyID), idToken != "", len(idToken))
-		logIDTokenClaims("Aggregator", "SessionCreationHandler", idToken)
 		a.initSSOForSession(ctx, userID, familyID, idToken)
 		a.storeIDTokenForSSO(familyID, userID, idToken)
 	})
@@ -1411,7 +1409,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 		a.storeIDTokenForSSO(familyID, userID, idToken)
-		logIDTokenClaims("Aggregator", "TokenRefreshHandler", idToken)
 		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
 			logging.TruncateIdentifier(familyID))
 	})
