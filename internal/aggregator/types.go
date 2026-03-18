@@ -88,10 +88,6 @@ type ServerInfo struct {
 	// URL is the server endpoint URL (for remote servers)
 	URL string
 
-	// Status indicates the server's connection/authentication status.
-	// Uses api.ServiceState for consistency with the canonical state type.
-	Status api.ServiceState
-
 	// AuthInfo contains OAuth information if authentication is required.
 	// This is populated when a 401 is received during initialization.
 	AuthInfo *AuthInfo
@@ -135,10 +131,39 @@ func (s *ServerInfo) UpdatePrompts(prompts []mcp.Prompt) {
 	s.Prompts = prompts
 }
 
-// IsConnected reports whether the server is in connected status.
-// This method is thread-safe and can be called concurrently.
+// GetStatus returns the current service state from the canonical service registry.
+// Returns api.StateUnknown if the service is not found in the registry.
+func (s *ServerInfo) GetStatus() api.ServiceState {
+	registry := api.GetServiceRegistry()
+	if registry == nil {
+		return api.StateUnknown
+	}
+	svc, ok := registry.Get(s.Name)
+	if !ok {
+		return api.StateUnknown
+	}
+	return svc.GetState()
+}
+
+// RequiresSessionAuth reports whether this server uses per-session authentication.
+// This is a permanent property based on the server's auth configuration,
+// set during RegisterPendingAuth and never changed by connection state transitions.
+func (s *ServerInfo) RequiresSessionAuth() bool {
+	return s.AuthConfig != nil
+}
+
+// IsConnected reports whether the server is in an active (running/connected) state.
+// Falls back to checking for a live client when the service registry
+// has no entry (e.g. servers registered directly via Register).
 func (s *ServerInfo) IsConnected() bool {
-	return s.Status == api.StateConnected
+	status := s.GetStatus()
+	if api.IsActiveState(status) {
+		return true
+	}
+	if status == api.StateUnknown && s.Client != nil {
+		return true
+	}
+	return false
 }
 
 // GetNamespace returns the namespace for this server.

@@ -1243,7 +1243,7 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	// Without OAuth, there is no ValidateToken middleware to set session/subject.
 	// Inject stdioDefaultUser so that downstream-auth flows (core_auth_login)
 	// have a key for the session-scoped capability store and connection pool.
-	// api.StateConnected servers never use this — they go through the global client.
+	// Servers that don't require session auth never use this — they go through the global client.
 	defaultUserMCPHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := api.WithSubject(r.Context(), stdioDefaultUser)
 		ctx = api.WithSessionID(ctx, stdioDefaultUser)
@@ -1610,12 +1610,12 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, fmt.Errorf("server not found: %s", serverName)
 		}
 
-		if serverInfo.Status == api.StateConnected && serverInfo.Client != nil {
+		if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
 			logging.Debug("Aggregator", "Using global client for server %s", serverName)
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
-		if serverInfo.Status == api.StateAuthRequired {
+		if serverInfo.RequiresSessionAuth() {
 			if sessionID == "" {
 				logging.Warn("Aggregator", "Tool %s requires auth but no session ID in context (server: %s). "+
 					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
@@ -1633,7 +1633,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		}
 
 		if serverInfo.Client == nil {
-			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.Status)
+			return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
 		}
 
 		return serverInfo.Client.CallTool(ctx, originalName, args)
@@ -1819,10 +1819,8 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			}
 			mcpResult := convertToMCPResult(result)
 
-			// Enrich mcpserver_list responses with session-specific data from CapabilityStore
 			if originalToolName == "mcpserver_list" {
-				sessionID := getSessionIDFromContext(ctx)
-				mcpResult = enrichMCPServerListResponse(mcpResult, a.capabilityStore, sessionID)
+				mcpResult = a.enrichServerList(ctx, mcpResult)
 			}
 
 			return mcpResult, nil
@@ -2076,7 +2074,7 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 
 // stdioDefaultUser is a placeholder session/subject key for non-OAuth transports.
 //
-// Most tool calls don't need it at all: api.StateConnected servers use a global
+// Most tool calls don't need it at all: non-session-auth servers use a global
 // client on ServerInfo.Client and never touch the session-keyed stores.
 //
 // It only matters when a non-OAuth muster instance has auth-required DOWNSTREAM
@@ -2246,7 +2244,7 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 
 	servers := a.registry.GetAllServers()
 	for serverName, info := range servers {
-		if info.Status != api.StateAuthRequired {
+		if !info.RequiresSessionAuth() {
 			continue
 		}
 
@@ -2697,7 +2695,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 // become visible.
 //
 // The method checks each registered server and returns those that:
-//   - Have api.StateAuthRequired status
+//   - Require per-session authentication (RequiresSessionAuth)
 //   - The session has not yet authenticated to
 //   - Are NOT SSO-configured (token forwarding/exchange)
 //
@@ -2710,7 +2708,7 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		if info.Status != api.StateAuthRequired {
+		if !info.RequiresSessionAuth() {
 			continue
 		}
 

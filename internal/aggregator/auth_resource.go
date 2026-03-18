@@ -79,7 +79,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
-			Status:                 pkgoauth.SessionServerStatus(info.Status),
+			Status:                 pkgoauth.SessionServerStatus(info.GetStatus()),
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
@@ -135,7 +135,7 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 //   - Per-user state (this function: connected/auth_required/etc.)
 func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName string, info *ServerInfo) pkgoauth.SessionServerStatus {
 	// Handle unreachable servers first - no auth possible
-	if info.Status == api.StateUnreachable {
+	if info.GetStatus() == api.StateUnreachable {
 		return pkgoauth.SessionServerStatusUnreachable
 	}
 
@@ -148,7 +148,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	}
 
 	// No cached capabilities - check infrastructure state
-	if info.Status == api.StateAuthRequired && info.AuthInfo != nil {
+	if info.RequiresSessionAuth() && info.AuthInfo != nil {
 		// SSO-enabled servers are connected synchronously during login via initSSOForSession.
 		// Return sso_pending while the connection attempt is in flight, but
 		// fall back to auth_required if the pending timeout has elapsed.
@@ -287,7 +287,7 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	servers := a.registry.GetAllServers()
 	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure int
 	for _, info := range servers {
-		if info.Status != api.StateAuthRequired {
+		if !info.RequiresSessionAuth() {
 			skippedNotAuthRequired++
 			continue
 		}

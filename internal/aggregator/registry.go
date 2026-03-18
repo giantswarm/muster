@@ -182,7 +182,6 @@ func (r *ServerRegistry) Register(ctx context.Context, name string, client MCPCl
 	info := &ServerInfo{
 		Name:       name,
 		Client:     client,
-		Status:     api.StateConnected,
 		ToolPrefix: toolPrefix,
 	}
 
@@ -300,7 +299,7 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 
 		// Per ADR-008: Servers requiring authentication do NOT expose any tools
 		// Users must use core_auth_login to authenticate first
-		if info.Status == api.StateAuthRequired {
+		if info.RequiresSessionAuth() {
 			authRequiredCount++
 			logging.Debug("Aggregator", "Server %s requires auth, no tools exposed (use core_auth_login)", serverName)
 			continue
@@ -568,7 +567,7 @@ func (r *ServerRegistry) refreshServerCapabilities(ctx context.Context, info *Se
 }
 
 // RegisterPendingAuth registers a server that requires authentication before it can be fully connected.
-// This creates a placeholder server entry with api.StateAuthRequired. Per ADR-008, no synthetic
+// This creates a placeholder server entry requiring session auth. Per ADR-008, no synthetic
 // authentication tools are created - users should use core_auth_login to authenticate.
 //
 // Args:
@@ -601,13 +600,16 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 		return fmt.Errorf("server %s already registered", name)
 	}
 
+	if authConfig == nil {
+		authConfig = &api.MCPServerAuth{}
+	}
+
 	// Create server info in auth_required state
 	// Per ADR-008: No synthetic tools are created. Users use core_auth_login instead.
 	info := &ServerInfo{
 		Name:       name,
 		URL:        url,
 		ToolPrefix: toolPrefix,
-		Status:     api.StateAuthRequired,
 		AuthInfo:   authInfo,
 		AuthConfig: authConfig,
 		Client:     nil, // No client until authentication succeeds
@@ -629,52 +631,9 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 	return nil
 }
 
-// UpgradeToConnected upgrades a pending auth server to connected status after
-// successful authentication. This replaces the synthetic auth tool with the
-// server's actual tools.
-//
-// Args:
-//   - ctx: Context for capability queries
-//   - name: Server name to upgrade
-//   - client: The newly authenticated MCP client
-//
-// Returns an error if the server is not found or is not in pending auth state.
-func (r *ServerRegistry) UpgradeToConnected(ctx context.Context, name string, client MCPClient) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	info, exists := r.servers[name]
-	if !exists {
-		return fmt.Errorf("server %s not found", name)
-	}
-
-	if info.Status != api.StateAuthRequired {
-		return fmt.Errorf("server %s is not in auth_required state", name)
-	}
-
-	// Update server info with the new client
-	info.Client = client
-	info.Status = api.StateConnected
-	info.AuthInfo = nil // Clear auth info after successful auth
-
-	// Fetch actual capabilities from the server
-	if err := r.refreshServerCapabilities(ctx, info); err != nil {
-		logging.Warn("Aggregator", "Failed to get capabilities after auth for %s: %v", name, err)
-	}
-
-	r.notifyUpdate()
-
-	info.mu.RLock()
-	logging.Info("Aggregator", "Server %s upgraded to connected with %d tools, %d resources, %d prompts",
-		name, len(info.Tools), len(info.Resources), len(info.Prompts))
-	info.mu.RUnlock()
-
-	return nil
-}
-
 // GetAllToolsForSession returns the tools visible to a specific login session.
 //
-// For OAuth servers (api.StateAuthRequired), tools are read from the CapabilityStore
+// For OAuth servers (RequiresSessionAuth), tools are read from the CapabilityStore
 // keyed by session ID (token family). For non-OAuth servers, tools are read from
 // ServerInfo.Tools (same as GetAllTools).
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store CapabilityStore, sessionID string) []mcp.Tool {
@@ -684,7 +643,7 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 	var allTools []mcp.Tool
 
 	for serverName, info := range r.servers {
-		if info.Status == api.StateAuthRequired {
+		if info.RequiresSessionAuth() {
 			if store == nil {
 				continue
 			}
@@ -727,7 +686,7 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store Ca
 	var allResources []mcp.Resource
 
 	for serverName, info := range r.servers {
-		if info.Status == api.StateAuthRequired {
+		if info.RequiresSessionAuth() {
 			if store == nil {
 				continue
 			}
@@ -770,7 +729,7 @@ func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store Capa
 	var allPrompts []mcp.Prompt
 
 	for serverName, info := range r.servers {
-		if info.Status == api.StateAuthRequired {
+		if info.RequiresSessionAuth() {
 			if store == nil {
 				continue
 			}
@@ -809,7 +768,7 @@ func (r *ServerRegistry) GetOAuthServers() []*ServerInfo {
 
 	var servers []*ServerInfo
 	for _, info := range r.servers {
-		if info.Status == api.StateAuthRequired {
+		if info.RequiresSessionAuth() {
 			servers = append(servers, info)
 		}
 	}
@@ -825,5 +784,5 @@ func (r *ServerRegistry) IsOAuthServer(serverName string) bool {
 	if !exists {
 		return false
 	}
-	return info.Status == api.StateAuthRequired
+	return info.RequiresSessionAuth()
 }

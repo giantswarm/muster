@@ -5,8 +5,6 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/giantswarm/muster/internal/api"
 )
 
 func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
@@ -19,16 +17,14 @@ func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
 			name: "All tools get prefixed",
 			servers: map[string]*ServerInfo{
 				"serverA": {
-					Name:   "serverA",
-					Status: api.StateConnected,
+					Name: "serverA",
 					Tools: []mcp.Tool{
 						{Name: "read_file"},
 						{Name: "write_file"},
 					},
 				},
 				"serverB": {
-					Name:   "serverB",
-					Status: api.StateConnected,
+					Name: "serverB",
 					Tools: []mcp.Tool{
 						{Name: "search"},
 						{Name: "analyze"},
@@ -46,16 +42,14 @@ func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
 			name: "Tools with same names get prefixed",
 			servers: map[string]*ServerInfo{
 				"serverA": {
-					Name:   "serverA",
-					Status: api.StateConnected,
+					Name: "serverA",
 					Tools: []mcp.Tool{
 						{Name: "read_file"},
 						{Name: "search"},
 					},
 				},
 				"serverB": {
-					Name:   "serverB",
-					Status: api.StateConnected,
+					Name: "serverB",
 					Tools: []mcp.Tool{
 						{Name: "search"},
 						{Name: "analyze"},
@@ -73,22 +67,19 @@ func TestServerRegistry_AlwaysPrefixing(t *testing.T) {
 			name: "Multiple servers with same tool",
 			servers: map[string]*ServerInfo{
 				"serverA": {
-					Name:   "serverA",
-					Status: api.StateConnected,
+					Name: "serverA",
 					Tools: []mcp.Tool{
 						{Name: "common_tool"},
 					},
 				},
 				"serverB": {
-					Name:   "serverB",
-					Status: api.StateConnected,
+					Name: "serverB",
 					Tools: []mcp.Tool{
 						{Name: "common_tool"},
 					},
 				},
 				"serverC": {
-					Name:   "serverC",
-					Status: api.StateConnected,
+					Name: "serverC",
 					Tools: []mcp.Tool{
 						{Name: "common_tool"},
 						{Name: "unique_tool"},

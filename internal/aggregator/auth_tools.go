@@ -135,7 +135,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	if serverInfo.Status != api.StateAuthRequired {
+	if !serverInfo.RequiresSessionAuth() {
 		// Server is already connected or doesn't require auth
 		if serverInfo.IsConnected() {
 			return &api.CallToolResult{
