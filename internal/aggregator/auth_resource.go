@@ -62,38 +62,47 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
+	hasSession := sub != "" && sessionID != ""
+	if !hasSession {
+		logging.Warn("Aggregator", "handleAuthStatusResource: missing session context (hasSub=%t, hasSessionID=%t) — returning infrastructure-level status only",
+			sub != "", sessionID != "")
+	}
 
 	servers := a.registry.GetAllServers()
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
-		// Check if this server uses SSO via token exchange (RFC 8693) or token forwarding
 		usesTokenExchange := ShouldUseTokenExchange(info)
 		usesTokenForwarding := ShouldUseTokenForwarding(info)
 
-		// Check if SSO was attempted but failed for this user/server
 		ssoAttemptFailed := false
-		if a.ssoTracker != nil && (usesTokenExchange || usesTokenForwarding) {
+		if hasSession && a.ssoTracker != nil && (usesTokenExchange || usesTokenForwarding) {
 			ssoAttemptFailed = a.ssoTracker.HasSSOFailed(sub, name)
+		}
+
+		var serverStatus pkgoauth.SessionServerStatus
+		if hasSession {
+			serverStatus = a.determineSessionAuthStatus(sub, sessionID, name, info)
+		} else if info.RequiresSessionAuth() {
+			serverStatus = pkgoauth.SessionServerStatusAuthRequired
+		} else if info.IsConnected() {
+			serverStatus = pkgoauth.SessionServerStatusConnected
+		} else {
+			serverStatus = pkgoauth.SessionServerStatusDisconnected
 		}
 
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
-			Status:                 a.determineSessionAuthStatus(sub, sessionID, name, info),
+			Status:                 serverStatus,
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		// If auth is required for this session, include auth tool info
 		if status.Status == pkgoauth.SessionServerStatusAuthRequired && info.AuthInfo != nil {
 			status.Issuer = info.AuthInfo.Issuer
 			status.Scope = info.AuthInfo.Scope
-			// Only expose auth tool for servers that support manual browser-based OAuth.
-			// SSO-enabled servers (token forwarding/exchange) are authenticated by the
-			// admin, not the user -- manual login cannot fix SSO failures.
 			if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
-				// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
 				status.AuthTool = "core_auth_login"
 			}
 		}
@@ -348,6 +357,11 @@ func (a *AggregatorServer) establishSSOConnection(
 ) {
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		logging.Warn("Aggregator", "SSO: skipping connection to %s — no session context (hasSessionID=%t, hasSub=%t)",
+			serverInfo.Name, sessionID != "", sub != "")
+		return
+	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.
 	if a.authStore != nil {

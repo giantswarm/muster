@@ -13,6 +13,12 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// testSessionCtx returns a context with test session and subject values injected.
+func testSessionCtx() context.Context {
+	ctx := api.WithSubject(context.Background(), "test-user")
+	return api.WithSessionID(ctx, "test-session")
+}
+
 // getServerInfo is a test helper that retrieves a ServerInfo by name, failing the test if not found.
 func getServerInfo(t *testing.T, reg *ServerRegistry, name string) *ServerInfo {
 	t.Helper()
@@ -23,6 +29,36 @@ func getServerInfo(t *testing.T, reg *ServerRegistry, name string) *ServerInfo {
 	return info
 }
 
+func TestHandleAuthStatusResource_DegradedWithoutSession(t *testing.T) {
+	aggServer := &AggregatorServer{registry: NewServerRegistry("x")}
+
+	err := aggServer.registry.RegisterPendingAuth(
+		"auth-server", "https://auth.example.com", "auth",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+	)
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+
+	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	if err != nil {
+		t.Fatalf("expected graceful degradation, got error: %v", err)
+	}
+
+	textContent, ok := result[0].(mcp.TextResourceContents)
+	if !ok {
+		t.Fatalf("expected TextResourceContents, got %T", result[0])
+	}
+
+	var response pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	assert.Len(t, response.Servers, 1)
+	assert.Equal(t, pkgoauth.SessionServerStatusAuthRequired, response.Servers[0].Status)
+}
+
 func TestHandleAuthStatusResource_NoServers(t *testing.T) {
 	// Create a minimal aggregator server with an empty registry
 	aggServer := &AggregatorServer{
@@ -30,7 +66,7 @@ func TestHandleAuthStatusResource_NoServers(t *testing.T) {
 	}
 
 	// Call the handler
-	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +114,7 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 	}
 
 	// Call the handler
-	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +172,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -191,7 +227,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -234,7 +270,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

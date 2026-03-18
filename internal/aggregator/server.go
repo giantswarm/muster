@@ -1456,9 +1456,12 @@ func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID s
 func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) []mcp.Tool {
 	subject := getUserSubjectFromContext(ctx)
 
-	// Track subject -> MCP session mapping for targeted notifications
-	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-		a.subjectSessions.Track(subject, session.SessionID())
+	// Track subject -> MCP session mapping for targeted notifications.
+	// Skip tracking when subject is empty to avoid polluting the session map.
+	if subject != "" {
+		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+			a.subjectSessions.Track(subject, session.SessionID())
+		}
 	}
 
 	// Only return meta-tools -- downstream tools are accessed via call_tool
@@ -2609,6 +2612,10 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 // mcpserver, events, and auth providers.
 func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		logging.Warn("Aggregator", "ListToolsForContext: no session ID in context — returning core tools only")
+		return a.getAllCoreToolsAsMCPTools()
+	}
 
 	mcpServerTools := a.GetToolsForSession(ctx, sessionID)
 	coreTools := a.getAllCoreToolsAsMCPTools()
@@ -2626,12 +2633,20 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 // ListResourcesForContext returns all available resources for the current session context.
 func (a *AggregatorServer) ListResourcesForContext(ctx context.Context) []mcp.Resource {
 	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		logging.Warn("Aggregator", "ListResourcesForContext: no session ID in context — returning empty")
+		return nil
+	}
 	return a.GetResourcesForSession(ctx, sessionID)
 }
 
 // ListPromptsForContext returns all available prompts for the current session context.
 func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []mcp.Prompt {
 	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		logging.Warn("Aggregator", "ListPromptsForContext: no session ID in context — returning empty")
+		return nil
+	}
 	return a.GetPromptsForSession(ctx, sessionID)
 }
 
