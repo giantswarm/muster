@@ -111,9 +111,31 @@ func Info(subsystem string, messageFmt string, args ...interface{}) {
 	logInternal(LevelInfo, subsystem, nil, messageFmt, args...)
 }
 
+// InfoWithAttrs logs an informational message with additional structured attributes.
+func InfoWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
+	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), slog.LevelInfo) {
+		return
+	}
+	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
+	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
+	allAttrs = append(allAttrs, attrs...)
+	defaultLogger.LogAttrs(context.Background(), slog.LevelInfo, msg, allAttrs...)
+}
+
 // Warn logs a warning message.
 func Warn(subsystem string, messageFmt string, args ...interface{}) {
 	logInternal(LevelWarn, subsystem, nil, messageFmt, args...)
+}
+
+// WarnWithAttrs logs a warning message with additional structured attributes.
+func WarnWithAttrs(subsystem string, msg string, attrs ...slog.Attr) {
+	if defaultLogger == nil || !defaultLogger.Enabled(context.Background(), slog.LevelWarn) {
+		return
+	}
+	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
+	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
+	allAttrs = append(allAttrs, attrs...)
+	defaultLogger.LogAttrs(context.Background(), slog.LevelWarn, msg, allAttrs...)
 }
 
 // Error logs an error message.
@@ -130,6 +152,18 @@ func TruncateIdentifier(id string) string {
 		return id
 	}
 	return id[:8] + "..."
+}
+
+// TransportSessionID returns a slog.Attr with a truncated MCP transport session ID.
+// The last UUID group is replaced with "..." to preserve enough of the ID for log
+// correlation while avoiding logging the full value.
+// Format: "mcp-session-ffa8afa1-eb56-4692-98d2-d6dbc99d4a06" → "mcp-session-ffa8afa1-eb56-4692-98d2-..."
+func TransportSessionID(key, id string) slog.Attr {
+	truncated := id
+	if lastDash := strings.LastIndex(id, "-"); lastDash > 0 {
+		truncated = id[:lastDash+1] + "..."
+	}
+	return slog.String(key, truncated)
 }
 
 // AuditEvent represents a structured audit log event for security-sensitive operations.
