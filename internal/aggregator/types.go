@@ -94,6 +94,8 @@ type ServerInfo struct {
 
 	// AuthConfig contains the authentication configuration for this server.
 	// This is used to determine token forwarding behavior for SSO.
+	// Immutable after registration — set once by RegisterPendingAuthWithConfig
+	// and never modified, so RequiresSessionAuth() is safe without locking.
 	AuthConfig *api.MCPServerAuth
 
 	// Cached capabilities - these are updated periodically to avoid
@@ -160,7 +162,10 @@ func (s *ServerInfo) IsConnected() bool {
 	if api.IsActiveState(status) {
 		return true
 	}
-	if status == api.StateUnknown && s.Client != nil {
+	s.mu.RLock()
+	client := s.Client
+	s.mu.RUnlock()
+	if status == api.StateUnknown && client != nil {
 		return true
 	}
 	return false

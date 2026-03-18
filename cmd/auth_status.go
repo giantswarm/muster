@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -277,6 +278,7 @@ func formatMCPServerStatus(status pkgoauth.SessionServerStatus) string {
 	case pkgoauth.SessionServerStatusUnreachable:
 		return text.FgHiBlack.Sprint("Unreachable")
 	default:
+		log.Printf("WARNING: unhandled SessionServerStatus %q", status)
 		return text.FgHiBlack.Sprint(status)
 	}
 }

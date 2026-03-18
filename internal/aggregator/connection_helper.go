@@ -20,6 +20,17 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// requireSessionContext extracts sessionID and subject from ctx,
+// returning an error that names serverName when either is missing.
+func requireSessionContext(ctx context.Context, serverName string) (sessionID, sub string, err error) {
+	sessionID = getSessionIDFromContext(ctx)
+	sub = getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return "", "", fmt.Errorf("no session context available for server %s", serverName)
+	}
+	return sessionID, sub, nil
+}
+
 // ConnectionResult contains the result of establishing a session connection.
 // This is returned by establishConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
@@ -74,10 +85,9 @@ func establishConnection(
 	a *AggregatorServer,
 	serverName, serverURL, issuer, scope, accessToken string,
 ) (*ConnectionResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
-	if sessionID == "" || sub == "" {
-		return nil, fmt.Errorf("cannot establish connection to %s: no session context available", serverName)
+	sessionID, sub, err := requireSessionContext(ctx, serverName)
+	if err != nil {
+		return nil, err
 	}
 
 	oauthHandler := api.GetOAuthHandler()
@@ -257,10 +267,9 @@ func EstablishConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
-	if sessionID == "" || sub == "" {
-		return nil, fmt.Errorf("cannot forward token to %s: no session context available", serverInfo.Name)
+	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
+	if err != nil {
+		return nil, err
 	}
 
 	if a.authStore != nil {
@@ -469,10 +478,9 @@ func EstablishConnectionWithTokenExchange(
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
-	if sessionID == "" || sub == "" {
-		return nil, fmt.Errorf("cannot exchange token for %s: no session context available", serverInfo.Name)
+	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
+	if err != nil {
+		return nil, err
 	}
 	if a.authStore != nil {
 		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
@@ -571,7 +579,6 @@ func EstablishConnectionWithTokenExchange(
 
 	// Perform the token exchange (using Teleport client if configured)
 	var exchangedToken string
-	var err error
 	if teleportResult.Client != nil {
 		logging.Debug("Connection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
 		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(

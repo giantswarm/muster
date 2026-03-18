@@ -600,11 +600,14 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 		return fmt.Errorf("server %s already registered", name)
 	}
 
+	// A nil authConfig means "no auth config was provided by the caller".
+	// We normalise it to an empty struct so RequiresSessionAuth() returns true
+	// for every server registered through this path — all pending-auth servers
+	// require per-session authentication by definition.
 	if authConfig == nil {
 		authConfig = &api.MCPServerAuth{}
 	}
 
-	// Create server info in auth_required state
 	// Per ADR-008: No synthetic tools are created. Users use core_auth_login instead.
 	info := &ServerInfo{
 		Name:       name,

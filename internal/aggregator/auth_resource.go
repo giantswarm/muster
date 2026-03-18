@@ -79,13 +79,11 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
-			Status:                 pkgoauth.SessionServerStatus(info.GetStatus()),
+			Status:                 a.determineSessionAuthStatus(sub, sessionID, name, info),
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
-
-		status.Status = a.determineSessionAuthStatus(sub, sessionID, name, info)
 
 		// If auth is required for this session, include auth tool info
 		if status.Status == pkgoauth.SessionServerStatusAuthRequired && info.AuthInfo != nil {

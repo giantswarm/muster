@@ -67,11 +67,10 @@ func (m *activeItemManager) removeItems(items []string) {
 // visible in the listing -- not just "connected" for servers with cached caps.
 func (a *AggregatorServer) enrichServerList(ctx context.Context, result *mcp.CallToolResult) *mcp.CallToolResult {
 	sessionID := getSessionIDFromContext(ctx)
-	if sessionID == "" || result == nil || len(result.Content) == 0 {
+	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" || result == nil || len(result.Content) == 0 {
 		return result
 	}
-
-	sub := getUserSubjectFromContext(ctx)
 
 	for i, content := range result.Content {
 		textContent, ok := content.(mcp.TextContent)
