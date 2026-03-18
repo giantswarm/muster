@@ -95,7 +95,7 @@ func (a *AggregatorServer) enrichServerList(ctx context.Context, result *mcp.Cal
 			if !ok {
 				continue
 			}
-			servers[j] = a.enrichServerEntry(sub, sessionID, serverMap)
+			servers[j] = a.enrichServerEntry(ctx, sub, sessionID, serverMap)
 		}
 		responseMap["mcpServers"] = servers
 
@@ -115,7 +115,7 @@ func (a *AggregatorServer) enrichServerList(ctx context.Context, result *mcp.Cal
 }
 
 // enrichServerEntry adds sessionStatus and toolsCount to a single server map.
-func (a *AggregatorServer) enrichServerEntry(sub, sessionID string, entry map[string]interface{}) map[string]interface{} {
+func (a *AggregatorServer) enrichServerEntry(ctx context.Context, sub, sessionID string, entry map[string]interface{}) map[string]interface{} {
 	serverName, ok := entry["name"].(string)
 	if !ok || serverName == "" {
 		return entry
@@ -127,7 +127,7 @@ func (a *AggregatorServer) enrichServerEntry(sub, sessionID string, entry map[st
 	}
 
 	if a.capabilityStore != nil {
-		caps, err := a.capabilityStore.Get(context.Background(), sessionID, serverName)
+		caps, err := a.capabilityStore.Get(ctx, sessionID, serverName)
 		if err == nil && caps != nil && len(caps.Tools) > 0 {
 			entry["toolsCount"] = len(caps.Tools)
 		}

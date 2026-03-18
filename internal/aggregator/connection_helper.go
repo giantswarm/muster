@@ -20,6 +20,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// errMissingSession is the user-facing message returned when a tool call
+// lacks session/subject context. Shared by requireSessionContext and
+// requireSessionContextResult so the wording stays in sync.
+const errMissingSession = "Error: authentication context missing — no active session"
+
 // requireSessionContext extracts sessionID and subject from ctx,
 // returning an error that names serverName when either is missing.
 func requireSessionContext(ctx context.Context, serverName string) (sessionID, sub string, err error) {
@@ -27,6 +32,20 @@ func requireSessionContext(ctx context.Context, serverName string) (sessionID, s
 	sub = getUserSubjectFromContext(ctx)
 	if sessionID == "" || sub == "" {
 		return "", "", fmt.Errorf("no session context available for server %s", serverName)
+	}
+	return sessionID, sub, nil
+}
+
+// requireSessionContextResult is like requireSessionContext but returns an
+// api.CallToolResult error suitable for direct return from tool handlers.
+func requireSessionContextResult(ctx context.Context) (sessionID, sub string, errResult *api.CallToolResult) {
+	sessionID = getSessionIDFromContext(ctx)
+	sub = getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return "", "", &api.CallToolResult{
+			Content: []interface{}{errMissingSession},
+			IsError: true,
+		}
 	}
 	return sessionID, sub, nil
 }

@@ -91,13 +91,9 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		}, nil
 	}
 
-	sub := getUserSubjectFromContext(ctx)
-	sessionID := getSessionIDFromContext(ctx)
-	if sub == "" || sessionID == "" {
-		return &api.CallToolResult{
-			Content: []interface{}{"Error: authentication context missing — no active session"},
-			IsError: true,
-		}, nil
+	sessionID, sub, errResult := requireSessionContextResult(ctx)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sub, serverName) {
@@ -318,13 +314,9 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		}, nil
 	}
 
-	sub := getUserSubjectFromContext(ctx)
-	sessionID := getSessionIDFromContext(ctx)
-	if sub == "" || sessionID == "" {
-		return &api.CallToolResult{
-			Content: []interface{}{"Error: authentication context missing — no active session"},
-			IsError: true,
-		}, nil
+	sessionID, sub, errResult := requireSessionContextResult(ctx)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	if p.aggregator.authMetrics != nil {
