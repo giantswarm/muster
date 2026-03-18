@@ -13,6 +13,12 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// testSessionCtx returns a context with test session and subject values injected.
+func testSessionCtx() context.Context {
+	ctx := api.WithSubject(context.Background(), "test-user")
+	return api.WithSessionID(ctx, "test-session")
+}
+
 // getServerInfo is a test helper that retrieves a ServerInfo by name, failing the test if not found.
 func getServerInfo(t *testing.T, reg *ServerRegistry, name string) *ServerInfo {
 	t.Helper()
@@ -23,6 +29,36 @@ func getServerInfo(t *testing.T, reg *ServerRegistry, name string) *ServerInfo {
 	return info
 }
 
+func TestHandleAuthStatusResource_DegradedWithoutSession(t *testing.T) {
+	aggServer := &AggregatorServer{registry: NewServerRegistry("x")}
+
+	err := aggServer.registry.RegisterPendingAuth(
+		"auth-server", "https://auth.example.com", "auth",
+		&AuthInfo{Issuer: "https://dex.example.com"},
+	)
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+
+	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	if err != nil {
+		t.Fatalf("expected graceful degradation, got error: %v", err)
+	}
+
+	textContent, ok := result[0].(mcp.TextResourceContents)
+	if !ok {
+		t.Fatalf("expected TextResourceContents, got %T", result[0])
+	}
+
+	var response pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	assert.Len(t, response.Servers, 1)
+	assert.Equal(t, pkgoauth.SessionServerStatusAuthRequired, response.Servers[0].Status)
+}
+
 func TestHandleAuthStatusResource_NoServers(t *testing.T) {
 	// Create a minimal aggregator server with an empty registry
 	aggServer := &AggregatorServer{
@@ -30,7 +66,7 @@ func TestHandleAuthStatusResource_NoServers(t *testing.T) {
 	}
 
 	// Call the handler
-	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +114,7 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 	}
 
 	// Call the handler
-	result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+	result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +172,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -191,7 +227,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -234,7 +270,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			t.Fatalf("failed to register server: %v", err)
 		}
 
-		result, err := aggServer.handleAuthStatusResource(context.Background(), mcp.ReadResourceRequest{})
+		result, err := aggServer.handleAuthStatusResource(testSessionCtx(), mcp.ReadResourceRequest{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -286,8 +322,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-		if status != pkgoauth.ServerStatusSSOPending {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
+		if status != pkgoauth.SessionServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusSSOPending, status)
 		}
 	})
 
@@ -320,8 +356,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "exchange-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "exchange-server", info)
-		if status != pkgoauth.ServerStatusSSOPending {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusSSOPending, status)
+		if status != pkgoauth.SessionServerStatusSSOPending {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusSSOPending, status)
 		}
 	})
 
@@ -344,12 +380,12 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-no-pending")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-no-pending", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusAuthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusAuthRequired, status)
 		}
 	})
 
-	t.Run("returns auth_required when SSO failed for the server", func(t *testing.T) {
+	t.Run("returns reauth_required when SSO failed for the server", func(t *testing.T) {
 		tracker := newSSOTracker()
 
 		aggServer := &AggregatorServer{
@@ -372,8 +408,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusReauthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusReauthRequired, status)
 		}
 	})
 
@@ -395,8 +431,8 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 
 		info := getServerInfo(t, aggServer.registry, "non-sso-server")
 		status := aggServer.determineSessionAuthStatus(sub, sessionID, "non-sso-server", info)
-		if status != pkgoauth.ServerStatusAuthRequired {
-			t.Errorf("expected status %q, got %q", pkgoauth.ServerStatusAuthRequired, status)
+		if status != pkgoauth.SessionServerStatusAuthRequired {
+			t.Errorf("expected status %q, got %q", pkgoauth.SessionServerStatusAuthRequired, status)
 		}
 	})
 }
@@ -451,23 +487,145 @@ func TestDetermineSessionAuthStatus_SSOPendingTimeout(t *testing.T) {
 
 	// Before MarkSSOPending: should return auth_required (not stuck as sso_pending)
 	status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusAuthRequired {
+	if status != pkgoauth.SessionServerStatusAuthRequired {
 		t.Errorf("expected auth_required before pending, got %q", status)
 	}
 
 	// After MarkSSOPending: should return sso_pending
 	tracker.MarkSSOPending(sub, "sso-server")
 	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusSSOPending {
+	if status != pkgoauth.SessionServerStatusSSOPending {
 		t.Errorf("expected sso_pending after MarkSSOPending, got %q", status)
 	}
 
 	// After ClearSSOPending: should return auth_required again
 	tracker.ClearSSOPending(sub, "sso-server")
 	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
-	if status != pkgoauth.ServerStatusAuthRequired {
+	if status != pkgoauth.SessionServerStatusAuthRequired {
 		t.Errorf("expected auth_required after ClearSSOPending, got %q", status)
 	}
+}
+
+func TestDetermineSessionAuthStatus_ReauthRequired_WhenSSOFailed(t *testing.T) {
+	sub := "degraded-user"
+	sessionID := "degraded-session"
+
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   NewServerRegistry("x"),
+		ssoTracker: tracker,
+	}
+
+	err := aggServer.registry.RegisterPendingAuthWithConfig(
+		"sso-server",
+		"https://sso.example.com",
+		"sso",
+		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+	info := getServerInfo(t, aggServer.registry, "sso-server")
+
+	// Before failure: should return auth_required
+	status := aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
+	assert.Equal(t, pkgoauth.SessionServerStatusAuthRequired, status,
+		"should be auth_required before any failure")
+
+	// After SSO failure (e.g. refresh chain broken): should return reauth_required
+	tracker.MarkSSOFailed(sub, "sso-server")
+	status = aggServer.determineSessionAuthStatus(sub, sessionID, "sso-server", info)
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, status,
+		"should be reauth_required when SSO has failed for an SSO-enabled server")
+}
+
+func TestDetermineSessionAuthStatus_ReauthRequired_TokenExchangeServer(t *testing.T) {
+	sub := "exchange-user"
+	sessionID := "exchange-session"
+
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   NewServerRegistry("x"),
+		ssoTracker: tracker,
+	}
+
+	err := aggServer.registry.RegisterPendingAuthWithConfig(
+		"exchange-server",
+		"https://exchange.example.com",
+		"exchange",
+		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+			Enabled:          true,
+			DexTokenEndpoint: "https://remote-dex.example.com/token",
+			ConnectorID:      "cluster-a-dex",
+			ClientID:         "test-client",
+		}},
+	)
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+	info := getServerInfo(t, aggServer.registry, "exchange-server")
+
+	tracker.MarkSSOFailed(sub, "exchange-server")
+	status := aggServer.determineSessionAuthStatus(sub, sessionID, "exchange-server", info)
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, status,
+		"token exchange server with SSO failure should also return reauth_required")
+}
+
+func TestHandleAuthStatusResource_ReauthRequired_PopulatesAuthMetadata(t *testing.T) {
+	sub := "reauth-user"
+	tracker := newSSOTracker()
+	aggServer := &AggregatorServer{
+		registry:   NewServerRegistry("x"),
+		ssoTracker: tracker,
+	}
+
+	err := aggServer.registry.RegisterPendingAuthWithConfig(
+		"sso-server",
+		"https://sso.example.com",
+		"sso",
+		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		&api.MCPServerAuth{ForwardToken: true},
+	)
+	if err != nil {
+		t.Fatalf("failed to register server: %v", err)
+	}
+
+	tracker.MarkSSOFailed(sub, "sso-server")
+
+	ctx := api.WithSubject(context.Background(), sub)
+	ctx = api.WithSessionID(ctx, "reauth-session")
+
+	result, err := aggServer.handleAuthStatusResource(ctx, mcp.ReadResourceRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	textContent, ok := result[0].(mcp.TextResourceContents)
+	if !ok {
+		t.Fatalf("expected TextResourceContents, got %T", result[0])
+	}
+
+	var response pkgoauth.AuthStatusResponse
+	if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	assert.Len(t, response.Servers, 1)
+	srv := response.Servers[0]
+	assert.Equal(t, pkgoauth.SessionServerStatusReauthRequired, srv.Status,
+		"status should be reauth_required when SSO has failed")
+	assert.Equal(t, "https://dex.example.com", srv.Issuer,
+		"issuer should be populated for reauth_required")
+	assert.Equal(t, "openid", srv.Scope,
+		"scope should be populated for reauth_required")
+	assert.Equal(t, "core_auth_login", srv.AuthTool,
+		"AuthTool should be core_auth_login for reauth_required so the agent can prompt re-authentication")
+	assert.True(t, srv.TokenForwardingEnabled,
+		"TokenForwardingEnabled should be true")
+	assert.True(t, srv.SSOAttemptFailed,
+		"SSOAttemptFailed should be true when SSO has failed")
 }
 
 func TestAuthStatusResponse_MarshalJSON(t *testing.T) {

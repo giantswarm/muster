@@ -262,10 +262,6 @@ const (
 	// This state is used for remote MCP servers (streamable-http, sse) that fail to connect
 	// due to network issues, DNS failures, or decommissioned endpoints.
 	// Servers in this state will use exponential backoff for retry attempts.
-	//
-	// Related constants:
-	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
-	// - pkgoauth.ServerStatusUnreachable (pkg/oauth/types.go)
 	StateUnreachable ServiceState = "unreachable"
 
 	// StateAuthRequired indicates the service requires OAuth authentication before connecting.
@@ -276,28 +272,17 @@ const (
 	// This is distinct from StateUnreachable:
 	// - StateAuthRequired: Server is reachable but requires authentication
 	// - StateUnreachable: Server cannot be reached (network/connectivity issue)
-	//
-	// Related constants:
-	// - aggregator.StatusAuthRequired (internal/aggregator/types.go)
-	// - pkgoauth.ServerStatusAuthRequired (pkg/oauth/types.go)
 	StateAuthRequired ServiceState = "auth_required"
 
 	// StateConnected indicates the service is connected and authenticated.
 	// This is an alias for StateRunning for semantic clarity with remote servers.
 	// For remote MCP servers, "connected" is more intuitive than "running" since
 	// the server itself is running remotely - we are just connected to it.
-	//
-	// Related constants:
-	// - aggregator.StatusConnected (internal/aggregator/types.go)
-	// - pkgoauth.ServerStatusConnected (pkg/oauth/types.go)
 	StateConnected ServiceState = "connected"
 
 	// StateDisconnected indicates the service was previously connected but is now disconnected.
 	// This state is used for remote MCP servers that were successfully connected but
 	// the connection was lost (session ended, server restart, etc.).
-	//
-	// Related constants:
-	// - aggregator.StatusDisconnected (internal/aggregator/types.go)
 	StateDisconnected ServiceState = "disconnected"
 )
 

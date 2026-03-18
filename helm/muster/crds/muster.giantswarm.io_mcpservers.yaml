@@ -297,15 +297,17 @@ spec:
             description: |-
               MCPServerStatus defines the observed state of MCPServer.
 
-              IMPORTANT: This status reflects infrastructure state only, NOT user session state.
-              Per-user connection status and authentication state are tracked in the Session Registry
-              (internal/aggregator/session_registry.go) to support multi-user environments.
+              This status reflects server-side observable state including auth requirements.
+              It captures infrastructure connectivity as well as whether the server demands
+              authentication (e.g. "Auth Required"). Per-user session state (which specific
+              user is authenticated, token expiry, etc.) is tracked separately in the
+              Session Registry (internal/aggregator/session_registry.go).
 
-              Infrastructure State (CRD):
-                - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Failed
+              Server-Side State (CRD):
+                - State: Running/Connected/Starting/Connecting/Stopped/Disconnected/Auth Required/Failed
                 - Conditions: Standard K8s conditions for detailed status
 
-              Session State (Session Registry):
+              Per-User Session State (Session Registry):
                 - ConnectionStatus: Connected, PendingAuth, Failed (per-user)
                 - AuthStatus: Authenticated, AuthRequired, TokenExpired (per-user)
                 - AvailableTools: Tools visible to this specific user

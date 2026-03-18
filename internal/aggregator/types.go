@@ -88,16 +88,14 @@ type ServerInfo struct {
 	// URL is the server endpoint URL (for remote servers)
 	URL string
 
-	// Status indicates the server's connection/authentication status.
-	// Can be connected, disconnected, or auth_required.
-	Status ServerStatus
-
 	// AuthInfo contains OAuth information if authentication is required.
 	// This is populated when a 401 is received during initialization.
 	AuthInfo *AuthInfo
 
 	// AuthConfig contains the authentication configuration for this server.
 	// This is used to determine token forwarding behavior for SSO.
+	// Immutable after registration — set once by RegisterPendingAuthWithConfig
+	// and never modified, so RequiresSessionAuth() is safe without locking.
 	AuthConfig *api.MCPServerAuth
 
 	// Cached capabilities - these are updated periodically to avoid
@@ -106,7 +104,6 @@ type ServerInfo struct {
 	Tools     []mcp.Tool     // Cached list of available tools
 	Resources []mcp.Resource // Cached list of available resources
 	Prompts   []mcp.Prompt   // Cached list of available prompts
-	Connected bool           // Current connection status (deprecated, use Status)
 }
 
 // UpdateTools safely updates the server's cached tool list.
@@ -136,21 +133,42 @@ func (s *ServerInfo) UpdatePrompts(prompts []mcp.Prompt) {
 	s.Prompts = prompts
 }
 
-// SetConnected safely updates the connection status.
-// This is used to track whether the server is currently
-// available for operations.
-func (s *ServerInfo) SetConnected(connected bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Connected = connected
+// GetStatus returns the current service state from the canonical service registry.
+// Returns api.StateUnknown if the service is not found in the registry.
+func (s *ServerInfo) GetStatus() api.ServiceState {
+	registry := api.GetServiceRegistry()
+	if registry == nil {
+		return api.StateUnknown
+	}
+	svc, ok := registry.Get(s.Name)
+	if !ok {
+		return api.StateUnknown
+	}
+	return svc.GetState()
 }
 
-// IsConnected returns the current connection status.
-// This method is thread-safe and can be called concurrently.
+// RequiresSessionAuth reports whether this server uses per-session authentication.
+// This is a permanent property based on the server's auth configuration,
+// set during RegisterPendingAuth and never changed by connection state transitions.
+func (s *ServerInfo) RequiresSessionAuth() bool {
+	return s.AuthConfig != nil
+}
+
+// IsConnected reports whether the server is in an active (running/connected) state.
+// Falls back to checking for a live client when the service registry
+// has no entry (e.g. servers registered directly via Register).
 func (s *ServerInfo) IsConnected() bool {
+	status := s.GetStatus()
+	if api.IsActiveState(status) {
+		return true
+	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Connected
+	client := s.Client
+	s.mu.RUnlock()
+	if status == api.StateUnknown && client != nil {
+		return true
+	}
+	return false
 }
 
 // GetNamespace returns the namespace for this server.
@@ -273,29 +291,6 @@ type ToolWithStatus struct {
 	// Blocked tools cannot be executed unless the Yolo flag is enabled.
 	Blocked bool
 }
-
-// ServerStatus represents the connection status of a server
-type ServerStatus string
-
-const (
-	// StatusConnected indicates the server is connected and operational
-	StatusConnected ServerStatus = "connected"
-
-	// StatusDisconnected indicates the server is disconnected
-	StatusDisconnected ServerStatus = "disconnected"
-
-	// StatusAuthRequired indicates the server requires OAuth authentication
-	// before it can complete the MCP protocol handshake
-	StatusAuthRequired ServerStatus = "auth_required"
-
-	// StatusUnreachable indicates the server endpoint cannot be reached.
-	// This is distinct from auth_required - unreachable means network/connectivity failure.
-	//
-	// Related constants:
-	// - api.StateUnreachable (internal/api/service.go)
-	// - pkgoauth.ServerStatusUnreachable (pkg/oauth/types.go)
-	StatusUnreachable ServerStatus = "unreachable"
-)
 
 // AuthInfo is an alias to the mcpserver AuthInfo type for OAuth authentication.
 // It contains OAuth authentication information extracted from a 401 response.

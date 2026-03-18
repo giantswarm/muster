@@ -415,3 +415,39 @@ func TestCreateAccessTokenInjectorMiddleware(t *testing.T) {
 		assert.False(t, called) // Not called yet
 	})
 }
+
+func TestFireOnAuthenticated(t *testing.T) {
+	t.Run("fires callback when session ID is present", func(t *testing.T) {
+		s := &OAuthHTTPServer{}
+		var capturedSessionID string
+		s.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+			capturedSessionID = sessionID
+		})
+
+		ctx := api.WithSessionID(context.Background(), "test-session-123")
+		s.fireOnAuthenticated(ctx)
+
+		assert.Equal(t, "test-session-123", capturedSessionID)
+	})
+
+	t.Run("does not fire callback when session ID is missing", func(t *testing.T) {
+		s := &OAuthHTTPServer{}
+		called := false
+		s.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+			called = true
+		})
+
+		s.fireOnAuthenticated(context.Background())
+
+		assert.False(t, called, "callback should not fire without session ID")
+	})
+
+	t.Run("does not panic when no callback is registered", func(t *testing.T) {
+		s := &OAuthHTTPServer{}
+		ctx := api.WithSessionID(context.Background(), "test-session-123")
+
+		assert.NotPanics(t, func() {
+			s.fireOnAuthenticated(ctx)
+		})
+	})
+}

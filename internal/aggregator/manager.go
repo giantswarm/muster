@@ -420,36 +420,6 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 	return nil
 }
 
-// UpgradeServerAfterAuth upgrades a pending auth server to connected status
-// after successful OAuth authentication. This is called when the OAuth callback
-// is received and a token is available.
-//
-// Args:
-//   - ctx: Context for the operation
-//   - serverName: Name of the server to upgrade
-//   - client: The newly authenticated MCP client
-//
-// Returns an error if upgrade fails.
-func (am *AggregatorManager) UpgradeServerAfterAuth(ctx context.Context, serverName string, client MCPClient) error {
-	am.mu.Lock()
-	defer am.mu.Unlock()
-
-	if am.aggregatorServer == nil {
-		return fmt.Errorf("aggregator server not available")
-	}
-
-	err := am.aggregatorServer.GetRegistry().UpgradeToConnected(ctx, serverName, client)
-	if err != nil {
-		return err
-	}
-
-	// Trigger capability update to register the real tools
-	am.aggregatorServer.UpdateCapabilities()
-
-	logging.Info("Aggregator-Manager", "Server %s upgraded to connected after OAuth authentication", serverName)
-	return nil
-}
-
 // isServerAuthRequired checks if a server is currently in auth_required state.
 // This is used by the event handler to avoid deregistering servers that are
 // waiting for OAuth authentication.
@@ -466,7 +436,7 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 		return false
 	}
 
-	return info.Status == StatusAuthRequired
+	return info.RequiresSessionAuth()
 }
 
 // isServerSSOBased checks if a server is configured for SSO token forwarding or token exchange.

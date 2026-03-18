@@ -20,6 +20,36 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// errMissingSession is the user-facing message returned when a tool call
+// lacks session/subject context. Shared by requireSessionContext and
+// requireSessionContextResult so the wording stays in sync.
+const errMissingSession = "Error: authentication context missing — no active session"
+
+// requireSessionContext extracts sessionID and subject from ctx,
+// returning an error that names serverName when either is missing.
+func requireSessionContext(ctx context.Context, serverName string) (sessionID, sub string, err error) {
+	sessionID = getSessionIDFromContext(ctx)
+	sub = getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return "", "", fmt.Errorf("no session context available for server %s", serverName)
+	}
+	return sessionID, sub, nil
+}
+
+// requireSessionContextResult is like requireSessionContext but returns an
+// api.CallToolResult error suitable for direct return from tool handlers.
+func requireSessionContextResult(ctx context.Context) (sessionID, sub string, errResult *api.CallToolResult) {
+	sessionID = getSessionIDFromContext(ctx)
+	sub = getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		return "", "", &api.CallToolResult{
+			Content: []interface{}{errMissingSession},
+			IsError: true,
+		}
+	}
+	return sessionID, sub, nil
+}
+
 // ConnectionResult contains the result of establishing a session connection.
 // This is returned by establishConnection and used by callers to format
 // their specific result types (api.CallToolResult or mcp.CallToolResult).
@@ -74,8 +104,10 @@ func establishConnection(
 	a *AggregatorServer,
 	serverName, serverURL, issuer, scope, accessToken string,
 ) (*ConnectionResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
+	sessionID, sub, err := requireSessionContext(ctx, serverName)
+	if err != nil {
+		return nil, err
+	}
 
 	oauthHandler := api.GetOAuthHandler()
 
@@ -254,8 +286,10 @@ func EstablishConnectionWithTokenForwarding(
 	serverInfo *ServerInfo,
 	musterIssuer string,
 ) (*ConnectionResult, error) {
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
+	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
+	if err != nil {
+		return nil, err
+	}
 
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
@@ -292,7 +326,24 @@ func EstablishConnectionWithTokenForwarding(
 	// because the original request context becomes stale/cancelled after the
 	// connection-establishing request completes. The OAuth token store (keyed by
 	// sub + musterIssuer) is the stable source for refreshed tokens.
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken)
+	//
+	// The onStaleToken callback evicts the pooled connection and revokes the
+	// auth entry when the token cannot be resolved after repeated attempts.
+	// This stops mcp-go's infinite retry loop with expired tokens.
+	onStaleToken := func() {
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverInfo.Name)
+			logging.Info("Connection", "Evicted stale SSO connection for session %s to %s",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
+		}
+		if a.authStore != nil {
+			if err := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); err != nil {
+				logging.Warn("Connection", "Failed to revoke auth for session %s server %s after stale token eviction: %v",
+					logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
+			}
+		}
+	}
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverInfo.Name, idToken, onStaleToken)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 
 	// Try to initialize the client with the forwarded token
@@ -463,8 +514,10 @@ func EstablishConnectionWithTokenExchange(
 		return nil, fmt.Errorf("invalid server configuration for token exchange")
 	}
 
-	sessionID := getSessionIDFromContext(ctx)
-	sub := getUserSubjectFromContext(ctx)
+	sessionID, sub, err := requireSessionContext(ctx, serverInfo.Name)
+	if err != nil {
+		return nil, err
+	}
 	if a.authStore != nil {
 		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
 			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",
@@ -562,7 +615,6 @@ func EstablishConnectionWithTokenExchange(
 
 	// Perform the token exchange (using Teleport client if configured)
 	var exchangedToken string
-	var err error
 	if teleportResult.Client != nil {
 		logging.Debug("Connection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
 		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
@@ -810,6 +862,12 @@ const tokenExchangeRefreshMargin = 5 * time.Minute
 // failures are logged at DEBUG to avoid flooding logs from stale sessions.
 const headerFuncWarnInterval = 1 * time.Minute
 
+// maxConsecutiveTokenFailures is the number of consecutive token resolution
+// failures in the headerFunc before the stale connection is signaled for
+// eviction. At mcp-go's 1-second retry interval, 3 failures ≈ 3 seconds of
+// retrying with stale tokens before the connection is proactively closed.
+const maxConsecutiveTokenFailures = 3
+
 // makeTokenForwardingHeaderFunc creates the header function closure used by
 // EstablishConnectionWithTokenForwarding. The returned closure resolves the latest
 // ID token from the OAuth store on each invocation and falls back to fallbackToken
@@ -819,31 +877,63 @@ const headerFuncWarnInterval = 1 * time.Minute
 // once per headerFuncWarnInterval. Subsequent failures within the window are logged
 // at DEBUG. When the token recovers after a failure period, an INFO is emitted.
 //
+// Stale token eviction: after maxConsecutiveTokenFailures consecutive failures,
+// the onStaleToken callback is invoked asynchronously (in a goroutine) to evict
+// the connection from the pool and close the client. This stops mcp-go's infinite
+// retry loop because closing the client cancels the transport's context.
+// The callback fires at most once per consecutive failure streak; the counter
+// resets when a valid token is resolved, allowing re-eviction if the token
+// disappears again after recovery.
+//
 // The closure is safe to call without a mutex because headerFunc is called
 // sequentially per connection by the MCP client.
 func makeTokenForwardingHeaderFunc(
 	sessionID, sub, musterIssuer, serverName, fallbackToken string,
+	onStaleToken func(),
 ) func(context.Context) map[string]string {
 	var lastWarnTime time.Time
+	var consecutiveFailures int
+	var staleEvicted bool
 	hadToken := true
 	return func(_ context.Context) map[string]string {
 		latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer)
 		if latestToken == "" {
+			consecutiveFailures++
+
 			if time.Since(lastWarnTime) >= headerFuncWarnInterval {
-				logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token",
-					logging.TruncateIdentifier(sessionID), serverName)
+				logging.Warn("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (%d/%d consecutive failures)",
+					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
 				lastWarnTime = time.Now()
 			} else {
-				logging.Debug("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (warning suppressed)",
-					logging.TruncateIdentifier(sessionID), serverName)
+				logging.Debug("Connection", "Authentication failed: no ID token in OAuth store for session %s to %s, using original token (warning suppressed, %d/%d consecutive failures)",
+					logging.TruncateIdentifier(sessionID), serverName, consecutiveFailures, maxConsecutiveTokenFailures)
 			}
 			hadToken = false
+
+			if consecutiveFailures >= maxConsecutiveTokenFailures && !staleEvicted && onStaleToken != nil {
+				staleEvicted = true
+				logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s — evicting stale connection",
+					consecutiveFailures, logging.TruncateIdentifier(sessionID), serverName)
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
+								"onStaleToken callback panicked for session %s to %s",
+								logging.TruncateIdentifier(sessionID), serverName)
+						}
+					}()
+					onStaleToken()
+				}()
+			}
+
 			latestToken = fallbackToken
 		} else {
 			if !hadToken {
 				logging.Info("Connection", "ID token recovered in OAuth store for session %s to %s",
 					logging.TruncateIdentifier(sessionID), serverName)
 			}
+			consecutiveFailures = 0
+			staleEvicted = false
 			hadToken = true
 			if latestToken != fallbackToken {
 				logging.Info("Connection", "Token expired, refreshing: resolved updated ID token from OAuth store for user %s to %s",

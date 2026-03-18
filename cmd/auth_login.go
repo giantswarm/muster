@@ -127,12 +127,12 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return nil
 	}
 
-	if serverInfo.Status != pkgoauth.ServerStatusAuthRequired {
-		if serverInfo.Status == pkgoauth.ServerStatusConnected {
+	if serverInfo.Status != pkgoauth.SessionServerStatusAuthRequired {
+		if serverInfo.Status == pkgoauth.SessionServerStatusConnected {
 			authPrint("Server '%s' is already connected and does not require authentication.\n", serverName)
 			return nil
 		}
-		if serverInfo.Status == pkgoauth.ServerStatusSSOPending {
+		if serverInfo.Status == pkgoauth.SessionServerStatusSSOPending {
 			authPrint("SSO authentication is in progress for '%s'. Waiting for completion...\n", serverName)
 			finalStatus, err := waitForSSOCompletion(ctx, handler, aggregatorEndpoint, nil)
 			if err != nil {
@@ -178,7 +178,7 @@ func loginToAll(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint
 	// browser-based OAuth cannot fix SSO configuration problems.
 	var pendingServers []pkgoauth.ServerAuthStatus
 	for _, srv := range authStatus.Servers {
-		if srv.Status != pkgoauth.ServerStatusAuthRequired || srv.AuthTool == "" {
+		if srv.Status != pkgoauth.SessionServerStatusAuthRequired || srv.AuthTool == "" {
 			continue
 		}
 		// Skip SSO-enabled servers entirely -- manual login cannot help

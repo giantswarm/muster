@@ -271,45 +271,46 @@ type ClientMetadata struct {
 	SoftwareVersion         string   `json:"software_version,omitempty"`
 }
 
-// Server status constants for use in ServerAuthStatus.Status field.
+// SessionServerStatus represents the per-user session authentication status
+// of an MCP server. This is distinct from api.ServiceState which tracks
+// global server lifecycle state.
+type SessionServerStatus string
+
+// Session server status constants for use in ServerAuthStatus.Status field.
 // These are the primary status values visible to users and AI assistants.
 const (
-	// ServerStatusConnected indicates the server is connected and operational.
+	// SessionServerStatusConnected indicates the server is connected and operational.
 	// Tools from this server are available for use.
-	ServerStatusConnected = "connected"
+	SessionServerStatusConnected SessionServerStatus = "connected"
 
-	// ServerStatusAuthRequired indicates the server requires OAuth authentication.
+	// SessionServerStatusAuthRequired indicates the server requires OAuth authentication.
 	// This is an important status that requires user action: run 'muster auth login --server <name>'.
 	// The server is reachable but needs authentication before tools become available.
 	//
 	// This status is more informative than a generic "Disconnected" because it tells
 	// users exactly what action is needed to restore connectivity.
-	ServerStatusAuthRequired = "auth_required"
+	SessionServerStatusAuthRequired SessionServerStatus = "auth_required"
 
-	// ServerStatusDisconnected indicates the server is disconnected.
+	// SessionServerStatusDisconnected indicates the server is disconnected.
 	// The connection was previously established but is no longer active.
-	ServerStatusDisconnected = "disconnected"
+	SessionServerStatusDisconnected SessionServerStatus = "disconnected"
 
-	// ServerStatusError indicates the server encountered an error.
+	// SessionServerStatusError indicates the server encountered an error.
 	// Check the error field for details about what went wrong.
-	ServerStatusError = "error"
+	SessionServerStatusError SessionServerStatus = "error"
 
-	// ServerStatusUnreachable indicates the server endpoint cannot be reached.
+	// SessionServerStatusUnreachable indicates the server endpoint cannot be reached.
 	// This is distinct from auth_required - unreachable means network/connectivity failure,
 	// not an authentication issue. Users should not be prompted to authenticate
 	// for unreachable servers.
-	//
-	// Related constants:
-	// - api.StateUnreachable (internal/api/service.go)
-	// - aggregator.StatusUnreachable (internal/aggregator/types.go)
-	ServerStatusUnreachable = "unreachable"
+	SessionServerStatusUnreachable SessionServerStatus = "unreachable"
 
-	// ServerStatusFailed indicates a session-level failure (e.g., connection dropped,
+	// SessionServerStatusFailed indicates a session-level failure (e.g., connection dropped,
 	// unexpected error during communication). This is distinct from infrastructure
 	// failures (tracked in MCPServer Phase) and auth failures (tracked in AuthStatus).
-	ServerStatusFailed = "failed"
+	SessionServerStatusFailed SessionServerStatus = "failed"
 
-	// ServerStatusSSOPending indicates that SSO authentication is in progress for this
+	// SessionServerStatusSSOPending indicates that SSO authentication is in progress for this
 	// server. The server is SSO-enabled and muster is currently establishing the
 	// connection via token forwarding or token exchange. This is a transient state
 	// that will resolve to "connected" (on success) or "auth_required" with
@@ -317,7 +318,15 @@ const (
 	//
 	// Clients should NOT call core_auth_login for servers in this state -- they
 	// should wait for the SSO process to complete.
-	ServerStatusSSOPending = "sso_pending"
+	SessionServerStatusSSOPending SessionServerStatus = "sso_pending"
+
+	// SessionServerStatusReauthRequired indicates the user's session has a broken
+	// upstream token refresh chain (e.g., Dex -> GitHub returned 401). The ID token
+	// has expired or is no longer available, so SSO connections cannot be maintained.
+	// The user must re-authenticate via 'muster auth login' to restore SSO access.
+	// This is distinct from auth_required (initial auth needed) -- reauth_required
+	// means a previously working session has degraded.
+	SessionServerStatusReauthRequired SessionServerStatus = "reauth_required"
 )
 
 // Display constants for user-facing output.
@@ -345,12 +354,12 @@ type AuthStatusResponse struct {
 //   - Token Exchange: When TokenExchangeEnabled is true, muster exchanges its token
 //     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"` // "connected", "auth_required", "sso_pending", "disconnected", "error"
-	Issuer   string `json:"issuer,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	AuthTool string `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
-	Error    string `json:"error,omitempty"`
+	Name     string              `json:"name"`
+	Status   SessionServerStatus `json:"status"` // "connected", "auth_required", "reauth_required", "sso_pending", "disconnected", "error"
+	Issuer   string              `json:"issuer,omitempty"`
+	Scope    string              `json:"scope,omitempty"`
+	AuthTool string              `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
+	Error    string              `json:"error,omitempty"`
 
 	// TokenForwardingEnabled indicates this server uses SSO via ID token forwarding.
 	// When true, muster forwards its own ID token (from muster's OAuth server protection)

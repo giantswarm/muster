@@ -61,37 +61,14 @@ func (m *activeItemManager) removeItems(items []string) {
 	}
 }
 
-// enrichMCPServerWithSessionData adds session-specific state to an MCPServerInfo.
-// This includes the session's connection status and tools count from the CapabilityStore.
-func enrichMCPServerWithSessionData(serverInfo map[string]interface{}, store CapabilityStore, sessionID string) map[string]interface{} {
-	if store == nil || sessionID == "" {
-		return serverInfo
-	}
-
-	serverName, ok := serverInfo["name"].(string)
-	if !ok || serverName == "" {
-		return serverInfo
-	}
-
-	caps, err := store.Get(context.Background(), sessionID, serverName)
-	if err != nil || caps == nil {
-		return serverInfo
-	}
-
-	serverInfo["sessionStatus"] = "connected"
-
-	if len(caps.Tools) > 0 {
-		serverInfo["toolsCount"] = len(caps.Tools)
-	}
-
-	return serverInfo
-}
-
-// enrichMCPServerListResponse enriches the mcpserver_list response with session-specific data
-// from the CapabilityStore. It modifies the response in place to add sessionStatus
-// and toolsCount fields to each server.
-func enrichMCPServerListResponse(result *mcp.CallToolResult, store CapabilityStore, sessionID string) *mcp.CallToolResult {
-	if store == nil || sessionID == "" || result == nil || len(result.Content) == 0 {
+// enrichServerList adds per-session sessionStatus and toolsCount to each
+// server in an mcpserver_list response. sessionStatus is determined via
+// determineSessionAuthStatus so that auth_required, sso_pending, etc. are
+// visible in the listing -- not just "connected" for servers with cached caps.
+func (a *AggregatorServer) enrichServerList(ctx context.Context, result *mcp.CallToolResult) *mcp.CallToolResult {
+	sessionID := getSessionIDFromContext(ctx)
+	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" || result == nil || len(result.Content) == 0 {
 		return result
 	}
 
@@ -113,12 +90,12 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, store CapabilitySto
 			continue
 		}
 
-		for j, server := range servers {
-			serverMap, ok := server.(map[string]interface{})
+		for j, srv := range servers {
+			serverMap, ok := srv.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			servers[j] = enrichMCPServerWithSessionData(serverMap, store, sessionID)
+			servers[j] = a.enrichServerEntry(ctx, sub, sessionID, serverMap)
 		}
 		responseMap["mcpServers"] = servers
 
@@ -135,4 +112,26 @@ func enrichMCPServerListResponse(result *mcp.CallToolResult, store CapabilitySto
 	}
 
 	return result
+}
+
+// enrichServerEntry adds sessionStatus and toolsCount to a single server map.
+func (a *AggregatorServer) enrichServerEntry(ctx context.Context, sub, sessionID string, entry map[string]interface{}) map[string]interface{} {
+	serverName, ok := entry["name"].(string)
+	if !ok || serverName == "" {
+		return entry
+	}
+
+	if info, found := a.registry.GetServerInfo(serverName); found {
+		status := a.determineSessionAuthStatus(sub, sessionID, serverName, info)
+		entry["sessionStatus"] = string(status)
+	}
+
+	if a.capabilityStore != nil {
+		caps, err := a.capabilityStore.Get(ctx, sessionID, serverName)
+		if err == nil && caps != nil && len(caps.Tools) > 0 {
+			entry["toolsCount"] = len(caps.Tools)
+		}
+	}
+
+	return entry
 }

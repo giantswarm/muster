@@ -304,6 +304,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
+		// Always propagate session ID early so onAuthenticated callbacks can
+		// detect sessions with broken refresh chains even when the ID token
+		// is missing.
+		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
+			ctx = api.WithSessionID(ctx, sessionID)
+		}
+
 		// Look up the upstream provider token by the muster access token.
 		// After a token refresh, only the access-token-keyed entry in the
 		// token store has the fresh upstream token (with a valid ID token);
@@ -313,6 +320,8 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if token == nil {
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
+			r = r.WithContext(ctx)
+			s.fireOnAuthenticated(ctx)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -322,6 +331,8 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		if idToken == "" {
 			logging.Warn("OAuth", "SSO: No ID token in stored token for email=%s (has access_token=%v, has refresh_token=%v). SSO forwarding will not work. Check if upstream IdP returns id_token.",
 				truncateEmail(userInfo.Email), token.AccessToken != "", token.RefreshToken != "")
+			r = r.WithContext(ctx)
+			s.fireOnAuthenticated(ctx)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -334,19 +345,8 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			ctx = api.WithSubject(ctx, subject)
 		}
 
-		// Propagate the session ID (token family ID) from mcp-oauth's ValidateToken
-		// middleware into the api context for per-login-session state isolation.
-		if sessionID, ok := oauth.SessionIDFromContext(ctx); ok {
-			ctx = api.WithSessionID(ctx, sessionID)
-		}
-
 		r = r.WithContext(ctx)
-
-		if s.onAuthenticated != nil {
-			if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
-				s.onAuthenticated(ctx, sessionID)
-			}
-		}
+		s.fireOnAuthenticated(ctx)
 
 		if s.debug {
 			logging.Debug("OAuth", "SSO: ID token available for forwarding (email=%s)", truncateEmail(userInfo.Email))
@@ -354,6 +354,17 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// fireOnAuthenticated calls the onAuthenticated callback if set and a session
+// ID is available in the context. Extracted to avoid duplication across the
+// multiple early-return paths in createAccessTokenInjectorMiddleware.
+func (s *OAuthHTTPServer) fireOnAuthenticated(ctx context.Context) {
+	if s.onAuthenticated != nil {
+		if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
+			s.onAuthenticated(ctx, sessionID)
+		}
+	}
 }
 
 // GetOAuthServer returns the underlying OAuth server for testing or direct access.

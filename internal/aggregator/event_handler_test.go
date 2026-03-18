@@ -658,7 +658,7 @@ func TestEventHandler_SSOServerDeregistration(t *testing.T) {
 //  1. MCPServerService starts and tries to connect to an MCP server with forwardToken: true
 //  2. Server returns 401 (requires authentication)
 //  3. MCPServerService stops initialization - NO MCP client is created
-//  4. Server is registered in "pending auth" state (StatusAuthRequired)
+//  4. Server is registered with auth config (RequiresSessionAuth() returns true)
 //  5. User authenticates, SSO token forwarding succeeds at session level
 //  6. notifyMCPServerConnected() updates service state to "connected" + "healthy"
 //  7. EventHandler receives state change and tries to register the server globally

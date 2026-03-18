@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -168,14 +169,14 @@ func showMCPServerStatus(ctx context.Context, handler api.AuthHandler, aggregato
 			if srv.Issuer != "" {
 				authPrint("  Issuer:   %s\n", srv.Issuer)
 			}
-			if srv.Status == pkgoauth.ServerStatusAuthRequired {
+			if srv.Status == pkgoauth.SessionServerStatusAuthRequired {
 				if srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 					authPrint("  Action:   SSO failed - check server configuration\n")
 				} else if srv.AuthTool != "" {
 					authPrint("  Action:   Run: muster auth login --server %s\n", srv.Name)
 				}
 			}
-			if srv.Status == pkgoauth.ServerStatusSSOPending {
+			if srv.Status == pkgoauth.SessionServerStatusSSOPending {
 				authPrint("  Action:   Waiting for SSO to complete...\n")
 			}
 			return nil
@@ -192,7 +193,7 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	var unreachableCount int
 
 	for _, srv := range servers {
-		if srv.Status == pkgoauth.ServerStatusUnreachable {
+		if srv.Status == pkgoauth.SessionServerStatusUnreachable {
 			unreachableCount++
 		} else {
 			reachableServers = append(reachableServers, srv)
@@ -206,9 +207,9 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 	var maxSSOLen int
 	for _, srv := range reachableServers {
 		switch srv.Status {
-		case pkgoauth.ServerStatusAuthRequired:
+		case pkgoauth.SessionServerStatusAuthRequired:
 			pendingCount++
-		case pkgoauth.ServerStatusSSOPending:
+		case pkgoauth.SessionServerStatusSSOPending:
 			ssoPendingCount++
 		}
 		if len(srv.Name) > maxNameLen {
@@ -246,9 +247,9 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 			ssoLabel = fmt.Sprintf("  %*s ", maxSSOLen+5, "")
 		}
 
-		if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
+		if srv.Status == pkgoauth.SessionServerStatusAuthRequired && srv.SSOAttemptFailed && (srv.TokenForwardingEnabled || srv.TokenExchangeEnabled) {
 			fmt.Printf("  %-*s %s%s  SSO failed - check server configuration\n", maxNameLen, srv.Name, statusStr, ssoLabel)
-		} else if srv.Status == pkgoauth.ServerStatusAuthRequired && srv.AuthTool != "" {
+		} else if srv.Status == pkgoauth.SessionServerStatusAuthRequired && srv.AuthTool != "" {
 			fmt.Printf("  %-*s %s%s  Run: muster auth login --server %s\n", maxNameLen, srv.Name, statusStr, ssoLabel, srv.Name)
 		} else {
 			fmt.Printf("  %-*s %s%s\n", maxNameLen, srv.Name, statusStr, ssoLabel)
@@ -262,21 +263,22 @@ func printMCPServerStatuses(servers []pkgoauth.ServerAuthStatus) {
 }
 
 // formatMCPServerStatus formats the MCP server status with colors.
-func formatMCPServerStatus(status string) string {
+func formatMCPServerStatus(status pkgoauth.SessionServerStatus) string {
 	switch status {
-	case pkgoauth.ServerStatusConnected:
+	case pkgoauth.SessionServerStatusConnected:
 		return text.FgGreen.Sprint("Connected")
-	case pkgoauth.ServerStatusAuthRequired:
+	case pkgoauth.SessionServerStatusAuthRequired:
 		return text.FgYellow.Sprint("Not authenticated")
-	case pkgoauth.ServerStatusDisconnected:
+	case pkgoauth.SessionServerStatusDisconnected:
 		return text.FgRed.Sprint("Disconnected")
-	case pkgoauth.ServerStatusError:
+	case pkgoauth.SessionServerStatusError:
 		return text.FgRed.Sprint("Error")
-	case pkgoauth.ServerStatusSSOPending:
+	case pkgoauth.SessionServerStatusSSOPending:
 		return text.FgCyan.Sprint("SSO Pending")
-	case pkgoauth.ServerStatusUnreachable:
+	case pkgoauth.SessionServerStatusUnreachable:
 		return text.FgHiBlack.Sprint("Unreachable")
 	default:
+		fmt.Fprintf(os.Stderr, "WARNING: unhandled SessionServerStatus %q\n", status)
 		return text.FgHiBlack.Sprint(status)
 	}
 }

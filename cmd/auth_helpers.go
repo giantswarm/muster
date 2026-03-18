@@ -301,7 +301,7 @@ Please complete authentication in your browser, then run:
 
 			for _, srv := range status.Servers {
 				if srv.Name == serverName {
-					if srv.Status == pkgoauth.ServerStatusConnected {
+					if srv.Status == pkgoauth.SessionServerStatusConnected {
 						return nil
 					}
 					// Still waiting - auth_required or other state
@@ -468,7 +468,7 @@ func countSSOProgress(status *pkgoauth.AuthStatusResponse) (connected, total int
 			continue
 		}
 		total++
-		if srv.Status == pkgoauth.ServerStatusConnected {
+		if srv.Status == pkgoauth.SessionServerStatusConnected {
 			connected++
 		}
 	}
@@ -481,7 +481,7 @@ func hasSSOPending(status *pkgoauth.AuthStatusResponse) bool {
 		return false
 	}
 	for _, srv := range status.Servers {
-		if srv.Status == pkgoauth.ServerStatusSSOPending {
+		if srv.Status == pkgoauth.SessionServerStatusSSOPending {
 			return true
 		}
 	}

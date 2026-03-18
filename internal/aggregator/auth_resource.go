@@ -62,41 +62,52 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
+	hasSession := sub != "" && sessionID != ""
+	if !hasSession {
+		logging.Warn("Aggregator", "handleAuthStatusResource: missing session context (hasSub=%t, hasSessionID=%t) — returning infrastructure-level status only",
+			sub != "", sessionID != "")
+	}
 
 	servers := a.registry.GetAllServers()
 	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
 
 	for name, info := range servers {
-		// Check if this server uses SSO via token exchange (RFC 8693) or token forwarding
 		usesTokenExchange := ShouldUseTokenExchange(info)
 		usesTokenForwarding := ShouldUseTokenForwarding(info)
 
-		// Check if SSO was attempted but failed for this user/server
 		ssoAttemptFailed := false
-		if a.ssoTracker != nil && (usesTokenExchange || usesTokenForwarding) {
+		if hasSession && a.ssoTracker != nil && (usesTokenExchange || usesTokenForwarding) {
 			ssoAttemptFailed = a.ssoTracker.HasSSOFailed(sub, name)
+		}
+
+		var serverStatus pkgoauth.SessionServerStatus
+		if hasSession {
+			serverStatus = a.determineSessionAuthStatus(sub, sessionID, name, info)
+		} else if info.RequiresSessionAuth() {
+			serverStatus = pkgoauth.SessionServerStatusAuthRequired
+		} else if info.IsConnected() {
+			serverStatus = pkgoauth.SessionServerStatusConnected
+		} else {
+			serverStatus = pkgoauth.SessionServerStatusDisconnected
 		}
 
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
-			Status:                 string(info.Status),
+			Status:                 serverStatus,
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
 			SSOAttemptFailed:       ssoAttemptFailed,
 		}
 
-		status.Status = a.determineSessionAuthStatus(sub, sessionID, name, info)
-
-		// If auth is required for this session, include auth tool info
-		if status.Status == pkgoauth.ServerStatusAuthRequired && info.AuthInfo != nil {
-			status.Issuer = info.AuthInfo.Issuer
-			status.Scope = info.AuthInfo.Scope
-			// Only expose auth tool for servers that support manual browser-based OAuth.
-			// SSO-enabled servers (token forwarding/exchange) are authenticated by the
-			// admin, not the user -- manual login cannot fix SSO failures.
-			if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
-				// Per ADR-008: Use core_auth_login with server parameter instead of synthetic tools
-				status.AuthTool = "core_auth_login"
+		if info.AuthInfo != nil {
+			switch status.Status {
+			case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
+				status.Issuer = info.AuthInfo.Issuer
+				status.Scope = info.AuthInfo.Scope
+				if status.Status == pkgoauth.SessionServerStatusReauthRequired ||
+					(!status.TokenForwardingEnabled && !status.TokenExchangeEnabled) {
+					status.AuthTool = "core_auth_login"
+				}
 			}
 		}
 
@@ -133,43 +144,46 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 // This cleanly separates:
 //   - Infrastructure state (CRD State: Running/Connected/Failed/etc.)
 //   - Per-user state (this function: connected/auth_required/etc.)
-func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName string, info *ServerInfo) string {
+func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName string, info *ServerInfo) pkgoauth.SessionServerStatus {
 	// Handle unreachable servers first - no auth possible
-	if info.Status == StatusUnreachable {
-		return pkgoauth.ServerStatusUnreachable
+	if info.GetStatus() == api.StateUnreachable {
+		return pkgoauth.SessionServerStatusUnreachable
 	}
 
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(context.Background(), sessionID, serverName)
 		if authenticated {
 			logging.Debug("Aggregator", "Session %s is authenticated to %s", logging.TruncateIdentifier(sessionID), serverName)
-			return pkgoauth.ServerStatusConnected
+			return pkgoauth.SessionServerStatusConnected
 		}
 	}
 
 	// No cached capabilities - check infrastructure state
-	if info.Status == StatusAuthRequired && info.AuthInfo != nil {
-		// SSO-enabled servers are connected synchronously during login via initSSOForSession.
-		// Return sso_pending while the connection attempt is in flight, but
-		// fall back to auth_required if the pending timeout has elapsed.
-		// This prevents the client from being stuck in sso_pending forever
-		// when an SSO attempt silently fails.
-		if (ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)) &&
-			a.ssoTracker != nil &&
-			!a.ssoTracker.HasSSOFailed(sub, serverName) &&
-			a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
-			return pkgoauth.ServerStatusSSOPending
+	if info.RequiresSessionAuth() && info.AuthInfo != nil {
+		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
+
+		if isSSO && a.ssoTracker != nil {
+			if a.ssoTracker.HasSSOFailed(sub, serverName) {
+				// SSO was attempted but failed. For SSO-enabled servers this
+				// typically means the upstream refresh chain is broken (e.g.
+				// Dex -> GitHub returned 401). Return reauth_required so the
+				// agent can prompt re-authentication rather than the generic
+				// auth_required which might imply initial setup.
+				return pkgoauth.SessionServerStatusReauthRequired
+			}
+			if a.ssoTracker.IsSSOPendingWithinTimeout(sub, serverName) {
+				return pkgoauth.SessionServerStatusSSOPending
+			}
 		}
-		return pkgoauth.ServerStatusAuthRequired
+		return pkgoauth.SessionServerStatusAuthRequired
 	}
 
 	// Server is connected at infrastructure level (global client exists)
 	if info.IsConnected() {
-		return pkgoauth.ServerStatusConnected
+		return pkgoauth.SessionServerStatusConnected
 	}
 
-	// Default to disconnected
-	return "disconnected"
+	return pkgoauth.SessionServerStatusDisconnected
 }
 
 // getMusterIssuer returns the OAuth issuer URL configured for muster's OAuth server.
@@ -219,6 +233,53 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 	}
 	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
 		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
+	}
+}
+
+// handleUpstreamRefreshFailure is called when the upstream token refresh chain
+// is detected as broken (e.g. Dex -> GitHub returns 401, or the refreshed token
+// has no ID token). It evicts all pooled SSO connections for the session to stop
+// mcp-go's infinite 1-second retry loop, and clears the session's auth store
+// entries so auth://status reports reauth_required instead of connected.
+//
+// This is safe to call multiple times for the same session; all operations are
+// idempotent (evicting an empty pool is a no-op, revoking a revoked session is
+// a no-op).
+func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reason string) {
+	logging.Warn("Aggregator", "SSO: Upstream refresh failure detected for session %s (user %s): %s",
+		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), reason)
+
+	if a.connPool != nil {
+		a.connPool.EvictSession(sessionID)
+		logging.Info("Aggregator", "SSO: Evicted pooled connections for session %s due to refresh failure",
+			logging.TruncateIdentifier(sessionID))
+	}
+
+	if a.authStore != nil {
+		if err := a.authStore.RevokeSession(context.Background(), sessionID); err != nil {
+			logging.Warn("Aggregator", "SSO: Failed to revoke auth session %s after refresh failure: %v",
+				logging.TruncateIdentifier(sessionID), err)
+		}
+	}
+
+	// Clear the stored ID token so headerFunc closures don't keep resolving
+	// stale tokens from the OAuth proxy store.
+	musterIssuer := a.getMusterIssuer()
+	if musterIssuer != "" {
+		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+			oh.ClearTokenByIssuer(sessionID, musterIssuer)
+		}
+	}
+
+	// Mark all SSO servers as failed for this user so initSSOForSession
+	// doesn't immediately retry with expired credentials.
+	if a.ssoTracker != nil && userID != "" {
+		servers := a.registry.GetAllServers()
+		for _, info := range servers {
+			if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
+				a.ssoTracker.MarkSSOFailed(userID, info.Name)
+			}
+		}
 	}
 }
 
@@ -288,7 +349,7 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 	servers := a.registry.GetAllServers()
 	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure int
 	for _, info := range servers {
-		if info.Status != StatusAuthRequired {
+		if !info.RequiresSessionAuth() {
 			skippedNotAuthRequired++
 			continue
 		}
@@ -297,6 +358,9 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 			continue
 		}
 		if a.ssoTracker != nil && a.ssoTracker.HasSSOFailed(userID, info.Name) {
+			fc := a.ssoTracker.GetFailureCount(userID, info.Name)
+			logging.Debug("Aggregator", "SSO: skipping %s for user %s (failureCount=%d, backoff=%v)",
+				info.Name, logging.TruncateIdentifier(userID), fc, ssoBackoffDuration(fc))
 			skippedPriorFailure++
 			continue
 		}
@@ -351,6 +415,11 @@ func (a *AggregatorServer) establishSSOConnection(
 ) {
 	sessionID := getSessionIDFromContext(ctx)
 	sub := getUserSubjectFromContext(ctx)
+	if sessionID == "" || sub == "" {
+		logging.Warn("Aggregator", "SSO: skipping connection to %s — no session context (hasSessionID=%t, hasSub=%t)",
+			serverInfo.Name, sessionID != "", sub != "")
+		return
+	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.
 	if a.authStore != nil {
