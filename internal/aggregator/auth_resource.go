@@ -329,6 +329,7 @@ func (a *AggregatorServer) initSSOForSession(ctx context.Context, userID, sessio
 
 	logging.Info("Aggregator", "SSO: initSSOForSession called (userID=%s, sessionID=%s, idTokenLen=%d, musterIssuer=%s)",
 		logging.TruncateIdentifier(userID), logging.TruncateIdentifier(sessionID), len(idToken), musterIssuer)
+	logIDTokenClaims("Aggregator", "initSSOForSession", idToken)
 
 	if musterIssuer == "" {
 		logging.Info("Aggregator", "SSO: initSSOForSession returning early: musterIssuer is empty")
