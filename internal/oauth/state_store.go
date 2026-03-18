@@ -10,7 +10,26 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// StateStore provides thread-safe storage for OAuth state parameters.
+// StateStorer is the interface for OAuth state parameter storage.
+// Implementations must be safe for concurrent use.
+type StateStorer interface {
+	// GenerateState creates a new OAuth state, stores it, and returns the
+	// base64-encoded state string to include in the authorization URL.
+	GenerateState(sessionID, userID, serverName, issuer, codeVerifier string) (encodedState string, err error)
+
+	// ValidateState validates an encoded state from a callback. Returns the
+	// original state if valid; nil if invalid, expired, or already consumed.
+	// Valid states are consumed (single-use) to prevent replay attacks.
+	ValidateState(encodedState string) *OAuthState
+
+	// Delete removes a state entry by nonce.
+	Delete(nonce string)
+
+	// Stop releases resources (background goroutines, connections, etc.).
+	Stop()
+}
+
+// StateStore provides thread-safe in-memory storage for OAuth state parameters.
 // State parameters are used to link OAuth callbacks to original requests
 // and provide CSRF protection.
 //

@@ -13,6 +13,43 @@ import (
 // This accounts for clock skew between systems and network latency.
 const tokenExpiryMargin = 30 * time.Second
 
+// TokenStorer is the interface for OAuth token storage. Implementations must
+// be safe for concurrent use. The aggregator-side OAuth proxy stores tokens
+// here after successful authentication flows.
+type TokenStorer interface {
+	// Store saves a token indexed by the given key, recording userID for
+	// reverse-lookup operations (e.g., "sign out everywhere").
+	Store(key TokenKey, token *pkgoauth.Token, userID string)
+
+	// Get retrieves a token by exact key. Returns nil if not found or expired.
+	Get(key TokenKey) *pkgoauth.Token
+
+	// GetByIssuer finds a token for the given session and issuer, regardless
+	// of scope. Returns nil if not found or expired.
+	GetByIssuer(sessionID, issuer string) *pkgoauth.Token
+
+	// GetAllForSession returns all valid (non-expired) tokens for a session.
+	GetAllForSession(sessionID string) map[TokenKey]*pkgoauth.Token
+
+	// Delete removes a single token by key.
+	Delete(key TokenKey)
+
+	// DeleteByUser removes all tokens for a user across all sessions.
+	DeleteByUser(userID string)
+
+	// DeleteBySession removes all tokens for a session.
+	DeleteBySession(sessionID string)
+
+	// DeleteByIssuer removes all tokens for a session+issuer combination.
+	DeleteByIssuer(sessionID, issuer string)
+
+	// Count returns the total number of tokens in the store.
+	Count() int
+
+	// Stop releases resources (background goroutines, connections, etc.).
+	Stop()
+}
+
 // tokenEntry wraps a token with its owning user ID for reverse-lookup by user.
 type tokenEntry struct {
 	token  *pkgoauth.Token
@@ -85,34 +122,27 @@ func (ts *TokenStore) Get(key TokenKey) *pkgoauth.Token {
 
 // GetByIssuer finds a token for the given session and issuer, regardless of scope.
 // This enables SSO when the exact scope doesn't match but the issuer does.
+//
+// When multiple tokens match (e.g., an ID-only token from SetSessionCreationHandler
+// and a full token from a downstream OAuth callback), tokens with an AccessToken
+// are preferred. This prevents non-deterministic map iteration from returning an
+// ID-only token that would cause DynamicAuthClient to report ErrNoToken.
 func (ts *TokenStore) GetByIssuer(sessionID, issuer string) *pkgoauth.Token {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
+	var fallback *pkgoauth.Token
 	for key, entry := range ts.tokens {
 		if key.SessionID == sessionID && key.Issuer == issuer {
 			if !entry.token.IsExpiredWithMargin(tokenExpiryMargin) {
-				return entry.token
+				if entry.token.AccessToken != "" {
+					return entry.token
+				}
+				fallback = entry.token
 			}
 		}
 	}
-	return nil
-}
-
-// GetTokenKeyByIssuer finds the token key for a given session and issuer.
-func (ts *TokenStore) GetTokenKeyByIssuer(sessionID, issuer string) *TokenKey {
-	ts.mu.RLock()
-	defer ts.mu.RUnlock()
-
-	for key, entry := range ts.tokens {
-		if key.SessionID == sessionID && key.Issuer == issuer {
-			if !entry.token.IsExpiredWithMargin(tokenExpiryMargin) {
-				keyCopy := key
-				return &keyCopy
-			}
-		}
-	}
-	return nil
+	return fallback
 }
 
 // GetAllForSession returns all valid tokens for a session.

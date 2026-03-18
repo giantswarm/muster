@@ -2,10 +2,13 @@ package aggregator
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -20,9 +23,11 @@ import (
 
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
+	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
 )
@@ -114,6 +119,36 @@ type AggregatorServer struct {
 	// Maps user subjects to their MCP client session IDs for targeted notifications.
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
+
+	// valkeyClient is the shared Valkey client used by authStore and capabilityStore
+	// when Valkey storage is configured. Nil when using in-memory stores.
+	// Closed during Stop().
+	valkeyClient valkey.Client
+
+	// valkeyKeyPrefix is the key prefix used by all Valkey stores (default "muster:").
+	valkeyKeyPrefix string
+
+	// valkeyEncryptor provides AES-256-GCM encryption at rest for sensitive values
+	// stored in Valkey (tokens, state). Nil when encryption is not configured.
+	valkeyEncryptor *security.Encryptor
+}
+
+// getValkeyClient returns the shared Valkey client if one was configured,
+// or nil when using in-memory stores. Used by AggregatorManager to share the
+// client with the OAuth token/state stores.
+func (a *AggregatorServer) getValkeyClient() valkey.Client {
+	return a.valkeyClient
+}
+
+// getValkeyKeyPrefix returns the configured key prefix for Valkey stores.
+func (a *AggregatorServer) getValkeyKeyPrefix() string {
+	return a.valkeyKeyPrefix
+}
+
+// getValkeyEncryptor returns the AES-256-GCM encryptor for Valkey stores,
+// or nil if encryption is not configured.
+func (a *AggregatorServer) getValkeyEncryptor() *security.Encryptor {
+	return a.valkeyEncryptor
 }
 
 // subjectSessionTracker maps user subjects to their MCP client session IDs.
@@ -321,6 +356,25 @@ func (s *ssoTracker) CleanupExpired() {
 func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) *AggregatorServer {
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 
+	stores := createStores(aggConfig)
+
+	var enc *security.Encryptor
+	if stores.valkeyClient != nil {
+		if oauthCfg, ok := aggConfig.OAuthServer.Config.(config.OAuthServerConfig); ok && oauthCfg.EncryptionKey != "" {
+			keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
+			if err != nil {
+				logging.Warn("Aggregator", "Failed to decode encryption key for Valkey stores: %v", err)
+			} else {
+				enc, err = security.NewEncryptor(keyBytes)
+				if err != nil {
+					logging.Warn("Aggregator", "Failed to create encryptor for Valkey stores: %v", err)
+				} else if enc.IsEnabled() {
+					logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
+				}
+			}
+		}
+	}
+
 	return &AggregatorServer{
 		config:          aggConfig,
 		registry:        NewServerRegistry(aggConfig.MusterPrefix),
@@ -328,12 +382,112 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		errorCallback:   errorCallback,
 		authRateLimiter: rateLimiter,
 		authMetrics:     NewAuthMetrics(),
-		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
-		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		authStore:       stores.authStore,
+		capabilityStore: stores.capabilityStore,
 		connPool:        NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:      newSSOTracker(),
 		subjectSessions: newSubjectSessionTracker(),
+		valkeyClient:    stores.valkeyClient,
+		valkeyKeyPrefix: stores.keyPrefix,
+		valkeyEncryptor: enc,
 	}
+}
+
+// storeBundle groups the results of createStores for readability.
+type storeBundle struct {
+	authStore       SessionAuthStore
+	capabilityStore CapabilityStore
+	valkeyClient    valkey.Client
+	keyPrefix       string
+}
+
+// createStores builds the session auth and capability stores based on the
+// OAuthServer storage configuration. When the storage type is "valkey", a
+// shared valkey.Client is created and both stores use it. Otherwise in-memory
+// stores are returned.
+func createStores(cfg AggregatorConfig) storeBundle {
+	oauthCfg, ok := cfg.OAuthServer.Config.(config.OAuthServerConfig)
+	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
+		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
+		if keyPrefix == "" {
+			keyPrefix = "muster:"
+		}
+
+		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
+		if err != nil {
+			logging.Warn("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory: %v", err)
+			return storeBundle{
+				authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
+				capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+				keyPrefix:       keyPrefix,
+			}
+		}
+
+		logging.Info("Aggregator", "Using Valkey-backed session auth and capability stores (address: %s)",
+			redactURL(oauthCfg.Storage.Valkey.URL))
+		return storeBundle{
+			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
+			valkeyClient:    client,
+			keyPrefix:       keyPrefix,
+		}
+	}
+
+	logging.Info("Aggregator", "Using in-memory session auth and capability stores")
+	return storeBundle{
+		authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
+		capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
+		keyPrefix:       "muster:",
+	}
+}
+
+// newValkeyClient creates a valkey.Client from the shared ValkeyConfig.
+func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
+	opts := valkey.ClientOption{
+		InitAddress: []string{cfg.URL},
+	}
+	if cfg.Password != "" {
+		opts.Password = cfg.Password
+	}
+	if cfg.DB != 0 {
+		opts.SelectDB = cfg.DB
+	}
+	if cfg.TLSEnabled {
+		tlsCfg := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		if cfg.TLSServerName != "" {
+			tlsCfg.ServerName = cfg.TLSServerName
+		}
+		opts.TLSConfig = tlsCfg
+	}
+
+	client, err := valkey.NewClient(opts)
+	if err != nil {
+		return nil, fmt.Errorf("valkey connect: %w", err)
+	}
+	return client, nil
+}
+
+// redactURL removes any userinfo (user:password@) from a URL or address string
+// before logging. Returns the input unchanged if it is not a parseable URL.
+func redactURL(raw string) string {
+	if !strings.Contains(raw, "@") {
+		return raw
+	}
+	normalized := raw
+	if !strings.Contains(raw, "://") {
+		normalized = "redis://" + raw
+	}
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return raw
+	}
+	u.User = nil
+	if !strings.Contains(raw, "://") {
+		return u.Host + u.Path
+	}
+	return u.String()
 }
 
 // Start initializes and starts the aggregator server with all configured transports.
@@ -651,6 +805,11 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Stop capability store (cleans up timers for in-memory impl).
 	if store, ok := a.capabilityStore.(*InMemoryCapabilityStore); ok {
 		store.Stop()
+	}
+
+	// Close shared Valkey client (if Valkey-backed stores were used).
+	if a.valkeyClient != nil {
+		a.valkeyClient.Close()
 	}
 
 	// Reset internal state to allow for clean restart
@@ -1063,7 +1222,35 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	oauthServer := oauthHTTPServer.GetOAuthServer()
 
 	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
-		a.initSSOForSession(ctx, userID, familyID, oauthserver.ExtractIDToken(token))
+		idToken := oauthserver.ExtractIDToken(token)
+		a.initSSOForSession(ctx, userID, familyID, idToken)
+		if idToken != "" && familyID != "" {
+			musterIssuer := a.getMusterIssuer()
+			if musterIssuer != "" {
+				if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+					oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{IDToken: idToken})
+				}
+			}
+		}
+	})
+
+	oauthServer.SetTokenRefreshHandler(func(ctx context.Context, userID, familyID string, newToken *oauth2.Token) {
+		idToken := oauthserver.ExtractIDToken(newToken)
+		if idToken == "" || familyID == "" {
+			return
+		}
+		musterIssuer := a.getMusterIssuer()
+		if musterIssuer == "" {
+			return
+		}
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler != nil && oauthHandler.IsEnabled() {
+			oauthHandler.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{
+				IDToken: idToken,
+			})
+		}
+		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
+			logging.TruncateIdentifier(familyID))
 	})
 
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
@@ -1937,7 +2124,7 @@ func (a *AggregatorServer) resolveUserTool(sessionID, exposedName string) (strin
 		}
 
 		for _, tool := range caps.Tools {
-			exposedToolName := a.registry.nameTracker.GetExposedToolName(serverName, tool.Name)
+			exposedToolName := a.registry.ExposedToolName(serverName, tool.Name)
 			if exposedToolName == exposedName {
 				return serverName, tool.Name, nil
 			}

@@ -230,9 +230,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	// Check if we already have a valid token for this server/issuer (SSO).
 	// This enables single sign-on: if the user authenticated to another server
 	// with the same OAuth issuer, we can reuse that token.
+	// Tokens with only an ID token (no access token) are muster-level tokens
+	// stored for SSO forwarding and cannot be used for bearer authentication.
 	token := oauthHandler.GetTokenByIssuer(sessionID, authInfo.Issuer)
 
-	if token != nil {
+	if token != nil && token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
 			serverName, authInfo.Issuer)
 

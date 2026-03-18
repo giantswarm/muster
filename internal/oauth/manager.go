@@ -47,20 +47,46 @@ type AuthServerConfig struct {
 	Scope      string
 }
 
+// ManagerOption configures optional Manager parameters.
+type ManagerOption func(*managerOptions)
+
+type managerOptions struct {
+	clientOpts []ClientOption
+}
+
+// WithValkeyTokenStore injects a Valkey-backed TokenStorer into the OAuth client.
+func WithValkeyTokenStore(ts TokenStorer) ManagerOption {
+	return func(o *managerOptions) {
+		o.clientOpts = append(o.clientOpts, WithTokenStorer(ts))
+	}
+}
+
+// WithValkeyStateStore injects a Valkey-backed StateStorer into the OAuth client.
+func WithValkeyStateStore(ss StateStorer) ManagerOption {
+	return func(o *managerOptions) {
+		o.clientOpts = append(o.clientOpts, WithStateStorer(ss))
+	}
+}
+
 // NewManager creates a new OAuth manager with the given configuration.
 // The cfg parameter contains the OAuth MCP client/proxy configuration for
 // authenticating TO remote MCP servers.
-func NewManager(cfg config.OAuthMCPClientConfig) *Manager {
+func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager {
 	if !cfg.Enabled {
 		logging.Info("OAuth", "OAuth proxy is disabled")
 		return nil
+	}
+
+	var mopts managerOptions
+	for _, opt := range opts {
+		opt(&mopts)
 	}
 
 	// Use the effective client ID (auto-derived from PublicURL if not explicitly set)
 	effectiveClientID := cfg.GetEffectiveClientID()
 	// Use the effective CIMD scopes (defaults to comprehensive Google API scopes for SSO)
 	cimdScopes := cfg.GetCIMDScopes()
-	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes)
+	client := NewClient(effectiveClientID, cfg.PublicURL, cfg.CallbackPath, cimdScopes, mopts.clientOpts...)
 
 	// Configure custom HTTP client with CA if provided
 	// The same HTTP client is shared with the token exchanger for consistent TLS config

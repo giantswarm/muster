@@ -23,17 +23,36 @@ type Client struct {
 	callbackPath string // The path for OAuth callbacks (e.g., "/oauth/callback")
 	cimdScopes   string // The OAuth scopes to advertise in the CIMD
 
-	// Stores
-	tokenStore *TokenStore
-	stateStore *StateStore
+	// Stores (interface-backed; defaults to in-memory, can be swapped to Valkey)
+	tokenStore TokenStorer
+	stateStore StateStorer
 
 	// Shared OAuth client for protocol operations
 	oauthClient *pkgoauth.Client
 }
 
+// ClientOption configures optional Client parameters.
+type ClientOption func(*Client)
+
+// WithTokenStorer sets a custom TokenStorer implementation (e.g., Valkey-backed).
+func WithTokenStorer(ts TokenStorer) ClientOption {
+	return func(c *Client) {
+		c.tokenStore = ts
+	}
+}
+
+// WithStateStorer sets a custom StateStorer implementation (e.g., Valkey-backed).
+func WithStateStorer(ss StateStorer) ClientOption {
+	return func(c *Client) {
+		c.stateStore = ss
+	}
+}
+
 // NewClient creates a new OAuth client with the given configuration.
-func NewClient(clientID, publicURL, callbackPath, cimdScopes string) *Client {
-	return &Client{
+// By default, in-memory stores are used. Use WithTokenStorer / WithStateStorer
+// to inject Valkey-backed implementations.
+func NewClient(clientID, publicURL, callbackPath, cimdScopes string, opts ...ClientOption) *Client {
+	c := &Client{
 		clientID:     clientID,
 		publicURL:    publicURL,
 		callbackPath: callbackPath,
@@ -42,15 +61,19 @@ func NewClient(clientID, publicURL, callbackPath, cimdScopes string) *Client {
 		stateStore:   NewStateStore(),
 		oauthClient:  pkgoauth.NewClient(),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // GetTokenStore returns the token store for external access.
-func (c *Client) GetTokenStore() *TokenStore {
+func (c *Client) GetTokenStore() TokenStorer {
 	return c.tokenStore
 }
 
 // GetStateStore returns the state store for external access.
-func (c *Client) GetStateStore() *StateStore {
+func (c *Client) GetStateStore() StateStorer {
 	return c.stateStore
 }
 

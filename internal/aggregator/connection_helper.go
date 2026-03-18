@@ -192,12 +192,14 @@ func (r *ConnectionResult) FormatAsMCPResult() *mcp.CallToolResult {
 // getIDTokenForForwarding retrieves an ID token for SSO token forwarding from available sources.
 //
 // Token sources are checked in priority order:
-//  1. Request context - contains the ID token when user authenticated TO muster via OAuth server
-//     protection (Google/Dex). This is injected by createAccessTokenInjectorMiddleware.
-//  2. OAuth proxy token store - contains the token from muster's own OAuth session, looked up
-//     by (sessionID, musterIssuer).
+//  1. Request context - contains the ID token when called from within an HTTP request handler.
+//     Injected by createAccessTokenInjectorMiddleware from the Valkey token store.
+//  2. OAuth manager's token store - contains the token populated by SetSessionCreationHandler
+//     and SetTokenRefreshHandler, looked up by (sessionID, musterIssuer). This is the primary
+//     source for background closures (headerFunc) that run outside the HTTP request lifecycle
+//     with context.Background().
 //
-// The context token takes priority because it's directly available without a store lookup.
+// The context token takes priority because it's the freshest, directly from the current request.
 //
 // Args:
 //   - ctx: Request context that may contain an injected ID token
