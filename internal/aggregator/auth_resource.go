@@ -101,16 +101,13 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 
 		if info.AuthInfo != nil {
 			switch status.Status {
-			case pkgoauth.SessionServerStatusAuthRequired:
+			case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
 				status.Issuer = info.AuthInfo.Issuer
 				status.Scope = info.AuthInfo.Scope
-				if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
+				if status.Status == pkgoauth.SessionServerStatusReauthRequired ||
+					(!status.TokenForwardingEnabled && !status.TokenExchangeEnabled) {
 					status.AuthTool = "core_auth_login"
 				}
-			case pkgoauth.SessionServerStatusReauthRequired:
-				status.Issuer = info.AuthInfo.Issuer
-				status.Scope = info.AuthInfo.Scope
-				status.AuthTool = "core_auth_login"
 			}
 		}
 

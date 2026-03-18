@@ -340,13 +340,15 @@ func (s *ssoTracker) HasSSOFailed(sub, serverName string) bool {
 }
 
 // GetFailureCount returns the number of consecutive SSO failures recorded for
-// a user/server pair, or 0 if no active failure entry exists.
+// a user/server pair, or 0 if no active (non-expired) failure entry exists.
 func (s *ssoTracker) GetFailureCount(sub, serverName string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if m, ok := s.failedServers[sub]; ok {
 		if entry, exists := m[serverName]; exists {
-			return entry.failureCount
+			if time.Since(entry.failedAt) < ssoBackoffDuration(entry.failureCount) {
+				return entry.failureCount
+			}
 		}
 	}
 	return 0

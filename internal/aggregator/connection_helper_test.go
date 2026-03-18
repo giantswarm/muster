@@ -5,8 +5,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
@@ -989,9 +990,13 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
-	evicted := make(chan struct{}, 1)
+	var evictCount atomic.Int32
+	var firstEvict sync.WaitGroup
+	firstEvict.Add(1)
 	onStaleToken := func() {
-		evicted <- struct{}{}
+		if evictCount.Add(1) == 1 {
+			firstEvict.Done()
+		}
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
@@ -1001,36 +1006,28 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		headers := headerFunc(context.Background())
 		assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
 	}
-	select {
-	case <-evicted:
-		t.Fatal("onStaleToken should not fire before reaching maxConsecutiveTokenFailures")
-	default:
-	}
+	assert.Equal(t, int32(0), evictCount.Load(),
+		"onStaleToken should not fire before reaching maxConsecutiveTokenFailures")
 
 	// One more call should trigger the eviction callback.
 	logBuf.Reset()
 	headers := headerFunc(context.Background())
 	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
 
-	select {
-	case <-evicted:
-		// expected
-	case <-time.After(2 * time.Second):
-		t.Fatal("onStaleToken was not called after maxConsecutiveTokenFailures")
-	}
+	firstEvict.Wait()
+	assert.Equal(t, int32(1), evictCount.Load(),
+		"onStaleToken should fire exactly once after reaching threshold")
 
 	logs := logBuf.String()
 	assert.Contains(t, logs, "evicting stale connection",
 		"should log eviction message at WARN level")
 
-	// Subsequent calls should NOT fire the callback again.
+	// Subsequent calls should NOT fire the callback again (staleEvicted=true
+	// prevents goroutine launch, so no synchronization needed).
 	headers = headerFunc(context.Background())
 	assert.Equal(t, "Bearer "+fallbackToken, headers["Authorization"])
-	select {
-	case <-evicted:
-		t.Fatal("onStaleToken should fire at most once")
-	default:
-	}
+	assert.Equal(t, int32(1), evictCount.Load(),
+		"onStaleToken should fire at most once per failure streak")
 }
 
 func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
@@ -1045,9 +1042,9 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 
 	api.RegisterOAuthHandler(nil)
 
-	evictCount := 0
+	var evictCount atomic.Int32
 	onStaleToken := func() {
-		evictCount++
+		evictCount.Add(1)
 	}
 
 	headerFunc := makeTokenForwardingHeaderFunc(sessionID, sub, musterIssuer, serverName, fallbackToken, onStaleToken)
@@ -1056,7 +1053,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
 		headerFunc(context.Background())
 	}
-	assert.Equal(t, 0, evictCount, "should not evict before threshold")
+	assert.Equal(t, int32(0), evictCount.Load(), "should not evict before threshold")
 
 	// Recover by providing a valid token.
 	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
@@ -1074,7 +1071,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
 		headerFunc(context.Background())
 	}
-	assert.Equal(t, 0, evictCount,
+	assert.Equal(t, int32(0), evictCount.Load(),
 		"failure counter should have reset on recovery; should not evict yet")
 }
 

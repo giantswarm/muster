@@ -914,7 +914,16 @@ func makeTokenForwardingHeaderFunc(
 				staleEvicted = true
 				logging.Warn("Connection", "Token resolution failed %d consecutive times for session %s to %s — evicting stale connection",
 					consecutiveFailures, logging.TruncateIdentifier(sessionID), serverName)
-				go onStaleToken()
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logging.Error("Connection", fmt.Errorf("panic in onStaleToken: %v", r),
+								"onStaleToken callback panicked for session %s to %s",
+								logging.TruncateIdentifier(sessionID), serverName)
+						}
+					}()
+					onStaleToken()
+				}()
 			}
 
 			latestToken = fallbackToken
