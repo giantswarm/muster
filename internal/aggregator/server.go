@@ -635,16 +635,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
-		sessionIDAttr := logging.TransportSessionID(getTransportSessionID(ctx))
 		if r, ok := result.(*mcp.CallToolResult); ok {
 			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
-				sessionIDAttr,
+				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.Bool("isError", r.IsError),
 				slog.Int("contentItems", len(r.Content)))
 		} else {
 			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
-				sessionIDAttr,
+				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.String("resultType", fmt.Sprintf("%T", result)))
 		}
