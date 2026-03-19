@@ -598,20 +598,20 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	hooks := &mcpserver.Hooks{}
 	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
 		logging.InfoWithAttrs("MCP-Protocol", "Session unregistered",
-			logging.TransportSessionID("sessionID", session.SessionID()))
+			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
 	})
 
 	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
 		logging.InfoWithAttrs("MCP-Protocol", "Session registered",
-			logging.TransportSessionID("sessionID", session.SessionID()))
+			logging.TransportSessionID(session.SessionID()))
 	})
 
 	hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
 		logging.InfoWithAttrs("MCP-Protocol", "Initialize completed",
 			slog.String("client", msg.Params.ClientInfo.Name+"/"+msg.Params.ClientInfo.Version),
 			slog.String("protocol", string(msg.Params.ProtocolVersion)),
-			logging.TransportSessionID("sessionID", getTransportSessionID(ctx)),
+			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("serverVersion", result.ServerInfo.Version))
 	})
 
@@ -621,7 +621,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			toolNames = append(toolNames, t.Name)
 		}
 		logging.InfoWithAttrs("MCP-Protocol", "tools/list response",
-			logging.TransportSessionID("sessionID", getTransportSessionID(ctx)),
+			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
 			slog.Int("toolCount", len(result.Tools)),
 			slog.Any("tools", toolNames))
@@ -629,22 +629,21 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
 		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
-			logging.TransportSessionID("sessionID", getTransportSessionID(ctx)),
+			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
 			slog.String("tool", msg.Params.Name))
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
-		sessionIDAttr := logging.TransportSessionID("sessionID", getTransportSessionID(ctx))
 		if r, ok := result.(*mcp.CallToolResult); ok {
 			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
-				sessionIDAttr,
+				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.Bool("isError", r.IsError),
 				slog.Int("contentItems", len(r.Content)))
 		} else {
 			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
-				sessionIDAttr,
+				logging.TransportSessionID(getTransportSessionID(ctx)),
 				slog.String("tool", msg.Params.Name),
 				slog.String("resultType", fmt.Sprintf("%T", result)))
 		}
@@ -652,7 +651,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
 		logging.WarnWithAttrs("MCP-Protocol", "Error",
-			logging.TransportSessionID("sessionID", getTransportSessionID(ctx)),
+			logging.TransportSessionID(getTransportSessionID(ctx)),
 			slog.String("method", string(method)),
 			slog.Any("id", id),
 			slog.String("error", err.Error()))
@@ -1367,7 +1366,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			slog.String("userID", logging.TruncateIdentifier(userID)),
 			slog.Bool("authAlive", authAlive),
 			slog.Bool("hasIDToken", idToken != ""))
-		logIDTokenClaims("Aggregator", "onAuthenticated", idToken)
 
 		if authAlive {
 			if idToken == "" {
@@ -1414,7 +1412,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			slog.String("familyID", logging.TruncateIdentifier(familyID)),
 			slog.Bool("hasIDToken", idToken != ""),
 			slog.Int("idTokenLen", len(idToken)))
-		logIDTokenClaims("Aggregator", "SessionCreationHandler", idToken)
 		a.initSSOForSession(ctx, userID, familyID, idToken)
 		a.storeIDTokenForSSO(familyID, userID, idToken)
 	})
@@ -1431,7 +1428,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 		a.storeIDTokenForSSO(familyID, userID, idToken)
-		logIDTokenClaims("Aggregator", "TokenRefreshHandler", idToken)
 		logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
 			slog.String("familyID", logging.TruncateIdentifier(familyID)))
 	})
@@ -1573,7 +1569,7 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	logging.InfoWithAttrs("MCP-Protocol", "sessionToolFilter: returning meta-tools",
 		slog.Int("toolCount", len(allTools)),
 		slog.String("subject", logging.TruncateIdentifier(subject)),
-		logging.TransportSessionID("sessionID", getTransportSessionID(ctx)))
+		logging.TransportSessionID(getTransportSessionID(ctx)))
 
 	return allTools
 }

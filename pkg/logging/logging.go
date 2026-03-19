@@ -157,16 +157,16 @@ func TruncateIdentifier(id string) string {
 	return id[:8] + "..."
 }
 
-// TransportSessionID returns a slog.Attr with a truncated MCP transport session ID.
+// TransportSessionID returns a slog.Attr with key "transportSessionID" and a truncated MCP transport session ID.
 // The last UUID group is replaced with "..." to preserve enough of the ID for log
 // correlation while avoiding logging the full value.
 // Format: "mcp-session-ffa8afa1-eb56-4692-98d2-d6dbc99d4a06" → "mcp-session-ffa8afa1-eb56-4692-98d2-..."
-func TransportSessionID(key, id string) slog.Attr {
+func TransportSessionID(id string) slog.Attr {
 	truncated := id
 	if lastDash := strings.LastIndex(id, "-"); lastDash > 0 {
 		truncated = id[:lastDash+1] + "..."
 	}
-	return slog.String(key, truncated)
+	return slog.String("transportSessionID", truncated)
 }
 
 // AuditEvent represents a structured audit log event for security-sensitive operations.
