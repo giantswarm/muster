@@ -974,7 +974,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 // Returns an error if registration fails due to naming conflicts, client issues,
 // or communication problems with the backend server.
 func (a *AggregatorServer) RegisterServer(ctx context.Context, name string, client MCPClient, toolPrefix string) error {
-	logging.Debug("Aggregator", "RegisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
+	logging.DebugWithAttrs("Aggregator", "RegisterServer called",
+		slog.String("server", name), slog.String("time", time.Now().Format("15:04:05.000")))
 
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
@@ -1019,7 +1020,8 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
-	logging.Debug("Aggregator", "DeregisterServer called for %s at %s", name, time.Now().Format("15:04:05.000"))
+	logging.DebugWithAttrs("Aggregator", "DeregisterServer called",
+		slog.String("server", name), slog.String("time", time.Now().Format("15:04:05.000")))
 
 	// Remove auth state and capabilities for this server across all sessions.
 	if a.authStore != nil {
@@ -1123,7 +1125,8 @@ func (a *AggregatorServer) publishToolUpdateEvent() {
 	// Publish the event - this will notify ServiceClass managers
 	api.PublishToolUpdateEvent(event)
 
-	logging.Debug("Aggregator", "Published tool update event with %d tools", len(tools))
+	logging.DebugWithAttrs("Aggregator", "Published tool update event",
+		slog.Int("tools", len(tools)))
 }
 
 // updateCapabilities performs a comprehensive update of the aggregator's exposed capabilities.
@@ -1180,7 +1183,8 @@ func (a *AggregatorServer) removeObsoleteMetaTools(metaTools []mcpserver.ServerT
 
 	obsolete := a.toolManager.getInactiveItems(currentTools)
 	if len(obsolete) > 0 {
-		logging.Debug("Aggregator", "Removing %d obsolete meta-tools: %v", len(obsolete), obsolete)
+		logging.DebugWithAttrs("Aggregator", "Removing obsolete meta-tools",
+			slog.Int("count", len(obsolete)), slog.Any("tools", obsolete))
 		a.mcpServer.DeleteTools(obsolete...)
 		a.toolManager.removeItems(obsolete)
 	}
@@ -1204,7 +1208,8 @@ func (a *AggregatorServer) addNewMetaTools(metaTools []mcpserver.ServerTool) {
 	}
 
 	if len(newTools) > 0 {
-		logging.Debug("Aggregator", "Adding %d new meta-tools in batch", len(newTools))
+		logging.DebugWithAttrs("Aggregator", "Adding new meta-tools in batch",
+			slog.Int("count", len(newTools)))
 		a.mcpServer.AddTools(newTools...)
 		for _, tool := range newTools {
 			a.toolManager.track(tool.Tool.Name)
@@ -1240,8 +1245,8 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 		}
 	}
 
-	logging.Debug("Aggregator", "Updated capabilities: %d tools, %d resources, %d prompts",
-		toolCount, resourceCount, promptCount)
+	logging.DebugWithAttrs("Aggregator", "Updated capabilities",
+		slog.Int("tools", toolCount), slog.Int("resources", resourceCount), slog.Int("prompts", promptCount))
 }
 
 // createHTTPMux creates an HTTP mux that routes to both MCP and OAuth handlers.
@@ -1423,8 +1428,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			return
 		}
 		a.storeIDTokenForSSO(familyID, userID, idToken)
-		logging.Debug("Aggregator", "Stored refreshed ID token for session %s via TokenRefreshHandler",
-			logging.TruncateIdentifier(familyID))
+		logging.DebugWithAttrs("Aggregator", "Stored refreshed ID token via TokenRefreshHandler",
+			slog.String("familyID", logging.TruncateIdentifier(familyID)))
 	})
 
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
@@ -1688,21 +1693,24 @@ func (a *AggregatorServer) IsYoloMode() bool {
 //
 // Returns the tool execution result or an error if the tool cannot be found or executed.
 func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	logging.Debug("Aggregator", "CallToolInternal called for tool: %s", toolName)
+	logging.DebugWithAttrs("Aggregator", "CallToolInternal called",
+		slog.String("tool", toolName))
 
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
 	if err == nil {
-		logging.Debug("Aggregator", "Tool %s found in registry (server: %s, original: %s)", toolName, serverName, originalName)
+		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
+			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
 		serverInfo, exists := a.registry.GetServerInfo(serverName)
 		if !exists || serverInfo == nil {
 			return nil, fmt.Errorf("server not found: %s", serverName)
 		}
 
 		if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
-			logging.Debug("Aggregator", "Using global client for server %s", serverName)
+			logging.DebugWithAttrs("Aggregator", "Using global client",
+				slog.String("server", serverName))
 			return serverInfo.Client.CallTool(ctx, originalName, args)
 		}
 
@@ -1714,14 +1722,16 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 					slog.String("server", serverName))
 				return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
 			}
-			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for session %s",
-				serverName, logging.TruncateIdentifier(sessionID))
+			logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
+				slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 			if sessionErr == nil {
-				logging.Debug("Aggregator", "Using on-demand client for tool %s", toolName)
+				logging.DebugWithAttrs("Aggregator", "Using on-demand client",
+					slog.String("tool", toolName))
 				return a.callToolWithTokenExchangeRetry(ctx, serverName, sessionOriginalName, args, sessionID, sub)
 			}
-			logging.Debug("Aggregator", "No cached capabilities found for tool %s: %v", toolName, sessionErr)
+			logging.DebugWithAttrs("Aggregator", "No cached capabilities found",
+				slog.String("tool", toolName), slog.String("error", sessionErr.Error()))
 		}
 
 		if serverInfo.Client == nil {
@@ -1731,27 +1741,32 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		return serverInfo.Client.CallTool(ctx, originalName, args)
 	}
 
-	logging.Debug("Aggregator", "Tool %s not found in registry (error: %v), checking capability cache", toolName, err)
+	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, checking capability cache",
+		slog.String("tool", toolName), slog.String("error", err.Error()))
 
 	if sessionID != "" {
 		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 		if sessionErr == nil {
-			logging.Debug("Aggregator", "Tool %s found in capability cache (server: %s)", toolName, sessionServerName)
+			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
+				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			return a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
 		}
 	}
 
-	logging.Debug("Aggregator", "Tool %s not found in registry or cache, checking core tools", toolName)
+	logging.DebugWithAttrs("Aggregator", "Tool not found in registry or cache, checking core tools",
+		slog.String("tool", toolName))
 
 	// If not found in registry or session, check if it's a core tool by name pattern
 	// This avoids the deadlock that can occur when calling createToolsFromProviders()
 	// during workflow execution
 	if a.isCoreToolByName(toolName) {
-		logging.Debug("Aggregator", "Tool %s matches core tool pattern, calling directly", toolName)
+		logging.DebugWithAttrs("Aggregator", "Tool matches core tool pattern, calling directly",
+			slog.String("tool", toolName))
 		return a.callCoreToolDirectly(ctx, toolName, args)
 	}
 
-	logging.Debug("Aggregator", "Tool %s not found in registry, session, or core tools", toolName)
+	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, session, or core tools",
+		slog.String("tool", toolName))
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
@@ -1804,11 +1819,13 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 // Returns the tool execution result converted to MCP format, or an error if
 // no appropriate handler is found or execution fails.
 func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	logging.Debug("Aggregator", "callCoreToolDirectly called for tool: %s", toolName)
+	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
+		slog.String("tool", toolName))
 
 	// Remove the core_ prefix to get the original tool name for routing
 	originalToolName := strings.TrimPrefix(toolName, "core_")
-	logging.Debug("Aggregator", "Original tool name after prefix removal: %s", originalToolName)
+	logging.DebugWithAttrs("Aggregator", "Original tool name after prefix removal",
+		slog.String("tool", originalToolName))
 
 	// Route to the appropriate provider based on tool name prefix
 	switch {
@@ -1834,7 +1851,8 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 			if isManagementTool {
 				// Use the original tool name for workflow management tools
-				logging.Debug("Aggregator", "Calling workflow management tool %s directly", originalToolName)
+				logging.DebugWithAttrs("Aggregator", "Calling workflow management tool directly",
+					slog.String("tool", originalToolName))
 				result, err := provider.ExecuteTool(ctx, originalToolName, args)
 				if err != nil {
 					return nil, err
@@ -1843,7 +1861,8 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 			} else {
 				// This is a workflow execution tool - map workflow_ to action_
 				actionToolName := strings.Replace(originalToolName, "workflow_", "action_", 1)
-				logging.Debug("Aggregator", "Mapping workflow execution tool %s to action tool %s", originalToolName, actionToolName)
+				logging.DebugWithAttrs("Aggregator", "Mapping workflow execution tool to action tool",
+					slog.String("tool", originalToolName), slog.String("actionTool", actionToolName))
 				result, err := provider.ExecuteTool(ctx, actionToolName, args)
 				if err != nil {
 					return nil, err
@@ -2505,8 +2524,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	if a.connPool != nil {
 		if pooledClient, ok := a.connPool.Get(sessionID, serverName); ok {
 			if !ShouldUseTokenExchange(serverInfo) {
-				logging.Debug("Aggregator", "Pool hit for session %s, server %s",
-					logging.TruncateIdentifier(sessionID), serverName)
+				logging.DebugWithAttrs("Aggregator", "Pool hit",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+					slog.String("server", serverName))
 				return pooledClient, func() {}, nil
 			}
 
@@ -2533,8 +2553,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 			default:
 				// Token is healthy.
-				logging.Debug("Aggregator", "Pool hit for session %s, server %s",
-					logging.TruncateIdentifier(sessionID), serverName)
+				logging.DebugWithAttrs("Aggregator", "Pool hit",
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+					slog.String("server", serverName))
 				return pooledClient, func() {}, nil
 			}
 		}
@@ -2598,8 +2619,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// record the token expiry to enable proactive refresh.
 	if a.connPool != nil {
 		a.connPool.PutWithExpiry(sessionID, serverName, client, tokenExpiry)
-		logging.Debug("Aggregator", "Pooled new client for session %s, server %s",
-			logging.TruncateIdentifier(sessionID), serverName)
+		logging.DebugWithAttrs("Aggregator", "Pooled new client",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("server", serverName))
 	}
 
 	return client, func() {}, nil
@@ -2743,8 +2765,11 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
 
-	logging.Debug("Aggregator", "ListToolsForContext: returning %d tools (%d mcp server, %d core) for session %s",
-		len(allTools), len(mcpServerTools), len(coreTools), logging.TruncateIdentifier(sessionID))
+	logging.DebugWithAttrs("Aggregator", "ListToolsForContext: returning tools",
+		slog.Int("total", len(allTools)),
+		slog.Int("mcpServer", len(mcpServerTools)),
+		slog.Int("core", len(coreTools)),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 
 	return allTools
 }
@@ -2866,8 +2891,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 		})
 	}
 
-	logging.Debug("Aggregator", "ListServersRequiringAuth: %d servers require auth for session %s",
-		len(authRequired), logging.TruncateIdentifier(sessionID))
+	logging.DebugWithAttrs("Aggregator", "ListServersRequiringAuth",
+		slog.Int("servers", len(authRequired)),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 
 	return authRequired
 }
