@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -452,7 +453,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
 		if err != nil {
-			logging.Warn("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory: %v", err)
+			logging.WarnWithAttrs("Aggregator", "Failed to create Valkey client for session stores, falling back to in-memory",
+				slog.String("error", err.Error()))
 			return storeBundle{
 				authStore:       NewInMemorySessionAuthStore(DefaultCapabilityStoreTTL),
 				capabilityStore: NewInMemoryCapabilityStore(DefaultCapabilityStoreTTL),
@@ -462,8 +464,8 @@ func createStores(cfg AggregatorConfig) storeBundle {
 
 		enc := createEncryptor(oauthCfg)
 
-		logging.Info("Aggregator", "Using Valkey-backed session auth and capability stores (address: %s)",
-			redactURL(oauthCfg.Storage.Valkey.URL))
+		logging.InfoWithAttrs("Aggregator", "Using Valkey-backed session auth and capability stores",
+			slog.String("address", redactURL(oauthCfg.Storage.Valkey.URL)))
 		return storeBundle{
 			authStore:       NewValkeySessionAuthStore(client, DefaultCapabilityStoreTTL, keyPrefix),
 			capabilityStore: NewValkeyCapabilityStore(client, DefaultCapabilityStoreTTL, keyPrefix),
@@ -489,12 +491,14 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	}
 	keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
 	if err != nil {
-		logging.Warn("Aggregator", "Failed to decode encryption key for Valkey stores: %v", err)
+		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
+			slog.String("error", err.Error()))
 		return nil
 	}
 	enc, err := security.NewEncryptor(keyBytes)
 	if err != nil {
-		logging.Warn("Aggregator", "Failed to create encryptor for Valkey stores: %v", err)
+		logging.WarnWithAttrs("Aggregator", "Failed to create encryptor for Valkey stores",
+			slog.String("error", err.Error()))
 		return nil
 	}
 	if enc.IsEnabled() {
@@ -593,69 +597,64 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Set up hooks for session lifecycle tracking and MCP protocol logging
 	hooks := &mcpserver.Hooks{}
 	hooks.AddOnUnregisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.Info("MCP-Protocol", "Session unregistered: sessionID=%s", logging.TruncateIdentifier(session.SessionID()))
+		logging.InfoWithAttrs("MCP-Protocol", "Session unregistered",
+			logging.TransportSessionID(session.SessionID()))
 		a.subjectSessions.RemoveSession(session.SessionID())
 	})
 
 	hooks.AddOnRegisterSession(func(_ context.Context, session mcpserver.ClientSession) {
-		logging.Info("MCP-Protocol", "Session registered: sessionID=%s", logging.TruncateIdentifier(session.SessionID()))
+		logging.InfoWithAttrs("MCP-Protocol", "Session registered",
+			logging.TransportSessionID(session.SessionID()))
 	})
 
 	hooks.AddAfterInitialize(func(ctx context.Context, _ any, msg *mcp.InitializeRequest, result *mcp.InitializeResult) {
-		sessionID := ""
-		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-			sessionID = logging.TruncateIdentifier(session.SessionID())
-		}
-		logging.Info("MCP-Protocol", "Initialize completed: client=%s/%s, protocol=%s, sessionID=%s, serverVersion=%s",
-			msg.Params.ClientInfo.Name, msg.Params.ClientInfo.Version,
-			msg.Params.ProtocolVersion, sessionID, result.ServerInfo.Version)
+		logging.InfoWithAttrs("MCP-Protocol", "Initialize completed",
+			slog.String("client", msg.Params.ClientInfo.Name+"/"+msg.Params.ClientInfo.Version),
+			slog.String("protocol", string(msg.Params.ProtocolVersion)),
+			logging.TransportSessionID(getTransportSessionID(ctx)),
+			slog.String("serverVersion", result.ServerInfo.Version))
 	})
 
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
-		sessionID := ""
-		subject := getUserSubjectFromContext(ctx)
-		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-			sessionID = logging.TruncateIdentifier(session.SessionID())
-		}
 		toolNames := make([]string, 0, len(result.Tools))
 		for _, t := range result.Tools {
 			toolNames = append(toolNames, t.Name)
 		}
-		logging.Info("MCP-Protocol", "tools/list response: sessionID=%s, subject=%s, toolCount=%d, tools=%v",
-			sessionID, logging.TruncateIdentifier(subject), len(result.Tools), toolNames)
+		logging.InfoWithAttrs("MCP-Protocol", "tools/list response",
+			logging.TransportSessionID(getTransportSessionID(ctx)),
+			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
+			slog.Int("toolCount", len(result.Tools)),
+			slog.Any("tools", toolNames))
 	})
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
-		sessionID := ""
-		subject := getUserSubjectFromContext(ctx)
-		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-			sessionID = logging.TruncateIdentifier(session.SessionID())
-		}
-		logging.Info("MCP-Protocol", "tools/call request: sessionID=%s, subject=%s, tool=%s",
-			sessionID, logging.TruncateIdentifier(subject), msg.Params.Name)
+		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
+			logging.TransportSessionID(getTransportSessionID(ctx)),
+			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
+			slog.String("tool", msg.Params.Name))
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
-		sessionID := ""
-		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-			sessionID = logging.TruncateIdentifier(session.SessionID())
-		}
 		if r, ok := result.(*mcp.CallToolResult); ok {
-			logging.Info("MCP-Protocol", "tools/call response: sessionID=%s, tool=%s, isError=%t, contentItems=%d",
-				sessionID, msg.Params.Name, r.IsError, len(r.Content))
+			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+				logging.TransportSessionID(getTransportSessionID(ctx)),
+				slog.String("tool", msg.Params.Name),
+				slog.Bool("isError", r.IsError),
+				slog.Int("contentItems", len(r.Content)))
 		} else {
-			logging.Info("MCP-Protocol", "tools/call response: sessionID=%s, tool=%s, resultType=%T",
-				sessionID, msg.Params.Name, result)
+			logging.InfoWithAttrs("MCP-Protocol", "tools/call response",
+				logging.TransportSessionID(getTransportSessionID(ctx)),
+				slog.String("tool", msg.Params.Name),
+				slog.String("resultType", fmt.Sprintf("%T", result)))
 		}
 	})
 
 	hooks.AddOnError(func(ctx context.Context, id any, method mcp.MCPMethod, _ any, err error) {
-		sessionID := ""
-		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-			sessionID = logging.TruncateIdentifier(session.SessionID())
-		}
-		logging.Warn("MCP-Protocol", "Error: sessionID=%s, method=%s, id=%v, error=%v",
-			sessionID, method, id, err)
+		logging.WarnWithAttrs("MCP-Protocol", "Error",
+			logging.TransportSessionID(getTransportSessionID(ctx)),
+			slog.String("method", string(method)),
+			slog.Any("id", id),
+			slog.String("error", err.Error()))
 	})
 
 	// Create MCP server with full capabilities enabled
@@ -716,14 +715,16 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	} else {
 		for name, listeners := range listenersWithNames {
 			for i, l := range listeners {
-				logging.Info("Aggregator", "Listener %d for %s", i, name)
+				logging.InfoWithAttrs("Aggregator", "Systemd listener found",
+					slog.Int("index", i), slog.String("name", name))
 				systemdListeners = append(systemdListeners, l)
 			}
 		}
 	}
 	useSystemdActivation := len(systemdListeners) > 0
 	if useSystemdActivation {
-		logging.Info("Aggregator", "Systemd socket activation detected, using %d provided listener(s)", len(systemdListeners))
+		logging.InfoWithAttrs("Aggregator", "Systemd socket activation detected",
+			slog.Int("listeners", len(systemdListeners)))
 
 		if a.config.Transport == config.MCPTransportStdio {
 			return fmt.Errorf("stdio transport cannot be used with systemd socket activation")
@@ -765,7 +766,8 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 				}(server, listener, i)
 			}
 		} else {
-			logging.Info("Aggregator", "Starting MCP aggregator server with SSE transport on %s", addr)
+			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
+				slog.String("addr", addr))
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
@@ -827,7 +829,8 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 				}(server, listener, i)
 			}
 		} else {
-			logging.Info("Aggregator", "Starting MCP aggregator server with streamable-http transport on %s", addr)
+			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
+				slog.String("addr", addr))
 			server := &http.Server{
 				Addr:    addr,
 				Handler: handler,
@@ -919,7 +922,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Clean up all registered backend servers
 	for name := range a.registry.GetAllServers() {
 		if err := a.registry.Deregister(name); err != nil {
-			logging.Warn("Aggregator", "Error deregistering server %s: %v", name, err)
+			logging.WarnWithAttrs("Aggregator", "Error deregistering server",
+				slog.String("server", name), slog.String("error", err.Error()))
 		}
 	}
 
@@ -1020,12 +1024,14 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 	// Remove auth state and capabilities for this server across all sessions.
 	if a.authStore != nil {
 		if err := a.authStore.RevokeServer(context.Background(), name); err != nil {
-			logging.Warn("Aggregator", "Failed to revoke auth for server %s: %v", name, err)
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth for server",
+				slog.String("server", name), slog.String("error", err.Error()))
 		}
 	}
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.DeleteServer(context.Background(), name); err != nil {
-			logging.Warn("Aggregator", "Failed to delete server %s from capability store: %v", name, err)
+			logging.WarnWithAttrs("Aggregator", "Failed to delete server from capability store",
+				slog.String("server", name), slog.String("error", err.Error()))
 		}
 	}
 
@@ -1279,7 +1285,8 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 		callbackPath := oauthHandler.GetCallbackPath()
 		if callbackPath != "" {
 			mux.Handle(callbackPath, oauthHandler.GetHTTPHandler())
-			logging.Info("Aggregator", "Mounted OAuth callback handler at %s", callbackPath)
+			logging.InfoWithAttrs("Aggregator", "Mounted OAuth callback handler",
+				slog.String("path", callbackPath))
 		}
 
 		// Mount the CIMD handler if self-hosting is enabled
@@ -1288,7 +1295,8 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 			cimdHandler := oauthHandler.GetCIMDHandler()
 			if cimdPath != "" && cimdHandler != nil {
 				mux.HandleFunc(cimdPath, cimdHandler)
-				logging.Info("Aggregator", "Mounted self-hosted CIMD at %s", cimdPath)
+				logging.InfoWithAttrs("Aggregator", "Mounted self-hosted CIMD",
+					slog.String("path", cimdPath))
 			}
 		}
 	}
@@ -1348,8 +1356,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		userID := getUserSubjectFromContext(ctx)
 		idToken, _ := server.GetIDTokenFromContext(ctx)
 
-		logging.Info("Aggregator", "SSO: onAuthenticated callback (sessionID=%s, userID=%s, authAlive=%v, hasIDToken=%v)",
-			logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), authAlive, idToken != "")
+		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("userID", logging.TruncateIdentifier(userID)),
+			slog.Bool("authAlive", authAlive),
+			slog.Bool("hasIDToken", idToken != ""))
 
 		if authAlive {
 			if idToken == "" {
@@ -1367,8 +1378,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		// in the OAuth store. Without this gate, downstream connections are established
 		// that immediately start spamming 403 errors.
 		if idToken == "" {
-			logging.Info("Aggregator", "SSO: skipping initSSOForSession for session %s: no ID token available (stale session after restart)",
-				logging.TruncateIdentifier(sessionID))
+			logging.InfoWithAttrs("Aggregator", "SSO: skipping initSSOForSession, no ID token available (stale session after restart)",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			return
 		}
 
@@ -1391,8 +1402,11 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	oauthServer.SetSessionCreationHandler(func(ctx context.Context, userID, familyID string, token *oauth2.Token) {
 		idToken := oauthserver.ExtractIDToken(token)
-		logging.Info("Aggregator", "SSO: SessionCreationHandler fired (userID=%s, familyID=%s, hasIDToken=%v, idTokenLen=%d)",
-			logging.TruncateIdentifier(userID), logging.TruncateIdentifier(familyID), idToken != "", len(idToken))
+		logging.InfoWithAttrs("Aggregator", "SSO: SessionCreationHandler fired",
+			slog.String("userID", logging.TruncateIdentifier(userID)),
+			slog.String("familyID", logging.TruncateIdentifier(familyID)),
+			slog.Bool("hasIDToken", idToken != ""),
+			slog.Int("idTokenLen", len(idToken)))
 		a.initSSOForSession(ctx, userID, familyID, idToken)
 		a.storeIDTokenForSSO(familyID, userID, idToken)
 	})
@@ -1416,14 +1430,16 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
 		if a.authStore != nil {
 			if err := a.authStore.RevokeSession(ctx, familyID); err != nil {
-				logging.Warn("Aggregator", "Failed to revoke auth session %s: %v",
-					logging.TruncateIdentifier(familyID), err)
+				logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
+					slog.String("familyID", logging.TruncateIdentifier(familyID)),
+					slog.String("error", err.Error()))
 			}
 		}
 		if a.capabilityStore != nil {
 			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
-				logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
-					logging.TruncateIdentifier(familyID), err)
+				logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
+					slog.String("familyID", logging.TruncateIdentifier(familyID)),
+					slog.String("error", err.Error()))
 			}
 		}
 		if a.connPool != nil {
@@ -1433,11 +1449,13 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		if oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.DeleteTokensBySession(familyID)
 		}
-		logging.Info("Aggregator", "Cleaned up session state for revoked session %s (user %s)",
-			logging.TruncateIdentifier(familyID), logging.TruncateIdentifier(userID))
+		logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
+			slog.String("familyID", logging.TruncateIdentifier(familyID)),
+			slog.String("userID", logging.TruncateIdentifier(userID)))
 	})
 
-	logging.Info("Aggregator", "OAuth 2.1 server protection enabled (BaseURL: %s)", cfg.BaseURL)
+	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
+		slog.String("baseURL", cfg.BaseURL))
 
 	oauthMux := oauthHTTPServer.CreateMux()
 	outerMux := http.NewServeMux()
@@ -1543,12 +1561,10 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 		allTools = append(allTools, serverTool.Tool)
 	}
 
-	sessionID := ""
-	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
-		sessionID = logging.TruncateIdentifier(session.SessionID())
-	}
-	logging.Info("MCP-Protocol", "sessionToolFilter: returning %d meta-tools for subject=%s, sessionID=%s",
-		len(allTools), logging.TruncateIdentifier(subject), sessionID)
+	logging.InfoWithAttrs("MCP-Protocol", "sessionToolFilter: returning meta-tools",
+		slog.Int("toolCount", len(allTools)),
+		slog.String("subject", logging.TruncateIdentifier(subject)),
+		logging.TransportSessionID(getTransportSessionID(ctx)))
 
 	return allTools
 }
@@ -1692,9 +1708,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 		if serverInfo.RequiresSessionAuth() {
 			if sessionID == "" {
-				logging.Warn("Aggregator", "Tool %s requires auth but no session ID in context (server: %s). "+
+				logging.WarnWithAttrs("Aggregator", "Tool requires auth but no session ID in context. "+
 					"The OAuth middleware may not have propagated the session — check createAccessTokenInjectorMiddleware.",
-					toolName, serverName)
+					slog.String("tool", toolName),
+					slog.String("server", serverName))
 				return nil, fmt.Errorf("tool %s requires authentication but no session is available", toolName)
 			}
 			logging.Debug("Aggregator", "Server %s requires auth, trying on-demand client for session %s",
@@ -2052,12 +2069,15 @@ func (a *AggregatorServer) UpdateCapabilities() {
 // The method processes events selectively, focusing on workflow manager events
 // that indicate changes to workflow-based tools.
 func (a *AggregatorServer) OnToolsUpdated(event api.ToolUpdateEvent) {
-	logging.Info("Aggregator", "Received tool update event: type=%s, server=%s, tools=%d",
-		event.Type, event.ServerName, len(event.Tools))
+	logging.InfoWithAttrs("Aggregator", "Received tool update event",
+		slog.String("type", event.Type),
+		slog.String("server", event.ServerName),
+		slog.Int("tools", len(event.Tools)))
 
 	// Handle workflow tool updates by refreshing capabilities
 	if event.ServerName == "workflow-manager" && strings.HasPrefix(event.Type, "workflow_") {
-		logging.Info("Aggregator", "Refreshing capabilities due to workflow tool update: %s", event.Type)
+		logging.InfoWithAttrs("Aggregator", "Refreshing capabilities due to workflow tool update",
+			slog.String("type", event.Type))
 		// Execute asynchronously to avoid blocking the event publisher and to ensure
 		// the publisher has completed its operation before we query it for tools.
 		// The goroutine scheduling provides the necessary separation without explicit delays.
@@ -2083,7 +2103,8 @@ func (a *AggregatorServer) tryConnectWithToken(ctx context.Context, serverName, 
 		if sessionID != "" {
 			a.connPool.Put(sessionID, serverName, result.Client)
 		} else {
-			logging.Warn("Aggregator", "Cannot pool client for server %s: no session ID in context", serverName)
+			logging.WarnWithAttrs("Aggregator", "Cannot pool client: no session ID in context",
+				slog.String("server", serverName))
 		}
 	}
 
@@ -2180,6 +2201,15 @@ func getUserSubjectFromContext(ctx context.Context) string {
 	return ""
 }
 
+// getTransportSessionID extracts the MCP transport session ID from the context.
+// Returns "" if no MCP session is available.
+func getTransportSessionID(ctx context.Context) string {
+	if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
+		return session.SessionID()
+	}
+	return ""
+}
+
 // getSessionIDFromContext extracts the session ID (token family ID) from the
 // request context. Returns "" if no session is available.
 //
@@ -2222,14 +2252,16 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
 			if a.authStore != nil {
 				if err := a.authStore.RevokeSession(context.Background(), sid); err != nil {
-					logging.Warn("Aggregator", "Failed to revoke auth session %s: %v",
-						logging.TruncateIdentifier(sid), err)
+					logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
+						slog.String("sessionID", logging.TruncateIdentifier(sid)),
+						slog.String("error", err.Error()))
 				}
 			}
 			if a.capabilityStore != nil {
 				if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
-					logging.Warn("Aggregator", "Failed to delete session %s from capability store: %v",
-						logging.TruncateIdentifier(sid), err)
+					logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
+						slog.String("sessionID", logging.TruncateIdentifier(sid)),
+						slog.String("error", err.Error()))
 				}
 			}
 			if a.connPool != nil {
@@ -2238,7 +2270,8 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		}
 	}
 
-	logging.Info("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens: %s", logging.TruncateIdentifier(sub))
+	logging.InfoWithAttrs("Aggregator", "All downstream tokens deleted for user via DELETE /user-tokens",
+		slog.String("subject", logging.TruncateIdentifier(sub)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2286,14 +2319,18 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 	// Remove auth state and capability entry for this session+server.
 	if a.authStore != nil {
 		if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
-			logging.Warn("Aggregator", "Failed to revoke auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverName, err)
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
 		}
 	}
 	if a.capabilityStore != nil {
 		if err := a.capabilityStore.DeleteEntry(context.Background(), sessionID, serverName); err != nil {
-			logging.Warn("Aggregator", "Failed to delete entry %s/%s from capability store: %v",
-				logging.TruncateIdentifier(sessionID), serverName, err)
+			logging.WarnWithAttrs("Aggregator", "Failed to delete entry from capability store",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
 		}
 	}
 
@@ -2302,8 +2339,9 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		a.connPool.Evict(sessionID, serverName)
 	}
 
-	logging.Info("Aggregator", "Server %s disconnected for session via DELETE /auth/{server}: %s",
-		serverName, logging.TruncateIdentifier(sessionID))
+	logging.InfoWithAttrs("Aggregator", "Server disconnected for session via DELETE /auth/{server}",
+		slog.String("server", serverName),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -2389,8 +2427,9 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 			serverInfo.AuthConfig.RequiredAudiences,
 		)
 		if err != nil {
-			logging.Warn("Aggregator", "Failed to format audience scopes for %s: %v (continuing without audiences)",
-				serverName, err)
+			logging.WarnWithAttrs("Aggregator", "Failed to format audience scopes (continuing without audiences)",
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
 		} else {
 			exchangeConfig.Scopes = updatedScopes
 		}
@@ -2477,16 +2516,18 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			switch {
 			case tokenExpired:
 				// Token is dead -- must renew synchronously.
-				logging.Info("Aggregator", "Token expired for %s (session %s), synchronous re-exchange required",
-					serverName, logging.TruncateIdentifier(sessionID))
+				logging.InfoWithAttrs("Aggregator", "Token expired, synchronous re-exchange required",
+					slog.String("server", serverName),
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.connPool.Evict(sessionID, serverName)
 				// Fall through to pool-miss path.
 
 			case tokenExpiringSoon:
 				// Token still valid but nearing expiry -- return it immediately
 				// and refresh in the background via singleflight.
-				logging.Info("Aggregator", "Token expiring soon for %s (session %s), triggering background refresh",
-					serverName, logging.TruncateIdentifier(sessionID))
+				logging.InfoWithAttrs("Aggregator", "Token expiring soon, triggering background refresh",
+					slog.String("server", serverName),
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.triggerBackgroundTokenRefresh(sessionID, serverName, sub)
 				return pooledClient, func() {}, nil
 
@@ -2598,8 +2639,9 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 		return nil, callErr
 	}
 
-	logging.Info("Aggregator", "Token expired for token-exchange server %s (session %s), evicting pooled client and re-exchanging",
-		serverName, logging.TruncateIdentifier(sessionID))
+	logging.InfoWithAttrs("Aggregator", "Token expired for token-exchange server, evicting pooled client and re-exchanging",
+		slog.String("server", serverName),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 
 	if a.connPool != nil {
 		a.connPool.Evict(sessionID, serverName)
@@ -2645,15 +2687,19 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 
 	client, tokenExpiry, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 	if err != nil {
-		logging.Warn("Aggregator", "Background token refresh failed for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.WarnWithAttrs("Aggregator", "Background token refresh failed",
+			slog.String("server", serverName),
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("error", err.Error()))
 		return
 	}
 
 	if err := client.Initialize(ctx); err != nil {
 		client.Close()
-		logging.Warn("Aggregator", "Background refresh: client init failed for %s (session %s): %v",
-			serverName, logging.TruncateIdentifier(sessionID), err)
+		logging.WarnWithAttrs("Aggregator", "Background refresh: client init failed",
+			slog.String("server", serverName),
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("error", err.Error()))
 		return
 	}
 
@@ -2661,8 +2707,9 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)
 	}
 
-	logging.Info("Aggregator", "Background token refresh completed for %s (session %s)",
-		serverName, logging.TruncateIdentifier(sessionID))
+	logging.InfoWithAttrs("Aggregator", "Background token refresh completed",
+		slog.String("server", serverName),
+		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 }
 
 // ============================================================================
