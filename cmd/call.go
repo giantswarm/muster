@@ -88,8 +88,6 @@ func callToolNameCompletion(cmd *cobra.Command, toComplete string) ([]string, co
 // parseCallArguments extracts tool arguments from raw command line arguments.
 // Looks for --param=value or --param value patterns after the tool name.
 func parseCallArguments(toolName string) map[string]interface{} {
-	params := make(map[string]interface{})
-
 	args := os.Args
 	toolIndex := -1
 
@@ -104,7 +102,7 @@ func parseCallArguments(toolName string) map[string]interface{} {
 
 	// If "call" isn't present, we can't reliably locate the tool name.
 	if callIndex == -1 {
-		return params
+		return make(map[string]interface{})
 	}
 
 	// Starting after "call", find the first non-flag argument, skipping known
@@ -135,17 +133,28 @@ func parseCallArguments(toolName string) map[string]interface{} {
 		break
 	}
 	if toolIndex == -1 || toolIndex+1 >= len(args) {
-		return params
+		return make(map[string]interface{})
 	}
 
-	// Parse arguments after the tool name
-	toolArgs := args[toolIndex+1:]
+	return parseToolArgs(args[toolIndex+1:])
+}
+
+// parseToolArgs parses flag-style arguments (--key=value, --key value, --key) from
+// the given slice, stopping at "--" (the end-of-flags sentinel). Known CLI flags are
+// skipped so they are not forwarded as tool parameters.
+func parseToolArgs(toolArgs []string) map[string]interface{} {
+	params := make(map[string]interface{})
 
 	for i := 0; i < len(toolArgs); i++ {
 		arg := toolArgs[i]
 
 		if !strings.HasPrefix(arg, "--") {
 			continue
+		}
+
+		// "--" is the end-of-flags sentinel; stop parsing flags
+		if arg == "--" {
+			break
 		}
 
 		paramArg := strings.TrimPrefix(arg, "--")
