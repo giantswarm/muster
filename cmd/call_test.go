@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"testing"
 	"os"
+	"testing"
 )
 
 func TestCoerceValue(t *testing.T) {
