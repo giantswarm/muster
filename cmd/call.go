@@ -87,74 +87,67 @@ func callToolNameCompletion(cmd *cobra.Command, toComplete string) ([]string, co
 
 // parseCallArguments extracts tool arguments from raw command line arguments.
 // Looks for --param=value or --param value patterns after the tool name.
-func parseCallArguments(toolName string) map[string]interface{} {
-	args := os.Args
-	toolIndex := -1
+// Known muster flags that appear before the tool name are skipped.
+// Arguments after a "--" separator are ignored.
+func parseCallArguments(toolName string, osArgs []string) map[string]interface{} {
+	params := make(map[string]interface{})
 
-	// Find the index of the "call" subcommand first.
+	// Find the "call" subcommand position first.
 	callIndex := -1
-	for i, arg := range args {
+	for i, arg := range osArgs {
 		if arg == "call" {
 			callIndex = i
 			break
 		}
 	}
 
-	// If "call" isn't present, we can't reliably locate the tool name.
 	if callIndex == -1 {
-		return make(map[string]interface{})
+		return params
 	}
 
-	// Starting after "call", find the first non-flag argument, skipping known
-	// flags and their values. That first non-flag argument should be the tool.
-	for i := callIndex + 1; i < len(args); {
-		arg := args[i]
+	// Find toolName after "call", skipping any known flags and their values.
+	toolIndex := -1
+	for i := callIndex + 1; i < len(osArgs); i++ {
+		arg := osArgs[i]
 
-		if strings.HasPrefix(arg, "--") {
-			flagName := strings.TrimPrefix(arg, "--")
+		if arg == "--" {
+			break
+		}
 
-			// Skip known flags (and their values, if provided separately).
-			if isKnownFlag(flagName) {
-				if !strings.Contains(flagName, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-					i += 2
-					continue
+		if strings.HasPrefix(arg, "--") || strings.HasPrefix(arg, "-") {
+			// Skip known flag; if it has no inline value, consume the next arg as its value.
+			paramName := strings.TrimPrefix(strings.TrimPrefix(arg, "--"), "-")
+			if !strings.Contains(paramName, "=") && isKnownFlag(paramName) {
+				if i+1 < len(osArgs) && !strings.HasPrefix(osArgs[i+1], "-") {
+					i++
 				}
 			}
-
-			i++
 			continue
 		}
 
-		// First non-flag argument after "call" should be the tool name.
 		if arg == toolName {
 			toolIndex = i
+			break
 		}
-		// Regardless of match, stop scanning at the first non-flag arg.
-		break
-	}
-	if toolIndex == -1 || toolIndex+1 >= len(args) {
-		return make(map[string]interface{})
 	}
 
-	return parseToolArgs(args[toolIndex+1:])
-}
+	if toolIndex == -1 || toolIndex+1 >= len(osArgs) {
+		return params
+	}
 
-// parseToolArgs parses flag-style arguments (--key=value, --key value, --key) from
-// the given slice, stopping at "--" (the end-of-flags sentinel). Known CLI flags are
-// skipped so they are not forwarded as tool parameters.
-func parseToolArgs(toolArgs []string) map[string]interface{} {
-	params := make(map[string]interface{})
+	// Parse arguments after the tool name.
+	toolArgs := osArgs[toolIndex+1:]
 
 	for i := 0; i < len(toolArgs); i++ {
 		arg := toolArgs[i]
 
-		if !strings.HasPrefix(arg, "--") {
-			continue
-		}
-
-		// "--" is the end-of-flags sentinel; stop parsing flags
+		// "--" signals end of flag parsing.
 		if arg == "--" {
 			break
+		}
+
+		if !strings.HasPrefix(arg, "--") {
+			continue
 		}
 
 		paramArg := strings.TrimPrefix(arg, "--")
@@ -179,7 +172,7 @@ func parseToolArgs(toolArgs []string) map[string]interface{} {
 				params[paramArg] = coerceValue(toolArgs[i+1])
 				i++ // Skip the next argument since we consumed it
 			} else {
-				// Boolean flag
+				// Boolean flag with no value
 				params[paramArg] = true
 			}
 		}
@@ -188,9 +181,10 @@ func parseToolArgs(toolArgs []string) map[string]interface{} {
 	return params
 }
 
-// coerceValue attempts to convert a string argument value to its native JSON type.
-// It recognises "true"/"false" as booleans, "null" as nil, integers and floats as
-// their respective numeric types, and leaves everything else as a plain string.
+// coerceValue converts a string to the most appropriate Go type.
+// Only lowercase "true"/"false" become bool; "null" becomes nil.
+// Integer strings become int64, floating-point strings become float64;
+// everything else stays as string.
 func coerceValue(s string) interface{} {
 	switch s {
 	case "true":
@@ -247,7 +241,7 @@ func runCall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if --json flag was provided
-	jsonArg := getJSONFlag()
+	jsonArg := getJSONFlag(os.Args)
 	var toolArgs map[string]interface{}
 
 	if jsonArg != "" {
@@ -256,16 +250,15 @@ func runCall(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid JSON argument: %w", err)
 		}
 	} else {
-		toolArgs = parseCallArguments(toolName)
+		toolArgs = parseCallArguments(toolName, os.Args)
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)
 }
 
-// getJSONFlag extracts the --json flag value from os.Args since cobra won't parse it
+// getJSONFlag extracts the --json flag value from the provided args slice since cobra won't parse it
 // due to UnknownFlags being enabled.
-func getJSONFlag() string {
-	args := os.Args
+func getJSONFlag(args []string) string {
 	for i, arg := range args {
 		if arg == "--json" {
 			// Ensure there is a following argument and that it is not another flag.
