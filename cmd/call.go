@@ -93,13 +93,47 @@ func parseCallArguments(toolName string) map[string]interface{} {
 	args := os.Args
 	toolIndex := -1
 
+	// Find the index of the "call" subcommand first.
+	callIndex := -1
 	for i, arg := range args {
-		if arg == toolName && i > 0 && args[i-1] == "call" {
-			toolIndex = i
+		if arg == "call" {
+			callIndex = i
 			break
 		}
 	}
 
+	// If "call" isn't present, we can't reliably locate the tool name.
+	if callIndex == -1 {
+		return params
+	}
+
+	// Starting after "call", find the first non-flag argument, skipping known
+	// flags and their values. That first non-flag argument should be the tool.
+	for i := callIndex + 1; i < len(args); {
+		arg := args[i]
+
+		if strings.HasPrefix(arg, "--") {
+			flagName := strings.TrimPrefix(arg, "--")
+
+			// Skip known flags (and their values, if provided separately).
+			if isKnownFlag(flagName) {
+				if !strings.Contains(flagName, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					i += 2
+					continue
+				}
+			}
+
+			i++
+			continue
+		}
+
+		// First non-flag argument after "call" should be the tool name.
+		if arg == toolName {
+			toolIndex = i
+		}
+		// Regardless of match, stop scanning at the first non-flag arg.
+		break
+	}
 	if toolIndex == -1 || toolIndex+1 >= len(args) {
 		return params
 	}
