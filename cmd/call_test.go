@@ -5,6 +5,34 @@ import (
 	"testing"
 )
 
+func TestCoerceValue(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected interface{}
+	}{
+		{"true", true},
+		{"false", false},
+		{"null", nil},
+		{"42", int64(42)},
+		{"-7", int64(-7)},
+		{"3.14", float64(3.14)},
+		{"-0.5", float64(-0.5)},
+		{"hello", "hello"},
+		{"", ""},
+		{"123abc", "123abc"},
+		{"1e5", float64(1e5)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := coerceValue(tt.input)
+			if got != tt.expected {
+				t.Errorf("coerceValue(%q) = %v (%T), want %v (%T)", tt.input, got, got, tt.expected, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsKnownFlag(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -73,7 +101,7 @@ func TestParseCallArguments(t *testing.T) {
 			toolName: "workflow_deploy",
 			expected: map[string]interface{}{
 				"environment": "production",
-				"replicas":    "3",
+				"replicas":    int64(3),
 			},
 		},
 		{
@@ -81,7 +109,7 @@ func TestParseCallArguments(t *testing.T) {
 			args:     []string{"muster", "call", "some_tool", "--verbose"},
 			toolName: "some_tool",
 			expected: map[string]interface{}{
-				"verbose": "true",
+				"verbose": true,
 			},
 		},
 		{
@@ -120,7 +148,7 @@ func TestParseCallArguments(t *testing.T) {
 			toolName: "some_tool",
 			expected: map[string]interface{}{
 				"name":  "test",
-				"count": "5",
+				"count": int64(5),
 			},
 		},
 	}

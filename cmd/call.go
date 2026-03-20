@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/giantswarm/muster/internal/cli"
@@ -161,21 +162,42 @@ func parseCallArguments(toolName string) map[string]interface{} {
 			// --param=value format
 			parts := strings.SplitN(paramArg, "=", 2)
 			if len(parts) == 2 {
-				params[parts[0]] = parts[1]
+				params[parts[0]] = coerceValue(parts[1])
 			}
 		} else {
 			// --param value format (check next argument)
 			if i+1 < len(toolArgs) && !strings.HasPrefix(toolArgs[i+1], "--") {
-				params[paramArg] = toolArgs[i+1]
+				params[paramArg] = coerceValue(toolArgs[i+1])
 				i++ // Skip the next argument since we consumed it
 			} else {
 				// Boolean flag
-				params[paramArg] = "true"
+				params[paramArg] = true
 			}
 		}
 	}
 
 	return params
+}
+
+// coerceValue attempts to convert a string argument value to its native JSON type.
+// It recognises "true"/"false" as booleans, "null" as nil, integers and floats as
+// their respective numeric types, and leaves everything else as a plain string.
+func coerceValue(s string) interface{} {
+	switch s {
+	case "true":
+		return true
+	case "false":
+		return false
+	case "null":
+		return nil
+	}
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return i
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return f
+	}
+	return s
 }
 
 // isKnownFlag checks if a flag name (without --) is a known CLI flag that should be skipped
