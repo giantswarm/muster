@@ -202,8 +202,13 @@ func runCall(cmd *cobra.Command, args []string) error {
 func getJSONFlag() string {
 	args := os.Args
 	for i, arg := range args {
-		if arg == "--json" && i+1 < len(args) {
-			return args[i+1]
+		if arg == "--json" {
+			// Ensure there is a following argument and that it is not another flag.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				return args[i+1]
+			}
+			// No usable value for --json; treat as if --json was not provided.
+			return ""
 		}
 		if strings.HasPrefix(arg, "--json=") {
 			return strings.TrimPrefix(arg, "--json=")
