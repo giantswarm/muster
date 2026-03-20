@@ -102,7 +102,7 @@ func parseCallArguments(toolName string) map[string]interface{} {
 
 	// If "call" isn't present, we can't reliably locate the tool name.
 	if callIndex == -1 {
-		return params
+		return make(map[string]interface{})
 	}
 
 	// Starting after "call", find the first non-flag argument, skipping known
