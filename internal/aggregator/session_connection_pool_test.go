@@ -521,6 +521,48 @@ func TestSessionConnectionPool_SetNotificationCallback_ReplacesCallback(t *testi
 	assert.Equal(t, int32(1), secondCount.Load(), "new callback should be invoked")
 }
 
+func TestSessionConnectionPool_GetSessionsForServer_ReturnsMatching(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	c1 := &poolTestClient{}
+	c2 := &poolTestClient{}
+	c3 := &poolTestClient{}
+
+	pool.Put("s1", "srv-a", c1)
+	pool.Put("s2", "srv-a", c2)
+	pool.Put("s1", "srv-b", c3)
+
+	sessions := pool.GetSessionsForServer("srv-a")
+	assert.Len(t, sessions, 2, "should return 2 sessions for srv-a")
+
+	ids := make(map[string]bool)
+	for _, ps := range sessions {
+		ids[ps.SessionID] = true
+		assert.NotNil(t, ps.Client)
+	}
+	assert.True(t, ids["s1"])
+	assert.True(t, ids["s2"])
+}
+
+func TestSessionConnectionPool_GetSessionsForServer_EmptyPool(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	sessions := pool.GetSessionsForServer("nonexistent")
+	assert.Empty(t, sessions)
+}
+
+func TestSessionConnectionPool_GetSessionsForServer_NoMatchingServer(t *testing.T) {
+	pool := newTestPool()
+	defer pool.Stop()
+
+	pool.Put("s1", "srv-a", &poolTestClient{})
+
+	sessions := pool.GetSessionsForServer("srv-b")
+	assert.Empty(t, sessions)
+}
+
 func TestSessionConnectionPool_EvictIdleMixedEntries(t *testing.T) {
 	maxAge := 100 * time.Millisecond
 	pool := NewSessionConnectionPool(maxAge)
