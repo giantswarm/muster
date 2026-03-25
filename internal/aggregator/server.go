@@ -1699,7 +1699,35 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
+	// If the caller specified a "server" argument (injected by tool deduplication),
+	// use it to override the default name resolution and remove it from args
+	// before forwarding to the backend.
+	var targetServer string
+	if serverArg, ok := args["server"].(string); ok && serverArg != "" {
+		targetServer = serverArg
+		// Remove "server" from args so it is not forwarded to the backend tool.
+		cleanArgs := make(map[string]interface{}, len(args)-1)
+		for k, v := range args {
+			if k != "server" {
+				cleanArgs[k] = v
+			}
+		}
+		args = cleanArgs
+	}
+
 	serverName, originalName, err := a.registry.ResolveToolName(toolName)
+
+	// If a specific server was requested and differs from the default resolution,
+	// resolve against that server instead.
+	if targetServer != "" && (err != nil || serverName != targetServer) {
+		origName, resolveErr := a.registry.ResolveToolNameForServer(toolName, targetServer)
+		if resolveErr == nil {
+			serverName = targetServer
+			originalName = origName
+			err = nil
+		}
+	}
+
 	if err == nil {
 		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
 			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))

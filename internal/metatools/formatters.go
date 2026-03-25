@@ -101,8 +101,9 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 //	}
 func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequiringAuth []api.ServerAuthInfo) (string, error) {
 	type ToolInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Servers     []string `json:"servers,omitempty"`
 	}
 
 	type Response struct {
@@ -115,6 +116,20 @@ func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequir
 		toolList[i] = ToolInfo{
 			Name:        tool.Name,
 			Description: tool.Description,
+		}
+		// If the tool has an injected "server" enum parameter, expose the server list.
+		if serverProp, ok := tool.InputSchema.Properties["server"]; ok {
+			if serverMap, ok := serverProp.(map[string]interface{}); ok {
+				if enumVals, ok := serverMap["enum"].([]interface{}); ok {
+					servers := make([]string, 0, len(enumVals))
+					for _, v := range enumVals {
+						if s, ok := v.(string); ok {
+							servers = append(servers, s)
+						}
+					}
+					toolList[i].Servers = servers
+				}
+			}
 		}
 	}
 
