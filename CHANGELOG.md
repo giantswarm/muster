@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add `ciliumNetworkPolicy.extraEgress` Helm value to allow configuring additional egress rules per installation.
-- Deduplicate aggregated MCP tools when multiple backend servers share the same `toolPrefix`. Instead of exposing duplicate tools (e.g., two `x_kubernetes_list` entries from two clusters), the aggregator now emits a single tool with a `server` enum parameter for choosing which backend handles the call. Callers omitting `server` get routed to the default.
+- Deduplicate aggregated MCP tools when multiple backend servers expose tools with the same original name. Instead of exposing duplicate tools, the aggregator emits a single tool with a required `server` parameter listing the available backend server names. No `toolPrefix` configuration is needed — deduplication is automatic based on tool names.
 
 ### Changed
 

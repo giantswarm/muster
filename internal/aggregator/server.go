@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1700,12 +1701,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	sessionID := getSessionIDFromContext(ctx)
 
 	// If the caller specified a "server" argument (injected by tool deduplication),
-	// use it to override the default name resolution and remove it from args
-	// before forwarding to the backend.
+	// extract it for routing and remove it from args before forwarding.
 	var targetServer string
 	if serverArg, ok := args["server"].(string); ok && serverArg != "" {
 		targetServer = serverArg
-		// Remove "server" from args so it is not forwarded to the backend tool.
 		cleanArgs := make(map[string]interface{}, len(args)-1)
 		for k, v := range args {
 			if k != "server" {
@@ -1715,17 +1714,29 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		args = cleanArgs
 	}
 
-	serverName, originalName, err := a.registry.ResolveToolName(toolName)
-
-	// If a specific server was requested and differs from the default resolution,
-	// resolve against that server instead.
-	if targetServer != "" && (err != nil || serverName != targetServer) {
-		origName, resolveErr := a.registry.ResolveToolNameForServer(toolName, targetServer)
-		if resolveErr == nil {
-			serverName = targetServer
-			originalName = origName
-			err = nil
+	// For tools available on multiple servers, the "server" parameter is required.
+	if targetServer == "" {
+		servers := a.registry.GetToolServerNames(toolName)
+		if len(servers) > 1 {
+			sort.Strings(servers)
+			return nil, fmt.Errorf("tool %s is available on multiple servers (%s); the 'server' parameter is required",
+				toolName, strings.Join(servers, ", "))
 		}
+	}
+
+	var serverName, originalName string
+	var err error
+
+	if targetServer != "" {
+		// Resolve against the explicitly requested server.
+		originalName, err = a.registry.ResolveToolNameForServer(toolName, targetServer)
+		if err == nil {
+			serverName = targetServer
+		}
+	}
+	if serverName == "" {
+		// Fall back to default resolution (single-server tools).
+		serverName, originalName, err = a.registry.ResolveToolName(toolName)
 	}
 
 	if err == nil {
@@ -1752,6 +1763,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			}
 			logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
 				slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+			// If the server was explicitly targeted (dedup tool), use the already-resolved names directly.
+			if targetServer != "" {
+				return a.callToolWithTokenExchangeRetry(ctx, serverName, originalName, args, sessionID, sub)
+			}
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 			if sessionErr == nil {
 				logging.DebugWithAttrs("Aggregator", "Using on-demand client",
