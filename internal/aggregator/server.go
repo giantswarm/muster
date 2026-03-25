@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1699,7 +1700,45 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 
-	serverName, originalName, err := a.registry.ResolveToolName(toolName)
+	// If the caller specified a "server" argument (injected by tool deduplication),
+	// extract it for routing and remove it from args before forwarding.
+	var targetServer string
+	if serverArg, ok := args["server"].(string); ok && serverArg != "" {
+		targetServer = serverArg
+		cleanArgs := make(map[string]interface{}, len(args)-1)
+		for k, v := range args {
+			if k != "server" {
+				cleanArgs[k] = v
+			}
+		}
+		args = cleanArgs
+	}
+
+	// For tools available on multiple servers, the "server" parameter is required.
+	if targetServer == "" {
+		servers := a.registry.GetToolServerNames(toolName)
+		if len(servers) > 1 {
+			sort.Strings(servers)
+			return nil, fmt.Errorf("tool %s is available on multiple servers (%s); the 'server' parameter is required",
+				toolName, strings.Join(servers, ", "))
+		}
+	}
+
+	var serverName, originalName string
+	var err error
+
+	if targetServer != "" {
+		// Resolve against the explicitly requested server.
+		originalName, err = a.registry.ResolveToolNameForServer(toolName, targetServer)
+		if err == nil {
+			serverName = targetServer
+		}
+	}
+	if serverName == "" {
+		// Fall back to default resolution (single-server tools).
+		serverName, originalName, err = a.registry.ResolveToolName(toolName)
+	}
+
 	if err == nil {
 		logging.DebugWithAttrs("Aggregator", "Tool found in registry",
 			slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
@@ -1724,6 +1763,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			}
 			logging.DebugWithAttrs("Aggregator", "Server requires auth, trying on-demand client",
 				slog.String("server", serverName), slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+			// If the server was explicitly targeted (dedup tool), use the already-resolved names directly.
+			if targetServer != "" {
+				return a.callToolWithTokenExchangeRetry(ctx, serverName, originalName, args, sessionID, sub)
+			}
 			_, sessionOriginalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 			if sessionErr == nil {
 				logging.DebugWithAttrs("Aggregator", "Using on-demand client",

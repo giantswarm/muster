@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add `ciliumNetworkPolicy.extraEgress` Helm value to allow configuring additional egress rules per installation.
+- Deduplicate aggregated MCP tools when multiple backend servers expose tools with the same original name. Instead of exposing duplicate tools, the aggregator emits a single tool with a required `server` parameter listing the available backend server names. No `toolPrefix` configuration is needed — deduplication is automatic based on tool names.
 
 ### Changed
 

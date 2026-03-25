@@ -162,7 +162,7 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 
 	// Verify tools are available
 	tools := server.GetTools()
-	assert.Len(t, tools, 4) // tool1, tool2, and shared-tool from each server (all prefixed)
+	assert.Len(t, tools, 3) // tool1, tool2, and deduplicated shared-tool
 
 	// Verify tools are tracked by checking they exist in GetTools()
 	toolMap := make(map[string]bool)
@@ -171,8 +171,8 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 	}
 	assert.True(t, toolMap["x_server1_tool1"])
 	assert.True(t, toolMap["x_server2_tool2"])
-	assert.True(t, toolMap["x_server1_shared-tool"])
-	assert.True(t, toolMap["x_server2_shared-tool"])
+	// shared-tool is deduplicated: exposed as x_shared-tool with required "server" param
+	assert.True(t, toolMap["x_shared-tool"])
 
 	// Deregister server1
 	err = server.DeregisterServer("server1")
@@ -191,9 +191,8 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 		toolMap2[tool.Name] = true
 	}
 	assert.False(t, toolMap2["x_server1_tool1"])
-	assert.False(t, toolMap2["x_server1_shared-tool"])
 	assert.True(t, toolMap2["x_server2_tool2"])
-	// After deregistering server1, shared-tool from server2 is still prefixed
+	// After deregistering server1, shared-tool is only on server2 (normal prefixed name)
 	assert.True(t, toolMap2["x_server2_shared-tool"])
 }
 

@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,12 @@ type ServerRegistry struct {
 	serverPrefixes map[string]string // server name -> configured prefix
 	nameMu         sync.RWMutex
 	musterPrefix   string
+
+	// allMappings tracks all servers that provide each exposed tool name.
+	// When multiple servers expose a tool with the same original name, they are
+	// deduplicated into a single exposed entry with a required "server" parameter.
+	// This map records every server for routing (protected by nameMu).
+	allMappings map[string][]resolvedName
 }
 
 // NewServerRegistry creates a new server registry with the specified global prefix.
@@ -71,6 +78,7 @@ func NewServerRegistry(musterPrefix string) *ServerRegistry {
 		nameMapping:    make(map[string]resolvedName),
 		serverPrefixes: make(map[string]string),
 		musterPrefix:   musterPrefix,
+		allMappings:    make(map[string][]resolvedName),
 	}
 }
 
@@ -82,7 +90,8 @@ func (r *ServerRegistry) ExposedToolName(serverName, toolName string) string {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	exposed := r.buildExposedNameLocked(serverName, toolName)
-	r.nameMapping[exposed] = resolvedName{serverName: serverName, originalName: toolName, itemType: "tool"}
+	rn := resolvedName{serverName: serverName, originalName: toolName, itemType: "tool"}
+	r.nameMapping[exposed] = rn
 	return exposed
 }
 
@@ -289,16 +298,18 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allTools []mcp.Tool
+	type toolEntry struct {
+		serverName string
+		tool       mcp.Tool
+	}
+
+	// Pass 1: Group tools by their original (backend) name across all connected servers.
+	toolsByOrigName := make(map[string][]toolEntry)
 	connectedCount := 0
 	authRequiredCount := 0
-	totalServerCount := 0
 
 	for serverName, info := range r.servers {
-		totalServerCount++
-
 		// Per ADR-008: Servers requiring authentication do NOT expose any tools
-		// Users must use core_auth_login to authenticate first
 		if info.RequiresSessionAuth() {
 			authRequiredCount++
 			logging.Debug("Aggregator", "Server %s requires auth, no tools exposed (use core_auth_login)", serverName)
@@ -312,16 +323,36 @@ func (r *ServerRegistry) GetAllTools() []mcp.Tool {
 		connectedCount++
 
 		info.mu.RLock()
-		serverToolCount := len(info.Tools)
 		for _, tool := range info.Tools {
-			// Apply smart prefixing to avoid name conflicts
-			exposedTool := tool
-			exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-			allTools = append(allTools, exposedTool)
+			toolsByOrigName[tool.Name] = append(toolsByOrigName[tool.Name], toolEntry{
+				serverName: serverName,
+				tool:       tool,
+			})
 		}
 		info.mu.RUnlock()
+	}
 
-		logging.Debug("Aggregator", "Server %s has %d tools", serverName, serverToolCount)
+	// Pass 2: Build deduplicated tool list.
+	var allTools []mcp.Tool
+	for origName, entries := range toolsByOrigName {
+		if len(entries) == 1 {
+			// Single server: use normal prefixed name.
+			tool := entries[0].tool
+			tool.Name = r.ExposedToolName(entries[0].serverName, origName)
+			allTools = append(allTools, tool)
+		} else {
+			// Multiple servers expose the same tool: expose once with a required "server" parameter.
+			tool := entries[0].tool
+			exposedName := r.musterPrefix + "_" + origName
+			tool.Name = exposedName
+			servers := make([]string, len(entries))
+			for i, e := range entries {
+				servers[i] = e.serverName
+			}
+			tool = addServerParam(tool, servers)
+			r.registerDeduplicatedTool(exposedName, origName, servers)
+			allTools = append(allTools, tool)
+		}
 	}
 
 	logging.Debug("Aggregator", "GetAllTools: returning %d tools from %d connected servers (%d servers require auth, use core_auth_login)",
@@ -413,6 +444,34 @@ func (r *ServerRegistry) ResolveToolName(exposedName string) (serverName, origin
 		return "", "", fmt.Errorf("name %s is a %s, not a tool", exposedName, m.itemType)
 	}
 	return m.serverName, m.originalName, nil
+}
+
+// ResolveToolNameForServer resolves an exposed tool name to a specific server.
+// If the requested server does not provide this tool, an error is returned.
+func (r *ServerRegistry) ResolveToolNameForServer(exposedName, targetServer string) (originalName string, err error) {
+	r.nameMu.RLock()
+	mappings := r.allMappings[exposedName]
+	r.nameMu.RUnlock()
+	for _, m := range mappings {
+		if m.serverName == targetServer && m.itemType == "tool" {
+			return m.originalName, nil
+		}
+	}
+	return "", fmt.Errorf("server %s does not provide tool %s", targetServer, exposedName)
+}
+
+// GetToolServerNames returns all server names that provide a given exposed tool name.
+func (r *ServerRegistry) GetToolServerNames(exposedName string) []string {
+	r.nameMu.RLock()
+	mappings := r.allMappings[exposedName]
+	r.nameMu.RUnlock()
+	names := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		if m.itemType == "tool" {
+			names = append(names, m.serverName)
+		}
+	}
+	return names
 }
 
 // ResolvePromptName resolves an exposed (prefixed) prompt name back to its source server and original name.
@@ -643,7 +702,13 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var allTools []mcp.Tool
+	type toolEntry struct {
+		serverName string
+		tool       mcp.Tool
+	}
+
+	// Pass 1: Group tools by original name across all servers (including OAuth).
+	toolsByOrigName := make(map[string][]toolEntry)
 
 	for serverName, info := range r.servers {
 		if info.RequiresSessionAuth() {
@@ -655,9 +720,10 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 				continue
 			}
 			for _, tool := range caps.Tools {
-				exposedTool := tool
-				exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-				allTools = append(allTools, exposedTool)
+				toolsByOrigName[tool.Name] = append(toolsByOrigName[tool.Name], toolEntry{
+					serverName: serverName,
+					tool:       tool,
+				})
 			}
 			continue
 		}
@@ -668,11 +734,33 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store Capabi
 
 		info.mu.RLock()
 		for _, tool := range info.Tools {
-			exposedTool := tool
-			exposedTool.Name = r.ExposedToolName(serverName, tool.Name)
-			allTools = append(allTools, exposedTool)
+			toolsByOrigName[tool.Name] = append(toolsByOrigName[tool.Name], toolEntry{
+				serverName: serverName,
+				tool:       tool,
+			})
 		}
 		info.mu.RUnlock()
+	}
+
+	// Pass 2: Build deduplicated tool list.
+	var allTools []mcp.Tool
+	for origName, entries := range toolsByOrigName {
+		if len(entries) == 1 {
+			tool := entries[0].tool
+			tool.Name = r.ExposedToolName(entries[0].serverName, origName)
+			allTools = append(allTools, tool)
+		} else {
+			tool := entries[0].tool
+			exposedName := r.musterPrefix + "_" + origName
+			tool.Name = exposedName
+			servers := make([]string, len(entries))
+			for i, e := range entries {
+				servers[i] = e.serverName
+			}
+			tool = addServerParam(tool, servers)
+			r.registerDeduplicatedTool(exposedName, origName, servers)
+			allTools = append(allTools, tool)
+		}
 	}
 
 	return allTools
@@ -788,4 +876,54 @@ func (r *ServerRegistry) IsOAuthServer(serverName string) bool {
 		return false
 	}
 	return info.RequiresSessionAuth()
+}
+
+// registerDeduplicatedTool records reverse-lookup mappings for a tool that is
+// exposed under a single deduplicated name (e.g. x_list_pods) but provided by
+// multiple backend servers. Caller must NOT hold nameMu.
+func (r *ServerRegistry) registerDeduplicatedTool(exposedName, originalName string, serverNames []string) {
+	r.nameMu.Lock()
+	defer r.nameMu.Unlock()
+
+	mappings := make([]resolvedName, len(serverNames))
+	for i, sn := range serverNames {
+		mappings[i] = resolvedName{serverName: sn, originalName: originalName, itemType: "tool"}
+	}
+	r.allMappings[exposedName] = mappings
+	// Set nameMapping to first entry so ResolveToolName can still find it.
+	if len(mappings) > 0 {
+		r.nameMapping[exposedName] = mappings[0]
+	}
+}
+
+// addServerParam returns a copy of the tool with a required "server" enum
+// parameter injected into its input schema. Callers must specify which backend
+// server should handle the call.
+func addServerParam(tool mcp.Tool, servers []string) mcp.Tool {
+	sorted := make([]string, len(servers))
+	copy(sorted, servers)
+	sort.Strings(sorted)
+
+	// Build the enum values as []interface{} so JSON schema serialisation works.
+	enumVals := make([]interface{}, len(sorted))
+	for i, s := range sorted {
+		enumVals[i] = s
+	}
+
+	if tool.InputSchema.Properties == nil {
+		tool.InputSchema.Properties = make(map[string]any)
+	}
+	tool.InputSchema.Properties["server"] = map[string]interface{}{
+		"type":        "string",
+		"description": "Target server to execute this tool on. Available: " + strings.Join(sorted, ", "),
+		"enum":        enumVals,
+	}
+
+	// Make "server" a required parameter.
+	tool.InputSchema.Required = append(tool.InputSchema.Required, "server")
+
+	// Update description to note multi-server availability.
+	tool.Description = tool.Description + " (available on servers: " + strings.Join(sorted, ", ") + ")"
+
+	return tool
 }
