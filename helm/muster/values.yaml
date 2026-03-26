@@ -409,5 +409,7 @@ ciliumNetworkPolicy:
   labels: {}
   # Additional annotations to add to the CiliumNetworkPolicy
   annotations: {}
-  # Allow egress to in-cluster services via ingress-nginx and cluster entity (e.g. Dex OIDC via LoadBalancer IP)
-  allowClusterEgress: false
+  # Enable for private installations where OIDC providers (e.g. Dex) and MCP servers
+  # are accessed via in-cluster ingress rather than public endpoints.
+  # Adds egress to cluster entity on HTTP/HTTPS ports.
+  allowClusterIngress: false

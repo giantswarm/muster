@@ -559,9 +559,9 @@
         "annotations": {
           "type": "object"
         },
-        "allowClusterEgress": {
+        "allowClusterIngress": {
           "type": "boolean",
-          "description": "Allow egress to in-cluster services via ingress-nginx and cluster entity on ports 80/443"
+          "description": "Allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP)"
         }
       }
     }

@@ -53,20 +53,13 @@ spec:
     - toEntities:
         - kube-apiserver
 
-    {{- if .Values.ciliumNetworkPolicy.allowClusterEgress }}
-    # Allow egress to ingress-nginx for in-cluster services exposed via ingress (e.g. Dex OIDC)
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            app.kubernetes.io/name: ingress-nginx
-      toPorts:
-        - ports:
-            - port: "80"
-              protocol: TCP
-            - port: "443"
-              protocol: TCP
-
-    # Allow egress to cluster services (covers LoadBalancer/ClusterIP service IPs)
+    {{- if .Values.ciliumNetworkPolicy.allowClusterIngress }}
+    # Required for private installations where OIDC providers (e.g. Dex) and MCP
+    # servers are exposed via in-cluster ingress rather than public endpoints.
+    # Traffic to ingress LoadBalancer/ClusterIP IPs is classified as "cluster" by
+    # Cilium, so the "world" rule alone is not sufficient.
+    # Note: Cilium toServices was tested but does not work reliably (v1.19.x);
+    # toEntities: cluster scoped to HTTP/HTTPS ports is the proven alternative.
     - toEntities:
         - cluster
       toPorts:

@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.
-- Add `ciliumNetworkPolicy.allowClusterEgress` Helm value to allow egress to in-cluster services via ingress-nginx and cluster entity on ports 80/443 (e.g. Dex OIDC accessed via LoadBalancer IP).
+- Add `ciliumNetworkPolicy.allowClusterIngress` Helm value to allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP).
 
 ### Changed
 
