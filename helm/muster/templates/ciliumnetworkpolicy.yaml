@@ -102,9 +102,5 @@ spec:
     {{- end }}
     {{- end }}
     {{- end }}
-
-    {{- with .Values.ciliumNetworkPolicy.extraEgress }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
 {{- end }}
 
