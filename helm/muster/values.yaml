@@ -409,5 +409,7 @@ ciliumNetworkPolicy:
   labels: {}
   # Additional annotations to add to the CiliumNetworkPolicy
   annotations: {}
-  # Additional egress rules to add to the CiliumNetworkPolicy
-  extraEgress: []
+  # Enable for private installations where OIDC providers (e.g. Dex) and MCP servers
+  # are accessed via in-cluster ingress rather than public endpoints.
+  # Adds egress to cluster entity on HTTP/HTTPS ports.
+  allowClusterIngress: false

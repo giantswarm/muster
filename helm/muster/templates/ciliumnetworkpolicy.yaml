@@ -53,6 +53,23 @@ spec:
     - toEntities:
         - kube-apiserver
 
+    {{- if .Values.ciliumNetworkPolicy.allowClusterIngress }}
+    # Required for private installations where OIDC providers (e.g. Dex) and MCP
+    # servers are exposed via in-cluster ingress rather than public endpoints.
+    # Traffic to ingress LoadBalancer/ClusterIP IPs is classified as "cluster" by
+    # Cilium, so the "world" rule alone is not sufficient.
+    # Note: Cilium toServices was tested but does not work reliably (v1.19.x);
+    # toEntities: cluster scoped to HTTP/HTTPS ports is the proven alternative.
+    - toEntities:
+        - cluster
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    {{- end }}
+
     # Allow egress to world for remote MCP servers (streamable-http, sse)
     - toEntities:
         - world
@@ -77,10 +94,6 @@ spec:
               protocol: TCP
     {{- end }}
     {{- end }}
-    {{- end }}
-
-    {{- with .Values.ciliumNetworkPolicy.extraEgress }}
-    {{- toYaml . | nindent 4 }}
     {{- end }}
 {{- end }}
 
