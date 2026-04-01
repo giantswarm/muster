@@ -515,6 +515,93 @@ func TestTokenStore_SubjectIsolation(t *testing.T) {
 	}
 }
 
+// TestTokenStore_IDOnlyTokenWithExpiredJWT_NeverEvicted demonstrates a bug where
+// ID-only tokens (as created by storeIDTokenForSSO) persist in the store forever,
+// even when the embedded JWT ID token has expired. This causes stale ID tokens to
+// be forwarded to downstream MCP servers, which reject them with 401.
+//
+// Reproduction of the real-world scenario:
+//  1. User logs in via Backstage → muster stores an ID-only token (no AccessToken,
+//     no ExpiresAt) in the proxy store via storeIDTokenForSSO.
+//  2. The embedded JWT ID token has a 30-minute lifetime (set by Dex).
+//  3. No requests arrive for >30 minutes (e.g., overnight).
+//  4. The proactive refresh chain breaks because it only runs on incoming requests.
+//  5. User returns and triggers a refresh → muster refreshes its own tokens but
+//     the upstream Dex token is not refreshed.
+//  6. GetByIssuer still returns the stale ID-only token because:
+//     - ExpiresAt is zero → IsExpiredWithMargin returns false ("never expires")
+//     - The token store has no awareness of the JWT exp claim inside IDToken
+//  7. The stale JWT is forwarded to the downstream MCP server → 401 invalid_token.
+func TestTokenStore_IDOnlyTokenWithExpiredJWT_NeverEvicted(t *testing.T) {
+	ts := NewTokenStore()
+	defer ts.Stop()
+
+	sessionID := "84nk-aQ3-test-family"
+	issuer := "https://dex.example.com"
+
+	// Simulate what storeIDTokenForSSO does: store a token with ONLY the IDToken
+	// field populated — no AccessToken, no ExpiresIn, no ExpiresAt.
+	idOnlyToken := &pkgoauth.Token{
+		IDToken: "eyJhbGciOiJub25lIn0.eyJleHAiOjF9.", // JWT with exp=1 (1970, long expired)
+	}
+
+	key := TokenKey{
+		SessionID: sessionID,
+		Issuer:    issuer,
+		Scope:     "", // storeIDTokenForSSO passes empty scope
+	}
+
+	ts.Store(key, idOnlyToken, "test-user")
+
+	// BUG: The token has zero ExpiresAt (SetExpiresAtFromExpiresIn is a no-op
+	// because ExpiresIn is 0), so IsExpiredWithMargin treats it as "never expires".
+	retrieved := ts.GetByIssuer(sessionID, issuer)
+	if retrieved == nil {
+		t.Fatal("GetByIssuer returned nil — token was unexpectedly evicted")
+	}
+
+	// The store returns the token even though its embedded JWT expired decades ago.
+	if retrieved.IDToken != idOnlyToken.IDToken {
+		t.Errorf("Expected stale ID token to be returned, got different token")
+	}
+
+	// Verify the root cause: ExpiresAt is zero, so the store considers it valid.
+	if !retrieved.ExpiresAt.IsZero() {
+		t.Errorf("Expected zero ExpiresAt, got %v", retrieved.ExpiresAt)
+	}
+	if retrieved.IsExpiredWithMargin(0) {
+		t.Error("IsExpiredWithMargin(0) returned true for zero ExpiresAt — expected false (this is the bug)")
+	}
+
+	// Even cleanup won't remove it, because cleanup also uses IsExpiredWithMargin(0)
+	// which returns false for zero ExpiresAt.
+	ts.cleanup()
+	if ts.Count() != 1 {
+		t.Errorf("Expected ID-only token to survive cleanup, got count=%d", ts.Count())
+	}
+
+	// Now simulate what happens after a client-triggered refresh: muster rotates
+	// its own tokens but does NOT call TokenRefreshHandler (because the upstream
+	// Dex token wasn't refreshed). The proxy store still has the stale entry.
+	// A new request arrives and getIDTokenForForwarding calls GetByIssuer,
+	// which returns the stale token with the expired JWT.
+	afterRefresh := ts.GetByIssuer(sessionID, issuer)
+	if afterRefresh == nil {
+		t.Fatal("Token should still be in store after simulated client refresh")
+	}
+	if afterRefresh.IDToken != idOnlyToken.IDToken {
+		t.Error("Store should still return the original stale ID token")
+	}
+
+	// This stale JWT would then be forwarded to the downstream MCP server,
+	// which validates the exp claim and returns 401 invalid_token.
+	// The fix should either:
+	// (a) Set ExpiresAt on ID-only tokens based on the JWT exp claim, or
+	// (b) Trigger an upstream Dex refresh when the client refreshes and the
+	//     stored upstream token is expired, or
+	// (c) Check the JWT exp claim in getIDTokenForForwarding before forwarding.
+}
+
 func TestTokenStore_Cleanup(t *testing.T) {
 	ts := NewTokenStore()
 	defer ts.Stop()
