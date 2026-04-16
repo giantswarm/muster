@@ -1,0 +1,43 @@
+# This file is maintained centrally at
+# https://github.com/giantswarm/github/blob/main/workflows/zz_generated.pre-commit.yaml
+
+name: pre-commit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  HELM_VERSION: "3.17.3"
+  HELM_DOCS_VERSION: "1.14.2"
+  HELM_VALUES_SCHEMA_JSON_VERSION: "2.3.1"
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Check out code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - name: Set up Python environment
+      uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+    - name: Install helm
+      uses: giantswarm/install-binary-action@c37eb401e5092993fc76d545030b1d1769e61237 # v3.0.0
+      with:
+        binary: helm
+        version: "${{ env.HELM_VERSION }}"
+        download_url: "https://get.helm.sh/helm-v${version}-linux-amd64.tar.gz"
+    - name: Install helm-docs
+      uses: giantswarm/install-binary-action@c37eb401e5092993fc76d545030b1d1769e61237 # v3.0.0
+      with:
+        binary: helm-docs
+        version: "${{ env.HELM_DOCS_VERSION }}"
+        download_url: "https://github.com/norwoodj/helm-docs/releases/download/v${version}/helm-docs_linux_amd64.tar.gz"
+    - name: Install helm-values-schema-json
+      uses: giantswarm/install-binary-action@c37eb401e5092993fc76d545030b1d1769e61237 # v3.0.0
+      with:
+        binary: helm-schema
+        version: "${{ env.HELM_VALUES_SCHEMA_JSON_VERSION }}"
+        download_url: "https://github.com/losisin/helm-values-schema-json/releases/download/v${version}/helm-values-schema-json_linux_amd64.tar.gz"
+    - name: Execute pre-commit hooks
+      uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
