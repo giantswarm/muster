@@ -532,6 +532,13 @@
             "allowLocalhostRedirectURIs": {
               "type": "boolean",
               "description": "Allow localhost/loopback redirect URIs for native apps (RFC 8252)"
+            },
+            "trustedAudiences": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "OIDC client IDs (audiences) whose JWTs are accepted as bearer tokens"
             }
           }
         }
