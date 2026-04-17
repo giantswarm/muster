@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -20,6 +22,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
@@ -318,6 +321,16 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// mcp-oauth's RefreshAccessToken and becomes stale.
 		token := s.getProviderToken(ctx, r)
 		if token == nil {
+			// The bearer token was accepted by ValidateToken but muster's token
+			// store has no entry for it. This happens when a client presents a
+			// JWT issued directly by the upstream IdP (e.g. a Dex ID token) and
+			// mcp-oauth accepted it via the TrustedAudiences path. Treat the
+			// bearer token itself as the ID token and synthesize a stable
+			// session so downstream SSO flows can run.
+			if s.injectExternalIDToken(w, r, ctx, userInfo, next) {
+				return
+			}
+
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
 			r = r.WithContext(ctx)
@@ -354,6 +367,67 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// injectExternalIDToken handles the case where the bearer token was validated
+// by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
+// issued directly by the upstream OIDC provider (typically a Dex ID token
+// accepted via TrustedAudiences). The bearer token IS the ID token, so we
+// synthesize a stable session ID from its contents, inject the subject and
+// ID token into the request context, and mirror the token into the OAuth
+// proxy store so downstream SSO forwarding can resolve it later.
+//
+// Returns true if the request was handled as an external token (in which
+// case next.ServeHTTP has already been called and the caller must return);
+// returns false when the token cannot be treated as an external ID token
+// (e.g. not a JWT) and the caller should fall back to the existing path.
+func (s *OAuthHTTPServer) injectExternalIDToken(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	userInfo *providers.UserInfo,
+	next http.Handler,
+) bool {
+	bearerToken := extractBearerToken(r)
+	if bearerToken == "" || !oidc.IsJWT(bearerToken) {
+		return false
+	}
+
+	subject := userInfo.ID
+	if subject == "" {
+		subject = extractSubjectFromIDToken(bearerToken)
+	}
+	if subject == "" {
+		return false
+	}
+
+	// Deterministic session ID so repeated requests with the same token share
+	// the same auth/capability cache entry, but different tokens get separate
+	// sessions. The prefix distinguishes these synthetic sessions from
+	// muster-issued token family IDs in logs.
+	sum := sha256.Sum256([]byte(bearerToken))
+	sessionID := "ext-" + hex.EncodeToString(sum[:8])
+
+	ctx = api.WithSessionID(ctx, sessionID)
+	ctx = api.WithSubject(ctx, subject)
+	ctx = ContextWithIDToken(ctx, bearerToken)
+
+	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
+	// musterIssuer). getIDTokenForForwarding looks here for background
+	// header-func closures that run without the request context.
+	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() && s.config.BaseURL != "" {
+		oh.StoreToken(sessionID, subject, s.config.BaseURL, &api.OAuthToken{IDToken: bearerToken})
+	}
+
+	if s.debug {
+		logging.Debug("OAuth", "SSO: accepted externally-issued ID token (email=%s, session=%s)",
+			truncateEmail(userInfo.Email), logging.TruncateIdentifier(sessionID))
+	}
+
+	r = r.WithContext(ctx)
+	s.fireOnAuthenticated(ctx)
+	next.ServeHTTP(w, r)
+	return true
 }
 
 // fireOnAuthenticated calls the onAuthenticated callback if set and a session
@@ -586,6 +660,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
 		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
 		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
+		TrustedAudiences:                 cfg.TrustedAudiences,
 
 		// Instrumentation
 		Instrumentation: oauthserver.InstrumentationConfig{

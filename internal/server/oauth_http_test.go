@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -451,3 +454,246 @@ func TestFireOnAuthenticated(t *testing.T) {
 		})
 	})
 }
+
+// fakeJWT returns a syntactically valid JWT whose payload is the given claims
+// JSON-encoded. The header and signature parts are placeholders — the function
+// under test does not verify signatures.
+func fakeJWT(t *testing.T, claims map[string]interface{}) string {
+	t.Helper()
+	payload, err := json.Marshal(claims)
+	require.NoError(t, err)
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	body := base64.RawURLEncoding.EncodeToString(payload)
+	sig := base64.RawURLEncoding.EncodeToString([]byte("sig"))
+	return header + "." + body + "." + sig
+}
+
+// capturingOAuthHandler is a minimal api.OAuthHandler stub that records
+// StoreToken calls and pretends OAuth is enabled.
+type capturingOAuthHandler struct {
+	api.OAuthHandler // embed to inherit zero-value methods for unused ones
+	enabled          bool
+	stored           []struct {
+		SessionID string
+		UserID    string
+		Issuer    string
+		IDToken   string
+	}
+}
+
+func (c *capturingOAuthHandler) IsEnabled() bool { return c.enabled }
+func (c *capturingOAuthHandler) StoreToken(sessionID, userID, issuer string, token *api.OAuthToken) {
+	var idToken string
+	if token != nil {
+		idToken = token.IDToken
+	}
+	c.stored = append(c.stored, struct {
+		SessionID string
+		UserID    string
+		Issuer    string
+		IDToken   string
+	}{sessionID, userID, issuer, idToken})
+}
+
+// requestWithBearer builds a request with the given Authorization header.
+func requestWithBearer(bearer string) *http.Request {
+	r := httptest.NewRequest("POST", "/mcp", nil)
+	if bearer != "" {
+		r.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	return r
+}
+
+func TestInjectExternalIDToken(t *testing.T) {
+	baseURL := "https://muster.test"
+
+	t.Run("rejects request without bearer token", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		nextCalled := false
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nextCalled = true })
+
+		r := httptest.NewRequest("POST", "/mcp", nil)
+		w := httptest.NewRecorder()
+
+		handled := s.injectExternalIDToken(w, r, r.Context(), &providers.UserInfo{ID: "sub-1"}, next)
+		assert.False(t, handled, "should not handle request without bearer")
+		assert.False(t, nextCalled, "next should not be called when unhandled")
+	})
+
+	t.Run("rejects non-JWT bearer token", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		r := requestWithBearer("not-a-jwt-just-opaque")
+		w := httptest.NewRecorder()
+
+		handled := s.injectExternalIDToken(w, r, r.Context(), &providers.UserInfo{ID: "sub-1"}, next)
+		assert.False(t, handled)
+	})
+
+	t.Run("rejects JWT when no subject can be derived", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		// userInfo.ID empty AND JWT has no `sub` claim.
+		token := fakeJWT(t, map[string]interface{}{"email": "a@b.com"})
+		r := requestWithBearer(token)
+		w := httptest.NewRecorder()
+
+		handled := s.injectExternalIDToken(w, r, r.Context(), &providers.UserInfo{}, next)
+		assert.False(t, handled)
+	})
+
+	t.Run("injects session, subject and ID token into context", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+		})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "sub-from-jwt"})
+		r := requestWithBearer(token)
+		w := httptest.NewRecorder()
+
+		handled := s.injectExternalIDToken(
+			w, r, r.Context(), &providers.UserInfo{ID: "sub-from-userinfo", Email: "a@b.com"}, next,
+		)
+		require.True(t, handled)
+		require.NotNil(t, capturedCtx)
+
+		assert.Equal(t, "sub-from-userinfo", api.GetSubjectFromContext(capturedCtx),
+			"userInfo.ID should be preferred for subject")
+
+		sessionID := api.GetSessionIDFromContext(capturedCtx)
+		assert.Regexp(t, `^ext-[0-9a-f]{16}$`, sessionID,
+			"session ID should be synthetic with ext- prefix and hex suffix")
+
+		idToken, ok := GetIDTokenFromContext(capturedCtx)
+		require.True(t, ok)
+		assert.Equal(t, token, idToken, "bearer token should be treated as ID token")
+	})
+
+	t.Run("falls back to JWT sub when userInfo.ID is empty", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		var capturedCtx context.Context
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			capturedCtx = r.Context()
+		})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "sub-from-jwt"})
+		r := requestWithBearer(token)
+		w := httptest.NewRecorder()
+
+		handled := s.injectExternalIDToken(w, r, r.Context(), &providers.UserInfo{}, next)
+		require.True(t, handled)
+		assert.Equal(t, "sub-from-jwt", api.GetSubjectFromContext(capturedCtx))
+	})
+
+	t.Run("session ID is deterministic per bearer token", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		var sessions []string
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			sessions = append(sessions, api.GetSessionIDFromContext(r.Context()))
+		})
+
+		tokenA := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		tokenB := fakeJWT(t, map[string]interface{}{"sub": "u2"})
+
+		// Same token → same session ID across two requests.
+		for i := 0; i < 2; i++ {
+			r := requestWithBearer(tokenA)
+			s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(),
+				&providers.UserInfo{ID: "u1"}, next)
+		}
+		// Different token → different session ID.
+		r := requestWithBearer(tokenB)
+		s.injectExternalIDToken(httptest.NewRecorder(), r, r.Context(),
+			&providers.UserInfo{ID: "u2"}, next)
+
+		require.Len(t, sessions, 3)
+		assert.Equal(t, sessions[0], sessions[1], "same token must produce same session ID")
+		assert.NotEqual(t, sessions[0], sessions[2], "different tokens must produce different session IDs")
+	})
+
+	t.Run("fires onAuthenticated with the synthetic session ID", func(t *testing.T) {
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		var capturedSession string
+		s.SetOnAuthenticated(func(_ context.Context, sessionID string) {
+			capturedSession = sessionID
+		})
+
+		var ctxSession string
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			ctxSession = api.GetSessionIDFromContext(r.Context())
+		})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		r := requestWithBearer(token)
+		w := httptest.NewRecorder()
+
+		require.True(t, s.injectExternalIDToken(w, r, r.Context(), &providers.UserInfo{ID: "u1"}, next))
+		assert.Equal(t, ctxSession, capturedSession,
+			"onAuthenticated should fire with the same session ID exposed to the next handler")
+	})
+
+	t.Run("mirrors ID token into OAuth handler when enabled", func(t *testing.T) {
+		handler := &capturingOAuthHandler{enabled: true}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		r := requestWithBearer(token)
+
+		require.True(t, s.injectExternalIDToken(
+			httptest.NewRecorder(), r, r.Context(),
+			&providers.UserInfo{ID: "u1", Email: "a@b.com"}, next,
+		))
+
+		require.Len(t, handler.stored, 1)
+		got := handler.stored[0]
+		assert.Equal(t, baseURL, got.Issuer)
+		assert.Equal(t, "u1", got.UserID)
+		assert.Equal(t, token, got.IDToken)
+		assert.Regexp(t, `^ext-`, got.SessionID)
+	})
+
+	t.Run("does not call OAuth handler when disabled", func(t *testing.T) {
+		handler := &capturingOAuthHandler{enabled: false}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		r := requestWithBearer(token)
+
+		require.True(t, s.injectExternalIDToken(
+			httptest.NewRecorder(), r, r.Context(), &providers.UserInfo{ID: "u1"}, next,
+		))
+		assert.Empty(t, handler.stored,
+			"StoreToken should not be invoked when the handler reports disabled")
+	})
+
+	t.Run("does not call OAuth handler when BaseURL is empty", func(t *testing.T) {
+		handler := &capturingOAuthHandler{enabled: true}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: ""}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		r := requestWithBearer(token)
+
+		require.True(t, s.injectExternalIDToken(
+			httptest.NewRecorder(), r, r.Context(), &providers.UserInfo{ID: "u1"}, next,
+		))
+		assert.Empty(t, handler.stored,
+			"StoreToken should not be invoked without an issuer to key by")
+	})
+}
+
