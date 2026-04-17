@@ -41,6 +41,6 @@ jobs:
         version: "${{ env.HELM_VALUES_SCHEMA_JSON_VERSION }}"
         download_url: "https://github.com/losisin/helm-values-schema-json/releases/download/v${version}/helm-values-schema-json_${version}_linux_amd64.tgz"
         tarball_binary_path: "schema"
-        binary_new_name: "${binary}"
+        binary_new_name: "helm-schema"
     - name: Execute pre-commit hooks
       uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
