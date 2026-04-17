@@ -94,7 +94,7 @@ func (p *Provider) handleListTools(ctx context.Context, args map[string]interfac
 	// Get servers requiring authentication for the current session
 	serversRequiringAuth := handler.ListServersRequiringAuth(ctx)
 
-	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(tools, serversRequiringAuth)
+	jsonData, err := p.formatters.FormatToolsListWithAuthJSON(tools, serversRequiringAuth, handler.ResolveToolName)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format tools: %v", err)), nil
 	}

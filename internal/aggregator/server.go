@@ -2897,3 +2897,15 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 
 	return authRequired
 }
+
+// ResolveToolName resolves a fully prefixed tool name back to its origin
+// server and the original (unprefixed) tool name. Returns ok == false when
+// the name is not a registered backend tool, e.g. a core_* tool produced by
+// muster itself.
+func (a *AggregatorServer) ResolveToolName(exposedName string) (serverName, originalName string, ok bool) {
+	serverName, originalName, err := a.registry.ResolveToolName(exposedName)
+	if err != nil {
+		return "", "", false
+	}
+	return serverName, originalName, true
+}

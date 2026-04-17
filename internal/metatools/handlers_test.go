@@ -26,6 +26,11 @@ type mockMetaToolsHandler struct {
 
 	getPromptResult *mcp.GetPromptResult
 	getPromptError  error
+
+	// resolveToolName, when set, provides the reverse-lookup used by
+	// handleListTools to group duplicates. Nil means "unresolvable" — every
+	// tool is treated as a standalone entry.
+	resolveToolName func(exposedName string) (serverName, originalName string, ok bool)
 }
 
 func (m *mockMetaToolsHandler) ListTools(ctx context.Context) ([]mcp.Tool, error) {
@@ -63,6 +68,13 @@ func (m *mockMetaToolsHandler) GetPrompt(ctx context.Context, name string, args 
 
 func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
 	return []api.ServerAuthInfo{}
+}
+
+func (m *mockMetaToolsHandler) ResolveToolName(exposedName string) (serverName, originalName string, ok bool) {
+	if m.resolveToolName == nil {
+		return "", "", false
+	}
+	return m.resolveToolName(exposedName)
 }
 
 // registerMockHandler registers a mock handler for testing
@@ -104,13 +116,101 @@ func TestProvider_HandleListTools(t *testing.T) {
 	// Parse the JSON result - new format with tools and servers_requiring_auth
 	content := result.Content[0].(string)
 	var parsed struct {
-		Tools                []map[string]string  `json:"tools"`
+		Tools []struct {
+			Name          string   `json:"name"`
+			Description   string   `json:"description"`
+			Installations []string `json:"installations,omitempty"`
+		} `json:"tools"`
 		ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
 	}
 	err = json.Unmarshal([]byte(content), &parsed)
 	require.NoError(t, err)
 	assert.Len(t, parsed.Tools, 2)
+	// With no resolver configured, tools are emitted as concrete standalone
+	// entries (no installations field).
+	for _, tool := range parsed.Tools {
+		assert.Empty(t, tool.Installations)
+	}
 	assert.Empty(t, parsed.ServersRequiringAuth) // Empty since mock returns empty list
+}
+
+func TestProvider_HandleListTools_DeduplicatesByInstallation(t *testing.T) {
+	provider := NewProvider()
+	ctx := context.Background()
+
+	// Two installations expose identical prometheus tools; one-off runbooks
+	// tool has a single provider; core tools never resolve.
+	backends := map[string]struct{ serverName, originalName string }{
+		"x_gazelle-mcp-prometheus_check_ready":   {"gazelle-mcp-prometheus", "check_ready"},
+		"x_galaxy-mcp-prometheus_check_ready":    {"galaxy-mcp-prometheus", "check_ready"},
+		"x_gazelle-mcp-prometheus_execute_query": {"gazelle-mcp-prometheus", "execute_query"},
+		"x_galaxy-mcp-prometheus_execute_query":  {"galaxy-mcp-prometheus", "execute_query"},
+		"x_gazelle-mcp-runbooks_list_runbooks":   {"gazelle-mcp-runbooks", "list_runbooks"},
+	}
+
+	mock := &mockMetaToolsHandler{
+		tools: []mcp.Tool{
+			{Name: "x_gazelle-mcp-prometheus_check_ready", Description: "Check readiness"},
+			{Name: "x_galaxy-mcp-prometheus_check_ready", Description: "Check readiness"},
+			{Name: "x_gazelle-mcp-prometheus_execute_query", Description: "Run a PromQL query"},
+			{Name: "x_galaxy-mcp-prometheus_execute_query", Description: "Run a PromQL query"},
+			{Name: "x_gazelle-mcp-runbooks_list_runbooks", Description: "List runbooks"},
+			{Name: "core_auth_login", Description: "Login to a server"},
+		},
+		resolveToolName: func(exposedName string) (serverName, originalName string, ok bool) {
+			if b, present := backends[exposedName]; present {
+				return b.serverName, b.originalName, true
+			}
+			return "", "", false
+		},
+	}
+	cleanup := registerMockHandler(mock)
+	defer cleanup()
+
+	result, err := provider.ExecuteTool(ctx, "list_tools", nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.IsError)
+
+	content := result.Content[0].(string)
+	var parsed struct {
+		Tools []struct {
+			Name          string   `json:"name"`
+			Description   string   `json:"description"`
+			Installations []string `json:"installations,omitempty"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(content), &parsed))
+
+	byName := make(map[string]struct {
+		description   string
+		installations []string
+	})
+	for _, tool := range parsed.Tools {
+		byName[tool.Name] = struct {
+			description   string
+			installations []string
+		}{tool.Description, tool.Installations}
+	}
+
+	// 2 prometheus patterns + 1 runbooks (single installation) + 1 core = 4 entries.
+	assert.Len(t, parsed.Tools, 4, "expected dedup to collapse 4 prometheus entries into 2 patterns")
+
+	checkReady, ok := byName["x_<installation>-mcp-prometheus_check_ready"]
+	require.True(t, ok, "dedup pattern for check_ready missing")
+	assert.Equal(t, []string{"galaxy", "gazelle"}, checkReady.installations)
+
+	execQuery, ok := byName["x_<installation>-mcp-prometheus_execute_query"]
+	require.True(t, ok, "dedup pattern for execute_query missing")
+	assert.Equal(t, []string{"galaxy", "gazelle"}, execQuery.installations)
+
+	runbooks, ok := byName["x_gazelle-mcp-runbooks_list_runbooks"]
+	require.True(t, ok, "single-installation tool should retain its concrete name")
+	assert.Empty(t, runbooks.installations)
+
+	core, ok := byName["core_auth_login"]
+	require.True(t, ok, "core tool should retain its concrete name")
+	assert.Empty(t, core.installations)
 }
 
 func TestProvider_HandleDescribeTool(t *testing.T) {

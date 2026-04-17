@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `list_tools` now deduplicates tools that share an identical `(name, description)` signature across multiple backend MCP servers. Duplicate entries are collapsed into a single entry whose `name` contains an `<installation>` placeholder and which lists the providing installations in a new `installations` field. Callers substitute a concrete installation into the placeholder when invoking `call_tool`. This cuts `list_tools` output substantially for setups with many same-type MCP servers (one per cluster).
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 
 ### Fixed

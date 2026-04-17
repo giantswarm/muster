@@ -224,3 +224,15 @@ func (a *Adapter) ListServersRequiringAuth(ctx context.Context) []api.ServerAuth
 
 	return provider.ListServersRequiringAuth(ctx)
 }
+
+// ResolveToolName maps a prefixed (exposed) tool name back to its source
+// server and original tool name via the data provider. When the data provider
+// is unavailable or the name is not a registered backend tool, it returns
+// ok == false.
+func (a *Adapter) ResolveToolName(exposedName string) (serverName, originalName string, ok bool) {
+	provider, err := a.getDataProvider()
+	if err != nil {
+		return "", "", false
+	}
+	return provider.ResolveToolName(exposedName)
+}

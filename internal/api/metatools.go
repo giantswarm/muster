@@ -91,6 +91,12 @@ type MetaToolsDataProvider interface {
 	// Returns:
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+
+	// ResolveToolName maps a fully prefixed (exposed) tool name back to the
+	// backend server that provides it and the original unprefixed tool name.
+	// Returns ok == false when the name does not correspond to a backend tool
+	// (for example core_* tools produced by muster itself).
+	ResolveToolName(exposedName string) (serverName, originalName string, ok bool)
 }
 
 // ServerAuthInfo contains information about a server requiring authentication.
@@ -239,4 +245,10 @@ type MetaToolsHandler interface {
 	// Returns:
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
+
+	// ResolveToolName maps a fully prefixed (exposed) tool name back to the
+	// backend server that provides it and the original unprefixed tool name.
+	// Returns ok == false when the name does not correspond to a backend tool
+	// (for example core_* tools produced by muster itself).
+	ResolveToolName(exposedName string) (serverName, originalName string, ok bool)
 }

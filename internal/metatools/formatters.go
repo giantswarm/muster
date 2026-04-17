@@ -3,11 +3,16 @@ package metatools
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/giantswarm/muster/internal/api"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// installationPlaceholder is the literal substituted in place of an
+// installation identifier in a deduplicated tool name.
+const installationPlaceholder = "<installation>"
 
 // Formatters provides utilities for formatting MCP data consistently.
 // It supports structured JSON responses for tools, resources, and prompts.
@@ -73,36 +78,36 @@ func (f *Formatters) FormatToolsListJSON(tools []mcp.Tool) (string, error) {
 }
 
 // FormatToolsListWithAuthJSON formats a list of tools along with information
-// about servers requiring authentication as structured JSON.
+// about servers requiring authentication as structured JSON. Tools that share
+// an (originalName, description) signature across multiple backend servers are
+// collapsed into a single entry whose name uses an <installation> placeholder
+// and whose `installations` field enumerates the distinct installation values
+// extracted from the member servers.
 //
-// This format is used by the list_tools meta-tool to provide users with:
-//   - Available tools from connected/authenticated servers
-//   - Information about servers that require authentication
-//
-// Args:
-//   - tools: Slice of available tools to format
-//   - serversRequiringAuth: Slice of servers that need authentication
-//
-// Returns:
-//   - JSON string containing tools and auth-required servers
-//   - error: JSON marshaling errors (should be rare)
+// The `resolve` callback maps a fully prefixed tool name back to its origin
+// (serverName, originalName). Tools for which resolve returns ok == false —
+// for example core_* tools that never pass through the aggregator registry —
+// are always emitted as concrete standalone entries.
 //
 // Output format:
 //
 //	{
-//	  "tools": [...],
-//	  "servers_requiring_auth": [
-//	    {
-//	      "name": "server-name",
-//	      "status": "auth_required",
-//	      "auth_tool": "core_auth_login"
-//	    }
-//	  ]
+//	  "tools": [
+//	    {"name": "core_auth_login", "description": "..."},
+//	    {"name": "x_<installation>-mcp-prometheus_execute_query", "description": "...",
+//	     "installations": ["enigma", "galaxy", ...]}
+//	  ],
+//	  "servers_requiring_auth": [...]
 //	}
-func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequiringAuth []api.ServerAuthInfo) (string, error) {
+func (f *Formatters) FormatToolsListWithAuthJSON(
+	tools []mcp.Tool,
+	serversRequiringAuth []api.ServerAuthInfo,
+	resolve func(exposedName string) (serverName, originalName string, ok bool),
+) (string, error) {
 	type ToolInfo struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name          string   `json:"name"`
+		Description   string   `json:"description"`
+		Installations []string `json:"installations,omitempty"`
 	}
 
 	type Response struct {
@@ -110,13 +115,84 @@ func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequir
 		ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
 	}
 
-	toolList := make([]ToolInfo, len(tools))
-	for i, tool := range tools {
-		toolList[i] = ToolInfo{
-			Name:        tool.Name,
-			Description: tool.Description,
-		}
+	// signature groups together exposed tools sharing an (originalName, description)
+	// pair from resolvable backend servers.
+	type signature struct {
+		originalName string
+		description  string
 	}
+	type groupMember struct {
+		exposedName string
+		serverName  string
+	}
+
+	var standalone []ToolInfo
+	groups := make(map[signature][]groupMember)
+
+	for _, tool := range tools {
+		serverName, originalName, ok := noopResolve(resolve)(tool.Name)
+		if !ok {
+			// Unresolvable (core_* or unknown) — emit as-is.
+			standalone = append(standalone, ToolInfo{
+				Name:        tool.Name,
+				Description: tool.Description,
+			})
+			continue
+		}
+		sig := signature{originalName: originalName, description: tool.Description}
+		groups[sig] = append(groups[sig], groupMember{exposedName: tool.Name, serverName: serverName})
+	}
+
+	// Stable iteration order for deterministic output.
+	sigKeys := make([]signature, 0, len(groups))
+	for k := range groups {
+		sigKeys = append(sigKeys, k)
+	}
+	sort.Slice(sigKeys, func(i, j int) bool {
+		if sigKeys[i].originalName != sigKeys[j].originalName {
+			return sigKeys[i].originalName < sigKeys[j].originalName
+		}
+		return sigKeys[i].description < sigKeys[j].description
+	})
+
+	toolList := append([]ToolInfo(nil), standalone...)
+	for _, sig := range sigKeys {
+		members := groups[sig]
+		if len(members) == 1 {
+			toolList = append(toolList, ToolInfo{
+				Name:        members[0].exposedName,
+				Description: sig.description,
+			})
+			continue
+		}
+
+		names := make([]string, len(members))
+		for i, m := range members {
+			names[i] = m.exposedName
+		}
+		pattern, installations, ok := buildInstallationPattern(names)
+		if !ok {
+			// No usable common affix across members — fall back to emitting
+			// each member as its own standalone entry.
+			for _, m := range members {
+				toolList = append(toolList, ToolInfo{
+					Name:        m.exposedName,
+					Description: sig.description,
+				})
+			}
+			continue
+		}
+
+		toolList = append(toolList, ToolInfo{
+			Name:          pattern,
+			Description:   sig.description,
+			Installations: installations,
+		})
+	}
+
+	sort.SliceStable(toolList, func(i, j int) bool {
+		return toolList[i].Name < toolList[j].Name
+	})
 
 	response := Response{
 		Tools:                toolList,
@@ -129,6 +205,120 @@ func (f *Formatters) FormatToolsListWithAuthJSON(tools []mcp.Tool, serversRequir
 	}
 
 	return string(jsonData), nil
+}
+
+// noopResolve wraps a nullable resolve callback, returning a callback that
+// treats every input as unresolvable when the underlying resolver is nil.
+func noopResolve(resolve func(string) (string, string, bool)) func(string) (string, string, bool) {
+	if resolve == nil {
+		return func(string) (string, string, bool) { return "", "", false }
+	}
+	return resolve
+}
+
+// buildInstallationPattern computes the <installation>-placeholder pattern and
+// the extracted installation identifiers for a group of exposed tool names
+// that share the same (originalName, description) signature. It returns
+// ok == false when no meaningful word-boundary-aligned common affix exists,
+// signalling the caller to fall back to listing members individually.
+func buildInstallationPattern(names []string) (pattern string, installations []string, ok bool) {
+	prefix := trimPrefixToBoundary(longestCommonPrefix(names))
+	suffix := trimSuffixToBoundary(longestCommonSuffix(names))
+
+	if prefix == "" && suffix == "" {
+		return "", nil, false
+	}
+
+	installations = make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		if len(prefix)+len(suffix) > len(n) {
+			return "", nil, false
+		}
+		inst := n[len(prefix) : len(n)-len(suffix)]
+		if inst == "" {
+			return "", nil, false
+		}
+		if !seen[inst] {
+			seen[inst] = true
+			installations = append(installations, inst)
+		}
+	}
+
+	sort.Strings(installations)
+	return prefix + installationPlaceholder + suffix, installations, true
+}
+
+func longestCommonPrefix(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	prefix := names[0]
+	for _, n := range names[1:] {
+		maxLen := len(prefix)
+		if len(n) < maxLen {
+			maxLen = len(n)
+		}
+		i := 0
+		for i < maxLen && prefix[i] == n[i] {
+			i++
+		}
+		prefix = prefix[:i]
+		if prefix == "" {
+			break
+		}
+	}
+	return prefix
+}
+
+func longestCommonSuffix(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	suffix := names[0]
+	for _, n := range names[1:] {
+		maxLen := len(suffix)
+		if len(n) < maxLen {
+			maxLen = len(n)
+		}
+		i := 0
+		for i < maxLen && suffix[len(suffix)-1-i] == n[len(n)-1-i] {
+			i++
+		}
+		suffix = suffix[len(suffix)-i:]
+		if suffix == "" {
+			break
+		}
+	}
+	return suffix
+}
+
+// trimPrefixToBoundary shortens p until it ends on a `_` or `-` boundary, or
+// returns an empty string if no such boundary exists. This prevents a shared
+// initial character (e.g. all installations starting with `a`) from being
+// consumed into the pattern prefix.
+func trimPrefixToBoundary(p string) string {
+	for len(p) > 0 {
+		last := p[len(p)-1]
+		if last == '_' || last == '-' {
+			return p
+		}
+		p = p[:len(p)-1]
+	}
+	return ""
+}
+
+// trimSuffixToBoundary shortens s forward until it starts on a `_` or `-`
+// boundary, or returns an empty string.
+func trimSuffixToBoundary(s string) string {
+	for len(s) > 0 {
+		first := s[0]
+		if first == '_' || first == '-' {
+			return s
+		}
+		s = s[1:]
+	}
+	return ""
 }
 
 // FormatResourcesListJSON formats a list of resources as structured JSON.
