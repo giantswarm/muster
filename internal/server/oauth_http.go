@@ -369,6 +369,20 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 	})
 }
 
+// musterIssuer returns the OAuth issuer URL used as the key when storing
+// tokens in the OAuth proxy token store. This MUST match the issuer the
+// aggregator uses for lookups (see aggregator.getMusterIssuer): for Dex,
+// that's the upstream Dex issuer URL; for other providers, it's muster's
+// own base URL.
+//
+// Returns empty string when no issuer can be determined.
+func (s *OAuthHTTPServer) musterIssuer() string {
+	if s.config.Provider == OAuthProviderDex && s.config.Dex.IssuerURL != "" {
+		return s.config.Dex.IssuerURL
+	}
+	return s.config.BaseURL
+}
+
 // injectExternalIDToken handles the case where the bearer token was validated
 // by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
 // issued directly by the upstream OIDC provider (typically a Dex ID token
@@ -413,10 +427,14 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 	ctx = ContextWithIDToken(ctx, bearerToken)
 
 	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
-	// musterIssuer). getIDTokenForForwarding looks here for background
-	// header-func closures that run without the request context.
-	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() && s.config.BaseURL != "" {
-		oh.StoreToken(sessionID, subject, s.config.BaseURL, &api.OAuthToken{IDToken: bearerToken})
+	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here
+	// for background header-func closures that run without the request
+	// context. The key MUST match the issuer the aggregator computes —
+	// mirror its resolution logic here.
+	if issuer := s.musterIssuer(); issuer != "" {
+		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+			oh.StoreToken(sessionID, subject, issuer, &api.OAuthToken{IDToken: bearerToken})
+		}
 	}
 
 	if s.debug {

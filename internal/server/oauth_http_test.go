@@ -636,12 +636,17 @@ func TestInjectExternalIDToken(t *testing.T) {
 			"onAuthenticated should fire with the same session ID exposed to the next handler")
 	})
 
-	t.Run("mirrors ID token into OAuth handler when enabled", func(t *testing.T) {
+	t.Run("mirrors ID token into OAuth handler keyed by Dex issuer when provider=dex", func(t *testing.T) {
 		handler := &capturingOAuthHandler{enabled: true}
 		api.RegisterOAuthHandler(handler)
 		defer api.RegisterOAuthHandler(nil)
 
-		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: baseURL}}
+		dexIssuer := "https://dex.example.com"
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+			BaseURL:  baseURL,
+			Provider: OAuthProviderDex,
+			Dex:      config.DexConfig{IssuerURL: dexIssuer},
+		}}
 		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 
 		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
@@ -654,10 +659,33 @@ func TestInjectExternalIDToken(t *testing.T) {
 
 		require.Len(t, handler.stored, 1)
 		got := handler.stored[0]
-		assert.Equal(t, baseURL, got.Issuer)
+		assert.Equal(t, dexIssuer, got.Issuer,
+			"for Dex provider the token must be keyed by the Dex issuer URL, not muster's BaseURL")
 		assert.Equal(t, "u1", got.UserID)
 		assert.Equal(t, token, got.IDToken)
 		assert.Regexp(t, `^ext-`, got.SessionID)
+	})
+
+	t.Run("falls back to BaseURL for non-dex providers", func(t *testing.T) {
+		handler := &capturingOAuthHandler{enabled: true}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+			BaseURL:  baseURL,
+			Provider: OAuthProviderGoogle,
+		}}
+		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
+		r := requestWithBearer(token)
+
+		require.True(t, s.injectExternalIDToken(
+			httptest.NewRecorder(), r, r.Context(), &providers.UserInfo{ID: "u1"}, next,
+		))
+
+		require.Len(t, handler.stored, 1)
+		assert.Equal(t, baseURL, handler.stored[0].Issuer)
 	})
 
 	t.Run("does not call OAuth handler when disabled", func(t *testing.T) {
@@ -678,12 +706,13 @@ func TestInjectExternalIDToken(t *testing.T) {
 			"StoreToken should not be invoked when the handler reports disabled")
 	})
 
-	t.Run("does not call OAuth handler when BaseURL is empty", func(t *testing.T) {
+	t.Run("does not call OAuth handler when no issuer can be resolved", func(t *testing.T) {
 		handler := &capturingOAuthHandler{enabled: true}
 		api.RegisterOAuthHandler(handler)
 		defer api.RegisterOAuthHandler(nil)
 
-		s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: ""}}
+		// No BaseURL and no Dex issuer -> musterIssuer returns "".
+		s := &OAuthHTTPServer{config: config.OAuthServerConfig{}}
 		next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 
 		token := fakeJWT(t, map[string]interface{}{"sub": "u1"})
