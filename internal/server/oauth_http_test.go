@@ -696,4 +696,3 @@ func TestInjectExternalIDToken(t *testing.T) {
 			"StoreToken should not be invoked without an issuer to key by")
 	})
 }
-
