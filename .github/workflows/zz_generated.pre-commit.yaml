@@ -22,25 +22,25 @@ jobs:
     - name: Set up Python environment
       uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
     - name: Install helm
-      uses: giantswarm/install-binary-action@952007edaee6637d91216e7001f79aff11e93228 # v4.0.1
+      uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
       with:
         binary: helm
         version: "${{ env.HELM_VERSION }}"
         download_url: "https://get.helm.sh/helm-v${version}-linux-amd64.tar.gz"
     - name: Install helm-docs
-      uses: giantswarm/install-binary-action@952007edaee6637d91216e7001f79aff11e93228 # v4.0.1
+      uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
       with:
         binary: helm-docs
         version: "${{ env.HELM_DOCS_VERSION }}"
         download_url: "https://github.com/norwoodj/helm-docs/releases/download/v${version}/helm-docs_${version}_Linux_x86_64.tar.gz"
         tarball_binary_path: "${binary}"
     - name: Install helm-values-schema-json
-      uses: giantswarm/install-binary-action@952007edaee6637d91216e7001f79aff11e93228 # v4.0.1
+      uses: giantswarm/install-binary-action@e2730babbc89f02ef1559b042d33cbe24f5c3547 # v4.0.2
       with:
         binary: helm-schema
         version: "${{ env.HELM_VALUES_SCHEMA_JSON_VERSION }}"
         download_url: "https://github.com/losisin/helm-values-schema-json/releases/download/v${version}/helm-values-schema-json_${version}_linux_amd64.tgz"
         tarball_binary_path: "schema"
-        binary_new_name: "helm-schema"
+        binary_new_name: "${binary}"
     - name: Execute pre-commit hooks
       uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
