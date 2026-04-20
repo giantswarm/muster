@@ -8,12 +8,14 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,7 +31,8 @@ import (
 // caching, and event-driven updates through informers and watches.
 type kubernetesClient struct {
 	client.Client
-	scheme *runtime.Scheme
+	scheme    *runtime.Scheme
+	discovery discovery.DiscoveryInterface
 }
 
 // NewKubernetesClient creates a new Kubernetes-based muster client.
@@ -61,10 +64,17 @@ func NewKubernetesClient(config *rest.Config) (MusterClient, error) {
 		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	// Validate that required CRDs are available
+	// Discovery client is used to validate CRD presence without requiring
+	// namespaced list permissions on the muster CRDs themselves.
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery client: %w", err)
+	}
+
 	musterClient := &kubernetesClient{
-		Client: k8sClient,
-		scheme: scheme,
+		Client:    k8sClient,
+		scheme:    scheme,
+		discovery: discoveryClient,
 	}
 
 	if err := musterClient.validateCRDs(context.Background()); err != nil {
@@ -306,18 +316,28 @@ func (k *kubernetesClient) Scheme() *runtime.Scheme {
 
 // validateCRDs checks if the required muster CRDs are available in the cluster.
 //
-// This method performs a test API call to verify that the MCPServer CRD is installed
-// and available. If the CRDs are not available, it returns an error, which will
-// trigger fallback to filesystem mode.
+// Validation uses the discovery API to verify that the muster API group is
+// served and exposes the MCPServer kind. This avoids requiring list/get
+// permissions on the muster CRDs in any specific namespace, which is
+// important when muster runs with namespace-scoped RBAC (e.g. a Role limited
+// to its own namespace).
 func (k *kubernetesClient) validateCRDs(ctx context.Context) error {
-	// Try to list MCPServers in the default namespace
-	// This will fail if the CRD is not installed
-	_, err := k.ListMCPServers(ctx, "default")
+	gv := musterv1alpha1.GroupVersion.String()
+	resourceList, err := k.discovery.ServerResourcesForGroupVersion(gv)
 	if err != nil {
-		return fmt.Errorf("MCPServer CRD not available: %w", err)
+		if apierrors.IsNotFound(err) || discovery.IsGroupDiscoveryFailedError(err) {
+			return fmt.Errorf("muster API group %s not registered: %w", gv, err)
+		}
+		return fmt.Errorf("failed to discover muster API group %s: %w", gv, err)
 	}
 
-	return nil
+	for _, r := range resourceList.APIResources {
+		if r.Kind == "MCPServer" {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("MCPServer CRD not available in API group %s", gv)
 }
 
 // CreateEvent creates a Kubernetes Event for the given object.
