@@ -6,8 +6,7 @@ import (
 	// . "github.com/onsi/ginkgo/v2"
 	// . "github.com/onsi/gomega"
 
-	"github.com/giantswarm/apptest-framework/v3/pkg/config"
-	"github.com/giantswarm/apptest-framework/v3/pkg/suite"
+	"github.com/giantswarm/apptest-framework/v4/pkg/suite"
 )
 
 const (
@@ -15,7 +14,7 @@ const (
 )
 
 func TestBasic(t *testing.T) {
-	suite.New(config.MustLoad("../../config.yaml")).
+	suite.New().
 		// The namespace to install the app into within the workload cluster
 		WithInstallNamespace("kube-system").
 		// If this is an upgrade test or not.
