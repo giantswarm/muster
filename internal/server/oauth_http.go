@@ -2,12 +2,11 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,7 +21,6 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/google"
-	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/giantswarm/mcp-oauth/storage"
@@ -327,7 +325,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			// mcp-oauth accepted it via the TrustedAudiences path. Treat the
 			// bearer token itself as the ID token and synthesize a stable
 			// session so downstream SSO flows can run.
-			if s.injectExternalIDToken(w, r, ctx, userInfo, next) {
+			if s.injectExternalIDToken(w, r, ctx, next) {
 				return
 			}
 
@@ -383,63 +381,75 @@ func (s *OAuthHTTPServer) musterIssuer() string {
 	return s.config.BaseURL
 }
 
+// acceptForwardedIDToken is a test seam around (*oauth.Server).AcceptForwardedIDToken.
+// Tests stub this to avoid needing a real JWKS/provider setup; production code
+// leaves it at its default.
+var acceptForwardedIDToken = func(s *oauth.Server, ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+	return s.AcceptForwardedIDToken(ctx, bearerToken)
+}
+
 // injectExternalIDToken handles the case where the bearer token was validated
 // by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
 // issued directly by the upstream OIDC provider (typically a Dex ID token
 // accepted via TrustedAudiences). The bearer token IS the ID token, so we
-// synthesize a stable session ID from its contents, inject the subject and
-// ID token into the request context, and mirror the token into the OAuth
-// proxy store so downstream SSO forwarding can resolve it later.
+// delegate JWT parsing, JWKS signature verification, issuer/audience checks
+// and session-ID derivation to mcp-oauth's AcceptForwardedIDToken, then
+// inject the verified subject and ID token into the request context and
+// mirror the token into the OAuth proxy store so downstream SSO forwarding
+// can resolve it later.
 //
 // Returns true if the request was handled as an external token (in which
 // case next.ServeHTTP has already been called and the caller must return);
-// returns false when the token cannot be treated as an external ID token
-// (e.g. not a JWT) and the caller should fall back to the existing path.
+// returns false when AcceptForwardedIDToken rejects the token (audience
+// mismatch, signature failure, not a JWT, etc.) and the caller should fall
+// back to the existing "no token stored" path.
 func (s *OAuthHTTPServer) injectExternalIDToken(
 	w http.ResponseWriter,
 	r *http.Request,
 	ctx context.Context,
-	userInfo *providers.UserInfo,
 	next http.Handler,
 ) bool {
 	bearerToken := extractBearerToken(r)
-	if bearerToken == "" || !oidc.IsJWT(bearerToken) {
+	if bearerToken == "" {
 		return false
 	}
 
-	subject := userInfo.ID
-	if subject == "" {
-		subject = extractSubjectFromIDToken(bearerToken)
-	}
-	if subject == "" {
+	acceptance, err := acceptForwardedIDToken(s.oauthServer, ctx, bearerToken)
+	if err != nil {
+		if s.debug {
+			if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
+				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, falling back: %v", err)
+			} else {
+				logging.Debug("OAuth", "SSO: forwarded ID token rejected, falling back: %v", err)
+			}
+		}
 		return false
 	}
 
-	// Deterministic session ID so repeated requests with the same token share
-	// the same auth/capability cache entry, but different tokens get separate
-	// sessions. The prefix distinguishes these synthetic sessions from
-	// muster-issued token family IDs in logs.
-	sum := sha256.Sum256([]byte(bearerToken))
-	sessionID := "ext-" + hex.EncodeToString(sum[:8])
-
-	ctx = api.WithSessionID(ctx, sessionID)
-	ctx = api.WithSubject(ctx, subject)
+	ctx = api.WithSessionID(ctx, acceptance.SessionID)
+	ctx = api.WithSubject(ctx, acceptance.Subject)
 	ctx = ContextWithIDToken(ctx, bearerToken)
 
 	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
 	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here
 	// for background header-func closures that run without the request
 	// context. The key MUST match the issuer the aggregator computes —
-	// mirror its resolution logic here.
+	// mirror its resolution logic here. mcp-oauth's AcceptForwardedIDToken
+	// intentionally does NOT mirror into TokenStore, so this keying is
+	// muster's own responsibility.
 	if issuer := s.musterIssuer(); issuer != "" {
 		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-			oh.StoreToken(sessionID, subject, issuer, &api.OAuthToken{IDToken: bearerToken})
+			oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{IDToken: bearerToken})
 		}
 	}
 
 	if s.debug {
+		var email string
+		if acceptance.UserInfo != nil {
+			email = acceptance.UserInfo.Email
+		}
 		logging.Debug("OAuth", "SSO: accepted externally-issued ID token (email=%s, session=%s)",
-			truncateEmail(userInfo.Email), logging.TruncateIdentifier(sessionID))
+			truncateEmail(email), logging.TruncateIdentifier(acceptance.SessionID))
 	}
 
 	r = r.WithContext(ctx)
