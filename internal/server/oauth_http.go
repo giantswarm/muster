@@ -287,6 +287,12 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		if s.debug {
+			if bearer := extractBearerToken(r); bearer != "" {
+				logging.Debug("OAuth", "Incoming bearer token on %s: %s", r.URL.Path, bearer)
+			}
+		}
+
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
