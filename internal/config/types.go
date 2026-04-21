@@ -258,6 +258,19 @@ type OAuthServerConfig struct {
 
 	// TLSKeyFile is the path to the TLS private key file (PEM format).
 	TLSKeyFile string `yaml:"tlsKeyFile,omitempty"`
+
+	// TrustedAudiences lists additional OAuth client IDs (audiences) whose
+	// JWT ID tokens are accepted directly as bearer tokens, without requiring
+	// the client to complete muster's own OAuth flow first. This enables
+	// authenticating muster with tokens generated directly against Dex (e.g.
+	// by dex-k8s-authenticator or another Dex client), as long as the token's
+	// `aud` claim matches one of these values and its signature validates
+	// against the provider's JWKS.
+	//
+	// SECURITY: only list client IDs you fully trust. Any JWT signed by the
+	// configured OIDC provider and carrying one of these audiences is treated
+	// as a valid muster bearer token.
+	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.

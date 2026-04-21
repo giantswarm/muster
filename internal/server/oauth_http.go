@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -318,6 +319,16 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// mcp-oauth's RefreshAccessToken and becomes stale.
 		token := s.getProviderToken(ctx, r)
 		if token == nil {
+			// The bearer token was accepted by ValidateToken but muster's token
+			// store has no entry for it. This happens when a client presents a
+			// JWT issued directly by the upstream IdP (e.g. a Dex ID token) and
+			// mcp-oauth accepted it via the TrustedAudiences path. Treat the
+			// bearer token itself as the ID token and synthesize a stable
+			// session so downstream SSO flows can run.
+			if s.injectExternalIDToken(w, r, ctx, next) {
+				return
+			}
+
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
 			r = r.WithContext(ctx)
@@ -354,6 +365,97 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// musterIssuer returns the OAuth issuer URL used as the key when storing
+// tokens in the OAuth proxy token store. This MUST match the issuer the
+// aggregator uses for lookups (see aggregator.getMusterIssuer): for Dex,
+// that's the upstream Dex issuer URL; for other providers, it's muster's
+// own base URL.
+//
+// Returns empty string when no issuer can be determined.
+func (s *OAuthHTTPServer) musterIssuer() string {
+	if s.config.Provider == OAuthProviderDex && s.config.Dex.IssuerURL != "" {
+		return s.config.Dex.IssuerURL
+	}
+	return s.config.BaseURL
+}
+
+// acceptForwardedIDToken is a test seam around (*oauth.Server).AcceptForwardedIDToken.
+// Tests stub this to avoid needing a real JWKS/provider setup; production code
+// leaves it at its default.
+var acceptForwardedIDToken = func(s *oauth.Server, ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+	return s.AcceptForwardedIDToken(ctx, bearerToken)
+}
+
+// injectExternalIDToken handles the case where the bearer token was validated
+// by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
+// issued directly by the upstream OIDC provider (typically a Dex ID token
+// accepted via TrustedAudiences). The bearer token IS the ID token, so we
+// delegate JWT parsing, JWKS signature verification, issuer/audience checks
+// and session-ID derivation to mcp-oauth's AcceptForwardedIDToken, then
+// inject the verified subject and ID token into the request context and
+// mirror the token into the OAuth proxy store so downstream SSO forwarding
+// can resolve it later.
+//
+// Returns true if the request was handled as an external token (in which
+// case next.ServeHTTP has already been called and the caller must return);
+// returns false when AcceptForwardedIDToken rejects the token (audience
+// mismatch, signature failure, not a JWT, etc.) and the caller should fall
+// back to the existing "no token stored" path.
+func (s *OAuthHTTPServer) injectExternalIDToken(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	next http.Handler,
+) bool {
+	bearerToken := extractBearerToken(r)
+	if bearerToken == "" {
+		return false
+	}
+
+	acceptance, err := acceptForwardedIDToken(s.oauthServer, ctx, bearerToken)
+	if err != nil {
+		if s.debug {
+			if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
+				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, falling back: %v", err)
+			} else {
+				logging.Debug("OAuth", "SSO: forwarded ID token rejected, falling back: %v", err)
+			}
+		}
+		return false
+	}
+
+	ctx = api.WithSessionID(ctx, acceptance.SessionID)
+	ctx = api.WithSubject(ctx, acceptance.Subject)
+	ctx = ContextWithIDToken(ctx, bearerToken)
+
+	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
+	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here
+	// for background header-func closures that run without the request
+	// context. The key MUST match the issuer the aggregator computes —
+	// mirror its resolution logic here. mcp-oauth's AcceptForwardedIDToken
+	// intentionally does NOT mirror into TokenStore, so this keying is
+	// muster's own responsibility.
+	if issuer := s.musterIssuer(); issuer != "" {
+		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+			oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{IDToken: bearerToken})
+		}
+	}
+
+	if s.debug {
+		var email string
+		if acceptance.UserInfo != nil {
+			email = acceptance.UserInfo.Email
+		}
+		logging.Debug("OAuth", "SSO: accepted externally-issued ID token (email=%s, session=%s)",
+			truncateEmail(email), logging.TruncateIdentifier(acceptance.SessionID))
+	}
+
+	r = r.WithContext(ctx)
+	s.fireOnAuthenticated(ctx)
+	next.ServeHTTP(w, r)
+	return true
 }
 
 // fireOnAuthenticated calls the onAuthenticated callback if set and a session
@@ -586,6 +688,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
 		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
 		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
+		TrustedAudiences:                 cfg.TrustedAudiences,
 
 		// Instrumentation
 		Instrumentation: oauthserver.InstrumentationConfig{
