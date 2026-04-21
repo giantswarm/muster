@@ -303,7 +303,12 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]interface
 		return errorResult(fmt.Sprintf("Failed to serialize result: %v", err)), nil
 	}
 
-	return textResult(string(resultJSON)), nil
+	// Propagate the underlying tool's error status to the outer wrapper so that
+	// MCP clients inspecting only the top-level isError field get an accurate signal.
+	return &api.CallToolResult{
+		Content: []interface{}{string(resultJSON)},
+		IsError: result.IsError,
+	}, nil
 }
 
 // handleListResources handles the list_resources meta-tool.

@@ -234,29 +234,19 @@ func (c *mcpTestClient) CallToolDirect(ctx context.Context, toolName string, arg
 
 // unwrapMetaToolResponse extracts the actual tool result from a call_tool meta-tool response.
 // The call_tool meta-tool wraps tool results in a JSON structure for proper serialization.
+//
+// The outer result.IsError mirrors the wrapped tool's IsError (see metatools.handleCallTool),
+// so we unwrap the JSON payload first regardless of the outer flag. An outer IsError=true with
+// a non-JSON payload indicates a meta-tool level failure (e.g. missing arguments).
 func (c *mcpTestClient) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName string) (*mcp.CallToolResult, error) {
 	if result == nil {
 		return nil, fmt.Errorf("nil result from call_tool")
 	}
 
-	// Check if the meta-tool call itself failed
-	if result.IsError {
-		// Extract error message from content
-		var errorMsgs []string
-		for _, content := range result.Content {
-			if textContent, ok := mcp.AsTextContent(content); ok {
-				errorMsgs = append(errorMsgs, textContent.Text)
-			}
-		}
-		return nil, fmt.Errorf("meta-tool error: %s", fmt.Sprintf("%v", errorMsgs))
-	}
-
-	// The call_tool meta-tool returns a single text content containing the wrapped result as JSON
 	if len(result.Content) == 0 {
 		return nil, fmt.Errorf("empty content from call_tool")
 	}
 
-	// Get the JSON string from the first text content
 	textContent, ok := mcp.AsTextContent(result.Content[0])
 	if !ok {
 		return nil, fmt.Errorf("unexpected content type from call_tool")
@@ -272,6 +262,10 @@ func (c *mcpTestClient) unwrapMetaToolResponse(result *mcp.CallToolResult, toolN
 	}
 
 	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
+		// No JSON wrapper — this is a meta-tool level failure (e.g. validation error).
+		if result.IsError {
+			return nil, fmt.Errorf("meta-tool error: %s", textContent.Text)
+		}
 		return nil, fmt.Errorf("failed to parse wrapped result: %w", err)
 	}
 
