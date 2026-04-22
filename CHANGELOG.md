@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
 - CRD validation now uses the discovery API instead of listing `MCPServer` resources in the `default` namespace. With namespace-scoped RBAC (a `Role` limited to muster's own namespace), the previous probe failed with `Forbidden`, silently fell back to filesystem mode, and left configured `MCPServer` CRs unstarted (visible in logs as `Found 0 MCPServer definitions for auto-start processing` followed by `Deleting MCPServer service: <name>`).
+- `call_tool` meta-tool now forwards the underlying tool's `isError` flag on the outer response. Previously the top-level `isError` was always `false` even when the wrapped tool returned an error, which was misleading for MCP clients that only inspect the top-level flag.
 
 ## [0.1.0] - 2026-02-23
 

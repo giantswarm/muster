@@ -287,6 +287,33 @@ func TestProvider_HandleCallTool(t *testing.T) {
 		assert.False(t, parsed.IsError)
 	})
 
+	t.Run("forwards underlying tool error to outer IsError", func(t *testing.T) {
+		previous := mock.callToolResult
+		mock.callToolResult = &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: "underlying failure"},
+			},
+			IsError: true,
+		}
+		defer func() { mock.callToolResult = previous }()
+
+		result, err := provider.ExecuteTool(ctx, "call_tool", map[string]interface{}{
+			"name": "some_tool",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.IsError, "outer IsError must mirror the underlying tool's IsError")
+
+		content := result.Content[0].(string)
+		var parsed struct {
+			IsError bool          `json:"isError"`
+			Content []interface{} `json:"content"`
+		}
+		err = json.Unmarshal([]byte(content), &parsed)
+		require.NoError(t, err)
+		assert.True(t, parsed.IsError)
+	})
+
 	t.Run("error for missing name", func(t *testing.T) {
 		result, err := provider.ExecuteTool(ctx, "call_tool", nil)
 		require.NoError(t, err)
