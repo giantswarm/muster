@@ -1,0 +1,19 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>muster admin — {{.Title}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+<strong>muster admin</strong>
+<nav><a href="/sessions">Sessions</a></nav>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>loopback-only · no auth · {{isoTime .Now}}</footer>
+</body>
+</html>
+{{end}}

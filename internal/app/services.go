@@ -261,6 +261,11 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,
 				Config:  mergeOAuthServerConfig(cfg),
 			},
+			Admin: aggregator.AdminConfig{
+				Enabled:     cfg.MusterConfig.Aggregator.Admin.Enabled,
+				Port:        cfg.MusterConfig.Aggregator.Admin.Port,
+				BindAddress: cfg.MusterConfig.Aggregator.Admin.BindAddress,
+			},
 		}
 
 		// Set defaults if not specified
@@ -272,6 +277,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		}
 		if aggConfig.Transport == "" {
 			aggConfig.Transport = config.MCPTransportStreamableHTTP
+		}
+		if aggConfig.Admin.Enabled {
+			if aggConfig.Admin.Port == 0 {
+				aggConfig.Admin.Port = 9999
+			}
+			if aggConfig.Admin.BindAddress == "" {
+				aggConfig.Admin.BindAddress = "127.0.0.1"
+			}
 		}
 
 		aggService := aggregatorService.NewAggregatorService(

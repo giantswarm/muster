@@ -342,6 +342,37 @@ func (p *SessionConnectionPool) Len() int {
 	return len(p.pool)
 }
 
+// PooledInfo is a read-only snapshot of a pool entry's metadata. Used by the
+// admin UI to introspect live connections without exposing the MCP client.
+type PooledInfo struct {
+	ServerName  string
+	CreatedAt   time.Time
+	LastUsedAt  time.Time
+	TokenExpiry time.Time // Zero if no tracked expiry.
+}
+
+// Snapshot returns a copy of the metadata for every pool entry belonging to
+// the given session. The underlying MCP clients are not exposed; callers only
+// see timing and server-name information.
+func (p *SessionConnectionPool) Snapshot(sessionID string) []PooledInfo {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var out []PooledInfo
+	for key, entry := range p.pool {
+		if key.SessionID != sessionID {
+			continue
+		}
+		out = append(out, PooledInfo{
+			ServerName:  key.ServerName,
+			CreatedAt:   entry.CreatedAt,
+			LastUsedAt:  entry.LastUsedAt,
+			TokenExpiry: entry.TokenExpiry,
+		})
+	}
+	return out
+}
+
 // evictedPoolEntry pairs a poolKey with a snapshot of the poolEntry that was
 // removed. Used by evictIdle to defer Close calls outside the write lock.
 type evictedPoolEntry struct {

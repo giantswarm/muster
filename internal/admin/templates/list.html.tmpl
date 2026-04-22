@@ -1,0 +1,36 @@
+{{define "content"}}
+<h1>Sessions ({{len .Sessions}})</h1>
+{{if .Sessions}}
+<table>
+  <thead>
+    <tr>
+      <th>Subject</th>
+      <th>Session ID</th>
+      <th>Servers</th>
+      <th>Tools</th>
+      <th>Last seen</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Sessions}}
+    <tr>
+      <td>{{.Subject}}</td>
+      <td class="mono"><a href="/sessions/{{.SessionID}}">{{shortID .SessionID}}</a></td>
+      <td>{{.ServerCount}}</td>
+      <td>{{.ToolCount}}</td>
+      <td class="muted">{{humanTime .LastSeen}}</td>
+      <td>
+        <form class="inline" method="POST" action="/sessions/{{.SessionID}}/delete"
+              onsubmit="return confirm('Delete session {{shortID .SessionID}} for {{.Subject}}? This revokes auth and evicts all pooled connections.');">
+          <button type="submit" class="danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No active sessions.</div>
+{{end}}
+{{end}}

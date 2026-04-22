@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -133,6 +134,9 @@ type AggregatorServer struct {
 	// valkeyEncryptor provides AES-256-GCM encryption at rest for sensitive values
 	// stored in Valkey (tokens, state). Nil when encryption is not configured.
 	valkeyEncryptor *security.Encryptor
+
+	// adminServer is the optional admin web UI listener. Nil when disabled.
+	adminServer *admin.Server
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -207,6 +211,22 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 		result = append(result, id)
 	}
 	return result
+}
+
+// Snapshot returns a subject -> []sessionID map copy of the tracker's current
+// state. Used by the admin UI to enumerate all tracked sessions.
+func (t *subjectSessionTracker) Snapshot() map[string][]string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make(map[string][]string, len(t.sessions))
+	for sub, ids := range t.sessions {
+		cp := make([]string, 0, len(ids))
+		for id := range ids {
+			cp = append(cp, id)
+		}
+		out[sub] = cp
+	}
+	return out
 }
 
 // ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry
@@ -846,6 +866,28 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	}
 	a.mu.Unlock()
 
+	// Start the optional admin web UI on a separate listener. Failure to
+	// bind the admin port is logged but not fatal: the aggregator itself is
+	// already serving and we do not want admin problems to take it down.
+	if a.config.Admin.Enabled {
+		adminCfg := admin.Config{
+			BindAddress: a.config.Admin.BindAddress,
+			Port:        a.config.Admin.Port,
+		}
+		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
+		if err != nil {
+			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
+		} else if err := adminSrv.Start(a.ctx); err != nil {
+			logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
+		} else {
+			a.mu.Lock()
+			a.adminServer = adminSrv
+			a.mu.Unlock()
+			logging.InfoWithAttrs("Aggregator", "Admin UI listening",
+				slog.String("addr", adminSrv.Addr()))
+		}
+	}
+
 	return nil
 }
 
@@ -887,7 +929,18 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Capture references before releasing lock to avoid race conditions
 	cancelFunc := a.cancelFunc
 	httpServer := a.httpServer
+	adminServer := a.adminServer
+	a.adminServer = nil
 	a.mu.Unlock()
+
+	// Shut down the admin listener first — it is cheap and has no in-flight
+	// MCP work to wait for.
+	if adminServer != nil {
+		if err := adminServer.Stop(ctx); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Error shutting down admin server",
+				slog.String("error", err.Error()))
+		}
+	}
 
 	// Cancel context to signal shutdown to all background routines
 	if cancelFunc != nil {
