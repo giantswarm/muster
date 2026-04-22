@@ -102,7 +102,13 @@ func (e *AuthRequiredError) GetResourceMetadataURL() string {
 //
 //   - transport.OAuthAuthorizationRequiredError: returned when WithHTTPOAuth is set.
 //     The error carries an OAuthHandler that can discover server metadata (issuer, scopes).
-//   - transport.ErrUnauthorized: returned when no OAuth handler is configured.
+//   - transport.ErrUnauthorized ("unauthorized (401)"): returned by some paths when
+//     no OAuth handler is configured.
+//   - transport.ErrAuthorizationRequired ("authorization required"): introduced in
+//     mcp-go v0.49.0 and returned by the streamable-http transport for 401 responses
+//     when the client has no valid token. Muster must treat this identically to the
+//     other two so that auth-required servers get registered in pending-auth state
+//     instead of failing outright.
 func CheckForAuthRequiredError(ctx context.Context, err error, url string) *AuthRequiredError {
 	if err == nil {
 		return nil
@@ -118,7 +124,9 @@ func CheckForAuthRequiredError(ctx context.Context, err error, url string) *Auth
 		}
 	}
 
-	if errors.Is(err, transport.ErrUnauthorized) {
+	if errors.Is(err, transport.ErrUnauthorized) ||
+		errors.Is(err, transport.ErrAuthorizationRequired) ||
+		errors.Is(err, transport.ErrOAuthAuthorizationRequired) {
 		return &AuthRequiredError{
 			URL:      url,
 			AuthInfo: AuthInfo{},
