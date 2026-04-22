@@ -679,10 +679,19 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
+		subject := getUserSubjectFromContext(ctx)
 		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
-			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
+			slog.String("subject", logging.TruncateIdentifier(subject)),
 			slog.String("tool", msg.Params.Name))
+
+		// Ensure the admin UI can resolve subject for sessions whose MCP client
+		// caches tools/list and therefore never re-hits sessionToolFilter.
+		if subject != "" {
+			if oauthSessionID := getSessionIDFromContext(ctx); oauthSessionID != "" {
+				a.subjectSessions.TrackOAuth(subject, oauthSessionID)
+			}
+		}
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {

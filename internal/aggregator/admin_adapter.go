@@ -119,6 +119,11 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	}
 
 	oauthHandler := api.GetOAuthHandler()
+	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
+
+	// Track which issuers we've already surfaced a token for, so that two
+	// servers sharing an issuer don't produce duplicate JWT rows.
+	seenIssuers := map[string]bool{}
 
 	detail := &admin.SessionDetail{SessionID: sessionID, Subject: subject}
 	for serverName, c := range caps {
@@ -145,13 +150,28 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		detail.Servers = append(detail.Servers, entry)
 
 		// Attach the decoded ID token for this server, if one exists.
-		if oauthHandler != nil && oauthHandler.IsEnabled() && issuer != "" {
+		if oauthEnabled && issuer != "" && !seenIssuers[issuer] {
 			if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
 				detail.Tokens = append(detail.Tokens, admin.SessionToken{
 					Label: fmt.Sprintf("muster → %s (id_token)", serverName),
 					Raw:   tok.IDToken,
 				})
+				seenIssuers[issuer] = true
 			}
+		}
+	}
+
+	// Fallback: servers registered pending-auth via the new mcp-go sentinel
+	// path land with an empty Issuer, so the per-server lookup above won't
+	// yield anything. FindTokenWithIDToken searches the session for any stored
+	// token that carries an ID token — typically the user's login token — so
+	// the admin UI still has something to decode.
+	if oauthEnabled && len(detail.Tokens) == 0 {
+		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
+			detail.Tokens = append(detail.Tokens, admin.SessionToken{
+				Label: "session (id_token)",
+				Raw:   tok.IDToken,
+			})
 		}
 	}
 
