@@ -179,6 +179,34 @@ func (s *ValkeyCapabilityStore) Touch(ctx context.Context, sessionID string) (bo
 	return b, nil
 }
 
+// ListSessions returns every sessionID with a capability entry. It SCANs
+// the key prefix so cost is linear in the number of tracked sessions.
+func (s *ValkeyCapabilityStore) ListSessions(ctx context.Context) ([]string, error) {
+	prefix := s.keyPrefix + "cap:"
+	match := prefix + "*"
+	var cursor uint64
+	var out []string
+	for {
+		cmd := s.client.B().Scan().Cursor(cursor).Match(match).Count(500).Build()
+		result := s.client.Do(ctx, cmd)
+		if err := result.Error(); err != nil {
+			return nil, fmt.Errorf("valkey SCAN: %w", err)
+		}
+		entry, err := result.AsScanEntry()
+		if err != nil {
+			return nil, fmt.Errorf("valkey SCAN decode: %w", err)
+		}
+		for _, k := range entry.Elements {
+			out = append(out, k[len(prefix):])
+		}
+		cursor = entry.Cursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (s *ValkeyCapabilityStore) Exists(ctx context.Context, sessionID, serverName string) (bool, error) {
 	cmd := s.client.B().Hexists().Key(s.key(sessionID)).Field(serverName).Build()
 	result := s.client.Do(ctx, cmd)

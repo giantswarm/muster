@@ -178,6 +178,45 @@ func TestInMemoryCapabilityStore_Exists(t *testing.T) {
 	assert.True(t, exists)
 }
 
+func TestInMemoryCapabilityStore_ListSessions(t *testing.T) {
+	store := NewInMemoryCapabilityStore(30 * time.Minute)
+	defer store.Stop()
+	ctx := context.Background()
+
+	empty, err := store.ListSessions(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+
+	require.NoError(t, store.Set(ctx, "s1", "svr1", &Capabilities{}))
+	require.NoError(t, store.Set(ctx, "s2", "svr1", &Capabilities{}))
+	require.NoError(t, store.Set(ctx, "s2", "svr2", &Capabilities{}))
+
+	got, err := store.ListSessions(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"s1", "s2"}, got)
+}
+
+func TestInMemoryCapabilityStore_ListSessions_skipsExpired(t *testing.T) {
+	// Short TTL — expired entries must not be returned to the admin UI.
+	store := NewInMemoryCapabilityStore(10 * time.Millisecond)
+	defer store.Stop()
+	ctx := context.Background()
+
+	require.NoError(t, store.Set(ctx, "fresh", "svr", &Capabilities{}))
+	// Force an expired entry by rewinding its expireAt.
+	store.mu.Lock()
+	store.sessions["stale"] = &inMemorySession{
+		servers:  map[string]*Capabilities{"svr": {}},
+		expireAt: time.Now().Add(-time.Minute),
+	}
+	store.mu.Unlock()
+
+	got, err := store.ListSessions(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"fresh"}, got,
+		"expired sessions must be filtered from ListSessions")
+}
+
 func TestInMemoryCapabilityStore_GetAll(t *testing.T) {
 	store := NewInMemoryCapabilityStore(30 * time.Minute)
 	defer store.Stop()

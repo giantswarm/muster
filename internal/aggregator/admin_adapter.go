@@ -24,32 +24,50 @@ func (a *AggregatorServer) adminDeps() admin.Deps {
 	}
 }
 
-// adminListSessions enumerates every tracked subject/session pair and
-// summarises it using the capability store counts.
+// adminListSessions enumerates sessions using the capability store as the
+// durable source of truth (it survives pod restarts when backed by Valkey),
+// then enriches each row with the user subject from the in-memory tracker
+// when available. Sessions that exist in the store but haven't had a
+// tool-list request since startup show a subject of "unknown".
 func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.SessionSummary, error) {
-	if a.subjectSessions == nil {
+	if a.capabilityStore == nil {
 		return nil, nil
 	}
 
-	var out []admin.SessionSummary
-	for subject, sids := range a.subjectSessions.Snapshot() {
-		for _, sid := range sids {
-			summary := admin.SessionSummary{
-				SessionID: sid,
-				Subject:   subject,
+	sids, err := a.capabilityStore.ListSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+
+	// Build a session -> subject lookup from the tracker. Missing entries
+	// fall through to "unknown" (the Valkey stores don't persist subject).
+	subjectBySession := map[string]string{}
+	if a.subjectSessions != nil {
+		for subject, tracked := range a.subjectSessions.Snapshot() {
+			for _, sid := range tracked {
+				subjectBySession[sid] = subject
 			}
-			if a.capabilityStore != nil {
-				if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
-					summary.ServerCount = len(all)
-					for _, caps := range all {
-						if caps != nil {
-							summary.ToolCount += len(caps.Tools)
-						}
-					}
+		}
+	}
+
+	out := make([]admin.SessionSummary, 0, len(sids))
+	for _, sid := range sids {
+		summary := admin.SessionSummary{
+			SessionID: sid,
+			Subject:   subjectBySession[sid],
+		}
+		if summary.Subject == "" {
+			summary.Subject = "unknown"
+		}
+		if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
+			summary.ServerCount = len(all)
+			for _, caps := range all {
+				if caps != nil {
+					summary.ToolCount += len(caps.Tools)
 				}
 			}
-			out = append(out, summary)
 		}
+		out = append(out, summary)
 	}
 	return out, nil
 }
@@ -59,31 +77,35 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 // the connection pool (live transport/expiry metadata), the server registry
 // (issuer info), and the OAuth handler (raw JWTs, never the signature).
 func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID string) (*admin.SessionDetail, bool, error) {
-	if a.subjectSessions == nil || a.capabilityStore == nil {
+	if a.capabilityStore == nil {
 		return nil, false, nil
 	}
 
-	// The tracker's reverse map is private; recover the subject by scanning
-	// the snapshot. This is fine for admin-scale session counts.
-	subject := ""
-	for sub, sids := range a.subjectSessions.Snapshot() {
-		for _, sid := range sids {
-			if sid == sessionID {
-				subject = sub
-				break
-			}
-		}
-		if subject != "" {
-			break
-		}
-	}
-	if subject == "" {
-		return nil, false, nil
-	}
-
+	// The capability store is the durable source of truth. If it has no
+	// entry for this session, treat the session as not found.
 	caps, err := a.capabilityStore.GetAll(ctx, sessionID)
 	if err != nil {
 		return nil, false, fmt.Errorf("capability store: %w", err)
+	}
+	if caps == nil {
+		return nil, false, nil
+	}
+
+	// Recover the subject from the in-memory tracker if it has seen this
+	// session post-restart; otherwise mark as unknown.
+	subject := "unknown"
+	if a.subjectSessions != nil {
+		for sub, sids := range a.subjectSessions.Snapshot() {
+			for _, sid := range sids {
+				if sid == sessionID {
+					subject = sub
+					break
+				}
+			}
+			if subject != "unknown" {
+				break
+			}
+		}
 	}
 
 	poolSnap := map[string]PooledInfo{}
