@@ -269,12 +269,30 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 	// Create middleware to inject access token into context for downstream use
 	accessTokenInjector := s.createAccessTokenInjectorMiddleware(s.mcpHandler)
 
-	// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
-	mux.Handle("/mcp", s.oauthHandler.ValidateToken(accessTokenInjector))
-	mux.Handle("/sse", s.oauthHandler.ValidateToken(accessTokenInjector))
-	mux.Handle("/message", s.oauthHandler.ValidateToken(accessTokenInjector))
+	// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info).
+	// s.logIncomingBearer wraps ValidateToken so we log every incoming bearer token
+	// regardless of whether ValidateToken accepts or rejects it.
+	mcpChain := s.logIncomingBearer(s.oauthHandler.ValidateToken(accessTokenInjector))
+	mux.Handle("/mcp", mcpChain)
+	mux.Handle("/sse", mcpChain)
+	mux.Handle("/message", mcpChain)
 
 	logging.Info("OAuth", "Protected MCP endpoints with OAuth middleware")
+}
+
+// logIncomingBearer is a debug-only middleware that logs the raw Authorization
+// bearer token for every request on the protected MCP endpoints. It runs
+// BEFORE ValidateToken so tokens that are later rejected (expired, wrong
+// audience, bad signature) are still visible. No-op when s.debug is false.
+func (s *OAuthHTTPServer) logIncomingBearer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.debug {
+			if bearer := extractBearerToken(r); bearer != "" {
+				logging.Debug("OAuth", "Incoming bearer token on %s: %s", r.URL.Path, bearer)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // createAccessTokenInjectorMiddleware creates middleware that injects the user's
@@ -286,12 +304,6 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-
-		if s.debug {
-			if bearer := extractBearerToken(r); bearer != "" {
-				logging.Debug("OAuth", "Incoming bearer token on %s: %s", r.URL.Path, bearer)
-			}
-		}
 
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauth.UserInfoFromContext(ctx)
