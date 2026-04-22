@@ -157,20 +157,51 @@ func (a *AggregatorServer) getValkeyEncryptor() *security.Encryptor {
 	return a.valkeyEncryptor
 }
 
-// subjectSessionTracker maps user subjects to their MCP client session IDs.
-// This enables targeted notifications instead of broadcasting to all clients.
-// A reverse map (session -> subject) allows O(1) removal when a session disconnects.
+// subjectSessionTracker maps user subjects to their MCP client session IDs
+// (for targeted notifications) and to their OAuth session IDs / token family
+// IDs (for the admin UI). The two ID spaces are intentionally kept separate
+// because polluting the MCP-session map with OAuth IDs would break
+// notification delivery.
+//
+// A reverse map keyed by MCP session ID allows O(1) cleanup when the
+// transport session is unregistered.
 type subjectSessionTracker struct {
-	mu       sync.RWMutex
-	sessions map[string]map[string]bool // sub -> set of MCP session IDs
-	reverse  map[string]string          // MCP session ID -> sub
+	mu           sync.RWMutex
+	sessions     map[string]map[string]bool // sub -> set of MCP session IDs
+	reverse      map[string]string          // MCP session ID -> sub
+	oauthByOAuth map[string]string          // OAuth session ID -> sub (latest observation wins)
 }
 
 func newSubjectSessionTracker() *subjectSessionTracker {
 	return &subjectSessionTracker{
-		sessions: make(map[string]map[string]bool),
-		reverse:  make(map[string]string),
+		sessions:     make(map[string]map[string]bool),
+		reverse:      make(map[string]string),
+		oauthByOAuth: make(map[string]string),
 	}
+}
+
+// TrackOAuth records a mapping from subject to OAuth session ID (token family).
+// Called from sessionToolFilter alongside Track so the admin UI can render a
+// subject for every live OAuth session, even ones that haven't reached the
+// cap store yet.
+func (t *subjectSessionTracker) TrackOAuth(sub, oauthSessionID string) {
+	if sub == "" || oauthSessionID == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.oauthByOAuth[oauthSessionID] = sub
+}
+
+// OAuthSnapshot returns a copy of the OAuth sessionID -> subject map.
+func (t *subjectSessionTracker) OAuthSnapshot() map[string]string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make(map[string]string, len(t.oauthByOAuth))
+	for k, v := range t.oauthByOAuth {
+		out[k] = v
+	}
+	return out
 }
 
 // Track records a mapping from user subject to MCP session ID.
@@ -1609,6 +1640,11 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	if subject != "" {
 		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 			a.subjectSessions.Track(subject, session.SessionID())
+		}
+		// Also record the OAuth session ID (token family) so the admin UI
+		// can enumerate live sessions that haven't touched the cap store yet.
+		if oauthSessionID := getSessionIDFromContext(ctx); oauthSessionID != "" {
+			a.subjectSessions.TrackOAuth(subject, oauthSessionID)
 		}
 	}
 

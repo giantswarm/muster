@@ -24,34 +24,42 @@ func (a *AggregatorServer) adminDeps() admin.Deps {
 	}
 }
 
-// adminListSessions enumerates sessions using the capability store as the
-// durable source of truth (it survives pod restarts when backed by Valkey),
-// then enriches each row with the user subject from the in-memory tracker
-// when available. Sessions that exist in the store but haven't had a
-// tool-list request since startup show a subject of "unknown".
+// adminListSessions enumerates sessions from two complementary sources so
+// that the admin UI stays useful both right after a restart and for sessions
+// that haven't exercised a downstream OAuth server:
+//
+//   - capabilityStore.ListSessions: durable, survives restarts (Valkey), but
+//     only records sessions that have fetched capabilities for at least one
+//     server.
+//   - subjectSessionTracker.OAuthSnapshot: in-memory, wiped on restart, but
+//     populated on every tools/list call — catches sessions that only use
+//     meta-tools.
+//
+// The two sources share the same ID space (OAuth token family ID), so the
+// union is a straightforward set merge.
 func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.SessionSummary, error) {
-	if a.capabilityStore == nil {
-		return nil, nil
-	}
-
-	sids, err := a.capabilityStore.ListSessions(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list sessions: %w", err)
-	}
-
-	// Build a session -> subject lookup from the tracker. Missing entries
-	// fall through to "unknown" (the Valkey stores don't persist subject).
+	seen := map[string]struct{}{}
 	subjectBySession := map[string]string{}
+
 	if a.subjectSessions != nil {
-		for subject, tracked := range a.subjectSessions.Snapshot() {
-			for _, sid := range tracked {
-				subjectBySession[sid] = subject
-			}
+		for sid, sub := range a.subjectSessions.OAuthSnapshot() {
+			seen[sid] = struct{}{}
+			subjectBySession[sid] = sub
 		}
 	}
 
-	out := make([]admin.SessionSummary, 0, len(sids))
-	for _, sid := range sids {
+	if a.capabilityStore != nil {
+		sids, err := a.capabilityStore.ListSessions(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list sessions: %w", err)
+		}
+		for _, sid := range sids {
+			seen[sid] = struct{}{}
+		}
+	}
+
+	out := make([]admin.SessionSummary, 0, len(seen))
+	for sid := range seen {
 		summary := admin.SessionSummary{
 			SessionID: sid,
 			Subject:   subjectBySession[sid],
@@ -59,11 +67,13 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 		if summary.Subject == "" {
 			summary.Subject = "unknown"
 		}
-		if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
-			summary.ServerCount = len(all)
-			for _, caps := range all {
-				if caps != nil {
-					summary.ToolCount += len(caps.Tools)
+		if a.capabilityStore != nil {
+			if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
+				summary.ServerCount = len(all)
+				for _, caps := range all {
+					if caps != nil {
+						summary.ToolCount += len(caps.Tools)
+					}
 				}
 			}
 		}
@@ -77,35 +87,28 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 // the connection pool (live transport/expiry metadata), the server registry
 // (issuer info), and the OAuth handler (raw JWTs, never the signature).
 func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID string) (*admin.SessionDetail, bool, error) {
-	if a.capabilityStore == nil {
-		return nil, false, nil
-	}
-
-	// The capability store is the durable source of truth. If it has no
-	// entry for this session, treat the session as not found.
-	caps, err := a.capabilityStore.GetAll(ctx, sessionID)
-	if err != nil {
-		return nil, false, fmt.Errorf("capability store: %w", err)
-	}
-	if caps == nil {
-		return nil, false, nil
-	}
-
-	// Recover the subject from the in-memory tracker if it has seen this
-	// session post-restart; otherwise mark as unknown.
-	subject := "unknown"
-	if a.subjectSessions != nil {
-		for sub, sids := range a.subjectSessions.Snapshot() {
-			for _, sid := range sids {
-				if sid == sessionID {
-					subject = sub
-					break
-				}
-			}
-			if subject != "unknown" {
-				break
-			}
+	var caps map[string]*Capabilities
+	if a.capabilityStore != nil {
+		got, err := a.capabilityStore.GetAll(ctx, sessionID)
+		if err != nil {
+			return nil, false, fmt.Errorf("capability store: %w", err)
 		}
+		caps = got
+	}
+
+	// Recover the subject from the OAuth-keyed tracker map; this is the same
+	// ID space as the capability store keys.
+	subject := ""
+	if a.subjectSessions != nil {
+		subject = a.subjectSessions.OAuthSnapshot()[sessionID]
+	}
+
+	// Session is known only if at least one source recognizes it.
+	if caps == nil && subject == "" {
+		return nil, false, nil
+	}
+	if subject == "" {
+		subject = "unknown"
 	}
 
 	poolSnap := map[string]PooledInfo{}
