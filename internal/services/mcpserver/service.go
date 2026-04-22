@@ -564,8 +564,11 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 
 	// Initialize the client
 	if err := client.Initialize(initCtx); err != nil {
-		// Check if this is an authentication required error
-		if authErr, ok := err.(*mcpserver.AuthRequiredError); ok {
+		// Check if this is an authentication required error. errors.As walks
+		// the wrap chain so that wrappers from future mcp-go versions do not
+		// re-break this detection path.
+		var authErr *mcpserver.AuthRequiredError
+		if errors.As(err, &authErr) {
 			s.LogInfo("Server %s requires authentication (401)", s.GetName())
 			// Return the auth error directly so the caller can handle it
 			return authErr
