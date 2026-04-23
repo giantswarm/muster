@@ -3,7 +3,9 @@
 
 # DO NOT EDIT. Generated with:
 #
-#    devctl gen precommit
+#    devctl
+#
+#    https://github.com/giantswarm/devctl/blob/57c68171868158d915a92dd45201bbeadaa17214/pkg/gen/input/precommit/internal/file/schema.yaml.template
 #
 
 values:
