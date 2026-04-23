@@ -121,6 +121,15 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	oauthHandler := api.GetOAuthHandler()
 	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
 
+	// Cache the user's session ID token so forward-token servers can all
+	// reuse it without hitting the oauth store per server.
+	var sessionIDToken string
+	if oauthEnabled {
+		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil {
+			sessionIDToken = tok.IDToken
+		}
+	}
+
 	// Track which issuers we've already surfaced a token for, so that two
 	// servers sharing an issuer don't produce duplicate JWT rows.
 	seenIssuers := map[string]bool{}
@@ -134,8 +143,9 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 			entry.PromptCount = len(c.Prompts)
 		}
 
+		info, hasInfo := a.registry.GetServerInfo(serverName)
 		var issuer string
-		if info, ok := a.registry.GetServerInfo(serverName); ok && info.AuthInfo != nil {
+		if hasInfo && info.AuthInfo != nil {
 			issuer = info.AuthInfo.Issuer
 			entry.Issuer = issuer
 		}
@@ -149,30 +159,60 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 
 		detail.Servers = append(detail.Servers, entry)
 
-		// Attach the decoded ID token for this server, if one exists.
-		if oauthEnabled && issuer != "" && !seenIssuers[issuer] {
-			if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
-				detail.Tokens = append(detail.Tokens, admin.SessionToken{
-					Label: fmt.Sprintf("muster → %s (id_token)", serverName),
-					Raw:   tok.IDToken,
-				})
-				seenIssuers[issuer] = true
+		if !oauthEnabled || !hasInfo {
+			continue
+		}
+
+		switch {
+		case ShouldUseTokenExchange(info):
+			// RFC 8693 exchange result is stored under the downstream issuer
+			// (same issuer tracked on ServerInfo.AuthInfo). Label explicitly
+			// so users can distinguish it from a plain forward.
+			if issuer != "" && !seenIssuers[issuer] {
+				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
+					detail.Tokens = append(detail.Tokens, admin.SessionToken{
+						Label: fmt.Sprintf("muster → %s (exchanged id_token)", serverName),
+						Raw:   tok.IDToken,
+					})
+					seenIssuers[issuer] = true
+				}
+			}
+		case ShouldUseTokenForwarding(info):
+			// forwardToken mode: muster sends the user's ID token verbatim as
+			// the downstream bearer. Decode once per forward-token server so
+			// users can see *which* server is receiving the token; the decode
+			// itself is cheap.
+			if sessionIDToken == "" {
+				continue
+			}
+			detail.Tokens = append(detail.Tokens, admin.SessionToken{
+				Label: fmt.Sprintf("muster → %s (forwarded id_token)", serverName),
+				Raw:   sessionIDToken,
+			})
+		default:
+			// No SSO mode configured. If the server does have its own issuer
+			// (e.g. classic OAuth proxy flow) we can still surface its token.
+			if issuer != "" && !seenIssuers[issuer] {
+				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
+					detail.Tokens = append(detail.Tokens, admin.SessionToken{
+						Label: fmt.Sprintf("muster → %s (id_token)", serverName),
+						Raw:   tok.IDToken,
+					})
+					seenIssuers[issuer] = true
+				}
 			}
 		}
 	}
 
-	// Fallback: servers registered pending-auth via the new mcp-go sentinel
-	// path land with an empty Issuer, so the per-server lookup above won't
-	// yield anything. FindTokenWithIDToken searches the session for any stored
-	// token that carries an ID token — typically the user's login token — so
-	// the admin UI still has something to decode.
-	if oauthEnabled && len(detail.Tokens) == 0 {
-		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
-			detail.Tokens = append(detail.Tokens, admin.SessionToken{
-				Label: "session (id_token)",
-				Raw:   tok.IDToken,
-			})
-		}
+	// Fallback: no per-server token was surfaced (e.g. the session hasn't
+	// touched any downstream server, or the servers registered with empty
+	// issuer metadata). Surface the user's own login token so the admin UI
+	// always has at least one JWT to decode when oauth is enabled.
+	if oauthEnabled && len(detail.Tokens) == 0 && sessionIDToken != "" {
+		detail.Tokens = append(detail.Tokens, admin.SessionToken{
+			Label: "session (id_token)",
+			Raw:   sessionIDToken,
+		})
 	}
 
 	return detail, true, nil
