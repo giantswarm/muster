@@ -166,40 +166,70 @@ func (a *AggregatorServer) getValkeyEncryptor() *security.Encryptor {
 // A reverse map keyed by MCP session ID allows O(1) cleanup when the
 // transport session is unregistered.
 type subjectSessionTracker struct {
-	mu           sync.RWMutex
-	sessions     map[string]map[string]bool // sub -> set of MCP session IDs
-	reverse      map[string]string          // MCP session ID -> sub
-	oauthByOAuth map[string]string          // OAuth session ID -> sub (latest observation wins)
+	mu                      sync.RWMutex
+	sessions                map[string]map[string]bool // sub -> set of MCP session IDs
+	reverse                 map[string]string          // MCP session ID -> sub
+	subjectByOAuthSessionID map[string]string          // OAuth session ID -> sub
 }
 
 func newSubjectSessionTracker() *subjectSessionTracker {
 	return &subjectSessionTracker{
-		sessions:     make(map[string]map[string]bool),
-		reverse:      make(map[string]string),
-		oauthByOAuth: make(map[string]string),
+		sessions:                make(map[string]map[string]bool),
+		reverse:                 make(map[string]string),
+		subjectByOAuthSessionID: make(map[string]string),
 	}
 }
 
 // TrackOAuth records a mapping from subject to OAuth session ID (token family).
-// Called from sessionToolFilter alongside Track so the admin UI can render a
+// Called from sessionToolFilter and BeforeCallTool so the admin UI can render a
 // subject for every live OAuth session, even ones that haven't reached the
 // cap store yet.
 func (t *subjectSessionTracker) TrackOAuth(sub, oauthSessionID string) {
 	if sub == "" || oauthSessionID == "" {
 		return
 	}
+	// Fast-path: if already recorded, avoid the write-lock. OAuth session IDs
+	// are stable for the life of a token family, so concurrent tool calls
+	// only need to write once.
+	t.mu.RLock()
+	if t.subjectByOAuthSessionID[oauthSessionID] == sub {
+		t.mu.RUnlock()
+		return
+	}
+	t.mu.RUnlock()
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.oauthByOAuth[oauthSessionID] = sub
+	t.subjectByOAuthSessionID[oauthSessionID] = sub
 }
 
-// OAuthSnapshot returns a copy of the OAuth sessionID -> subject map.
-func (t *subjectSessionTracker) OAuthSnapshot() map[string]string {
+// UntrackOAuth removes an OAuth session ID from the tracker. Called during
+// session teardown so the map doesn't grow unbounded.
+func (t *subjectSessionTracker) UntrackOAuth(oauthSessionID string) {
+	if oauthSessionID == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.subjectByOAuthSessionID, oauthSessionID)
+}
+
+// OAuthSubject returns the subject associated with an OAuth session ID, or
+// "" if none is tracked.
+func (t *subjectSessionTracker) OAuthSubject(oauthSessionID string) string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	out := make(map[string]string, len(t.oauthByOAuth))
-	for k, v := range t.oauthByOAuth {
-		out[k] = v
+	return t.subjectByOAuthSessionID[oauthSessionID]
+}
+
+// OAuthSessionIDs returns the set of tracked OAuth session IDs. Intended for
+// admin enumeration paths.
+func (t *subjectSessionTracker) OAuthSessionIDs() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]string, 0, len(t.subjectByOAuthSessionID))
+	for id := range t.subjectByOAuthSessionID {
+		out = append(out, id)
 	}
 	return out
 }
@@ -669,13 +699,11 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			slog.String("subject", logging.TruncateIdentifier(subject)),
 			slog.String("tool", msg.Params.Name))
 
-		// Ensure the admin UI can resolve subject for sessions whose MCP client
-		// caches tools/list and therefore never re-hits sessionToolFilter.
-		if subject != "" {
-			if oauthSessionID := getSessionIDFromContext(ctx); oauthSessionID != "" {
-				a.subjectSessions.TrackOAuth(subject, oauthSessionID)
-			}
-		}
+		// Ensure the admin UI can resolve subject for sessions whose MCP
+		// client caches tools/list and therefore never re-hits
+		// sessionToolFilter. TrackOAuth short-circuits under RLock when the
+		// mapping is already recorded.
+		a.subjectSessions.TrackOAuth(subject, getSessionIDFromContext(ctx))
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
@@ -1510,25 +1538,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	})
 
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
-		if a.authStore != nil {
-			if err := a.authStore.RevokeSession(ctx, familyID); err != nil {
-				logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
-					slog.String("familyID", logging.TruncateIdentifier(familyID)),
-					slog.String("error", err.Error()))
-			}
-		}
-		if a.capabilityStore != nil {
-			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
-				logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
-					slog.String("familyID", logging.TruncateIdentifier(familyID)),
-					slog.String("error", err.Error()))
-			}
-		}
-		if a.connPool != nil {
-			a.connPool.EvictSession(familyID)
-		}
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
+		a.tearDownSession(ctx, familyID)
+		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.DeleteTokensBySession(familyID)
 		}
 		logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
@@ -2328,6 +2339,64 @@ func getSessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// tearDownSession clears all per-session server state: auth store entries,
+// capability cache, pooled connections, and the subject tracker mapping.
+// The oauth token store is NOT touched here — callers do that separately
+// because the scope differs (per-user vs per-session).
+func (a *AggregatorServer) tearDownSession(ctx context.Context, sessionID string) {
+	if a.authStore != nil {
+		if err := a.authStore.RevokeSession(ctx, sessionID); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Delete(ctx, sessionID); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.connPool != nil {
+		a.connPool.EvictSession(sessionID)
+	}
+	if a.subjectSessions != nil {
+		a.subjectSessions.UntrackOAuth(sessionID)
+	}
+}
+
+// tearDownSessionServer clears the per-(session, server) state: oauth token
+// for the server's issuer, auth store entry, capability entry, and the
+// pooled connection.
+func (a *AggregatorServer) tearDownSessionServer(ctx context.Context, sessionID string, serverInfo *ServerInfo) {
+	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
+			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+		}
+	}
+	serverName := serverInfo.Name
+	if a.authStore != nil {
+		if err := a.authStore.Revoke(ctx, sessionID, serverName); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to delete entry from capability store",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.connPool != nil {
+		a.connPool.Evict(sessionID, serverName)
+	}
+}
+
 // handleUserTokensDeletion handles DELETE /user-tokens for "sign out everywhere".
 // It clears all downstream tokens for the authenticated user across all sessions
 // and invalidates all capability cache entries. This endpoint requires a valid
@@ -2348,26 +2417,9 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Delete auth state, capability store entries, and pooled connections for all of this user's sessions
 	if a.subjectSessions != nil {
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
-			if a.authStore != nil {
-				if err := a.authStore.RevokeSession(context.Background(), sid); err != nil {
-					logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
-						slog.String("sessionID", logging.TruncateIdentifier(sid)),
-						slog.String("error", err.Error()))
-				}
-			}
-			if a.capabilityStore != nil {
-				if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
-					logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
-						slog.String("sessionID", logging.TruncateIdentifier(sid)),
-						slog.String("error", err.Error()))
-				}
-			}
-			if a.connPool != nil {
-				a.connPool.EvictSession(sid)
-			}
+			a.tearDownSession(context.Background(), sid)
 		}
 	}
 
@@ -2409,36 +2461,7 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Clear the downstream token for this server's issuer (session-scoped)
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
-		}
-	}
-
-	// Remove auth state and capability entry for this session+server.
-	if a.authStore != nil {
-		if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.capabilityStore != nil {
-		if err := a.capabilityStore.DeleteEntry(context.Background(), sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to delete entry from capability store",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-
-	// Evict the pooled connection for this session+server.
-	if a.connPool != nil {
-		a.connPool.Evict(sessionID, serverName)
-	}
+	a.tearDownSessionServer(context.Background(), sessionID, serverInfo)
 
 	logging.InfoWithAttrs("Aggregator", "Server disconnected for session via DELETE /auth/{server}",
 		slog.String("server", serverName),

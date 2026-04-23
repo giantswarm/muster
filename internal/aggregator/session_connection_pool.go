@@ -342,10 +342,10 @@ func (p *SessionConnectionPool) invokeNotifCallback(sessionID, serverName string
 	}
 }
 
-// SetExchangedToken records the RFC 8693 exchanged bearer token that a
-// token-exchange client is using. Called by connection setup right after
-// Put/PutWithExpiry so the admin UI can surface the actual token muster is
-// sending downstream. No-op if no pool entry exists for the pair.
+// SetExchangedToken records the RFC 8693 exchanged bearer on an existing
+// pool entry so the admin UI can surface it. Exchange results are otherwise
+// held only in the client's headerFunc closure, not the oauth token store.
+// No-op if no pool entry exists for the pair.
 func (p *SessionConnectionPool) SetExchangedToken(sessionID, serverName, token string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

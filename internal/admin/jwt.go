@@ -8,19 +8,12 @@ import (
 	"strings"
 )
 
-// errMalformedJWT is returned when a token doesn't have exactly three
-// dot-separated segments. JWTs that deviate are rejected outright; we never
-// attempt to decode ad-hoc formats.
 var errMalformedJWT = errors.New("malformed JWT: expected 3 segments")
 
-// DecodeJWT parses a compact JWT and returns the header and payload as raw
-// JSON. The signature segment is intentionally discarded — this function
-// exists specifically so that the admin UI never has to touch the bearer
-// credential.
-//
-// The returned DecodedJWT always carries the supplied label. If decoding
-// fails, Error is populated and Header/Payload may be nil — callers still
-// render the label so the user sees *which* token failed.
+// DecodeJWT parses a compact JWT into header + payload JSON, deliberately
+// discarding the signature segment so the admin UI never has to touch the
+// bearer credential. On decode failure, Error is set and the caller still
+// gets the label so the user can see *which* token failed.
 func DecodeJWT(label, raw string) *DecodedJWT {
 	out := &DecodedJWT{Label: label}
 	if raw == "" {
@@ -51,13 +44,11 @@ func DecodeJWT(label, raw string) *DecodedJWT {
 	return out
 }
 
-// decodeSegment base64url-decodes a JWT segment and canonicalises the JSON
-// so templates render with stable formatting. Both padded and unpadded
-// base64url inputs are accepted because producers vary.
+// decodeSegment base64url-decodes a JWT segment and re-indents the JSON for
+// display. Accepts both padded and unpadded base64url because producers vary.
 func decodeSegment(seg string) (json.RawMessage, error) {
 	b, err := base64.RawURLEncoding.DecodeString(seg)
 	if err != nil {
-		// Some producers include padding — try the padded variant as a fallback.
 		if b2, err2 := base64.URLEncoding.DecodeString(seg); err2 == nil {
 			b = b2
 		} else {
@@ -65,7 +56,6 @@ func decodeSegment(seg string) (json.RawMessage, error) {
 		}
 	}
 
-	// Validate it parses as JSON, then re-indent for readable display.
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
 		return nil, fmt.Errorf("json parse: %w", err)

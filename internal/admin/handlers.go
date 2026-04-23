@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// handleList renders the session list (HTML) or returns JSON when the client
-// asks for it via Accept.
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.deps.ListSessions(r.Context())
 	if err != nil {
@@ -44,8 +42,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "list.html.tmpl", data)
 }
 
-// handleDetail renders the detail view for a session. JWTs are decoded here
-// (not by the aggregator) so all decode/redaction logic lives in one place.
+// handleDetail decodes JWTs in the admin package so redaction stays in one
+// place — the aggregator only hands over raw tokens.
 func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -90,7 +88,6 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "detail.html.tmpl", data)
 }
 
-// handleDelete performs a full session teardown and redirects back to /sessions.
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -104,9 +101,6 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/sessions", http.StatusSeeOther)
 }
 
-// handleReconnect tears down and re-establishes SSO for a single server on
-// behalf of a session, then redirects back to the detail view so the user
-// can confirm the reconnect.
 func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	name := r.PathValue("name")
@@ -121,9 +115,8 @@ func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/sessions/"+id, http.StatusSeeOther)
 }
 
-// render executes the named view. We first render to a buffer so that any
-// template error produces a clean 500 instead of a half-written page + stray
-// WriteHeader call.
+// render buffers the template output so a template error produces a clean
+// 500 instead of a half-written page plus a stray WriteHeader call.
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	t, ok := s.tmpl[name]
 	if !ok {
@@ -152,8 +145,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = enc.Encode(body)
 }
 
-// shortID truncates a session ID for display without leaking the full value
-// in titles. The detail page header shows the full ID; titles use the prefix.
+// shortID truncates a session ID to 8 chars + ellipsis for display in page
+// titles. Detail headers show the full ID.
 func shortID(id string) string {
 	if len(id) <= 8 {
 		return id
@@ -161,7 +154,6 @@ func shortID(id string) string {
 	return id[:8] + "…"
 }
 
-// templateFuncs are exposed to the HTML templates.
 var templateFuncs = template.FuncMap{
 	"shortID": shortID,
 	"isoTime": func(t time.Time) string {
@@ -174,7 +166,6 @@ var templateFuncs = template.FuncMap{
 	"humanUntil": humanUntil,
 }
 
-// humanTime formats a time as "X ago" for the list view.
 func humanTime(t time.Time) string {
 	if t.IsZero() {
 		return "—"
@@ -192,7 +183,6 @@ func humanTime(t time.Time) string {
 	}
 }
 
-// humanUntil formats a time as "in X" for token expiry.
 func humanUntil(t time.Time) string {
 	if t.IsZero() {
 		return "no expiry"

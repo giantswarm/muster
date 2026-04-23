@@ -32,20 +32,18 @@ func (a *AggregatorServer) adminDeps() admin.Deps {
 //   - capabilityStore.ListSessions: durable, survives restarts (Valkey), but
 //     only records sessions that have fetched capabilities for at least one
 //     server.
-//   - subjectSessionTracker.OAuthSnapshot: in-memory, wiped on restart, but
-//     populated on every tools/list call — catches sessions that only use
+//   - subjectSessionTracker: in-memory, wiped on restart, but populated on
+//     every tools/list and tools/call — catches sessions that only use
 //     meta-tools.
 //
 // The two sources share the same ID space (OAuth token family ID), so the
 // union is a straightforward set merge.
 func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.SessionSummary, error) {
 	seen := map[string]struct{}{}
-	subjectBySession := map[string]string{}
 
 	if a.subjectSessions != nil {
-		for sid, sub := range a.subjectSessions.OAuthSnapshot() {
+		for _, sid := range a.subjectSessions.OAuthSessionIDs() {
 			seen[sid] = struct{}{}
-			subjectBySession[sid] = sub
 		}
 	}
 
@@ -61,12 +59,12 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 
 	out := make([]admin.SessionSummary, 0, len(seen))
 	for sid := range seen {
-		summary := admin.SessionSummary{
-			SessionID: sid,
-			Subject:   subjectBySession[sid],
+		summary := admin.SessionSummary{SessionID: sid}
+		if a.subjectSessions != nil {
+			summary.Subject = a.subjectSessions.OAuthSubject(sid)
 		}
 		if summary.Subject == "" {
-			summary.Subject = "unknown"
+			summary.Subject = unknownSubject
 		}
 		if a.capabilityStore != nil {
 			if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
@@ -83,6 +81,11 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 	return out, nil
 }
 
+// unknownSubject is the placeholder shown in the admin UI when we can't
+// recover the subject for a session (e.g. after a pod restart, before the
+// session has made its first tools/list call).
+const unknownSubject = "unknown"
+
 // adminGetSessionDetail returns the full detail view for a session. It
 // combines data from the capability store (which servers and what tools),
 // the connection pool (live transport/expiry metadata), the server registry
@@ -97,11 +100,11 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		caps = got
 	}
 
-	// Recover the subject from the OAuth-keyed tracker map; this is the same
-	// ID space as the capability store keys.
+	// Recover the subject from the OAuth-keyed tracker; same ID space as
+	// the capability store keys.
 	subject := ""
 	if a.subjectSessions != nil {
-		subject = a.subjectSessions.OAuthSnapshot()[sessionID]
+		subject = a.subjectSessions.OAuthSubject(sessionID)
 	}
 
 	// Session is known only if at least one source recognizes it.
@@ -109,7 +112,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		return nil, false, nil
 	}
 	if subject == "" {
-		subject = "unknown"
+		subject = unknownSubject
 	}
 
 	poolSnap := map[string]PooledInfo{}
@@ -122,8 +125,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	oauthHandler := api.GetOAuthHandler()
 	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
 
-	// Cache the user's session ID token so forward-token servers can all
-	// reuse it without hitting the oauth store per server.
+	// Cached once so forward-token servers don't re-fetch per iteration.
 	var sessionIDToken string
 	if oauthEnabled {
 		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil {
@@ -131,8 +133,7 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		}
 	}
 
-	// Track which issuers we've already surfaced a token for, so that two
-	// servers sharing an issuer don't produce duplicate JWT rows.
+	// Dedupe JWT rows when two servers share an issuer.
 	seenIssuers := map[string]bool{}
 
 	detail := &admin.SessionDetail{SessionID: sessionID, Subject: subject}
@@ -166,9 +167,8 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 
 		switch {
 		case ShouldUseTokenExchange(info):
-			// RFC 8693 exchange results are NOT persisted in the oauth token
-			// store — they're only held in the pooled client's headerFunc
-			// closure. Read the captured token from the pool snapshot.
+			// RFC 8693 exchange results aren't persisted in the oauth token
+			// store — the pool is the only place they live.
 			if p, ok := poolSnap[serverName]; ok && p.ExchangedToken != "" {
 				detail.Tokens = append(detail.Tokens, admin.SessionToken{
 					Label: fmt.Sprintf("muster → %s (exchanged token)", serverName),
@@ -176,10 +176,6 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 				})
 			}
 		case ShouldUseTokenForwarding(info):
-			// forwardToken mode: muster sends the user's ID token verbatim as
-			// the downstream bearer. Decode once per forward-token server so
-			// users can see *which* server is receiving the token; the decode
-			// itself is cheap.
 			if sessionIDToken == "" {
 				continue
 			}
@@ -188,8 +184,6 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 				Raw:   sessionIDToken,
 			})
 		default:
-			// No SSO mode configured. If the server does have its own issuer
-			// (e.g. classic OAuth proxy flow) we can still surface its token.
 			if issuer != "" && !seenIssuers[issuer] {
 				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
 					detail.Tokens = append(detail.Tokens, admin.SessionToken{
@@ -202,10 +196,9 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 		}
 	}
 
-	// Fallback: no per-server token was surfaced (e.g. the session hasn't
-	// touched any downstream server, or the servers registered with empty
-	// issuer metadata). Surface the user's own login token so the admin UI
-	// always has at least one JWT to decode when oauth is enabled.
+	// When no per-server token surfaced (e.g. session hasn't touched a
+	// downstream server yet), show the user's own login token so the detail
+	// page always has at least one JWT to decode.
 	if oauthEnabled && len(detail.Tokens) == 0 && sessionIDToken != "" {
 		detail.Tokens = append(detail.Tokens, admin.SessionToken{
 			Label: "session (id_token)",
@@ -216,9 +209,9 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	return detail, true, nil
 }
 
-// adminDeleteSession performs the full teardown for a single session. It
-// mirrors handleUserTokensDeletion but scoped to one sessionID instead of
-// all sessions for a user.
+// adminDeleteSession performs the full teardown for a single session: oauth
+// tokens, auth store, capability cache, pooled connections, and the subject
+// tracker entry.
 func (a *AggregatorServer) adminDeleteSession(ctx context.Context, sessionID string) error {
 	if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
 		oauthHandler.DeleteTokensBySession(sessionID)
@@ -227,23 +220,7 @@ func (a *AggregatorServer) adminDeleteSession(ctx context.Context, sessionID str
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if a.authStore != nil {
-		if err := a.authStore.RevokeSession(timeoutCtx, sessionID); err != nil {
-			logging.WarnWithAttrs("Admin", "Failed to revoke auth session",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.capabilityStore != nil {
-		if err := a.capabilityStore.Delete(timeoutCtx, sessionID); err != nil {
-			logging.WarnWithAttrs("Admin", "Failed to delete capability store entry",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.connPool != nil {
-		a.connPool.EvictSession(sessionID)
-	}
+	a.tearDownSession(timeoutCtx, sessionID)
 
 	logging.InfoWithAttrs("Admin", "Session deleted via admin UI",
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
@@ -253,12 +230,8 @@ func (a *AggregatorServer) adminDeleteSession(ctx context.Context, sessionID str
 // adminReconnectServer tears down all per-server state for one session and
 // immediately re-runs the SSO connection flow. On success the session ends
 // up with a freshly-exchanged (or freshly-forwarded) bearer, a new pooled
-// client, and a repopulated capability cache — i.e. indistinguishable from
-// a server that was just auth'd for the first time.
-//
-// The teardown half mirrors handleAuthServerDeletion. The re-establish half
-// delegates to establishSSOConnection so forward-token and token-exchange
-// servers are handled uniformly.
+// client, and a repopulated capability cache — indistinguishable from a
+// server that was just auth'd for the first time.
 func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, serverName string) error {
 	info, ok := a.registry.GetServerInfo(serverName)
 	if !ok {
@@ -267,46 +240,18 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 		return nil
 	}
 
-	oauthHandler := api.GetOAuthHandler()
-	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
-
-	// --- Teardown ---
-	if oauthEnabled && info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
-		oauthHandler.ClearTokenByIssuer(sessionID, info.AuthInfo.Issuer)
-	}
-
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if a.authStore != nil {
-		if err := a.authStore.Revoke(timeoutCtx, sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Admin", "Failed to revoke auth",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.capabilityStore != nil {
-		if err := a.capabilityStore.DeleteEntry(timeoutCtx, sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Admin", "Failed to delete capability entry",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.connPool != nil {
-		a.connPool.Evict(sessionID, serverName)
-	}
+	a.tearDownSessionServer(timeoutCtx, sessionID, info)
 
-	// --- Re-establish ---
-	// establishSSOConnection needs the session's subject + ID token in the
-	// context so it can drive the forward-token or token-exchange path.
-	if !oauthEnabled {
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return nil
 	}
 	subject := ""
 	if a.subjectSessions != nil {
-		subject = a.subjectSessions.OAuthSnapshot()[sessionID]
+		subject = a.subjectSessions.OAuthSubject(sessionID)
 	}
 	if subject == "" {
 		logging.InfoWithAttrs("Admin", "Reconnect skipped SSO re-init — no subject for session",
