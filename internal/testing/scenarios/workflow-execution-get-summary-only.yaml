@@ -93,4 +93,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "summary-test-workflow" }
   expected:
-    success: true 
+    success: true

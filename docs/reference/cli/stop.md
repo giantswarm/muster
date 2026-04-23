@@ -359,17 +359,17 @@ echo "Initiating graceful application shutdown..."
 # Stop services in reverse dependency order
 for service in "${APP_SERVICES[@]}"; do
   STATUS=$(muster get service "$service" --output json | jq -r '.status')
-  
+
   if [ "$STATUS" = "Running" ]; then
     echo "Stopping $service..."
     muster stop service "$service"
-    
+
     # Wait for service to stop
     while [ "$(muster get service "$service" --output json | jq -r '.status')" = "Stopping" ]; do
       echo "Waiting for $service to stop..."
       sleep 2
     done
-    
+
     echo "$service stopped successfully"
   else
     echo "$service is not running (status: $STATUS)"
@@ -497,4 +497,4 @@ if [ "$SAFE_TO_STOP" = true ]; then
 else
   echo "Cannot stop $SERVICE_TO_STOP - other services may depend on it"
 fi
-``` 
+```

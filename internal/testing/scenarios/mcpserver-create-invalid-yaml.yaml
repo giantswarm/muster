@@ -15,4 +15,4 @@ steps:
     command: "echo"
   expected:
     success: false
-    error_contains: ["type", "invalid"] 
+    error_contains: ["type", "invalid"]

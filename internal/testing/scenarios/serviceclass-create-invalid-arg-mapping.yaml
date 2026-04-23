@@ -24,4 +24,4 @@ steps:
     contains: ["created successfully"]
   cleanup:
   - tool: "core_serviceclass_delete"
-    args: { name: "invalid-param-sc" } 
+    args: { name: "invalid-param-sc" }

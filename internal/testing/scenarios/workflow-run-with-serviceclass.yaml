@@ -13,7 +13,7 @@ pre_configuration:
         required: true
     serviceConfig:
       lifecycleTools:
-        start: 
+        start:
           tool: "x_echo-provider_echo"
           args: { text: "{{ .args.text }}" }
         stop:
@@ -32,12 +32,12 @@ pre_configuration:
       steps:
         - id: "sc"
           tool: "core_service_create"
-          args: 
+          args:
             name: "test-sc-{{.input.id}}"
             serviceClassName: "test-sc"
             args:
               text: "{{.input.message}}"
-          store: true            
+          store: true
   mcp_servers:
   - name: "echo-provider"
     config:

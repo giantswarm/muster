@@ -14,4 +14,4 @@ sequenceDiagram
     MCPServer-->>Aggregator: Tool list
     Aggregator-->>MusterAgent: Filtered tools
     MusterAgent-->>Agent: Response
-``` 
+```

@@ -17,4 +17,4 @@ steps:
         tool: "core_mcpserver_list"
   expected:
     success: false
-    error_contains: ["duplicate", "step id"] 
+    error_contains: ["duplicate", "step id"]

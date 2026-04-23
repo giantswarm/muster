@@ -68,4 +68,4 @@ spec:
       resource_type: "{{ .start.resource_type }}"
       resource_name: "{{ .start.resource_name }}"
       local_port: "{{ .start.local_port }}"
-      remote_port: "{{ .start.remote_port }}" 
+      remote_port: "{{ .start.remote_port }}"

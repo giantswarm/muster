@@ -103,11 +103,11 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
   ```bash
   # Check server configuration
   muster get mcpserver github-server --output yaml
-  
+
   # Verify command and arguments
   # Check if port is available
   # Review logs for startup errors
-  
+
   # Test manual startup (filesystem mode)
   muster standalone
   ```
@@ -130,10 +130,10 @@ MCPServers are external MCP (Model Context Protocol) servers that provide tools 
   ```bash
   # Check server status
   muster get mcpserver github-server
-  
+
   # Verify server is responsive
   muster check mcpserver github-server
-  
+
   # Test connection manually
   muster agent --repl
   # > list tools  # Check if tools appear
@@ -232,10 +232,10 @@ ServiceClasses define templates for creating service instances. Events track the
   ```bash
   # Check ServiceClass definition
   muster get serviceclass web-app --output yaml
-  
+
   # Validate manually
   muster check serviceclass web-app
-  
+
   # Common issues:
   # - Missing required tools
   # - Invalid argument mappings
@@ -260,10 +260,10 @@ ServiceClasses define templates for creating service instances. Events track the
   ```bash
   # Check which tools are missing
   muster check serviceclass web-app
-  
+
   # Check MCPServer status
   muster list mcpserver
-  
+
   # Verify required servers are running
   muster get mcpserver <server-name>
   ```
@@ -285,7 +285,7 @@ ServiceClasses define templates for creating service instances. Events track the
   # Check specific MCPServer providing missing tools
   muster get mcpserver docker-server
   muster check mcpserver docker-server
-  
+
   # Start server if stopped
   muster start mcpserver docker-server
   ```
@@ -333,10 +333,10 @@ Workflows define sequences of tool executions. Events track configuration, execu
   ```bash
   # Check workflow definition
   muster get workflow deploy-app --output yaml
-  
+
   # Validate manually
   muster check workflow deploy-app
-  
+
   # Common issues:
   # - Invalid tool references
   # - Malformed step definitions
@@ -375,11 +375,11 @@ Workflows define sequences of tool executions. Events track configuration, execu
   ```bash
   # Check execution details
   muster get workflow-execution abc123
-  
+
   # Review failed step
   # Check tool availability
   # Verify step parameters
-  
+
   # Test individual step if possible
   muster agent --repl
   # > call tool_name {"param": "value"}
@@ -453,7 +453,7 @@ Workflows define sequences of tool executions. Events track configuration, execu
   ```bash
   # Check workflow tool requirements
   muster check workflow deploy-app
-  
+
   # Check MCPServer status
   muster list mcpserver
   ```
@@ -564,14 +564,14 @@ Service instances are running instances created from ServiceClasses. Events trac
   ```bash
   # Check service status
   muster get service my-app
-  
+
   # Check ServiceClass configuration
   muster get serviceclass web-app --output yaml
-  
+
   # Test tools manually
   muster agent --repl
   # > call docker_run {"image": "nginx"}
-  
+
   # Check for resource conflicts (ports, names)
   ```
 
@@ -593,11 +593,11 @@ Service instances are running instances created from ServiceClasses. Events trac
   ```bash
   # Check service status
   muster get service my-app
-  
+
   # Test health check manually
   # Check service logs if available
   # Verify service is actually running
-  
+
   # Consider restart if needed
   muster restart service my-app
   ```
@@ -921,4 +921,4 @@ Event data can power operational dashboards showing system health and activity.
 
 Muster's event system provides comprehensive visibility into system operations. By understanding event types, their meanings, and troubleshooting approaches, operators can effectively monitor, diagnose, and maintain muster deployments.
 
-Regular event monitoring, combined with proper alerting and response procedures, ensures reliable operation of muster-managed services and workflows. 
+Regular event monitoring, combined with proper alerting and response procedures, ensures reliable operation of muster-managed services and workflows.

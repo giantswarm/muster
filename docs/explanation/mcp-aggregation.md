@@ -15,13 +15,13 @@ AI agents typically face these challenges when working with multiple MCP servers
 ```mermaid
 graph TB
     Agent[AI Agent]
-    
+
     Agent --> K8s[Kubernetes MCP Server]
     Agent --> Prom[Prometheus MCP Server]
     Agent --> Git[Git MCP Server]
     Agent --> AWS[AWS MCP Server]
     Agent --> Custom[Custom MCP Server]
-    
+
     K8s --> K8sTools[kubectl_apply, kubectl_get, ...]
     Prom --> PromTools[query_metrics, alert_status, ...]
     Git --> GitTools[git_commit, git_push, ...]
@@ -44,10 +44,10 @@ Muster solves these problems by providing a single aggregation layer:
 ```mermaid
 graph TB
     Agent[AI Agent]
-    
+
     Agent --> MusterAgent[Muster Agent<br/>Meta-Tools]
     MusterAgent --> Aggregator[Muster Aggregator<br/>Unified Tool Interface]
-    
+
     Aggregator --> K8s[Kubernetes MCP Server]
     Aggregator --> Prom[Prometheus MCP Server]
     Aggregator --> Git[Git MCP Server]
@@ -128,7 +128,7 @@ custom:
 # Aggregated tools with automatic prefixing
 aggregator:
   - name: x_k8s_apply          # kubernetes-server apply
-  - name: x_k8s_get            # kubernetes-server get  
+  - name: x_k8s_get            # kubernetes-server get
   - name: x_k8s_delete         # kubernetes-server delete
   - name: x_prometheus_query         # prometheus-server query
   - name: x_prometheus_alert         # prometheus-server alert
@@ -147,7 +147,7 @@ sequenceDiagram
     participant A as Aggregator
     participant S as MCP Server
     participant R as Tool Registry
-    
+
     A->>S: Connect to MCP Server
     S->>A: Connection Established
     A->>S: List Available Tools
@@ -167,18 +167,18 @@ type AggregatedTool struct {
     Name         string `json:"name"`
     OriginalName string `json:"originalName"`
     ServerName   string `json:"serverName"`
-    
+
     // Documentation
     Description string     `json:"description"`
     Schema      ToolSchema `json:"schema"`
     Examples    []Example  `json:"examples"`
-    
+
     // Runtime Information
     Available   bool      `json:"available"`
     LastSeen    time.Time `json:"lastSeen"`
     CallCount   int64     `json:"callCount"`
     ErrorCount  int64     `json:"errorCount"`
-    
+
     // Server Information
     ServerVersion string            `json:"serverVersion"`
     ServerStatus  ServerStatus      `json:"serverStatus"`
@@ -199,7 +199,7 @@ sequenceDiagram
     participant MA as Muster Agent
     participant Agg as Aggregator
     participant TS as Target Server
-    
+
     Agent->>MA: call_tool("k8s_apply", args)
     MA->>Agg: Execute Tool Request
     Agg->>Agg: Resolve Tool Name
@@ -272,7 +272,7 @@ health_monitoring:
   check_interval: 30s
   failure_threshold: 3
   recovery_threshold: 2
-  
+
   checks:
     - type: connection
       timeout: 5s
@@ -355,4 +355,4 @@ muster agent --repl
 - [System Architecture](architecture.md) - Overall system design
 - [MCP Server Management](../how-to/mcp-server-management.md) - Practical MCP server management
 - [Core MCP Tools Reference](../reference/mcp-tools.md) - Complete tool documentation
-- [AI Agent Integration](../getting-started/ai-agent-setup.md) - Setting up AI agents 
+- [AI Agent Integration](../getting-started/ai-agent-setup.md) - Setting up AI agents

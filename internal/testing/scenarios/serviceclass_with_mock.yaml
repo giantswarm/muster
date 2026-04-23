@@ -221,4 +221,4 @@ cleanup:
     expected:
       success: true
       contains: ["web-application"]
-    timeout: "30s" 
+    timeout: "30s"

@@ -118,4 +118,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "pagination-workflow" }
   expected:
-    success: true 
+    success: true

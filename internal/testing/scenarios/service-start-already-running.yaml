@@ -24,4 +24,4 @@ steps:
   args: { name: "idempotent-start-test" }
   expected:
     success: true
-    contains: ["already running"] 
+    contains: ["already running"]

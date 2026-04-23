@@ -16,4 +16,4 @@ Manages individual MCP server processes and their lifecycles.
 - `types.go`: Configuration types
 
 ## Integration
-Registers with API and aggregator. Used by services for dependent servers. 
+Registers with API and aggregator. Used by services for dependent servers.

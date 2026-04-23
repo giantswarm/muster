@@ -23,4 +23,4 @@ steps:
   tool: "core_service_status"
   args: { name: "status-test-service" }
   expected:
-    success: true 
+    success: true

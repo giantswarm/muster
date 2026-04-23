@@ -16,4 +16,4 @@ steps:
         stop:
           tool: "core_config_get"
   expected:
-    success: true 
+    success: true

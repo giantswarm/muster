@@ -77,4 +77,4 @@ steps:
     service_name: 12345
   expected:
     success: false
-    error_contains: ["wrong type", "service_name", "expected string"] 
+    error_contains: ["wrong type", "service_name", "expected string"]

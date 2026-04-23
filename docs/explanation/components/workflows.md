@@ -96,11 +96,11 @@ steps:
   # Core tool usage
   - id: "create-service"
     tool: "core_service_create"
-    
-  # External MCP tool usage  
+
+  # External MCP tool usage
   - id: "kubernetes-action"
     tool: "x_kubernetes_port_forward"
-    
+
   # Conditional execution
   - id: "health-check"
     tool: "core_service_status"
@@ -131,4 +131,4 @@ All workflow definitions persist in `.muster/workflows/` enabling:
 - Team sharing of standardized workflows
 - Consistent execution across environments
 
-This architecture transforms complex, error-prone manual procedures into reliable, repeatable, single-command operations that AI agents can execute consistently. 
+This architecture transforms complex, error-prone manual procedures into reliable, repeatable, single-command operations that AI agents can execute consistently.

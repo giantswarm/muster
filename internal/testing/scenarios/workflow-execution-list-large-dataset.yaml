@@ -133,4 +133,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "performance-workflow" }
   expected:
-    success: true 
+    success: true

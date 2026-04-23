@@ -11,4 +11,4 @@ steps:
     name: "non-existent-service"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

@@ -5,5 +5,3 @@
 {{ $.Files.Get $path }}
 {{- end }}
 {{- end }}
-
-

@@ -36,7 +36,7 @@ spec:
   description: "Kubernetes cluster management MCP server"
 ```
 
-### **Authentication Provider** (`.muster/mcpservers/teleport.yaml`) 
+### **Authentication Provider** (`.muster/mcpservers/teleport.yaml`)
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -374,7 +374,7 @@ core_mcpserver_list
 
 # 3. Run diagnostic workflow
 workflow_check-cilium-health {
-  "installation": "foobar", 
+  "installation": "foobar",
   "workloadCluster": "prod"
 }
 ```
@@ -400,8 +400,8 @@ workflow_check-cilium-health {
 
 ### **Documentation**
 - **Rich Descriptions**: Clear purpose statements
-- **Example Values**: Concrete examples in descriptions  
+- **Example Values**: Concrete examples in descriptions
 - **Tool Dependencies**: Clear tool requirements
 - **Output Schemas**: Document expected outputs
 
-This configuration demonstrates how muster transforms complex platform operations into simple, discoverable, and reliable automation patterns suitable for AI agent execution. 
+This configuration demonstrates how muster transforms complex platform operations into simple, discoverable, and reliable automation patterns suitable for AI agent execution.

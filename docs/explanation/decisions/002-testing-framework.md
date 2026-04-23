@@ -16,4 +16,4 @@ Use BDD scenarios with mock servers and real integrations.
 - Easy to extend
 
 ### Negative
-- Setup overhead 
+- Setup overhead

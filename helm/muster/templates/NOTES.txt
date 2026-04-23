@@ -52,5 +52,3 @@ Muster has been deployed!
   }
 
 For more information, visit: https://github.com/giantswarm/muster
-
-

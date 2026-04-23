@@ -5,4 +5,3 @@ chart-dir: ./helm/muster
 destination: ./build
 # CI overwrites this, check .circleci/config.yaml
 catalog-base-url: https://giantswarm.github.io/giantswarm-catalog/
-

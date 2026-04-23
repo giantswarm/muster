@@ -16,4 +16,4 @@ steps:
         # missing start tool
   expected:
     success: false
-    error_contains: ["start.tool", "is required"] 
+    error_contains: ["start.tool", "is required"]

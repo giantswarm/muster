@@ -75,7 +75,7 @@ fetch('http://localhost:8080/message', {
 Muster provides a comprehensive set of built-in tools for managing all aspects of the platform. These tools are organized into functional categories:
 
 - **[Configuration Tools](#configuration-tools)** - System configuration management
-- **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management  
+- **[MCP Server Tools](#mcp-server-tools)** - MCP server lifecycle management
 - **[Service Tools](#service-tools)** - Service instance management
 - **[ServiceClass Tools](#serviceclass-tools)** - ServiceClass definition management
 - **[Workflow Tools](#workflow-tools)** - Workflow definition and execution management
@@ -687,7 +687,7 @@ Update an existing ServiceClass definition.
 **Parameters:**
 - `name` (string, required) - ServiceClass name
 - `serviceConfig` (object, optional) - ServiceClass service configuration
-- `args` (object, optional) - ServiceClass arguments schema  
+- `args` (object, optional) - ServiceClass arguments schema
 - `description` (string, optional) - ServiceClass description
 
 **Example:**
@@ -1027,7 +1027,7 @@ All tools follow consistent error handling patterns:
   "isError": true,
   "content": [
     {
-      "type": "text", 
+      "type": "text",
       "text": "Error: Resource not found"
     }
   ]

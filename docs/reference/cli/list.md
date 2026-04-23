@@ -155,7 +155,7 @@ muster list serviceclass --output yaml
 # serviceClasses:
 # - name: web-application
 #   description: Web application service class
-#   toolsRequired: 
+#   toolsRequired:
 #   - x_kubernetes_apply
 #   - x_kubernetes_get_status
 #   created: "2024-01-07T09:00:00Z"
@@ -391,4 +391,4 @@ muster list service --output json | jq 'group_by(.status) | map({status: .[0].st
 
 # List workflows by success rate
 muster list workflow --output json | jq '.workflows | sort_by(.successRate) | reverse'
-``` 
+```
