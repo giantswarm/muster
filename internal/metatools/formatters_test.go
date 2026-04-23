@@ -346,3 +346,77 @@ func TestSerializeContent(t *testing.T) {
 		assert.Equal(t, "image", imageItem["type"])
 	})
 }
+
+func TestBuildInstallationPattern(t *testing.T) {
+	tests := []struct {
+		name              string
+		exposedNames      []string
+		wantOK            bool
+		wantPattern       string
+		wantInstallations []string
+	}{
+		{
+			name: "kubernetes pattern with shared mcp-type suffix",
+			exposedNames: []string{
+				"x_agama-mcp-kubernetes_capi_cluster_health",
+				"x_alba-mcp-kubernetes_capi_cluster_health",
+				"x_cedar-mcp-kubernetes_capi_cluster_health",
+			},
+			wantOK:            true,
+			wantPattern:       "x_<installation>-mcp-kubernetes_capi_cluster_health",
+			wantInstallations: []string{"agama", "alba", "cedar"},
+		},
+		{
+			name: "prometheus pattern with no installations sharing leading letter",
+			exposedNames: []string{
+				"x_enigma-mcp-prometheus_check_ready",
+				"x_galaxy-mcp-prometheus_check_ready",
+				"x_grizzly-mcp-prometheus_check_ready",
+			},
+			wantOK:            true,
+			wantPattern:       "x_<installation>-mcp-prometheus_check_ready",
+			wantInstallations: []string{"enigma", "galaxy", "grizzly"},
+		},
+		{
+			name: "installations sharing leading letter do not leak into pattern prefix",
+			exposedNames: []string{
+				"x_agama-mcp-kubernetes_t",
+				"x_alba-mcp-kubernetes_t",
+				"x_alligator-mcp-kubernetes_t",
+			},
+			wantOK:            true,
+			wantPattern:       "x_<installation>-mcp-kubernetes_t",
+			wantInstallations: []string{"agama", "alba", "alligator"},
+		},
+		{
+			name: "no shared affix falls back to not ok",
+			exposedNames: []string{
+				"foo", "bar",
+			},
+			wantOK: false,
+		},
+		{
+			name: "duplicated installations are collapsed",
+			exposedNames: []string{
+				"x_a-mcp-t_tool",
+				"x_a-mcp-t_tool",
+				"x_b-mcp-t_tool",
+			},
+			wantOK:            true,
+			wantPattern:       "x_<installation>-mcp-t_tool",
+			wantInstallations: []string{"a", "b"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern, installations, ok := buildInstallationPattern(tc.exposedNames)
+			assert.Equal(t, tc.wantOK, ok)
+			if !tc.wantOK {
+				return
+			}
+			assert.Equal(t, tc.wantPattern, pattern)
+			assert.Equal(t, tc.wantInstallations, installations)
+		})
+	}
+}
