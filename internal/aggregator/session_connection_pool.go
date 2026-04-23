@@ -34,6 +34,13 @@ type poolEntry struct {
 	// headerFunc dynamically resolves fresh tokens). Token-exchange clients
 	// set this so the pool can proactively evict entries before they expire.
 	TokenExpiry time.Time
+
+	// ExchangedToken is the RFC 8693 exchanged bearer token this pooled
+	// client sends downstream, when the server is in tokenExchange mode.
+	// It's kept in memory only — the oauth token store does not persist
+	// exchange results — so the admin UI reads this field directly via
+	// Snapshot. Empty for forward-token and unauthenticated clients.
+	ExchangedToken string
 }
 
 // SessionConnectionPool maintains a per-(session, server) pool of live MCP
@@ -335,6 +342,18 @@ func (p *SessionConnectionPool) invokeNotifCallback(sessionID, serverName string
 	}
 }
 
+// SetExchangedToken records the RFC 8693 exchanged bearer token that a
+// token-exchange client is using. Called by connection setup right after
+// Put/PutWithExpiry so the admin UI can surface the actual token muster is
+// sending downstream. No-op if no pool entry exists for the pair.
+func (p *SessionConnectionPool) SetExchangedToken(sessionID, serverName, token string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, ok := p.pool[poolKey{SessionID: sessionID, ServerName: serverName}]; ok {
+		entry.ExchangedToken = token
+	}
+}
+
 // Len returns the current number of pooled connections (useful for testing).
 func (p *SessionConnectionPool) Len() int {
 	p.mu.RLock()
@@ -345,10 +364,11 @@ func (p *SessionConnectionPool) Len() int {
 // PooledInfo is a read-only snapshot of a pool entry's metadata. Used by the
 // admin UI to introspect live connections without exposing the MCP client.
 type PooledInfo struct {
-	ServerName  string
-	CreatedAt   time.Time
-	LastUsedAt  time.Time
-	TokenExpiry time.Time // Zero if no tracked expiry.
+	ServerName     string
+	CreatedAt      time.Time
+	LastUsedAt     time.Time
+	TokenExpiry    time.Time // Zero if no tracked expiry.
+	ExchangedToken string    // Empty for forward-token / unauthenticated clients.
 }
 
 // Snapshot returns a copy of the metadata for every pool entry belonging to
@@ -364,10 +384,11 @@ func (p *SessionConnectionPool) Snapshot(sessionID string) []PooledInfo {
 			continue
 		}
 		out = append(out, PooledInfo{
-			ServerName:  key.ServerName,
-			CreatedAt:   entry.CreatedAt,
-			LastUsedAt:  entry.LastUsedAt,
-			TokenExpiry: entry.TokenExpiry,
+			ServerName:     key.ServerName,
+			CreatedAt:      entry.CreatedAt,
+			LastUsedAt:     entry.LastUsedAt,
+			TokenExpiry:    entry.TokenExpiry,
+			ExchangedToken: entry.ExchangedToken,
 		})
 	}
 	return out

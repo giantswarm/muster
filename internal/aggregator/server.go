@@ -2506,25 +2506,25 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	ctx context.Context,
 	serverInfo *ServerInfo,
 	sessionID string,
-) (MCPClient, time.Time, error) {
+) (MCPClient, time.Time, string, error) {
 	serverName := serverInfo.Name
 	musterIssuer := a.getMusterIssuer()
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, time.Time{}, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
-		return nil, time.Time{}, fmt.Errorf("no ID token available for token exchange to %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
 	if isIDTokenExpired(idToken) {
-		return nil, time.Time{}, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
 	}
 
 	userID := extractUserIDFromToken(idToken)
 	if userID == "" {
-		return nil, time.Time{}, fmt.Errorf("failed to extract user ID from token for %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s", serverName)
 	}
 
 	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
@@ -2532,7 +2532,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if exchangeConfig.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
+			return nil, time.Time{}, "", fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
 		}
 		exchangeConfig.ClientID = credentials.ClientID
 		exchangeConfig.ClientSecret = credentials.ClientSecret
@@ -2554,7 +2554,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 
 	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
 	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
+		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
 	}
 
 	var exchangedToken string
@@ -2569,7 +2569,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		)
 	}
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
+		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
 
 	tokenExpiry := getTokenExpiryTime(exchangedToken)
@@ -2585,7 +2585,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 	}
 
-	return client, tokenExpiry, nil
+	return client, tokenExpiry, exchangedToken, nil
 }
 
 // getOrCreateClientForToolCall returns a pooled or freshly created MCP client
@@ -2661,10 +2661,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	var client MCPClient
 	var tokenExpiry time.Time
+	var exchangedToken string
 
 	if ShouldUseTokenExchange(serverInfo) {
 		var err error
-		client, tokenExpiry, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
+		client, tokenExpiry, exchangedToken, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2717,6 +2718,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// record the token expiry to enable proactive refresh.
 	if a.connPool != nil {
 		a.connPool.PutWithExpiry(sessionID, serverName, client, tokenExpiry)
+		if exchangedToken != "" {
+			a.connPool.SetExchangedToken(sessionID, serverName, exchangedToken)
+		}
 		logging.DebugWithAttrs("Aggregator", "Pooled new client",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("server", serverName))
@@ -2805,7 +2809,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 		return
 	}
 
-	client, tokenExpiry, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
+	client, tokenExpiry, exchangedToken, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Background token refresh failed",
 			slog.String("server", serverName),
@@ -2825,6 +2829,9 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 
 	if a.connPool != nil {
 		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)
+		if exchangedToken != "" {
+			a.connPool.SetExchangedToken(sessionID, serverName, exchangedToken)
+		}
 	}
 
 	logging.InfoWithAttrs("Aggregator", "Background token refresh completed",

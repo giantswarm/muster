@@ -165,17 +165,14 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 
 		switch {
 		case ShouldUseTokenExchange(info):
-			// RFC 8693 exchange result is stored under the downstream issuer
-			// (same issuer tracked on ServerInfo.AuthInfo). Label explicitly
-			// so users can distinguish it from a plain forward.
-			if issuer != "" && !seenIssuers[issuer] {
-				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
-					detail.Tokens = append(detail.Tokens, admin.SessionToken{
-						Label: fmt.Sprintf("muster → %s (exchanged id_token)", serverName),
-						Raw:   tok.IDToken,
-					})
-					seenIssuers[issuer] = true
-				}
+			// RFC 8693 exchange results are NOT persisted in the oauth token
+			// store — they're only held in the pooled client's headerFunc
+			// closure. Read the captured token from the pool snapshot.
+			if p, ok := poolSnap[serverName]; ok && p.ExchangedToken != "" {
+				detail.Tokens = append(detail.Tokens, admin.SessionToken{
+					Label: fmt.Sprintf("muster → %s (exchanged token)", serverName),
+					Raw:   p.ExchangedToken,
+				})
 			}
 		case ShouldUseTokenForwarding(info):
 			// forwardToken mode: muster sends the user's ID token verbatim as
