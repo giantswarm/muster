@@ -77,7 +77,7 @@ func (s *Server) Addr() string { return s.http.Addr }
 
 // Start begins serving in a goroutine and returns immediately. It returns an
 // error only if the listener cannot be bound.
-func (s *Server) Start(ctx context.Context) error {
+func (s *Server) Start() error {
 	ln, err := net.Listen("tcp", s.http.Addr)
 	if err != nil {
 		return fmt.Errorf("admin listen %s: %w", s.http.Addr, err)

@@ -244,22 +244,6 @@ func (t *subjectSessionTracker) GetSessionIDs(sub string) []string {
 	return result
 }
 
-// Snapshot returns a subject -> []sessionID map copy of the tracker's current
-// state. Used by the admin UI to enumerate all tracked sessions.
-func (t *subjectSessionTracker) Snapshot() map[string][]string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	out := make(map[string][]string, len(t.sessions))
-	for sub, ids := range t.sessions {
-		cp := make([]string, 0, len(ids))
-		for id := range ids {
-			cp = append(cp, id)
-		}
-		out[sub] = cp
-	}
-	return out
-}
-
 // ssoFailedEntry records when an SSO attempt failed, enabling TTL-based expiry
 // with exponential backoff for repeated failures on the same server.
 type ssoFailedEntry struct {
@@ -917,7 +901,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
 		if err != nil {
 			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
-		} else if err := adminSrv.Start(a.ctx); err != nil {
+		} else if err := adminSrv.Start(); err != nil {
 			logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
 		} else {
 			a.mu.Lock()

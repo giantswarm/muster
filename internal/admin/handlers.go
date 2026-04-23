@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -150,10 +149,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(body); err != nil && !errors.Is(err, http.ErrBodyReadAfterClose) {
-		// Connection probably closed — nothing useful to do here.
-		return
-	}
+	_ = enc.Encode(body)
 }
 
 // shortID truncates a session ID for display without leaking the full value

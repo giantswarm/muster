@@ -267,11 +267,12 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 		return nil
 	}
 
+	oauthHandler := api.GetOAuthHandler()
+	oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
+
 	// --- Teardown ---
-	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
-		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, info.AuthInfo.Issuer)
-		}
+	if oauthEnabled && info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
+		oauthHandler.ClearTokenByIssuer(sessionID, info.AuthInfo.Issuer)
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -300,6 +301,9 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 	// --- Re-establish ---
 	// establishSSOConnection needs the session's subject + ID token in the
 	// context so it can drive the forward-token or token-exchange path.
+	if !oauthEnabled {
+		return nil
+	}
 	subject := ""
 	if a.subjectSessions != nil {
 		subject = a.subjectSessions.OAuthSnapshot()[sessionID]
@@ -311,10 +315,6 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 		return nil
 	}
 
-	oauthHandler := api.GetOAuthHandler()
-	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil
-	}
 	tok := oauthHandler.FindTokenWithIDToken(sessionID)
 	if tok == nil || tok.IDToken == "" {
 		logging.InfoWithAttrs("Admin", "Reconnect skipped SSO re-init — no ID token stored",
