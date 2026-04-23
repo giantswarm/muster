@@ -24,8 +24,11 @@ type Deps struct {
 	// pooled connections, and clears upstream tokens for the session.
 	DeleteSession func(ctx context.Context, sessionID string) error
 
-	// DisconnectServer performs a per-server logout for a single session.
-	DisconnectServer func(ctx context.Context, sessionID, serverName string) error
+	// ReconnectServer tears down all per-server state (auth, caps, pool,
+	// upstream token) and immediately re-runs SSO so the server comes back
+	// online with a fresh bearer. Used by the admin UI's per-server
+	// "Reconnect" button.
+	ReconnectServer func(ctx context.Context, sessionID, serverName string) error
 }
 
 // Config configures the admin listener.
@@ -45,7 +48,7 @@ type Server struct {
 // NewServer constructs an admin server. Call Start to begin serving.
 func NewServer(cfg Config, deps Deps) (*Server, error) {
 	if deps.ListSessions == nil || deps.GetSessionDetail == nil ||
-		deps.DeleteSession == nil || deps.DisconnectServer == nil {
+		deps.DeleteSession == nil || deps.ReconnectServer == nil {
 		return nil, errors.New("admin.NewServer: all Deps callbacks are required")
 	}
 	if cfg.BindAddress == "" {
@@ -110,7 +113,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /sessions", s.handleList)
 	mux.HandleFunc("GET /sessions/{id}", s.handleDetail)
 	mux.HandleFunc("POST /sessions/{id}/delete", s.handleDelete)
-	mux.HandleFunc("POST /sessions/{id}/servers/{name}/disconnect", s.handleDisconnect)
+	mux.HandleFunc("POST /sessions/{id}/servers/{name}/reconnect", s.handleReconnect)
 
 	return mux
 }

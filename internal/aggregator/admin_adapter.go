@@ -8,6 +8,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -20,7 +21,7 @@ func (a *AggregatorServer) adminDeps() admin.Deps {
 		ListSessions:     a.adminListSessions,
 		GetSessionDetail: a.adminGetSessionDetail,
 		DeleteSession:    a.adminDeleteSession,
-		DisconnectServer: a.adminDisconnectServer,
+		ReconnectServer:  a.adminReconnectServer,
 	}
 }
 
@@ -249,23 +250,31 @@ func (a *AggregatorServer) adminDeleteSession(ctx context.Context, sessionID str
 	return nil
 }
 
-// adminDisconnectServer performs a per-server disconnect for one session.
-// It mirrors handleAuthServerDeletion without requiring a request context.
-func (a *AggregatorServer) adminDisconnectServer(ctx context.Context, sessionID, serverName string) error {
+// adminReconnectServer tears down all per-server state for one session and
+// immediately re-runs the SSO connection flow. On success the session ends
+// up with a freshly-exchanged (or freshly-forwarded) bearer, a new pooled
+// client, and a repopulated capability cache — i.e. indistinguishable from
+// a server that was just auth'd for the first time.
+//
+// The teardown half mirrors handleAuthServerDeletion. The re-establish half
+// delegates to establishSSOConnection so forward-token and token-exchange
+// servers are handled uniformly.
+func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, serverName string) error {
 	info, ok := a.registry.GetServerInfo(serverName)
 	if !ok {
-		// Already gone — treat disconnect as a no-op so the admin UI can
-		// recover from stale state without error.
+		// Already gone — treat as a no-op so the admin UI can recover from
+		// stale state without error.
 		return nil
 	}
 
+	// --- Teardown ---
 	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
 		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.ClearTokenByIssuer(sessionID, info.AuthInfo.Issuer)
 		}
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	if a.authStore != nil {
@@ -288,7 +297,39 @@ func (a *AggregatorServer) adminDisconnectServer(ctx context.Context, sessionID,
 		a.connPool.Evict(sessionID, serverName)
 	}
 
-	logging.InfoWithAttrs("Admin", "Server disconnected via admin UI",
+	// --- Re-establish ---
+	// establishSSOConnection needs the session's subject + ID token in the
+	// context so it can drive the forward-token or token-exchange path.
+	subject := ""
+	if a.subjectSessions != nil {
+		subject = a.subjectSessions.OAuthSnapshot()[sessionID]
+	}
+	if subject == "" {
+		logging.InfoWithAttrs("Admin", "Reconnect skipped SSO re-init — no subject for session",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("server", serverName))
+		return nil
+	}
+
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return nil
+	}
+	tok := oauthHandler.FindTokenWithIDToken(sessionID)
+	if tok == nil || tok.IDToken == "" {
+		logging.InfoWithAttrs("Admin", "Reconnect skipped SSO re-init — no ID token stored",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("server", serverName))
+		return nil
+	}
+
+	ssoCtx := api.WithSubject(timeoutCtx, subject)
+	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
+	ssoCtx = server.ContextWithIDToken(ssoCtx, tok.IDToken)
+
+	a.establishSSOConnection(ssoCtx, info, a.getMusterIssuer())
+
+	logging.InfoWithAttrs("Admin", "Server reconnected via admin UI",
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 		slog.String("server", serverName))
 	return nil

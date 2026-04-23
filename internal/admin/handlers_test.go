@@ -174,15 +174,15 @@ func TestHandleDelete_callsCallbackAndRedirects(t *testing.T) {
 	}
 }
 
-func TestHandleDisconnect_callsCallbackAndRedirects(t *testing.T) {
+func TestHandleReconnect_callsCallbackAndRedirects(t *testing.T) {
 	var gotID, gotName string
 	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
-		d.onDisconnect = func(id, name string) { gotID = id; gotName = name }
+		d.onReconnect = func(id, name string) { gotID = id; gotName = name }
 	}))
 	defer ts.Close()
 
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	resp, err := client.Post(ts.URL+"/sessions/sid1/servers/github/disconnect", "application/x-www-form-urlencoded", nil)
+	resp, err := client.Post(ts.URL+"/sessions/sid1/servers/github/reconnect", "application/x-www-form-urlencoded", nil)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestHandleDisconnect_callsCallbackAndRedirects(t *testing.T) {
 		t.Fatalf("expected redirect to detail, got %s", resp.Header.Get("Location"))
 	}
 	if gotID != "sid1" || gotName != "github" {
-		t.Fatalf("DisconnectServer called with (%q,%q)", gotID, gotName)
+		t.Fatalf("ReconnectServer called with (%q,%q)", gotID, gotName)
 	}
 }
 
@@ -213,7 +213,7 @@ type fakeDepsState struct {
 
 	onListSessions func()
 	onDelete       func(id string)
-	onDisconnect   func(id, name string)
+	onReconnect    func(id, name string)
 }
 
 func fakeDeps(setup func(*fakeDepsState)) Deps {
@@ -238,9 +238,9 @@ func fakeDeps(setup func(*fakeDepsState)) Deps {
 			}
 			return nil
 		},
-		DisconnectServer: func(ctx context.Context, id, name string) error {
-			if state.onDisconnect != nil {
-				state.onDisconnect(id, name)
+		ReconnectServer: func(ctx context.Context, id, name string) error {
+			if state.onReconnect != nil {
+				state.onReconnect(id, name)
 			}
 			return nil
 		},

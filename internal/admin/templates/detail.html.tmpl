@@ -29,9 +29,9 @@
       <td class="mono">{{humanUntil .TokenExpiry}}</td>
       <td>{{.ToolCount}}</td>
       <td>
-        <form class="inline" method="POST" action="/sessions/{{$.Detail.SessionID}}/servers/{{.Name}}/disconnect"
-              onsubmit="return confirm('Disconnect {{.Name}} for this session?');">
-          <button type="submit">Disconnect</button>
+        <form class="inline" method="POST" action="/sessions/{{$.Detail.SessionID}}/servers/{{.Name}}/reconnect"
+              onsubmit="return confirm('Reconnect {{.Name}} for this session? This evicts the current pool + token and re-runs SSO.');">
+          <button type="submit">Reconnect</button>
         </form>
       </td>
     </tr>

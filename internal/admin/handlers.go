@@ -105,17 +105,18 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/sessions", http.StatusSeeOther)
 }
 
-// handleDisconnect performs a per-server logout and redirects back to the
-// session detail view.
-func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+// handleReconnect tears down and re-establishes SSO for a single server on
+// behalf of a session, then redirects back to the detail view so the user
+// can confirm the reconnect.
+func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	name := r.PathValue("name")
 	if id == "" || name == "" {
 		http.Error(w, "missing session id or server name", http.StatusBadRequest)
 		return
 	}
-	if err := s.deps.DisconnectServer(r.Context(), id, name); err != nil {
-		http.Error(w, fmt.Sprintf("disconnect: %v", err), http.StatusInternalServerError)
+	if err := s.deps.ReconnectServer(r.Context(), id, name); err != nil {
+		http.Error(w, fmt.Sprintf("reconnect: %v", err), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, "/sessions/"+id, http.StatusSeeOther)
