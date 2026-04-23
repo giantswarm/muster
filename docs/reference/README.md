@@ -46,7 +46,7 @@ Technical reference for commands, APIs, and configurations. Find exact syntax, p
 - **[Core MCP Tools](mcp-tools.md)** - Complete reference for AI agents and MCP clients
   - [Configuration Tools](mcp-tools.md#configuration-tools) - System configuration management
   - [MCP Server Tools](mcp-tools.md#mcp-server-tools) - MCP server lifecycle management
-  - [Service Tools](mcp-tools.md#service-tools) - Service instance management  
+  - [Service Tools](mcp-tools.md#service-tools) - Service instance management
   - [ServiceClass Tools](mcp-tools.md#serviceclass-tools) - ServiceClass definition management
   - [Workflow Tools](mcp-tools.md#workflow-tools) - Workflow definition and execution management
   - [Dynamic Workflow Execution](mcp-tools.md#dynamic-workflow-execution-tools) - `workflow_<name>` tools
@@ -291,4 +291,4 @@ All components communicate through the central API layer:
 ### Contributing
 - Missing documentation? [Create an issue](https://github.com/giantswarm/muster/issues/new)
 - Found an error? Submit a correction via pull request
-- Want to improve examples? Contributions welcome! 
+- Want to improve examples? Contributions welcome!

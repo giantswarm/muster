@@ -21,4 +21,4 @@ Coming soon:
 - [Reference](../reference/) - Technical specifications
 
 ## Feedback
-Missing operational guidance? [Request it here](https://github.com/giantswarm/muster/issues/new?labels=documentation) 
+Missing operational guidance? [Request it here](https://github.com/giantswarm/muster/issues/new?labels=documentation)

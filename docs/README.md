@@ -61,9 +61,9 @@ Each type serves a different purpose, so you can jump to the right section for w
 
 ## Find your path
 
-**If you're new**: Start with [Getting Started](getting-started/) tutorials  
-**If you're building**: Focus on [How-to Guides](how-to/) for specific tasks  
-**If you're integrating**: Use [Reference](reference/) for detailed specs  
+**If you're new**: Start with [Getting Started](getting-started/) tutorials
+**If you're building**: Focus on [How-to Guides](how-to/) for specific tasks
+**If you're integrating**: Use [Reference](reference/) for detailed specs
 **If you're contributing**: Begin with [Contributing](contributing/) guidelines
 
 **Different workflows:**
@@ -91,4 +91,4 @@ We aim to make this documentation:
 - **Clear** - Easy to understand for your experience level
 - **Useful** - Focused on what you actually need to do
 - **Easy to navigate** - Find what you need quickly
-- **Maintainable** - Stays current as Muster evolves 
+- **Maintainable** - Stays current as Muster evolves

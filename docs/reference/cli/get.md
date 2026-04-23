@@ -449,4 +449,4 @@ WORKFLOW_NAME="deploy-app"
 echo "Workflow: $WORKFLOW_NAME"
 muster get workflow "$WORKFLOW_NAME" --output json | \
   jq '{successRate, averageDuration, totalExecutions}'
-``` 
+```

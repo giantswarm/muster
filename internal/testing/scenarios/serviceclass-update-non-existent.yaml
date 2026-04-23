@@ -17,4 +17,4 @@ steps:
           tool: "core_config_get"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

@@ -3,14 +3,14 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Tests the separation of infrastructure state (CRD State) from session state (auth://status).
-  
+
   The MCPServer CRD State reflects infrastructure availability with context-appropriate values:
   - Remote servers: Connected, Connecting, Disconnected, Failed
   - Stdio servers: Running, Starting, Stopped, Failed
-  
+
   Session state (per-user auth/connection) is tracked separately:
   - auth://status resource shows per-user connection state ("connected", "auth_required")
-  
+
   This scenario tests that:
   1. Before auth: MCPServer State = Connected (server is reachable, returned 401)
   2. Before auth: auth://status shows "auth_required" for this session

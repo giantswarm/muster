@@ -158,4 +158,4 @@ muster agent --mcp-server --endpoint http://localhost:8080/mcp
 
 - [`muster serve`](serve.md) - Start aggregator server only
 - [`muster agent`](agent.md) - Start agent only (with MCP server option)
-- [`muster check`](check.md) - Validate configuration before running standalone 
+- [`muster check`](check.md) - Validate configuration before running standalone

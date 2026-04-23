@@ -3,7 +3,7 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Test automatic token refresh for OAuth-protected MCP server sessions (Issue #214).
-  
+
   When a token is expiring (within 5-minute refresh threshold), the DynamicAuthClient
   should automatically refresh it before making the HTTP request. This test validates:
   1. Initial authentication works

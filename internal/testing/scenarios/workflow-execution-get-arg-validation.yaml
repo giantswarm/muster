@@ -137,4 +137,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "validation-workflow" }
   expected:
-    success: true 
+    success: true

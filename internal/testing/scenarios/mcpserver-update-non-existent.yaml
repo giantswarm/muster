@@ -17,4 +17,4 @@ steps:
     autoStart: true
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

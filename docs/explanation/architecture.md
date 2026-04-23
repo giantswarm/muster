@@ -12,14 +12,14 @@ graph TB
         Agent[AI Agent<br/>Cursor/VSCode/Claude]
         IDE[IDE Configuration]
     end
-    
+
     subgraph "Muster System"
         MusterAgent[muster agent<br/>--mcp-server<br/>Transport Bridge + OAuth]
-        
+
         subgraph "Aggregator Server (muster serve)"
             MetaTools[Meta-Tools Interface<br/>list_tools, call_tool, etc.]
             API[Central API<br/>Service Locator]
-            
+
             subgraph "Core Services"
                 CoreTools[36 Core Tools<br/>core_service_*, core_workflow_*, etc.]
                 Aggregator[MCP Aggregator<br/>Tool Management]
@@ -27,7 +27,7 @@ graph TB
                 Workflow[Workflow Engine<br/>Orchestration]
                 MCPServer[MCP Server Manager<br/>Process Control]
             end
-            
+
             subgraph "External MCP Servers"
                 K8s[Kubernetes MCP]
                 Prometheus[Monitoring MCP]
@@ -38,7 +38,7 @@ graph TB
             end
         end
     end
-    
+
     Agent <-->|MCP Protocol| MusterAgent
     MusterAgent <-->|HTTP/SSE + OAuth| MetaTools
     MetaTools <--> API
@@ -47,14 +47,14 @@ graph TB
     API <--> ServiceMgr
     API <--> Workflow
     API <--> MCPServer
-    
+
     Aggregator <--> K8s
     Aggregator <--> Prometheus
     Aggregator <--> Teleport
     Aggregator <--> Grafana
     Aggregator <--> Flux
     Aggregator <--> Custom
-    
+
     ServiceMgr <--> MCPServer
     Workflow <--> ServiceMgr
 ```
@@ -81,7 +81,7 @@ The aggregator server provides the **meta-tools interface** as the primary way t
 - **Dynamic Workflow Tools**: `workflow_connect-monitoring`, `workflow_auth-workflow`, etc.
 - **External MCP Tools**: `x_kubernetes_*`, `x_teleport_*`, etc. (from configured MCP servers)
 
-**Purpose**: 
+**Purpose**:
 - Exposes meta-tools as the only MCP interface
 - Hosts the actual business logic and tool implementations
 - Aggregates external MCP servers
@@ -160,7 +160,7 @@ graph LR
         Resources[Resource Access<br/>list_resources<br/>get_resource<br/>describe_resource]
         Prompts[Prompt Access<br/>list_prompts<br/>get_prompt<br/>describe_prompt]
     end
-    
+
     Client[MCP Client] --> Discovery
     Client --> Execution
     Client --> Resources
@@ -181,7 +181,7 @@ graph LR
         Dynamic[Dynamic Workflow Tools<br/>Variable<br/>workflow_*]
         External[External MCP Tools<br/>Variable<br/>x_kubernetes_*, etc.]
     end
-    
+
     CallTool[call_tool<br/>Server Meta-Tool] --> Config
     CallTool --> MCPServ
     CallTool --> Service
@@ -337,7 +337,7 @@ Muster follows a philosophy of progressive enhancement:
 
 ### API Layer (`internal/api`)
 
-**Purpose**: Central service registry and interface definitions  
+**Purpose**: Central service registry and interface definitions
 **Key Responsibility**: Service locator pattern implementation
 
 **Key Components:**
@@ -593,4 +593,4 @@ type EventHandler interface {
 - **Resource monitoring**: Resource usage validation
 - **Benchmarking**: Performance regression detection
 
-This architecture provides a solid foundation for building a scalable, maintainable system that can evolve with changing requirements while maintaining clean separation of concerns and excellent testability. 
+This architecture provides a solid foundation for building a scalable, maintainable system that can evolve with changing requirements while maintaining clean separation of concerns and excellent testability.

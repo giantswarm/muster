@@ -38,4 +38,4 @@ steps:
     success: true
   cleanup:
   - tool: "core_service_delete"
-    args: { name: "service-with-params" } 
+    args: { name: "service-with-params" }

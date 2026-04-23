@@ -179,12 +179,12 @@ func (s *MCPServer) pollAuthStatus(ctx context.Context) {
     if err != nil {
         return // Silently continue with cached data
     }
-    
+
     var status AuthStatusResponse
     if err := json.Unmarshal([]byte(resource.Contents), &status); err != nil {
         return
     }
-    
+
     var authRequired []AuthRequiredInfo
     for _, srv := range status.Servers {
         if srv.Status == "auth_required" {
@@ -195,7 +195,7 @@ func (s *MCPServer) pollAuthStatus(ctx context.Context) {
             })
         }
     }
-    
+
     s.authCacheMu.Lock()
     s.authRequiredCache = authRequired
     s.authCacheMu.Unlock()
@@ -215,24 +215,24 @@ func (s *MCPServer) wrapToolResult(result *mcp.CallToolResult) *mcp.CallToolResu
     s.authCacheMu.RLock()
     authRequired := s.authRequiredCache
     s.authCacheMu.RUnlock()
-    
+
     if len(authRequired) == 0 {
         return result
     }
-    
+
     // Add human-readable notification
     notification := s.buildAuthNotification(authRequired)
     result.Content = append(result.Content, mcp.TextContent{
         Type: "text",
         Text: notification,
     })
-    
+
     // Add structured data in _meta
     if result.Meta == nil {
         result.Meta = make(map[string]interface{})
     }
     result.Meta["giantswarm.io/auth_required"] = authRequired
-    
+
     return result
 }
 
@@ -240,18 +240,18 @@ func (s *MCPServer) buildAuthNotification(authRequired []AuthRequiredInfo) strin
     var sb strings.Builder
     sb.WriteString("\n---\n")
     sb.WriteString("Authentication Required:\n")
-    
+
     for _, auth := range authRequired {
-        sb.WriteString(fmt.Sprintf("- %s: use core_auth_login tool with server='%s'\n", 
+        sb.WriteString(fmt.Sprintf("- %s: use core_auth_login tool with server='%s'\n",
             auth.Server, auth.Server))
     }
-    
+
     // Group by issuer for SSO hints
     issuerServers := make(map[string][]string)
     for _, auth := range authRequired {
         issuerServers[auth.Issuer] = append(issuerServers[auth.Issuer], auth.Server)
     }
-    
+
     for issuer, servers := range issuerServers {
         if len(servers) > 1 {
             sb.WriteString(fmt.Sprintf("\nNote: %s use the same identity provider (%s). ",
@@ -259,7 +259,7 @@ func (s *MCPServer) buildAuthNotification(authRequired []AuthRequiredInfo) strin
             sb.WriteString("Signing in to one will authenticate all of them.\n")
         }
     }
-    
+
     return sb.String()
 }
 ```
@@ -297,7 +297,7 @@ When the AI calls any tool, the response includes clear instructions:
         "issuer": "https://dex.example.com"
       },
       {
-        "server": "jira", 
+        "server": "jira",
         "issuer": "https://dex.example.com"
       }
     ]

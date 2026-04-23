@@ -179,7 +179,7 @@ type EventHandler struct {
 
 func (h *EventHandler) HandleServerConnected(serverID string, tools []*ToolDefinition) error {
     h.logger.Info("Server connected", "server_id", serverID, "tool_count", len(tools))
-    
+
     for _, tool := range tools {
         if h.denylist.IsAllowed(tool.Name) {
             if err := h.registry.RegisterTool(serverID, tool.Name, tool.Schema); err != nil {
@@ -187,7 +187,7 @@ func (h *EventHandler) HandleServerConnected(serverID string, tools []*ToolDefin
             }
         }
     }
-    
+
     h.notifier.NotifyServerStateChange(serverID, "connected")
     return nil
 }
@@ -203,12 +203,12 @@ denylist:
   # Block all tools from specific servers
   servers:
     - "untrusted-server"
-  
+
   # Block specific tools by name
   tools:
     - "dangerous_command"
     - "system_admin_*"  # Wildcard patterns supported
-  
+
   # Block tools by pattern
   patterns:
     - "^admin_.*"       # Regex patterns
@@ -231,21 +231,21 @@ func (d *Denylist) IsAllowed(toolName, serverID string) bool {
             return false
         }
     }
-    
+
     // Check tool name blocklist
     for _, blocked := range d.BlockedTools {
         if matched, _ := filepath.Match(blocked, toolName); matched {
             return false
         }
     }
-    
+
     // Check regex patterns
     for _, pattern := range d.compiledPatterns {
         if pattern.MatchString(toolName) {
             return false
         }
     }
-    
+
     return true
 }
 ```
@@ -303,7 +303,7 @@ type MCPClient interface {
 func (s *Server) HandleListTools(ctx context.Context, request *ListToolsRequest) (*ListToolsResponse, error) {
     // Apply access controls
     allowed := s.denylist.FilterTools(request.Patterns)
-    
+
     // Query registry
     tools, err := s.registry.ListTools(&ToolFilter{
         Patterns:    allowed,
@@ -313,7 +313,7 @@ func (s *Server) HandleListTools(ctx context.Context, request *ListToolsRequest)
     if err != nil {
         return nil, fmt.Errorf("failed to query tools: %w", err)
     }
-    
+
     // Format response
     return &ListToolsResponse{
         Tools: formatToolDescriptions(tools),
@@ -336,19 +336,19 @@ func (s *Server) HandleCallTool(ctx context.Context, request *CallToolRequest) (
     if err != nil {
         return nil, fmt.Errorf("tool not found: %w", err)
     }
-    
+
     // Get MCP client for server
     client, err := s.getServerClient(tool.ServerID)
     if err != nil {
         return nil, fmt.Errorf("server not available: %w", err)
     }
-    
+
     // Forward request
     result, err := client.CallTool(ctx, request.ToolName, request.Arguments)
     if err != nil {
         return nil, fmt.Errorf("tool execution failed: %w", err)
     }
-    
+
     return &CallToolResponse{
         Result: result,
         ToolName: request.ToolName,
@@ -368,18 +368,18 @@ aggregator:
     address: "127.0.0.1"
     port: 8080
     protocol: "stdio"  # or "http", "websocket"
-  
+
   # Tool filtering configuration
   denylist:
     enabled: true
     config_file: "/etc/muster/denylist.yaml"
-  
+
   # Server discovery configuration
   discovery:
     auto_discovery: true
     discovery_interval: "30s"
     health_check_interval: "10s"
-  
+
   # Performance tuning
   performance:
     max_concurrent_calls: 100
@@ -394,15 +394,15 @@ aggregator:
 denylist:
   servers:
     - "development-server"    # Block entire server
-  
+
   tools:
     - "admin_*"              # Block admin tools (wildcard)
     - "dangerous_command"     # Block specific tool
-  
+
   patterns:
     - "^system_.*"           # Block system tools (regex)
     - ".*_delete$"           # Block delete operations
-  
+
   categories:
     - "administrative"       # Block by category
     - "destructive"
@@ -471,7 +471,7 @@ func (s *Server) logToolCall(ctx context.Context, toolName, serverID string, dur
         slog.String("server_id", serverID),
         slog.Duration("duration", duration),
     }
-    
+
     if err != nil {
         fields = append(fields, slog.String("error", err.Error()))
         s.logger.LogAttrs(ctx, slog.LevelError, "Tool call failed", fields...)
@@ -488,16 +488,16 @@ func (s *Server) logToolCall(ctx context.Context, toolName, serverID string, dur
 ```go
 func TestToolRegistration(t *testing.T) {
     registry := NewRegistry()
-    
+
     tool := &ToolDefinition{
         Name:        "test_tool",
         Description: "Test tool",
         Schema:      &ToolSchema{},
     }
-    
+
     err := registry.RegisterTool("server1", tool.Name, tool.Schema)
     assert.NoError(t, err)
-    
+
     retrieved, err := registry.GetTool("test_tool")
     assert.NoError(t, err)
     assert.Equal(t, "test_tool", retrieved.Name)
@@ -515,17 +515,17 @@ func TestAggregatorIntegration(t *testing.T) {
             {Name: "server1_tool", Description: "Tool from server 1"},
         },
     }
-    
+
     // Create aggregator
     aggregator := NewAggregator()
     aggregator.AddServer("server1", mockServer1)
-    
+
     // Test tool discovery
     tools, err := aggregator.ListTools(context.Background(), nil)
     assert.NoError(t, err)
     assert.Len(t, tools, 1)
     assert.Equal(t, "server1_tool", tools[0].Name)
-    
+
     // Test tool execution
     result, err := aggregator.CallTool(context.Background(), "server1_tool", map[string]interface{}{})
     assert.NoError(t, err)
@@ -533,4 +533,4 @@ func TestAggregatorIntegration(t *testing.T) {
 }
 ```
 
-The MCP Aggregator serves as the intelligent hub that makes Muster's unified tool interface possible, providing seamless integration between AI agents and multiple underlying MCP servers while maintaining security, performance, and reliability. 
+The MCP Aggregator serves as the intelligent hub that makes Muster's unified tool interface possible, providing seamless integration between AI agents and multiple underlying MCP servers while maintaining security, performance, and reliability.

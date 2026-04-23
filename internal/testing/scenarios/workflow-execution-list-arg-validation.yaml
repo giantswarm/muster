@@ -44,7 +44,7 @@ steps:
     success: false
     error_contains: ["minimum", "limit"]
 
-# Test offset arg boundaries  
+# Test offset arg boundaries
 - id: "test-offset-minimum"
   tool: "core_workflow_execution_list"
   args:
@@ -114,4 +114,4 @@ steps:
     workflow_name: "definitely-does-not-exist"
   expected:
     success: true
-    # Should return empty results for non-existent workflow 
+    # Should return empty results for non-existent workflow

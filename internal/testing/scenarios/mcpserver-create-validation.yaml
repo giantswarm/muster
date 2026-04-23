@@ -110,4 +110,4 @@ cleanup:
   args:
     name: "valid-sse-server"
   expected:
-    success: true 
+    success: true

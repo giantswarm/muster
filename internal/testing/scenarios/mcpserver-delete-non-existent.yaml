@@ -13,4 +13,4 @@ steps:
     name: "non-existent-server"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

@@ -14,7 +14,7 @@ Muster's architecture is built on a foundation of proven design principles that 
 #### Problem Statement
 Modern software systems face the challenge of coordinating multiple complex components while maintaining:
 - Loose coupling for independent development
-- Easy testing with dependency injection  
+- Easy testing with dependency injection
 - Clear interfaces for component communication
 - Prevention of circular dependencies
 - Ability to evolve components independently
@@ -138,7 +138,7 @@ This creates a clean layered architecture:
 
 #### Benefits
 - **Prevents Circular Dependencies**: Impossible to create import cycles
-- **Clear Layering**: Obvious architectural layers with defined responsibilities  
+- **Clear Layering**: Obvious architectural layers with defined responsibilities
 - **Independent Testing**: API layer can be tested without any service implementations
 - **Modular Design**: Services can be added/removed without affecting the API layer
 
@@ -241,14 +241,14 @@ func TestWorkflowExecution(t *testing.T) {
     // Mock service handler
     mockHandler := &MockServiceHandler{}
     api.RegisterServiceHandler(mockHandler)
-    
+
     // Configure mock expectations
     mockHandler.On("StartService", "prometheus").Return(nil)
-    
+
     // Test workflow execution
     executor := NewExecutor()
     err := executor.ExecuteWorkflow(ctx, workflow)
-    
+
     assert.NoError(t, err)
     mockHandler.AssertExpectations(t)
 }
@@ -267,7 +267,7 @@ steps:
       serviceClass: "basic-web-server"
     expect:
       status: "success"
-      
+
   - name: "Verify service running"
     tool: "service_get"
     args:
@@ -342,7 +342,7 @@ func (w *Workflow) startService() {
 // internal/services/manager.go
 import "github.com/giantswarm/muster/internal/workflow"
 
-// internal/workflow/executor.go  
+// internal/workflow/executor.go
 import "github.com/giantswarm/muster/internal/services"
 ```
 
@@ -360,9 +360,9 @@ func TestAsyncOperation(t *testing.T) {
 func TestAsyncOperation(t *testing.T) {
     done := make(chan bool)
     onComplete := func() { done <- true }
-    
+
     triggerAsyncOperation(onComplete)
-    
+
     select {
     case <-done:
         assert.True(t, operationComplete)
@@ -398,13 +398,13 @@ Use structured logging with appropriate levels:
 ```go
 func (s *Service) startService(name string) error {
     s.logger.Info("Starting service", "name", name)
-    
+
     err := s.doStart(name)
     if err != nil {
         s.logger.Error("Failed to start service", "name", name, "error", err)
         return err
     }
-    
+
     s.logger.Info("Service started successfully", "name", name)
     return nil
 }
@@ -416,7 +416,7 @@ func (s *Service) startService(name string) error {
 Every exported interface must have comprehensive documentation:
 ```go
 // ServiceHandler manages the lifecycle of service instances.
-// 
+//
 // Services are long-running processes that provide tools to the MCP aggregator.
 // The handler is responsible for creating, starting, stopping, and monitoring
 // service instances based on ServiceClass templates.
@@ -426,7 +426,7 @@ type ServiceHandler interface {
     // CreateService creates a new service instance from a ServiceClass template.
     // Returns an error if the ServiceClass doesn't exist or if creation fails.
     CreateService(ctx context.Context, req CreateServiceRequest) (*Service, error)
-    
+
     // GetService retrieves an existing service by name.
     // Returns nil if the service doesn't exist.
     GetService(ctx context.Context, name string) (*Service, error)
@@ -492,4 +492,4 @@ When making architectural decisions:
 - **Quarterly Planning**: Evaluate architectural roadmap and priorities
 - **Annual Assessment**: Comprehensive review of architectural decisions and outcomes
 
-These design principles form the foundation for building a maintainable, scalable, and testable system that can evolve with changing requirements while preserving architectural integrity. 
+These design principles form the foundation for building a maintainable, scalable, and testable system that can evolve with changing requirements while preserving architectural integrity.

@@ -232,4 +232,4 @@ muster events --resource-type mcpserver --resource-name specific-server
 ## See Also
 
 - [Event Reference Guide](../events.md) - Complete event types and troubleshooting
-- [Configuration Reference](../configuration.md) - Server configuration options 
+- [Configuration Reference](../configuration.md) - Server configuration options

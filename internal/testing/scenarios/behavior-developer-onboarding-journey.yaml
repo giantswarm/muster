@@ -26,7 +26,7 @@ pre_configuration:
                   repo_path: "/tmp/{{ .repo_url | basename }}"
                   branch: "{{ .branch }}"
                   status: "cloned"
-                  
+
     - name: "database-provider"
       config:
         tools:
@@ -42,7 +42,7 @@ pre_configuration:
                   connection_string: "postgresql://{{ .username }}:password@localhost:5432/{{ .db_name }}"
                   database_id: "db-{{ .db_name }}-{{ .environment }}"
                   status: "ready"
-                  
+
           - name: "delete_postgres_instance"
             input_schema:
               type: "object"
@@ -120,10 +120,10 @@ steps:
     tool: "core_serviceclass_list"
     expected:
       success: true
-      contains: 
+      contains:
         - "development-workspace"
         - "postgres-database"
-      
+
   - id: "developer-explores-workspace-options"
     tool: "core_serviceclass_get"
     args:
@@ -132,7 +132,7 @@ steps:
       success: true
       json_path:
         name: "development-workspace"
-        
+
   - id: "developer-checks-database-options"
     tool: "core_serviceclass_get"
     args:
@@ -141,7 +141,7 @@ steps:
       success: true
       json_path:
         name: "postgres-database"
-        
+
   # Phase 2: Developer Self-Service Provisioning (When - Actions)
   - id: "developer-creates-workspace"
     tool: "core_service_create"
@@ -156,7 +156,7 @@ steps:
     expected:
       success: true
       contains: ["my-ecommerce-workspace"]
-      
+
   - id: "developer-provisions-database"
     tool: "core_service_create"
     args:
@@ -169,7 +169,7 @@ steps:
     expected:
       success: true
       contains: ["ecommerce-api-db"]
-      
+
   # Phase 3: Developer Verification (Then - Outcomes)
   - id: "developer-verifies-workspace-running"
     tool: "core_service_get"
@@ -181,7 +181,7 @@ steps:
         name: "my-ecommerce-workspace"
         serviceClassName: "development-workspace"
         state: "running"
-      
+
   - id: "developer-verifies-database-connection"
     tool: "core_service_get"
     args:
@@ -192,7 +192,7 @@ steps:
         state: "running"
         serviceClassName: "postgres-database"
         # Should have connection string in metadata/service details
-        
+
   - id: "developer-views-all-services"
     tool: "core_service_list"
     expected:
@@ -200,7 +200,7 @@ steps:
       contains:
         - "my-ecommerce-workspace"
         - "ecommerce-api-db"
-        
+
   # Phase 4: Developer Workflow Management
   - id: "developer-stops-services-for-break"
     tool: "core_service_stop"
@@ -208,7 +208,7 @@ steps:
       name: "ecommerce-api-db"
     expected:
       success: true
-      
+
   - id: "developer-verifies-database-stopped"
     tool: "core_service_status"
     args:
@@ -217,14 +217,14 @@ steps:
       success: true
       json_path:
         state: "stopped"
-        
+
   - id: "developer-restarts-services"
     tool: "core_service_start"
     args:
       name: "ecommerce-api-db"
     expected:
       success: true
-      
+
   - id: "developer-verifies-restart-successful"
     tool: "core_service_status"
     args:
@@ -233,7 +233,7 @@ steps:
       success: true
       json_path:
         state: "running"
-        
+
   # Phase 5: End of Project Cleanup
   - id: "developer-completes-project"
     tool: "core_service_delete"
@@ -241,14 +241,14 @@ steps:
       name: "my-ecommerce-workspace"
     expected:
       success: true
-      
+
   - id: "developer-removes-database"
     tool: "core_service_delete"
     args:
       name: "ecommerce-api-db"
     expected:
       success: true
-      
+
   - id: "developer-verifies-cleanup"
     tool: "core_service_get"
     args:
@@ -267,7 +267,7 @@ cleanup:
       success: false  # Service already deleted in main test
     timeout: "30s"
     continue_on_failure: true
-    
+
   - id: "cleanup-database"
     tool: "core_service_delete"
     args:
@@ -275,4 +275,4 @@ cleanup:
     expected:
       success: false  # Service already deleted in main test
     timeout: "30s"
-    continue_on_failure: true 
+    continue_on_failure: true

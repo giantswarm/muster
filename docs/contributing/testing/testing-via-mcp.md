@@ -6,7 +6,7 @@ This guide provides comprehensive documentation for testing muster using its Mod
 
 **Key Benefits:**
 - **AI-Powered Testing**: LLM agents can autonomously execute test scenarios and validate functionality
-- **IDE Integration**: Direct testing from development environments with MCP-enabled tools  
+- **IDE Integration**: Direct testing from development environments with MCP-enabled tools
 - **Standardized Interface**: Consistent tool-based approach across different testing contexts
 - **Automated Validation**: Comprehensive scenario execution with built-in result verification
 - **API Schema Validation**: Generate and validate against live muster serve API schemas
@@ -27,7 +27,7 @@ Unlike CLI usage where you might need to manage muster services manually, **the 
 5. **Log Collection**: All stdout/stderr from instances is captured and included in responses
 6. **Automatic Cleanup**: Instances and configurations are cleaned up after test completion
 
-### Enhanced Debugging 
+### Enhanced Debugging
 
 **Instance logs are always included in MCP responses**, providing comprehensive debugging information:
 
@@ -37,7 +37,7 @@ Unlike CLI usage where you might need to manage muster services manually, **the 
   "scenarios": [
     {
       "name": "serviceclass-basic-operations",
-      "status": "passed", 
+      "status": "passed",
       "instance_logs": {
         "stdout": "time=2025-06-19T11:07:19.565+02:00 level=INFO msg=\"Loaded configuration...\"",
         "stderr": "",
@@ -177,7 +177,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 
 **Args**:
 - `category` (string, optional): Filter by category
-- `concept` (string, optional): Filter by concept  
+- `concept` (string, optional): Filter by concept
 - `config_path` (string, optional): Path to scenario files (default: `internal/testing/scenarios`)
 
 **Response Format**:
@@ -186,7 +186,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
   "scenarios": [
     {
       "name": "serviceclass-basic-operations",
-      "category": "behavioral", 
+      "category": "behavioral",
       "concept": "serviceclass",
       "description": "Basic ServiceClass management operations",
       "tags": ["basic", "crud", "serviceclass"],
@@ -207,7 +207,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 **Args**:
 - `scenario_path` (string, required): Path to scenario file or directory
 - `schema_path` (string, optional): Path to API schema file for API validation
-- `category` (string, optional): Filter by category when using schema validation ("behavioral", "integration")  
+- `category` (string, optional): Filter by category when using schema validation ("behavioral", "integration")
 - `concept` (string, optional): Filter by concept when using schema validation ("serviceclass", "workflow", "mcpserver", "service")
 
 **Response Format (YAML validation)**:
@@ -282,7 +282,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 {
   "last_execution": {
     "start_time": "2024-01-15T10:30:00Z",
-    "end_time": "2024-01-15T10:35:30Z", 
+    "end_time": "2024-01-15T10:35:30Z",
     "duration": "5m30s",
     "base_port": 18000,
     "configuration": {
@@ -316,7 +316,7 @@ The muster testing framework exposes four primary MCP tools through the aggregat
 #### Run Category-Specific Tests
 ```json
 {
-  "tool": "mcp_muster-test_test_run_scenarios", 
+  "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
     "category": "behavioral",
     "verbose": true
@@ -621,7 +621,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 
 // Then run integration tests
 {
-  "tool": "mcp_muster-test_test_run_scenarios", 
+  "tool": "mcp_muster-test_test_run_scenarios",
   "args": {
     "category": "integration",
     "parallel": 2
@@ -714,7 +714,7 @@ Check the `instance_logs` in the test results for detailed debugging information
 ### Common Issues and Solutions
 
 #### 1. **Build or Binary Issues**
-**Symptoms**: 
+**Symptoms**:
 ```json
 {
   "error": "failed to start muster process: executable file not found",
@@ -1062,4 +1062,4 @@ The muster MCP testing framework provides a powerful, standardized way to execut
 7. Use parallel execution for comprehensive test suites
 8. Leverage automatic instance management - no manual muster service management needed
 
-This MCP-based testing approach enables seamless integration between muster development and AI-powered development workflows, providing both automated validation and intelligent debugging capabilities. 
+This MCP-based testing approach enables seamless integration between muster development and AI-powered development workflows, providing both automated validation and intelligent debugging capabilities.

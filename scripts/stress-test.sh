@@ -90,27 +90,27 @@ echo ""
 
 for i in $(seq 1 "${ITERATIONS}"); do
     ITERATION_LOG="${RUN_DIR}/logs/iteration_${i}.log"
-    
+
     printf "[%3d/%3d] Running test suite... " "${i}" "${ITERATIONS}"
-    
+
     # Capture start time (seconds only for portability)
     START_TIME=$(date +%s)
-    
+
     # Run the test suite
     if timeout 10m muster test --parallel "${PARALLEL}" --base-port "${BASE_PORT}" > "${ITERATION_LOG}" 2>&1; then
         END_TIME=$(date +%s)
         DURATION=$((END_TIME - START_TIME))
-        
+
         echo -e "${GREEN}PASSED${NC} (${DURATION}s)"
         PASSED=$((PASSED + 1))
         echo "Iteration ${i}: PASSED (${DURATION}s)" >> "${SUMMARY_FILE}"
     else
         END_TIME=$(date +%s)
         DURATION=$((END_TIME - START_TIME))
-        
+
         # Extract failed scenario names from the log
         FAILED_SCENARIOS_THIS_RUN=$(grep -E "^❌|FAILED.*:.*" "${ITERATION_LOG}" 2>/dev/null | head -10 || true)
-        
+
         # Look for specific lifecycle test failures
         for SCENARIO in "${LIFECYCLE_SCENARIOS[@]}"; do
             if grep -q "${SCENARIO}" "${ITERATION_LOG}" 2>/dev/null; then
@@ -119,11 +119,11 @@ for i in $(seq 1 "${ITERATIONS}"); do
                 fi
             fi
         done
-        
+
         echo -e "${RED}FAILED${NC} (${DURATION}s)"
         FAILED=$((FAILED + 1))
         echo "Iteration ${i}: FAILED (${DURATION}s)" >> "${SUMMARY_FILE}"
-        
+
         # Save detailed failure info
         {
             echo "=== Iteration ${i} Failure Details ==="
@@ -132,7 +132,7 @@ for i in $(seq 1 "${ITERATIONS}"); do
             echo "${FAILED_SCENARIOS_THIS_RUN}"
             echo ""
         } >> "${RUN_DIR}/failure_details.txt"
-        
+
         # Extract and append to failures JSON
         # Look for timeout patterns or specific error messages
         if grep -q "timeout" "${ITERATION_LOG}" 2>/dev/null; then

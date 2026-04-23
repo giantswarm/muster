@@ -68,5 +68,3 @@ Create the namespace for muster resource discovery
 {{- define "muster.namespace" -}}
 {{- .Values.muster.namespace | default .Release.Namespace }}
 {{- end }}
-
-

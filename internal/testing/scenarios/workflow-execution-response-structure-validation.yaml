@@ -47,7 +47,7 @@ steps:
     success: true
     # All required fields from issue #16 WorkflowExecution Response Structure
     contains: [
-      "execution_id", "workflow_name", "structure-workflow", "status", 
+      "execution_id", "workflow_name", "structure-workflow", "status",
       "started_at", "completed_at", "duration_ms",
       "input", "result", "steps"
     ]
@@ -180,7 +180,7 @@ steps:
     success: true
     contains: [
       "step_id", "structure_step_2",
-      "tool", "core_workflow_list", 
+      "tool", "core_workflow_list",
       "status", "completed",
       "started_at", "duration_ms",
       "input"
@@ -191,4 +191,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "structure-workflow" }
   expected:
-    success: true 
+    success: true

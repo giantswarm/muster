@@ -9,7 +9,7 @@ Common command patterns and configuration for everyday Muster usage.
 # All-in-one mode for IDE integration
 muster standalone
 
-# All-in-one with debug output  
+# All-in-one with debug output
 muster standalone --debug
 ```
 
@@ -33,7 +33,7 @@ muster serve --config-path /custom/path
 # List all MCP servers
 muster list mcpserver
 
-# Get specific server details  
+# Get specific server details
 muster get mcpserver <name>
 
 # Check server availability
@@ -78,7 +78,7 @@ muster list serviceclass
 # Get serviceclass details
 muster get serviceclass <name>
 
-# Check serviceclass availability  
+# Check serviceclass availability
 muster check serviceclass <name>
 ```
 
@@ -116,7 +116,7 @@ muster test --generate-schema
 # ~/.config/muster/config.yaml
 aggregator:
   port: 8090                    # Default: 8090
-  host: "localhost"             # Default: localhost  
+  host: "localhost"             # Default: localhost
   transport: "streamable-http"  # Default: streamable-http
   enabled: true                 # Default: true
   musterPrefix: "x"             # Default: "x"
@@ -128,7 +128,7 @@ aggregator:
 ├── config.yaml              # Main configuration
 ├── mcpservers/              # MCP server definitions
 │   └── example.yaml
-├── workflows/               # Workflow definitions  
+├── workflows/               # Workflow definitions
 │   └── deploy.yaml
 ├── serviceclasses/          # ServiceClass definitions
 │   └── web-app.yaml
@@ -234,7 +234,7 @@ call_tool(name="core_service_status", arguments={"name": "my-app"})
 call_tool(name="core_service_start", arguments={"name": "my-app"})
 call_tool(name="core_service_stop", arguments={"name": "my-app"})
 
-# Workflow management  
+# Workflow management
 call_tool(name="core_workflow_list", arguments={})
 call_tool(name="core_workflow_create", arguments={"name": "my-workflow", "steps": [...]})
 call_tool(name="workflow_my-workflow", arguments={"app_name": "test-app"})
@@ -255,9 +255,9 @@ muster list service
 # JSON format
 muster list service --output json
 
-# YAML format  
+# YAML format
 muster get workflow deploy-app --output yaml
 
 # Quiet mode (minimal output)
 muster list service --quiet
-``` 
+```

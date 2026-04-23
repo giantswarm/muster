@@ -98,11 +98,11 @@ status:
   health: healthy         # unknown|healthy|unhealthy|checking
   lastError: ""           # Error from recent operations
   conditions: []          # K8s standard conditions
-  
+
   # NEW: Connection metadata
   lastConnected: "2025-12-23T10:00:00Z"   # When muster last connected
   restartCount: 0                          # How many times restarted
-  
+
   # REMOVE: Session-dependent data
   # availableTools: []    # Depends on user permissions at OAuth server
 ```
@@ -123,12 +123,12 @@ status:
   valid: true                    # Spec passes structural validation
   validationErrors: []           # Any spec validation errors
   conditions: []                 # K8s standard conditions
-  
+
   # NEW: Extracted tool references (informational only)
   referencedTools:               # Tools mentioned in spec (for documentation)
     - kubernetes_apply
     - kubernetes_delete
-  
+
   # REMOVE: Session-dependent availability
   # available: true              # Meaningless with session visibility
   # requiredTools: []            # Redundant with referencedTools
@@ -150,13 +150,13 @@ status:
   valid: true                    # Spec passes structural validation
   validationErrors: []           # Any spec validation errors
   conditions: []                 # K8s standard conditions
-  
+
   # NEW: Extracted tool references (informational only)
   referencedTools:               # Tools mentioned in steps (for documentation)
     - docker_build
     - kubernetes_deploy
   stepCount: 5                   # Number of steps (quick reference)
-  
+
   # REMOVE: Session-dependent availability
   # available: true              # Meaningless with session visibility
   # requiredTools: []            # Redundant with referencedTools
@@ -204,14 +204,14 @@ This is computed dynamically:
 func (a *Aggregator) GetWorkflowInfo(ctx context.Context, workflow *Workflow) WorkflowInfo {
     sessionID := getSessionID(ctx)
     sessionTools := a.GetToolsForSession(sessionID)
-    
+
     missing := []string{}
     for _, tool := range workflow.ReferencedTools {
         if !sessionTools.Has(tool) {
             missing = append(missing, tool)
         }
     }
-    
+
     return WorkflowInfo{
         Name:            workflow.Name,
         ReferencedTools: workflow.ReferencedTools,
@@ -228,7 +228,7 @@ Add status update methods to the `MusterClient` interface:
 ```go
 type MusterClient interface {
     // Existing methods...
-    
+
     // Status update methods (use Status subresource)
     UpdateMCPServerStatus(ctx context.Context, server *MCPServer) error
     UpdateServiceClassStatus(ctx context.Context, sc *ServiceClass) error
@@ -252,14 +252,14 @@ Update reconcilers to sync status after operations:
 ```go
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
     // ... existing reconciliation logic ...
-    
+
     // After successful start/stop/restart, sync status back to CR
     if r.client.IsKubernetesMode() {
         server, err := r.client.GetMCPServer(ctx, req.Name, req.Namespace)
         if err != nil {
             return ReconcileResult{Error: err, Requeue: true}
         }
-        
+
         // Get actual runtime state
         service, exists := r.serviceRegistry.Get(req.Name)
         if exists {
@@ -270,12 +270,12 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
             server.Status.State = "stopped"
             server.Status.Health = "unknown"
         }
-        
+
         if err := r.client.UpdateMCPServerStatus(ctx, server); err != nil {
             logging.Warn("MCPServerReconciler", "Failed to update status: %v", err)
         }
     }
-    
+
     return ReconcileResult{}
 }
 ```
@@ -435,4 +435,3 @@ type WorkflowStatus struct {
 
 - [ADR 006: Session-Scoped Tool Visibility](006-session-scoped-tool-visibility.md) - Why tool availability is per-session
 - [ADR 003: Configuration Management](003-configuration-management.md) - Filesystem vs Kubernetes modes
-

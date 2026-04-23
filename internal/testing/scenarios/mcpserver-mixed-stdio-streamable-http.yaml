@@ -71,4 +71,4 @@ cleanup:
   args:
     name: "mixed-http-server"
   expected:
-    success: true 
+    success: true

@@ -479,13 +479,13 @@ spec:
       args:
         name: "{{.app_name}}-db"
         serviceClassName: postgres
-        
+
     - id: wait-for-database
       tool: core_service_wait_healthy
       args:
         name: "{{.app_name}}-db"
         timeout: 300s
-        
+
     - id: create-application
       tool: core_service_create
       args:
@@ -505,4 +505,4 @@ spec:
 
 - [ServiceClass Templates](serviceclass-patterns.md)
 - [Workflow Integration](workflow-creation.md)
-- [CLI Reference](../reference/cli/) 
+- [CLI Reference](../reference/cli/)

@@ -14,4 +14,3 @@ generate-crds: ## Generate CRDs from Go types into helm/muster/crds.
 	@echo "====> Generating CRDs from Go types..."
 	controller-gen crd:crdVersions=v1 paths="./pkg/apis/..." output:crd:dir=$(CRD_DIR)
 	@echo "CRDs generated in $(CRD_DIR)"
-

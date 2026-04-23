@@ -1,11 +1,11 @@
 name: "mcpserver-teleport-token-exchange"
 description: |
   Test creating and validating MCP servers with combined Teleport and Token Exchange configuration.
-  
+
   This scenario tests the configuration parsing for the private installations flow where:
   1. Teleport provides the encrypted tunnel to reach private endpoints
   2. Token Exchange converts the user's local token to one valid on the remote cluster
-  
+
   The scenario includes:
   - Positive tests: Valid configurations with various identity sources and token exchange options
   - Negative tests: Invalid configurations that should fail at creation time:
@@ -13,9 +13,9 @@ description: |
     - Missing identity sources (neither identityDir nor identitySecretName)
     - Missing teleport settings when auth type is teleport
     - Teleport auth on stdio servers (invalid combination)
-  
+
   Note: Token exchange field validation (dexTokenEndpoint HTTPS, connectorID) happens at runtime
-  when token exchange is attempted, not at MCPServer creation time. This is by design - 
+  when token exchange is attempted, not at MCPServer creation time. This is by design -
   configuration can be created before the endpoints exist.
 category: "behavioral"
 concept: "mcpserver"

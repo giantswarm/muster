@@ -3,21 +3,21 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Reproduces issue #287: SSO state mismatch after token invalidation.
-  
+
   This scenario tests the case where:
   1. User authenticates successfully and has a valid token
   2. The token is revoked/invalidated server-side (e.g., IdP session expired, token revoked)
   3. Local auth status still shows "connected" because it only checks local token expiry
   4. Actual tool calls fail with 401 because server rejects the token
-  
+
   This demonstrates the state inconsistency between client-side auth status checks
   (which only validate local token expiry) and server-side token validation
   (which validates against the actual IdP).
-  
+
   The user's symptom was:
   - `muster auth status` shows "Authenticated" with 15 minutes remaining
   - `muster list services` fails with 401: "Token validation failed"
-  
+
   After logout and re-login, everything works again because a fresh token is obtained.
 tags: ["oauth", "authentication", "sso", "state-mismatch", "issue-287", "regression"]
 timeout: "2m"
@@ -139,7 +139,7 @@ steps:
   # EXPECTED BEHAVIOR: The auth status read fails with 401 because
   # the muster server validates tokens against the IdP on every request.
   # After token revocation, the server correctly rejects the invalid token.
-  # 
+  #
   # The CLI fix (auth_status.go) handles this gracefully by:
   #   1. Detecting the 401 error
   #   2. Clearing the local cached token
