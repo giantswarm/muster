@@ -18,4 +18,4 @@ Handles lifecycle management of service instances based on ServiceClass template
 - `interfaces.go`: Service interfaces
 
 ## Integration
-Uses API adapters to integrate with orchestrator and aggregator. Defines ServiceClasses for reusable service patterns. 
+Uses API adapters to integrate with orchestrator and aggregator. Defines ServiceClasses for reusable service patterns.

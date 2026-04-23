@@ -117,7 +117,7 @@ steps:
     tool: debug_log
     args:
       message: "Available tools: {{.available_tools}}"
-  
+
   - id: main_task
     tool: <required-tool>
     # ... rest of configuration
@@ -151,20 +151,20 @@ spec:
       args:
         message: "Starting workflow with: {{.}}"
         level: "info"
-        
+
     - id: problematic_step
       tool: potentially_failing_tool
       args:
         input: "{{.user_input}}"
       store: true
       allowFailure: false  # Fail fast for debugging
-      
+
     - id: debug_result
       tool: debug_log
       args:
         message: "Step result: {{.results.problematic_step}}"
         level: "info"
-        
+
     - id: conditional_recovery
       tool: recovery_action
       condition:
@@ -437,7 +437,7 @@ spec:
           tool: independent_task_2
         - id: task_3
           tool: independent_task_3
-    
+
     # Continue with dependent steps
     - id: combine_results
       tool: combine_task
@@ -558,4 +558,4 @@ spec:
 - **Documentation**: [Latest documentation](https://github.com/giantswarm/muster/docs)
 
 ## Related Documentation
-- [Configuration Reference](../reference/configuration.md) 
+- [Configuration Reference](../reference/configuration.md)

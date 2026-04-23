@@ -13,4 +13,4 @@ steps:
     steps: []  # Invalid: empty steps should cause validation to fail
   expected:
     success: false
-    error_contains: ["workflow must have at least one step"] 
+    error_contains: ["workflow must have at least one step"]

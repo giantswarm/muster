@@ -56,7 +56,7 @@ Muster provides **36 core built-in tools** organized into 5 functional categorie
 
 - **[Configuration Tools](#configuration-tools)** (5 tools) - System configuration management
 - **[MCP Server Tools](#mcp-server-tools)** (6 tools) - MCP server lifecycle management
-- **[Service Tools](#service-tools)** (9 tools) - Service instance management  
+- **[Service Tools](#service-tools)** (9 tools) - Service instance management
 - **[ServiceClass Tools](#serviceclass-tools)** (7 tools) - ServiceClass definition management
 - **[Workflow Tools](#workflow-tools)** (9 tools) - Workflow definition and execution management
 
@@ -125,7 +125,7 @@ Get the complete current Muster system configuration including aggregator, servi
 {
   "Aggregator": {
     "Port": 8090,
-    "Host": "localhost", 
+    "Host": "localhost",
     "Transport": "streamable-http",
     "Enabled": true,
     "MusterPrefix": ""
@@ -153,7 +153,7 @@ Get aggregator-specific configuration details only.
 {
   "Port": 8090,
   "Host": "localhost",
-  "Transport": "streamable-http", 
+  "Transport": "streamable-http",
   "Enabled": true,
   "MusterPrefix": ""
 }
@@ -458,7 +458,7 @@ Manage service instances throughout their lifecycle. Services can be static syst
 
 > **Service Types**: Muster manages three types of services:
 > - **Aggregator**: Core tool aggregation service
-> - **MCPServer**: External MCP server processes  
+> - **MCPServer**: External MCP server processes
 > - **ServiceClass**: User-defined service instances from templates
 
 ### `core_service_list`
@@ -494,7 +494,7 @@ List all services with their current status and metadata.
     {
       "name": "kubernetes",
       "service_type": "MCPServer",
-      "state": "running", 
+      "state": "running",
       "health": "healthy",
       "metadata": {
         "autoStart": true,
@@ -504,7 +504,7 @@ List all services with their current status and metadata.
     {
       "name": "my-database",
       "service_type": "ServiceClass",
-      "state": "stopped", 
+      "state": "stopped",
       "health": "unknown",
       "metadata": {
         "serviceClassName": "database-service",
@@ -785,7 +785,7 @@ List all ServiceClass definitions with their availability status and configurati
           "description": "Database port"
         },
         "name": {
-          "type": "string", 
+          "type": "string",
           "required": true,
           "description": "Database name"
         }
@@ -807,7 +807,7 @@ Create a new ServiceClass definition with complete lifecycle tool configuration.
   - `serviceType` (string, required) - Type identifier for the service
   - `lifecycleTools` (object, required) - Tool configurations for service management:
     - `start` (object, required) - Tool configuration for starting services
-    - `stop` (object, required) - Tool configuration for stopping services  
+    - `stop` (object, required) - Tool configuration for stopping services
     - `status` (object, optional) - Tool configuration for status checks
     - `restart` (object, optional) - Tool configuration for restart operations
     - `healthCheck` (object, optional) - Tool configuration for health verification
@@ -869,7 +869,7 @@ Create a new ServiceClass definition with complete lifecycle tool configuration.
         "description": "Kubernetes namespace"
       },
       "podName": {
-        "type": "string", 
+        "type": "string",
         "required": true,
         "description": "Pod name to forward to"
       },
@@ -1071,7 +1071,7 @@ List all workflow definitions with their availability status.
       "available": true
     },
     {
-      "name": "backup-database", 
+      "name": "backup-database",
       "description": "Backup database to remote storage",
       "available": false
     }
@@ -1117,7 +1117,7 @@ Create a new workflow definition with advanced step configuration.
         "description": "Application name to deploy"
       },
       "environment": {
-        "type": "string", 
+        "type": "string",
         "default": "development",
         "description": "Target environment"
       },
@@ -1156,7 +1156,7 @@ Create a new workflow definition with advanced step configuration.
       {
         "id": "setup_monitoring",
         "tool": "core_service_create",
-        "description": "Setup monitoring service", 
+        "description": "Setup monitoring service",
         "condition": {
           "tool": "core_serviceclass_available",
           "args": {

@@ -18,7 +18,7 @@ Use direct YAML file loading with a standardized directory structure at `~/.conf
 - **Main config**: `config.yaml` - Core muster settings
 - **Entity directories**: Separate subdirectories for each entity type
   - `mcpservers/` - MCP server definitions
-  - `workflows/` - Workflow definitions  
+  - `workflows/` - Workflow definitions
   - `serviceclasses/` - ServiceClass definitions
   - `services/` - Service instance definitions
 
@@ -57,4 +57,4 @@ func (s *Storage) Save(entityType, name string, data []byte) error {
     filePath := filepath.Join(targetDir, name+".yaml")
     return os.WriteFile(filePath, data, 0644)
 }
-``` 
+```

@@ -41,7 +41,7 @@ spec:
       args:
         app_name: "{{.app_name}}"
         environment: "{{.environment}}"
-      
+
     - id: create_deployment
       tool: core_service_create
       args:
@@ -51,18 +51,18 @@ spec:
           image: "{{.app_name}}:{{.version}}"
           environment: "{{.environment}}"
       store: true
-      
+
     - id: wait_for_ready
       tool: x_kubernetes_wait_for_deployment
       args:
         deployment_name: "{{.results.create_deployment.name}}"
         timeout: "300s"
-      
+
     - id: run_health_checks
       tool: x_monitoring_health_check
       args:
         endpoint: "{{.results.create_deployment.endpoint}}"
-        
+
     - id: notify_team
       tool: x_slack_send_notification
       args:
@@ -92,7 +92,7 @@ spec:
       args:
         version: "{{.version}}"
       allowFailure: true  # Continue workflow even if this fails
-      
+
     - id: deploy_app
       tool: core_service_create
       args:
@@ -120,13 +120,13 @@ spec:
       args:
         environment: "{{.environment}}"
       store: true
-      
+
     - id: production_validation
       tool: x_security_run_production_checks
       condition:
         jsonPath:
           "results.check_environment.is_production": true
-          
+
     - id: staging_fast_deploy
       tool: x_deployment_quick_deploy
       condition:
@@ -202,7 +202,7 @@ spec:
       args:
         environment: "{{.environment}}"
       store: true
-      
+
     # Development: Quick deployment
     - id: dev_quick_deploy
       tool: quick_deploy
@@ -212,7 +212,7 @@ spec:
       condition:
         jsonPath:
           "results.analyze_environment.type": "development"
-          
+
     # Staging: Deploy with basic tests
     - id: staging_deploy
       tool: deploy_with_tests
@@ -223,7 +223,7 @@ spec:
       condition:
         jsonPath:
           "results.analyze_environment.type": "staging"
-          
+
     # Production: Full validation pipeline
     - id: prod_security_scan
       tool: security_scan
@@ -235,7 +235,7 @@ spec:
               "results.analyze_environment.type": "production"
           - template: "{{ .force_production }}"
       store: true
-      
+
     - id: prod_deploy
       tool: production_deploy
       args:
@@ -317,7 +317,7 @@ steps:
     args:
       cluster: "{{.target_cluster}}"
     store: true
-    
+
   - id: deploy_to_cluster
     tool: deploy_application
     args:
@@ -349,13 +349,13 @@ spec:
       args:
         message: "Starting workflow with args: {{.}}"
         level: "info"
-        
+
     - id: main_task
       tool: complex_operation
       args:
         input: "{{.complex_input}}"
       store: true
-      
+
     - id: debug_result
       tool: debug_log
       args:
@@ -390,13 +390,13 @@ steps:
       name: "pre-deployment"
       state: "{{.}}"
       results: "{{.results}}"
-      
+
   - id: risky_operation
     tool: complex_deployment
     args:
       config: "{{.deployment_config}}"
     store: true
-    
+
   - id: checkpoint_2
     tool: create_checkpoint
     args:
@@ -487,7 +487,7 @@ steps:
         tool: deploy_service
         args:
           service: "database"
-  
+
   - id: verify_all_services
     tool: verify_deployment
     args:
@@ -562,4 +562,4 @@ spec:
 
 ## Related Documentation
 - [ServiceClass Patterns](serviceclass-patterns.md)
-- [Workflow Reference](../reference/mcp-tools.md#workflow-tools) 
+- [Workflow Reference](../reference/mcp-tools.md#workflow-tools)

@@ -583,7 +583,7 @@ Most MCP-compatible assistants can connect to muster's aggregator endpoint at `h
 ## Related Documentation
 
 - [Configuration Reference](../reference/configuration.md) - Detailed configuration options
-- [API Reference](../reference/api.md) - Programmatic server management  
+- [API Reference](../reference/api.md) - Programmatic server management
 - [CRD Reference](../reference/crds.md) - Kubernetes CRD schema
 - [Architecture](../explanation/architecture.md) - How MCP servers fit into muster
 - [MCP Server Reference](../reference/mcpserver.md)

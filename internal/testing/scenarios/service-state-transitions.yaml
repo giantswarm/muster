@@ -66,4 +66,4 @@ steps:
 - id: "check-status-is-running-after-restart"
   tool: "core_service_status"
   args: { name: "state-test-service" }
-  expected: { success: true } 
+  expected: { success: true }

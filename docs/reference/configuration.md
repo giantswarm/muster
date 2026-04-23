@@ -17,7 +17,7 @@ Muster uses a file-based configuration system with YAML files organized in a str
 ```
 ~/.config/muster/
 ├── config.yaml              # Main system configuration
-├── mcpservers/              # MCP server definitions  
+├── mcpservers/              # MCP server definitions
 │   ├── kubernetes.yaml
 │   ├── github.yaml
 │   └── prometheus.yaml
@@ -329,7 +329,7 @@ spec:
         env: "{{.environment}}"
       store: true
       description: "Build the application"
-    
+
     - id: "deploy"
       tool: "deploy_application"
       args:
@@ -341,7 +341,7 @@ spec:
         expect:
           success: true
       description: "Deploy to target environment"
-    
+
     - id: "health-check"
       tool: "health_check"
       args:
@@ -414,7 +414,7 @@ Create different configuration directories for different environments:
 # Development
 muster serve --config-path ~/.config/muster-dev
 
-# Staging  
+# Staging
 muster serve --config-path ~/.config/muster-staging
 
 # Production
@@ -496,4 +496,4 @@ In resource templates, these variables are available:
 - [CLI Reference](cli/) - Command-line interface documentation
 - [CRDs Reference](crds.md) - Kubernetes resource specifications
 - [MCP Tools Reference](mcp-tools.md) - Available tools and usage
-- [API Reference](api/) - HTTP and MCP API documentation 
+- [API Reference](api/) - HTTP and MCP API documentation

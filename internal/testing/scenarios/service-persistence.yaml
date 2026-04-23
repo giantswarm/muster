@@ -37,4 +37,4 @@ steps:
   tool: "core_service_list"
   expected:
     success: true
-    contains: ["my-persistent-service"] 
+    contains: ["my-persistent-service"]

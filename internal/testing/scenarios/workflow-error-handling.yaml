@@ -87,4 +87,4 @@ steps:
     name: "non-existent-workflow"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

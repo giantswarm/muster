@@ -232,7 +232,7 @@ muster test --scenario serviceclass-crud
 # ✓ Create service instance
 # ✓ Check service status
 # ✓ Cleanup test environment
-# 
+#
 # PASS: serviceclass-crud (2.34s)
 ```
 
@@ -251,7 +251,7 @@ muster test --scenario serviceclass-crud --verbose
 # [19:00:03] → muster check serviceclass test-service
 # [19:00:03] ✓ ServiceClass is available
 # [19:00:03] Cleaning up test environment
-# 
+#
 # PASS: serviceclass-crud (2.34s)
 ```
 
@@ -279,7 +279,7 @@ muster test --parallel 4
 # Failed: 2
 # Skipped: 0
 # Duration: 45.67s
-# 
+#
 # Failed scenarios:
 # - service-complex-dependencies (dependency timeout)
 # - workflow-external-tool (tool not available)
@@ -517,4 +517,4 @@ if ! muster test --parallel 4 --fail-fast --quiet; then
 fi
 
 echo "All tests passed. Commit proceeding."
-``` 
+```

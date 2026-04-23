@@ -13,5 +13,3 @@ spec:
       name: http
   selector:
     {{- include "muster.selectorLabels" . | nindent 4 }}
-
-

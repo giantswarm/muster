@@ -15,7 +15,7 @@ pre_configuration:
       steps:
         - id: "echo"
           tool: "x_echo-provider_echo"
-          args: 
+          args:
             text: "{{ .input.message }}"
           store: true
   mcp_servers:

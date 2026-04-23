@@ -4,7 +4,7 @@ As a platform engineer, you interact with countless services: Kubernetes, Promet
 
 **The MCP Revolution**: LLM agents (in VSCode, Cursor, etc.) + MCP servers should solve this by giving agents direct access to your tools. There are already many excellent MCP servers available (Kubernetes, Prometheus, Grafana, Flux, etc.).
 
-**But there's a fundamental problem at scale**: 
+**But there's a fundamental problem at scale**:
 
 ## The Context Pollution Problem
 
@@ -15,7 +15,7 @@ When you add multiple MCP servers to your agent, you face exponential complexity
 - **Multiple servers**: 200+ tools (overwhelming context)
 - **Real example**: This muster instance aggregates:
   - 36 core built-in tools (across 5 categories)
-  - 8 dynamic workflow tools 
+  - 8 dynamic workflow tools
   - 100+ external tools from 8 MCP servers
   - **Total: 140+ tools available**
 
@@ -27,7 +27,7 @@ agent: "Help me debug a failing pod"
 → Receives 140+ tool options including unrelated tools like x_grafana_create_dashboard
 
 # No context about what's actually needed
-agent: "I need monitoring data"  
+agent: "I need monitoring data"
 → Doesn't know x_prometheus_query requires port-forwarding setup first
 
 # Manual dependency management
@@ -47,7 +47,7 @@ agent: "Connect to Prometheus"
 Traditional approach requires manual coordination:
 ```bash
 1. Start Kubernetes MCP server
-2. Start Teleport MCP server  
+2. Start Teleport MCP server
 3. Start Prometheus MCP server
 4. Manually: x_teleport_kube_login(cluster="my-cluster")
 5. Manually: x_kubernetes_port_forward(service="prometheus", port=9090)
@@ -84,7 +84,7 @@ agent: "Connect to monitoring in the staging cluster in the eu-west-1 region"
 # Automatically handles:
 # ✓ Authentication (Teleport login)
 # ✓ Port forwarding setup
-# ✓ Service health checks  
+# ✓ Service health checks
 # ✓ Cleanup on completion
 ```
 
@@ -121,11 +121,11 @@ Instead of managing 140+ individual tools, platform engineers work with high-lev
 # Single command replaces complex manual workflows
 workflow_check-cilium-health(cluster="my-cluster")
 
-# Self-managing service connections  
+# Self-managing service connections
 core_service_create(serviceClassName="service-k8s-connection", name="prod-access")
 
 # Intelligent tool discovery
 "I need to debug networking" → Shows relevant workflow and service options
 ```
 
-Muster transforms platform complexity into simple, discoverable, self-managing operations that AI agents can execute reliably and efficiently. 
+Muster transforms platform complexity into simple, discoverable, self-managing operations that AI agents can execute reliably and efficiently.

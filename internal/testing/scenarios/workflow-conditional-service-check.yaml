@@ -14,7 +14,7 @@ pre_configuration:
           description: "Echo text"
           required: true
       lifecycleTools:
-        start: 
+        start:
           tool: "x_echo-provider_echo"
           args: { text: "service started {{.echo}}" }
         stop:
@@ -22,7 +22,7 @@ pre_configuration:
           args: { text: "service stopped {{.echo}}" }
       outputs:
         status: "Service is running"
-            
+
   mcp_servers:
   - name: "echo-provider"
     config:
@@ -36,7 +36,7 @@ steps:
   args:
     name: "conditional-workflow"
     args:
-      service_name: 
+      service_name:
         type: "string"
         required: true
     steps:
@@ -74,7 +74,7 @@ steps:
   args:
     name: "service-health-workflow"
     args:
-      service_name: 
+      service_name:
         type: "string"
         required: true
     steps:
@@ -101,7 +101,7 @@ steps:
           name: "{{.input.service_name}}"
       - id: "create-missing-service"
         condition:
-          # Use result from previous step  
+          # Use result from previous step
           from_step: "get-service-status"
           expect:
             success: false

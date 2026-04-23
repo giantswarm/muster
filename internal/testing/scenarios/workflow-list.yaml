@@ -9,4 +9,4 @@ steps:
   tool: "core_workflow_list"
   args:
   expected:
-    success: true 
+    success: true

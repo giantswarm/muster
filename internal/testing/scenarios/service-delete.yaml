@@ -38,4 +38,3 @@ steps:
     name: "delete-test-service"
   expected:
     success: false
- 

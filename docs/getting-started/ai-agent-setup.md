@@ -5,11 +5,11 @@ Get Muster working with your AI agent in 2 minutes using the easiest setup metho
 ## Two Ways to Run Muster
 
 ### 🟢 Standalone Mode (Easiest - Recommended)
-- **Single command**: `muster standalone` 
+- **Single command**: `muster standalone`
 - **Perfect for**: Cursor, VSCode, Claude Desktop integration
 - **Benefits**: No separate processes, automatic setup, works immediately
 
-### 🟡 Separate Mode (Advanced)  
+### 🟡 Separate Mode (Advanced)
 - **Two commands**: `muster serve` + `muster agent --mcp-server`
 - **Perfect for**: Production deployments, multiple MCP clients, debugging
 - **Benefits**: Visible logs, can connect multiple IDEs, production-ready
@@ -112,7 +112,7 @@ Your AI agent should list the **11 meta-tools** exposed by the server:
 - `describe_resource` - Get resource details
 
 **Prompt Access:**
-- `list_prompts` - List available prompts  
+- `list_prompts` - List available prompts
 - `get_prompt` - Execute prompt templates
 - `describe_prompt` - Get prompt details
 
@@ -154,10 +154,10 @@ Your agent will:
 
 ## What You've Accomplished
 
-✅ **Muster is connected** to your AI agent  
-✅ **Meta-tool access** - your agent can use the 11 server meta-tools  
-✅ **Tool discovery** - your agent can find and explore all available tools  
-✅ **Tool execution** - your agent can execute any tool via `call_tool`  
+✅ **Muster is connected** to your AI agent
+✅ **Meta-tool access** - your agent can use the 11 server meta-tools
+✅ **Tool discovery** - your agent can find and explore all available tools
+✅ **Tool execution** - your agent can execute any tool via `call_tool`
 ✅ **Resource access** - your agent can access resources and prompts
 
 ## Alternative: Advanced Separate Mode
@@ -201,7 +201,7 @@ muster serve
 # Discover what's available
 list_tools()
 
-# Get details about a specific tool  
+# Get details about a specific tool
 describe_tool(name="core_service_create")
 
 # Execute any tool
@@ -252,4 +252,4 @@ filter_tools(pattern="core_service_*")
 - [Architecture Documentation](../explanation/architecture.md)
 - [Agent CLI Reference](../reference/cli/agent.md)
 - [GitHub Issues](https://github.com/giantswarm/muster/issues)
-- [Community Discussions](https://github.com/giantswarm/muster/discussions) 
+- [Community Discussions](https://github.com/giantswarm/muster/discussions)

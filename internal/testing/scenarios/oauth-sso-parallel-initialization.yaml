@@ -3,12 +3,12 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Verify that SSO token forwarding works correctly with multiple servers.
-  
+
   This scenario tests SSO token forwarding with multiple servers:
   1. After muster authentication, SSO login can be attempted for all servers
   2. SSO succeeds for servers that accept forwarded tokens
   3. auth://status correctly reflects connection state for all servers
-  
+
   This verifies the core SSO behavior for multiple servers.
 tags: ["oauth", "authentication", "sso", "token-forwarding", "parallel", "session", "mcpserver"]
 timeout: "2m"

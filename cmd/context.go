@@ -53,7 +53,7 @@ Context Configuration:
 
 Precedence (highest to lowest):
   1. --endpoint flag
-  2. --context flag  
+  2. --context flag
   3. MUSTER_CONTEXT environment variable
   4. current-context from contexts.yaml
   5. Local fallback (http://localhost:8090/mcp)`,

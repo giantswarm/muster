@@ -24,4 +24,4 @@ Deep dive into Muster's core concepts, architecture, and design decisions.
 - [Reference](../reference/) - Technical specifications
 
 ## Feedback
-Unclear? [Request improvements](https://github.com/giantswarm/muster/issues/new?labels=documentation) 
+Unclear? [Request improvements](https://github.com/giantswarm/muster/issues/new?labels=documentation)

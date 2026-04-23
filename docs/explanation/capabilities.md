@@ -110,7 +110,7 @@ agent: "Connect to monitoring in cluster"
 
 ## 🏗️ Advanced Service Management
 
-### **ServiceClass Templates** 
+### **ServiceClass Templates**
 This instance provides reusable service templates:
 
 **Real Example - Kubernetes Connection Service:**
@@ -128,7 +128,7 @@ spec:
       required: true
       description: "Name of the Kubernetes cluster"
     role:
-      type: "string" 
+      type: "string"
       required: true
       description: "Role for the connection (management, workload, etc.)"
     auth_provider:
@@ -230,4 +230,4 @@ ServiceClasses automatically handle complex prerequisites:
 6. **Result Delivery**: Returns structured health status and recommendations
 7. **Cleanup**: Automatically cleans up temporary resources
 
-This demonstrates how Muster transforms complex, multi-step platform operations into simple, one-command executions for AI agents while maintaining full control and observability. 
+This demonstrates how Muster transforms complex, multi-step platform operations into simple, one-command executions for AI agents while maintaining full control and observability.

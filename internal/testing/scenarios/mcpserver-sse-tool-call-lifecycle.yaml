@@ -143,4 +143,3 @@ cleanup:
     expected:
       success: true
     continue_on_failure: true
-

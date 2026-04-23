@@ -5,13 +5,13 @@ description: |
   Test progressive authentication where a user authenticates with multiple
   servers over time, accumulating tool access, while another user remains
   unauthenticated and sees no server tools.
-  
+
   This tests:
   1. Starting with zero server tools (unauthenticated)
   2. Progressively gaining access to more tools as user authenticates
   3. Tool accumulation - user keeps access to previously authenticated servers
   4. Complete isolation between authenticated and unauthenticated users
-  
+
   This tests the session-scoped tool visibility implementation (ADR-006).
 tags: ["oauth", "multi-user", "session-isolation", "progressive-auth", "mcpserver"]
 timeout: "3m"

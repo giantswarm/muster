@@ -128,14 +128,14 @@ The validation system handles different tool prefixes according to their purpose
    - ❌ **Fails if**: Tool doesn't exist in current API or has invalid args
    - 📝 **Example**: `core_serviceclass_create`, `core_service_start`
 
-2. **`x_*` tools** - Mock MCP server tools  
+2. **`x_*` tools** - Mock MCP server tools
    - ✅ **Always valid**: Part of test scenario setup (mock servers)
    - ⚠️ **Not validated**:  Args an't be verified (scenario-specific)
    - 📝 **Example**: `x_kubernetes-mock_k8s_pod_list`, `x_storage-mock_create_volume`
 
 3. **`workflow_*` tools** - Workflow execution tools
    - ✅ **Always valid**: Workflow execution calls
-   - ⚠️ **Not validated**:  Args epend on workflow definition  
+   - ⚠️ **Not validated**:  Args epend on workflow definition
    - 📝 **Example**: `workflow_deploy-app`, `workflow_setup-environment`
 
 4. **All other prefixes** - Invalid tools
@@ -152,19 +152,19 @@ steps:
     args:
       name: "my-service"
       type: "web"
-    
-  # ✅ VALID: Mock tool - accepted but not arg-validated  
+
+  # ✅ VALID: Mock tool - accepted but not arg-validated
   - id: "setup-mock"
     tool: "x_kubernetes-mock_create_pod"
     args:
       namespace: "test"
-      
+
   # ✅ VALID: Workflow execution - accepted but not arg-validated
   - id: "run-workflow"
     tool: "workflow_deploy-application"
     args:
       environment: "staging"
-      
+
   # ❌ INVALID: Unknown prefix
   - id: "bad-tool"
     tool: "custom_my_tool"  # Will fail validation
@@ -299,9 +299,9 @@ muster test --generate-schema --schema-output=schema-v$(date +%Y%m%d).json
 muster test --mcp-server
 
 # Use MCP tools for validation:
-# - mcp_muster-test_test_validate_scenario: Validate YAML structure or against API schema 
+# - mcp_muster-test_test_validate_scenario: Validate YAML structure or against API schema
 # - mcp_muster-test_test_run_scenarios: Execute test scenarios
 # - mcp_muster-test_test_list_scenarios: Discover available scenarios
 ```
 
-This workflow ensures your test scenarios stay synchronized with the actual muster serve API, catching breaking changes early and maintaining test reliability. Both CLI and MCP server provide identical functionality for maximum flexibility. 
+This workflow ensures your test scenarios stay synchronized with the actual muster serve API, catching breaking changes early and maintaining test reliability. Both CLI and MCP server provide identical functionality for maximum flexibility.

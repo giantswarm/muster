@@ -60,4 +60,4 @@ steps:
   tool: "core_mcpserver_list"
   expected:
     success: true
-    not_contains: ["stdio-command-server"] 
+    not_contains: ["stdio-command-server"]

@@ -17,4 +17,4 @@ Acts as service locator and defines interfaces for all components.
 - `orchestrator.go`: Coordination logic
 
 ## Integration
-All components register adapters here. No dependencies on other packages. 
+All components register adapters here. No dependencies on other packages.

@@ -161,4 +161,4 @@ steps:
   expected:
     success: true
     json_path:
-      available: false 
+      available: false
