@@ -37,6 +37,11 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
+	// CapabilityPollInterval is the interval between periodic capability
+	// re-fetches from downstream servers (e.g. "5m", "30s"). Zero or empty
+	// uses the default (5 minutes).
+	CapabilityPollInterval string `yaml:"capabilityPollInterval,omitempty"`
+
 	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF

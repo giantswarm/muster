@@ -54,6 +54,10 @@ const (
 	// TestToolRemoveMockTool dynamically removes a tool from a running mock MCP server.
 	// This triggers a notifications/tools/list_changed notification to all connected clients.
 	TestToolRemoveMockTool = "test_remove_mock_tool"
+	// TestToolAddMockToolSilently adds a tool to a mock MCP server without
+	// sending a notifications/tools/list_changed notification. This simulates
+	// a silent server redeployment and is used to test the capability poller.
+	TestToolAddMockToolSilently = "test_add_mock_tool_silently"
 )
 
 // TestToolsHandler handles test-specific tools that operate on mock infrastructure.
@@ -166,7 +170,8 @@ func IsTestTool(toolName string) bool {
 		TestToolSimulateMusterReauth,
 		TestToolMusterAuthLogin,
 		TestToolAddMockTool,
-		TestToolRemoveMockTool:
+		TestToolRemoveMockTool,
+		TestToolAddMockToolSilently:
 		return true
 	}
 	return false
@@ -207,6 +212,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleAddMockTool(ctx, args)
 	case TestToolRemoveMockTool:
 		return h.handleRemoveMockTool(ctx, args)
+	case TestToolAddMockToolSilently:
+		return h.handleAddMockToolSilently(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown test tool: %s", toolName)
 	}
@@ -1636,6 +1643,69 @@ func (h *TestToolsHandler) handleRemoveMockTool(ctx context.Context, args map[st
 	return map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Removed tool '%s' from mock server '%s'", toolName, serverName),
+		"server":  serverName,
+		"tool":    toolName,
+	}, nil
+}
+
+// handleAddMockToolSilently adds a tool to a mock server without sending
+// a notifications/tools/list_changed notification. The tool is visible via
+// ListTools but the aggregator's notification subscriber will NOT be
+// triggered. Only the capability poller will detect the change.
+//
+// Args:
+//   - server: Required. Name of the mock MCP server.
+//   - tool_name: Required. Name of the new tool.
+//   - tool_description: Optional. Description of the new tool.
+func (h *TestToolsHandler) handleAddMockToolSilently(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	serverName, ok := args["server"].(string)
+	if !ok || serverName == "" {
+		return nil, fmt.Errorf("server argument is required")
+	}
+
+	toolName, ok := args["tool_name"].(string)
+	if !ok || toolName == "" {
+		return nil, fmt.Errorf("tool_name argument is required")
+	}
+
+	if h.instanceManager == nil || h.currentInstance == nil {
+		return nil, fmt.Errorf("instance manager or current instance not available")
+	}
+
+	description, _ := args["tool_description"].(string)
+
+	toolConfig := mock.ToolConfig{
+		Name:        toolName,
+		Description: description,
+		Responses: []mock.ToolResponse{
+			{Response: map[string]interface{}{"status": "ok", "tool": toolName}},
+		},
+	}
+
+	httpServer := h.instanceManager.GetMockHTTPServer(h.currentInstance.ID, serverName)
+	if httpServer == nil {
+		return nil, fmt.Errorf("mock HTTP server %s not found for instance %s", serverName, h.currentInstance.ID)
+	}
+	httpServer.AddDynamicToolSilently(toolConfig)
+
+	if h.debug {
+		h.logger.Debug("Silently added mock tool '%s' to server '%s' (no notification)\n", toolName, serverName)
+	}
+
+	expectedToolName := fmt.Sprintf("x_%s_%s", serverName, toolName)
+	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := h.waitForToolVisibility(pollCtx, expectedToolName, true); err != nil {
+		return nil, fmt.Errorf("tool silently added to mock server but poller did not detect it: %w", err)
+	}
+
+	if h.debug {
+		h.logger.Debug("Poller detected silently added tool '%s' on server '%s'\n", toolName, serverName)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Silently added tool '%s' to mock server '%s' and poller detected it", toolName, serverName),
 		"server":  serverName,
 		"tool":    toolName,
 	}, nil
