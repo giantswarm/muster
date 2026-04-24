@@ -24,6 +24,23 @@ header {
   align-items: center;
   gap: 24px;
 }
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.muster-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
 header nav a { color: var(--accent); text-decoration: none; }
 main { max-width: 1100px; margin: 20px auto; padding: 0 18px; }
 footer {
