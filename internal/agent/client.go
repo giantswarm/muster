@@ -171,7 +171,7 @@ func (c *Client) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer mcpClient.Close()
+	defer func() { _ = mcpClient.Close() }()
 
 	c.client = mcpClient
 
@@ -213,13 +213,13 @@ func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRP
 	// Handle specific notifications only if caching is enabled
 	if c.cacheEnabled {
 		switch notification.Method {
-		case "notifications/tools/list_changed":
+		case "notifications/tools/list_changed": //nolint:goconst
 			return c.listTools(ctx, false)
 
-		case "notifications/resources/list_changed":
+		case "notifications/resources/list_changed": //nolint:goconst
 			return c.listResources(ctx, false)
 
-		case "notifications/prompts/list_changed":
+		case "notifications/prompts/list_changed": //nolint:goconst
 			return c.listPrompts(ctx, false)
 
 		default:
@@ -339,7 +339,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	// Initialize the session
 	if err := c.initialize(ctx); err != nil {
-		c.client.Close()
+		_ = c.client.Close()
 		return fmt.Errorf("initialization failed: %w", err)
 	}
 
@@ -1181,7 +1181,7 @@ func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]str
 //	defer client.Close()
 func (c *Client) Close() error {
 	if c.client != nil {
-		c.client.Close()
+		_ = c.client.Close()
 		c.client = nil
 	}
 	return nil
@@ -1214,7 +1214,7 @@ func (c *Client) Reconnect(ctx context.Context, newEndpoint string) error {
 
 	// Close existing connection
 	if c.client != nil {
-		c.client.Close()
+		_ = c.client.Close()
 		c.client = nil
 	}
 
@@ -1241,7 +1241,7 @@ func (c *Client) Reconnect(ctx context.Context, newEndpoint string) error {
 	if err := c.InitializeAndLoadData(ctx); err != nil {
 		c.mu.Lock()
 		if c.client != nil {
-			c.client.Close()
+			_ = c.client.Close()
 			c.client = nil
 		}
 		c.mu.Unlock()

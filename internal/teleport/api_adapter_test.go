@@ -92,7 +92,7 @@ func TestAdapter_GetHTTPClientForIdentity(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Get HTTP client for the identity
 	client, err := adapter.GetHTTPClientForIdentity(dir)
@@ -121,7 +121,7 @@ func TestAdapter_GetHTTPClientForIdentity_MissingCerts(t *testing.T) {
 	// Don't create certificates
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Getting HTTP client should fail when certs are missing
 	_, err := adapter.GetHTTPClientForIdentity(dir)
@@ -135,7 +135,7 @@ func TestAdapter_GetHTTPTransportForIdentity(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	transport, err := adapter.GetHTTPTransportForIdentity(dir)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestAdapter_GetClientProvider(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	provider, err := adapter.GetClientProvider(dir)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestAdapter_GetProviderStatus(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// First, create the provider
 	_, err := adapter.GetHTTPClientForIdentity(dir)
@@ -202,7 +202,7 @@ func TestAdapter_GetProviderStatus(t *testing.T) {
 
 func TestAdapter_GetProviderStatus_NotFound(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	_, err := adapter.GetProviderStatus("/nonexistent")
 	if err == nil {
@@ -217,7 +217,7 @@ func TestAdapter_ListProviders(t *testing.T) {
 	createTestCertificates(t, dir2)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Initially no providers
 	providers := adapter.ListProviders()
@@ -240,7 +240,7 @@ func TestAdapter_ReloadProvider(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// First, create the provider
 	_, err := adapter.GetHTTPClientForIdentity(dir)
@@ -257,7 +257,7 @@ func TestAdapter_ReloadProvider(t *testing.T) {
 
 func TestAdapter_ReloadProvider_NotFound(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	err := adapter.ReloadProvider("/nonexistent")
 	if err == nil {
@@ -270,7 +270,7 @@ func TestAdapter_RemoveProvider(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Create provider
 	_, err := adapter.GetHTTPClientForIdentity(dir)
@@ -299,7 +299,7 @@ func TestAdapter_RemoveProvider(t *testing.T) {
 
 func TestAdapter_RemoveProvider_NotFound(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Removing nonexistent provider should not error
 	err := adapter.RemoveProvider("/nonexistent")
@@ -340,7 +340,7 @@ func TestAdapter_MultipleIdentities(t *testing.T) {
 	createTestCertificates(t, dir2)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Get clients for different identities
 	client1, err := adapter.GetHTTPClientForIdentity(dir1)
@@ -361,7 +361,7 @@ func TestAdapter_MultipleIdentities(t *testing.T) {
 
 func TestAdapter_GetHTTPClientForIdentity_PathTraversal(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Path traversal should be rejected
 	_, err := adapter.GetHTTPClientForIdentity("/var/run/../etc/passwd")
@@ -372,7 +372,7 @@ func TestAdapter_GetHTTPClientForIdentity_PathTraversal(t *testing.T) {
 
 func TestAdapter_GetHTTPClientForIdentity_RelativePath(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Relative paths should be rejected
 	_, err := adapter.GetHTTPClientForIdentity("relative/path")
@@ -386,7 +386,7 @@ func TestAdapter_GetHTTPClientForConfig_InvalidAppName(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -419,7 +419,7 @@ func TestAdapter_GetHTTPClientForConfig_ValidAppName(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -452,7 +452,7 @@ func TestAdapter_GetHTTPClientForConfig_MutualExclusivity(t *testing.T) {
 	createTestCertificates(t, dir)
 
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -472,7 +472,7 @@ func TestAdapter_GetHTTPClientForConfig_MutualExclusivity(t *testing.T) {
 
 func TestAdapter_GetHTTPClientForConfig_NeitherSpecified(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -534,11 +534,11 @@ func TestAdapter_GetHTTPClientForConfig_WithSecret(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
-	config := api.TeleportClientConfig{
+	config := api.TeleportClientConfig{ //nolint:gosec
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}
@@ -572,7 +572,7 @@ func TestAdapter_GetHTTPClientForConfig_SecretMissingCert(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -593,7 +593,7 @@ func TestAdapter_GetHTTPClientForConfig_SecretNotFound(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -614,7 +614,7 @@ func TestAdapter_GetHTTPClientForConfig_InvalidNamespace(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -636,7 +636,7 @@ func TestAdapter_GetHTTPClientForConfig_InvalidSecretName(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -653,7 +653,7 @@ func TestAdapter_GetHTTPClientForConfig_InvalidSecretName(t *testing.T) {
 
 func TestAdapter_GetHTTPClientForConfig_NoK8sClient(t *testing.T) {
 	adapter := NewAdapter() // No k8s client
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
@@ -694,7 +694,7 @@ func TestAppNameTransport_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if receivedHost != "my-teleport-app" {
 		t.Errorf("Expected Host header to be 'my-teleport-app', got '%s'", receivedHost)
@@ -727,7 +727,7 @@ func TestAppNameTransport_RoundTrip_EmptyAppName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Host should be the original server host (from URL)
 	if receivedHost == "my-teleport-app" {
@@ -737,7 +737,7 @@ func TestAppNameTransport_RoundTrip_EmptyAppName(t *testing.T) {
 
 func TestAdapter_Register(t *testing.T) {
 	adapter := NewAdapter()
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Register should not panic
 	adapter.Register()
@@ -775,7 +775,7 @@ func TestAdapter_CloseWithSecretProviders(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a secret-based provider
-	config := api.TeleportClientConfig{
+	config := api.TeleportClientConfig{ //nolint:gosec
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}
@@ -821,11 +821,11 @@ func TestAdapter_SecretProviderCaching(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
 
 	adapter := NewAdapterWithClient(k8sClient)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	ctx := context.Background()
 
-	config := api.TeleportClientConfig{
+	config := api.TeleportClientConfig{ //nolint:gosec
 		IdentitySecretName:      "tbot-identity",
 		IdentitySecretNamespace: "teleport-system",
 	}

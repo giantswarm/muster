@@ -110,7 +110,7 @@ func (m *mockOAuthHandler) GetFullTokenByIssuer(sessionID, issuer string) *api.O
 func TestGetIDTokenForForwarding(t *testing.T) {
 	// Valid JWT-like token with future expiry (not a real JWT, just the format for parsing).
 	// The exp claim is set to 9999999999 (year 2286) to ensure it never expires during tests.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:goconst,gosec
 
 	t.Run("returns token from context when available", func(t *testing.T) {
 		ctx := context.Background()
@@ -160,7 +160,7 @@ func TestGetIDTokenForForwarding(t *testing.T) {
 	})
 
 	t.Run("context token takes priority over OAuth handler token", func(t *testing.T) {
-		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig"
+		storedToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjYWNoZWQiLCJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
 		mock := newMockOAuthHandler(true)
 		mock.StoreToken("session-abc", "user1", "https://accounts.google.com", &api.OAuthToken{IDToken: storedToken})
 		api.RegisterOAuthHandler(mock)
@@ -258,19 +258,19 @@ func TestIsIDTokenExpired(t *testing.T) {
 
 	t.Run("valid future exp is not expired", func(t *testing.T) {
 		// Token with exp = 9999999999 (year 2286)
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:goconst,gosec
 		assert.False(t, isIDTokenExpired(token))
 	})
 
 	t.Run("past exp is expired", func(t *testing.T) {
 		// Token with exp = 0 (1970)
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjB9.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjB9.sig" //nolint:gosec
 		assert.True(t, isIDTokenExpired(token))
 	})
 
 	t.Run("missing exp claim is expired", func(t *testing.T) {
 		// Token with no exp claim
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig" //nolint:gosec
 		assert.True(t, isIDTokenExpired(token))
 	})
 }
@@ -304,7 +304,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          false,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -347,7 +347,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 				},
@@ -361,7 +361,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -386,13 +386,13 @@ func TestExtractUserIDFromToken(t *testing.T) {
 		// Token with sub = "user123"
 		// Payload: {"sub":"user123","exp":9999999999}
 		// base64url encoded: eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig" //nolint:gosec
 		assert.Equal(t, "user123", extractUserIDFromToken(token))
 	})
 
 	t.Run("returns empty when sub claim is missing", func(t *testing.T) {
 		// Token with only exp claim
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
 		assert.Equal(t, "", extractUserIDFromToken(token))
 	})
 }
@@ -412,7 +412,7 @@ func TestDecodeJWTPayload(t *testing.T) {
 
 	t.Run("decodes valid JWT payload", func(t *testing.T) {
 		// Token with payload: {"sub":"user123","exp":9999999999}
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIiwiZXhwIjo5OTk5OTk5OTk5fQ.sig" //nolint:gosec
 		decoded, err := decodeJWTPayload(token)
 		assert.NoError(t, err)
 		assert.Contains(t, string(decoded), "user123")
@@ -421,7 +421,7 @@ func TestDecodeJWTPayload(t *testing.T) {
 
 	t.Run("handles token with only two parts", func(t *testing.T) {
 		// Minimal JWT with just header and payload (no signature)
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0" //nolint:gosec
 		decoded, err := decodeJWTPayload(token)
 		assert.NoError(t, err)
 		assert.Contains(t, string(decoded), "test")
@@ -483,7 +483,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:                    true,
 					DexTokenEndpoint:           "https://dex.example.com/token",
 					ConnectorID:                "local-dex",
@@ -504,7 +504,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -535,7 +535,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -572,7 +572,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "my-namespace",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -604,7 +604,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "", // Empty namespace
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -631,7 +631,7 @@ func TestLoadTokenExchangeCredentials(t *testing.T) {
 			Namespace: "muster",
 			AuthConfig: &api.MCPServerAuth{
 				Type: "oauth",
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://dex.example.com/token",
 					ConnectorID:      "local-dex",
@@ -729,7 +729,7 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
+				Teleport: &api.TeleportAuth{ //nolint:gosec
 					IdentityDir:        "/var/run/tbot/identity",
 					IdentitySecretName: "tbot-identity",
 					AppName:            "test-app",
@@ -803,7 +803,7 @@ func TestGetTeleportHTTPClientIfConfigured(t *testing.T) {
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
 				Type: api.AuthTypeTeleport,
-				Teleport: &api.TeleportAuth{
+				Teleport: &api.TeleportAuth{ //nolint:gosec
 					IdentitySecretName:      "tbot-identity-output",
 					IdentitySecretNamespace: "teleport-system",
 					AppName:                 "mcp-kubernetes",
@@ -928,10 +928,10 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
 	sessionID := "test-session-rate-limit"
-	sub := "test-user"
-	musterIssuer := "https://dex.example.com"
-	serverName := "test-server"
-	fallbackToken := "original-token"
+	sub := "test-user"                        //nolint:goconst
+	musterIssuer := "https://dex.example.com" //nolint:goconst
+	serverName := "test-server"               //nolint:goconst
+	fallbackToken := "original-token"         //nolint:goconst
 
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
@@ -963,7 +963,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	assert.NotContains(t, thirdCallLogs, "WARN", "third call should NOT emit a WARN")
 
 	// Now simulate token recovery by registering an OAuth handler with a token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)
@@ -1056,7 +1056,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 	assert.Equal(t, int32(0), evictCount.Load(), "should not evict before threshold")
 
 	// Recover by providing a valid token.
-	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature"
+	validToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo5OTk5OTk5OTk5fQ.signature" //nolint:gosec
 	mock := newMockOAuthHandler(true)
 	mock.StoreToken(sessionID, "", musterIssuer, &api.OAuthToken{IDToken: validToken})
 	api.RegisterOAuthHandler(mock)
@@ -1104,14 +1104,14 @@ func TestGetTokenExpiryTime(t *testing.T) {
 
 	t.Run("returns zero for missing exp claim", func(t *testing.T) {
 		// Token with only sub claim: {"sub":"test"}
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig" //nolint:gosec
 		result := getTokenExpiryTime(token)
 		assert.True(t, result.IsZero())
 	})
 
 	t.Run("returns correct time for valid exp", func(t *testing.T) {
 		// Token with exp = 9999999999
-		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig"
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.sig" //nolint:gosec
 		result := getTokenExpiryTime(token)
 		assert.False(t, result.IsZero())
 		assert.Equal(t, int64(9999999999), result.Unix())

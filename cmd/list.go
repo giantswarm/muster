@@ -280,7 +280,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		if listServer != "" {
 			ignoredFlags = append(ignoredFlags, "--server")
 		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with tools, resources, prompts)\n",
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with tools, resources, prompts)\n",
 			strings.Join(ignoredFlags, ", "), resourceType)
 	}
 
@@ -294,7 +294,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			mcpserverFlags = append(mcpserverFlags, "--verbose")
 		}
 		if len(mcpserverFlags) > 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with mcpserver)\n",
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s ignored for '%s' (only works with mcpserver)\n",
 				strings.Join(mcpserverFlags, ", "), resourceType)
 		}
 	}
@@ -308,7 +308,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {
@@ -341,7 +341,7 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {
@@ -355,11 +355,11 @@ func runListMCP(cmd *cobra.Command, mcpType string) error {
 	}
 
 	switch mcpType {
-	case "tool":
+	case "tool": //nolint:goconst
 		return runListMCPTools(cmd, executor, filterOpts)
-	case "resource":
+	case "resource": //nolint:goconst
 		return runListMCPResources(cmd, executor, filterOpts)
-	case "prompt":
+	case "prompt": //nolint:goconst
 		return runListMCPPrompts(cmd, executor, filterOpts)
 	default:
 		return fmt.Errorf("unknown MCP type: %s", mcpType)

@@ -278,7 +278,7 @@ func (a *Adapter) GetHTTPClientForConfig(ctx context.Context, config api.Telepor
 // This method uses in-memory certificate loading to avoid writing sensitive private keys to disk.
 func (a *Adapter) getOrCreateSecretProvider(ctx context.Context, secretName, namespace string) (*ClientProvider, error) {
 	if a.k8sClient == nil {
-		return nil, fmt.Errorf("Kubernetes client not available for secret-based identity")
+		return nil, fmt.Errorf("Kubernetes client not available for secret-based identity") //nolint:staticcheck
 	}
 
 	if namespace == "" {

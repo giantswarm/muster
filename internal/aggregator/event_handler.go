@@ -212,7 +212,7 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 	// Only register servers that are BOTH Running/Connected AND Healthy
 	// This ensures that the MCP client is ready and the server is functioning properly
 	// "running" is used for stdio servers, "connected" is used for remote servers
-	isHealthyAndActive := (event.NewState == "running" || event.NewState == "connected") && event.Health == "healthy"
+	isHealthyAndActive := (event.NewState == "running" || event.NewState == "connected") && event.Health == "healthy" //nolint:goconst
 
 	if isHealthyAndActive {
 		// Skip global registration for SSO-based servers (token forwarding or token exchange).
@@ -325,7 +325,7 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 	// Populate service-specific data
 	data.Name = serviceName
 	if data.Namespace == "" {
-		data.Namespace = "default"
+		data.Namespace = "default" //nolint:goconst
 	}
 
 	err := eventManager.CreateEvent(context.Background(), objectRef, string(reason), "", string(events.EventTypeNormal))

@@ -108,7 +108,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 	// survives after the caller's initialization context (which may be short-lived) completes.
 	// The listener goroutine is separately cancelled when the client is closed.
 	if err := mcpClient.Start(context.Background()); err != nil {
-		mcpClient.Close()
+		_ = mcpClient.Close()
 		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {
 			logging.Debug("StreamableHTTPClient", "Authentication required for URL: %s", c.url)
 			return authErr
@@ -131,7 +131,7 @@ func (c *StreamableHTTPClient) Initialize(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		mcpClient.Close()
+		_ = mcpClient.Close()
 
 		// Check if this is a 401 authentication error
 		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {

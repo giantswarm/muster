@@ -113,7 +113,7 @@ func TestCertWatcher_DetectsChanges(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }()
 
 	// Give the watcher time to initialize
 	time.Sleep(100 * time.Millisecond)
@@ -160,7 +160,7 @@ func TestCertWatcher_DebounceMultipleChanges(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }()
 
 	// Give the watcher time to initialize
 	time.Sleep(100 * time.Millisecond)
@@ -248,7 +248,7 @@ func TestCertWatcher_PollingFallback(t *testing.T) {
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }()
 
 	// Wait a bit to ensure the initial modtimes are captured
 	time.Sleep(100 * time.Millisecond)

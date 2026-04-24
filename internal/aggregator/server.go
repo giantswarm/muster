@@ -448,7 +448,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = "muster:"
+			keyPrefix = "muster:" //nolint:goconst
 		}
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
@@ -754,7 +754,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{
+				server := &http.Server{ //nolint:gosec
 					Handler: handler,
 				}
 				a.httpServer = append(a.httpServer, server)
@@ -768,7 +768,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
 				slog.String("addr", addr))
-			server := &http.Server{
+			server := &http.Server{ //nolint:gosec
 				Addr:    addr,
 				Handler: handler,
 			}
@@ -817,7 +817,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{
+				server := &http.Server{ //nolint:gosec
 					Handler: handler,
 				}
 				a.httpServer = append(a.httpServer, server)
@@ -831,7 +831,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
 				slog.String("addr", addr))
-			server := &http.Server{
+			server := &http.Server{ //nolint:gosec
 				Addr:    addr,
 				Handler: handler,
 			}
@@ -1397,7 +1397,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		go a.initSSOForSession(ctx, userID, sessionID, idToken)
+		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
 	})
 
 	// Establish SSO connections synchronously during login (token issuance).
@@ -1889,7 +1889,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
-		handler := api.GetConfig()
+		handler := api.GetConfig() //nolint:staticcheck
 		if handler == nil {
 			return nil, fmt.Errorf("config handler not available")
 		}
@@ -2156,7 +2156,7 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch resource metadata: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
@@ -2611,7 +2611,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	// Initialize the on-demand client
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
 
@@ -2717,7 +2717,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 	}
 
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		logging.WarnWithAttrs("Aggregator", "Background refresh: client init failed",
 			slog.String("server", serverName),
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),

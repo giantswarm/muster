@@ -61,7 +61,7 @@ func TestManager_GetCallbackPath(t *testing.T) {
 	defer manager.Stop()
 
 	path := manager.GetCallbackPath()
-	if path != "/oauth/proxy/callback" {
+	if path != "/oauth/proxy/callback" { //nolint:goconst
 		t.Errorf("Expected callback path %q, got %q", "/oauth/proxy/callback", path)
 	}
 }
@@ -116,9 +116,9 @@ func TestManager_RegisterServer(t *testing.T) {
 	}
 	defer manager.Stop()
 
-	serverName := "mcp-kubernetes"
-	issuer := "https://auth.example.com"
-	scope := "openid profile"
+	serverName := "mcp-kubernetes"       //nolint:goconst
+	issuer := "https://auth.example.com" //nolint:goconst
+	scope := "openid profile"            //nolint:goconst
 
 	// Initially no config
 	serverCfg := manager.GetServerConfig(serverName)

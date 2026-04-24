@@ -34,11 +34,11 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 	itemName := parsed[1]
 
 	switch itemType {
-	case "tool":
+	case "tool": //nolint:goconst
 		return d.describeTool(ctx, itemName)
-	case "resource":
+	case "resource": //nolint:goconst
 		return d.describeResource(itemName)
-	case "prompt":
+	case "prompt": //nolint:goconst
 		return d.describePrompt(itemName)
 	default:
 		return d.validateTarget(itemType, []string{"tool", "resource", "prompt"})

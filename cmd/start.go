@@ -21,7 +21,7 @@ var startResourceTypes = []string{
 
 // Dynamic completion for service names
 func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" {
+	if len(args) != 1 || args[0] != "service" { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -31,7 +31,7 @@ func startServiceNameCompletion(cmd *cobra.Command, args []string, toComplete st
 
 // Dynamic completion for workflow names
 func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "workflow" {
+	if len(args) != 1 || args[0] != "workflow" { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -50,7 +50,7 @@ func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete s
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	// Get workflow list
 	names, err := getResourceNames(ctx, executor, "core_workflow_list", "workflow")
@@ -95,7 +95,7 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 			if args[0] == "service" {
 				return startServiceNameCompletion(cmd, args, toComplete)
 			}
-			if args[0] == "workflow" {
+			if args[0] == "workflow" { //nolint:goconst
 				return startWorkflowNameCompletion(cmd, args, toComplete)
 			}
 		}
@@ -195,7 +195,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {

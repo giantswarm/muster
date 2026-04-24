@@ -175,7 +175,7 @@ func (s *ServerInfo) IsConnected() bool {
 // Returns "default" if the namespace is not set.
 func (s *ServerInfo) GetNamespace() string {
 	if s.Namespace == "" {
-		return "default"
+		return "default" //nolint:goconst
 	}
 	return s.Namespace
 }

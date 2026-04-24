@@ -137,13 +137,13 @@ func TestHandleAuthStatusResource_WithAuthRequiredServer(t *testing.T) {
 
 	// Check server status
 	srv := response.Servers[0]
-	if srv.Name != "test-server" {
+	if srv.Name != "test-server" { //nolint:goconst
 		t.Errorf("expected server name 'test-server', got '%s'", srv.Name)
 	}
 	if srv.Status != "auth_required" {
 		t.Errorf("expected status 'auth_required', got '%s'", srv.Status)
 	}
-	if srv.Issuer != "https://dex.example.com" {
+	if srv.Issuer != "https://dex.example.com" { //nolint:goconst
 		t.Errorf("expected issuer 'https://dex.example.com', got '%s'", srv.Issuer)
 	}
 	if srv.Scope != "openid profile" {
@@ -215,7 +215,7 @@ func TestHandleAuthStatusResource_SSOServerNoAuthTool(t *testing.T) {
 			"ssoexch",
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
@@ -340,7 +340,7 @@ func TestDetermineSessionAuthStatus_SSOServers(t *testing.T) {
 			"exch",
 			&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
 			&api.MCPServerAuth{
-				TokenExchange: &api.TokenExchangeConfig{
+				TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 					Enabled:          true,
 					DexTokenEndpoint: "https://remote-dex.example.com/token",
 					ConnectorID:      "cluster-a-dex",
@@ -555,7 +555,7 @@ func TestDetermineSessionAuthStatus_ReauthRequired_TokenExchangeServer(t *testin
 		"https://exchange.example.com",
 		"exchange",
 		&AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://remote-dex.example.com/token",
 			ConnectorID:      "cluster-a-dex",

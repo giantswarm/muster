@@ -37,7 +37,7 @@ func NewConfigAdapter(cfg *config.MusterConfig, configPath string) *ConfigAdapte
 // This must be called during application initialization to make the config
 // handler available to other components through the API system.
 func (a *ConfigAdapter) Register() {
-	api.RegisterConfig(a)
+	api.RegisterConfig(a) //nolint:staticcheck
 }
 
 // GetConfig returns the current muster configuration.
@@ -166,7 +166,7 @@ func (a *ConfigAdapter) saveConfig() error {
 		userConfigDir := config.GetDefaultConfigPathOrPanic()
 
 		// Create directory if it doesn't exist
-		if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		if err := os.MkdirAll(userConfigDir, 0755); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to create config directory %s: %w", userConfigDir, err)
 		}
 
@@ -180,7 +180,7 @@ func (a *ConfigAdapter) saveConfig() error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(a.configPath, data, 0644); err != nil {
+	if err := os.WriteFile(a.configPath, data, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

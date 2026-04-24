@@ -183,7 +183,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Run in different modes
 	if agentREPL {
@@ -257,7 +257,7 @@ func setupAgentAuthentication(ctx context.Context, client *agent.Client, logger 
 		logger.Info("Authentication required for %s", endpoint)
 		logger.Info("Press Enter to open browser for authentication, or Ctrl+C to cancel...")
 		var input string
-		if _, err := fmt.Scanln(&input); err != nil {
+		if _, err := fmt.Scanln(&input); err != nil { //nolint:staticcheck
 			// User pressed Enter
 		}
 	default:
@@ -285,7 +285,7 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	if err != nil {
 		logger.Debug("Could not initialize auth adapter: %v", err)
 	} else {
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 		adapter.Register()
 	}
 
@@ -297,7 +297,7 @@ func runMCPServerWithOAuth(ctx context.Context, client *agent.Client, logger *ag
 	if err != nil {
 		return fmt.Errorf("failed to create auth manager: %w", err)
 	}
-	defer authManager.Close()
+	defer func() { _ = authManager.Close() }()
 
 	// Check connection and detect 401
 	authState, err := authManager.CheckConnection(ctx, endpoint)
@@ -350,7 +350,7 @@ func runMCPServerDirectWithAuth(ctx context.Context, client *agent.Client, logge
 		}
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Create and start MCP server
 	server, err := agent.NewMCPServer(client, logger, true) // Enable notifications

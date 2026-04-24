@@ -69,4 +69,4 @@ func (m *MockClock) Add(d time.Duration) {
 // Only use SetDefaultClock/ResetDefaultClock in test setup/teardown, never in
 // production code or parallel tests. Prefer passing Clock instances explicitly
 // via configuration (e.g., OAuthServerConfig.Clock) for thread-safe testing.
-var defaultClock Clock = RealClock{}
+var defaultClock Clock = RealClock{} //nolint:unused

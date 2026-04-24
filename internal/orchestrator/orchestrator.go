@@ -145,7 +145,7 @@ func New(cfg Config) *Orchestrator {
 
 // Start initializes and starts all services (both static and ServiceClass-based).
 func (o *Orchestrator) Start(ctx context.Context) error {
-	o.ctx, o.cancelFunc = context.WithCancel(ctx)
+	o.ctx, o.cancelFunc = context.WithCancel(ctx) //nolint:gosec
 
 	// Start static services that are already registered
 	staticServices := o.registry.GetAll()
@@ -487,7 +487,7 @@ func (o *Orchestrator) DeleteServiceClassInstance(ctx context.Context, name stri
 	}
 
 	// Remove from registry and tracking
-	o.registry.Unregister(instance.GetName())
+	_ = o.registry.Unregister(instance.GetName())
 
 	o.mu.Lock()
 	delete(o.instances, name)

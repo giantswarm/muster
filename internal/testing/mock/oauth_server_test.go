@@ -59,7 +59,7 @@ func TestOAuthServer_Metadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -72,7 +72,7 @@ func TestOAuthServer_Metadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to fetch metadata: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -118,7 +118,7 @@ func TestOAuthServer_GenerateAndValidateToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate an auth code
 	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid profile", "state123", "", "")
@@ -164,7 +164,7 @@ func TestOAuthServer_TokenExchange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -183,11 +183,11 @@ func TestOAuthServer_TokenExchange(t *testing.T) {
 	data.Set("client_id", "test-client")
 	data.Set("redirect_uri", "http://localhost/callback")
 
-	resp, err := http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
+	resp, err := http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(data.Encode())) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to exchange code: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -219,7 +219,7 @@ func TestOAuthServer_PKCE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -230,11 +230,11 @@ func TestOAuthServer_PKCE(t *testing.T) {
 	// Try to authorize without PKCE - should fail
 	authURL := server.GetAuthorizeURL() + "?response_type=code&client_id=test-client&redirect_uri=http://localhost/callback"
 
-	resp, err := http.Get(authURL)
+	resp, err := http.Get(authURL) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to make auth request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for missing PKCE, got %d", resp.StatusCode)
@@ -253,7 +253,7 @@ func TestOAuthServer_InvalidGrant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -267,11 +267,11 @@ func TestOAuthServer_InvalidGrant(t *testing.T) {
 	data.Set("grant_type", "authorization_code")
 	data.Set("code", "any-code")
 
-	resp, err := http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
+	resp, err := http.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(data.Encode())) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to make token request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for simulated invalid_grant, got %d", resp.StatusCode)
@@ -298,7 +298,7 @@ func TestOAuthServer_TokenExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate a token
 	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "")
@@ -374,7 +374,7 @@ func TestOAuthServer_TokenExpiryWithMockClock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Generate a token
 	code := server.GenerateAuthCode("test-client", "http://localhost/callback", "openid", "state", "", "")

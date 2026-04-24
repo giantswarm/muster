@@ -154,7 +154,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 	// Start the event handler for automatic updates
 	if err := am.eventHandler.Start(am.ctx); err != nil {
 		// Stop the aggregator server if event handler fails
-		am.aggregatorServer.Stop(am.ctx)
+		_ = am.aggregatorServer.Stop(am.ctx)
 		return fmt.Errorf("failed to start event handler: %w", err)
 	}
 

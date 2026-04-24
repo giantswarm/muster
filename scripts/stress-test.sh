@@ -137,9 +137,11 @@ for i in $(seq 1 "${ITERATIONS}"); do
         # Look for timeout patterns or specific error messages
         if grep -q "timeout" "${ITERATION_LOG}" 2>/dev/null; then
             TIMEOUT_SCENARIO=$(grep -B5 "timeout" "${ITERATION_LOG}" | grep -oE "(mcpserver-[a-z-]+|oauth-[a-z-]+)" | head -1 || echo "unknown")
-            jq --arg iter "$i" --arg scenario "$TIMEOUT_SCENARIO" --arg dur "$DURATION" \
+            if jq --arg iter "$i" --arg scenario "$TIMEOUT_SCENARIO" --arg dur "$DURATION" \
                 '. += [{"iteration": ($iter|tonumber), "scenario": $scenario, "duration": $dur, "type": "timeout"}]' \
-                "${FAILURES_FILE}" > "${FAILURES_FILE}.tmp" && mv "${FAILURES_FILE}.tmp" "${FAILURES_FILE}" 2>/dev/null || true
+                "${FAILURES_FILE}" > "${FAILURES_FILE}.tmp" 2>/dev/null; then
+                mv "${FAILURES_FILE}.tmp" "${FAILURES_FILE}" 2>/dev/null || true
+            fi
         fi
     fi
 done
@@ -170,7 +172,7 @@ echo -e "${BLUE}Failed Scenario Analysis:${NC}"
 
 if [ ${#FAILED_SCENARIOS[@]} -gt 0 ]; then
     # Count occurrences of each failed scenario
-    echo "${FAILED_SCENARIOS[@]}" | tr ' ' '\n' | sort | uniq -c | sort -rn | while read COUNT SCENARIO; do
+    echo "${FAILED_SCENARIOS[@]}" | tr ' ' '\n' | sort | uniq -c | sort -rn | while read -r COUNT SCENARIO; do
         echo -e "  ${SCENARIO}: ${RED}${COUNT}${NC} failures"
     done
 else
