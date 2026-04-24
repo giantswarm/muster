@@ -85,7 +85,7 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 
 	// Pre-store a valid token
 	serverURL := "https://muster.example.com" //nolint:goconst
-	issuerURL := "https://dex.example.com" //nolint:goconst
+	issuerURL := "https://dex.example.com"    //nolint:goconst
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
