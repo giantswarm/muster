@@ -34,6 +34,7 @@ type ServerEntry struct {
 	LastUsedAt  time.Time
 	TokenExpiry time.Time // Zero if no tracked expiry.
 	ToolCount   int
+	ToolNames   []string // Sorted names of the tools advertised to this session.
 	RsrcCount   int
 	PromptCount int
 }

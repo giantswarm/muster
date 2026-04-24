@@ -15,23 +15,29 @@
 
 <h2>Authenticated servers</h2>
 {{if .Servers}}
-<table>
-  <tbody>
   {{range .Servers}}
-    <tr>
-      <td><a href="/mcps/{{.Name}}">{{.Name}}</a></td>
-      <td class="mono">{{humanUntil .TokenExpiry}}</td>
-      <td>{{.ToolCount}}</td>
-      <td>
+  <details class="server-entry">
+    <summary>
+      <span><a href="/mcps/{{.Name}}">{{.Name}}</a> <span class="pill">{{.ToolCount}} tools</span></span>
+      <span class="server-entry-meta">
+        <span class="muted mono">{{humanUntil .TokenExpiry}}</span>
         <form class="inline" method="POST" action="/sessions/{{$.Detail.SessionID}}/servers/{{.Name}}/reconnect"
               onsubmit="return confirm('Reconnect {{.Name}} for this session? This evicts the current pool + token and re-runs SSO.');">
           <button type="submit">Reconnect</button>
         </form>
-      </td>
-    </tr>
+      </span>
+    </summary>
+    <div class="tool-list">
+      {{if .ToolNames}}
+        <ul>
+          {{range .ToolNames}}<li class="mono">{{.}}</li>{{end}}
+        </ul>
+      {{else}}
+        <div class="muted">No tools cached for this session.</div>
+      {{end}}
+    </div>
+  </details>
   {{end}}
-  </tbody>
-</table>
 {{else}}
 <div class="empty">No authenticated servers.</div>
 {{end}}

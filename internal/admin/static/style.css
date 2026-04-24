@@ -132,44 +132,23 @@ a.backlink:hover { color: var(--fg); }
 .kv dd { margin: 0; }
 .empty { color: var(--muted); padding: 24px; text-align: center; background: var(--panel); border: 1px solid var(--border); }
 
-/* Tooltip styles */
-.tooltip {
-  position: relative;
-  cursor: help;
-  border-bottom: 1px dotted var(--muted);
+/* Server entry expandable rows on session detail */
+details.server-entry > summary {
+  padding: 8px 12px;
 }
-
-.tooltip .tooltiptext {
-  visibility: hidden;
-  background-color: var(--fg);
-  color: var(--panel);
-  text-align: left;
-  border-radius: 4px;
-  padding: 8px 10px;
-  position: absolute;
-  z-index: 1;
-  bottom: 125%;
-  left: 50%;
-  margin-left: -100px;
-  width: 200px;
+.server-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tool-list {
+  padding: 8px 14px 12px;
   font-size: 12px;
-  opacity: 0;
-  transition: opacity 0.2s;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
-
-.tooltip .tooltiptext::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: var(--fg) transparent transparent transparent;
+.tool-list ul {
+  margin: 0;
+  padding-left: 18px;
+  columns: 2;
+  column-gap: 24px;
 }
-
-.tooltip:hover .tooltiptext {
-  visibility: visible;
-  opacity: 1;
-}
+.tool-list li { break-inside: avoid; }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/giantswarm/muster/internal/admin"
@@ -164,6 +165,13 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 			entry.ToolCount = len(c.Tools)
 			entry.RsrcCount = len(c.Resources)
 			entry.PromptCount = len(c.Prompts)
+
+			names := make([]string, len(c.Tools))
+			for i, t := range c.Tools {
+				names[i] = t.Name
+			}
+			sort.Strings(names)
+			entry.ToolNames = names
 		}
 
 		info, hasInfo := a.registry.GetServerInfo(serverName)
