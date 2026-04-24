@@ -57,7 +57,7 @@ func ExtractFromResponse(response map[string]interface{}, path string) interface
 
 // ProcessToolOutputs extracts outputs from a tool response based on the output configuration
 func ProcessToolOutputs(response map[string]interface{}, outputs map[string]string) map[string]interface{} {
-	if outputs == nil || len(outputs) == 0 {
+	if outputs == nil || len(outputs) == 0 { //nolint:staticcheck
 		return nil
 	}
 

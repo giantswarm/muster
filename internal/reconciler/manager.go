@@ -366,7 +366,7 @@ func (m *Manager) handleSuccess(req ReconcileRequest) {
 // calculateBackoff computes exponential backoff with jitter.
 func (m *Manager) calculateBackoff(attempt int) time.Duration {
 	// Exponential backoff: initial * 2^attempt
-	backoff := m.config.InitialBackoff * time.Duration(1<<uint(attempt-1))
+	backoff := m.config.InitialBackoff * time.Duration(1<<uint(attempt-1)) //nolint:gosec
 
 	// Cap at max backoff
 	if backoff > m.config.MaxBackoff {

@@ -90,8 +90,8 @@ func (lc *logCapture) captureOutput(reader io.Reader, buffer *bytes.Buffer) {
 
 // close closes the capture pipes and waits for completion
 func (lc *logCapture) close() {
-	lc.stdoutWriter.Close()
-	lc.stderrWriter.Close()
+	_ = lc.stdoutWriter.Close()
+	_ = lc.stderrWriter.Close()
 	lc.wg.Wait()
 }
 
@@ -199,7 +199,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 
 	// Create instance configuration directory
 	configPath := filepath.Join(m.tempDir, instanceID)
-	if err := os.MkdirAll(configPath, 0755); err != nil {
+	if err := os.MkdirAll(configPath, 0755); err != nil { //nolint:gosec
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -211,7 +211,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	mockOAuthServerInfo, err := m.startMockOAuthServers(ctx, instanceID, config, logger)
 	if err != nil {
 		m.releasePort(port, instanceID, logger)
-		os.RemoveAll(configPath)
+		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock OAuth servers: %w", err)
 	}
 
@@ -221,7 +221,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	if err != nil {
 		m.stopMockOAuthServers(ctx, instanceID, logger)
 		m.releasePort(port, instanceID, logger)
-		os.RemoveAll(configPath)
+		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start mock HTTP servers: %w", err)
 	}
 
@@ -230,7 +230,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		// Clean up mock HTTP servers on failure
 		m.stopMockHTTPServers(ctx, instanceID, logger)
 		m.releasePort(port, instanceID, logger)
-		os.RemoveAll(configPath)
+		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to generate config files: %w", err)
 	}
 
@@ -240,7 +240,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		// Clean up on failure: stop mock servers, release port and remove config directory
 		m.stopMockHTTPServers(ctx, instanceID, logger)
 		m.releasePort(port, instanceID, logger)
-		os.RemoveAll(configPath)
+		_ = os.RemoveAll(configPath)
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
 	}
 
@@ -394,7 +394,7 @@ func (m *musterInstanceManager) gracefulShutdown(managedProc *managedProcess, in
 			}
 		}
 		// Ensure any remaining child processes are killed
-		m.killProcessGroup(process.Pid, syscall.SIGKILL)
+		_ = m.killProcessGroup(process.Pid, syscall.SIGKILL)
 		return nil
 	case <-time.After(shutdownTimeout):
 		if m.debug {
@@ -441,7 +441,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 			// Check if port is accepting connections
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", instance.Port), 1*time.Second)
 			if err == nil {
-				conn.Close()
+				_ = conn.Close()
 				portReady = true
 				if m.debug {
 					logger.Debug("✅ Port %d is ready\n", instance.Port)
@@ -459,7 +459,7 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 
 	// Create MCP client to check availability
 	mcpClient := NewMCPTestClient(m.debug)
-	defer mcpClient.Close()
+	defer func() { _ = mcpClient.Close() }()
 
 	// Connect to the MCP aggregator
 	// Use authenticated connection if muster's OAuth server is enabled
@@ -720,13 +720,13 @@ func (m *musterInstanceManager) showLogs(instance *MusterInstance, logger TestLo
 
 	// Show stdout logs
 	stdoutPath := filepath.Join(logDir, "stdout.log")
-	if content, err := os.ReadFile(stdoutPath); err == nil && len(content) > 0 {
+	if content, err := os.ReadFile(stdoutPath); err == nil && len(content) > 0 { //nolint:gosec
 		logger.Debug("📄 Instance %s stdout logs:\n%s\n", instance.ID, string(content))
 	}
 
 	// Show stderr logs
 	stderrPath := filepath.Join(logDir, "stderr.log")
-	if content, err := os.ReadFile(stderrPath); err == nil && len(content) > 0 {
+	if content, err := os.ReadFile(stderrPath); err == nil && len(content) > 0 { //nolint:gosec
 		logger.Debug("🚨 Instance %s stderr logs:\n%s\n", instance.ID, string(content))
 	}
 }
@@ -756,7 +756,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 			continue // Port not available, try next
 		}
 
-		ln.Close() // Close immediately to free the port
+		_ = ln.Close() // Close immediately to free the port
 
 		// ATOMIC: Reserve the port and update offset
 		m.reservedPorts[port] = instanceID
@@ -814,7 +814,7 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 		"--debug",
 	}
 
-	cmd := exec.CommandContext(ctx, musterPath, args...)
+	cmd := exec.CommandContext(ctx, musterPath, args...) //nolint:gosec
 
 	// Configure the process attributes (platform-specific)
 	configureProcAttr(cmd)
@@ -913,7 +913,7 @@ func (m *musterInstanceManager) writeYAMLFile(filename string, data interface{},
 		return fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
-	if err := os.WriteFile(filename, yamlData, 0644); err != nil {
+	if err := os.WriteFile(filename, yamlData, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -1096,7 +1096,7 @@ func (m *musterInstanceManager) collectAndWriteCACertificates(
 
 	// Write combined CA file
 	caFile := filepath.Join(musterConfigPath, "mock-oauth-ca.pem")
-	if err := os.WriteFile(caFile, combinedCAPEM, 0644); err != nil {
+	if err := os.WriteFile(caFile, combinedCAPEM, 0644); err != nil { //nolint:gosec
 		if m.debug {
 			logger.Debug("⚠️  Failed to write combined CA file: %v\n", err)
 		}
@@ -1174,13 +1174,13 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 	}
 
 	// Only create the main muster config directory
-	if err := os.MkdirAll(musterConfigPath, 0755); err != nil {
+	if err := os.MkdirAll(musterConfigPath, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create muster config directory: %w", err)
 	}
 
 	// Create mocks directory for mock configurations (only if needed)
 	if config != nil && len(config.MCPServers) > 0 {
-		if err := os.MkdirAll(filepath.Join(configPath, "mocks"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(configPath, "mocks"), 0755); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to create mocks directory: %w", err)
 		}
 	}
@@ -1219,7 +1219,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 	if m.debug {
 		// Show the generated config
-		configContent, _ := os.ReadFile(configFile)
+		configContent, _ := os.ReadFile(configFile) //nolint:gosec
 		logger.Debug("📋 Generated config.yaml:\n%s\n", string(configContent))
 	}
 
@@ -1229,7 +1229,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		if len(config.MCPServers) > 0 {
 			// Create directory structure for CRDs: mcpservers/ (no namespace subdirectory)
 			crdDir := filepath.Join(musterConfigPath, "mcpservers")
-			if err := os.MkdirAll(crdDir, 0755); err != nil {
+			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create MCPServer CRD directory %s: %w", crdDir, err)
 			}
 
@@ -1411,7 +1411,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		if len(config.Workflows) > 0 {
 			// Create directory structure for CRDs: workflows/ (no namespace subdirectory)
 			crdDir := filepath.Join(musterConfigPath, "workflows")
-			if err := os.MkdirAll(crdDir, 0755); err != nil {
+			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create Workflow CRD directory %s: %w", crdDir, err)
 			}
 
@@ -1442,7 +1442,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		if len(config.ServiceClasses) > 0 {
 			// Create directory structure for CRDs: serviceclasses/ (no namespace subdirectory)
 			crdDir := filepath.Join(musterConfigPath, "serviceclasses")
-			if err := os.MkdirAll(crdDir, 0755); err != nil {
+			if err := os.MkdirAll(crdDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create ServiceClass CRD directory %s: %w", crdDir, err)
 			}
 
@@ -1473,7 +1473,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 		if len(config.Services) > 0 {
 			// Create services directory only when needed
 			servicesDir := filepath.Join(musterConfigPath, "services")
-			if err := os.MkdirAll(servicesDir, 0755); err != nil {
+			if err := os.MkdirAll(servicesDir, 0755); err != nil { //nolint:gosec
 				return fmt.Errorf("failed to create services directory: %w", err)
 			}
 
@@ -1962,7 +1962,7 @@ func (m *musterInstanceManager) convertArgsDefinitionsForCRD(args interface{}) m
 
 		// Copy all fields from the original arg definition
 		for key, value := range argDefMap {
-			if key == "default" {
+			if key == "default" { //nolint:goconst
 				// Convert default value to RawExtension format
 				rawBytes := m.convertValueToRawExtension(value, "argDef", argName)
 				convertedArgDef[key] = map[string]interface{}{

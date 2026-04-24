@@ -112,7 +112,7 @@ func TestInitSSOForSession_SkipsFailedServers(t *testing.T) {
 	// Verifies the filter logic: initSSOForSession should skip servers
 	// that the ssoTracker has marked as failed (within TTL).
 	tracker := newSSOTracker()
-	userID := "test-user"
+	userID := "test-user" //nolint:goconst
 
 	tracker.MarkSSOFailed(userID, "failed-server")
 
@@ -237,7 +237,7 @@ func TestOnAuthenticated_SkipsSSO_WhenNoIDToken(t *testing.T) {
 		"initSSOForSession should NOT be called when authAlive=false and idToken is empty")
 
 	// Contrast: with a valid idToken the init should proceed
-	idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid"
+	idToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid" //nolint:gosec
 	shouldInitSSO = !authAlive && idToken != ""
 	assert.True(t, shouldInitSSO,
 		"initSSOForSession should be called when authAlive=false and idToken is present")
@@ -392,7 +392,7 @@ func TestHandleUpstreamRefreshFailure_Integration(t *testing.T) {
 	err = registry.RegisterPendingAuthWithConfig(
 		"sso-exch", "https://sso-exch.example.com", "ssoexch",
 		&AuthInfo{Issuer: "https://dex.example.com"},
-		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{
+		&api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://remote-dex.example.com/token",
 			ConnectorID:      "cluster-a-dex",

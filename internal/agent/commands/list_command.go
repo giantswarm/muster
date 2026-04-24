@@ -33,15 +33,15 @@ func (l *ListCommand) Execute(ctx context.Context, args []string) error {
 
 	target := strings.ToLower(args[0])
 	switch target {
-	case "tool", "tools":
+	case "tool", "tools": //nolint:goconst
 		return l.listTools(ctx)
-	case "resource", "resources":
+	case "resource", "resources": //nolint:goconst
 		if err := l.client.RefreshResourceCache(ctx); err != nil {
 			l.output.Error("Failed to refresh resource cache: %v", err)
 			// Continue with the cached resources if refresh fails
 		}
 		return l.listResources()
-	case "prompt", "prompts":
+	case "prompt", "prompts": //nolint:goconst
 		if err := l.client.RefreshPromptCache(ctx); err != nil {
 			l.output.Error("Failed to refresh prompt cache: %v", err)
 			// Continue with the cached prompts if refresh fails

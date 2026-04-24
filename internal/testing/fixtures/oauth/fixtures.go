@@ -6,16 +6,16 @@ import (
 )
 
 //go:embed valid_token.json
-var validTokenData []byte
+var validTokenData []byte //nolint:unused
 
 //go:embed expired_token.json
-var expiredTokenData []byte
+var expiredTokenData []byte //nolint:unused
 
 //go:embed metadata.json
-var metadataData []byte
+var metadataData []byte //nolint:unused
 
 //go:embed www_authenticate.txt
-var wwwAuthenticateData []byte
+var wwwAuthenticateData []byte //nolint:unused
 
 // TokenFixture represents an OAuth token fixture.
 type TokenFixture struct {

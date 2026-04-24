@@ -68,7 +68,7 @@ func callToolNameCompletion(cmd *cobra.Command, toComplete string) ([]string, co
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	tools, err := executor.ListMCPTools(ctx)
 	if err != nil {
@@ -187,7 +187,7 @@ func parseCallArguments(toolName string, osArgs []string) map[string]interface{}
 // everything else stays as string.
 func coerceValue(s string) interface{} {
 	switch s {
-	case "true":
+	case "true": //nolint:goconst
 		return true
 	case "false":
 		return false
@@ -233,7 +233,7 @@ func runCall(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {

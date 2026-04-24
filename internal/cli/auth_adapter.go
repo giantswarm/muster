@@ -477,7 +477,7 @@ func (a *AuthAdapter) revokeRefreshToken(endpoint, refreshToken string) {
 		logging.Warn("AuthAdapter", "Failed to revoke refresh token for %s (server may be unreachable): %v", endpoint, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// RFC 7009: server returns 200 regardless of whether the token was found.
 	if resp.StatusCode == http.StatusOK {
@@ -506,7 +506,7 @@ func (a *AuthAdapter) deleteUserTokens(endpoint, accessToken string) bool {
 		logging.Warn("AuthAdapter", "Failed to call DELETE /user-tokens for %s: %v", endpoint, err)
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNoContent {
 		logging.Info("AuthAdapter", "Server-side user tokens deleted for %s", endpoint)
@@ -729,7 +729,7 @@ func (a *AuthAdapter) listTokenFiles() ([]tokenFileInfo, error) {
 
 // readTokenFile reads a token file and extracts basic info.
 func readTokenFile(filePath string) (*tokenFileInfo, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}

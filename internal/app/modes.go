@@ -116,7 +116,7 @@ func runOrchestrator(ctx context.Context, services *Services) error {
 		}
 	}
 
-	services.Orchestrator.Stop()
+	_ = services.Orchestrator.Stop()
 
 	return nil
 }

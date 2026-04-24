@@ -12,7 +12,7 @@ func TestStateStore_GenerateAndValidate(t *testing.T) {
 	defer ss.Stop()
 
 	subject := "user-123"
-	serverName := "mcp-kubernetes"
+	serverName := "mcp-kubernetes" //nolint:goconst
 	issuer := "https://auth.example.com"
 	codeVerifier := "test-code-verifier-abc123"
 
@@ -177,7 +177,7 @@ func TestStateStore_Delete(t *testing.T) {
 	// Decode to get the nonce
 	stateJSON, _ := base64.URLEncoding.DecodeString(encodedState2)
 	var decodedState OAuthState
-	json.Unmarshal(stateJSON, &decodedState)
+	_ = json.Unmarshal(stateJSON, &decodedState)
 	nonce := decodedState.Nonce
 
 	// Delete the state by nonce
@@ -205,7 +205,7 @@ func TestStateStore_UniqueNonces(t *testing.T) {
 		// Decode to get the nonce
 		stateJSON, _ := base64.URLEncoding.DecodeString(encodedState)
 		var state OAuthState
-		json.Unmarshal(stateJSON, &state)
+		_ = json.Unmarshal(stateJSON, &state)
 		nonce := state.Nonce
 
 		if nonces[nonce] {

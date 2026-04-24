@@ -102,7 +102,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 
 	// Start the streamable HTTP transport
 	if err := httpClient.Start(ctx); err != nil {
-		httpClient.Close() // Clean up failed client
+		_ = httpClient.Close() // Clean up failed client
 		return fmt.Errorf("failed to start streamable HTTP client: %w", err)
 	}
 
@@ -129,7 +129,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	// CRITICAL: Only store the client AFTER successful initialization
 	_, err = httpClient.Initialize(initCtx, initRequest)
 	if err != nil {
-		httpClient.Close() // Clean up failed client
+		_ = httpClient.Close() // Clean up failed client
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
 

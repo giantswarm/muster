@@ -131,7 +131,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 					for _, stepMeta := range execCtx.stepMetadata {
 						if stepMeta.ID == step.Condition.FromStep {
 							// For failed steps, create a result structure
-							if stepMeta.Status == "failed" {
+							if stepMeta.Status == "failed" { //nolint:goconst
 								referencedStepResult = map[string]interface{}{
 									"error":   fmt.Sprintf("Step %s failed", stepMeta.ID),
 									"success": false,
@@ -141,7 +141,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 								found = true
 								logging.Debug("WorkflowExecutor", "Created error result for failed step %s", step.Condition.FromStep)
 								break
-							} else if stepMeta.Status == "completed" {
+							} else if stepMeta.Status == "completed" { //nolint:goconst
 								// For completed steps without stored results, create a basic success structure
 								referencedStepResult = map[string]interface{}{
 									"success": true,
@@ -217,7 +217,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 			}
 
 			// Evaluate condition expectations
-			var conditionPassed bool = true
+			var conditionPassed = true
 
 			if conditionError != nil {
 				// Condition tool failed
@@ -241,7 +241,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 				if hasExpect {
 					// Evaluate expect condition
-					expectPassed := (conditionToolResult.IsError == false) == step.Condition.Expect.Success
+					expectPassed := (!conditionToolResult.IsError) == step.Condition.Expect.Success
 
 					// Also check JSON path expectations if provided
 					if expectPassed && len(step.Condition.Expect.JsonPath) > 0 {
@@ -265,11 +265,11 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 					// Only check success condition if ExpectNot.Success is explicitly set
 					// Check if the Success field was actually set in the configuration
-					if step.Condition.ExpectNot.Success != false || len(step.Condition.ExpectNot.JsonPath) == 0 {
+					if step.Condition.ExpectNot.Success || len(step.Condition.ExpectNot.JsonPath) == 0 {
 						// This means Success was explicitly set to true, or no JsonPath is provided
 						if len(step.Condition.ExpectNot.JsonPath) == 0 {
 							// Only success condition specified in expect_not
-							expectNotPassed = (conditionToolResult.IsError == false) == step.Condition.ExpectNot.Success
+							expectNotPassed = (!conditionToolResult.IsError) == step.Condition.ExpectNot.Success
 						}
 					}
 

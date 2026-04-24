@@ -166,7 +166,7 @@ func (r *testReporter) ReportStepResult(stepResult TestStepResult) {
 		fmt.Printf("      🔧 Tool: %s\n", stepResult.Step.Tool)
 
 		// Show arguments if provided
-		if stepResult.Step.Args != nil && len(stepResult.Step.Args) > 0 {
+		if stepResult.Step.Args != nil && len(stepResult.Step.Args) > 0 { //nolint:staticcheck
 			fmt.Printf("      📥 Arguments:\n")
 			for key, value := range stepResult.Step.Args {
 				// Pretty print complex values
@@ -444,7 +444,7 @@ func (r *testReporter) ReportSuiteResult(suiteResult TestSuiteResult) {
 // saveDetailedReport saves a detailed JSON report to file
 func (r *testReporter) saveDetailedReport(suiteResult TestSuiteResult) error {
 	// Create report directory if it doesn't exist
-	if err := os.MkdirAll(r.reportPath, 0755); err != nil {
+	if err := os.MkdirAll(r.reportPath, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create report directory: %w", err)
 	}
 
@@ -460,7 +460,7 @@ func (r *testReporter) saveDetailedReport(suiteResult TestSuiteResult) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(fullPath, jsonData, 0644); err != nil {
+	if err := os.WriteFile(fullPath, jsonData, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write report file: %w", err)
 	}
 

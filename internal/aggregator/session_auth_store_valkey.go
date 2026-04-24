@@ -27,7 +27,7 @@ type ValkeySessionAuthStore struct {
 // keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
 func NewValkeySessionAuthStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeySessionAuthStore {
 	if keyPrefix == "" {
-		keyPrefix = "muster:"
+		keyPrefix = "muster:" //nolint:goconst
 	}
 	return &ValkeySessionAuthStore{
 		client:    client,

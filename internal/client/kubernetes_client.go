@@ -139,7 +139,7 @@ func (k *kubernetesClient) GetMCPServer(ctx context.Context, name, namespace str
 		Namespace: namespace,
 	}
 
-	err := k.Client.Get(ctx, key, server)
+	err := k.Get(ctx, key, server)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MCPServer %s/%s: %w", namespace, name, err)
 	}
@@ -156,7 +156,7 @@ func (k *kubernetesClient) ListMCPServers(ctx context.Context, namespace string)
 		listOpts = append(listOpts, client.InNamespace(namespace))
 	}
 
-	err := k.Client.List(ctx, serverList, listOpts...)
+	err := k.List(ctx, serverList, listOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list MCPServers in namespace %s: %w", namespace, err)
 	}
@@ -166,7 +166,7 @@ func (k *kubernetesClient) ListMCPServers(ctx context.Context, namespace string)
 
 // CreateMCPServer creates a new MCPServer resource.
 func (k *kubernetesClient) CreateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error {
-	err := k.Client.Create(ctx, server)
+	err := k.Create(ctx, server)
 	if err != nil {
 		return fmt.Errorf("failed to create MCPServer %s/%s: %w", server.Namespace, server.Name, err)
 	}
@@ -176,7 +176,7 @@ func (k *kubernetesClient) CreateMCPServer(ctx context.Context, server *musterv1
 
 // UpdateMCPServer updates an existing MCPServer resource.
 func (k *kubernetesClient) UpdateMCPServer(ctx context.Context, server *musterv1alpha1.MCPServer) error {
-	err := k.Client.Update(ctx, server)
+	err := k.Update(ctx, server)
 	if err != nil {
 		return fmt.Errorf("failed to update MCPServer %s/%s: %w", server.Namespace, server.Name, err)
 	}
@@ -193,7 +193,7 @@ func (k *kubernetesClient) DeleteMCPServer(ctx context.Context, name, namespace 
 		},
 	}
 
-	err := k.Client.Delete(ctx, server)
+	err := k.Delete(ctx, server)
 	if err != nil {
 		return fmt.Errorf("failed to delete MCPServer %s/%s: %w", namespace, name, err)
 	}
@@ -209,7 +209,7 @@ func (k *kubernetesClient) GetServiceClass(ctx context.Context, name, namespace 
 		Namespace: namespace,
 	}
 
-	if err := k.Client.Get(ctx, key, serviceClass); err != nil {
+	if err := k.Get(ctx, key, serviceClass); err != nil {
 		return nil, fmt.Errorf("failed to get ServiceClass %s/%s: %w", namespace, name, err)
 	}
 
@@ -223,7 +223,7 @@ func (k *kubernetesClient) ListServiceClasses(ctx context.Context, namespace str
 		client.InNamespace(namespace),
 	}
 
-	if err := k.Client.List(ctx, serviceClassList, opts...); err != nil {
+	if err := k.List(ctx, serviceClassList, opts...); err != nil {
 		return nil, fmt.Errorf("failed to list ServiceClasses in namespace %s: %w", namespace, err)
 	}
 
@@ -232,7 +232,7 @@ func (k *kubernetesClient) ListServiceClasses(ctx context.Context, namespace str
 
 // CreateServiceClass creates a new ServiceClass resource.
 func (k *kubernetesClient) CreateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if err := k.Client.Create(ctx, serviceClass); err != nil {
+	if err := k.Create(ctx, serviceClass); err != nil {
 		return fmt.Errorf("failed to create ServiceClass %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
 	}
 
@@ -241,7 +241,7 @@ func (k *kubernetesClient) CreateServiceClass(ctx context.Context, serviceClass 
 
 // UpdateServiceClass updates an existing ServiceClass resource.
 func (k *kubernetesClient) UpdateServiceClass(ctx context.Context, serviceClass *musterv1alpha1.ServiceClass) error {
-	if err := k.Client.Update(ctx, serviceClass); err != nil {
+	if err := k.Update(ctx, serviceClass); err != nil {
 		return fmt.Errorf("failed to update ServiceClass %s/%s: %w", serviceClass.Namespace, serviceClass.Name, err)
 	}
 
@@ -257,7 +257,7 @@ func (k *kubernetesClient) DeleteServiceClass(ctx context.Context, name, namespa
 		},
 	}
 
-	if err := k.Client.Delete(ctx, serviceClass); err != nil {
+	if err := k.Delete(ctx, serviceClass); err != nil {
 		return fmt.Errorf("failed to delete ServiceClass %s/%s: %w", namespace, name, err)
 	}
 
@@ -332,7 +332,7 @@ func (k *kubernetesClient) validateCRDs(ctx context.Context) error {
 	}
 
 	for _, r := range resourceList.APIResources {
-		if r.Kind == "MCPServer" {
+		if r.Kind == "MCPServer" { //nolint:goconst
 			return nil
 		}
 	}

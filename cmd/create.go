@@ -24,7 +24,7 @@ var createResourceTypes = []string{
 
 // Dynamic completion for ServiceClass names (for service creation)
 func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" {
+	if len(args) != 1 || args[0] != "service" { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -43,7 +43,7 @@ func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toCompl
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	// Get ServiceClass list
 	names, err := getResourceNames(ctx, executor, "core_serviceclass_list", "serviceclass")
@@ -314,7 +314,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {

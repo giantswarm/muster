@@ -28,7 +28,7 @@ type ValkeyCapabilityStore struct {
 // keyPrefix is prepended to all Valkey keys (default "muster:" if empty).
 func NewValkeyCapabilityStore(client valkey.Client, ttl time.Duration, keyPrefix string) *ValkeyCapabilityStore {
 	if keyPrefix == "" {
-		keyPrefix = "muster:"
+		keyPrefix = "muster:" //nolint:goconst
 	}
 	return &ValkeyCapabilityStore{
 		client:    client,

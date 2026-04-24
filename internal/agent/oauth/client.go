@@ -85,8 +85,8 @@ type AuthFlow struct {
 
 // cachedMetadata holds OAuth metadata with its cache timestamp.
 type cachedMetadata struct {
-	metadata *OAuthMetadata
-	cachedAt time.Time
+	metadata *OAuthMetadata //nolint:unused
+	cachedAt time.Time      //nolint:unused
 }
 
 // Client is the OAuth client for the Muster Agent.

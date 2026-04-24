@@ -214,7 +214,7 @@ func TestEventHandler_FiltersMCPEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Send non-MCP event (should NOT trigger any callbacks)
 	provider.sendEvent(api.ServiceStateChangedEvent{
@@ -359,7 +359,7 @@ func TestEventHandler_HealthBasedRegistration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to start handler: %v", err)
 			}
-			defer handler.Stop()
+			defer func() { _ = handler.Stop() }()
 
 			// Send event
 			provider.sendEvent(api.ServiceStateChangedEvent{
@@ -412,7 +412,7 @@ func TestEventHandler_HandlesErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Send event that should trigger register (but will fail)
 	provider.sendEvent(api.ServiceStateChangedEvent{
@@ -558,7 +558,7 @@ func TestEventHandler_SkipsRegistrationForSSOServers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Send event for SSO-based server becoming healthy
 	// This should NOT trigger registration (SSO servers are handled at session level)
@@ -622,7 +622,7 @@ func TestEventHandler_SSOServerDeregistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// SSO server that fails should still trigger deregistration
 	// (to clean up any stale state)
@@ -715,7 +715,7 @@ func TestEventHandler_Issue318_SSOTokenForwardingRegistrationFailure(t *testing.
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Simulate the scenario from the bug:
 	// 1. Server was in "waiting" state (pending OAuth)
@@ -779,7 +779,7 @@ func TestEventHandler_Issue318_NonSSOServerStillRegisters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// Normal server becomes healthy - should trigger registration
 	provider.sendEvent(api.ServiceStateChangedEvent{
@@ -827,7 +827,7 @@ func TestEventHandler_Issue318_MultipleServerTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start handler: %v", err)
 	}
-	defer handler.Stop()
+	defer func() { _ = handler.Stop() }()
 
 	// All servers become healthy at roughly the same time
 	// (simulating system startup or reconnection scenario)

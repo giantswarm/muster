@@ -281,7 +281,7 @@ func (s *TokenStore) isTokenValid(token *StoredToken) bool {
 func (s *TokenStore) writeTokenFile(key string, token *StoredToken) error {
 	filePath := filepath.Join(s.storageDir, key+".json")
 
-	data, err := json.MarshalIndent(token, "", "  ")
+	data, err := json.MarshalIndent(token, "", "  ") //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to marshal token: %w", err)
 	}

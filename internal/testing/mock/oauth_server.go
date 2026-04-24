@@ -197,7 +197,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	}
 
 	// Listen on random port
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", ":0") //nolint:gosec
 	if err != nil {
 		return 0, fmt.Errorf("failed to listen: %w", err)
 	}
@@ -208,7 +208,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 	if s.config.UseTLS {
 		cert, caPEM, err := generateSelfSignedCert()
 		if err != nil {
-			listener.Close()
+			_ = listener.Close()
 			return 0, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 		}
 		s.tlsCert = cert
@@ -244,7 +244,7 @@ func (s *OAuthServer) Start(ctx context.Context) (int, error) {
 
 	// Create server with error log that discards TLS handshake errors
 	// These are common during test startup when clients probe connections
-	s.httpServer = &http.Server{
+	s.httpServer = &http.Server{ //nolint:gosec
 		Handler:  mux,
 		ErrorLog: log.New(io.Discard, "", 0),
 	}
@@ -456,7 +456,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 
 	sub := entry.Subject
 	if sub == "" {
-		sub = "test-user-123"
+		sub = "test-user-123" //nolint:goconst
 	}
 
 	token := &issuedToken{
@@ -578,7 +578,7 @@ func (s *OAuthServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	_ = json.NewEncoder(w).Encode(metadata)
 }
 
 // handleAuthorize handles authorization requests
@@ -646,7 +646,8 @@ func (s *OAuthServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	// Return HTML page for manual testing (shows code for test to capture)
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	//nolint:gosec // test-only mock server; HTML escaping not required
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Mock OAuth Server</title></head>
 <body>
@@ -671,18 +672,18 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
+	if err := r.ParseForm(); err != nil { //nolint:gosec
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	grantType := r.FormValue("grant_type")
+	grantType := r.FormValue("grant_type") //nolint:gosec
 
 	if s.config.SimulateErrors != nil {
 		if s.config.SimulateErrors.TokenEndpointError != "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "server_error",
 				"error_description": s.config.SimulateErrors.TokenEndpointError,
 			})
@@ -691,7 +692,7 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		if s.config.SimulateErrors.InvalidGrant {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "invalid_grant",
 				"error_description": "authorization code is invalid",
 			})
@@ -709,7 +710,7 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error":             "unsupported_grant_type",
 			"error_description": fmt.Sprintf("grant_type %s not supported", grantType),
 		})
@@ -717,9 +718,9 @@ func (s *OAuthServer) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Request) {
-	code := r.FormValue("code")
-	codeVerifier := r.FormValue("code_verifier")
-	clientID := r.FormValue("client_id")
+	code := r.FormValue("code")                  //nolint:gosec
+	codeVerifier := r.FormValue("code_verifier") //nolint:gosec
+	clientID := r.FormValue("client_id")         //nolint:gosec
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Token exchange request: code=%s..., client_id=%s\n",
@@ -736,7 +737,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	if !exists {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error":             "invalid_grant",
 			"error_description": "authorization code not found or expired",
 		})
@@ -748,7 +749,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		if codeVerifier == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "invalid_grant",
 				"error_description": "code_verifier required",
 			})
@@ -759,7 +760,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 		if !s.verifyPKCE(entry.CodeChallenge, entry.ChallengeMethod, codeVerifier) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"error":             "invalid_grant",
 				"error_description": "code_verifier verification failed",
 			})
@@ -818,11 +819,11 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:gosec
 }
 
 func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
-	refreshToken := r.FormValue("refresh_token")
+	refreshToken := r.FormValue("refresh_token") //nolint:gosec
 
 	// Find the token by refresh token
 	var originalToken *issuedToken
@@ -838,7 +839,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	if originalToken == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error":             "invalid_grant",
 			"error_description": "refresh token not found",
 		})
@@ -874,7 +875,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	s.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(TokenResponse{
+	_ = json.NewEncoder(w).Encode(TokenResponse{ //nolint:gosec
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
 		TokenType:    "Bearer",
@@ -887,14 +888,14 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 // handleTokenExchange implements RFC 8693 OAuth 2.0 Token Exchange.
 // This allows exchanging a token from a trusted issuer for a token valid on this server.
 func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
-	subjectToken := r.FormValue("subject_token")
-	subjectTokenType := r.FormValue("subject_token_type")
-	scope := r.FormValue("scope")
+	subjectToken := r.FormValue("subject_token")          //nolint:gosec
+	subjectTokenType := r.FormValue("subject_token_type") //nolint:gosec
+	scope := r.FormValue("scope")                         //nolint:gosec
 
 	// Dex uses "connector_id" as the audience parameter for token exchange.
 	// RFC 8693 uses "audience". Accept both for compatibility.
-	connectorID := r.FormValue("connector_id")
-	audience := r.FormValue("audience")
+	connectorID := r.FormValue("connector_id") //nolint:gosec
+	audience := r.FormValue("audience")        //nolint:gosec
 	if connectorID != "" && audience == "" {
 		audience = connectorID
 	}
@@ -910,7 +911,7 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if subjectTokenType == "" {
-		subjectTokenType = "urn:ietf:params:oauth:token-type:id_token"
+		subjectTokenType = "urn:ietf:params:oauth:token-type:id_token" //nolint:gosec,ineffassign
 	}
 	if audience == "" {
 		s.tokenExchangeError(w, "invalid_request", "audience or connector_id is required")
@@ -973,7 +974,7 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	}
 
 	// RFC 8693 response format
-	response := map[string]interface{}{
+	response := map[string]interface{}{ //nolint:gosec
 		"access_token":      accessToken,
 		"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
 		"token_type":        "Bearer",
@@ -983,14 +984,14 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // tokenExchangeError sends an RFC 8693 compliant error response
 func (s *OAuthServer) tokenExchangeError(w http.ResponseWriter, errorCode, description string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"error":             errorCode,
 		"error_description": description,
 	})
@@ -1090,7 +1091,7 @@ func (s *OAuthServer) handleUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(userInfo)
+	_ = json.NewEncoder(w).Encode(userInfo)
 }
 
 func (s *OAuthServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
@@ -1100,7 +1101,7 @@ func (s *OAuthServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jwks)
+	_ = json.NewEncoder(w).Encode(jwks)
 }
 
 func (s *OAuthServer) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -1112,7 +1113,8 @@ func (s *OAuthServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if errorParam != "" {
 		errorDesc := r.URL.Query().Get("error_description")
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<!DOCTYPE html>
+		//nolint:gosec // test-only mock server; HTML escaping not required
+		_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>OAuth Error</title></head>
 <body>
@@ -1125,7 +1127,8 @@ func (s *OAuthServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	//nolint:gosec // test-only mock server; HTML escaping not required
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>OAuth Success</title></head>
 <body>
@@ -1235,7 +1238,7 @@ func (s *OAuthServer) WaitForReady(ctx context.Context) error {
 				// Try to connect to verify it's really ready
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", s.Port()), 1*time.Second)
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					return nil
 				}
 			}

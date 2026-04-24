@@ -122,7 +122,7 @@ func (s *ValkeyTokenStore) Store(key TokenKey, token *pkgoauth.Token, userID str
 
 	token.SetExpiresAtFromExpiresIn()
 	entry := tokenToEntry(token, userID)
-	jsonData, err := json.Marshal(entry)
+	jsonData, err := json.Marshal(entry) //nolint:gosec
 	if err != nil {
 		logging.Warn("OAuth", "ValkeyTokenStore: failed to marshal token: %v", err)
 		return

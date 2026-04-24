@@ -107,8 +107,8 @@ func (w *PlainTableWriter) printRow(row []string) {
 		} else {
 			// Pad cell to column width plus minimum padding
 			format := fmt.Sprintf("%%-%ds", w.columnWidths[i]+w.minPadding)
-			sb.WriteString(fmt.Sprintf(format, cell))
+			fmt.Fprintf(&sb, format, cell)
 		}
 	}
-	fmt.Fprintln(w.output, strings.TrimRight(sb.String(), " "))
+	_, _ = fmt.Fprintln(w.output, strings.TrimRight(sb.String(), " "))
 }

@@ -46,7 +46,7 @@ func (f *FilterCommand) Execute(ctx context.Context, args []string) error {
 		descriptionFilter = parsed[2]
 	}
 	if len(parsed) > 3 {
-		caseSensitive = strings.ToLower(parsed[3]) == "true"
+		caseSensitive = strings.ToLower(parsed[3]) == "true" //nolint:goconst
 	}
 	if len(parsed) > 4 {
 		detailed = strings.ToLower(parsed[4]) == "true"

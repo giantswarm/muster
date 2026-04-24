@@ -93,7 +93,7 @@ func createConnectedClient(ctx context.Context, endpoint string) (*agent.Client,
 	}
 
 	if err := client.InitializeAndLoadData(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 
@@ -141,7 +141,7 @@ func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint str
 	if err != nil {
 		return err
 	}
-	client.Close()
+	_ = client.Close()
 	// Unconditionally invalidate: we cannot tell whether the transport
 	// refreshed the token during the connection, so we always clear the
 	// in-memory cache to ensure subsequent reads hit the file store.
@@ -183,7 +183,7 @@ func getAuthStatusFromAggregator(ctx context.Context, handler api.AuthHandler, a
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	return parseAuthStatusResource(ctx, client)
 }
@@ -213,7 +213,7 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Call the auth tool with the server name as argument.
 	// Per ADR-008, core_auth_login requires a "server" parameter to identify
@@ -431,7 +431,7 @@ func waitForSSOCompletion(ctx context.Context, handler api.AuthHandler, endpoint
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect for SSO status check: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ticker := time.NewTicker(DefaultSSOPollInterval)
 	defer ticker.Stop()

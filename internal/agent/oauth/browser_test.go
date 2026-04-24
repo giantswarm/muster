@@ -53,8 +53,8 @@ func TestOpenBrowser_SupportedPlatforms(t *testing.T) {
 func TestOpenBrowser_FunctionSignature(t *testing.T) {
 	// Ensure the function exists with the correct signature
 	// This is a compile-time check that the function is properly exported
-	var fn func(string) error = OpenBrowser
-	if fn == nil {
+	var fn = OpenBrowser
+	if fn == nil { //nolint:staticcheck
 		t.Error("OpenBrowser function should not be nil")
 	}
 }

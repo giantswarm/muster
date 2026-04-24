@@ -141,9 +141,9 @@ func (l *Logger) Output(format string, args ...interface{}) {
 	if len(args) == 0 {
 		// No args - print format string literally to avoid treating % as format specifiers
 		// (important for URLs with percent-encoding like %2F, %3A)
-		fmt.Fprint(os.Stdout, format)
+		_, _ = fmt.Fprint(os.Stdout, format)
 	} else {
-		fmt.Fprintf(os.Stdout, format, args...)
+		_, _ = fmt.Fprintf(os.Stdout, format, args...)
 	}
 }
 
@@ -157,9 +157,9 @@ func (l *Logger) OutputLine(format string, args ...interface{}) {
 	if len(args) == 0 {
 		// No args - print format string literally to avoid treating % as format specifiers
 		// (important for URLs with percent-encoding like %2F, %3A)
-		fmt.Fprintln(os.Stdout, format)
+		_, _ = fmt.Fprintln(os.Stdout, format)
 	} else {
-		fmt.Fprintf(os.Stdout, format+"\n", args...)
+		_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...)
 	}
 }
 
@@ -196,7 +196,7 @@ func (l *Logger) colorize(text, colorCode string) string {
 // Output format: [timestamp] message
 func (l *Logger) Info(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), msg)
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), msg)
 }
 
 // Debug logs a debug message that is only shown in verbose mode.
@@ -214,7 +214,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 		return
 	}
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorGray))
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorGray))
 }
 
 // Error logs an error message with timestamp and red coloring.
@@ -228,7 +228,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 // Output format: [timestamp] message (in red when colors enabled)
 func (l *Logger) Error(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorRed))
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorRed))
 }
 
 // Success logs a success message with timestamp and green coloring.
@@ -242,7 +242,7 @@ func (l *Logger) Error(format string, args ...interface{}) {
 // Output format: [timestamp] message (in green when colors enabled)
 func (l *Logger) Success(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorGreen))
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s\n", l.timestamp(), l.colorize(msg, colorGreen))
 }
 
 // Request logs an outgoing MCP request with appropriate formatting.
@@ -262,7 +262,7 @@ func (l *Logger) Request(method string, params interface{}) {
 	if !l.jsonRPCMode {
 		// Simple mode - just log what we're doing with user-friendly messages
 		switch method {
-		case "initialize":
+		case "initialize": //nolint:goconst
 			l.Info("Initializing MCP session...")
 		case "resources/list":
 			l.Info("Listing available resources...")
@@ -278,14 +278,14 @@ func (l *Logger) Request(method string, params interface{}) {
 	arrow := l.colorize("→", colorBlue)
 	methodStr := l.colorize(fmt.Sprintf("REQUEST (%s)", method), colorBlue)
 
-	fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
 
 	// Pretty print the params if available
 	if params != nil {
 		jsonStr := l.prettyJSON(params)
-		fmt.Fprintln(l.writer, l.colorize(jsonStr, colorBlue))
+		_, _ = fmt.Fprintln(l.writer, l.colorize(jsonStr, colorBlue))
 	}
-	fmt.Fprintln(l.writer)
+	_, _ = fmt.Fprintln(l.writer)
 }
 
 // Response logs an incoming MCP response with appropriate formatting.
@@ -339,14 +339,14 @@ func (l *Logger) Response(method string, result interface{}) {
 	arrow := l.colorize("←", colorGreen)
 	methodStr := l.colorize(fmt.Sprintf("RESPONSE (%s)", method), colorGreen)
 
-	fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
 
 	// Pretty print the result if available
 	if result != nil {
 		jsonStr := l.prettyJSON(result)
-		fmt.Fprintln(l.writer, l.colorize(jsonStr, colorGreen))
+		_, _ = fmt.Fprintln(l.writer, l.colorize(jsonStr, colorGreen))
 	}
-	fmt.Fprintln(l.writer)
+	_, _ = fmt.Fprintln(l.writer)
 }
 
 // Notification logs an incoming MCP notification with appropriate formatting.
@@ -386,14 +386,14 @@ func (l *Logger) Notification(method string, params interface{}) {
 	arrow := l.colorize("←", colorYellow)
 	methodStr := l.colorize(fmt.Sprintf("NOTIFICATION (%s)", method), colorYellow)
 
-	fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
+	_, _ = fmt.Fprintf(l.writer, "[%s] %s %s:\n", l.timestamp(), arrow, methodStr)
 
 	// Pretty print the params if available
 	if params != nil {
 		jsonStr := l.prettyJSON(params)
-		fmt.Fprintln(l.writer, l.colorize(jsonStr, colorYellow))
+		_, _ = fmt.Fprintln(l.writer, l.colorize(jsonStr, colorYellow))
 	}
-	fmt.Fprintln(l.writer)
+	_, _ = fmt.Fprintln(l.writer)
 }
 
 // prettyJSON formats JSON for display with proper indentation.
