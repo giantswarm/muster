@@ -32,6 +32,10 @@ const (
 	TransportStreamableHTTP TransportType = "streamable-http"
 )
 
+// StatusAuthRequired is the status string reported by the aggregator for an
+// MCP server that needs interactive authentication before it becomes usable.
+const StatusAuthRequired = "auth_required"
+
 // ServerInfo contains information about the connected MCP server.
 // This is populated during the MCP protocol handshake.
 type ServerInfo struct {
@@ -1656,7 +1660,7 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 	// automatically via token forwarding or token exchange (unless SSO failed)
 	var authRequired []AuthRequiredInfo
 	for _, srv := range status.Servers {
-		if srv.Status != "auth_required" {
+		if srv.Status != StatusAuthRequired {
 			continue
 		}
 

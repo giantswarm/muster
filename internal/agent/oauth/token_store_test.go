@@ -22,7 +22,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com" //nolint:goconst
-	issuerURL := "https://dex.example.com"    //nolint:goconst
+	issuerURL := testIssuerURL
 	token := &oauth2.Token{
 		AccessToken:  "test-access-token",
 		RefreshToken: "test-refresh-token",
@@ -70,7 +70,7 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	// Store an expired token
 	expiredToken := &oauth2.Token{
@@ -102,7 +102,7 @@ func TestTokenStore_DeleteToken(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &oauth2.Token{
 		AccessToken: "test-token",
 		TokenType:   "Bearer",
@@ -137,7 +137,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &oauth2.Token{
 		AccessToken: "persistent-token",
 		TokenType:   "Bearer",
@@ -194,7 +194,7 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	// Initially should not have valid token
 	if store.HasValidToken(serverURL) {
@@ -230,7 +230,7 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	// Initially no credentials
 	if store.HasCredentials(serverURL) {
@@ -297,7 +297,7 @@ func TestTokenStore_Clear(t *testing.T) {
 			TokenType:   "Bearer",
 			Expiry:      time.Now().Add(1 * time.Hour),
 		}
-		if err := store.StoreToken(serverURL, "https://dex.example.com", token); err != nil {
+		if err := store.StoreToken(serverURL, testIssuerURL, token); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 	}
@@ -377,7 +377,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	serverURL1 := "https://muster1.example.com"
 	serverURL2 := "https://muster2.example.com"
 
@@ -477,7 +477,7 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	serverURL := "https://muster.example.com"
 
 	// Store an expired token
@@ -507,7 +507,7 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	serverURL := "https://muster.example.com"
 
 	// Initially should not have valid token for issuer
@@ -542,7 +542,7 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	serverURL := "https://muster.example.com"
 
 	// Store a token with file mode enabled
@@ -586,7 +586,7 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	testCases := []struct {
 		name         string
@@ -662,7 +662,7 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &oauth2.Token{
 		AccessToken: "secret-token",
 		TokenType:   "Bearer",
@@ -734,7 +734,7 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	// Token with zero expiry (some tokens don't have expiry info)
 	token := &oauth2.Token{ //nolint:gosec
@@ -770,7 +770,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	t.Run("returns nil for non-existent token", func(t *testing.T) {
 		token := store.GetTokenIncludingExpiring("https://nonexistent.example.com")
@@ -889,7 +889,7 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 	}
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	// Store a token that's expiring soon
 	expiringToken := &oauth2.Token{ //nolint:gosec

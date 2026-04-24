@@ -98,7 +98,7 @@ func (p *PendingAuthMCPServer) handleAuthenticate(ctx context.Context, request m
 
 	// Return the auth URL to the user
 	response := AuthenticateResponse{
-		Status:       "auth_required",
+		Status:       StatusAuthRequired,
 		AuthURL:      authURL,
 		ClickableURL: fmt.Sprintf("[Authenticate with Muster](%s)", authURL),
 		Message:      message,

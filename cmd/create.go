@@ -14,6 +14,10 @@ import (
 
 var createFlags cli.CommandFlags
 
+// stringTrue is the canonical lowercase "true" literal used when parsing
+// CLI boolean flags and default values.
+const stringTrue = "true"
+
 // Available resource types for create operations
 var createResourceTypes = []string{
 	"serviceclass",
@@ -167,7 +171,7 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 					i++ // Skip the next argument since we consumed it
 				} else {
 					// Boolean flag
-					params[paramArg] = "true"
+					params[paramArg] = stringTrue
 				}
 			}
 		}
@@ -249,7 +253,7 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 		}
 	case "autoStart", "auto-start":
 		if hasValue {
-			args["autoStart"] = flagValue == "true"
+			args["autoStart"] = flagValue == stringTrue
 		} else {
 			args["autoStart"] = true
 		}

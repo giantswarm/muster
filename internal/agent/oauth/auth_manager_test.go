@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// testIssuerURL is a shared fake OIDC issuer used across oauth package tests.
+const testIssuerURL = "https://dex.example.com"
+
 func TestAuthManager_StateTransitions(t *testing.T) {
 	// Test the state machine transitions
 	t.Run("initial state is unknown", func(t *testing.T) {
@@ -85,7 +88,7 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 
 	// Pre-store a valid token
 	serverURL := "https://muster.example.com" //nolint:goconst
-	issuerURL := "https://dex.example.com"    //nolint:goconst
+	issuerURL := testIssuerURL
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
@@ -318,7 +321,7 @@ func TestAuthManager_HasValidTokenForEndpoint_WithValidToken(t *testing.T) {
 
 	// Pre-store a valid token
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
@@ -420,7 +423,7 @@ func TestAuthManager_HasValidTokenForEndpoint_NormalizesURL(t *testing.T) {
 
 	// Store token with normalized URL
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
@@ -464,7 +467,7 @@ func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
 
 	// Store an expired token
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 	token := &StoredToken{
 		AccessToken: "expired-token",
 		TokenType:   "Bearer",
@@ -502,7 +505,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 	defer func() { _ = mgr.Close() }()
 
 	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	issuerURL := testIssuerURL
 
 	t.Run("returns nil for non-existent token", func(t *testing.T) {
 		token := mgr.GetStoredTokenForEndpoint("https://nonexistent.example.com")
