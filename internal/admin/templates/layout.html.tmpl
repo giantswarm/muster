@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>muster admin — {{.Title}}</title>
+<title>muster — {{.Title}}</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -14,14 +14,14 @@
      class="muster-icon" 
      onerror="this.style.display='none'"/>
 </div>
-<strong>muster admin</strong>
+<strong>muster</strong>
 </div>
 <nav><a href="/sessions">Sessions</a> · <a href="/mcps">MCPs</a></nav>
 </header>
 <main>
 {{template "content" .}}
 </main>
-<footer>loopback-only · no auth · {{isoTime .Now}}</footer>
+<footer>{{isoTime .Now}}</footer>
 </body>
 </html>
 {{end}}
