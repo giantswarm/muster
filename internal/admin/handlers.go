@@ -1,0 +1,268 @@
+package admin
+
+import (
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"io"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+)
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.deps.ListSessions(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list sessions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		if sessions[i].Subject != sessions[j].Subject {
+			return sessions[i].Subject < sessions[j].Subject
+		}
+		return sessions[i].SessionID < sessions[j].SessionID
+	})
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, sessions)
+		return
+	}
+
+	data := struct {
+		Title    string
+		Now      time.Time
+		Sessions []SessionSummary
+	}{
+		Title:    "Sessions",
+		Now:      time.Now(),
+		Sessions: sessions,
+	}
+	s.render(w, "list.html.tmpl", data)
+}
+
+// handleDetail decodes JWTs in the admin package so redaction stays in one
+// place — the aggregator only hands over raw tokens.
+func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+
+	detail, ok, err := s.deps.GetSessionDetail(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	decoded := make([]*DecodedJWT, 0, len(detail.Tokens))
+	for _, tok := range detail.Tokens {
+		decoded = append(decoded, DecodeJWT(tok.Label, tok.Raw))
+	}
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, struct {
+			*SessionDetail
+			DecodedTokens []*DecodedJWT `json:"decodedTokens"`
+		}{SessionDetail: detail, DecodedTokens: decoded})
+		return
+	}
+
+	data := struct {
+		Title  string
+		Now    time.Time
+		Detail *SessionDetail
+		Tokens []*DecodedJWT
+	}{
+		Title:  "Session " + shortID(detail.SessionID),
+		Now:    time.Now(),
+		Detail: detail,
+		Tokens: decoded,
+	}
+	s.render(w, "detail.html.tmpl", data)
+}
+
+func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+	if err := s.deps.DeleteSession(r.Context(), id); err != nil {
+		http.Error(w, fmt.Sprintf("delete session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/sessions", http.StatusSeeOther)
+}
+
+func (s *Server) handleMCPList(w http.ResponseWriter, r *http.Request) {
+	servers, err := s.deps.ListMCPServers(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list MCP servers: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, servers)
+		return
+	}
+
+	data := struct {
+		Title   string
+		Now     time.Time
+		Servers []MCPSummary
+	}{
+		Title:   "MCP servers",
+		Now:     time.Now(),
+		Servers: servers,
+	}
+	s.render(w, "mcps.html.tmpl", data)
+}
+
+func (s *Server) handleMCPDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "missing MCP server name", http.StatusBadRequest)
+		return
+	}
+
+	detail, ok, err := s.deps.GetMCPDetail(r.Context(), name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get MCP server: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, detail)
+		return
+	}
+
+	data := struct {
+		Title  string
+		Now    time.Time
+		Detail *MCPDetail
+	}{
+		Title:  "MCP " + detail.Name,
+		Now:    time.Now(),
+		Detail: detail,
+	}
+	s.render(w, "mcp_detail.html.tmpl", data)
+}
+
+func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+	if id == "" || name == "" {
+		http.Error(w, "missing session id or server name", http.StatusBadRequest)
+		return
+	}
+	if err := s.deps.ReconnectServer(r.Context(), id, name); err != nil {
+		http.Error(w, fmt.Sprintf("reconnect: %v", err), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/sessions/"+id, http.StatusSeeOther)
+}
+
+// render buffers the template output so a template error produces a clean
+// 500 instead of a half-written page plus a stray WriteHeader call.
+func (s *Server) render(w http.ResponseWriter, name string, data any) {
+	t, ok := s.tmpl[name]
+	if !ok {
+		http.Error(w, "render: unknown template "+name, http.StatusInternalServerError)
+		return
+	}
+	var buf strings.Builder
+	if err := t.ExecuteTemplate(&buf, "layout", data); err != nil {
+		http.Error(w, fmt.Sprintf("render: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, buf.String())
+}
+
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
+}
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(body)
+}
+
+// shortID truncates a session ID to 8 chars + ellipsis for display in page
+// titles. Detail headers show the full ID.
+func shortID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8] + "…"
+}
+
+var templateFuncs = template.FuncMap{
+	"shortID": shortID,
+	"isoTime": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.UTC().Format(time.RFC3339)
+	},
+	"humanTime":  humanTime,
+	"humanUntil": humanUntil,
+}
+
+func humanTime(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+func humanUntil(t time.Time) string {
+	if t.IsZero() {
+		return "no expiry"
+	}
+	d := time.Until(t)
+	if d < 0 {
+		return fmt.Sprintf("expired %s ago", humanTimeAbs(-d))
+	}
+	return "in " + humanTimeAbs(d)
+}
+
+func humanTimeAbs(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}

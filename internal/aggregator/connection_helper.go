@@ -72,6 +72,11 @@ type ConnectionResult struct {
 	// no expiry tracking (e.g., token forwarding clients). Callers should pass
 	// this to SessionConnectionPool.PutWithExpiry for proactive refresh.
 	TokenExpiry time.Time
+	// ExchangedToken is the RFC 8693 exchanged bearer this client sends
+	// downstream. Populated only by the token-exchange path — forward-token
+	// and DynamicAuth connections leave it empty. Callers should pass it to
+	// SessionConnectionPool.SetExchangedToken so the admin UI can surface it.
+	ExchangedToken string
 }
 
 // establishConnection creates a connection to an MCP server and populates
@@ -747,12 +752,13 @@ func EstablishConnectionWithTokenExchange(
 		logging.TruncateIdentifier(sub), serverInfo.Name, len(tools))
 
 	return &ConnectionResult{
-		ServerName:    serverInfo.Name,
-		ToolCount:     len(tools),
-		ResourceCount: len(resources),
-		PromptCount:   len(prompts),
-		Client:        client,
-		TokenExpiry:   tokenExpiry,
+		ServerName:     serverInfo.Name,
+		ToolCount:      len(tools),
+		ResourceCount:  len(resources),
+		PromptCount:    len(prompts),
+		Client:         client,
+		TokenExpiry:    tokenExpiry,
+		ExchangedToken: exchangedToken,
 	}, nil
 }
 

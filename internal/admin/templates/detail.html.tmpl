@@ -1,0 +1,71 @@
+{{define "content"}}
+{{with .Detail}}
+<p><a class="backlink" href="/sessions">← all sessions</a></p>
+<h1>Session <span class="mono">{{.SessionID}}</span></h1>
+
+<dl class="kv">
+  <dt>User</dt><dd>{{if .Email}}{{.Email}}{{else}}{{.Subject}}{{end}}</dd>
+  <dt>Servers</dt><dd>{{len .Servers}}</dd>
+</dl>
+
+<form class="inline" method="POST" action="/sessions/{{.SessionID}}/delete"
+      onsubmit="return confirm('Delete this session? Revokes auth and evicts all pooled connections.');">
+  <button type="submit" class="danger">Delete session</button>
+</form>
+
+<h2>Authenticated servers</h2>
+{{if .Servers}}
+  {{range .Servers}}
+  <details class="server-entry">
+    <summary>
+      <span><a href="/mcps/{{.Name}}">{{.Name}}</a> <span class="pill">{{.ToolCount}} tools</span></span>
+      <span class="server-entry-meta">
+        <span class="muted mono">{{humanUntil .TokenExpiry}}</span>
+        <form class="inline" method="POST" action="/sessions/{{$.Detail.SessionID}}/servers/{{.Name}}/reconnect"
+              onsubmit="return confirm('Reconnect {{.Name}} for this session? This evicts the current pool + token and re-runs SSO.');">
+          <button type="submit">Reconnect</button>
+        </form>
+      </span>
+    </summary>
+    <div class="tool-list">
+      {{if .ToolNames}}
+        <ul>
+          {{range .ToolNames}}<li class="mono">{{.}}</li>{{end}}
+        </ul>
+      {{else}}
+        <div class="muted">No tools cached for this session.</div>
+      {{end}}
+    </div>
+  </details>
+  {{end}}
+{{else}}
+<div class="empty">No authenticated servers.</div>
+{{end}}
+
+<h2>Token payloads (decoded)</h2>
+{{if $.Tokens}}
+  {{range $.Tokens}}
+  <details>
+    <summary>
+      <span>{{.Label}}</span>
+      {{if .Error}}<span class="pill err">{{.Error}}</span>{{else}}<span class="pill">header + payload</span>{{end}}
+    </summary>
+    <div class="jwt-block">
+      {{if .Error}}
+        <div class="muted">Decode failed — signature and raw token are never displayed.</div>
+      {{else}}
+        <div class="field-label">header</div>
+        <pre>{{printf "%s" .Header}}</pre>
+        <div class="field-label">payload</div>
+        <pre>{{printf "%s" .Payload}}</pre>
+        <div class="field-label muted">signature</div>
+        <div class="muted">(hidden — not fetched from server)</div>
+      {{end}}
+    </div>
+  </details>
+  {{end}}
+{{else}}
+<div class="empty">No JWTs available for this session.</div>
+{{end}}
+{{end}}
+{{end}}

@@ -221,6 +221,22 @@ type AggregatorConfig struct {
 
 	// Debug enables debug logging
 	Debug bool
+
+	// Admin, when enabled, starts a separate HTTP listener that serves the
+	// session management web UI. See internal/admin for details.
+	Admin AdminConfig
+}
+
+// AdminConfig holds admin web UI configuration for the aggregator.
+type AdminConfig struct {
+	// Enabled controls whether the admin listener is started.
+	Enabled bool
+
+	// Port is the TCP port for the admin listener (default: 9999 when enabled).
+	Port int
+
+	// BindAddress is the interface to bind the admin listener to (default: 127.0.0.1).
+	BindAddress string
 }
 
 // OAuthServerConfig holds OAuth server configuration for protecting the Muster Server.

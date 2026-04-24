@@ -1,0 +1,27 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>muster — {{.Title}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+<div class="header-brand">
+<div class="icon-container">
+<img src="https://s.giantswarm.io/app-icons/muster/1/light.svg" 
+     alt="Muster" 
+     class="muster-icon" 
+     onerror="this.style.display='none'"/>
+</div>
+<strong>muster</strong>
+</div>
+<nav><a href="/sessions">Sessions</a> · <a href="/mcps">MCPs</a></nav>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>{{isoTime .Now}}</footer>
+</body>
+</html>
+{{end}}

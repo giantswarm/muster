@@ -1,0 +1,19 @@
+{{define "content"}}
+{{with .Detail}}
+<p><a class="backlink" href="/mcps">← all MCP servers</a></p>
+<h1>MCP <span class="mono">{{.Name}}</span></h1>
+
+<dl class="kv">
+  <dt>Status</dt><dd>{{if .Status}}{{.Status}}{{else}}<span class="muted">unknown</span>{{end}}</dd>
+  <dt>URL</dt><dd class="mono">{{if .URL}}{{.URL}}{{else}}<span class="muted">—</span>{{end}}</dd>
+  <dt>Namespace</dt><dd>{{.Namespace}}</dd>
+  <dt>Tool prefix</dt><dd class="mono">{{if .ToolPrefix}}{{.ToolPrefix}}{{else}}<span class="muted">—</span>{{end}}</dd>
+  <dt>Auth</dt><dd>{{if .RequiresAuth}}required{{else}}<span class="muted">none</span>{{end}}</dd>
+  {{if .Issuer}}<dt>Issuer</dt><dd class="mono">{{.Issuer}}</dd>{{end}}
+  {{if .Scope}}<dt>Scope</dt><dd class="mono">{{.Scope}}</dd>{{end}}
+  <dt>Last update</dt><dd class="muted">{{humanTime .LastUpdate}}</dd>
+</dl>
+
+<p class="muted">Advertised tools, resources, and prompts are cached per session. See a session's detail page to inspect what it has access to.</p>
+{{end}}
+{{end}}
