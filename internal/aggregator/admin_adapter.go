@@ -11,8 +11,6 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
-
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // adminDeps builds the callbacks that admin.Server needs from the
@@ -265,28 +263,10 @@ func (a *AggregatorServer) adminGetMCPDetail(_ context.Context, name string) (*a
 	if info.AuthInfo != nil {
 		detail.Scope = info.AuthInfo.Scope
 	}
-
-	info.mu.RLock()
-	tools := append([]mcp.Tool(nil), info.Tools...)
-	resources := append([]mcp.Resource(nil), info.Resources...)
-	prompts := append([]mcp.Prompt(nil), info.Prompts...)
-	info.mu.RUnlock()
-
-	for _, t := range tools {
-		detail.Tools = append(detail.Tools, admin.MCPTool{Name: t.Name, Description: t.Description})
-	}
-	for _, r := range resources {
-		detail.Resources = append(detail.Resources, admin.MCPResource{URI: r.URI, Name: r.Name, Description: r.Description})
-	}
-	for _, p := range prompts {
-		detail.Prompts = append(detail.Prompts, admin.MCPPrompt{Name: p.Name, Description: p.Description})
-	}
 	return detail, true, nil
 }
 
 // mcpSummaryFromServerInfo projects a ServerInfo into the admin summary view.
-// Takes the ServerInfo read lock only for the duration of the capability count
-// reads so we don't race UpdateTools/Resources/Prompts.
 func mcpSummaryFromServerInfo(info *ServerInfo) admin.MCPSummary {
 	summary := admin.MCPSummary{
 		Name:         info.Name,
@@ -299,11 +279,6 @@ func mcpSummaryFromServerInfo(info *ServerInfo) admin.MCPSummary {
 	if info.AuthInfo != nil {
 		summary.Issuer = info.AuthInfo.Issuer
 	}
-	info.mu.RLock()
-	summary.ToolCount = len(info.Tools)
-	summary.RsrcCount = len(info.Resources)
-	summary.PromptCount = len(info.Prompts)
-	info.mu.RUnlock()
 	return summary
 }
 

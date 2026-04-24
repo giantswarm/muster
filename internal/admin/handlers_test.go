@@ -202,8 +202,8 @@ func TestHandleMCPList_html(t *testing.T) {
 	called := false
 	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
 		d.mcps = []MCPSummary{
-			{Name: "github", Status: "connected", ToolCount: 12, RequiresAuth: true},
-			{Name: "kubernetes", Status: "connected", ToolCount: 32},
+			{Name: "github", Status: "connected", RequiresAuth: true},
+			{Name: "kubernetes", Status: "connected"},
 		}
 		d.onListMCPs = func() { called = true }
 	}))
@@ -227,14 +227,14 @@ func TestHandleMCPList_html(t *testing.T) {
 	}
 }
 
-func TestHandleMCPDetail_rendersTools(t *testing.T) {
+func TestHandleMCPDetail_rendersMetadata(t *testing.T) {
 	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
 		d.mcpDetail = &MCPDetail{
 			MCPSummary: MCPSummary{
 				Name: "github", Status: "connected", URL: "https://mcp.github.com",
-				RequiresAuth: true, Issuer: "https://github.com", ToolCount: 1,
+				RequiresAuth: true, Issuer: "https://github.com",
 			},
-			Tools: []MCPTool{{Name: "search_repos", Description: "Search GitHub repositories"}},
+			ToolPrefix: "gh",
 		}
 	}))
 	defer ts.Close()
@@ -249,11 +249,11 @@ func TestHandleMCPDetail_rendersTools(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	s := string(body)
-	if !strings.Contains(s, "search_repos") || !strings.Contains(s, "Search GitHub repositories") {
-		t.Fatalf("expected tool rendered: %s", s)
-	}
 	if !strings.Contains(s, "https://mcp.github.com") {
 		t.Fatalf("expected URL rendered: %s", s)
+	}
+	if !strings.Contains(s, "https://github.com") {
+		t.Fatalf("expected issuer rendered: %s", s)
 	}
 }
 

@@ -39,7 +39,10 @@ type ServerEntry struct {
 	PromptCount int
 }
 
-// MCPSummary is one row in the global MCP server list.
+// MCPSummary is one row in the global MCP server list. It exposes only the
+// registry-level metadata for a server; per-session capability data
+// (tools/resources/prompts) belongs on the session detail page because most
+// of muster's servers cache those per-session.
 type MCPSummary struct {
 	Name         string
 	URL          string
@@ -47,9 +50,6 @@ type MCPSummary struct {
 	Status       string // connected / disconnected / unknown (api.ServiceState string)
 	Issuer       string // Empty when server does not require auth.
 	RequiresAuth bool
-	ToolCount    int
-	RsrcCount    int
-	PromptCount  int
 	LastUpdate   time.Time
 }
 
@@ -59,29 +59,6 @@ type MCPDetail struct {
 
 	ToolPrefix string
 	Scope      string
-
-	Tools     []MCPTool
-	Resources []MCPResource
-	Prompts   []MCPPrompt
-}
-
-// MCPTool is the rendered view for a single advertised tool.
-type MCPTool struct {
-	Name        string
-	Description string
-}
-
-// MCPResource is the rendered view for a single advertised resource.
-type MCPResource struct {
-	URI         string
-	Name        string
-	Description string
-}
-
-// MCPPrompt is the rendered view for a single advertised prompt.
-type MCPPrompt struct {
-	Name        string
-	Description string
 }
 
 // SessionToken pairs a raw JWT with a display label. The admin package

@@ -14,56 +14,6 @@
   <dt>Last update</dt><dd class="muted">{{humanTime .LastUpdate}}</dd>
 </dl>
 
-<h2>Tools ({{len .Tools}})</h2>
-{{if .Tools}}
-<table>
-  <thead><tr><th>Name</th><th>Description</th></tr></thead>
-  <tbody>
-  {{range .Tools}}
-    <tr>
-      <td class="mono">{{.Name}}</td>
-      <td class="muted">{{.Description}}</td>
-    </tr>
-  {{end}}
-  </tbody>
-</table>
-{{else}}
-<div class="empty">No tools advertised.</div>
-{{end}}
-
-<h2>Resources ({{len .Resources}})</h2>
-{{if .Resources}}
-<table>
-  <thead><tr><th>URI</th><th>Name</th><th>Description</th></tr></thead>
-  <tbody>
-  {{range .Resources}}
-    <tr>
-      <td class="mono">{{.URI}}</td>
-      <td>{{.Name}}</td>
-      <td class="muted">{{.Description}}</td>
-    </tr>
-  {{end}}
-  </tbody>
-</table>
-{{else}}
-<div class="empty">No resources advertised.</div>
-{{end}}
-
-<h2>Prompts ({{len .Prompts}})</h2>
-{{if .Prompts}}
-<table>
-  <thead><tr><th>Name</th><th>Description</th></tr></thead>
-  <tbody>
-  {{range .Prompts}}
-    <tr>
-      <td class="mono">{{.Name}}</td>
-      <td class="muted">{{.Description}}</td>
-    </tr>
-  {{end}}
-  </tbody>
-</table>
-{{else}}
-<div class="empty">No prompts advertised.</div>
-{{end}}
+<p class="muted">Advertised tools, resources, and prompts are cached per session. See a session's detail page to inspect what it has access to.</p>
 {{end}}
 {{end}}
