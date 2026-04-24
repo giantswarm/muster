@@ -198,6 +198,79 @@ func TestHandleReconnect_callsCallbackAndRedirects(t *testing.T) {
 	}
 }
 
+func TestHandleMCPList_html(t *testing.T) {
+	called := false
+	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
+		d.mcps = []MCPSummary{
+			{Name: "github", Status: "connected", ToolCount: 12, RequiresAuth: true},
+			{Name: "kubernetes", Status: "connected", ToolCount: 32},
+		}
+		d.onListMCPs = func() { called = true }
+	}))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/mcps")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !called {
+		t.Fatal("ListMCPServers callback not invoked")
+	}
+	if !strings.Contains(s, `href="/mcps/github"`) || !strings.Contains(s, `href="/mcps/kubernetes"`) {
+		t.Fatalf("expected MCP links in HTML: %s", s)
+	}
+}
+
+func TestHandleMCPDetail_rendersTools(t *testing.T) {
+	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
+		d.mcpDetail = &MCPDetail{
+			MCPSummary: MCPSummary{
+				Name: "github", Status: "connected", URL: "https://mcp.github.com",
+				RequiresAuth: true, Issuer: "https://github.com", ToolCount: 1,
+			},
+			Tools: []MCPTool{{Name: "search_repos", Description: "Search GitHub repositories"}},
+		}
+	}))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/mcps/github")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, "search_repos") || !strings.Contains(s, "Search GitHub repositories") {
+		t.Fatalf("expected tool rendered: %s", s)
+	}
+	if !strings.Contains(s, "https://mcp.github.com") {
+		t.Fatalf("expected URL rendered: %s", s)
+	}
+}
+
+func TestHandleMCPDetail_notFound(t *testing.T) {
+	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {}))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/mcps/missing")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
 func TestNewServer_missingDeps(t *testing.T) {
 	_, err := NewServer(Config{}, Deps{})
 	if err == nil {
@@ -208,12 +281,15 @@ func TestNewServer_missingDeps(t *testing.T) {
 // --- fake Deps helpers ---
 
 type fakeDepsState struct {
-	sessions []SessionSummary
-	detail   *SessionDetail
+	sessions  []SessionSummary
+	detail    *SessionDetail
+	mcps      []MCPSummary
+	mcpDetail *MCPDetail
 
 	onListSessions func()
 	onDelete       func(id string)
 	onReconnect    func(id, name string)
+	onListMCPs     func()
 }
 
 func fakeDeps(setup func(*fakeDepsState)) Deps {
@@ -243,6 +319,18 @@ func fakeDeps(setup func(*fakeDepsState)) Deps {
 				state.onReconnect(id, name)
 			}
 			return nil
+		},
+		ListMCPServers: func(ctx context.Context) ([]MCPSummary, error) {
+			if state.onListMCPs != nil {
+				state.onListMCPs()
+			}
+			return state.mcps, nil
+		},
+		GetMCPDetail: func(ctx context.Context, name string) (*MCPDetail, bool, error) {
+			if state.mcpDetail != nil && state.mcpDetail.Name == name {
+				return state.mcpDetail, true, nil
+			}
+			return nil, false, nil
 		},
 	}
 }

@@ -101,6 +101,66 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/sessions", http.StatusSeeOther)
 }
 
+func (s *Server) handleMCPList(w http.ResponseWriter, r *http.Request) {
+	servers, err := s.deps.ListMCPServers(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list MCP servers: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, servers)
+		return
+	}
+
+	data := struct {
+		Title   string
+		Now     time.Time
+		Servers []MCPSummary
+	}{
+		Title:   "MCP servers",
+		Now:     time.Now(),
+		Servers: servers,
+	}
+	s.render(w, "mcps.html.tmpl", data)
+}
+
+func (s *Server) handleMCPDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "missing MCP server name", http.StatusBadRequest)
+		return
+	}
+
+	detail, ok, err := s.deps.GetMCPDetail(r.Context(), name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get MCP server: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if wantsJSON(r) {
+		writeJSON(w, http.StatusOK, detail)
+		return
+	}
+
+	data := struct {
+		Title  string
+		Now    time.Time
+		Detail *MCPDetail
+	}{
+		Title:  "MCP " + detail.Name,
+		Now:    time.Now(),
+		Detail: detail,
+	}
+	s.render(w, "mcp_detail.html.tmpl", data)
+}
+
 func (s *Server) handleReconnect(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	name := r.PathValue("name")

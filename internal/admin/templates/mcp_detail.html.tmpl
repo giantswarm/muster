@@ -1,0 +1,69 @@
+{{define "content"}}
+{{with .Detail}}
+<p><a class="backlink" href="/mcps">← all MCP servers</a></p>
+<h1>MCP <span class="mono">{{.Name}}</span></h1>
+
+<dl class="kv">
+  <dt>Status</dt><dd>{{if .Status}}{{.Status}}{{else}}<span class="muted">unknown</span>{{end}}</dd>
+  <dt>URL</dt><dd class="mono">{{if .URL}}{{.URL}}{{else}}<span class="muted">—</span>{{end}}</dd>
+  <dt>Namespace</dt><dd>{{.Namespace}}</dd>
+  <dt>Tool prefix</dt><dd class="mono">{{if .ToolPrefix}}{{.ToolPrefix}}{{else}}<span class="muted">—</span>{{end}}</dd>
+  <dt>Auth</dt><dd>{{if .RequiresAuth}}required{{else}}<span class="muted">none</span>{{end}}</dd>
+  {{if .Issuer}}<dt>Issuer</dt><dd class="mono">{{.Issuer}}</dd>{{end}}
+  {{if .Scope}}<dt>Scope</dt><dd class="mono">{{.Scope}}</dd>{{end}}
+  <dt>Last update</dt><dd class="muted">{{humanTime .LastUpdate}}</dd>
+</dl>
+
+<h2>Tools ({{len .Tools}})</h2>
+{{if .Tools}}
+<table>
+  <thead><tr><th>Name</th><th>Description</th></tr></thead>
+  <tbody>
+  {{range .Tools}}
+    <tr>
+      <td class="mono">{{.Name}}</td>
+      <td class="muted">{{.Description}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No tools advertised.</div>
+{{end}}
+
+<h2>Resources ({{len .Resources}})</h2>
+{{if .Resources}}
+<table>
+  <thead><tr><th>URI</th><th>Name</th><th>Description</th></tr></thead>
+  <tbody>
+  {{range .Resources}}
+    <tr>
+      <td class="mono">{{.URI}}</td>
+      <td>{{.Name}}</td>
+      <td class="muted">{{.Description}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No resources advertised.</div>
+{{end}}
+
+<h2>Prompts ({{len .Prompts}})</h2>
+{{if .Prompts}}
+<table>
+  <thead><tr><th>Name</th><th>Description</th></tr></thead>
+  <tbody>
+  {{range .Prompts}}
+    <tr>
+      <td class="mono">{{.Name}}</td>
+      <td class="muted">{{.Description}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No prompts advertised.</div>
+{{end}}
+{{end}}
+{{end}}

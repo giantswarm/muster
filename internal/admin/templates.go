@@ -21,7 +21,7 @@ type viewSet map[string]*template.Template
 
 // views lists every per-view template file. The layout is parsed into each
 // root so that {{template "layout" .}} is available.
-var views = []string{"list.html.tmpl", "detail.html.tmpl"}
+var views = []string{"list.html.tmpl", "detail.html.tmpl", "mcps.html.tmpl", "mcp_detail.html.tmpl"}
 
 // parseTemplates loads the shared layout plus one root per view.
 func parseTemplates() (viewSet, error) {

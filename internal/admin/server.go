@@ -29,6 +29,14 @@ type Deps struct {
 	// online with a fresh bearer. Used by the admin UI's per-server
 	// "Reconnect" button.
 	ReconnectServer func(ctx context.Context, sessionID, serverName string) error
+
+	// ListMCPServers returns summary rows for every registered MCP server
+	// (global, not session-scoped).
+	ListMCPServers func(ctx context.Context) ([]MCPSummary, error)
+
+	// GetMCPDetail returns the detail view for a single MCP server, or nil +
+	// false when the server is unknown.
+	GetMCPDetail func(ctx context.Context, name string) (*MCPDetail, bool, error)
 }
 
 // Config configures the admin listener.
@@ -48,7 +56,8 @@ type Server struct {
 // NewServer constructs an admin server. Call Start to begin serving.
 func NewServer(cfg Config, deps Deps) (*Server, error) {
 	if deps.ListSessions == nil || deps.GetSessionDetail == nil ||
-		deps.DeleteSession == nil || deps.ReconnectServer == nil {
+		deps.DeleteSession == nil || deps.ReconnectServer == nil ||
+		deps.ListMCPServers == nil || deps.GetMCPDetail == nil {
 		return nil, errors.New("admin.NewServer: all Deps callbacks are required")
 	}
 	if cfg.BindAddress == "" {
@@ -114,6 +123,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /sessions/{id}", s.handleDetail)
 	mux.HandleFunc("POST /sessions/{id}/delete", s.handleDelete)
 	mux.HandleFunc("POST /sessions/{id}/servers/{name}/reconnect", s.handleReconnect)
+
+	mux.HandleFunc("GET /mcps", s.handleMCPList)
+	mux.HandleFunc("GET /mcps/{name}", s.handleMCPDetail)
 
 	return mux
 }

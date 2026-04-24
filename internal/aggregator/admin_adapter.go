@@ -10,6 +10,8 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // adminDeps builds the callbacks that admin.Server needs from the
@@ -22,6 +24,8 @@ func (a *AggregatorServer) adminDeps() admin.Deps {
 		GetSessionDetail: a.adminGetSessionDetail,
 		DeleteSession:    a.adminDeleteSession,
 		ReconnectServer:  a.adminReconnectServer,
+		ListMCPServers:   a.adminListMCPServers,
+		GetMCPDetail:     a.adminGetMCPDetail,
 	}
 }
 
@@ -160,13 +164,6 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 			entry.ToolCount = len(c.Tools)
 			entry.RsrcCount = len(c.Resources)
 			entry.PromptCount = len(c.Prompts)
-
-			// Collect tool names for tooltip display
-			toolNames := make([]string, len(c.Tools))
-			for i, tool := range c.Tools {
-				toolNames[i] = tool.Name
-			}
-			entry.ToolNames = toolNames
 		}
 
 		info, hasInfo := a.registry.GetServerInfo(serverName)
@@ -231,6 +228,75 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	}
 
 	return detail, true, nil
+}
+
+// adminListMCPServers returns a summary row for every MCP server registered
+// with the aggregator. This is the global view: it reflects the server
+// registry, not per-session capability caches.
+func (a *AggregatorServer) adminListMCPServers(_ context.Context) ([]admin.MCPSummary, error) {
+	all := a.registry.GetAllServers()
+	out := make([]admin.MCPSummary, 0, len(all))
+	for _, info := range all {
+		out = append(out, mcpSummaryFromServerInfo(info))
+	}
+	return out, nil
+}
+
+// adminGetMCPDetail returns the full detail view for a single MCP server,
+// or nil + false when the server is unknown.
+func (a *AggregatorServer) adminGetMCPDetail(_ context.Context, name string) (*admin.MCPDetail, bool, error) {
+	info, ok := a.registry.GetServerInfo(name)
+	if !ok {
+		return nil, false, nil
+	}
+
+	detail := &admin.MCPDetail{
+		MCPSummary: mcpSummaryFromServerInfo(info),
+		ToolPrefix: info.ToolPrefix,
+	}
+	if info.AuthInfo != nil {
+		detail.Scope = info.AuthInfo.Scope
+	}
+
+	info.mu.RLock()
+	tools := append([]mcp.Tool(nil), info.Tools...)
+	resources := append([]mcp.Resource(nil), info.Resources...)
+	prompts := append([]mcp.Prompt(nil), info.Prompts...)
+	info.mu.RUnlock()
+
+	for _, t := range tools {
+		detail.Tools = append(detail.Tools, admin.MCPTool{Name: t.Name, Description: t.Description})
+	}
+	for _, r := range resources {
+		detail.Resources = append(detail.Resources, admin.MCPResource{URI: r.URI, Name: r.Name, Description: r.Description})
+	}
+	for _, p := range prompts {
+		detail.Prompts = append(detail.Prompts, admin.MCPPrompt{Name: p.Name, Description: p.Description})
+	}
+	return detail, true, nil
+}
+
+// mcpSummaryFromServerInfo projects a ServerInfo into the admin summary view.
+// Takes the ServerInfo read lock only for the duration of the capability count
+// reads so we don't race UpdateTools/Resources/Prompts.
+func mcpSummaryFromServerInfo(info *ServerInfo) admin.MCPSummary {
+	summary := admin.MCPSummary{
+		Name:         info.Name,
+		URL:          info.URL,
+		Namespace:    info.GetNamespace(),
+		Status:       string(info.GetStatus()),
+		RequiresAuth: info.RequiresSessionAuth(),
+		LastUpdate:   info.LastUpdate,
+	}
+	if info.AuthInfo != nil {
+		summary.Issuer = info.AuthInfo.Issuer
+	}
+	info.mu.RLock()
+	summary.ToolCount = len(info.Tools)
+	summary.RsrcCount = len(info.Resources)
+	summary.PromptCount = len(info.Prompts)
+	info.mu.RUnlock()
+	return summary
 }
 
 // adminDeleteSession performs the full teardown for a single session: oauth

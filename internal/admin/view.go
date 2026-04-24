@@ -34,9 +34,53 @@ type ServerEntry struct {
 	LastUsedAt  time.Time
 	TokenExpiry time.Time // Zero if no tracked expiry.
 	ToolCount   int
-	ToolNames   []string // Names of available tools
 	RsrcCount   int
 	PromptCount int
+}
+
+// MCPSummary is one row in the global MCP server list.
+type MCPSummary struct {
+	Name         string
+	URL          string
+	Namespace    string
+	Status       string // connected / disconnected / unknown (api.ServiceState string)
+	Issuer       string // Empty when server does not require auth.
+	RequiresAuth bool
+	ToolCount    int
+	RsrcCount    int
+	PromptCount  int
+	LastUpdate   time.Time
+}
+
+// MCPDetail is the full view for one MCP server.
+type MCPDetail struct {
+	MCPSummary
+
+	ToolPrefix string
+	Scope      string
+
+	Tools     []MCPTool
+	Resources []MCPResource
+	Prompts   []MCPPrompt
+}
+
+// MCPTool is the rendered view for a single advertised tool.
+type MCPTool struct {
+	Name        string
+	Description string
+}
+
+// MCPResource is the rendered view for a single advertised resource.
+type MCPResource struct {
+	URI         string
+	Name        string
+	Description string
+}
+
+// MCPPrompt is the rendered view for a single advertised prompt.
+type MCPPrompt struct {
+	Name        string
+	Description string
 }
 
 // SessionToken pairs a raw JWT with a display label. The admin package

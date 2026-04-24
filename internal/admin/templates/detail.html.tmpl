@@ -19,9 +19,9 @@
   <tbody>
   {{range .Servers}}
     <tr>
-      <td>{{.Name}}</td>
+      <td><a href="/mcps/{{.Name}}">{{.Name}}</a></td>
       <td class="mono">{{humanUntil .TokenExpiry}}</td>
-      <td>{{if gt .ToolCount 0}}<span class="tooltip">{{.ToolCount}}<span class="tooltiptext">{{range $i, $tool := .ToolNames}}{{if $i}}, {{end}}{{$tool}}{{end}}</span></span>{{else}}0{{end}}</td>
+      <td>{{.ToolCount}}</td>
       <td>
         <form class="inline" method="POST" action="/sessions/{{$.Detail.SessionID}}/servers/{{.Name}}/reconnect"
               onsubmit="return confirm('Reconnect {{.Name}} for this session? This evicts the current pool + token and re-runs SSO.');">
