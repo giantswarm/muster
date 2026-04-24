@@ -9,6 +9,7 @@ import (
 type SessionSummary struct {
 	SessionID   string
 	Subject     string
+	Email       string // User email from ID token (preferred over subject for display)
 	ServerCount int
 	ToolCount   int
 	LastSeen    time.Time // Zero if unknown.
@@ -18,6 +19,7 @@ type SessionSummary struct {
 type SessionDetail struct {
 	SessionID string
 	Subject   string
+	Email     string // User email from ID token (preferred over subject for display)
 	Servers   []ServerEntry
 	Tokens    []SessionToken // Raw JWTs to be decoded; never rendered raw.
 }
@@ -32,6 +34,7 @@ type ServerEntry struct {
 	LastUsedAt  time.Time
 	TokenExpiry time.Time // Zero if no tracked expiry.
 	ToolCount   int
+	ToolNames   []string // Names of available tools
 	RsrcCount   int
 	PromptCount int
 }

@@ -46,6 +46,39 @@ func DecodeJWT(label, raw string) *DecodedJWT {
 
 // decodeSegment base64url-decodes a JWT segment and re-indents the JSON for
 // display. Accepts both padded and unpadded base64url because producers vary.
+// ExtractEmailFromIDToken extracts the email claim from a JWT ID token.
+// Returns empty string if the token is invalid or doesn't contain an email claim.
+func ExtractEmailFromIDToken(idToken string) string {
+	if idToken == "" {
+		return ""
+	}
+
+	parts := strings.Split(idToken, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+
+	// Decode the payload (second segment)
+	b, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		if b2, err2 := base64.URLEncoding.DecodeString(parts[1]); err2 == nil {
+			b = b2
+		} else {
+			return ""
+		}
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return ""
+	}
+
+	if email, ok := payload["email"].(string); ok {
+		return email
+	}
+	return ""
+}
+
 func decodeSegment(seg string) (json.RawMessage, error) {
 	b, err := base64.RawURLEncoding.DecodeString(seg)
 	if err != nil {

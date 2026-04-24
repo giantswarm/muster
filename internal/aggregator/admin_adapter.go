@@ -66,6 +66,15 @@ func (a *AggregatorServer) adminListSessions(ctx context.Context) ([]admin.Sessi
 		if summary.Subject == "" {
 			summary.Subject = unknownSubject
 		}
+
+		// Extract email from ID token if available
+		oauthHandler := api.GetOAuthHandler()
+		if oauthHandler != nil && oauthHandler.IsEnabled() {
+			if tok := oauthHandler.FindTokenWithIDToken(sid); tok != nil && tok.IDToken != "" {
+				summary.Email = admin.ExtractEmailFromIDToken(tok.IDToken)
+			}
+		}
+
 		if a.capabilityStore != nil {
 			if all, err := a.capabilityStore.GetAll(ctx, sid); err == nil {
 				summary.ServerCount = len(all)
@@ -136,13 +145,28 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 	// Dedupe JWT rows when two servers share an issuer.
 	seenIssuers := map[string]bool{}
 
-	detail := &admin.SessionDetail{SessionID: sessionID, Subject: subject}
+	// Extract email from ID token if available
+	var email string
+	if oauthEnabled {
+		if tok := oauthHandler.FindTokenWithIDToken(sessionID); tok != nil && tok.IDToken != "" {
+			email = admin.ExtractEmailFromIDToken(tok.IDToken)
+		}
+	}
+
+	detail := &admin.SessionDetail{SessionID: sessionID, Subject: subject, Email: email}
 	for serverName, c := range caps {
 		entry := admin.ServerEntry{Name: serverName}
 		if c != nil {
 			entry.ToolCount = len(c.Tools)
 			entry.RsrcCount = len(c.Resources)
 			entry.PromptCount = len(c.Prompts)
+
+			// Collect tool names for tooltip display
+			toolNames := make([]string, len(c.Tools))
+			for i, tool := range c.Tools {
+				toolNames[i] = tool.Name
+			}
+			entry.ToolNames = toolNames
 		}
 
 		info, hasInfo := a.registry.GetServerInfo(serverName)

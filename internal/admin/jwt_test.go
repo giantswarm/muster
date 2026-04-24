@@ -122,3 +122,60 @@ func TestDecodeJWT_paddedBase64Fallback(t *testing.T) {
 		t.Fatalf("padded base64 must decode: %s", got.Error)
 	}
 }
+
+func TestExtractEmailFromIDToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected string
+	}{
+		{
+			name:     "empty token",
+			token:    "",
+			expected: "",
+		},
+		{
+			name:     "malformed token",
+			token:    "invalid.token",
+			expected: "",
+		},
+		{
+			name:     "valid token with email",
+			token:    createTestJWT(map[string]interface{}{"sub": "user123", "email": "test@example.com"}),
+			expected: "test@example.com",
+		},
+		{
+			name:     "valid token without email",
+			token:    createTestJWT(map[string]interface{}{"sub": "user123", "name": "Test User"}),
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ExtractEmailFromIDToken(tt.token)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// createTestJWT creates a simple JWT for testing purposes
+func createTestJWT(payload map[string]interface{}) string {
+	header := map[string]interface{}{
+		"alg": "RS256",
+		"typ": "JWT",
+	}
+
+	headerBytes, _ := json.Marshal(header)
+	payloadBytes, _ := json.Marshal(payload)
+
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerBytes)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadBytes)
+
+	// Create a dummy signature for testing
+	signature := base64.RawURLEncoding.EncodeToString([]byte("dummy-signature"))
+
+	return headerB64 + "." + payloadB64 + "." + signature
+}

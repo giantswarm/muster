@@ -4,7 +4,7 @@
 <table>
   <thead>
     <tr>
-      <th>Subject</th>
+      <th>User</th>
       <th>Session ID</th>
       <th>Servers</th>
       <th>Tools</th>
@@ -15,14 +15,14 @@
   <tbody>
   {{range .Sessions}}
     <tr>
-      <td>{{.Subject}}</td>
+      <td>{{if .Email}}{{.Email}}{{else}}{{.Subject}}{{end}}</td>
       <td class="mono"><a href="/sessions/{{.SessionID}}">{{shortID .SessionID}}</a></td>
       <td>{{.ServerCount}}</td>
       <td>{{.ToolCount}}</td>
       <td class="muted">{{humanTime .LastSeen}}</td>
       <td>
         <form class="inline" method="POST" action="/sessions/{{.SessionID}}/delete"
-              onsubmit="return confirm('Delete session {{shortID .SessionID}} for {{.Subject}}? This revokes auth and evicts all pooled connections.');">
+              onsubmit="return confirm('Delete session {{shortID .SessionID}} for {{if .Email}}{{.Email}}{{else}}{{.Subject}}{{end}}? This revokes auth and evicts all pooled connections.');">
           <button type="submit" class="danger">Delete</button>
         </form>
       </td>
