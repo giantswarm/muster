@@ -117,7 +117,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 			eventsResourceType = "ServiceClass"
 		case "workflow": //nolint:goconst
 			eventsResourceType = "Workflow"
-		case "service":
+		case "service": //nolint:goconst
 			eventsResourceType = "ServiceInstance"
 		}
 	}

@@ -139,13 +139,13 @@ func (b *TableBuilder) normalizeState(state string) string {
 		return "Starting"
 	case "stopping":
 		return "Stopping"
-	case "failed":
+	case "failed": //nolint:goconst
 		return "Failed" //nolint:goconst
 	case "error":
 		return "Error"
-	case "auth_required":
+	case "auth_required": //nolint:goconst
 		return "Auth Required"
-	case "unreachable":
+	case "unreachable": //nolint:goconst
 		return "Unreachable"
 	case "waiting":
 		return "Waiting"

@@ -421,7 +421,7 @@ func (s *TokenStore) findTokenByIssuerFromFilesLocked(issuerURL string) *StoredT
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" { //nolint:goconst
 			continue
 		}
 

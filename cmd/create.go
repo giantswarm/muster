@@ -343,7 +343,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return executor.Execute(ctx, "core_service_create", toolArgs)
 	}
 
-	if resourceType == "mcpserver" {
+	if resourceType == "mcpserver" { //nolint:goconst
 		// Handle MCPServer creation: muster create mcpserver <name> --type <type> [options]
 		if len(args) < 2 {
 			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <name> --type <type> [options]")

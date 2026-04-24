@@ -315,7 +315,7 @@ func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
 	}
 
 	switch mcpType {
-	case "tool":
+	case "tool": //nolint:goconst
 		return runGetMCPTool(cmd, executor, name)
 	case "resource":
 		return runGetMCPResource(cmd, executor, name)

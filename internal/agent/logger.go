@@ -368,11 +368,11 @@ func (l *Logger) Notification(method string, params interface{}) {
 	if !l.jsonRPCMode {
 		// Simple mode - just log the notification type with user-friendly messages
 		switch method {
-		case "notifications/tools/list_changed":
+		case "notifications/tools/list_changed": //nolint:goconst
 			l.Info("Tools list changed! Fetching updated list...")
-		case "notifications/resources/list_changed":
+		case "notifications/resources/list_changed": //nolint:goconst
 			l.Info("Resources list changed! Fetching updated list...")
-		case "notifications/prompts/list_changed":
+		case "notifications/prompts/list_changed": //nolint:goconst
 			l.Info("Prompts list changed! Fetching updated list...")
 		default:
 			if l.verbose {
