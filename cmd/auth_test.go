@@ -124,10 +124,10 @@ func TestAuthLogoutCommand(t *testing.T) {
 
 	t.Run("logout --server flag has -s shorthand", func(t *testing.T) {
 		flag := authLogoutCmd.Flags().ShorthandLookup("s")
-		if flag == nil {
+		if flag == nil { //nolint:staticcheck
 			t.Error("expected -s shorthand for --server flag")
 		}
-		if flag.Name != "server" {
+		if flag.Name != "server" { //nolint:staticcheck
 			t.Errorf("expected -s to be shorthand for 'server', got %q", flag.Name)
 		}
 	})

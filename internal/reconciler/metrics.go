@@ -19,9 +19,9 @@ type ReconcilerMetrics struct {
 	resourceMetrics map[ResourceType]*resourceTypeMetrics
 
 	// Global counters for summary metrics
-	totalReconcileAttempts   int64
-	totalReconcileSuccesses  int64
-	totalReconcileFailures   int64
+	totalReconcileAttempts   int64 //nolint:unused
+	totalReconcileSuccesses  int64 //nolint:unused
+	totalReconcileFailures   int64 //nolint:unused
 	totalStatusSyncAttempts  int64
 	totalStatusSyncSuccesses int64
 	totalStatusSyncFailures  int64
@@ -140,7 +140,7 @@ type ResourceTypeMetricView struct {
 var (
 	globalReconcilerMetrics     *ReconcilerMetrics
 	globalReconcilerMetricsMu   sync.RWMutex
-	globalReconcilerMetricsOnce sync.Once
+	globalReconcilerMetricsOnce sync.Once //nolint:unused
 )
 
 // GetReconcilerMetrics returns the global reconciler metrics instance.

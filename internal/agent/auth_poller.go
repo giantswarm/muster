@@ -91,7 +91,7 @@ func (p *authPoller) pollAuthStatus(ctx context.Context) {
 	// Build the auth required list
 	var authRequired []pkgoauth.AuthRequiredInfo
 	for _, srv := range status.Servers {
-		if srv.Status == "auth_required" {
+		if srv.Status == "auth_required" { //nolint:goconst
 			authRequired = append(authRequired, pkgoauth.AuthRequiredInfo{
 				Server:   srv.Name,
 				Issuer:   srv.Issuer,

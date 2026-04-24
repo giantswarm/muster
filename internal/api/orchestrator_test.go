@@ -10,7 +10,7 @@ import (
 )
 
 // mockOrchestratorService implements Service for testing
-type mockOrchestratorService struct {
+type mockOrchestratorService struct { //nolint:unused
 	name        string
 	serviceType ServiceType
 	state       ServiceState
@@ -19,21 +19,21 @@ type mockOrchestratorService struct {
 	deps        []string
 }
 
-func (m *mockOrchestratorService) GetName() string                   { return m.name }
-func (m *mockOrchestratorService) GetType() ServiceType              { return m.serviceType }
-func (m *mockOrchestratorService) GetState() ServiceState            { return m.state }
-func (m *mockOrchestratorService) GetHealth() HealthStatus           { return m.health }
-func (m *mockOrchestratorService) GetError() error                   { return m.err }
-func (m *mockOrchestratorService) GetDependencies() []string         { return m.deps }
-func (m *mockOrchestratorService) Start(ctx context.Context) error   { return nil }
-func (m *mockOrchestratorService) Stop(ctx context.Context) error    { return nil }
-func (m *mockOrchestratorService) Restart(ctx context.Context) error { return nil }
-func (m *mockOrchestratorService) GetLastError() error               { return m.err }
-func (m *mockOrchestratorService) SetStateChangeCallback(fn func(old, new ServiceState)) {
+func (m *mockOrchestratorService) GetName() string                   { return m.name }        //nolint:unused
+func (m *mockOrchestratorService) GetType() ServiceType              { return m.serviceType } //nolint:unused
+func (m *mockOrchestratorService) GetState() ServiceState            { return m.state }       //nolint:unused
+func (m *mockOrchestratorService) GetHealth() HealthStatus           { return m.health }      //nolint:unused
+func (m *mockOrchestratorService) GetError() error                   { return m.err }         //nolint:unused
+func (m *mockOrchestratorService) GetDependencies() []string         { return m.deps }        //nolint:unused
+func (m *mockOrchestratorService) Start(ctx context.Context) error   { return nil }           //nolint:unused
+func (m *mockOrchestratorService) Stop(ctx context.Context) error    { return nil }           //nolint:unused
+func (m *mockOrchestratorService) Restart(ctx context.Context) error { return nil }           //nolint:unused
+func (m *mockOrchestratorService) GetLastError() error               { return m.err }         //nolint:unused
+func (m *mockOrchestratorService) SetStateChangeCallback(fn func(old, new ServiceState)) { //nolint:unused
 }
 
 // orchestratorMockService implements Service for testing
-type orchestratorMockService struct {
+type orchestratorMockService struct { //nolint:unused
 	name                string
 	serviceType         ServiceType
 	state               ServiceState
@@ -47,20 +47,20 @@ type orchestratorMockService struct {
 	stateChangeCallback func(name string, oldState, newState ServiceState, health HealthStatus, err error)
 }
 
-func (m *orchestratorMockService) GetName() string           { return m.name }
-func (m *orchestratorMockService) GetType() ServiceType      { return m.serviceType }
-func (m *orchestratorMockService) GetState() ServiceState    { return m.state }
-func (m *orchestratorMockService) GetHealth() HealthStatus   { return m.health }
-func (m *orchestratorMockService) GetError() error           { return m.lastErr }
-func (m *orchestratorMockService) GetDependencies() []string { return m.dependencies }
-func (m *orchestratorMockService) GetLastError() error       { return m.lastErr }
-func (m *orchestratorMockService) SetStateChangeCallback(cb func(name string, oldState, newState ServiceState, health HealthStatus, err error)) {
+func (m *orchestratorMockService) GetName() string           { return m.name }         //nolint:unused
+func (m *orchestratorMockService) GetType() ServiceType      { return m.serviceType }  //nolint:unused
+func (m *orchestratorMockService) GetState() ServiceState    { return m.state }        //nolint:unused
+func (m *orchestratorMockService) GetHealth() HealthStatus   { return m.health }       //nolint:unused
+func (m *orchestratorMockService) GetError() error           { return m.lastErr }      //nolint:unused
+func (m *orchestratorMockService) GetDependencies() []string { return m.dependencies } //nolint:unused
+func (m *orchestratorMockService) GetLastError() error       { return m.lastErr }      //nolint:unused
+func (m *orchestratorMockService) SetStateChangeCallback(cb func(name string, oldState, newState ServiceState, health HealthStatus, err error)) { //nolint:unused
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stateChangeCallback = cb
 }
 
-func (m *orchestratorMockService) Start(ctx context.Context) error {
+func (m *orchestratorMockService) Start(ctx context.Context) error { //nolint:unused
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -91,7 +91,7 @@ func (m *orchestratorMockService) Start(ctx context.Context) error {
 	return nil
 }
 
-func (m *orchestratorMockService) Stop(ctx context.Context) error {
+func (m *orchestratorMockService) Stop(ctx context.Context) error { //nolint:unused
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -112,7 +112,7 @@ func (m *orchestratorMockService) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (m *orchestratorMockService) Restart(ctx context.Context) error {
+func (m *orchestratorMockService) Restart(ctx context.Context) error { //nolint:unused
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -563,7 +563,7 @@ func TestOrchestratorAPI_SubscribeToStateChanges(t *testing.T) {
 	// Trigger a state change by starting a service
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		mockOrch.StartService("test-service")
+		_ = mockOrch.StartService("test-service")
 	}()
 
 	// Wait for event

@@ -17,7 +17,7 @@ var stopResourceTypes = []string{
 
 // Dynamic completion for service names
 func stopServiceNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" {
+	if len(args) != 1 || args[0] != "service" { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -82,7 +82,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {

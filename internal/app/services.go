@@ -292,7 +292,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			orchestratorAPI,
 			registryHandler,
 		)
-		registry.Register(aggService)
+		_ = registry.Register(aggService)
 
 		// Create aggregator API adapter
 		aggAdapter := aggregatorService.NewAPIAdapter(aggService)

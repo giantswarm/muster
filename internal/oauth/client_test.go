@@ -71,8 +71,8 @@ func TestClient_GetToken(t *testing.T) {
 	defer client.Stop()
 
 	subject := "user-123"
-	issuer := "https://auth.example.com"
-	scope := "openid profile"
+	issuer := "https://auth.example.com" //nolint:goconst
+	scope := "openid profile"            //nolint:goconst
 
 	// Initially no token
 	token := client.GetToken(subject, issuer, scope)
@@ -133,7 +133,7 @@ func TestClient_GetToken_SSO_FallbackToIssuer(t *testing.T) {
 
 func TestClient_DiscoverMetadata(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := pkgoauth.Metadata{
+	metadata := pkgoauth.Metadata{ //nolint:gosec
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -142,7 +142,7 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metadata)
+			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
 		http.NotFound(w, r)
@@ -183,7 +183,7 @@ func TestClient_DiscoverMetadata(t *testing.T) {
 
 func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	// Create a test server that only supports OpenID Connect discovery
-	metadata := pkgoauth.Metadata{
+	metadata := pkgoauth.Metadata{ //nolint:gosec
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -192,7 +192,7 @@ func TestClient_DiscoverMetadata_OpenIDFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metadata)
+			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
 		// Return 404 for oauth-authorization-server
@@ -234,7 +234,7 @@ func TestClient_DiscoverMetadata_Error(t *testing.T) {
 
 func TestClient_GenerateAuthURL(t *testing.T) {
 	// Create a test server that returns OAuth metadata
-	metadata := pkgoauth.Metadata{
+	metadata := pkgoauth.Metadata{ //nolint:gosec
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
@@ -243,7 +243,7 @@ func TestClient_GenerateAuthURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metadata)
+			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
 		http.NotFound(w, r)
@@ -307,7 +307,7 @@ func TestClient_ExchangeCode(t *testing.T) {
 			TokenEndpoint:         serverURL + "/token",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
+		_ = json.NewEncoder(w).Encode(metadata)
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -315,25 +315,25 @@ func TestClient_ExchangeCode(t *testing.T) {
 			return
 		}
 		// Verify request parameters
-		if err := r.ParseForm(); err != nil {
+		if err := r.ParseForm(); err != nil { //nolint:gosec
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("grant_type") != "authorization_code" {
+		if r.FormValue("grant_type") != "authorization_code" { //nolint:gosec
 			http.Error(w, "Invalid grant_type", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("code") == "" {
+		if r.FormValue("code") == "" { //nolint:gosec
 			http.Error(w, "Missing code", http.StatusBadRequest)
 			return
 		}
-		if r.FormValue("code_verifier") == "" {
+		if r.FormValue("code_verifier") == "" { //nolint:gosec
 			http.Error(w, "Missing code_verifier", http.StatusBadRequest)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tokenResponse)
+		_ = json.NewEncoder(w).Encode(tokenResponse)
 	})
 
 	server := httptest.NewServer(mux)
@@ -377,7 +377,7 @@ func TestClient_ExchangeCode_Error(t *testing.T) {
 			TokenEndpoint:         serverURL + "/token",
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
+		_ = json.NewEncoder(w).Encode(metadata)
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid code", http.StatusBadRequest)

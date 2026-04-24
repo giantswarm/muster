@@ -75,7 +75,7 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 		// Fallback if server not available
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	// Check if this is an MCP primitive type
 	if _, isMCP := getMCPResourceTypes[resourceType]; isMCP {
@@ -118,7 +118,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 	var names []string
 
 	switch resourceType {
-	case "tool":
+	case "tool": //nolint:goconst
 		tools, err := executor.ListMCPTools(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -126,7 +126,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 		for _, tool := range tools {
 			names = append(names, tool.Name)
 		}
-	case "resource":
+	case "resource": //nolint:goconst
 		resources, err := executor.ListMCPResources(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -135,7 +135,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 			// For resources, we complete on URI
 			names = append(names, resource.URI)
 		}
-	case "prompt":
+	case "prompt": //nolint:goconst
 		prompts, err := executor.ListMCPPrompts(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -273,7 +273,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {
@@ -307,7 +307,7 @@ func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {
@@ -315,7 +315,7 @@ func runGetMCP(cmd *cobra.Command, mcpType, name string) error {
 	}
 
 	switch mcpType {
-	case "tool":
+	case "tool": //nolint:goconst
 		return runGetMCPTool(cmd, executor, name)
 	case "resource":
 		return runGetMCPResource(cmd, executor, name)

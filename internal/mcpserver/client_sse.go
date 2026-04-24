@@ -77,7 +77,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		mcpClient.Close()
+		_ = mcpClient.Close()
 
 		// Check if this is a 401 authentication error
 		if authErr := CheckForAuthRequiredError(ctx, err, c.url); authErr != nil {

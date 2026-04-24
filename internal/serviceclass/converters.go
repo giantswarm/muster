@@ -15,7 +15,7 @@ import (
 // convertCRDToServiceClass converts a ServiceClass CRD to api.ServiceClass
 func convertCRDToServiceClass(sc *musterv1alpha1.ServiceClass) api.ServiceClass {
 	serviceClass := api.ServiceClass{
-		Name:        sc.ObjectMeta.Name,
+		Name:        sc.Name,
 		Description: sc.Spec.Description,
 		Args:        convertArgsFromCRD(sc.Spec.Args),
 		ServiceConfig: api.ServiceConfig{

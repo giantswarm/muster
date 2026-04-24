@@ -133,14 +133,14 @@ func establishConnection(
 
 	// Try to initialize the client
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to initialize connection: %w", err)
 	}
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 
@@ -353,7 +353,7 @@ func EstablishConnectionWithTokenForwarding(
 
 	// Try to initialize the client with the forwarded token
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 
 		// Log the token forwarding failure
 		logging.Warn("Connection", "ID token forwarding failed for user %s to server %s: %v",
@@ -373,7 +373,7 @@ func EstablishConnectionWithTokenForwarding(
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to list tools after token forwarding: %w", err)
 	}
 
@@ -433,7 +433,7 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
 		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default"
+		namespace = "default" //nolint:goconst
 	}
 
 	objRef := api.ObjectReference{
@@ -699,7 +699,7 @@ func EstablishConnectionWithTokenExchange(
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 
 		logging.Warn("Connection", "Connection with exchanged token failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
@@ -710,7 +710,7 @@ func EstablishConnectionWithTokenExchange(
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to list tools after token exchange: %w", err)
 	}
 
@@ -772,7 +772,7 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	// Log when namespace is missing - this indicates a configuration issue
 	if namespace == "" {
 		logging.Warn("Connection", "No namespace set for server %s event, defaulting to 'default' - check MCPServer configuration", serverName)
-		namespace = "default"
+		namespace = "default" //nolint:goconst
 	}
 
 	objRef := api.ObjectReference{

@@ -223,7 +223,7 @@ func (p *ClientProvider) loadCertificatesLocked() error {
 	}
 
 	// Load CA certificate
-	caCert, err := os.ReadFile(caPath)
+	caCert, err := os.ReadFile(caPath) //nolint:gosec
 	if err != nil {
 		p.status.LastError = fmt.Errorf("failed to read CA certificate: %w", err)
 		return p.status.LastError

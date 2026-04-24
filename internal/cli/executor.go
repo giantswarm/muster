@@ -214,7 +214,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	} else {
 		// Fall back to config-based endpoint resolution
 		if options.ConfigPath == "" {
-			return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath")
+			return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath") //nolint:staticcheck
 		}
 
 		cfg, err := config.LoadConfig(options.ConfigPath)
@@ -365,7 +365,7 @@ func (e *ToolExecutor) triggerAuthentication(ctx context.Context, authHandler ap
 			fmt.Print("Open browser to authenticate? [Y/n]: ")
 
 			var response string
-			fmt.Scanln(&response)
+			_, _ = fmt.Scanln(&response)
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "" && response != "y" && response != "yes" {
 				return &AuthRequiredError{Endpoint: e.endpoint}

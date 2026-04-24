@@ -88,7 +88,7 @@ func (s *HTTPServer) startServing() {
 	}
 
 	handler := s.createHandler()
-	s.httpServer = &http.Server{
+	s.httpServer = &http.Server{ //nolint:gosec
 		Handler: handler,
 	}
 
@@ -122,7 +122,7 @@ func (s *HTTPServer) Start(ctx context.Context) (int, error) {
 	}
 
 	// Find an available port by listening on :0
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", ":0") //nolint:gosec
 	if err != nil {
 		return 0, fmt.Errorf("failed to find available port: %w", err)
 	}
@@ -184,7 +184,7 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 	if s.httpServer != nil {
 		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 			// Force close if graceful shutdown fails
-			s.httpServer.Close()
+			_ = s.httpServer.Close()
 			if s.debug {
 				fmt.Fprintf(os.Stderr, "⚠️  Force closed mock HTTP server: %v\n", err)
 			}
@@ -273,7 +273,7 @@ func (s *HTTPServer) WaitForReady(ctx context.Context) error {
 				// Try to connect to verify it's really ready
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", s.Port()), 1*time.Second)
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					return nil
 				}
 			}

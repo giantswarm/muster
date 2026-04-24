@@ -137,7 +137,7 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 
 // createHTTPClientWithCA creates an HTTP client that trusts the specified CA certificate.
 func createHTTPClientWithCA(caFile string) (*http.Client, error) {
-	caCert, err := os.ReadFile(caFile)
+	caCert, err := os.ReadFile(caFile) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA file: %w", err)
 	}

@@ -20,7 +20,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "muster-config-reload-test")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -30,12 +30,12 @@ func TestConfigReloadIntegration(t *testing.T) {
 	// Write initial config
 	data, err := yaml.Marshal(initialConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644)
+	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
 	assert.NoError(t, err)
 
 	// Create adapter
 	adapter := NewConfigAdapter(initialConfig, configPath)
-	api.RegisterConfig(adapter)
+	api.RegisterConfig(adapter) //nolint:staticcheck
 
 	ctx := context.Background()
 
@@ -51,7 +51,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 	// Write modified config
 	data, err = yaml.Marshal(modifiedConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644)
+	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
 	assert.NoError(t, err)
 
 	// Ensure file is written (some filesystems have delays)
@@ -72,7 +72,7 @@ func TestConfigReloadTool(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "muster-config-reload-tool-test")
 	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -82,12 +82,12 @@ func TestConfigReloadTool(t *testing.T) {
 	// Write initial config
 	data, err := yaml.Marshal(initialConfig)
 	assert.NoError(t, err)
-	err = os.WriteFile(configPath, data, 0644)
+	err = os.WriteFile(configPath, data, 0644) //nolint:gosec
 	assert.NoError(t, err)
 
 	// Create adapter
 	adapter := NewConfigAdapter(initialConfig, tmpDir)
-	api.RegisterConfig(adapter)
+	api.RegisterConfig(adapter) //nolint:staticcheck
 
 	// Test that config_reload tool exists
 	tools := adapter.GetTools()

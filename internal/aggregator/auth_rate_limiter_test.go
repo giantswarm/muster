@@ -44,8 +44,8 @@ func TestAuthRateLimiter_Allow(t *testing.T) {
 			})
 			defer rl.Stop()
 
-			userID := "test-user-123"
-			serverName := "test-server"
+			userID := "test-user-123"   //nolint:goconst
+			serverName := "test-server" //nolint:goconst
 			allowed := 0
 
 			for i := 0; i < tt.attempts; i++ {
@@ -69,7 +69,7 @@ func TestAuthRateLimiter_RemainingAttempts(t *testing.T) {
 	defer rl.Stop()
 
 	userID := "test-user-123"
-	serverName := "test-server"
+	serverName := "test-server" //nolint:goconst
 
 	// Initially should have all attempts remaining
 	if got := rl.RemainingAttempts(userID); got != 5 {

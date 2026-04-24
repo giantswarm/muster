@@ -121,7 +121,7 @@ func (l *scenarioLoader) loadScenarioFromFile(filePath string) (TestScenario, er
 	var scenario TestScenario
 
 	// Read file content
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		return scenario, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
