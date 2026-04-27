@@ -173,7 +173,7 @@ func parseWorkflowParameters(workflowName string) map[string]interface{} {
 					i++ // Skip the next argument since we consumed it
 				} else {
 					// Boolean flag
-					params[paramArg] = "true"
+					params[paramArg] = stringTrue
 				}
 			}
 		}
