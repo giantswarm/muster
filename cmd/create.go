@@ -12,6 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// stringTrue is the string form of a boolean true used by CLI flag parsing.
+const stringTrue = "true"
+
 var createFlags cli.CommandFlags
 
 // stringTrue is the canonical lowercase "true" literal used when parsing
