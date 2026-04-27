@@ -12,6 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// stringTrue is the string form of a boolean true used by CLI flag parsing.
+const stringTrue = "true"
+
 var createFlags cli.CommandFlags
 
 // Available resource types for create operations
@@ -167,7 +170,7 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 					i++ // Skip the next argument since we consumed it
 				} else {
 					// Boolean flag
-					params[paramArg] = "true"
+					params[paramArg] = stringTrue
 				}
 			}
 		}
@@ -249,7 +252,7 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 		}
 	case "autoStart", "auto-start":
 		if hasValue {
-			args["autoStart"] = flagValue == "true"
+			args["autoStart"] = flagValue == stringTrue
 		} else {
 			args["autoStart"] = true
 		}

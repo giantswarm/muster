@@ -187,7 +187,7 @@ func parseCallArguments(toolName string, osArgs []string) map[string]interface{}
 // everything else stays as string.
 func coerceValue(s string) interface{} {
 	switch s {
-	case "true": //nolint:goconst
+	case stringTrue:
 		return true
 	case "false":
 		return false

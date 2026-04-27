@@ -53,5 +53,5 @@ func init() {
 	standaloneCmd.Flags().AddFlagSet(agentCmd.Flags())
 	standaloneCmd.Flags().AddFlagSet(serveCmd.Flags())
 
-	standaloneCmd.Flags().Lookup("silent").DefValue = "true" //nolint:goconst
+	standaloneCmd.Flags().Lookup("silent").DefValue = stringTrue
 }
