@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,6 +18,7 @@ import (
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -554,7 +554,7 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	if oauthCfg.EncryptionKey == "" {
 		return nil
 	}
-	keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
+	keyBytes, err := musteroauth.DecodeEncryptionKey(oauthCfg.EncryptionKey)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
 			slog.String("error", err.Error()))
