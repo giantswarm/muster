@@ -1,4 +1,4 @@
-# Muster: Universal Control Plane for AI Agents
+# Muster: Universal Control Plane for AI Agents 2
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/giantswarm/muster)](https://goreportcard.com/report/github.com/giantswarm/muster)
 [![GoDoc](https://godoc.org/github.com/giantswarm/muster?status.svg)](https://godoc.org/github.com/giantswarm/muster)
