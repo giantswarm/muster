@@ -29,6 +29,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -202,30 +203,18 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 }
 
 // setupOAuthRoutes registers OAuth 2.1 endpoints on the mux.
+//
+// Delegates to mcp-oauth's bundle helper, which registers the flow endpoints
+// (/oauth/authorize, /oauth/callback, /oauth/token, /oauth/revoke,
+// /oauth/register, /oauth/introspect — gated on EnableIntrospectionEndpoint),
+// the Protected Resource Metadata routes (RFC 9728) for both the root and
+// the /mcp sub-path, and the Authorization Server Metadata routes (RFC 8414
+// + OpenID Connect Discovery).
 func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
-	// Protected Resource Metadata endpoint (RFC 9728)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", s.oauthHandler.ServeProtectedResourceMetadata)
-
-	// Authorization Server Metadata endpoint (RFC 8414)
-	mux.HandleFunc("/.well-known/oauth-authorization-server", s.oauthHandler.ServeAuthorizationServerMetadata)
-
-	// Dynamic Client Registration endpoint (RFC 7591)
-	mux.HandleFunc("/oauth/register", s.oauthHandler.ServeClientRegistration)
-
-	// OAuth Authorization endpoint
-	mux.HandleFunc("/oauth/authorize", s.oauthHandler.ServeAuthorization)
-
-	// OAuth Token endpoint
-	mux.HandleFunc("/oauth/token", s.oauthHandler.ServeToken)
-
-	// OAuth Callback endpoint (from provider)
-	mux.HandleFunc("/oauth/callback", s.oauthHandler.ServeCallback)
-
-	// Token Revocation endpoint (RFC 7009)
-	mux.HandleFunc("/oauth/revoke", s.oauthHandler.ServeTokenRevocation)
-
-	// Token Introspection endpoint (RFC 7662)
-	mux.HandleFunc("/oauth/introspect", s.oauthHandler.ServeTokenIntrospection)
+	s.oauthHandler.RegisterOAuthRoutes(mux, oauth.OAuthRoutesOptions{
+		MCPPath:         "/mcp",
+		IncludeMetadata: true,
+	})
 
 	logging.Info("OAuth", "Registered OAuth 2.1 endpoints")
 }
@@ -595,13 +584,13 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
-	// Create storage backend based on configuration
-	var tokenStore storage.TokenStore
-	var clientStore storage.ClientStore
-	var flowStore storage.FlowStore
+	// Create storage backend based on configuration. Both memory.Store and
+	// valkey.Store satisfy storage.Combined (TokenStore + ClientStore + FlowStore),
+	// so a single handle is enough.
+	var combinedStore storage.Combined
 
 	switch cfg.Storage.Type {
-	case "valkey":
+	case storage.BackendValkey:
 		if cfg.Storage.Valkey.URL == "" {
 			return nil, nil, fmt.Errorf("valkey URL is required when using valkey storage")
 		}
@@ -631,7 +620,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := base64.StdEncoding.DecodeString(cfg.EncryptionKey)
+			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
@@ -645,20 +634,15 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
-		tokenStore = valkeyStore
-		clientStore = valkeyStore
-		flowStore = valkeyStore
+		combinedStore = valkeyStore
 		logger.Info("Using Valkey storage backend", "address", cfg.Storage.Valkey.URL)
 
-	case "memory", "":
-		memStore := memory.New()
-		tokenStore = memStore
-		clientStore = memStore
-		flowStore = memStore
+	case storage.BackendMemory, "":
+		combinedStore = memory.New()
 		logger.Info("Using in-memory storage backend")
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: memory, valkey)", cfg.Storage.Type)
+		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
 	// Set defaults
@@ -686,6 +670,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		RegistrationAccessToken:          cfg.RegistrationToken,
 		MaxClientsPerIP:                  maxClientsPerIP,
 		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
+		EnableIntrospectionEndpoint:      true,
 		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
 		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
 		TrustedAudiences:                 cfg.TrustedAudiences,
@@ -699,12 +684,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		},
 	}
 
-	// Create OAuth server
-	oauthSrv, err := oauth.NewServer(
+	// Create OAuth server. Both memory and valkey backends implement
+	// storage.Combined, so we use the single-store constructor instead of
+	// passing the same handle three times.
+	oauthSrv, err := oauth.NewServerWithCombined(
 		provider,
-		tokenStore,
-		clientStore,
-		flowStore,
+		combinedStore,
 		serverConfig,
 		logger,
 	)
@@ -712,9 +697,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Set up encryption if key provided (for memory storage)
-	if cfg.EncryptionKey != "" && cfg.Storage.Type != "valkey" {
-		keyBytes, err := base64.StdEncoding.DecodeString(cfg.EncryptionKey)
+	// Set up encryption if key provided (for memory storage; valkey wires the
+	// encryptor onto the store directly above).
+	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
+		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}
@@ -749,7 +735,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	oauthSrv.SetClientRegistrationRateLimiter(clientRegRL)
 	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", maxClientsPerIP)
 
-	return oauthSrv, tokenStore, nil
+	return oauthSrv, combinedStore, nil
 }
 
 // createHTTPClientWithCA creates an HTTP client that trusts certificates signed by

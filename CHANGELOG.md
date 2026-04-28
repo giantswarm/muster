@@ -8,10 +8,14 @@ All notable changes to this project will be documented in this file.
 
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.
 - Add `ciliumNetworkPolicy.allowClusterIngress` Helm value to allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP).
+- OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
+- Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
+- Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
 
 ### Changed
 
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
+- Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
 ### Fixed
 
