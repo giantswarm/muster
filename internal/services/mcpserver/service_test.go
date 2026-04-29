@@ -540,10 +540,7 @@ func TestConfigurationChanged(t *testing.T) {
 				URL:       "http://example.com",
 				AutoStart: true,
 				Auth: &api.MCPServerAuth{
-					Type: "teleport",
-					Teleport: &api.TeleportAuth{
-						AppName: "my-app",
-					},
+					Type: "none",
 				},
 			},
 			expectChanged: true,

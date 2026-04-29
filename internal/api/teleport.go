@@ -85,32 +85,3 @@ type TeleportClientConfig struct {
 	// When specified, the HTTP client will include the appropriate Host header.
 	AppName string
 }
-
-// TeleportAuth configures Teleport authentication for an MCP server.
-// This enables access to MCP servers on private installations via Teleport
-// Application Access using Machine ID certificates.
-type TeleportAuth struct {
-	// IdentityDir is the directory containing Teleport identity files.
-	// In filesystem mode, this is the tbot output directory.
-	// In Kubernetes mode, this is where the identity secret is mounted.
-	// Example: /var/run/tbot/identity
-	IdentityDir string `yaml:"identityDir,omitempty" json:"identityDir,omitempty"`
-
-	// IdentitySecretName is the name of the Kubernetes Secret containing
-	// tbot identity files. Used when running in Kubernetes mode.
-	// The secret should contain: tlscert, key, teleport-application-ca.pem
-	// Example: tbot-identity-output
-	IdentitySecretName string `yaml:"identitySecretName,omitempty" json:"identitySecretName,omitempty"`
-
-	// IdentitySecretNamespace is the Kubernetes namespace where the identity
-	// secret is located. Defaults to the MCPServer's namespace if not specified.
-	IdentitySecretNamespace string `yaml:"identitySecretNamespace,omitempty" json:"identitySecretNamespace,omitempty"`
-
-	// AppName is the Teleport application name for routing.
-	// This is used to identify which Teleport-protected application to connect to.
-	// Example: mcp-kubernetes
-	AppName string `yaml:"appName,omitempty" json:"appName,omitempty"`
-}
-
-// AuthTypeTeleport is the auth type value for Teleport authentication.
-const AuthTypeTeleport = "teleport"

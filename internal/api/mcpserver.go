@@ -67,7 +67,7 @@ type MCPServer struct {
 
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports three distinct authentication mechanisms:
+// Muster supports two SSO mechanisms:
 //
 //   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
 //     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
@@ -76,14 +76,12 @@ type MCPServer struct {
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
 //
-//   - Teleport Authentication: Muster uses Teleport Machine ID certificates to access
-//     private installations via Teleport Application Access. Enable with Type: "teleport"
-//     and configure Teleport settings.
+// Network-level access for private installations (e.g. mTLS via Teleport) is
+// configured via the top-level spec.transport, not via spec.auth.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
@@ -127,17 +125,6 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `yaml:"tokenExchange,omitempty" json:"tokenExchange,omitempty"`
-
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	//
-	// The Teleport identity files (tls.crt, tls.key, ca.crt) are typically:
-	//   - In Kubernetes: Mounted from a Secret managed by tbot
-	//   - In filesystem mode: Read directly from the tbot output directory
-	Teleport *TeleportAuth `yaml:"teleport,omitempty" json:"teleport,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

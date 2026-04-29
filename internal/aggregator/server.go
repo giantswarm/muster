@@ -2559,22 +2559,14 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		}
 	}
 
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
-	}
-
-	var exchangedToken string
-	var err error
-	if teleportResult.Client != nil {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx, idToken, userID, &exchangeConfig, teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx, idToken, userID, &exchangeConfig,
-		)
-	}
+	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
+	// configured per-CR via spec.transport (TB-0). Wiring it into this code
+	// path is the responsibility of TB-7's CR-driven transport dispatcher.
+	// Until that lands, this path always uses the default HTTP client —
+	// equivalent to direct HTTPS to spec.auth.tokenExchange.dexTokenEndpoint.
+	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
+		ctx, idToken, userID, &exchangeConfig,
+	)
 	if err != nil {
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
@@ -2585,12 +2577,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	var client MCPClient
-	if teleportResult.Client != nil {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
+	client := MCPClient(internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc))
 
 	return client, tokenExpiry, exchangedToken, nil
 }
