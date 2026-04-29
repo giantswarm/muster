@@ -131,4 +131,3 @@ error.
   secretName: {{ $a.identitySecret | quote }}
 {{- end }}
 {{- end }}
-
