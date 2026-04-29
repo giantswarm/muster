@@ -85,13 +85,32 @@ type MCPServerTransport struct {
 	Teleport *TeleportTransport `yaml:"teleport,omitempty" json:"teleport,omitempty"`
 }
 
-// TeleportTransport carries the symbolic remote cluster name. Muster derives
-// both Teleport app names (mcp-kubernetes-{cluster}, dex-{cluster}) and the
-// matching tbot-output identity-secret references from this single value
-// (PLAN §6 TB-1/TB-2/TB-4).
+// TeleportTransport names the explicit Teleport application(s) and identity
+// secret(s) for the MCP and (optionally) Dex transports. Mirrors the
+// CRD-level type (PLAN §6 TB-0, revised 2026-04-29 to explicit fields).
+// Both targets carry their app name and Secret reference verbatim — no
+// derivation, no naming-convention assumed.
 type TeleportTransport struct {
-	// Cluster is the remote cluster name (e.g. "glean", "finch").
-	Cluster string `yaml:"cluster" json:"cluster"`
+	// MCP names the Teleport application + identity Secret used for the
+	// MCP HTTP endpoint. Required when transport.type=="teleport".
+	MCP TeleportTarget `yaml:"mcp" json:"mcp"`
+
+	// Dex names the Teleport application + identity Secret used for the
+	// Dex token-exchange endpoint. Required when
+	// auth.tokenExchange.enabled==true; nil otherwise.
+	Dex *TeleportTarget `yaml:"dex,omitempty" json:"dex,omitempty"`
+}
+
+// TeleportTarget is the explicit (Teleport app name, identity secret name)
+// pair for a single Teleport-routed endpoint. Mirrors the CRD-level type.
+type TeleportTarget struct {
+	// AppName is the Teleport application name (leftmost label of
+	// public_addr). Lowercase DNS label syntax.
+	AppName string `yaml:"appName" json:"appName"`
+
+	// IdentitySecretName is the in-cluster Secret carrying the tbot-output
+	// identity material for AppName.
+	IdentitySecretName string `yaml:"identitySecretName" json:"identitySecretName"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.

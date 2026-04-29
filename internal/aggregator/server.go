@@ -24,6 +24,7 @@ import (
 	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -554,8 +555,22 @@ func (a *AggregatorServer) resolveTransportClients(ctx context.Context, info *Se
 			Type: info.TransportConfig.Type,
 		}
 		if info.TransportConfig.Teleport != nil {
+			tt := info.TransportConfig.Teleport
 			syn.Spec.Transport.Teleport = &v1alpha1.TeleportTransport{
-				Cluster: info.TransportConfig.Teleport.Cluster,
+				MCP: v1alpha1.TeleportTarget{
+					AppName: tt.MCP.AppName,
+					IdentitySecretRef: corev1.LocalObjectReference{
+						Name: tt.MCP.IdentitySecretName,
+					},
+				},
+			}
+			if tt.Dex != nil {
+				syn.Spec.Transport.Teleport.Dex = &v1alpha1.TeleportTarget{
+					AppName: tt.Dex.AppName,
+					IdentitySecretRef: corev1.LocalObjectReference{
+						Name: tt.Dex.IdentitySecretName,
+					},
+				}
 			}
 		}
 	}

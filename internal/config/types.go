@@ -50,31 +50,29 @@ type AggregatorConfig struct {
 
 	// TransportRouting configures the CR-driven transport dispatcher
 	// (TB-7/TB-8). Distinct from `Transport` above (which selects the wire
-	// protocol — sse / streamable-http / stdio). Owned by the muster
-	// Deployment (helm chart) — provisions per-cluster tbot-output identity
-	// material whose names are referenced by MCPServer CRs via
-	// spec.transport.teleport.cluster.
+	// protocol — sse / streamable-http / stdio). With the explicit-fields
+	// reshape (PLAN §6 TB-0 revised 2026-04-29), the CR carries the
+	// (appName, identitySecretRef.Name) pairs verbatim — no aggregator-side
+	// cluster allowlist is needed. The Deployment-level config now only
+	// declares the namespace where tbot-output identity Secrets live.
 	TransportRouting TransportRoutingConfig `yaml:"transportRouting,omitempty"`
 }
 
 // TransportRoutingConfig is the Deployment-level companion to per-CR
-// spec.transport.teleport.cluster (TB-0). It declares which Teleport clusters
-// the muster Deployment has identity material for; CRs that reference an
-// unconfigured cluster surface ClusterNotConfigured on
-// MCPServer.status.conditions[type=TransportReady].
+// spec.transport.teleport (TB-0, revised 2026-04-29). The CR carries the
+// explicit Teleport app names and identity-secret refs; the Deployment-level
+// config only contributes the namespace where the dispatcher reads Secrets
+// from.
 type TransportRoutingConfig struct {
 	// Teleport groups Teleport-specific transport configuration.
 	Teleport TeleportTransportConfig `yaml:"teleport,omitempty"`
 }
 
-// TeleportTransportConfig declares the set of remote clusters with provisioned
-// tbot identity material on this Deployment.
+// TeleportTransportConfig carries the namespace knob for tbot-output identity
+// Secrets. (Pre-reshape this also carried a clusters[] allowlist; under the
+// explicit-fields shape that allowlist is unnecessary — every CR names its
+// own appNames and Secrets.)
 type TeleportTransportConfig struct {
-	// Clusters is the list of remote-cluster names. Each entry must match the
-	// name of a tbot-output that wrote the matching identity Secrets per the
-	// <role>-<cluster> convention (PLAN §6 TB-1/TB-2/TB-4).
-	Clusters []string `yaml:"clusters,omitempty"`
-
 	// SecretNamespace is the Kubernetes namespace from which the dispatcher
 	// reads tbot-identity Secrets. Defaults to "muster-system" when empty.
 	SecretNamespace string `yaml:"secretNamespace,omitempty"`

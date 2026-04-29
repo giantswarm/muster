@@ -227,8 +227,12 @@ func makeIdentitySecret(name, namespace string, bundle *testCertBundle) *corev1.
 // to the derived <role>-<cluster> app name.
 func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 	const (
-		cluster = "glean"
-		ns      = "muster-system"
+		cluster       = "glean"
+		ns            = "muster-system"
+		mcpAppName    = "mcp-kubernetes-glean"
+		dexAppName    = "dex-glean"
+		mcpSecretName = "tbot-identity-mcp-glean"
+		dexSecretName = "tbot-identity-tx-glean"
 	)
 
 	mcpBundle := buildTestBundle(t, "mcp-client-"+cluster)
@@ -260,11 +264,11 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 	}
 
 	k8s := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(
-		makeIdentitySecret(teleport.MCPSecretName(cluster), ns, mcpBundle),
-		makeIdentitySecret(teleport.DexSecretName(cluster), ns, dexBundle),
+		makeIdentitySecret(mcpSecretName, ns, mcpBundle),
+		makeIdentitySecret(dexSecretName, ns, dexBundle),
 	).Build()
 
-	dispatcher, err := teleport.NewTransportDispatcher(k8s, []string{cluster}, ns)
+	dispatcher, err := teleport.NewTransportDispatcher(k8s, ns)
 	if err != nil {
 		t.Fatalf("dispatcher: %v", err)
 	}
@@ -289,8 +293,17 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 			},
 		},
 		TransportConfig: &api.MCPServerTransport{
-			Type:     "teleport",
-			Teleport: &api.TeleportTransport{Cluster: cluster},
+			Type: "teleport",
+			Teleport: &api.TeleportTransport{
+				MCP: api.TeleportTarget{
+					AppName:            mcpAppName,
+					IdentitySecretName: mcpSecretName,
+				},
+				Dex: &api.TeleportTarget{
+					AppName:            dexAppName,
+					IdentitySecretName: dexSecretName,
+				},
+			},
 		},
 	}
 
@@ -318,8 +331,8 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 	if got.authzHeader != "Bearer exchanged-token-marker" {
 		t.Errorf("mcp server: Authorization=%q want Bearer exchanged-token-marker", got.authzHeader)
 	}
-	if got.host != teleport.MCPAppName(cluster) {
-		t.Errorf("mcp server: Host=%q want %q (appNameTransport rewrite)", got.host, teleport.MCPAppName(cluster))
+	if got.host != mcpAppName {
+		t.Errorf("mcp server: Host=%q want %q (appNameTransport rewrite)", got.host, mcpAppName)
 	}
 	if got.peerCertSubject != "mcp-client-"+cluster {
 		t.Errorf("mcp server: peer cert CN=%q want mcp-client-%s", got.peerCertSubject, cluster)
@@ -340,8 +353,8 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 	if dexGot.peerCertSubject != "dex-client-"+cluster {
 		t.Errorf("dex server: peer cert CN=%q want dex-client-%s", dexGot.peerCertSubject, cluster)
 	}
-	if dexGot.host != teleport.DexAppName(cluster) {
-		t.Errorf("dex server: Host=%q want %q", dexGot.host, teleport.DexAppName(cluster))
+	if dexGot.host != dexAppName {
+		t.Errorf("dex server: Host=%q want %q", dexGot.host, dexAppName)
 	}
 	// Distinct cert serials prove the per-role secrets resolved to the right
 	// per-role TLS clients (locks PLAN §9 Q4: 2 secrets per remote MC).
@@ -371,7 +384,7 @@ func TestTB10_TransportUnsetIsDirectHTTPS(t *testing.T) {
 	}
 	k8s := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	dispatcher, err := teleport.NewTransportDispatcher(k8s, []string{"glean"}, "muster-system")
+	dispatcher, err := teleport.NewTransportDispatcher(k8s, "muster-system")
 	if err != nil {
 		t.Fatalf("dispatcher: %v", err)
 	}

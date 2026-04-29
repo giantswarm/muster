@@ -138,14 +138,26 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.NextRetryAfter = &t
 	}
 
-	// Convert transport configuration if present (TB-0).
+	// Convert transport configuration if present (TB-0, revised 2026-04-29
+	// to explicit fields). Both targets carry their app name and identity
+	// secret name verbatim — no derivation.
 	if server.Spec.Transport != nil {
 		info.Transport = &api.MCPServerTransport{
 			Type: server.Spec.Transport.Type,
 		}
 		if server.Spec.Transport.Teleport != nil {
+			tt := server.Spec.Transport.Teleport
 			info.Transport.Teleport = &api.TeleportTransport{
-				Cluster: server.Spec.Transport.Teleport.Cluster,
+				MCP: api.TeleportTarget{
+					AppName:            tt.MCP.AppName,
+					IdentitySecretName: tt.MCP.IdentitySecretRef.Name,
+				},
+			}
+			if tt.Dex != nil {
+				info.Transport.Teleport.Dex = &api.TeleportTarget{
+					AppName:            tt.Dex.AppName,
+					IdentitySecretName: tt.Dex.IdentitySecretRef.Name,
+				}
 			}
 		}
 	}

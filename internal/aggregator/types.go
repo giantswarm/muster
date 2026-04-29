@@ -186,16 +186,12 @@ func (s *ServerInfo) GetNamespace() string {
 }
 
 // TransportRoutingConfig groups the runtime knobs for the CR-driven transport
-// dispatcher (TB-7/TB-8). Wires per-cluster identity material rendered by the
-// helm chart (TB-4) into the aggregator's outbound HTTP path. Distinct from
-// AggregatorConfig.Transport (which selects the wire protocol).
+// dispatcher (TB-7/TB-8). Distinct from AggregatorConfig.Transport (which
+// selects the wire protocol). Reshape (PLAN §6 TB-0 revised 2026-04-29): the
+// CR carries the explicit (appName, identitySecretRef.Name) pairs verbatim,
+// so no aggregator-side cluster allowlist is needed; the dispatcher only
+// needs the namespace where tbot-output identity Secrets live.
 type TransportRoutingConfig struct {
-	// TeleportClusters is the set of remote-cluster names the muster
-	// Deployment has been provisioned with tbot-output identity material for.
-	// An empty set disables the Teleport transport — any MCPServer CR with
-	// spec.transport.teleport will fail with ErrClusterNotConfigured.
-	TeleportClusters []string
-
 	// SecretNamespace is the Kubernetes namespace from which tbot-output
 	// identity Secrets are read. Defaults to teleport.DefaultSecretNamespace
 	// ("muster-system") when empty.

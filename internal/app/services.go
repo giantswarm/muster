@@ -267,8 +267,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				BindAddress: cfg.MusterConfig.Aggregator.Admin.BindAddress,
 			},
 			TransportRouting: aggregator.TransportRoutingConfig{
-				TeleportClusters: cfg.MusterConfig.Aggregator.TransportRouting.Teleport.Clusters,
-				SecretNamespace:  cfg.MusterConfig.Aggregator.TransportRouting.Teleport.SecretNamespace,
+				SecretNamespace: cfg.MusterConfig.Aggregator.TransportRouting.Teleport.SecretNamespace,
 			},
 		}
 
@@ -303,14 +302,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		aggAdapter.Register()
 
 		// TB-8: build the CR-driven transport dispatcher when running in
-		// Kubernetes mode AND at least one Teleport cluster is configured in
-		// helm values. In filesystem mode (no controller-runtime client) or
-		// when clusters[] is empty, the aggregator falls back to direct HTTPS
-		// — preserving customer-Muster behavior.
-		if musterClient.IsKubernetesMode() && len(aggConfig.TransportRouting.TeleportClusters) > 0 {
+		// Kubernetes mode. In filesystem mode (no controller-runtime client)
+		// the aggregator falls back to direct HTTPS — preserving
+		// customer-Muster behavior. After the TB-0 explicit-fields reshape
+		// the CR carries every (appName, identitySecretRef) pair verbatim,
+		// so no aggregator-side cluster allowlist is needed.
+		if musterClient.IsKubernetesMode() {
 			dispatcher, err := teleport.NewTransportDispatcher(
 				musterClient,
-				aggConfig.TransportRouting.TeleportClusters,
 				aggConfig.TransportRouting.SecretNamespace,
 			)
 			if err != nil {
@@ -319,8 +318,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				if mgr := aggService.GetManager(); mgr != nil {
 					if srv := mgr.GetAggregatorServer(); srv != nil {
 						srv.SetTransportDispatcher(dispatcher, musterClient)
-						logging.Info("Services", "CR-driven transport dispatcher wired (clusters=%v, namespace=%q)",
-							aggConfig.TransportRouting.TeleportClusters, aggConfig.TransportRouting.SecretNamespace)
+						logging.Info("Services", "CR-driven transport dispatcher wired (namespace=%q)",
+							aggConfig.TransportRouting.SecretNamespace)
 					}
 				}
 			}
