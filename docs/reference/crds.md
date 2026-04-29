@@ -64,6 +64,13 @@ spec:
     requiredAudiences:        # Audiences needed in forwarded token (e.g., for Kubernetes OIDC)
       - "dex-k8s-authenticator"
 
+  # Optional: Network transport for reaching url (remote servers).
+  # Omit for direct HTTPS (the customer-Muster default).
+  transport:
+    type: teleport            # Discriminator. Only "teleport" today.
+    teleport:
+      cluster: "<name>"       # Symbolic remote MC name (e.g. "glean").
+
 # Status is managed automatically by muster (via reconciliation)
 status:
   state: running          # unknown|starting|running|stopping|stopped|failed
@@ -91,6 +98,7 @@ status:
 | `headers` | `map[string]string` | No | HTTP headers for remote servers | Only for streamable-http and sse servers |
 | `timeout` | `integer` | No | Connection timeout in seconds | Min: 1, Max: 300, Default: 30 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
+| `transport` | `MCPServerTransport` | No | Network transport for reaching `url` (and `auth.tokenExchange.dexTokenEndpoint`, when enabled) | Forbidden when `type` is `stdio`; see [MCPServerTransport Fields](#mcpservertransport-fields) below |
 
 #### MCPServerAuth Fields
 
@@ -178,6 +186,99 @@ roleRef:
 3. **Monitoring**: After rotation, monitor logs for authentication failures. Muster logs token exchange attempts (with client_id, not secrets) for troubleshooting.
 
 4. **Automation**: Consider using external secrets management (e.g., External Secrets Operator, Vault) for automated rotation.
+
+#### Transport (`spec.transport`)
+
+`spec.transport` is an optional block on remote (`streamable-http` / `sse`)
+servers that selects the **network path** muster uses to reach `spec.url`
+(and, when `auth.tokenExchange.enabled` is true, the
+`auth.tokenExchange.dexTokenEndpoint`). It carries no identity — see
+[`spec.auth`](#mcpserverauth-fields) for that.
+
+Omitting `spec.transport` is the default and means **direct HTTPS** to
+`spec.url`. This preserves customer-Muster behaviour for in-VPN deployments
+that reach their own MCs without going through Teleport.
+
+##### MCPServerTransport Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `type` | `string` | Yes | Transport discriminator | Enum: `teleport`. Future transports (e.g. `wireguard`) extend this enum additively without breaking existing CRs. |
+| `teleport` | `TeleportTransport` | Conditional | Per-cluster Teleport routing | Required when `type` is `teleport`; forbidden otherwise. |
+
+##### TeleportTransport Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `cluster` | `string` | Yes | Symbolic remote MC name. Muster derives the Teleport app names and tbot identity-secret references by the locked `<role>-<cluster>` convention. | Pattern: `^[a-z][a-z0-9-]*$` — lowercase letters/digits/hyphens, must start with a letter. |
+
+**`<role>-<cluster>` derivation.** From `cluster: <name>` muster derives
+four resolved names that **must** match the muster Helm chart's
+provisioning (`transport.teleport.clusters[]` in the chart values):
+
+| Role | Teleport app name | tbot identity Secret |
+|---|---|---|
+| MCP traffic | `mcp-kubernetes-{cluster}` | `tbot-identity-mcp-{cluster}` |
+| Dex token-exchange | `dex-{cluster}` | `tbot-identity-tx-{cluster}` |
+
+This convention is locked across the Helm chart, the Teleport-side app
+registrations in `giantswarm-management-clusters`, and the muster Go
+dispatcher. See
+[Configure tbot identity](../how-to/configure-tbot-identity.md) for the
+chart-side details.
+
+##### Validation rules (CEL)
+
+Three CRD-level CEL rules constrain `spec.transport`:
+
+1. **Discriminator coherence (forward).** When `transport.type` is
+   `teleport`, `transport.teleport` is required.
+   - Effect: a CR that sets `transport.type: teleport` but omits the
+     `teleport:` sibling block is rejected by the API server.
+2. **Discriminator coherence (reverse).** `transport.teleport` may only
+   be set when `transport.type` is `teleport`.
+   - Effect: today this is identical to rule 1; once additional
+     transports land, the rule prevents stuffing a `teleport:` block into
+     a CR whose `type` is e.g. `wireguard`.
+3. **Stdio exclusion.** `spec.transport` is forbidden when
+   `spec.type: stdio`.
+   - Effect: stdio servers run as local processes with no network
+     endpoint, so a transport selector would be meaningless. The CR is
+     rejected.
+
+##### Runtime status
+
+When the dispatcher cannot resolve a CR's transport (e.g. the `cluster`
+is not provisioned in the muster Helm release, or a tbot identity Secret
+is missing), it sets
+`MCPServer.status.conditions[type=TransportReady, status=False]` with one
+of: `ClusterNotConfigured`, `SecretMissing`, `SecretInvalid`,
+`TransportError`. See
+[Access Private MCP Servers](../how-to/access-private-mcp-servers.md#drift-signals)
+for the full table.
+
+##### Example
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: mcp-kubernetes-glean
+spec:
+  type: streamable-http
+  url: https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp
+  transport:
+    type: teleport
+    teleport:
+      cluster: glean
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      dexTokenEndpoint: https://dex-glean.teleport.giantswarm.io/token
+      expectedIssuer: https://dex.glean.azuretest.gigantic.io
+      connectorId: giantswarm
+```
 
 #### Status Fields
 

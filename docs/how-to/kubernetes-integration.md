@@ -187,5 +187,7 @@ filter tools kubernetes
 
 - [MCP Server Management](mcp-server-management.md) - Detailed MCP server configuration
 - [SSO Authentication](mcp-server-management.md#sso-authentication) - Single Sign-On setup
-- [Teleport Authentication](teleport-authentication.md) - Teleport integration for cluster access
+- [Access Private MCP Servers](access-private-mcp-servers.md) - Reach mcp-kubernetes on private MCs via Teleport
+- [Configure tbot Identity (cluster-admin)](configure-tbot-identity.md) - Provision Teleport identity material for muster
+- [Provision the Teleport Bot (SRE)](provision-teleport-bot.md) - Set up the Teleport-side bot/role/token
 - [Configuration Reference](../reference/configuration.md) - Complete configuration options

@@ -1,0 +1,189 @@
+# Access Private MCP Servers via Teleport
+
+> **Audience: engineers authoring `MCPServer` CRs** that need to reach
+> mcp-kubernetes (or any other MCP server) on a **private** Giant Swarm
+> management cluster — i.e. a cluster only reachable through Teleport
+> Application Access. Cluster-admins owning the muster Helm release should
+> read [Configure tbot identity](configure-tbot-identity.md). SREs running
+> the Teleport-side bot script should read
+> [Provision the Teleport Bot](provision-teleport-bot.md).
+
+## Mental model
+
+Three bullets to internalise before writing the CR:
+
+- **Identity (OAuth) is separate from access (Teleport).** OAuth tokens
+  carry user identity; Teleport mTLS provides network-level reachability
+  into the private MC. They are configured independently on the same CR.
+- **`spec.transport` is the access knob.** It declares "how do I reach
+  this URL?". Today the only value is `teleport`; tomorrow it could be
+  `wireguard` (see [Future transports](#future-transports)).
+- **`spec.auth` is the identity knob.** Token forwarding, RFC 8693 token
+  exchange, audience requirements — all unchanged from before. Setting
+  `spec.transport.teleport.cluster` does **not** change `spec.auth`
+  semantics; the two compose.
+
+The CR declares its **transport intent**. The muster Deployment provides
+the **identity material** (tbot-provisioned mTLS Secrets), keyed by the
+cluster name in the CR. The two sides meet at the locked
+`<role>-<cluster>` naming convention — see
+[Configure tbot identity](configure-tbot-identity.md#the-role-cluster-naming-convention-is-locked).
+
+## Customer-Muster compatibility
+
+**Omitting `spec.transport` falls back to direct HTTPS to `spec.url`.**
+This preserves today's behaviour for in-VPN customer Muster deployments
+that reach their own MCs directly without going through Teleport. The
+field is purely additive — existing CRs without `spec.transport` remain
+valid and behave identically.
+
+Set `spec.transport` only when the URL in `spec.url` is a
+`*.teleport.giantswarm.io` proxy address that requires per-app mTLS to
+reach.
+
+## Worked example: mcp-kubernetes on `glean`
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: mcp-kubernetes-glean
+  namespace: default
+spec:
+  type: streamable-http
+  url: https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp
+  transport:
+    type: teleport
+    teleport:
+      cluster: glean
+  auth:
+    type: oauth
+    tokenExchange:
+      enabled: true
+      dexTokenEndpoint: https://dex-glean.teleport.giantswarm.io/token
+      expectedIssuer: https://dex.glean.azuretest.gigantic.io
+      connectorId: giantswarm
+```
+
+Field-by-field walkthrough:
+
+| Field | Why this value |
+|---|---|
+| `spec.type: streamable-http` | mcp-kubernetes speaks streamable-HTTP. Stdio servers cannot use `spec.transport` — the schema rejects it (CEL rule, see [Drift signals](#drift-signals)). |
+| `spec.url` | The Teleport public address for the mcp-kubernetes app. Must match the `public_addr` registered in `giantswarm-management-clusters` for `mcp-kubernetes-glean`. |
+| `spec.transport.type: teleport` | Today the only allowed value. Discriminator for future transports — see [Future transports](#future-transports). |
+| `spec.transport.teleport.cluster: glean` | The single routing knob. Muster derives `mcp-kubernetes-glean` (MCP app) and `dex-glean` (Dex app), plus the matching tbot identity Secrets, from this one symbol. |
+| `spec.auth.type: oauth` | Standard OAuth/OIDC identity. The legacy `auth.type: teleport` value was removed in TB-8b — Teleport is no longer an *identity* type, only a transport. |
+| `spec.auth.tokenExchange.enabled: true` | Cross-cluster SSO: muster exchanges its local token for one valid on `glean`'s Dex. Required when `mcp-kubernetes` validates against `glean`'s Dex (it does; see PLAN §2). |
+| `spec.auth.tokenExchange.dexTokenEndpoint` | The proxied URL muster reaches Dex through. Resolves to the Teleport proxy from Gazelle's pod network. |
+| `spec.auth.tokenExchange.expectedIssuer` | The actual Dex issuer URL — what `iss` claim muster expects in the exchanged token. **Must be the in-cluster issuer**, not the proxy URL, because Dex's tokens carry the configured issuer regardless of how they were fetched (PLAN §2 invariant). Setting this prevents token substitution attacks via the proxy. |
+| `spec.auth.tokenExchange.connectorId: giantswarm` | Canonical connector ID, **decoupled from cluster name**, locked in the 2026-04-29 design review. The `giantswarm` connector on the remote Dex (provisioned by `dex-operator` per TB-5) trusts Gazelle's Dex as the federated upstream. |
+
+If the remote Dex requires client credentials for token exchange, add a
+`clientCredentialsSecretRef` block — see
+[`docs/reference/crds.md`](../reference/crds.md) for the full schema.
+
+### `spec.transport` and `spec.auth` compose freely
+
+The two blocks do not interact at the schema level: a CR with
+`spec.transport.teleport` set and no `spec.auth.tokenExchange` is valid
+(direct mTLS, no token exchange). Conversely, a CR with token exchange
+enabled but no `spec.transport` reaches Dex over direct HTTPS (the
+customer-Muster default). When **both** are set, muster sends the
+`/token` POST through the same per-cluster Dex mTLS client it uses for
+the MCP traffic — token exchange flows through the Teleport proxy too.
+
+## Token-exchange config in detail
+
+The token-exchange fields live under `spec.auth.tokenExchange`:
+
+| Field | Purpose |
+|---|---|
+| `enabled` | Master switch. `false` by default. |
+| `dexTokenEndpoint` | URL muster POSTs the token-exchange request to. Use the Teleport proxy URL (`https://dex-{cluster}.teleport.giantswarm.io/token`) when accessing through Teleport. |
+| `expectedIssuer` | Expected `iss` claim on the exchanged token. **Set this explicitly** when accessing through a proxy — otherwise muster derives it from `dexTokenEndpoint`, which is the proxy URL, and validation fails. |
+| `connectorId` | OIDC connector on the remote Dex. Canonical value `giantswarm` (locked 2026-04-29) for production; do not invent per-cluster IDs. |
+| `scopes` | Optional override. Default `openid profile email groups` covers Kubernetes RBAC needs. |
+| `clientCredentialsSecretRef` | Reference to a Kubernetes Secret with the OAuth client ID + secret registered as a static client on the remote Dex. Required when the remote Dex is configured to require client auth on `/token`. |
+
+The `giantswarm` connector is decoupled from cluster name: every remote
+Dex provisioned by `dex-operator` (TB-5) carries the same connector ID,
+regardless of MC. CR authors do **not** need to vary `connectorId` per
+cluster.
+
+For the full TokenExchange / ClientCredentialsSecretRef schema (including
+RBAC requirements for cross-namespace secret access), see
+[`docs/reference/crds.md`](../reference/crds.md).
+
+## Drift signals
+
+Muster surfaces transport problems on
+`MCPServer.status.conditions[type=TransportReady, status=False]` with a
+machine-readable `reason`. **Look there first** — `kubectl get mcpserver
+<name> -o yaml` shows the condition and a human-readable message naming
+the offending resource.
+
+| `reason` | Means | Fix |
+|---|---|---|
+| `ClusterNotConfigured` | `spec.transport.teleport.cluster` references a cluster not in the muster Deployment's Helm `clusters[]`. | Either (preferred) extend `transport.teleport.clusters[]` in the muster Helm values — see [Configure tbot identity](configure-tbot-identity.md#onboarding-a-new-mc) — or `kubectl patch` the CR to a cluster that is configured. |
+| `SecretMissing` | The cluster *is* configured in Helm, but tbot has not (yet) written the expected `tbot-identity-{mcp,tx}-{cluster}` Secret. | Inspect `kubectl logs -n muster-system deploy/muster-tbot`. Common causes: tbot crashlooping (bot role allowlist missing the cluster — see [Provision the Teleport Bot](provision-teleport-bot.md)), join token expired, Teleport proxy unreachable. |
+| `SecretInvalid` | Secret exists but is missing one of `tlscert` / `key` / `teleport-application-ca.pem`, or contains malformed PEM. | The chart RBAC restricts which Secrets tbot can write — usually a manual `kubectl edit` corrupted the Secret. Delete it; tbot will recreate it on the next renewal cycle. |
+| `TransportError` | Catch-all for unexpected dispatcher errors (e.g. RBAC denied on the Secret read). | The condition message carries the underlying error string; check the muster pod logs for full context. |
+
+These reasons are emitted by the `internal/teleport` dispatcher and are
+authoritative — they map 1:1 to the sentinel errors in
+`internal/teleport/dispatcher.go` (`ErrClusterNotConfigured`,
+`ErrSecretMissing`, `ErrSecretInvalid`).
+
+The same conditions feed Prometheus alerts (`MusterTransportSecretMissing`,
+`MusterTransportClusterDrift`, `MusterTokenExchangeFailures` — see PLAN §6
+TB-12). **The alerts are SRE-side**, intended to catch fleet-wide
+problems. As a CR author, **always look at the CR's status first** — the
+condition will tell you exactly which Secret or cluster is the problem,
+which an alert at fleet scale cannot.
+
+If `TransportReady` is `True`, transport is fine. Auth-side problems
+(token exchange failures, audience mismatches, downstream 401s) surface
+through events (`MCPServerTokenExchangeFailed`, `MCPServerTokenForwardingFailed`)
+and the existing CR `state` field — see
+[`docs/reference/crds.md`](../reference/crds.md#troubleshooting-token-exchange).
+
+## Future transports
+
+`spec.transport.type` is a discriminator. Today only `teleport` is
+allowed; the schema is designed so additional sibling transports can be
+added without breaking existing CRs:
+
+```yaml
+# Hypothetical future shape — NOT currently supported.
+spec:
+  transport:
+    type: wireguard
+    wireguard:
+      peer: ...
+```
+
+A future `wireguard` (or any other transport) would land as a new sibling
+field under `spec.transport` plus an additional enum value on
+`spec.transport.type`. CRs that use `type: teleport` keep working
+unchanged.
+
+If you want a transport that does not exist yet, open an issue rather
+than reaching for `headers:` or other side channels — the discriminator
+exists exactly so we can add transports cleanly.
+
+## Related
+
+- [Configure tbot Identity (cluster-admin)](configure-tbot-identity.md) —
+  what the muster Helm release provisions for the `cluster:` you
+  reference here.
+- [Provision the Teleport Bot (SRE)](provision-teleport-bot.md) — the
+  Teleport-side state that backs the identity material.
+- [`docs/reference/crds.md`](../reference/crds.md) — the full
+  `MCPServer` schema, including `spec.auth` and `spec.transport`
+  reference tables.
+- [PLAN.md §2](../../PLAN.md) — the OAuth-vs-Teleport separation of
+  concerns that motivates this design.
+- [PLAN.md §10](../../PLAN.md) — the six-step new-MC onboarding runbook
+  (this doc owns step 6).
+- [RFC 8693 — OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
