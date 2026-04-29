@@ -1,9 +1,11 @@
 {{/*
-helm-test (TB-4) — verifies tbot identity Secrets exist post-deploy and that
-their names match the locked <role>-<cluster> convention TB-7's dispatcher
-relies on.
+helm-test (TB-4) — verifies tbot identity Secrets exist post-deploy. Names
+come verbatim from .Values.transport.teleport.apps[].identitySecret; no
+naming-convention check (PLAN §6 TB-0 revised 2026-04-29 dropped the
+<role>-<cluster> convention in favor of explicit values in both the chart
+and the MCPServer CR).
 
-Template-time duplicate detection in apps[] is handled in _helpers.tpl
+Template-time duplicate detection on apps[] is handled in _helpers.tpl
 (muster.tbot.outputs). This Pod adds the runtime existence check.
 */}}
 {{- if .Values.transport.teleport.enabled -}}
@@ -31,39 +33,18 @@ spec:
         - |
           set -eu
           fail=0
-          {{- range $cluster := (default (list) .Values.transport.teleport.clusters) }}
-          # Each clusters[] entry must produce these two Secrets with the locked names
-          # so muster's CR-driven dispatcher can resolve spec.transport.teleport.cluster
-          # to the correct identity material.
-          for s in tbot-identity-mcp-{{ $cluster.name }} tbot-identity-tx-{{ $cluster.name }}; do
-            if ! kubectl get secret "$s" -n "$POD_NAMESPACE" >/dev/null 2>&1; then
-              echo "MISSING: $s"
-              fail=1
-            else
-              echo "OK: $s"
-            fi
-          done
-          {{- end }}
           {{- range $a := (default (list) .Values.transport.teleport.apps) }}
-          for s in {{ $a.secretName | quote }}; do
+          # Each apps[] entry must have produced its identitySecret. Names are
+          # explicit (PLAN §6 TB-0 revised 2026-04-29) — no naming convention
+          # to assert beyond existence.
+          for s in {{ $a.identitySecret | quote }}; do
             if ! kubectl get secret "$s" -n "$POD_NAMESPACE" >/dev/null 2>&1; then
-              echo "MISSING (apps[] override): $s"
+              echo "MISSING: $s (appName={{ $a.appName }})"
               fail=1
             else
-              echo "OK (apps[] override): $s"
+              echo "OK: $s (appName={{ $a.appName }})"
             fi
           done
-          {{- end }}
-          # Convention assertion: every derived appName matches <role>-<cluster> exactly
-          # (locked in TB-1/TB-2 and consumed by TB-7's dispatcher).
-          {{- range (include "muster.tbot.outputs" . | fromYamlArray) }}
-          case {{ .appName | quote }} in
-            mcp-kubernetes-*|dex-*) ;;
-            *)
-              echo "CONVENTION VIOLATION: appName {{ .appName | quote }} does not match <role>-<cluster>"
-              fail=1
-              ;;
-          esac
           {{- end }}
           exit $fail
       env:

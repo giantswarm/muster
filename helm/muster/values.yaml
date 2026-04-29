@@ -407,11 +407,16 @@ muster:
 # Transport configuration (TB-4 — identity material only).
 #
 # When transport.teleport.enabled is true the chart provisions a separate
-# tbot Deployment that writes one Kubernetes Secret per (cluster, role) pair
-# derived from `clusters[]`. These Secrets carry the mTLS material muster's
-# CR-driven dispatcher (TB-7) loads at request time when an MCPServer CR has
-# `spec.transport.teleport.cluster: <name>` set. The chart does NOT render
-# any deployment-level routing — transport intent is per-CR.
+# tbot Deployment that writes one Kubernetes Secret per `apps[]` entry.
+# These Secrets carry the mTLS material muster's CR-driven dispatcher
+# (TB-7) loads at request time when an MCPServer CR's `spec.transport.teleport`
+# names them via {mcp,dex}.identitySecretRef.
+#
+# After the TB-0 explicit-fields reshape (PLAN §6 TB-0 revised 2026-04-29)
+# the chart does NOT derive app or secret names from a cluster symbol —
+# every (appName, identitySecret) pair is stated explicitly. The CR carries
+# the same pair verbatim, so chart values and CRs grep against each other
+# directly.
 #
 # Customer Muster deployments (in-VPN) leave this off; the chart behaves
 # exactly as before.
@@ -433,24 +438,22 @@ transport:
       # tbot-deployment.yaml. Override per-environment as needed.
       tag: ""
       pullPolicy: IfNotPresent
-    # Provisioning hint — one entry per remote MC. The chart derives, for
-    # each entry:
-    #   appName=mcp-kubernetes-<name> -> Secret tbot-identity-mcp-<name>
-    #   appName=dex-<name>            -> Secret tbot-identity-tx-<name>
-    # Locked names; muster's dispatcher (TB-7) resolves both from the CR's
-    # spec.transport.teleport.cluster value.
-    clusters: []
-    # - name: glean
-    # - name: finch
+    # Explicit list of (Teleport application, Kubernetes Secret) pairs to
+    # provision. One entry per Teleport-routed endpoint (typically two per
+    # remote MC: an mcp-kubernetes app and a dex app). Each entry produces
+    # a tbot output and a Kubernetes Secret carrying the tbot-issued
+    # identity material.
     #
-    # Escape hatch for non-conformant tbot output names. apps[] entries
-    # whose `name` matches a clusters[]-derived entry override that entry;
-    # apps[]-only names are appended. Duplicate names within apps[] are a
-    # template-time error.
+    # Duplicate appName values within apps[] are a template-time error.
     apps: []
-    # - name: custom-mcp-glean
-    #   appName: custom-mcp-app-glean
-    #   secretName: tbot-identity-custom-glean
+    # - appName: mcp-kubernetes-glean
+    #   identitySecret: tbot-identity-mcp-glean
+    # - appName: dex-glean
+    #   identitySecret: tbot-identity-tx-glean
+    # - appName: mcp-kubernetes-finch
+    #   identitySecret: tbot-identity-mcp-finch
+    # - appName: dex-finch
+    #   identitySecret: tbot-identity-tx-finch
     #
     # tbot is light — small defaults are enough.
     resources:

@@ -5,10 +5,11 @@ Bot state is `storage.type: memory` — the kubernetes join method re-auths on
 every restart, so persistent storage would only add operational surface for
 no benefit (per PLAN §9 "tbot deployment topology").
 
-One outputs[] block per derived (cluster, role) pair. The list is rendered by
-the muster.tbot.outputs helper from .Values.transport.teleport.clusters[] with
-.Values.transport.teleport.apps[] applied as same-named overrides; duplicate
-names in apps[] are a templating-time error (see _helpers.tpl).
+One outputs[] block per .Values.transport.teleport.apps[] entry. The list is
+rendered by the muster.tbot.outputs helper from explicit (appName,
+identitySecret) pairs (PLAN §6 TB-0 revised 2026-04-29 + TB-4 follow-up); no
+naming-convention derivation. Duplicate appName values in apps[] are a
+templating-time error (see _helpers.tpl).
 
 The onboarding token name `muster-aggregator` is the contract with TB-3's
 provisioning script. proxy_server is a single value (one GS Teleport cluster

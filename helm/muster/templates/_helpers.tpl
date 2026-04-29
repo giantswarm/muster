@@ -95,85 +95,40 @@ tbot Deployment name.
 {{/*
 muster.tbot.outputs
 
-Returns the canonical list of derived (cluster, role) tbot outputs as a
-YAML list of dicts. Each entry has:
-  name        — unique key (used for collision detection: "<role>-<cluster>")
-  appName     — Teleport application name ("<role>-<cluster>")
-  secretName  — Kubernetes Secret name written by tbot
-                ("tbot-identity-mcp-<cluster>" or "tbot-identity-tx-<cluster>")
+Returns the canonical list of tbot outputs as a YAML list of dicts. Each
+entry has:
+  appName     — Teleport application name (verbatim from values.apps[].appName)
+  secretName  — Kubernetes Secret name written by tbot (verbatim from
+                values.apps[].identitySecret)
 
-Per PLAN §6 TB-4 the role tags in secret names are abbreviated:
-  mcp-kubernetes  -> "mcp" (secret tbot-identity-mcp-<cluster>)
-  dex             -> "tx"  (secret tbot-identity-tx-<cluster>)
+Reshape (PLAN §6 TB-0 revised 2026-04-29 + TB-4 follow-up): the chart no
+longer derives app or secret names from a cluster symbol. Every entry is
+stated explicitly under transport.teleport.apps[], and matches what the
+MCPServer CR carries in spec.transport.teleport.{mcp,dex}.{appName,
+identitySecretRef.name}.
 
-The Teleport-side appName uses the full role name ("mcp-kubernetes-<cluster>",
-"dex-<cluster>") because that name is what matches the Teleport apps list
-locked in TB-1/TB-2.
-
-apps[] entries override clusters[]-derived entries with the same `name` key
-(escape hatch for non-conformant Teleport-side names). Duplicate names within
-apps[] are a templating-time error.
+Duplicate appName values within apps[] are a template-time error.
+Missing appName or identitySecret on any apps[] entry is a template-time
+error.
 */}}
 {{- define "muster.tbot.outputs" -}}
 {{- $cfg := .Values.transport.teleport -}}
-{{- $derived := list -}}
-{{- range $idx, $cluster := (default (list) $cfg.clusters) -}}
-  {{- if not $cluster.name -}}
-    {{- fail (printf "transport.teleport.clusters[%d].name is required" $idx) -}}
-  {{- end -}}
-  {{- $derived = append $derived (dict
-      "name" (printf "mcp-kubernetes-%s" $cluster.name)
-      "appName" (printf "mcp-kubernetes-%s" $cluster.name)
-      "secretName" (printf "tbot-identity-mcp-%s" $cluster.name)
-  ) -}}
-  {{- $derived = append $derived (dict
-      "name" (printf "dex-%s" $cluster.name)
-      "appName" (printf "dex-%s" $cluster.name)
-      "secretName" (printf "tbot-identity-tx-%s" $cluster.name)
-  ) -}}
-{{- end -}}
-{{/* Detect duplicates within apps[] (template-time fail per PLAN §6 TB-4). */}}
 {{- $seen := dict -}}
 {{- range $idx, $a := (default (list) $cfg.apps) -}}
-  {{- if not $a.name -}}
-    {{- fail (printf "transport.teleport.apps[%d].name is required" $idx) -}}
+  {{- if not $a.appName -}}
+    {{- fail (printf "transport.teleport.apps[%d].appName is required" $idx) -}}
   {{- end -}}
-  {{- if hasKey $seen $a.name -}}
-    {{- fail (printf "transport.teleport.apps: duplicate entry name %q" $a.name) -}}
+  {{- if not $a.identitySecret -}}
+    {{- fail (printf "transport.teleport.apps[%d].identitySecret is required (appName=%q)" $idx $a.appName) -}}
   {{- end -}}
-  {{- $_ := set $seen $a.name true -}}
+  {{- if hasKey $seen $a.appName -}}
+    {{- fail (printf "transport.teleport.apps: duplicate appName %q" $a.appName) -}}
+  {{- end -}}
+  {{- $_ := set $seen $a.appName true -}}
 {{- end -}}
-{{/* Index derived list by name for override lookup. */}}
-{{- $byName := dict -}}
-{{- range $derived -}}
-  {{- $_ := set $byName .name . -}}
-{{- end -}}
-{{/* Apply apps[] overrides (replace same-name entries from clusters[]). */}}
-{{- range $a := (default (list) $cfg.apps) -}}
-  {{- $entry := dict
-      "name" $a.name
-      "appName" (default $a.name $a.appName)
-      "secretName" (required (printf "transport.teleport.apps[%s].secretName is required" $a.name) $a.secretName)
-  -}}
-  {{- $_ := set $byName $a.name $entry -}}
-{{- end -}}
-{{/* Emit a stable, ordered list. clusters[] entries first, in definition order;
-     then any apps[]-only entries (those whose name was not produced by clusters[]). */}}
-{{- $emitted := dict -}}
-{{- range $derived -}}
-  {{- $entry := index $byName .name -}}
-  {{- $_ := set $emitted .name true -}}
-- name: {{ $entry.name | quote }}
-  appName: {{ $entry.appName | quote }}
-  secretName: {{ $entry.secretName | quote }}
-{{ end -}}
-{{- range $a := (default (list) $cfg.apps) -}}
-  {{- if not (hasKey $emitted $a.name) -}}
-    {{- $entry := index $byName $a.name }}
-- name: {{ $entry.name | quote }}
-  appName: {{ $entry.appName | quote }}
-  secretName: {{ $entry.secretName | quote }}
-{{ end -}}
-{{- end -}}
+{{- range $a := (default (list) $cfg.apps) }}
+- appName: {{ $a.appName | quote }}
+  secretName: {{ $a.identitySecret | quote }}
+{{- end }}
 {{- end }}
 
