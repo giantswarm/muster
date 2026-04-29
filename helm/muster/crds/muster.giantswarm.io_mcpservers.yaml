@@ -250,16 +250,74 @@ spec:
                       Teleport configures routing through per-cluster tbot-provisioned mTLS
                       clients. Required when Type is "teleport".
                     properties:
-                      cluster:
+                      dex:
                         description: |-
-                          Cluster is the symbolic remote cluster name (e.g. "glean", "finch").
-                          Muster derives both Teleport app names (mcp-kubernetes-{cluster} and
-                          dex-{cluster}) and the matching tbot-output identity-secret references
-                          from this single value.
-                        pattern: ^[a-z][a-z0-9-]*$
-                        type: string
+                          Dex configures the token-exchange path. Required when
+                          spec.auth.type == "oauth" AND spec.auth.tokenExchange.enabled == true
+                          (the token-exchange path needs a routable Dex transport). Optional
+                          otherwise.
+                        properties:
+                          appName:
+                            description: |-
+                              AppName is the Teleport application name (the leftmost label of the
+                              Teleport app's public_addr). Lowercase DNS label syntax.
+                            pattern: ^[a-z][a-z0-9-]*$
+                            type: string
+                          identitySecretRef:
+                            description: |-
+                              IdentitySecretRef references the in-cluster Secret carrying the
+                              tbot-output identity material for AppName. The Secret is expected
+                              to live in muster's own namespace (the tbot Deployment writes it).
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - appName
+                        - identitySecretRef
+                        type: object
+                      mcp:
+                        description: |-
+                          MCP names the Teleport application (and identity Secret) used to
+                          reach the MCP server's HTTP endpoint.
+                        properties:
+                          appName:
+                            description: |-
+                              AppName is the Teleport application name (the leftmost label of the
+                              Teleport app's public_addr). Lowercase DNS label syntax.
+                            pattern: ^[a-z][a-z0-9-]*$
+                            type: string
+                          identitySecretRef:
+                            description: |-
+                              IdentitySecretRef references the in-cluster Secret carrying the
+                              tbot-output identity material for AppName. The Secret is expected
+                              to live in muster's own namespace (the tbot Deployment writes it).
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - appName
+                        - identitySecretRef
+                        type: object
                     required:
-                    - cluster
+                    - mcp
                     type: object
                   type:
                     description: |-
@@ -438,6 +496,11 @@ spec:
             || !has(self.spec.transport.teleport)'
         - message: transport is not allowed when type is stdio
           rule: self.spec.type != 'stdio' || !has(self.spec.transport)
+        - message: transport.teleport.dex is required when auth.tokenExchange is enabled
+          rule: '!has(self.spec.transport) || self.spec.transport.type != ''teleport''
+            || !has(self.spec.auth) || self.spec.auth.type != ''oauth'' || !has(self.spec.auth.tokenExchange)
+            || !self.spec.auth.tokenExchange.enabled || (has(self.spec.transport.teleport)
+            && has(self.spec.transport.teleport.dex))'
     served: true
     storage: true
     subresources:
