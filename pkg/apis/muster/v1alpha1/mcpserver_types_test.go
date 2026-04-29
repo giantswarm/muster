@@ -272,6 +272,7 @@ func TestMCPServerSpec_TransportRoundTrip(t *testing.T) {
 				URL:  "https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp",
 				Auth: &MCPServerAuth{
 					Type: "oauth",
+					// #nosec G101 -- test fixture; not a credential.
 					TokenExchange: &TokenExchangeConfig{
 						Enabled:          true,
 						DexTokenEndpoint: "https://dex-glean.teleport.giantswarm.io/token",
