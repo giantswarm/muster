@@ -1,0 +1,64 @@
+{{/*
+helm-test (TB-4) — verifies tbot identity Secrets exist post-deploy. Names
+come verbatim from .Values.transport.teleport.apps[].identitySecret; no
+naming-convention check (PLAN §6 TB-0 revised 2026-04-29 dropped the
+<role>-<cluster> convention in favor of explicit values in both the chart
+and the MCPServer CR).
+
+Template-time duplicate detection on apps[] is handled in _helpers.tpl
+(muster.tbot.outputs). This Pod adds the runtime existence check.
+*/}}
+{{- if .Values.transport.teleport.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "muster.fullname" . }}-tbot-naming-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot-test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  serviceAccountName: {{ include "muster.serviceAccountName" . }}
+  restartPolicy: Never
+  containers:
+    - name: assert-naming
+      image: "{{ .Values.transport.teleport.readinessGate.image.repository }}:{{ .Values.transport.teleport.readinessGate.image.tag }}"
+      imagePullPolicy: {{ .Values.transport.teleport.readinessGate.image.pullPolicy }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          fail=0
+          {{- range $a := (default (list) .Values.transport.teleport.apps) }}
+          # Each apps[] entry must have produced its identitySecret. Names are
+          # explicit (PLAN §6 TB-0 revised 2026-04-29) — no naming convention
+          # to assert beyond existence.
+          for s in {{ $a.identitySecret | quote }}; do
+            if ! kubectl get secret "$s" -n "$POD_NAMESPACE" >/dev/null 2>&1; then
+              echo "MISSING: $s (appName={{ $a.appName }})"
+              fail=1
+            else
+              echo "OK: $s (appName={{ $a.appName }})"
+            fi
+          done
+          {{- end }}
+          exit $fail
+      env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+      securityContext:
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop:
+            - ALL
+{{- end }}

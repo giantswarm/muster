@@ -32,6 +32,59 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.transport.teleport.enabled }}
+      # TB-4 readiness gate: block muster startup until tbot has written every
+      # derived identity Secret. A missing Secret >5min crashloops the init
+      # container, which is the desired signal — muster should not race with
+      # tbot on a fresh deploy.
+      initContainers:
+        - name: tbot-identity-wait
+          image: "{{ .Values.transport.teleport.readinessGate.image.repository }}:{{ .Values.transport.teleport.readinessGate.image.tag }}"
+          imagePullPolicy: {{ .Values.transport.teleport.readinessGate.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              SECRETS="{{- range (include "muster.tbot.outputs" . | fromYamlArray) }} {{ .secretName }}{{- end }}"
+              DEADLINE=$(( $(date +%s) + {{ .Values.transport.teleport.readinessGate.timeoutSeconds }} ))
+              while :; do
+                missing=""
+                for s in $SECRETS; do
+                  if ! kubectl get secret "$s" -n "$POD_NAMESPACE" >/dev/null 2>&1; then
+                    missing="$missing $s"
+                  fi
+                done
+                if [ -z "$missing" ]; then
+                  echo "tbot-identity-wait: all identity secrets present"
+                  exit 0
+                fi
+                echo "tbot-identity-wait: waiting for tbot identity secrets:$missing"
+                if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+                  echo "tbot-identity-wait: timeout after {{ .Values.transport.teleport.readinessGate.timeoutSeconds }}s; missing:$missing" >&2
+                  exit 1
+                fi
+                sleep {{ .Values.transport.teleport.readinessGate.pollIntervalSeconds }}
+              done
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: sa-token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:

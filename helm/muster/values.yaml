@@ -404,6 +404,79 @@ muster:
       # SECURITY: only list client IDs you fully trust.
       trustedAudiences: []
 
+# Transport configuration (TB-4 — identity material only).
+#
+# When transport.teleport.enabled is true the chart provisions a separate
+# tbot Deployment that writes one Kubernetes Secret per `apps[]` entry.
+# These Secrets carry the mTLS material muster's CR-driven dispatcher
+# (TB-7) loads at request time when an MCPServer CR's `spec.transport.teleport`
+# names them via {mcp,dex}.identitySecretRef.
+#
+# After the TB-0 explicit-fields reshape (PLAN §6 TB-0 revised 2026-04-29)
+# the chart does NOT derive app or secret names from a cluster symbol —
+# every (appName, identitySecret) pair is stated explicitly. The CR carries
+# the same pair verbatim, so chart values and CRs grep against each other
+# directly.
+#
+# Customer Muster deployments (in-VPN) leave this off; the chart behaves
+# exactly as before.
+transport:
+  teleport:
+    # Enable tbot identity provisioning. Default off.
+    enabled: false
+    # The single GS Teleport proxy address — one cluster fronts all MCs.
+    proxyServer: teleport.giantswarm.io:443
+    # Optional explicit Teleport cluster name (used as the SA-token audience
+    # for the kubernetes join method). When empty, derived by stripping the
+    # port from proxyServer.
+    clusterName: ""
+    # tbot container image. Default tag pinned to the version shipped by
+    # giantswarm/teleport-kube-agent-app (Chart.yaml appVersion: 17.5.4).
+    image:
+      repository: public.ecr.aws/gravitational/teleport-distroless
+      # Empty tag falls back to the chart-side default (17.5.4) in
+      # tbot-deployment.yaml. Override per-environment as needed.
+      tag: ""
+      pullPolicy: IfNotPresent
+    # Explicit list of (Teleport application, Kubernetes Secret) pairs to
+    # provision. One entry per Teleport-routed endpoint (typically two per
+    # remote MC: an mcp-kubernetes app and a dex app). Each entry produces
+    # a tbot output and a Kubernetes Secret carrying the tbot-issued
+    # identity material.
+    #
+    # Duplicate appName values within apps[] are a template-time error.
+    apps: []
+    # - appName: mcp-kubernetes-glean
+    #   identitySecret: tbot-identity-mcp-glean
+    # - appName: dex-glean
+    #   identitySecret: tbot-identity-tx-glean
+    # - appName: mcp-kubernetes-finch
+    #   identitySecret: tbot-identity-mcp-finch
+    # - appName: dex-finch
+    #   identitySecret: tbot-identity-tx-finch
+    #
+    # tbot is light — small defaults are enough.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    # Init-container image used by muster's readiness gate (deployment.yaml)
+    # to verify all derived Secrets exist before muster goes Ready.
+    readinessGate:
+      image:
+        repository: bitnami/kubectl
+        tag: "1.30"
+        pullPolicy: IfNotPresent
+      # Per-iteration sleep in seconds. The init container loops until all
+      # Secrets exist; if a Secret is missing for >5 minutes it crashloops,
+      # which is the desired signal (see TB-4 readiness gate).
+      pollIntervalSeconds: 5
+      # Hard timeout (seconds). Container exits non-zero on timeout.
+      timeoutSeconds: 300
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions
