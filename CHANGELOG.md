@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- New `MCPServer.spec.transport` section selects how muster reaches the MCP endpoint and any transport-private endpoints (e.g. Dex `/token`). Carries no identity. Today the discriminator `spec.transport.type` accepts only `teleport`; future transports (e.g. wireguard) extend it additively. `spec.transport.teleport.cluster` is the single per-CR cluster reference; muster derives both Teleport app names (`mcp-kubernetes-{cluster}`, `dex-{cluster}`) and the matching tbot-output identity-secret references from it. Customer Muster (in-VPN) omits this field — direct-HTTPS to `spec.url` is preserved. Three CRD-level CEL rules guard the field: `transport.teleport` is required when `transport.type=teleport`, may not be set otherwise, and `transport` is forbidden when `spec.type=stdio`.
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.
 - Add `ciliumNetworkPolicy.allowClusterIngress` Helm value to allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP).
 - OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
@@ -22,6 +23,10 @@ All notable changes to this project will be documented in this file.
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
 - CRD validation now uses the discovery API instead of listing `MCPServer` resources in the `default` namespace. With namespace-scoped RBAC (a `Role` limited to muster's own namespace), the previous probe failed with `Forbidden`, silently fell back to filesystem mode, and left configured `MCPServer` CRs unstarted (visible in logs as `Found 0 MCPServer definitions for auto-start processing` followed by `Deleting MCPServer service: <name>`).
 - `call_tool` meta-tool now forwards the underlying tool's `isError` flag on the outer response. Previously the top-level `isError` was always `false` even when the wrapped tool returned an error, which was misleading for MCP clients that only inspect the top-level flag.
+
+### Removed
+
+- Drop `MCPServer.spec.auth.type: teleport` enum value, the `auth.teleport` block, and the `TeleportAuthConfig` Go type. The legacy field was an alpha-only path for routing the MCP HTTP call through a Teleport-mTLS client; it has been superseded by the discriminated `spec.transport` section above, which separates **transport** (network-level access) from **auth** (identity). Verified via `gh search` that no production CR used `auth.type: teleport` before this change. Manifests using the removed enum value are now rejected at admission with a clear error.
 
 ## [0.1.0] - 2026-02-23
 
