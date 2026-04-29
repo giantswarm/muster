@@ -138,6 +138,18 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.NextRetryAfter = &t
 	}
 
+	// Convert transport configuration if present (TB-0).
+	if server.Spec.Transport != nil {
+		info.Transport = &api.MCPServerTransport{
+			Type: server.Spec.Transport.Type,
+		}
+		if server.Spec.Transport.Teleport != nil {
+			info.Transport.Teleport = &api.TeleportTransport{
+				Cluster: server.Spec.Transport.Teleport.Cluster,
+			}
+		}
+	}
+
 	// Convert auth configuration if present
 	if server.Spec.Auth != nil {
 		info.Auth = &api.MCPServerAuth{

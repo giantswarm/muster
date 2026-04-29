@@ -98,6 +98,11 @@ type ServerInfo struct {
 	// and never modified, so RequiresSessionAuth() is safe without locking.
 	AuthConfig *api.MCPServerAuth
 
+	// TransportConfig is the per-CR transport selection (TB-0). Immutable after
+	// registration. nil means direct HTTPS — the dispatcher will return a plain
+	// http.Client for both MCP and Dex calls.
+	TransportConfig *api.MCPServerTransport
+
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
 	mu        sync.RWMutex
@@ -180,6 +185,23 @@ func (s *ServerInfo) GetNamespace() string {
 	return s.Namespace
 }
 
+// TransportRoutingConfig groups the runtime knobs for the CR-driven transport
+// dispatcher (TB-7/TB-8). Wires per-cluster identity material rendered by the
+// helm chart (TB-4) into the aggregator's outbound HTTP path. Distinct from
+// AggregatorConfig.Transport (which selects the wire protocol).
+type TransportRoutingConfig struct {
+	// TeleportClusters is the set of remote-cluster names the muster
+	// Deployment has been provisioned with tbot-output identity material for.
+	// An empty set disables the Teleport transport — any MCPServer CR with
+	// spec.transport.teleport will fail with ErrClusterNotConfigured.
+	TeleportClusters []string
+
+	// SecretNamespace is the Kubernetes namespace from which tbot-output
+	// identity Secrets are read. Defaults to teleport.DefaultSecretNamespace
+	// ("muster-system") when empty.
+	SecretNamespace string
+}
+
 // AggregatorConfig holds configuration args for the aggregator.
 // This structure defines how the aggregator should behave and
 // what endpoints it should expose.
@@ -225,6 +247,12 @@ type AggregatorConfig struct {
 	// Admin, when enabled, starts a separate HTTP listener that serves the
 	// session management web UI. See internal/admin for details.
 	Admin AdminConfig
+
+	// TransportRouting configures the CR-driven transport dispatcher
+	// (TB-7/TB-8). Distinct from `Transport` above (which selects the wire
+	// protocol). An empty TeleportClusters list disables the Teleport
+	// transport.
+	TransportRouting TransportRoutingConfig
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

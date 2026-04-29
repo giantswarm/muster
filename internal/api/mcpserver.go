@@ -53,6 +53,13 @@ type MCPServer struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
 
+	// Transport selects how muster reaches the MCP endpoint and any
+	// transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+	// Carries no identity. When nil, direct HTTPS is used. Mirrors the
+	// CRD-level spec.transport (TB-0); kept in the api layer to avoid pulling
+	// the v1alpha1 package into aggregator code.
+	Transport *MCPServerTransport `yaml:"transport,omitempty" json:"transport,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
@@ -63,6 +70,28 @@ type MCPServer struct {
 	// Description provides a human-readable description of this MCP server's purpose.
 	// This is runtime information populated from server metadata and not persisted to YAML.
 	Description string `json:"description,omitempty" yaml:"-"`
+}
+
+// MCPServerTransport selects how muster reaches the MCP endpoint and any
+// transport-private endpoints referenced from spec.auth. Mirrors the CRD-level
+// type (PLAN §6 TB-0). Customer Muster (in-VPN) omits this field; muster then
+// uses direct HTTPS to spec.url.
+type MCPServerTransport struct {
+	// Type is the transport discriminator. Today only "teleport" is supported.
+	Type string `yaml:"type" json:"type"`
+
+	// Teleport configures routing through per-cluster tbot-provisioned mTLS
+	// clients. Required when Type is "teleport".
+	Teleport *TeleportTransport `yaml:"teleport,omitempty" json:"teleport,omitempty"`
+}
+
+// TeleportTransport carries the symbolic remote cluster name. Muster derives
+// both Teleport app names (mcp-kubernetes-{cluster}, dex-{cluster}) and the
+// matching tbot-output identity-secret references from this single value
+// (PLAN §6 TB-1/TB-2/TB-4).
+type TeleportTransport struct {
+	// Cluster is the remote cluster name (e.g. "glean", "finch").
+	Cluster string `yaml:"cluster" json:"cluster"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.
@@ -267,6 +296,10 @@ type MCPServerInfo struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Transport selects how muster reaches the MCP endpoint. See
+	// MCPServerTransport for details (PLAN §6 TB-0). Nil means direct HTTPS.
+	Transport *MCPServerTransport `json:"transport,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`

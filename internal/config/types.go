@@ -47,6 +47,37 @@ type AggregatorConfig struct {
 	// binds to AdminBindAddress:AdminPort without authentication, so it is
 	// only safe when bound to a loopback address or reached via port-forward.
 	Admin AdminConfig `yaml:"admin,omitempty"`
+
+	// TransportRouting configures the CR-driven transport dispatcher
+	// (TB-7/TB-8). Distinct from `Transport` above (which selects the wire
+	// protocol — sse / streamable-http / stdio). Owned by the muster
+	// Deployment (helm chart) — provisions per-cluster tbot-output identity
+	// material whose names are referenced by MCPServer CRs via
+	// spec.transport.teleport.cluster.
+	TransportRouting TransportRoutingConfig `yaml:"transportRouting,omitempty"`
+}
+
+// TransportRoutingConfig is the Deployment-level companion to per-CR
+// spec.transport.teleport.cluster (TB-0). It declares which Teleport clusters
+// the muster Deployment has identity material for; CRs that reference an
+// unconfigured cluster surface ClusterNotConfigured on
+// MCPServer.status.conditions[type=TransportReady].
+type TransportRoutingConfig struct {
+	// Teleport groups Teleport-specific transport configuration.
+	Teleport TeleportTransportConfig `yaml:"teleport,omitempty"`
+}
+
+// TeleportTransportConfig declares the set of remote clusters with provisioned
+// tbot identity material on this Deployment.
+type TeleportTransportConfig struct {
+	// Clusters is the list of remote-cluster names. Each entry must match the
+	// name of a tbot-output that wrote the matching identity Secrets per the
+	// <role>-<cluster> convention (PLAN §6 TB-1/TB-2/TB-4).
+	Clusters []string `yaml:"clusters,omitempty"`
+
+	// SecretNamespace is the Kubernetes namespace from which the dispatcher
+	// reads tbot-identity Secrets. Defaults to "muster-system" when empty.
+	SecretNamespace string `yaml:"secretNamespace,omitempty"`
 }
 
 // AdminConfig defines the configuration for the admin web UI.

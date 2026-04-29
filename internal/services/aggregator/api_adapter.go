@@ -172,6 +172,12 @@ func (a *APIAdapter) RegisterServerPendingAuth(serverName, url, toolPrefix strin
 // RegisterServerPendingAuthWithConfig registers a server that requires OAuth authentication
 // with additional auth configuration for SSO token forwarding.
 func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *api.AuthInfo, authConfig *api.MCPServerAuth) error {
+	return a.RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix, authInfo, authConfig, nil)
+}
+
+// RegisterServerPendingAuthWithTransport registers a server with both auth and
+// transport configuration. The transport drives TB-7's CR-driven dispatcher.
+func (a *APIAdapter) RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix string, authInfo *api.AuthInfo, authConfig *api.MCPServerAuth, transportConfig *api.MCPServerTransport) error {
 	if a.service == nil {
 		return fmt.Errorf("aggregator service not available")
 	}
@@ -188,8 +194,8 @@ func (a *APIAdapter) RegisterServerPendingAuthWithConfig(serverName, url, toolPr
 		ResourceMetadataURL: authInfo.ResourceMetadataURL,
 	}
 
-	// Pass auth config directly - aggregator now uses api.MCPServerAuth
-	return manager.RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix, aggAuthInfo, authConfig)
+	// Pass auth + transport config directly - aggregator now uses api types.
+	return manager.RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix, aggAuthInfo, authConfig, transportConfig)
 }
 
 // Register registers this adapter with the API package
