@@ -231,8 +231,8 @@ func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 		ns            = "muster-system"
 		mcpAppName    = "mcp-kubernetes-glean"
 		dexAppName    = "dex-glean"
-		mcpSecretName = "tbot-identity-mcp-glean"
-		dexSecretName = "tbot-identity-tx-glean"
+		mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
+		dexSecretName = "tbot-identity-tx-glean"  // #nosec G101 -- test fixture; not a credential.
 	)
 
 	mcpBundle := buildTestBundle(t, "mcp-client-"+cluster)

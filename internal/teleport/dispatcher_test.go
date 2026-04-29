@@ -118,7 +118,7 @@ func tlsLeafCert(t *testing.T, c *http.Client) *x509.Certificate {
 	if c == nil || c.Transport == nil {
 		t.Fatal("expected non-nil transport")
 	}
-	var rt http.RoundTripper = c.Transport
+	rt := http.RoundTripper(c.Transport)
 	if ant, ok := rt.(*appNameTransport); ok {
 		rt = ant.base
 	}
@@ -187,8 +187,8 @@ func TestDispatcher_ResolvedBothTargets(t *testing.T) {
 	const ns = "muster-system"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
-	const mcpSecretName = "tbot-identity-mcp-glean"
-	const dexSecretName = "tbot-identity-tx-glean"
+	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
+	const dexSecretName = "tbot-identity-tx-glean"  // #nosec G101 -- test fixture; not a credential.
 	mcpSecret, mcpCertPEM := makeIdentitySecret(t, mcpSecretName, ns)
 	dexSecret, dexCertPEM := makeIdentitySecret(t, dexSecretName, ns)
 	if string(mcpCertPEM) == string(dexCertPEM) {
@@ -258,7 +258,7 @@ func TestDispatcher_ResolvedMCPOnly(t *testing.T) {
 
 	const ns = "muster-system"
 	const mcpApp = "mcp-kubernetes-glean"
-	const mcpSecretName = "tbot-identity-mcp-glean"
+	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
 	mcpSecret, _ := makeIdentitySecret(t, mcpSecretName, ns)
 
 	k8s := newFakeK8s(t, mcpSecret).Build()
@@ -291,8 +291,8 @@ func TestDispatcher_MCPSecretMissing(t *testing.T) {
 	const ns = "muster-system"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
-	const mcpSecretName = "tbot-identity-mcp-glean"
-	const dexSecretName = "tbot-identity-tx-glean"
+	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
+	const dexSecretName = "tbot-identity-tx-glean"  // #nosec G101 -- test fixture; not a credential.
 	// Only the dex secret exists; mcp secret is missing.
 	dexSecret, _ := makeIdentitySecret(t, dexSecretName, ns)
 
@@ -353,8 +353,8 @@ func TestDispatcher_DexSecretInvalid(t *testing.T) {
 	const ns = "muster-system"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
-	const mcpSecretName = "tbot-identity-mcp-glean"
-	const dexSecretName = "tbot-identity-tx-glean"
+	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
+	const dexSecretName = "tbot-identity-tx-glean"  // #nosec G101 -- test fixture; not a credential.
 	mcpSecret, _ := makeIdentitySecret(t, mcpSecretName, ns)
 	// Malformed dex secret — exists but contents fail PEM/cert load.
 	badDex := &corev1.Secret{

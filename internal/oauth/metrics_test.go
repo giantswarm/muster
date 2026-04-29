@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/giantswarm/muster/internal/api"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/giantswarm/muster/internal/api"
 )
 
 // TestTokenExchangeMetrics_ValidationError asserts result="error" is recorded
@@ -49,6 +50,7 @@ func TestTokenExchangeMetrics_SuccessAndCacheHit(t *testing.T) {
 	// Minimal Dex stub: returns a JSON token-exchange response on /token.
 	dex := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// #nosec G101 -- test fixture; not a credential.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":      "exchanged-token",
 			"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
@@ -78,7 +80,7 @@ func TestTokenExchangeMetrics_SuccessAndCacheHit(t *testing.T) {
 			DexTokenEndpoint: dex.URL + "/token",
 			ConnectorID:      "giantswarm",
 		},
-		SubjectToken: "subject-token",
+		SubjectToken: "subject-token", // #nosec G101 -- test fixture; not a credential.
 		UserID:       "user-1",
 	}
 

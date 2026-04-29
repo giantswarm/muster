@@ -446,11 +446,11 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	if success {
 		reason = events.ReasonMCPServerTokenForwarded
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenForwardingFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 
@@ -775,11 +775,11 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	if success {
 		reason = events.ReasonMCPServerTokenExchanged
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("Token successfully exchanged for cross-cluster SSO to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenExchangeFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("Token exchange failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 
