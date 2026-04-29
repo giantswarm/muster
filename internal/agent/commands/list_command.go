@@ -89,7 +89,7 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
-				l.output.OutputLine(textContent.Text)
+				l.output.OutputLine("%s", textContent.Text)
 				return nil
 			}
 
@@ -131,14 +131,14 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 // listResources lists all available resources
 func (l *ListCommand) listResources() error {
 	resources := l.client.GetResourceCache()
-	l.output.OutputLine(l.getFormatters().FormatResourcesList(resources))
+	l.output.OutputLine("%s", l.getFormatters().FormatResourcesList(resources))
 	return nil
 }
 
 // listPrompts lists all available prompts
 func (l *ListCommand) listPrompts() error {
 	prompts := l.client.GetPromptCache()
-	l.output.OutputLine(l.getFormatters().FormatPromptsList(prompts))
+	l.output.OutputLine("%s", l.getFormatters().FormatPromptsList(prompts))
 	return nil
 }
 
@@ -170,7 +170,7 @@ func (l *ListCommand) listCoreTools(ctx context.Context) error {
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
-				l.output.OutputLine(textContent.Text)
+				l.output.OutputLine("%s", textContent.Text)
 				return nil
 			}
 

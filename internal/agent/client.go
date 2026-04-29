@@ -1656,7 +1656,7 @@ func (c *Client) GetAuthRequired() []AuthRequiredInfo {
 	// automatically via token forwarding or token exchange (unless SSO failed)
 	var authRequired []AuthRequiredInfo
 	for _, srv := range status.Servers {
-		if srv.Status != "auth_required" {
+		if srv.Status != "auth_required" { //nolint:goconst
 			continue
 		}
 

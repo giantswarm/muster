@@ -93,7 +93,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 
 			if err := json.Unmarshal([]byte(textContent.Text), &response); err != nil {
 				// Not JSON, just output the raw text
-				f.output.OutputLine(textContent.Text)
+				f.output.OutputLine("%s", textContent.Text)
 				return nil
 			}
 
@@ -119,7 +119,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 			if detailed {
 				// Detailed mode - show full specifications (optional)
 				f.output.OutputLine("\nFiltered Tools with Full Specifications:")
-				f.output.OutputLine(strings.Repeat("=", 60))
+				f.output.OutputLine("%s", strings.Repeat("=", 60))
 
 				for i, tool := range response.Tools {
 					f.output.OutputLine("\n%d. %s", i+1, tool.Name)
@@ -130,7 +130,7 @@ func (f *FilterCommand) filterTools(ctx context.Context, pattern, descriptionFil
 						}
 					}
 					if i < len(response.Tools)-1 {
-						f.output.OutputLine(strings.Repeat("-", 40))
+						f.output.OutputLine("%s", strings.Repeat("-", 40))
 					}
 				}
 			} else {
