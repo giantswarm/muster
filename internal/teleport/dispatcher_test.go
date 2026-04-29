@@ -118,7 +118,7 @@ func tlsLeafCert(t *testing.T, c *http.Client) *x509.Certificate {
 	if c == nil || c.Transport == nil {
 		t.Fatal("expected non-nil transport")
 	}
-	var rt http.RoundTripper = c.Transport
+	rt := http.RoundTripper(c.Transport)
 	if ant, ok := rt.(*appNameTransport); ok {
 		rt = ant.base
 	}
