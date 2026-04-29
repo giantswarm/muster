@@ -2,37 +2,52 @@
 
 > **Audience: cluster-admin** owning the muster Helm release on the
 > management cluster (Gazelle for Giant Swarm production). This doc covers
-> the `transport.teleport` Helm values block, the tbot identity Secrets the
-> chart provisions, and the locked `<role>-<cluster>` naming convention.
-> SREs running the Teleport-side bot script should read
-> [Provision the Teleport Bot](provision-teleport-bot.md). MCPServer CR
-> authors should read
+> the `transport.teleport` Helm values block and the tbot identity Secrets
+> the chart provisions. SREs running the Teleport-side bot script should
+> read [Provision the Teleport Bot](provision-teleport-bot.md). MCPServer
+> CR authors should read
 > [Access Private MCP Servers](access-private-mcp-servers.md).
 
 ## What this chart provisions
 
-When `transport.teleport.enabled: true`, the muster Helm chart renders, for
-each entry in `transport.teleport.clusters[]`, a **separate tbot Deployment**
-(distinct from the muster Deployment) plus the supporting ConfigMap, RBAC,
-ServiceAccount, and per-cluster Kubernetes Secrets.
+When `transport.teleport.enabled: true`, the muster Helm chart renders a
+**separate tbot Deployment** (distinct from the muster Deployment) plus the
+supporting ConfigMap, RBAC, ServiceAccount, and per-app Kubernetes Secrets
+— one Secret per entry in `transport.teleport.apps[]`.
 
-> **The chart provisions identity material only.** Per-CR transport routing
-> is in `spec.transport.teleport.cluster` on each MCPServer CR, **not** in
-> Helm values. There is no deployment-level routing ConfigMap. See
+> **The chart provisions identity material only.** Per-CR transport
+> routing is in `spec.transport.teleport` on each MCPServer CR (PLAN §6
+> TB-0 revised 2026-04-29 — *explicit fields*). Each CR names the
+> Teleport application AND the local Kubernetes Secret it expects to
+> consume; the chart's `apps[]` list provisions Secrets with those exact
+> names. CR and chart values grep against each other directly. There is
+> no naming-convention derivation. See
 > [Access private MCP servers](access-private-mcp-servers.md) for the CR
 > side.
 
-For each `clusters[].name` (e.g. `glean`), the chart renders **two** tbot
-outputs:
+For each Teleport-routed CR, you generally want **two** entries in
+`apps[]`: one for the MCP HTTP traffic and one for the Dex token-exchange
+path. (Two Secrets per remote MC is a hard requirement: each Teleport
+`application` certificate is bound to a single app via `RouteToApp`, see
+PLAN §9 "Cert-to-app binding constraint".)
 
-| Role | Teleport app name | tbot output Secret |
-|---|---|---|
-| MCP traffic | `mcp-kubernetes-{cluster}` | `tbot-identity-mcp-{cluster}` |
-| Dex token-exchange | `dex-{cluster}` | `tbot-identity-tx-{cluster}` |
+A typical configuration for a single remote MC `glean`:
 
-Two Secrets per cluster is a hard requirement: each Teleport `application`
-certificate is bound to a single app via `RouteToApp` (PLAN §9, "Cert-to-app
-binding constraint").
+```yaml
+transport:
+  teleport:
+    enabled: true
+    proxyServer: teleport.giantswarm.io:443
+    apps:
+      - appName: mcp-kubernetes-glean
+        identitySecret: tbot-identity-mcp-glean
+      - appName: dex-glean
+        identitySecret: tbot-identity-tx-glean
+```
+
+The corresponding MCPServer CR uses the same names verbatim — see the
+worked example in
+[Access Private MCP Servers](access-private-mcp-servers.md#worked-example-mcp-kubernetes-on-glean).
 
 ### Verify with `helm template`
 
@@ -40,7 +55,10 @@ binding constraint").
 cd helm/muster
 helm template muster . \
   --set transport.teleport.enabled=true \
-  --set 'transport.teleport.clusters[0].name=glean'
+  --set 'transport.teleport.apps[0].appName=mcp-kubernetes-glean' \
+  --set 'transport.teleport.apps[0].identitySecret=tbot-identity-mcp-glean' \
+  --set 'transport.teleport.apps[1].appName=dex-glean' \
+  --set 'transport.teleport.apps[1].identitySecret=tbot-identity-tx-glean'
 ```
 
 The rendered tbot ConfigMap looks like:
@@ -74,8 +92,8 @@ data:
           name: "tbot-identity-tx-glean"
 ```
 
-After deployment, `kubectl get secret -n muster-system` shows the rendered
-Secrets:
+After deployment, `kubectl get secret -n muster-system` shows the
+provisioned Secrets:
 
 ```text
 tbot-identity-mcp-glean    Opaque   3
@@ -87,8 +105,8 @@ Each Secret carries the three keys tbot's `application` output writes:
 
 ## Helm values
 
-The full Helm schema lives in `helm/muster/values.yaml` — **that file is the
-source of truth**. The relevant fragment:
+The full Helm schema lives in `helm/muster/values.yaml` — **that file is
+the source of truth**. The relevant fragment:
 
 ```yaml
 transport:
@@ -106,12 +124,15 @@ transport:
       repository: public.ecr.aws/gravitational/teleport-distroless
       tag: ""              # falls back to the chart-pinned 17.5.4
       pullPolicy: IfNotPresent
-    # Provisioning hint — one entry per remote MC.
-    clusters: []
-    # - name: glean
-    # - name: finch
-    # Escape hatch (rarely needed; see "When to use apps[]" below).
+    # Explicit list of (Teleport application, Kubernetes Secret) pairs.
+    # No derivation: every entry is stated verbatim, and every MCPServer
+    # CR references these exact names via spec.transport.teleport.{mcp,dex}
+    # .{appName,identitySecretRef.name}.
     apps: []
+    # - appName: mcp-kubernetes-glean
+    #   identitySecret: tbot-identity-mcp-glean
+    # - appName: dex-glean
+    #   identitySecret: tbot-identity-tx-glean
     resources:
       requests: { cpu: 50m,  memory: 64Mi }
       limits:   { cpu: 200m, memory: 256Mi }
@@ -130,75 +151,45 @@ transport:
 | `proxyServer` | The single Teleport proxy `host:port`. One Teleport cluster fronts every MC, so this is **not** a list. |
 | `clusterName` | Optional Teleport-cluster audience for the kubernetes join token. Empty by default; derived from `proxyServer`. |
 | `image` | tbot container image. Tag pinned by the chart; override per environment if you must. |
-| `clusters[]` | The provisioning hint. Each entry's `name` is fed through the `<role>-<cluster>` derivation to produce two tbot outputs (MCP + Dex) and two Secrets. |
-| `apps[]` | Escape hatch — see [When to use apps[]](#when-to-use-apps) below. Empty in normal use. |
+| `apps[]` | The explicit list of `(appName, identitySecret)` pairs. Each entry produces a tbot output and a Kubernetes Secret. Duplicate `appName` values are a template-time error. |
 | `resources` | tbot Deployment pod resources. Conservative defaults; tbot is lightweight. |
-| `readinessGate` | The init container on the muster Deployment that blocks startup until every derived Secret exists. See [Readiness gate](#readiness-gate). |
+| `readinessGate` | The init container on the muster Deployment that blocks startup until every Secret in `apps[]` exists. See [Readiness gate](#readiness-gate). |
 
-The CRD-side schema for `spec.transport.teleport.cluster` (validated regex
-`^[a-z][a-z0-9-]*$`) means `clusters[].name` must follow the same shape:
-lowercase alphanumeric + hyphens, starting with a letter. Mismatches between
-helm `clusters[]` and a CR's `spec.transport.teleport.cluster` are surfaced
-at runtime as `MCPServer.status.conditions[type=TransportReady]=False` with
-reason `ClusterNotConfigured` (see
+The CRD-side `appName` regex (`^[a-z][a-z0-9-]*$`) means
+`apps[].appName` must follow the same shape: lowercase alphanumeric +
+hyphens, starting with a letter. Mismatches between an MCPServer CR's
+`spec.transport.teleport.{mcp,dex}.identitySecretRef.name` and the chart's
+provisioned Secrets surface at runtime as
+`MCPServer.status.conditions[type=TransportReady]=False` with reason
+`SecretMissing` (see
 [Access private MCP servers](access-private-mcp-servers.md#drift-signals)).
 
-## The `<role>-<cluster>` naming convention is locked
+## Naming recommendation (not enforced)
 
-The four derived names per cluster (`mcp-kubernetes-{cluster}`,
-`dex-{cluster}`, `tbot-identity-mcp-{cluster}`, `tbot-identity-tx-{cluster}`)
-are a **contract** between three components:
+The chart and CRD do **not** enforce any naming convention. Pick whatever
+makes sense in your GitOps tree. For Giant Swarm production we recommend:
 
-| Component | Where the contract lives |
-|---|---|
-| Teleport-side app names | `giantswarm-management-clusters` Helm values for `teleportKubeAgent.apps[]` (PLAN §6 TB-1/TB-2) |
-| Helm chart (this doc) | `helm/muster/templates/_helpers.tpl` `muster.tbot.outputs` derivation, asserted by the helm-test Pod `muster-tbot-naming-test` |
-| muster Go code | `internal/teleport/dispatcher.go` — `MCPAppName`, `DexAppName`, `MCPSecretName`, `DexSecretName` helpers |
+- **`appName`**: matches the Teleport-side `public_addr` leftmost label —
+  e.g. `mcp-kubernetes-glean` for `mcp-kubernetes-glean.teleport.giantswarm.io`.
+  This isn't a Muster requirement; it's a Teleport requirement (the cert
+  carries `RouteToApp` keyed on the app name).
+- **`identitySecret`**: `tbot-identity-mcp-<cluster>` for the MCP role and
+  `tbot-identity-tx-<cluster>` for the Dex token-exchange role. Pure
+  convention; rename to fit your existing tbot-output topology if you
+  already have one.
 
-Changing one side without the others **breaks the contract**:
-
-- Change in the chart only → muster's dispatcher cannot find the Secret →
-  `MCPServer.status.conditions[TransportReady]=False` with reason
-  `SecretMissing`.
-- Change in muster only → CR resolves to a name that the chart never
-  rendered → same condition, same reason.
-- Change in `giantswarm-management-clusters` only → tbot fails to obtain
-  the cert (Teleport rejects an unknown `app_name`).
-
-If you have a real reason to change the convention, it must land as a
-single coordinated PR set across all three repos plus the helm-test
-assertions in `helm/muster/templates/tests/test-tbot-naming.yaml`. **Talk
-to the muster team before touching this.**
-
-## When to use `apps[]`
-
-`apps[]` is an escape hatch for non-conformant tbot output names. In normal
-operation it is empty; the chart derives every output from `clusters[]`.
-
-Reach for it only when:
-
-- A Teleport-side app was registered with a name that does not follow the
-  `<role>-<cluster>` convention (e.g. a legacy `monitoring-mcp-glean`
-  instead of `mcp-kubernetes-glean`), and rerolling the registration is
-  blocked.
-- You are running a prototype third transport role for one cluster only
-  and do not want to thread it through the full `clusters[]` derivation.
-
-If you find yourself reaching for `apps[]`, **talk to the muster team
-first** — there is almost always a better path. The escape hatch exists so
-the chart never blocks emergency operational fixes, not so it can become a
-second supported configuration surface.
-
-`apps[]` entries with a `name` matching one derived from `clusters[]`
-override that derived entry. Duplicate `name` values within `apps[]` itself
-are a templating-time error.
+The pre-2026-04-29 design enforced these patterns via a `<role>-<cluster>`
+derivation in the chart and dispatcher. We dropped the derivation in favor
+of explicit fields because the implicit contract was hard to grep across
+repos and forced cluster-admins onto a Muster-imposed pattern. The
+convention is still useful as a *recommendation*; just not a constraint.
 
 ## Readiness gate
 
-When `transport.teleport.enabled: true`, the muster Deployment gets an init
-container `tbot-identity-wait` (rendered from
-`transport.teleport.readinessGate.*`) that polls for every derived Secret to
-exist before muster goes Ready:
+When `transport.teleport.enabled: true`, the muster Deployment gets an
+init container `tbot-identity-wait` (rendered from
+`transport.teleport.readinessGate.*`) that polls for every Secret named in
+`apps[].identitySecret` to exist before muster goes Ready:
 
 ```bash
 SECRETS=" tbot-identity-mcp-glean tbot-identity-tx-glean"
@@ -208,9 +199,9 @@ while :; do
 done
 ```
 
-The gate prevents MCPServer reconciles from racing tbot on a fresh deploy:
-a missing Secret >5 minutes crashloops the init container, which is the
-desired signal — fix the underlying problem (tbot stuck, role not
+The gate prevents MCPServer reconciles from racing tbot on a fresh
+deploy: a missing Secret >5 minutes crashloops the init container, which
+is the desired signal — fix the underlying problem (tbot stuck, role not
 allowlisted on the Teleport side, etc.) before muster comes up. Tune the
 deadline via `transport.teleport.readinessGate.timeoutSeconds`.
 
@@ -223,31 +214,38 @@ parts cluster-admin owns are:
    the SRE's responsibility; see
    [Provision the Teleport Bot](provision-teleport-bot.md#onboarding-a-new-mc).
    Must happen **before** the Helm change below.
-2. **Append the cluster** to `transport.teleport.clusters[]` in the muster
-   Helm values for Gazelle:
+2. **Append two entries** to `transport.teleport.apps[]` in the muster
+   Helm values for Gazelle — one for the MCP role, one for the Dex role:
 
    ```yaml
    transport:
      teleport:
-       clusters:
-         - name: glean
-         - name: finch         # NEW
+       apps:
+         - appName: mcp-kubernetes-glean
+           identitySecret: tbot-identity-mcp-glean
+         - appName: dex-glean
+           identitySecret: tbot-identity-tx-glean
+         # NEW for finch:
+         - appName: mcp-kubernetes-finch
+           identitySecret: tbot-identity-mcp-finch
+         - appName: dex-finch
+           identitySecret: tbot-identity-tx-finch
    ```
 
 3. **Flux reconciles** the Helm release. The chart renders new tbot
    `outputs[]`; tbot picks them up; new Secrets land; muster Deployment
-   rolls (annotated by the tbot ConfigMap checksum so a no-op spec change
-   still triggers a rollout if you tweak the chart values).
-4. **The MCPServer CR** (CR-author's responsibility) declares
-   `spec.transport.teleport.cluster: finch`. Until that CR lands, no
-   traffic flows over the new identity material — the Secrets exist and
-   tbot keeps them rotated, but nothing references them.
+   rolls (annotated by the tbot ConfigMap checksum so a no-op spec
+   change still triggers a rollout if you tweak the chart values).
+4. **The MCPServer CR** (CR-author's responsibility) declares the same
+   `appName` and `identitySecretRef.name` values verbatim under
+   `spec.transport.teleport.{mcp,dex}`. Until that CR lands, no traffic
+   flows over the new identity material — the Secrets exist and tbot
+   keeps them rotated, but nothing references them.
 
-A drift-detection alert (`MusterTransportClusterDrift`, TB-12) fires if any
-MCPServer CR references a cluster that is **not** in this chart's
-`clusters[]`. Catching it in alerts is the safety net; the
+A drift-detection alert (`MusterTransportSecretMissing`, TB-12) fires if
+any MCPServer CR references a Secret that does **not** exist. The
 `MCPServer.status.conditions[type=TransportReady]=False` reason
-`ClusterNotConfigured` is the primary feedback channel for the CR author.
+`SecretMissing` is the primary feedback channel for the CR author.
 
 ## Related
 
@@ -258,6 +256,3 @@ MCPServer CR references a cluster that is **not** in this chart's
   — the CR-side schema and examples.
 - [`helm/muster/values.yaml`](../../helm/muster/values.yaml) — source of
   truth for the values schema.
-- [PLAN.md §6 TB-4](../../PLAN.md) — design rationale for the chart shape.
-- [PLAN.md §10](../../PLAN.md) — full operational runbook for new-MC
-  onboarding.

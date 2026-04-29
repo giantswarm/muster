@@ -20,14 +20,17 @@ Three bullets to internalise before writing the CR:
   `wireguard` (see [Future transports](#future-transports)).
 - **`spec.auth` is the identity knob.** Token forwarding, RFC 8693 token
   exchange, audience requirements — all unchanged from before. Setting
-  `spec.transport.teleport.cluster` does **not** change `spec.auth`
-  semantics; the two compose.
+  `spec.transport.teleport` does **not** change `spec.auth` semantics; the
+  two compose.
 
-The CR declares its **transport intent**. The muster Deployment provides
-the **identity material** (tbot-provisioned mTLS Secrets), keyed by the
-cluster name in the CR. The two sides meet at the locked
-`<role>-<cluster>` naming convention — see
-[Configure tbot identity](configure-tbot-identity.md#the-role-cluster-naming-convention-is-locked).
+The CR declares its **transport intent verbatim**: every Teleport-routed
+CR states the Teleport application name AND the local Kubernetes Secret
+carrying its tbot identity, for both the MCP and (when token exchange is
+enabled) Dex paths. No naming-convention derivation. The muster Deployment
+provisions Secrets with those exact names via the chart's
+`transport.teleport.apps[]` list — see
+[Configure tbot identity](configure-tbot-identity.md). CR and chart values
+grep against each other directly.
 
 ## Customer-Muster compatibility
 
@@ -55,7 +58,14 @@ spec:
   transport:
     type: teleport
     teleport:
-      cluster: glean
+      mcp:
+        appName: mcp-kubernetes-glean
+        identitySecretRef:
+          name: tbot-identity-mcp-glean
+      dex:
+        appName: dex-glean
+        identitySecretRef:
+          name: tbot-identity-tx-glean
   auth:
     type: oauth
     tokenExchange:
@@ -72,7 +82,9 @@ Field-by-field walkthrough:
 | `spec.type: streamable-http` | mcp-kubernetes speaks streamable-HTTP. Stdio servers cannot use `spec.transport` — the schema rejects it (CEL rule, see [Drift signals](#drift-signals)). |
 | `spec.url` | The Teleport public address for the mcp-kubernetes app. Must match the `public_addr` registered in `giantswarm-management-clusters` for `mcp-kubernetes-glean`. |
 | `spec.transport.type: teleport` | Today the only allowed value. Discriminator for future transports — see [Future transports](#future-transports). |
-| `spec.transport.teleport.cluster: glean` | The single routing knob. Muster derives `mcp-kubernetes-glean` (MCP app) and `dex-glean` (Dex app), plus the matching tbot identity Secrets, from this one symbol. |
+| `spec.transport.teleport.mcp.appName` | The Teleport application name muster routes the MCP HTTP call through. Must match the `public_addr` leftmost label registered on the Teleport side. |
+| `spec.transport.teleport.mcp.identitySecretRef.name` | The local Kubernetes Secret carrying the tbot-issued mTLS identity for that app. Must match a `transport.teleport.apps[].identitySecret` value in the muster Helm release. Convention `tbot-identity-mcp-<cluster>` is recommended but **not enforced** — name it whatever you want, as long as the chart and CR agree. |
+| `spec.transport.teleport.dex.{appName,identitySecretRef.name}` | Same shape, for the Dex token-exchange path. **Required when `auth.tokenExchange.enabled=true`** (CEL-enforced); otherwise omit. |
 | `spec.auth.type: oauth` | Standard OAuth/OIDC identity. The legacy `auth.type: teleport` value was removed in TB-8b — Teleport is no longer an *identity* type, only a transport. |
 | `spec.auth.tokenExchange.enabled: true` | Cross-cluster SSO: muster exchanges its local token for one valid on `glean`'s Dex. Required when `mcp-kubernetes` validates against `glean`'s Dex (it does; see PLAN §2). |
 | `spec.auth.tokenExchange.dexTokenEndpoint` | The proxied URL muster reaches Dex through. Resolves to the Teleport proxy from Gazelle's pod network. |
@@ -125,15 +137,15 @@ the offending resource.
 
 | `reason` | Means | Fix |
 |---|---|---|
-| `ClusterNotConfigured` | `spec.transport.teleport.cluster` references a cluster not in the muster Deployment's Helm `clusters[]`. | Either (preferred) extend `transport.teleport.clusters[]` in the muster Helm values — see [Configure tbot identity](configure-tbot-identity.md#onboarding-a-new-mc) — or `kubectl patch` the CR to a cluster that is configured. |
-| `SecretMissing` | The cluster *is* configured in Helm, but tbot has not (yet) written the expected `tbot-identity-{mcp,tx}-{cluster}` Secret. | Inspect `kubectl logs -n muster-system deploy/muster-tbot`. Common causes: tbot crashlooping (bot role allowlist missing the cluster — see [Provision the Teleport Bot](provision-teleport-bot.md)), join token expired, Teleport proxy unreachable. |
+| `SecretMissing` | The Secret named in `spec.transport.teleport.{mcp,dex}.identitySecretRef.name` does not exist in muster's namespace. | Either (preferred) add a matching entry to the muster Helm release's `transport.teleport.apps[]` list — see [Configure tbot identity](configure-tbot-identity.md#onboarding-a-new-mc) — or `kubectl patch` the CR to reference a Secret the chart already provisions. |
 | `SecretInvalid` | Secret exists but is missing one of `tlscert` / `key` / `teleport-application-ca.pem`, or contains malformed PEM. | The chart RBAC restricts which Secrets tbot can write — usually a manual `kubectl edit` corrupted the Secret. Delete it; tbot will recreate it on the next renewal cycle. |
+| `ConfigInvalid` | `spec.transport` is structurally invalid (e.g. `mcp.appName` is empty). CRD-level CEL catches this at admission; the runtime check is defense-in-depth. | Reapply the CR — the CEL message names the bad field. |
 | `TransportError` | Catch-all for unexpected dispatcher errors (e.g. RBAC denied on the Secret read). | The condition message carries the underlying error string; check the muster pod logs for full context. |
 
 These reasons are emitted by the `internal/teleport` dispatcher and are
 authoritative — they map 1:1 to the sentinel errors in
-`internal/teleport/dispatcher.go` (`ErrClusterNotConfigured`,
-`ErrSecretMissing`, `ErrSecretInvalid`).
+`internal/teleport/dispatcher.go` (`ErrSecretMissing`, `ErrSecretInvalid`,
+`ErrTransportInvalid`).
 
 The same conditions feed Prometheus alerts (`MusterTransportSecretMissing`,
 `MusterTransportClusterDrift`, `MusterTokenExchangeFailures` — see PLAN §6
@@ -175,8 +187,8 @@ exists exactly so we can add transports cleanly.
 ## Related
 
 - [Configure tbot Identity (cluster-admin)](configure-tbot-identity.md) —
-  what the muster Helm release provisions for the `cluster:` you
-  reference here.
+  what the muster Helm release provisions for the `appName` /
+  `identitySecretRef` values you reference here.
 - [Provision the Teleport Bot (SRE)](provision-teleport-bot.md) — the
   Teleport-side state that backs the identity material.
 - [`docs/reference/crds.md`](../reference/crds.md) — the full

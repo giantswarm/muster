@@ -69,7 +69,14 @@ spec:
   transport:
     type: teleport            # Discriminator. Only "teleport" today.
     teleport:
-      cluster: "<name>"       # Symbolic remote MC name (e.g. "glean").
+      mcp:                    # Required: how to reach spec.url.
+        appName: <teleport-app-name>
+        identitySecretRef:
+          name: <local-secret-name>
+      dex:                    # Required when auth.tokenExchange.enabled=true.
+        appName: <teleport-app-name>
+        identitySecretRef:
+          name: <local-secret-name>
 
 # Status is managed automatically by muster (via reconciliation)
 status:
@@ -210,26 +217,26 @@ that reach their own MCs without going through Teleport.
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
-| `cluster` | `string` | Yes | Symbolic remote MC name. Muster derives the Teleport app names and tbot identity-secret references by the locked `<role>-<cluster>` convention. | Pattern: `^[a-z][a-z0-9-]*$` — lowercase letters/digits/hyphens, must start with a letter. |
+| `mcp` | `TeleportTarget` | Yes | The Teleport app + identity Secret used for the MCP HTTP path (`spec.url`). | See [TeleportTarget Fields](#teleporttarget-fields). |
+| `dex` | `TeleportTarget` | Conditional | The Teleport app + identity Secret used for the Dex token-exchange path (`auth.tokenExchange.dexTokenEndpoint`). | Required when `spec.auth.type=oauth` AND `spec.auth.tokenExchange.enabled=true`; otherwise optional. |
 
-**`<role>-<cluster>` derivation.** From `cluster: <name>` muster derives
-four resolved names that **must** match the muster Helm chart's
-provisioning (`transport.teleport.clusters[]` in the chart values):
+##### TeleportTarget Fields
 
-| Role | Teleport app name | tbot identity Secret |
-|---|---|---|
-| MCP traffic | `mcp-kubernetes-{cluster}` | `tbot-identity-mcp-{cluster}` |
-| Dex token-exchange | `dex-{cluster}` | `tbot-identity-tx-{cluster}` |
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `appName` | `string` | Yes | The Teleport application name. Must match the leftmost label of the Teleport app's `public_addr` registration. | Pattern: `^[a-z][a-z0-9-]*$` — lowercase letters/digits/hyphens, must start with a letter. |
+| `identitySecretRef.name` | `string` | Yes | The in-cluster Secret carrying the tbot-issued mTLS identity for `appName` (`tlscert`, `key`, `teleport-application-ca.pem`). The Secret is expected to live in muster's own namespace; the chart provisions it via `transport.teleport.apps[].identitySecret`. | The Secret must exist post-deploy; the dispatcher emits `SecretMissing` / `SecretInvalid` otherwise. |
 
-This convention is locked across the Helm chart, the Teleport-side app
-registrations in `giantswarm-management-clusters`, and the muster Go
-dispatcher. See
+**Explicit-fields shape (no derivation).** Every Teleport-routed CR
+states its app names AND identity-secret refs verbatim. The chart's
+`transport.teleport.apps[]` list provisions Secrets with the same names —
+CR and chart values grep against each other directly. See
 [Configure tbot identity](../how-to/configure-tbot-identity.md) for the
-chart-side details.
+chart side.
 
 ##### Validation rules (CEL)
 
-Three CRD-level CEL rules constrain `spec.transport`:
+Four CRD-level CEL rules constrain `spec.transport`:
 
 1. **Discriminator coherence (forward).** When `transport.type` is
    `teleport`, `transport.teleport` is required.
@@ -245,15 +252,19 @@ Three CRD-level CEL rules constrain `spec.transport`:
    - Effect: stdio servers run as local processes with no network
      endpoint, so a transport selector would be meaningless. The CR is
      rejected.
+4. **Token-exchange transport.** `transport.teleport.dex` is required
+   when `spec.auth.type=oauth` AND `spec.auth.tokenExchange.enabled=true`.
+   - Effect: a CR that enables token exchange without naming a Dex
+     transport target is rejected. (The token-exchange path needs a
+     routable Dex transport.)
 
 ##### Runtime status
 
-When the dispatcher cannot resolve a CR's transport (e.g. the `cluster`
-is not provisioned in the muster Helm release, or a tbot identity Secret
-is missing), it sets
+When the dispatcher cannot resolve a CR's transport (a referenced Secret
+is missing, malformed, or the spec is structurally invalid), it sets
 `MCPServer.status.conditions[type=TransportReady, status=False]` with one
-of: `ClusterNotConfigured`, `SecretMissing`, `SecretInvalid`,
-`TransportError`. See
+of: `SecretMissing`, `SecretInvalid`, `ConfigInvalid`, `TransportError`.
+See
 [Access Private MCP Servers](../how-to/access-private-mcp-servers.md#drift-signals)
 for the full table.
 
@@ -270,7 +281,14 @@ spec:
   transport:
     type: teleport
     teleport:
-      cluster: glean
+      mcp:
+        appName: mcp-kubernetes-glean
+        identitySecretRef:
+          name: tbot-identity-mcp-glean
+      dex:
+        appName: dex-glean
+        identitySecretRef:
+          name: tbot-identity-tx-glean
   auth:
     type: oauth
     tokenExchange:
