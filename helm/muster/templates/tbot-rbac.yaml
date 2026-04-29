@@ -1,0 +1,75 @@
+{{/*
+RBAC for the tbot Deployment (TB-4).
+
+The bot authenticates to Teleport via the kubernetes join method; the Teleport
+auth server validates this SA's projected JWT (audience-bound to the Teleport
+cluster) against the join token created in TB-3. No extra k8s permission is
+required for that — kubernetes recognises the projected token natively.
+
+In-cluster, tbot writes one Secret per output (destination type
+kubernetes_secret). RBAC is namespace-scoped (Role + RoleBinding, NOT
+ClusterRole) and constrained to the install namespace.
+
+Verbs: tbot needs to create/get/update/patch the Secret content as certs
+rotate. delete is included so the operator can later prune stale outputs by
+removing entries from clusters[]/apps[]. We constrain by resourceNames to the
+list derived by muster.tbot.outputs — `kubectl auth can-i delete secrets/foo`
+will deny anything outside that list.
+
+Trade-off note: the resourceNames constraint relies on the chart enumerating
+every Secret tbot will write. If a future maintainer adds a tbot output that
+isn't surfaced through clusters[]/apps[], they MUST extend muster.tbot.outputs
+to include it, or tbot will fail to write the Secret with a 403 — which is the
+desired loud signal.
+*/}}
+{{- if .Values.transport.teleport.enabled -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "muster.tbot.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "muster.tbot.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot
+rules:
+  # tbot must be able to create the Secret on first run; once created, get/update/patch
+  # let it rotate cert material in place. delete enables operator-driven pruning when
+  # a cluster is removed from clusters[].
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # Constrain mutating verbs to exactly the Secrets derived by muster.tbot.outputs.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "update", "patch", "delete"]
+    resourceNames:
+      {{- range (include "muster.tbot.outputs" . | fromYamlArray) }}
+      - {{ .secretName | quote }}
+      {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "muster.tbot.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "muster.tbot.serviceAccountName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.tbot.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
