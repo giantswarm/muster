@@ -45,12 +45,12 @@ func (g *GetCommand) Execute(ctx context.Context, args []string) error {
 			var jsonObj interface{}
 			if err := json.Unmarshal([]byte(textContent.Text), &jsonObj); err == nil {
 				if b, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
-					g.output.OutputLine(string(b))
+					g.output.OutputLine("%s", string(b))
 				} else {
-					g.output.OutputLine(textContent.Text)
+					g.output.OutputLine("%s", textContent.Text)
 				}
 			} else {
-				g.output.OutputLine(textContent.Text)
+				g.output.OutputLine("%s", textContent.Text)
 			}
 		} else if blobContent, ok := content.(mcp.BlobResourceContents); ok {
 			g.output.OutputLine("[Binary data: %d bytes]", len(blobContent.Blob))
