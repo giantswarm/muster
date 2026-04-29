@@ -22,6 +22,7 @@ func loadGeneratedMCPServerCRD(t *testing.T) *apiextensionsv1.CustomResourceDefi
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..")
 	crdPath := filepath.Join(repoRoot, "helm", "muster", "crds", "muster.giantswarm.io_mcpservers.yaml")
 
+	// #nosec G304 -- crdPath is derived from runtime.Caller, not user input; fixed repo asset.
 	raw, err := os.ReadFile(crdPath)
 	if err != nil {
 		t.Fatalf("failed to read CRD %s: %v", crdPath, err)
@@ -183,6 +184,7 @@ func TestMCPServerCRD_NoTeleportAuthDefinition(t *testing.T) {
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..")
 	crdPath := filepath.Join(repoRoot, "helm", "muster", "crds", "muster.giantswarm.io_mcpservers.yaml")
 
+	// #nosec G304 -- crdPath is derived from runtime.Caller, not user input; fixed repo asset.
 	raw, err := os.ReadFile(crdPath)
 	if err != nil {
 		t.Fatalf("failed to read CRD: %v", err)
