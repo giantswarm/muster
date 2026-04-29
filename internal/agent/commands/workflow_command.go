@@ -76,7 +76,7 @@ func (w *WorkflowCommand) Execute(ctx context.Context, args []string) error {
 				w.formatWorkflowResult(jsonObj)
 			} else {
 				// Fallback to plain text if not JSON
-				w.output.OutputLine(v.Text)
+				w.output.OutputLine("%s", v.Text)
 			}
 		case mcp.ImageContent:
 			w.output.OutputLine("[Image: MIME type %s, %d bytes]", v.MIMEType, len(v.Data))
@@ -96,7 +96,7 @@ func (w *WorkflowCommand) formatWorkflowResult(data interface{}) {
 	if !ok {
 		// If it's not a map, just show it as formatted JSON
 		if b, err := json.MarshalIndent(data, "", "  "); err == nil {
-			w.output.OutputLine(string(b))
+			w.output.OutputLine("%s", string(b))
 		} else {
 			w.output.OutputLine("%+v", data)
 		}
