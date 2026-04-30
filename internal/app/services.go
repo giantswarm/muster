@@ -307,6 +307,13 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// customer-Muster behavior. After the TB-0 explicit-fields reshape
 		// the CR carries every (appName, identitySecretRef) pair verbatim,
 		// so no aggregator-side cluster allowlist is needed.
+		//
+		// The dispatcher is buffered on aggService and propagated to the
+		// aggregator server inside aggService.Start() — at this point in
+		// the bootstrap the server doesn't exist yet (manager is created
+		// during Start()), so calling GetManager() here returns nil and
+		// would silently no-op the wiring (the bug that masked Teleport
+		// routing in the pre-fix muster-tb pilot).
 		if musterClient.IsKubernetesMode() {
 			dispatcher, err := teleport.NewTransportDispatcher(
 				musterClient,
@@ -315,13 +322,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			if err != nil {
 				logging.Warn("Services", "Failed to construct transport dispatcher: %v (falling back to direct HTTPS)", err)
 			} else {
-				if mgr := aggService.GetManager(); mgr != nil {
-					if srv := mgr.GetAggregatorServer(); srv != nil {
-						srv.SetTransportDispatcher(dispatcher, musterClient)
-						logging.Info("Services", "CR-driven transport dispatcher wired (namespace=%q)",
-							aggConfig.TransportRouting.SecretNamespace)
-					}
-				}
+				aggService.SetTransportDispatcher(dispatcher, musterClient)
+				logging.Info("Services", "CR-driven transport dispatcher wired (namespace=%q)",
+					aggConfig.TransportRouting.SecretNamespace)
 			}
 		}
 
