@@ -294,8 +294,9 @@ func (o *Orchestrator) handleAuthRequiredServer(mcpServerInfo api.MCPServerInfo,
 		ResourceMetadataURL: authErr.AuthInfo.ResourceMetadataURL,
 	}
 
-	// Register with the aggregator, including auth config for SSO token forwarding
-	if err := aggregator.RegisterServerPendingAuthWithConfig(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo, mcpServerInfo.Auth); err != nil {
+	// Register with the aggregator, including auth config + transport selection
+	// (TB-0). Transport is nil for in-VPN customer Muster deployments.
+	if err := aggregator.RegisterServerPendingAuthWithTransport(mcpServerInfo.Name, mcpServerInfo.URL, mcpServerInfo.ToolPrefix, authInfo, mcpServerInfo.Auth, mcpServerInfo.Transport); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", mcpServerInfo.Name)
 		return
 	}

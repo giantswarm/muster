@@ -266,6 +266,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				Port:        cfg.MusterConfig.Aggregator.Admin.Port,
 				BindAddress: cfg.MusterConfig.Aggregator.Admin.BindAddress,
 			},
+			TransportRouting: aggregator.TransportRoutingConfig{
+				SecretNamespace: cfg.MusterConfig.Aggregator.TransportRouting.Teleport.SecretNamespace,
+			},
 		}
 
 		// Set defaults if not specified
@@ -297,6 +300,30 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		// Create aggregator API adapter
 		aggAdapter := aggregatorService.NewAPIAdapter(aggService)
 		aggAdapter.Register()
+
+		// TB-8: build the CR-driven transport dispatcher when running in
+		// Kubernetes mode. In filesystem mode (no controller-runtime client)
+		// the aggregator falls back to direct HTTPS — preserving
+		// customer-Muster behavior. After the TB-0 explicit-fields reshape
+		// the CR carries every (appName, identitySecretRef) pair verbatim,
+		// so no aggregator-side cluster allowlist is needed.
+		if musterClient.IsKubernetesMode() {
+			dispatcher, err := teleport.NewTransportDispatcher(
+				musterClient,
+				aggConfig.TransportRouting.SecretNamespace,
+			)
+			if err != nil {
+				logging.Warn("Services", "Failed to construct transport dispatcher: %v (falling back to direct HTTPS)", err)
+			} else {
+				if mgr := aggService.GetManager(); mgr != nil {
+					if srv := mgr.GetAggregatorServer(); srv != nil {
+						srv.SetTransportDispatcher(dispatcher, musterClient)
+						logging.Info("Services", "CR-driven transport dispatcher wired (namespace=%q)",
+							aggConfig.TransportRouting.SecretNamespace)
+					}
+				}
+			}
+		}
 
 		// Step 4b: Initialize meta-tools for server-side tool management (Issue #343)
 		// The metatools adapter provides the MetaToolsHandler interface that the

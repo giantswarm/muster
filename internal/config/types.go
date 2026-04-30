@@ -47,6 +47,35 @@ type AggregatorConfig struct {
 	// binds to AdminBindAddress:AdminPort without authentication, so it is
 	// only safe when bound to a loopback address or reached via port-forward.
 	Admin AdminConfig `yaml:"admin,omitempty"`
+
+	// TransportRouting configures the CR-driven transport dispatcher
+	// (TB-7/TB-8). Distinct from `Transport` above (which selects the wire
+	// protocol — sse / streamable-http / stdio). With the explicit-fields
+	// reshape (PLAN §6 TB-0 revised 2026-04-29), the CR carries the
+	// (appName, identitySecretRef.Name) pairs verbatim — no aggregator-side
+	// cluster allowlist is needed. The Deployment-level config now only
+	// declares the namespace where tbot-output identity Secrets live.
+	TransportRouting TransportRoutingConfig `yaml:"transportRouting,omitempty"`
+}
+
+// TransportRoutingConfig is the Deployment-level companion to per-CR
+// spec.transport.teleport (TB-0, revised 2026-04-29). The CR carries the
+// explicit Teleport app names and identity-secret refs; the Deployment-level
+// config only contributes the namespace where the dispatcher reads Secrets
+// from.
+type TransportRoutingConfig struct {
+	// Teleport groups Teleport-specific transport configuration.
+	Teleport TeleportTransportConfig `yaml:"teleport,omitempty"`
+}
+
+// TeleportTransportConfig carries the namespace knob for tbot-output identity
+// Secrets. (Pre-reshape this also carried a clusters[] allowlist; under the
+// explicit-fields shape that allowlist is unnecessary — every CR names its
+// own appNames and Secrets.)
+type TeleportTransportConfig struct {
+	// SecretNamespace is the Kubernetes namespace from which the dispatcher
+	// reads tbot-identity Secrets. Defaults to "muster-system" when empty.
+	SecretNamespace string `yaml:"secretNamespace,omitempty"`
 }
 
 // AdminConfig defines the configuration for the admin web UI.

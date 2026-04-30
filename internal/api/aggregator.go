@@ -124,6 +124,11 @@ type AggregatorHandler interface {
 	//
 	// Returns an error if registration fails.
 	RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *MCPServerAuth) error
+
+	// RegisterServerPendingAuthWithTransport extends RegisterServerPendingAuthWithConfig
+	// with the per-CR spec.transport selection (TB-0). transportConfig may be
+	// nil — meaning direct HTTPS, which preserves customer-Muster behavior.
+	RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *MCPServerAuth, transportConfig *MCPServerTransport) error
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

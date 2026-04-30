@@ -14,12 +14,16 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
 	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/internal/server"
+	"github.com/giantswarm/muster/internal/teleport"
+	v1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
@@ -33,6 +37,10 @@ import (
 	"github.com/valkey-io/valkey-go"
 	"golang.org/x/oauth2"
 	"golang.org/x/sync/singleflight"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // AggregatorServer implements a comprehensive MCP server that aggregates multiple backend MCP servers.
@@ -137,6 +145,16 @@ type AggregatorServer struct {
 
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
+
+	// transportDispatcher resolves CR-driven outbound HTTP clients (TB-7/TB-8).
+	// nil when no Teleport clusters are configured — direct-HTTPS is then used
+	// unconditionally, preserving customer-Muster behavior.
+	transportDispatcher teleport.TransportDispatcher
+
+	// k8sClient is the controller-runtime client used to patch
+	// MCPServer.status.conditions[type=TransportReady] when the dispatcher
+	// reports a structured error (TB-8). nil disables condition updates.
+	k8sClient ctrlclient.Client
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -493,6 +511,166 @@ func NewAggregatorServer(aggConfig AggregatorConfig, errorCallback func(error)) 
 		valkeyKeyPrefix: stores.keyPrefix,
 		valkeyEncryptor: stores.encryptor,
 	}
+}
+
+// SetTransportDispatcher injects the CR-driven transport dispatcher and the
+// controller-runtime client used to patch MCPServer status conditions. Both
+// arguments may be nil — callers without Kubernetes (filesystem mode) leave
+// them unset and the aggregator falls back to direct HTTPS (TB-7's
+// "transport unset" path) without status updates. Idempotent; safe to call
+// before Start.
+func (a *AggregatorServer) SetTransportDispatcher(d teleport.TransportDispatcher, c ctrlclient.Client) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.transportDispatcher = d
+	a.k8sClient = c
+}
+
+// resolveTransportClients invokes the configured TransportDispatcher with a
+// synthesized v1alpha1.MCPServer carrying the CR's transport selection. When
+// no dispatcher is configured (e.g. filesystem mode), returns a default
+// http.Client and nil dexClient — the same shape as the dispatcher's
+// "transport unset" branch (TB-7).
+//
+// On dispatcher error, this method patches
+// MCPServer.status.conditions[type=TransportReady, status=False] with the
+// reason from teleport.MapErrorToCondition. The patch is best-effort: a
+// failure to write the condition is logged but never propagated to the
+// caller (per PLAN: "the condition write should NOT block the request").
+func (a *AggregatorServer) resolveTransportClients(ctx context.Context, info *ServerInfo) (mcpClient, dexClient *http.Client, err error) {
+	if a.transportDispatcher == nil {
+		return &http.Client{}, nil, nil
+	}
+
+	// Synthesize a v1alpha1.MCPServer. The dispatcher only consults
+	// Spec.Transport; metadata is included so logs and errors carry the CR
+	// identity for status writes.
+	syn := &v1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      info.Name,
+			Namespace: info.GetNamespace(),
+		},
+	}
+	if info.TransportConfig != nil {
+		syn.Spec.Transport = &v1alpha1.MCPServerTransport{
+			Type: info.TransportConfig.Type,
+		}
+		if info.TransportConfig.Teleport != nil {
+			tt := info.TransportConfig.Teleport
+			syn.Spec.Transport.Teleport = &v1alpha1.TeleportTransport{
+				MCP: v1alpha1.TeleportTarget{
+					AppName: tt.MCP.AppName,
+					IdentitySecretRef: corev1.LocalObjectReference{
+						Name: tt.MCP.IdentitySecretName,
+					},
+				},
+			}
+			if tt.Dex != nil {
+				syn.Spec.Transport.Teleport.Dex = &v1alpha1.TeleportTarget{
+					AppName: tt.Dex.AppName,
+					IdentitySecretRef: corev1.LocalObjectReference{
+						Name: tt.Dex.IdentitySecretName,
+					},
+				}
+			}
+		}
+	}
+
+	mcpClient, dexClient, err = a.transportDispatcher.ClientsFor(ctx, syn)
+	if err != nil {
+		a.writeTransportReadyCondition(ctx, syn, err)
+		return nil, nil, err
+	}
+	a.writeTransportReadyCondition(ctx, syn, nil)
+	return mcpClient, dexClient, nil
+}
+
+// writeTransportReadyCondition patches the TransportReady status condition on
+// the named MCPServer. err==nil writes True/Ready; non-nil writes False with
+// the reason returned by teleport.MapErrorToCondition. Best-effort — patch
+// failures are logged and swallowed.
+//
+// Skips entirely when the controller-runtime client is unavailable (e.g.
+// filesystem mode) or the CR does not declare a transport (no condition is
+// meaningful in that case).
+func (a *AggregatorServer) writeTransportReadyCondition(ctx context.Context, mcp *v1alpha1.MCPServer, dispatchErr error) {
+	if a.k8sClient == nil || mcp == nil {
+		return
+	}
+	if mcp.Spec.Transport == nil && dispatchErr == nil {
+		// Don't spam the condition for direct-HTTPS CRs. TB-12 alerts only
+		// fire on the failure path; a True condition is also unhelpful here.
+		return
+	}
+
+	var (
+		latest v1alpha1.MCPServer
+		key    = apitypes.NamespacedName{Name: mcp.Name, Namespace: mcp.Namespace}
+	)
+	if err := a.k8sClient.Get(ctx, key, &latest); err != nil {
+		// Filesystem-mode fakes / missing CRD; not an error worth warning on
+		// repeatedly.
+		if !meta.IsNoMatchError(err) {
+			logging.DebugWithAttrs("Aggregator", "Skipping TransportReady condition patch (CR not gettable)",
+				slog.String("server", mcp.Name),
+				slog.String("error", err.Error()))
+		}
+		return
+	}
+
+	cond := metav1.Condition{
+		Type:               "TransportReady",
+		LastTransitionTime: metav1.Now(),
+	}
+	if dispatchErr == nil {
+		cond.Status = metav1.ConditionTrue
+		cond.Reason = "Resolved"
+		cond.Message = "transport clients resolved"
+	} else {
+		reason, message := teleport.MapErrorToCondition(dispatchErr)
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = reason
+		cond.Message = message
+	}
+
+	// Only patch when the condition would actually change, to avoid
+	// resourceVersion churn and conflict retries on every tool call.
+	if !transportReadyChanged(latest.Status.Conditions, cond) {
+		return
+	}
+	patch := ctrlclient.MergeFrom(latest.DeepCopy())
+	setOrReplaceCondition(&latest.Status.Conditions, cond)
+	if err := a.k8sClient.Status().Patch(ctx, &latest, patch); err != nil {
+		logging.WarnWithAttrs("Aggregator", "Failed to patch MCPServer TransportReady condition",
+			slog.String("server", mcp.Name),
+			slog.String("namespace", mcp.Namespace),
+			slog.String("error", err.Error()))
+	}
+}
+
+// transportReadyChanged reports whether `next` would meaningfully replace any
+// existing TransportReady condition in the slice.
+func transportReadyChanged(existing []metav1.Condition, next metav1.Condition) bool {
+	for _, c := range existing {
+		if c.Type != next.Type {
+			continue
+		}
+		return c.Status != next.Status || c.Reason != next.Reason || c.Message != next.Message
+	}
+	return true
+}
+
+// setOrReplaceCondition applies next to the slice, replacing any prior
+// condition of the same Type. Minimal helper — does not introduce a new
+// condition framework.
+func setOrReplaceCondition(slice *[]metav1.Condition, next metav1.Condition) {
+	for i, c := range *slice {
+		if c.Type == next.Type {
+			(*slice)[i] = next
+			return
+		}
+	}
+	*slice = append(*slice, next)
 }
 
 // storeBundle groups the results of createStores for readability.
@@ -2559,17 +2737,30 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		}
 	}
 
-	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
-	// configured per-CR via spec.transport (TB-0). Wiring it into this code
-	// path is the responsibility of TB-7's CR-driven transport dispatcher.
-	// Until that lands, this path always uses the default HTTP client —
-	// equivalent to direct HTTPS to spec.auth.tokenExchange.dexTokenEndpoint.
-	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
-		ctx, idToken, userID, &exchangeConfig,
+	// Resolve the per-CR transport clients (TB-7/TB-8). For CRs without
+	// spec.transport, mcpHTTPClient is a default http.Client and dexHTTPClient
+	// is nil — equivalent to direct HTTPS.
+	mcpHTTPClient, dexHTTPClient, err := a.resolveTransportClients(ctx, serverInfo)
+	if err != nil {
+		// Dispatcher error short-circuits the exchange; status condition is
+		// already written by resolveTransportClients. TB-9: emit an audit
+		// event for parity with connection_helper.go's failure path.
+		emitTokenExchangeEvent(serverName, serverInfo.GetNamespace(), false, err.Error())
+		return nil, time.Time{}, "", fmt.Errorf("resolve transport for %s: %w", serverName, err)
+	}
+
+	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteClusterWithClient(
+		ctx, idToken, userID, &exchangeConfig, dexHTTPClient,
 	)
 	if err != nil {
+		// TB-9: emit a token-exchange audit event on failure for parity with
+		// connection_helper.go.
+		emitTokenExchangeEvent(serverName, serverInfo.GetNamespace(), false, err.Error())
 		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
+
+	// TB-9: emit success audit event mirroring connection_helper.go.
+	emitTokenExchangeEvent(serverName, serverInfo.GetNamespace(), true, "")
 
 	tokenExpiry := getTokenExpiryTime(exchangedToken)
 
@@ -2577,7 +2768,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return map[string]string{"Authorization": "Bearer " + exchangedToken}
 	}
 
-	client := MCPClient(internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc))
+	client := MCPClient(internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, mcpHTTPClient))
 
 	return client, tokenExpiry, exchangedToken, nil
 }

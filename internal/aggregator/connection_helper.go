@@ -446,11 +446,11 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	if success {
 		reason = events.ReasonMCPServerTokenForwarded
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenForwardingFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 
@@ -605,19 +605,29 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
+	// Resolve the per-CR transport clients (TB-7/TB-8). For CRs without
+	// spec.transport, mcpHTTPClient is a default http.Client and dexHTTPClient
+	// is nil — the token exchange below uses the OAuth handler's default
+	// client unchanged.
+	mcpHTTPClient, dexHTTPClient, err := a.resolveTransportClients(ctx, serverInfo)
+	if err != nil {
+		// Dispatcher errors (cluster-not-configured, secret-missing, etc.)
+		// short-circuit before contacting Dex; the status condition has
+		// already been written by resolveTransportClients.
+		return nil, fmt.Errorf("resolve transport for %s: %w", serverInfo.Name, err)
+	}
+
 	// Perform the token exchange against the remote Dex.
 	//
-	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
-	// configured per-CR via spec.transport (TB-0). Wiring it into this code
-	// path is the responsibility of TB-7's CR-driven transport dispatcher.
-	// Until that lands, this path always uses the default HTTP client —
-	// equivalent to direct HTTPS to spec.auth.tokenExchange.dexTokenEndpoint.
+	// When dexHTTPClient is non-nil the call goes through Teleport's mTLS;
+	// otherwise the OAuth handler's internal client is used (direct HTTPS).
 	var exchangedToken string
-	exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
+	exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
 		ctx,
 		idToken,
 		userID,
 		serverInfo.AuthConfig.TokenExchange,
+		dexHTTPClient,
 	)
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
@@ -671,10 +681,10 @@ func EstablishConnectionWithTokenExchange(
 
 	// Create a client with the dynamic header function.
 	//
-	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
-	// configured per-CR via spec.transport (TB-0). Wiring it into this code
-	// path is the responsibility of TB-7's CR-driven dispatcher.
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
+	// When mcpHTTPClient is the default (transport unset) we still go through
+	// the HTTP-client-aware constructor so the request flow is uniform; the
+	// default http.Client behaves identically to the bare-headers path.
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, mcpHTTPClient)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -765,11 +775,11 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	if success {
 		reason = events.ReasonMCPServerTokenExchanged
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("Token successfully exchanged for cross-cluster SSO to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenExchangeFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("Token exchange failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 

@@ -53,6 +53,13 @@ type MCPServer struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
 
+	// Transport selects how muster reaches the MCP endpoint and any
+	// transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+	// Carries no identity. When nil, direct HTTPS is used. Mirrors the
+	// CRD-level spec.transport (TB-0); kept in the api layer to avoid pulling
+	// the v1alpha1 package into aggregator code.
+	Transport *MCPServerTransport `yaml:"transport,omitempty" json:"transport,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
@@ -63,6 +70,47 @@ type MCPServer struct {
 	// Description provides a human-readable description of this MCP server's purpose.
 	// This is runtime information populated from server metadata and not persisted to YAML.
 	Description string `json:"description,omitempty" yaml:"-"`
+}
+
+// MCPServerTransport selects how muster reaches the MCP endpoint and any
+// transport-private endpoints referenced from spec.auth. Mirrors the CRD-level
+// type (PLAN §6 TB-0). Customer Muster (in-VPN) omits this field; muster then
+// uses direct HTTPS to spec.url.
+type MCPServerTransport struct {
+	// Type is the transport discriminator. Today only "teleport" is supported.
+	Type string `yaml:"type" json:"type"`
+
+	// Teleport configures routing through per-cluster tbot-provisioned mTLS
+	// clients. Required when Type is "teleport".
+	Teleport *TeleportTransport `yaml:"teleport,omitempty" json:"teleport,omitempty"`
+}
+
+// TeleportTransport names the explicit Teleport application(s) and identity
+// secret(s) for the MCP and (optionally) Dex transports. Mirrors the
+// CRD-level type (PLAN §6 TB-0, revised 2026-04-29 to explicit fields).
+// Both targets carry their app name and Secret reference verbatim — no
+// derivation, no naming-convention assumed.
+type TeleportTransport struct {
+	// MCP names the Teleport application + identity Secret used for the
+	// MCP HTTP endpoint. Required when transport.type=="teleport".
+	MCP TeleportTarget `yaml:"mcp" json:"mcp"`
+
+	// Dex names the Teleport application + identity Secret used for the
+	// Dex token-exchange endpoint. Required when
+	// auth.tokenExchange.enabled==true; nil otherwise.
+	Dex *TeleportTarget `yaml:"dex,omitempty" json:"dex,omitempty"`
+}
+
+// TeleportTarget is the explicit (Teleport app name, identity secret name)
+// pair for a single Teleport-routed endpoint. Mirrors the CRD-level type.
+type TeleportTarget struct {
+	// AppName is the Teleport application name (leftmost label of
+	// public_addr). Lowercase DNS label syntax.
+	AppName string `yaml:"appName" json:"appName"`
+
+	// IdentitySecretName is the in-cluster Secret carrying the tbot-output
+	// identity material for AppName.
+	IdentitySecretName string `yaml:"identitySecretName" json:"identitySecretName"`
 }
 
 // MCPServerAuth configures authentication behavior for an MCP server.
@@ -267,6 +315,10 @@ type MCPServerInfo struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Transport selects how muster reaches the MCP endpoint. See
+	// MCPServerTransport for details (PLAN §6 TB-0). Nil means direct HTTPS.
+	Transport *MCPServerTransport `json:"transport,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
