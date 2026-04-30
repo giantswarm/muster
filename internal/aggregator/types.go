@@ -98,6 +98,11 @@ type ServerInfo struct {
 	// and never modified, so RequiresSessionAuth() is safe without locking.
 	AuthConfig *api.MCPServerAuth
 
+	// TransportConfig is the per-CR transport selection (TB-0). Immutable after
+	// registration. nil means direct HTTPS — the dispatcher will return a plain
+	// http.Client for both MCP and Dex calls.
+	TransportConfig *api.MCPServerTransport
+
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
 	mu        sync.RWMutex
@@ -180,6 +185,19 @@ func (s *ServerInfo) GetNamespace() string {
 	return s.Namespace
 }
 
+// TransportRoutingConfig groups the runtime knobs for the CR-driven transport
+// dispatcher (TB-7/TB-8). Distinct from AggregatorConfig.Transport (which
+// selects the wire protocol). Reshape (PLAN §6 TB-0 revised 2026-04-29): the
+// CR carries the explicit (appName, identitySecretRef.Name) pairs verbatim,
+// so no aggregator-side cluster allowlist is needed; the dispatcher only
+// needs the namespace where tbot-output identity Secrets live.
+type TransportRoutingConfig struct {
+	// SecretNamespace is the Kubernetes namespace from which tbot-output
+	// identity Secrets are read. Defaults to teleport.DefaultSecretNamespace
+	// ("muster-system") when empty.
+	SecretNamespace string
+}
+
 // AggregatorConfig holds configuration args for the aggregator.
 // This structure defines how the aggregator should behave and
 // what endpoints it should expose.
@@ -225,6 +243,12 @@ type AggregatorConfig struct {
 	// Admin, when enabled, starts a separate HTTP listener that serves the
 	// session management web UI. See internal/admin for details.
 	Admin AdminConfig
+
+	// TransportRouting configures the CR-driven transport dispatcher
+	// (TB-7/TB-8). Distinct from `Transport` above (which selects the wire
+	// protocol). An empty TeleportClusters list disables the Teleport
+	// transport.
+	TransportRouting TransportRoutingConfig
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

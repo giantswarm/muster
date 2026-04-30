@@ -138,6 +138,30 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		info.NextRetryAfter = &t
 	}
 
+	// Convert transport configuration if present (TB-0, revised 2026-04-29
+	// to explicit fields). Both targets carry their app name and identity
+	// secret name verbatim — no derivation.
+	if server.Spec.Transport != nil {
+		info.Transport = &api.MCPServerTransport{
+			Type: server.Spec.Transport.Type,
+		}
+		if server.Spec.Transport.Teleport != nil {
+			tt := server.Spec.Transport.Teleport
+			info.Transport.Teleport = &api.TeleportTransport{
+				MCP: api.TeleportTarget{
+					AppName:            tt.MCP.AppName,
+					IdentitySecretName: tt.MCP.IdentitySecretRef.Name,
+				},
+			}
+			if tt.Dex != nil {
+				info.Transport.Teleport.Dex = &api.TeleportTarget{
+					AppName:            tt.Dex.AppName,
+					IdentitySecretName: tt.Dex.IdentitySecretRef.Name,
+				}
+			}
+		}
+	}
+
 	// Convert auth configuration if present
 	if server.Spec.Auth != nil {
 		info.Auth = &api.MCPServerAuth{
@@ -157,15 +181,6 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 			info.Auth.TokenExchange.ClientCredentialsSecretRef = convertCRDSecretRefToAPI(
 				server.Spec.Auth.TokenExchange.ClientCredentialsSecretRef,
 			)
-		}
-		// Convert Teleport config if present
-		if server.Spec.Auth.Teleport != nil {
-			info.Auth.Teleport = &api.TeleportAuth{
-				IdentityDir:             server.Spec.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      server.Spec.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: server.Spec.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 server.Spec.Auth.Teleport.AppName,
-			}
 		}
 	}
 
@@ -276,15 +291,6 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			}
 		}
 
-		// Convert Teleport auth if present
-		if req.Auth.Teleport != nil {
-			crd.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
-				IdentityDir:             req.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 req.Auth.Teleport.AppName,
-			}
-		}
 	}
 
 	return crd
@@ -656,14 +662,6 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 				ClientCredentialsSecretRef: convertAPISecretRefToCRD(req.Auth.TokenExchange.ClientCredentialsSecretRef),
 			}
 		}
-		if req.Auth.Teleport != nil {
-			existing.Spec.Auth.Teleport = &musterv1alpha1.TeleportAuthConfig{
-				IdentityDir:             req.Auth.Teleport.IdentityDir,
-				IdentitySecretName:      req.Auth.Teleport.IdentitySecretName,
-				IdentitySecretNamespace: req.Auth.Teleport.IdentitySecretNamespace,
-				AppName:                 req.Auth.Teleport.AppName,
-			}
-		}
 	}
 
 	// Validate the updated definition (reuse existing CRD object)
@@ -744,32 +742,6 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	default:
 		return fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",
 			server.Spec.Type, api.MCPServerTypeStdio, api.MCPServerTypeStreamableHTTP, api.MCPServerTypeSSE)
-	}
-
-	// Validate Teleport auth configuration if present
-	if server.Spec.Auth != nil && server.Spec.Auth.Type == api.AuthTypeTeleport {
-		if err := a.validateTeleportAuth(server.Spec.Auth.Teleport); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validateTeleportAuth validates Teleport authentication configuration
-func (a *Adapter) validateTeleportAuth(teleport *musterv1alpha1.TeleportAuthConfig) error {
-	if teleport == nil {
-		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-	}
-
-	// Validate mutual exclusivity
-	if teleport.IdentityDir != "" && teleport.IdentitySecretName != "" {
-		return fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-	}
-
-	// Require at least one identity source
-	if teleport.IdentityDir == "" && teleport.IdentitySecretName == "" {
-		return fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
 	}
 
 	return nil

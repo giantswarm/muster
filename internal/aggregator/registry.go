@@ -593,6 +593,13 @@ func (r *ServerRegistry) RegisterPendingAuth(name, url, toolPrefix string, authI
 //
 // Returns an error if the server name is already registered.
 func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
+	return r.RegisterPendingAuthWithTransport(name, url, toolPrefix, authInfo, authConfig, nil)
+}
+
+// RegisterPendingAuthWithTransport extends RegisterPendingAuthWithConfig with
+// per-CR transport selection (TB-0). The transport drives TB-7's CR-driven
+// dispatcher when the aggregator establishes outbound connections.
+func (r *ServerRegistry) RegisterPendingAuthWithTransport(name, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth, transportConfig *api.MCPServerTransport) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -610,13 +617,14 @@ func (r *ServerRegistry) RegisterPendingAuthWithConfig(name, url, toolPrefix str
 
 	// Per ADR-008: No synthetic tools are created. Users use core_auth_login instead.
 	info := &ServerInfo{
-		Name:       name,
-		URL:        url,
-		ToolPrefix: toolPrefix,
-		AuthInfo:   authInfo,
-		AuthConfig: authConfig,
-		Client:     nil, // No client until authentication succeeds
-		Tools:      nil, // No tools exposed until authenticated
+		Name:            name,
+		URL:             url,
+		ToolPrefix:      toolPrefix,
+		AuthInfo:        authInfo,
+		AuthConfig:      authConfig,
+		TransportConfig: transportConfig,
+		Client:          nil, // No client until authentication succeeds
+		Tools:           nil, // No tools exposed until authenticated
 	}
 
 	r.nameMu.Lock()

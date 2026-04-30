@@ -38,7 +38,7 @@
 //
 // # Usage
 //
-// MCPServers can be configured to use Teleport authentication:
+// MCPServers declare Teleport routing via the top-level spec.transport field:
 //
 //	apiVersion: muster.giantswarm.io/v1alpha1
 //	kind: MCPServer
@@ -46,18 +46,22 @@
 //	  name: remote-mcp-kubernetes
 //	spec:
 //	  type: streamable-http
-//	  url: https://mcp-kubernetes.teleport.example.com/mcp
-//	  auth:
+//	  url: https://mcp-kubernetes-glean.teleport.giantswarm.io/mcp
+//	  transport:
 //	    type: teleport
 //	    teleport:
-//	      identitySecretName: tbot-identity-output
-//	      appName: mcp-kubernetes
+//	      cluster: glean
+//
+// Muster derives the Teleport app names (mcp-kubernetes-{cluster} and
+// dex-{cluster}) and the matching tbot identity-secret references from the
+// single cluster symbol — no raw app names appear in the CR.
 //
 // # Integration Points
 //
-//   - MCPServer Controller: Detects auth.type: teleport and configures the HTTP client
-//   - API Package: TeleportClientProvider registered as a handler
-//   - Aggregator: Uses Teleport-configured HTTP client for protected servers
+//   - MCPServer Controller: Reads spec.transport and resolves the per-cluster
+//     identity material to configure the HTTP client (TB-7).
+//   - API Package: TeleportClientProvider registered as a handler.
+//   - Aggregator: Uses the resolved HTTP client for protected servers.
 //
 // # Security Considerations
 //

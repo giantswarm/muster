@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
@@ -188,7 +189,14 @@ func getExchangeDefaults(req *ExchangeRequest) (tokenType, scopes string) {
 //
 // Returns the exchanged token or an error if exchange fails.
 func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*ExchangeResult, error) {
+	// Wraps both the cache-hit fast path and the remote-call path with the
+	// muster_token_exchange_total + muster_token_exchange_duration_seconds
+	// metrics required by TB-8 / TB-12.
+	start := time.Now()
+	defer func() { observeTokenExchangeDuration(time.Since(start).Seconds()) }()
+
 	if err := validateExchangeRequest(req); err != nil {
+		incTokenExchange(resultError)
 		return nil, err
 	}
 
@@ -199,6 +207,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+		incTokenExchange(resultCacheHit)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
@@ -232,6 +241,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s: %v",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+		incTokenExchange(resultError)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
@@ -241,6 +251,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s: %v",
 				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+			incTokenExchange(resultError)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
 		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s)",
@@ -256,6 +267,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s",
 		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+	incTokenExchange(resultSuccess)
 
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,
@@ -278,13 +290,21 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 //
 // Returns the exchanged token or an error if exchange fails.
 func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRequest, httpClient *http.Client) (*ExchangeResult, error) {
-	// If no custom client provided, use the default Exchange method
+	// If no custom client provided, defer to Exchange so metrics aren't
+	// double-counted (Exchange records its own labels).
 	if httpClient == nil {
 		return e.Exchange(ctx, req)
 	}
 
+	// Wraps both the cache-hit fast path and the remote-call path with the
+	// muster_token_exchange_total + muster_token_exchange_duration_seconds
+	// metrics required by TB-8.
+	start := time.Now()
+	defer func() { observeTokenExchangeDuration(time.Since(start).Seconds()) }()
+
 	// Validate request using shared validation logic (DRY)
 	if err := validateExchangeRequest(req); err != nil {
+		incTokenExchange(resultError)
 		return nil, err
 	}
 
@@ -295,6 +315,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s (with custom client)",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+		incTokenExchange(resultCacheHit)
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
@@ -338,6 +359,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s (with custom client): %v",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+		incTokenExchange(resultError)
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
@@ -347,6 +369,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 		if err := validateTokenIssuer(resp.AccessToken, expectedIssuer); err != nil {
 			logging.Warn("TokenExchange", "Issuer validation failed for user=%s endpoint=%s (with custom client): %v",
 				logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
+			incTokenExchange(resultError)
 			return nil, fmt.Errorf("issuer validation failed: %w", err)
 		}
 		logging.Debug("TokenExchange", "Issuer validation passed for user=%s (expected=%s, with custom client)",
@@ -362,6 +385,7 @@ func (e *TokenExchanger) ExchangeWithClient(ctx context.Context, req *ExchangeRe
 
 	logging.Info("TokenExchange", "Successfully exchanged token for user=%s endpoint=%s (with custom client)",
 		logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
+	incTokenExchange(resultSuccess)
 
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,

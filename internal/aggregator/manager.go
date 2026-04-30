@@ -400,6 +400,13 @@ func (am *AggregatorManager) RegisterServerPendingAuth(serverName, url, toolPref
 //
 // Returns an error if registration fails.
 func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth) error {
+	return am.RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix, authInfo, authConfig, nil)
+}
+
+// RegisterServerPendingAuthWithTransport extends RegisterServerPendingAuthWithConfig
+// with the per-CR transport selection (TB-0). transportConfig may be nil — in
+// that case the dispatcher returns a direct-HTTPS client.
+func (am *AggregatorManager) RegisterServerPendingAuthWithTransport(serverName, url, toolPrefix string, authInfo *AuthInfo, authConfig *api.MCPServerAuth, transportConfig *api.MCPServerTransport) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -407,7 +414,7 @@ func (am *AggregatorManager) RegisterServerPendingAuthWithConfig(serverName, url
 		return fmt.Errorf("aggregator server not available")
 	}
 
-	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthWithConfig(serverName, url, toolPrefix, authInfo, authConfig); err != nil {
+	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuthWithTransport(serverName, url, toolPrefix, authInfo, authConfig, transportConfig); err != nil {
 		return err
 	}
 

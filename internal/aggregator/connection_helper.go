@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -447,11 +446,11 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 
 	if success {
 		reason = events.ReasonMCPServerTokenForwarded
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("ID token successfully forwarded for SSO authentication to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenForwardingFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("ID token forwarding failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 
@@ -606,37 +605,30 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	// Check if Teleport auth is configured - if so, we need to use Teleport HTTP client
-	// for both the token exchange request and the MCP server connection.
-	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
-
-	// If Teleport is configured but failed, return an explicit error rather than
-	// falling back silently (which would cause confusing connection failures to private endpoints)
-	if teleportResult.Configured && teleportResult.Error != nil {
-		logging.Error("Connection", teleportResult.Error, "Teleport required for %s but failed",
-			serverInfo.Name)
-		return nil, fmt.Errorf("teleport configuration failed: %w", teleportResult.Error)
+	// Resolve the per-CR transport clients (TB-7/TB-8). For CRs without
+	// spec.transport, mcpHTTPClient is a default http.Client and dexHTTPClient
+	// is nil — the token exchange below uses the OAuth handler's default
+	// client unchanged.
+	mcpHTTPClient, dexHTTPClient, err := a.resolveTransportClients(ctx, serverInfo)
+	if err != nil {
+		// Dispatcher errors (cluster-not-configured, secret-missing, etc.)
+		// short-circuit before contacting Dex; the status condition has
+		// already been written by resolveTransportClients.
+		return nil, fmt.Errorf("resolve transport for %s: %w", serverInfo.Name, err)
 	}
 
-	// Perform the token exchange (using Teleport client if configured)
+	// Perform the token exchange against the remote Dex.
+	//
+	// When dexHTTPClient is non-nil the call goes through Teleport's mTLS;
+	// otherwise the OAuth handler's internal client is used (direct HTTPS).
 	var exchangedToken string
-	if teleportResult.Client != nil {
-		logging.Debug("Connection", "Using Teleport HTTP client for token exchange to %s", serverInfo.Name)
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
-			ctx,
-			idToken,
-			userID,
-			serverInfo.AuthConfig.TokenExchange,
-			teleportResult.Client,
-		)
-	} else {
-		exchangedToken, err = oauthHandler.ExchangeTokenForRemoteCluster(
-			ctx,
-			idToken,
-			userID,
-			serverInfo.AuthConfig.TokenExchange,
-		)
-	}
+	exchangedToken, err = oauthHandler.ExchangeTokenForRemoteClusterWithClient(
+		ctx,
+		idToken,
+		userID,
+		serverInfo.AuthConfig.TokenExchange,
+		dexHTTPClient,
+	)
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
@@ -688,14 +680,11 @@ func EstablishConnectionWithTokenExchange(
 	}
 
 	// Create a client with the dynamic header function.
-	// If Teleport is configured, use the Teleport HTTP client for the MCP connection as well.
-	var client *internalmcp.StreamableHTTPClient
-	if teleportResult.Client != nil {
-		logging.Debug("Connection", "Using Teleport HTTP client for MCP connection to %s", serverInfo.Name)
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, teleportResult.Client)
-	} else {
-		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
-	}
+	//
+	// When mcpHTTPClient is the default (transport unset) we still go through
+	// the HTTP-client-aware constructor so the request flow is uniform; the
+	// default http.Client behaves identically to the bare-headers path.
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFuncAndHTTPClient(serverInfo.URL, headerFunc, mcpHTTPClient)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -786,11 +775,11 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 
 	if success {
 		reason = events.ReasonMCPServerTokenExchanged
-		eventType = "Normal"
+		eventType = string(events.EventTypeNormal)
 		message = fmt.Sprintf("Token successfully exchanged for cross-cluster SSO to MCPServer %s", serverName)
 	} else {
 		reason = events.ReasonMCPServerTokenExchangeFailed
-		eventType = "Warning"
+		eventType = string(events.EventTypeWarning)
 		message = fmt.Sprintf("Token exchange failed for MCPServer %s: %s", serverName, errorMsg)
 	}
 
@@ -1033,92 +1022,6 @@ func getTokenExpiryTime(token string) time.Time {
 	}
 
 	return time.Unix(claims.Exp, 0)
-}
-
-// TeleportClientResult contains the result of getting a Teleport HTTP client.
-// This provides explicit error handling for Teleport configuration issues.
-type TeleportClientResult struct {
-	// Client is the HTTP client configured with Teleport mTLS certificates.
-	// Nil if Teleport is not configured or if there was an error.
-	Client *http.Client
-
-	// Configured indicates whether Teleport authentication was configured
-	// for this server. When true but Client is nil, Error will contain the reason.
-	Configured bool
-
-	// Error contains the error if Teleport was configured but client creation failed.
-	// This allows callers to distinguish between "not configured" and "configured but failed".
-	Error error
-}
-
-// getTeleportHTTPClientIfConfigured returns a Teleport HTTP client if the server
-// is configured to use Teleport authentication.
-//
-// This is used for both token exchange and MCP server connections when accessing
-// private installations via Teleport Application Access.
-//
-// The function returns a TeleportClientResult that distinguishes between:
-//   - Not configured: Configured=false, Client=nil, Error=nil (use default HTTP client)
-//   - Configured and successful: Configured=true, Client!=nil, Error=nil
-//   - Configured but failed: Configured=true, Client=nil, Error!=nil (caller should fail, not fallback)
-//
-// This explicit error handling prevents silent fallback when Teleport is required
-// but misconfigured, which would lead to confusing connection errors.
-func getTeleportHTTPClientIfConfigured(ctx context.Context, serverInfo *ServerInfo) TeleportClientResult {
-	// Check if server has Teleport auth configured
-	if serverInfo == nil || serverInfo.AuthConfig == nil {
-		return TeleportClientResult{Configured: false}
-	}
-	if serverInfo.AuthConfig.Type != api.AuthTypeTeleport {
-		return TeleportClientResult{Configured: false}
-	}
-
-	// From this point on, Teleport IS configured - errors should be explicit
-	if serverInfo.AuthConfig.Teleport == nil {
-		err := fmt.Errorf("teleport auth type configured but teleport settings missing")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Get the Teleport handler from the API service locator
-	teleportHandler := api.GetTeleportClient()
-	if teleportHandler == nil {
-		err := fmt.Errorf("teleport client handler not registered - ensure teleport package is initialized")
-		logging.Error("Connection", err, "Teleport initialization error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Build the client configuration from the server auth settings
-	teleportAuth := serverInfo.AuthConfig.Teleport
-	clientConfig := api.TeleportClientConfig{
-		IdentityDir:             teleportAuth.IdentityDir,
-		IdentitySecretName:      teleportAuth.IdentitySecretName,
-		IdentitySecretNamespace: teleportAuth.IdentitySecretNamespace,
-		AppName:                 teleportAuth.AppName,
-	}
-
-	// Validate that exactly one identity source is specified
-	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
-		err := fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-	if clientConfig.IdentityDir != "" && clientConfig.IdentitySecretName != "" {
-		err := fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-		logging.Error("Connection", err, "Teleport configuration error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: err}
-	}
-
-	// Get the HTTP client from the Teleport handler
-	httpClient, err := teleportHandler.GetHTTPClientForConfig(ctx, clientConfig)
-	if err != nil {
-		wrappedErr := fmt.Errorf("failed to get Teleport HTTP client: %w", err)
-		logging.Error("Connection", wrappedErr, "Teleport client error for %s", serverInfo.Name)
-		return TeleportClientResult{Configured: true, Error: wrappedErr}
-	}
-
-	logging.Debug("Connection", "Got Teleport HTTP client for %s", serverInfo.Name)
-	return TeleportClientResult{Configured: true, Client: httpClient}
 }
 
 // loadTokenExchangeCredentials loads OAuth client credentials from a Kubernetes secret

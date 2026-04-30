@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net"
-	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -534,15 +533,9 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Headers: s.definition.Headers,
 	}
 
-	// If Teleport authentication is configured, get a custom HTTP client
-	if s.definition.Auth != nil && s.definition.Auth.Type == api.AuthTypeTeleport {
-		httpClient, err := s.getTeleportHTTPClient(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get Teleport HTTP client: %w", err)
-		}
-		config.HTTPClient = httpClient
-		s.LogDebug("Using Teleport HTTP client for %s", s.GetName())
-	}
+	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
+	// configured per-CR via spec.transport (TB-0). Wiring it into this code
+	// path is the responsibility of TB-7's CR-driven transport dispatcher.
 
 	// Use factory to create the appropriate client type
 	client, err := mcpserver.NewMCPClientFromType(s.definition.Type, config)
@@ -654,45 +647,6 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 // connectivity issues and unreachable state tracking.
 func (s *Service) isRemoteServer() bool {
 	return s.definition.Type.IsRemote()
-}
-
-// getTeleportHTTPClient returns an HTTP client configured with Teleport certificates.
-// It uses the Teleport handler registered in the API service locator.
-func (s *Service) getTeleportHTTPClient(ctx context.Context) (*http.Client, error) {
-	teleportAuth := s.definition.Auth.Teleport
-	if teleportAuth == nil {
-		return nil, fmt.Errorf("teleport auth configured but teleport settings are missing")
-	}
-
-	// Get the Teleport handler from the API service locator
-	teleportHandler := api.GetTeleportClient()
-	if teleportHandler == nil {
-		return nil, fmt.Errorf("teleport client handler not registered")
-	}
-
-	// Build the client configuration from the MCPServer auth settings
-	clientConfig := api.TeleportClientConfig{
-		IdentityDir:             teleportAuth.IdentityDir,
-		IdentitySecretName:      teleportAuth.IdentitySecretName,
-		IdentitySecretNamespace: teleportAuth.IdentitySecretNamespace,
-		AppName:                 teleportAuth.AppName,
-	}
-
-	// Validate that exactly one identity source is specified (mutual exclusivity)
-	if clientConfig.IdentityDir == "" && clientConfig.IdentitySecretName == "" {
-		return nil, fmt.Errorf("teleport auth requires either identityDir or identitySecretName")
-	}
-	if clientConfig.IdentityDir != "" && clientConfig.IdentitySecretName != "" {
-		return nil, fmt.Errorf("teleport auth: identityDir and identitySecretName are mutually exclusive")
-	}
-
-	// Get the HTTP client from the Teleport handler
-	httpClient, err := teleportHandler.GetHTTPClientForConfig(ctx, clientConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Teleport HTTP client: %w", err)
-	}
-
-	return httpClient, nil
 }
 
 // isTransientConnectivityError checks if an error is a transient network/connectivity

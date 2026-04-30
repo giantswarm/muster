@@ -7,7 +7,9 @@ import (
 )
 
 // TeleportConfig holds configuration for Teleport authentication.
-// This configuration is typically populated from MCPServer auth.teleport settings.
+// This configuration is populated by TB-7's CR-driven dispatcher from
+// MCPServer spec.transport.teleport.cluster, with app names and identity
+// secret references derived by the <role>-<cluster> convention.
 type TeleportConfig struct {
 	// IdentityDir is the directory containing Teleport identity files.
 	// In filesystem mode, this is the tbot output directory.

@@ -93,40 +93,6 @@ spec:
                     items:
                       type: string
                     type: array
-                  teleport:
-                    description: |-
-                      Teleport configures Teleport authentication for accessing private installations.
-                      This is only used when Type is "teleport".
-
-                      When configured, muster uses Teleport Machine ID certificates to establish
-                      mutual TLS connections to MCP servers accessible via Teleport Application Access.
-                    properties:
-                      appName:
-                        description: |-
-                          AppName is the Teleport application name for routing.
-                          This is used to identify which Teleport-protected application to connect to.
-                          Example: mcp-kubernetes
-                        type: string
-                      identityDir:
-                        description: |-
-                          IdentityDir is the directory containing Teleport identity files.
-                          Used in filesystem mode when certificates are mounted directly.
-                          Example: /var/run/tbot/identity
-                        type: string
-                      identitySecretName:
-                        description: |-
-                          IdentitySecretName is the name of the Kubernetes Secret containing
-                          tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
-                          (matching tbot's application output type).
-                          Required when running in Kubernetes mode.
-                          Example: tbot-identity-output
-                        type: string
-                      identitySecretNamespace:
-                        description: |-
-                          IdentitySecretNamespace is the Kubernetes namespace where the identity
-                          secret is located. Defaults to the MCPServer's namespace if not specified.
-                        type: string
-                    type: object
                   tokenExchange:
                     description: |-
                       TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
@@ -221,11 +187,9 @@ spec:
                       Type specifies the authentication type.
                       Supported values:
                         - "oauth": OAuth 2.0/OIDC authentication
-                        - "teleport": Teleport Application Access with Machine ID certificates
                         - "none": No authentication
                     enum:
                     - oauth
-                    - teleport
                     - none
                     type: string
                 type: object
@@ -274,6 +238,97 @@ spec:
                   servers provide tools with similar names.
                 pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
                 type: string
+              transport:
+                description: |-
+                  Transport selects how muster reaches the MCP endpoint and any
+                  transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+                  Carries no identity. Customer Muster (in-VPN) omits this field, which
+                  preserves direct-HTTPS behavior to spec.url.
+                properties:
+                  teleport:
+                    description: |-
+                      Teleport configures routing through per-cluster tbot-provisioned mTLS
+                      clients. Required when Type is "teleport".
+                    properties:
+                      dex:
+                        description: |-
+                          Dex configures the token-exchange path. Required when
+                          spec.auth.type == "oauth" AND spec.auth.tokenExchange.enabled == true
+                          (the token-exchange path needs a routable Dex transport). Optional
+                          otherwise.
+                        properties:
+                          appName:
+                            description: |-
+                              AppName is the Teleport application name (the leftmost label of the
+                              Teleport app's public_addr). Lowercase DNS label syntax.
+                            pattern: ^[a-z][a-z0-9-]*$
+                            type: string
+                          identitySecretRef:
+                            description: |-
+                              IdentitySecretRef references the in-cluster Secret carrying the
+                              tbot-output identity material for AppName. The Secret is expected
+                              to live in muster's own namespace (the tbot Deployment writes it).
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - appName
+                        - identitySecretRef
+                        type: object
+                      mcp:
+                        description: |-
+                          MCP names the Teleport application (and identity Secret) used to
+                          reach the MCP server's HTTP endpoint.
+                        properties:
+                          appName:
+                            description: |-
+                              AppName is the Teleport application name (the leftmost label of the
+                              Teleport app's public_addr). Lowercase DNS label syntax.
+                            pattern: ^[a-z][a-z0-9-]*$
+                            type: string
+                          identitySecretRef:
+                            description: |-
+                              IdentitySecretRef references the in-cluster Secret carrying the
+                              tbot-output identity material for AppName. The Secret is expected
+                              to live in muster's own namespace (the tbot Deployment writes it).
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - appName
+                        - identitySecretRef
+                        type: object
+                    required:
+                    - mcp
+                    type: object
+                  type:
+                    description: |-
+                      Type is the transport discriminator. Today only "teleport" is supported;
+                      future transports extend this enum additively.
+                    enum:
+                    - teleport
+                    type: string
+                required:
+                - type
+                type: object
               type:
                 description: |-
                   Type specifies how this MCP server should be executed.
@@ -433,6 +488,19 @@ spec:
           rule: self.spec.type == 'stdio' || !has(self.spec.args)
         - message: headers field is only allowed when type is streamable-http or sse
           rule: self.spec.type != 'stdio' || !has(self.spec.headers)
+        - message: transport.teleport is required when transport.type is teleport
+          rule: '!has(self.spec.transport) || self.spec.transport.type != ''teleport''
+            || has(self.spec.transport.teleport)'
+        - message: transport.teleport may only be set when transport.type is teleport
+          rule: '!has(self.spec.transport) || self.spec.transport.type == ''teleport''
+            || !has(self.spec.transport.teleport)'
+        - message: transport is not allowed when type is stdio
+          rule: self.spec.type != 'stdio' || !has(self.spec.transport)
+        - message: transport.teleport.dex is required when auth.tokenExchange is enabled
+          rule: '!has(self.spec.transport) || self.spec.transport.type != ''teleport''
+            || !has(self.spec.auth) || self.spec.auth.type != ''oauth'' || !has(self.spec.auth.tokenExchange)
+            || !self.spec.auth.tokenExchange.enabled || (has(self.spec.transport.teleport)
+            && has(self.spec.transport.teleport.dex))'
     served: true
     storage: true
     subresources:

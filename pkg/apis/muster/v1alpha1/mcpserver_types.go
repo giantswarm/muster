@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,6 +55,12 @@ type MCPServerSpec struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `json:"auth,omitempty" yaml:"auth,omitempty"`
 
+	// Transport selects how muster reaches the MCP endpoint and any
+	// transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+	// Carries no identity. Customer Muster (in-VPN) omits this field, which
+	// preserves direct-HTTPS behavior to spec.url.
+	Transport *MCPServerTransport `json:"transport,omitempty" yaml:"transport,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	// +kubebuilder:default=30
 	// +kubebuilder:validation:Minimum=1
@@ -61,17 +68,75 @@ type MCPServerSpec struct {
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 }
 
+// MCPServerTransport selects how muster reaches the MCP endpoint and any
+// transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+// Carries no identity (see PLAN §2). Customer Muster (in-VPN) omits it.
+//
+// The discriminator (Type) keeps the schema extensible — additional sibling
+// transports (e.g. wireguard) can be added without breaking existing CRs.
+type MCPServerTransport struct {
+	// Type is the transport discriminator. Today only "teleport" is supported;
+	// future transports extend this enum additively.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=teleport
+	Type string `json:"type" yaml:"type"`
+
+	// Teleport configures routing through per-cluster tbot-provisioned mTLS
+	// clients. Required when Type is "teleport".
+	// +optional
+	Teleport *TeleportTransport `json:"teleport,omitempty" yaml:"teleport,omitempty"`
+}
+
+// TeleportTransport routes the MCP and (if enabled) Dex token-exchange calls
+// through per-target tbot-provisioned mTLS clients. Both the Teleport app
+// name and the local Secret carrying the tbot-issued identity are stated
+// explicitly per CR — no derivation, no naming convention assumed. This
+// keeps every Teleport-routed CR self-describing and grep-able across the
+// GitOps tree, and lets cluster-admins name secrets to match their existing
+// tbot-output topology rather than conform to a Muster-imposed pattern.
+type TeleportTransport struct {
+	// MCP names the Teleport application (and identity Secret) used to
+	// reach the MCP server's HTTP endpoint.
+	// +kubebuilder:validation:Required
+	MCP TeleportTarget `json:"mcp" yaml:"mcp"`
+
+	// Dex configures the token-exchange path. Required when
+	// spec.auth.type == "oauth" AND spec.auth.tokenExchange.enabled == true
+	// (the token-exchange path needs a routable Dex transport). Optional
+	// otherwise.
+	// +optional
+	Dex *TeleportTarget `json:"dex,omitempty" yaml:"dex,omitempty"`
+}
+
+// TeleportTarget names a single Teleport application and the local
+// Kubernetes Secret carrying the tbot-output identity (tlscert, key,
+// teleport-application-ca.pem) for that app.
+type TeleportTarget struct {
+	// AppName is the Teleport application name (the leftmost label of the
+	// Teleport app's public_addr). Lowercase DNS label syntax.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]*$`
+	AppName string `json:"appName" yaml:"appName"`
+
+	// IdentitySecretRef references the in-cluster Secret carrying the
+	// tbot-output identity material for AppName. The Secret is expected
+	// to live in muster's own namespace (the tbot Deployment writes it).
+	// +kubebuilder:validation:Required
+	IdentitySecretRef corev1.LocalObjectReference `json:"identitySecretRef" yaml:"identitySecretRef"`
+}
+
 // MCPServerAuth configures authentication behavior for an MCP server.
 // This enables Single Sign-On (SSO) via token forwarding between muster and
-// downstream MCP servers that share the same Identity Provider, or Teleport
-// authentication for private installations.
+// downstream MCP servers that share the same Identity Provider.
+//
+// Network-level access for private installations (e.g. mTLS via Teleport)
+// is configured via spec.transport, not via spec.auth.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
-	// +kubebuilder:validation:Enum=oauth;teleport;none
+	// +kubebuilder:validation:Enum=oauth;none
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
 
@@ -106,39 +171,6 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty" yaml:"tokenExchange,omitempty"`
-
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	Teleport *TeleportAuthConfig `json:"teleport,omitempty" yaml:"teleport,omitempty"`
-}
-
-// TeleportAuthConfig configures Teleport authentication for an MCP server.
-// This enables access to MCP servers on private installations via Teleport
-// Application Access using Machine ID certificates managed by tbot.
-type TeleportAuthConfig struct {
-	// IdentitySecretName is the name of the Kubernetes Secret containing
-	// tbot identity files. The secret should contain: tlscert, key, teleport-application-ca.pem
-	// (matching tbot's application output type).
-	// Required when running in Kubernetes mode.
-	// Example: tbot-identity-output
-	IdentitySecretName string `json:"identitySecretName,omitempty" yaml:"identitySecretName,omitempty"`
-
-	// IdentitySecretNamespace is the Kubernetes namespace where the identity
-	// secret is located. Defaults to the MCPServer's namespace if not specified.
-	IdentitySecretNamespace string `json:"identitySecretNamespace,omitempty" yaml:"identitySecretNamespace,omitempty"`
-
-	// IdentityDir is the directory containing Teleport identity files.
-	// Used in filesystem mode when certificates are mounted directly.
-	// Example: /var/run/tbot/identity
-	IdentityDir string `json:"identityDir,omitempty" yaml:"identityDir,omitempty"`
-
-	// AppName is the Teleport application name for routing.
-	// This is used to identify which Teleport-protected application to connect to.
-	// Example: mcp-kubernetes
-	AppName string `json:"appName,omitempty" yaml:"appName,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
@@ -358,6 +390,10 @@ type MCPServerStatus struct {
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.args)",message="args field is only allowed when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headers)",message="headers field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.transport) || self.spec.transport.type != 'teleport' || has(self.spec.transport.teleport)",message="transport.teleport is required when transport.type is teleport"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.transport) || self.spec.transport.type == 'teleport' || !has(self.spec.transport.teleport)",message="transport.teleport may only be set when transport.type is teleport"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.transport)",message="transport is not allowed when type is stdio"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.transport) || self.spec.transport.type != 'teleport' || !has(self.spec.auth) || self.spec.auth.type != 'oauth' || !has(self.spec.auth.tokenExchange) || !self.spec.auth.tokenExchange.enabled || (has(self.spec.transport.teleport) && has(self.spec.transport.teleport.dex))",message="transport.teleport.dex is required when auth.tokenExchange is enabled"
 
 // MCPServer is the Schema for the mcpservers API
 type MCPServer struct {

@@ -53,6 +53,13 @@ type MCPServer struct {
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `yaml:"auth,omitempty" json:"auth,omitempty"`
 
+	// Transport selects how muster reaches the MCP endpoint and any
+	// transport-private endpoints referenced from spec.auth (e.g. Dex /token).
+	// Carries no identity. When nil, direct HTTPS is used. Mirrors the
+	// CRD-level spec.transport (TB-0); kept in the api layer to avoid pulling
+	// the v1alpha1 package into aggregator code.
+	Transport *MCPServerTransport `yaml:"transport,omitempty" json:"transport,omitempty"`
+
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
@@ -65,9 +72,50 @@ type MCPServer struct {
 	Description string `json:"description,omitempty" yaml:"-"`
 }
 
+// MCPServerTransport selects how muster reaches the MCP endpoint and any
+// transport-private endpoints referenced from spec.auth. Mirrors the CRD-level
+// type (PLAN §6 TB-0). Customer Muster (in-VPN) omits this field; muster then
+// uses direct HTTPS to spec.url.
+type MCPServerTransport struct {
+	// Type is the transport discriminator. Today only "teleport" is supported.
+	Type string `yaml:"type" json:"type"`
+
+	// Teleport configures routing through per-cluster tbot-provisioned mTLS
+	// clients. Required when Type is "teleport".
+	Teleport *TeleportTransport `yaml:"teleport,omitempty" json:"teleport,omitempty"`
+}
+
+// TeleportTransport names the explicit Teleport application(s) and identity
+// secret(s) for the MCP and (optionally) Dex transports. Mirrors the
+// CRD-level type (PLAN §6 TB-0, revised 2026-04-29 to explicit fields).
+// Both targets carry their app name and Secret reference verbatim — no
+// derivation, no naming-convention assumed.
+type TeleportTransport struct {
+	// MCP names the Teleport application + identity Secret used for the
+	// MCP HTTP endpoint. Required when transport.type=="teleport".
+	MCP TeleportTarget `yaml:"mcp" json:"mcp"`
+
+	// Dex names the Teleport application + identity Secret used for the
+	// Dex token-exchange endpoint. Required when
+	// auth.tokenExchange.enabled==true; nil otherwise.
+	Dex *TeleportTarget `yaml:"dex,omitempty" json:"dex,omitempty"`
+}
+
+// TeleportTarget is the explicit (Teleport app name, identity secret name)
+// pair for a single Teleport-routed endpoint. Mirrors the CRD-level type.
+type TeleportTarget struct {
+	// AppName is the Teleport application name (leftmost label of
+	// public_addr). Lowercase DNS label syntax.
+	AppName string `yaml:"appName" json:"appName"`
+
+	// IdentitySecretName is the in-cluster Secret carrying the tbot-output
+	// identity material for AppName.
+	IdentitySecretName string `yaml:"identitySecretName" json:"identitySecretName"`
+}
+
 // MCPServerAuth configures authentication behavior for an MCP server.
 //
-// Muster supports three distinct authentication mechanisms:
+// Muster supports two SSO mechanisms:
 //
 //   - SSO Token Forwarding: Muster forwards its own ID token to downstream servers.
 //     Enable with ForwardToken: true. Requires downstream to trust muster's client ID.
@@ -76,14 +124,12 @@ type MCPServer struct {
 //     remote cluster's Dex. Enable with TokenExchange config. Requires the remote Dex
 //     to have an OIDC connector configured for the local cluster's Dex.
 //
-//   - Teleport Authentication: Muster uses Teleport Machine ID certificates to access
-//     private installations via Teleport Application Access. Enable with Type: "teleport"
-//     and configure Teleport settings.
+// Network-level access for private installations (e.g. mTLS via Teleport) is
+// configured via the top-level spec.transport, not via spec.auth.
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
 	//   - "oauth": OAuth 2.0/OIDC authentication
-	//   - "teleport": Teleport Application Access with Machine ID certificates
 	//   - "none": No authentication
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
@@ -127,17 +173,6 @@ type MCPServerAuth struct {
 	//
 	// Token exchange takes precedence over ForwardToken if both are configured.
 	TokenExchange *TokenExchangeConfig `yaml:"tokenExchange,omitempty" json:"tokenExchange,omitempty"`
-
-	// Teleport configures Teleport authentication for accessing private installations.
-	// This is only used when Type is "teleport".
-	//
-	// When configured, muster uses Teleport Machine ID certificates to establish
-	// mutual TLS connections to MCP servers accessible via Teleport Application Access.
-	//
-	// The Teleport identity files (tls.crt, tls.key, ca.crt) are typically:
-	//   - In Kubernetes: Mounted from a Secret managed by tbot
-	//   - In filesystem mode: Read directly from the tbot output directory
-	Teleport *TeleportAuth `yaml:"teleport,omitempty" json:"teleport,omitempty"`
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
@@ -280,6 +315,10 @@ type MCPServerInfo struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// Transport selects how muster reaches the MCP endpoint. See
+	// MCPServerTransport for details (PLAN §6 TB-0). Nil means direct HTTPS.
+	Transport *MCPServerTransport `json:"transport,omitempty"`
 
 	// Timeout specifies the connection timeout for remote operations (in seconds)
 	Timeout int `json:"timeout,omitempty"`
