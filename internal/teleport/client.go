@@ -175,13 +175,20 @@ func (p *ClientProvider) loadCertificatesFromMemoryLocked(certData CertificateDa
 	// roots can't be loaded (e.g. distroless without ca-certificates) so
 	// the fully-private deployment still works.
 	caCertPool, sysErr := x509.SystemCertPool()
-	if sysErr != nil || caCertPool == nil {
+	systemRootsLoaded := sysErr == nil && caCertPool != nil
+	if !systemRootsLoaded {
 		caCertPool = x509.NewCertPool()
+	}
+	systemRootsCount := 0
+	if systemRootsLoaded {
+		systemRootsCount = len(caCertPool.Subjects()) //nolint:staticcheck // SA1019: best-effort log only
 	}
 	if !caCertPool.AppendCertsFromPEM(certData.CAPEM) {
 		p.status.LastError = fmt.Errorf("failed to parse CA certificate")
 		return p.status.LastError
 	}
+	logging.Info("TeleportClient", "Built TLS pool: system_roots=%t system_count=%d sys_err=%v",
+		systemRootsLoaded, systemRootsCount, sysErr)
 
 	// Create TLS config
 	p.tlsConfig = &tls.Config{
