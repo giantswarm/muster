@@ -41,7 +41,10 @@ type TeleportConfig struct {
 	KeyFile string
 
 	// CAFile is the path to the CA certificate file (relative to IdentityDir).
-	// Defaults to "teleport-application-ca.pem" if not specified (matching tbot's application output).
+	// Defaults to "teleport-host-ca.crt" if not specified — the host CA bundle
+	// tbot's `type: application` output writes alongside the client cert/key,
+	// used to validate Teleport's server TLS certificate when calling the
+	// Application Access proxy.
 	CAFile string
 }
 
@@ -53,9 +56,16 @@ const DefaultCertFile = "tlscert"
 // This matches tbot's application output type which produces "key".
 const DefaultKeyFile = "key"
 
-// DefaultCAFile is the default filename for the CA certificate.
-// This matches tbot's application output type which produces "teleport-application-ca.pem".
-const DefaultCAFile = "teleport-application-ca.pem"
+// DefaultCAFile is the default filename for the CA certificate the client
+// uses to validate Teleport's server TLS certificate when reaching the
+// Application Access proxy. tbot's `type: application` output writes the
+// host CA bundle as `teleport-host-ca.crt` (alongside `teleport-user-ca.crt`
+// and `teleport-database-ca.crt`); the host CA is the trust anchor for the
+// Teleport proxy's serving cert. The previous default
+// (`teleport-application-ca.pem`) does not exist in tbot's `application`
+// output and caused Secret loading to fail with "missing
+// teleport-application-ca.pem" at runtime in the muster-tb pilot.
+const DefaultCAFile = "teleport-host-ca.crt"
 
 // DefaultWatchInterval is the default interval for checking certificate changes.
 const DefaultWatchInterval = 30 * time.Second

@@ -62,7 +62,7 @@ var (
 	ErrSecretMissing = errors.New("teleport identity secret not found")
 	// ErrSecretInvalid is returned when an expected tbot-identity secret
 	// exists but is missing required keys (tlscert, key,
-	// teleport-application-ca.pem) or contains invalid PEM data.
+	// teleport-host-ca.crt) or contains invalid PEM data.
 	ErrSecretInvalid = errors.New("teleport identity secret malformed")
 	// ErrTransportInvalid is returned when spec.transport is structurally
 	// invalid (e.g. type=teleport with no teleport block). CRD-level CEL

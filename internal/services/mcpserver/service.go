@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -534,8 +535,51 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	}
 
 	// Transport-level routing (e.g. mTLS via Teleport for private MCs) is
-	// configured per-CR via spec.transport (TB-0). Wiring it into this code
-	// path is the responsibility of TB-7's CR-driven transport dispatcher.
+	// configured per-CR via spec.transport (TB-0/TB-7). For Teleport-routed
+	// servers, look up the registered TeleportClientHandler and ask it for
+	// an mTLS-configured http.Client keyed by the (identitySecret, appName)
+	// pair declared on the CR — this is the same handler the user-driven
+	// token-exchange path uses (connection_helper.go), wired here so the
+	// initial autoStart probe to spec.url goes through Teleport too.
+	// Without this, the probe uses the default http.Client and either times
+	// out (private URL) or returns an HTML auth-redirect from Teleport's
+	// proxy (public Teleport URL), so the streamable-http client decode
+	// fails with "unexpected content type: text/html".
+	if s.definition.Transport != nil &&
+		s.definition.Transport.Type == "teleport" &&
+		s.definition.Transport.Teleport != nil {
+		handler := api.GetTeleportClient()
+		if handler == nil {
+			return fmt.Errorf("MCPServer %s declares spec.transport.type=teleport but no TeleportClientHandler is registered (running in filesystem mode?)", s.GetName())
+		}
+		mcpTarget := s.definition.Transport.Teleport.MCP
+		if mcpTarget.AppName == "" || mcpTarget.IdentitySecretName == "" {
+			return fmt.Errorf("MCPServer %s spec.transport.teleport.mcp must declare appName and identitySecretRef.name", s.GetName())
+		}
+		// Identity Secrets are tbot outputs that live in the muster pod's
+		// own namespace (the chart writes them via the kubernetes_secret
+		// destination). The chart sets K8S_NAMESPACE on the main container
+		// via the downward API (deployment.yaml); fall through to
+		// POD_NAMESPACE (used on the init container and several other
+		// charts in the org) so the same wiring works under operator-style
+		// deployments. Empty would default to "default" inside the
+		// handler — a silent miss in any non-default deployment.
+		secretNs := os.Getenv("K8S_NAMESPACE")
+		if secretNs == "" {
+			secretNs = os.Getenv("POD_NAMESPACE")
+		}
+		httpClient, err := handler.GetHTTPClientForConfig(ctx, api.TeleportClientConfig{
+			IdentitySecretName:      mcpTarget.IdentitySecretName,
+			IdentitySecretNamespace: secretNs,
+			AppName:                 mcpTarget.AppName,
+		})
+		if err != nil {
+			return fmt.Errorf("resolve Teleport HTTP client for MCPServer %s: %w", s.GetName(), err)
+		}
+		config.HTTPClient = httpClient
+		s.LogDebug("MCPServer %s: resolved Teleport HTTP client (app=%s, secret=%s/%s)",
+			s.GetName(), mcpTarget.AppName, secretNs, mcpTarget.IdentitySecretName)
+	}
 
 	// Use factory to create the appropriate client type
 	client, err := mcpserver.NewMCPClientFromType(s.definition.Type, config)
