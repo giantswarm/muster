@@ -1,0 +1,74 @@
+# Teleport state for the muster aggregator bot (TB-3).
+#
+# This template is rendered by scripts/provision-teleport-bot.sh and applied
+# via `tctl create -f -` against the Giant Swarm Teleport cluster. The script
+# substitutes the @VAR@ placeholders below.
+#
+# Resources defined:
+#   1. bot         — machine identity for muster on Gazelle.
+#   2. role        — label-selector ACL granting access to muster-aggregator
+#                    apps in an explicit cluster allowlist (trust-boundary fix
+#                    per PLAN §9 "Bot scope and Teleport role design").
+#   3. token       — kubernetes-method join token bound to Gazelle's SA issuer.
+#                    The metadata.name MUST match the tbot config's
+#                    onboarding.token (the bot <-> tbot contract — TB-4).
+#
+# API versions assume Teleport >= v17 (production runs v17.5.4 per
+# teleport-kube-agent-app/helm/teleport-kube-agent/Chart.yaml). If the cluster
+# is upgraded to a version that changes these resource shapes, update here.
+---
+kind: bot
+version: v1
+metadata:
+  name: @BOT_NAME@
+  description: |
+    Muster aggregator bot. Provides per-app mTLS identity to the muster
+    Deployment on Gazelle so it can reach Dex and mcp-kubernetes on private
+    customer management clusters via Teleport Application Access.
+spec:
+  roles:
+    - @ROLE_NAME@
+---
+kind: role
+version: v7
+metadata:
+  name: @ROLE_NAME@
+  description: |
+    Label-selector ACL for the muster aggregator bot. Apps must opt in by
+    carrying purpose=muster-aggregator (set by TB-1/TB-2 in
+    giantswarm-management-clusters). The cluster allowlist is the
+    trust-boundary fix from PLAN §9 — adding a new MC requires extending
+    the allowlist and re-running the provisioning script (idempotent).
+spec:
+  allow:
+    app_labels:
+      app: ['dex', 'mcp-kubernetes']
+      purpose: ['muster-aggregator']
+      cluster: [@CLUSTER_ALLOWLIST_YAML@]
+  options:
+    # Bot identities are short-lived; tbot renews automatically.
+    # TODO(TB-3): verify max_session_ttl interplay with tbot renewal cadence
+    # against teleport v17 docs once we have a live cluster to test on.
+    max_session_ttl: 8h0m0s
+---
+kind: token
+version: v2
+metadata:
+  name: @TOKEN_NAME@
+  description: |
+    Kubernetes-method join token for the muster aggregator bot. Bound to
+    the muster ServiceAccount on Gazelle (the in-cluster SA issuer is
+    Gazelle's own kube-apiserver). The metadata.name is the bot <-> tbot
+    contract: it MUST match tbot's onboarding.token in TB-4.
+spec:
+  roles: [Bot]
+  join_method: kubernetes
+  bot_name: @BOT_NAME@
+  # The kubernetes-validator block below is replaced by provision-teleport-bot.sh
+  # with either an `in_cluster` or a `static_jwks` variant. Default is
+  # in_cluster (legacy: tbot host cluster IS Teleport's home cluster). When
+  # JWKS_FILE is set, the script switches to static_jwks and inlines the
+  # JWKS body so Teleport can validate SA tokens minted by a *remote* MC's
+  # apiserver (PLAN §9: required to host tbot on canary or non-Teleport-home
+  # MCs). The marker on the next line MUST stay as the only token on its line.
+  @KUBERNETES_BLOCK@

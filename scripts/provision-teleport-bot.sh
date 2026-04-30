@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+#
+# provision-teleport-bot.sh — TB-3
+#
+# Idempotent SRE-run script that provisions the Teleport-side state required
+# for the muster aggregator on Gazelle to reach Dex / mcp-kubernetes on
+# private customer management clusters via Teleport Application Access.
+#
+# Creates three resources in the Giant Swarm Teleport cluster:
+#   - bot         muster-aggregator
+#   - role        muster-aggregator-role  (label-selector + cluster allowlist)
+#   - token       muster-aggregator       (kubernetes join, bound to Gazelle SA)
+#
+# `tctl create -f` is upsert-on-stable-name, so this script is safely
+# re-runnable for cluster rebuilds, DR, and new-environment provisioning.
+# Adding a new remote MC means extending CLUSTER_ALLOWLIST and re-running.
+#
+# Owner: SRE. Run once per Teleport cluster (prod + each test env).
+# Not in CI. See PLAN §6 TB-3 and §9 "Bot scope and Teleport role design".
+#
+# Usage:
+#   ./provision-teleport-bot.sh [--yes] [--dry-run]
+#
+#   Env-var overrides (all optional):
+#     TELEPORT_PROXY      default teleport.giantswarm.io:443
+#     BOT_NAME            default muster-aggregator
+#     ROLE_NAME           default muster-aggregator-role
+#     TOKEN_NAME          default muster-aggregator
+#                         (MUST match tbot's onboarding.token in TB-4)
+#     CLUSTER_ALLOWLIST   default glean   (comma-separated, no spaces required)
+#     SA_NAMESPACE        default muster
+#     SA_NAME             default muster-tbot
+#     JWKS_FILE           default unset
+#                         When unset, the join token uses the
+#                         `kubernetes.type: in_cluster` validator (Teleport
+#                         calls its own kube apiserver — only works if tbot
+#                         runs on the same cluster as Teleport's auth svc).
+#                         When set, must point to a JWKS document (JSON)
+#                         from the *remote* host cluster's
+#                         `/openid/v1/jwks` endpoint. The script switches
+#                         the token to `kubernetes.type: static_jwks` and
+#                         inlines the JWKS body so Teleport can verify
+#                         SA tokens minted by that remote apiserver. Use
+#                         this for canary/cross-MC tbot hosting (PLAN §9).
+#                         Example:
+#                           kubectl --context gs-graveler get \
+#                             --raw /openid/v1/jwks > /tmp/graveler-jwks.json
+#                           JWKS_FILE=/tmp/graveler-jwks.json \
+#                           CLUSTER_ALLOWLIST=glean \
+#                             ./provision-teleport-bot.sh --yes
+#     TEMPLATE_PATH       default <script-dir>/provision-teleport-bot.yaml.tmpl
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---- Defaults ---------------------------------------------------------------
+TELEPORT_PROXY="${TELEPORT_PROXY:-teleport.giantswarm.io:443}"
+BOT_NAME="${BOT_NAME:-muster-aggregator}"
+ROLE_NAME="${ROLE_NAME:-muster-aggregator-role}"
+TOKEN_NAME="${TOKEN_NAME:-muster-aggregator}"
+CLUSTER_ALLOWLIST="${CLUSTER_ALLOWLIST:-glean}"
+# SA defaults match the muster Helm chart layout: helm-release.yaml pins
+# `targetNamespace: muster`, and helm/muster/templates/_helpers.tpl:77 defines
+# the tbot SA name as `<release>-tbot` (i.e. `muster-tbot` for release `muster`).
+SA_NAMESPACE="${SA_NAMESPACE:-muster}"
+SA_NAME="${SA_NAME:-muster-tbot}"
+JWKS_FILE="${JWKS_FILE:-}"
+TEMPLATE_PATH="${TEMPLATE_PATH:-${SCRIPT_DIR}/provision-teleport-bot.yaml.tmpl}"
+
+ASSUME_YES=0
+DRY_RUN=0
+
+# ---- Helpers ----------------------------------------------------------------
+err()  { printf 'error: %s\n' "$*" >&2; }
+info() { printf '%s\n' "$*" >&2; }
+
+usage() {
+  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+require_tctl() {
+  if ! command -v tctl >/dev/null 2>&1; then
+    err "'tctl' not found on PATH."
+    err "Install Teleport client tools and authenticate against ${TELEPORT_PROXY} (e.g. via 'tsh login --proxy=${TELEPORT_PROXY}') before running this script."
+    exit 127
+  fi
+}
+
+# Render the comma-separated CLUSTER_ALLOWLIST into a YAML inline-list payload,
+# i.e. 'glean','finch'. Empty / whitespace tokens are skipped. Single-quoting
+# handles cluster names safely and matches the style of the template.
+render_cluster_allowlist_yaml() {
+  local raw="$1"
+  local out=""
+  local IFS=','
+  # shellcheck disable=SC2086
+  for token in $raw; do
+    # trim whitespace
+    token="${token#"${token%%[![:space:]]*}"}"
+    token="${token%"${token##*[![:space:]]}"}"
+    [[ -z "$token" ]] && continue
+    if [[ -n "$out" ]]; then
+      out+=", "
+    fi
+    out+="'${token}'"
+  done
+  printf '%s' "$out"
+}
+
+# Render the `kubernetes:` block of the join token. Two variants:
+#   - in_cluster (default): Teleport validates SA tokens via its own
+#     in-cluster kube apiserver. Requires tbot to run on Teleport's
+#     home cluster.
+#   - static_jwks: Teleport validates SA tokens against an inlined JWKS.
+#     Requires JWKS_FILE to be set to the remote MC's /openid/v1/jwks
+#     output. The block is YAML-block-scalar indented so JSON content
+#     pastes verbatim.
+#
+# Both variants share the same `allow:` clause binding the bound
+# ServiceAccount.
+render_kubernetes_block() {
+  if [[ -z "$JWKS_FILE" ]]; then
+    cat <<EOF
+  kubernetes:
+    type: in_cluster
+    allow:
+      - service_account: "${SA_NAMESPACE}:${SA_NAME}"
+EOF
+    return 0
+  fi
+  if [[ ! -f "$JWKS_FILE" ]]; then
+    err "JWKS_FILE set to '${JWKS_FILE}' but file does not exist."
+    exit 2
+  fi
+  # Sanity-check: must be JSON with a "keys" array.
+  if ! grep -q '"keys"' "$JWKS_FILE"; then
+    err "JWKS_FILE '${JWKS_FILE}' does not look like a JWKS document (no '\"keys\"' field). Expected the response of /openid/v1/jwks."
+    exit 2
+  fi
+  # Indent JWKS body to match the block-scalar (`jwks: |`) at 6 spaces ->
+  # contents at 8 spaces.
+  local jwks_indented
+  jwks_indented="$(sed 's/^/        /' "$JWKS_FILE")"
+  cat <<EOF
+  kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: |
+${jwks_indented}
+    allow:
+      - service_account: "${SA_NAMESPACE}:${SA_NAME}"
+EOF
+}
+
+render_template() {
+  if [[ ! -f "$TEMPLATE_PATH" ]]; then
+    err "template not found at ${TEMPLATE_PATH}"
+    exit 2
+  fi
+  local cluster_yaml
+  cluster_yaml="$(render_cluster_allowlist_yaml "$CLUSTER_ALLOWLIST")"
+  # Guard runs in the parent shell because `exit` inside a command
+  # substitution only kills the subshell.
+  if [[ -z "$cluster_yaml" ]]; then
+    err "CLUSTER_ALLOWLIST resolved to an empty list — refusing to provision a role with no cluster allowlist (would grant access to every MC tagged purpose=muster-aggregator)."
+    exit 2
+  fi
+
+  # Render the kubernetes block to a temp file. Passing it through `-v` to
+  # awk doesn't work portably (BSD awk on macOS rejects newlines in -v
+  # values); reading from a file via getline does.
+  local block_file
+  block_file="$(mktemp)"
+  trap 'rm -f "$block_file"' RETURN
+  render_kubernetes_block > "$block_file"
+
+  # Plain @VAR@ placeholder substitution for single-line values. None of the
+  # substituted values can contain @ or unescaped quotes in normal SRE use;
+  # values come from env vars set by an SRE, not untrusted input.
+  #
+  # @KUBERNETES_BLOCK@ is multi-line and replaced on a separate pass via awk
+  # so embedded newlines / JSON braces don't confuse sed.
+  sed \
+    -e "s|@BOT_NAME@|${BOT_NAME}|g" \
+    -e "s|@ROLE_NAME@|${ROLE_NAME}|g" \
+    -e "s|@TOKEN_NAME@|${TOKEN_NAME}|g" \
+    -e "s|@CLUSTER_ALLOWLIST_YAML@|${cluster_yaml}|g" \
+    -e "s|@SA_NAMESPACE@|${SA_NAMESPACE}|g" \
+    -e "s|@SA_NAME@|${SA_NAME}|g" \
+    "$TEMPLATE_PATH" \
+  | awk -v f="$block_file" '
+      /@KUBERNETES_BLOCK@/ {
+        while ((getline line < f) > 0) print line
+        close(f)
+        next
+      }
+      { print }
+    '
+}
+
+confirm_or_exit() {
+  if [[ "$ASSUME_YES" -eq 1 ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    err "stdin is not a TTY and --yes was not passed; refusing to apply changes non-interactively."
+    err "Pass --yes to confirm, or run from an interactive shell."
+    exit 3
+  fi
+  printf 'Apply the above resources to Teleport at %s? [y/N] ' "$TELEPORT_PROXY" >&2
+  local reply
+  read -r reply
+  case "$reply" in
+    y|Y|yes|YES) return 0 ;;
+    *) info "aborted by user."; exit 4 ;;
+  esac
+}
+
+# ---- Arg parsing ------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes|-y)      ASSUME_YES=1; shift ;;
+    --dry-run|-n)  DRY_RUN=1; shift ;;
+    -h|--help)     usage; exit 0 ;;
+    --)            shift; break ;;
+    *)             err "unknown argument: $1"; usage; exit 64 ;;
+  esac
+done
+
+# ---- Main -------------------------------------------------------------------
+require_tctl
+
+info "Teleport proxy:       ${TELEPORT_PROXY}"
+info "Bot name:             ${BOT_NAME}"
+info "Role name:            ${ROLE_NAME}"
+info "Token name:           ${TOKEN_NAME}    (must match tbot onboarding.token)"
+info "Cluster allowlist:    ${CLUSTER_ALLOWLIST}"
+info "Bound SA:             ${SA_NAMESPACE}:${SA_NAME}"
+if [[ -z "$JWKS_FILE" ]]; then
+  info "Kube validator:       in_cluster (Teleport home cluster only)"
+else
+  info "Kube validator:       static_jwks (file: ${JWKS_FILE})"
+fi
+info "Template:             ${TEMPLATE_PATH}"
+info ""
+info "Rendered manifest:"
+info "----------------------------------------"
+RENDERED="$(render_template)"
+printf '%s\n' "$RENDERED" >&2
+info "----------------------------------------"
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  info "--dry-run set; skipping tctl create."
+  exit 0
+fi
+
+confirm_or_exit
+
+info "Applying via tctl create -f - (upsert)..."
+
+# `tctl create -f -` is the documented upsert path. Capture stderr so we can
+# still distinguish a real failure from a benign "already exists with
+# identical spec" race in the rare case the server returns one despite -f.
+TCTL_OUT=""
+TCTL_RC=0
+TCTL_OUT="$(printf '%s\n' "$RENDERED" | tctl create -f - 2>&1)" || TCTL_RC=$?
+
+# Always print tctl output for SRE visibility.
+if [[ -n "$TCTL_OUT" ]]; then
+  printf '%s\n' "$TCTL_OUT" >&2
+fi
+
+if [[ "$TCTL_RC" -eq 0 ]]; then
+  info "OK: bot/${BOT_NAME}, role/${ROLE_NAME}, token/${TOKEN_NAME} reconciled on ${TELEPORT_PROXY}."
+  exit 0
+fi
+
+# Belt-and-braces: treat "already exists" as success. With `-f` this should
+# not happen, but Teleport has historically returned this on some resource
+# kinds when concurrent admins race. Match conservatively.
+if printf '%s' "$TCTL_OUT" | grep -qiE 'already exists'; then
+  info "tctl reported 'already exists' — treating as success-equivalent (idempotent re-run)."
+  exit 0
+fi
+
+err "tctl create failed (exit ${TCTL_RC}). See output above."
+exit "$TCTL_RC"
