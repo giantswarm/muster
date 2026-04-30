@@ -1,0 +1,112 @@
+{{/*
+tbot Deployment (TB-4).
+
+Single-replica Deployment, separate from the muster Deployment per PLAN §6
+TB-4 and §9 ("Separate Deployment, matches teleport-operator pattern"). One
+bot is enough — restarting tbot only degrades remote-MC traffic, muster
+keeps serving Gazelle-local CRs.
+
+The Deployment is annotated with a checksum of the tbot ConfigMap so changes
+to clusters[]/apps[] roll the bot without manual intervention.
+
+No persistent storage — tbot uses storage.type: memory and re-auths via the
+kubernetes join method on each restart.
+*/}}
+{{- if .Values.transport.teleport.enabled -}}
+{{- $teleport := .Values.transport.teleport -}}
+{{- $audience := default (regexReplaceAll ":[0-9]+$" $teleport.proxyServer "") $teleport.clusterName -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "muster.tbot.deploymentName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot
+spec:
+  replicas: 1
+  strategy:
+    # Recreate: only one bot identity at a time; rolling a new pod alongside
+    # the old would race on the kubernetes_secret destination.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "muster.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: tbot
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/tbot-configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "muster.labels" . | nindent 8 }}
+        app.kubernetes.io/component: tbot
+    spec:
+      serviceAccountName: {{ include "muster.tbot.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: tbot
+          image: "{{ $teleport.image.repository }}:{{ $teleport.image.tag | default "17.5.4" }}"
+          imagePullPolicy: {{ $teleport.image.pullPolicy }}
+          command:
+            - tbot
+          args:
+            - start
+            - -c
+            - /etc/tbot/tbot.yaml
+          env:
+            # POD_NAMESPACE is required for kubernetes_secret destinations.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # KUBERNETES_TOKEN_PATH points tbot at the audience-bound
+            # projected SA token used for the kubernetes join method.
+            - name: KUBERNETES_TOKEN_PATH
+              value: /var/run/secrets/tokens/join-sa-token
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml $teleport.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tbot
+              readOnly: true
+            - name: join-sa-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "muster.tbot.configMapName" . }}
+        - name: join-sa-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  # 600s is the kube minimum and the recommended tbot value.
+                  expirationSeconds: 600
+                  path: join-sa-token
+                  # Audience binds the JWT to the Teleport cluster — must match
+                  # the bot's join-token spec on the Teleport side.
+                  audience: {{ $audience | quote }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

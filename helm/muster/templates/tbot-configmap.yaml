@@ -1,0 +1,46 @@
+{{/*
+tbot configuration ConfigMap (TB-4).
+
+Bot state is `storage.type: memory` — the kubernetes join method re-auths on
+every restart, so persistent storage would only add operational surface for
+no benefit (per PLAN §9 "tbot deployment topology").
+
+One outputs[] block per .Values.transport.teleport.apps[] entry. The list is
+rendered by the muster.tbot.outputs helper from explicit (appName,
+identitySecret) pairs (PLAN §6 TB-0 revised 2026-04-29 + TB-4 follow-up); no
+naming-convention derivation. Duplicate appName values in apps[] are a
+templating-time error (see _helpers.tpl).
+
+The onboarding token name `muster-aggregator` is the contract with TB-3's
+provisioning script. proxy_server is a single value (one GS Teleport cluster
+fronts all MCs).
+*/}}
+{{- if .Values.transport.teleport.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "muster.tbot.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tbot
+data:
+  tbot.yaml: |
+    version: v2
+    proxy_server: {{ required "transport.teleport.proxyServer is required when transport.teleport.enabled" .Values.transport.teleport.proxyServer }}
+    onboarding:
+      join_method: kubernetes
+      # Bot ↔ tbot contract — must match the Teleport join-token name created by
+      # scripts/provision-teleport-bot.sh (TB-3).
+      token: muster-aggregator
+    storage:
+      type: memory
+    outputs:
+      {{- range (include "muster.tbot.outputs" . | fromYamlArray) }}
+      - type: application
+        app_name: {{ .appName | quote }}
+        destination:
+          type: kubernetes_secret
+          name: {{ .secretName | quote }}
+      {{- end }}
+{{- end }}
