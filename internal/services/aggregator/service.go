@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/giantswarm/muster/internal/aggregator"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/services"
 	"github.com/giantswarm/muster/internal/teleport"
 	"github.com/giantswarm/muster/pkg/logging"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // AggregatorService implements the Service interface for the MCP aggregator
