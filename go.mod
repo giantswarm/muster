@@ -10,7 +10,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/coreos/go-systemd/v22 v22.7.0
 	github.com/creativeprojects/go-selfupdate v1.5.2
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.0
 	github.com/giantswarm/mcp-oauth v0.2.117
 	github.com/go-logr/logr v1.4.3
 	github.com/google/uuid v1.6.0
