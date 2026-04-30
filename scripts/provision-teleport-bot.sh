@@ -30,6 +30,24 @@
 #     CLUSTER_ALLOWLIST   default glean   (comma-separated, no spaces required)
 #     SA_NAMESPACE        default muster
 #     SA_NAME             default muster-tbot
+#     JWKS_FILE           default unset
+#                         When unset, the join token uses the
+#                         `kubernetes.type: in_cluster` validator (Teleport
+#                         calls its own kube apiserver — only works if tbot
+#                         runs on the same cluster as Teleport's auth svc).
+#                         When set, must point to a JWKS document (JSON)
+#                         from the *remote* host cluster's
+#                         `/openid/v1/jwks` endpoint. The script switches
+#                         the token to `kubernetes.type: static_jwks` and
+#                         inlines the JWKS body so Teleport can verify
+#                         SA tokens minted by that remote apiserver. Use
+#                         this for canary/cross-MC tbot hosting (PLAN §9).
+#                         Example:
+#                           kubectl --context gs-graveler get \
+#                             --raw /openid/v1/jwks > /tmp/graveler-jwks.json
+#                           JWKS_FILE=/tmp/graveler-jwks.json \
+#                           CLUSTER_ALLOWLIST=glean \
+#                             ./provision-teleport-bot.sh --yes
 #     TEMPLATE_PATH       default <script-dir>/provision-teleport-bot.yaml.tmpl
 
 set -euo pipefail
@@ -47,6 +65,7 @@ CLUSTER_ALLOWLIST="${CLUSTER_ALLOWLIST:-glean}"
 # the tbot SA name as `<release>-tbot` (i.e. `muster-tbot` for release `muster`).
 SA_NAMESPACE="${SA_NAMESPACE:-muster}"
 SA_NAME="${SA_NAME:-muster-tbot}"
+JWKS_FILE="${JWKS_FILE:-}"
 TEMPLATE_PATH="${TEMPLATE_PATH:-${SCRIPT_DIR}/provision-teleport-bot.yaml.tmpl}"
 
 ASSUME_YES=0
@@ -89,6 +108,51 @@ render_cluster_allowlist_yaml() {
   printf '%s' "$out"
 }
 
+# Render the `kubernetes:` block of the join token. Two variants:
+#   - in_cluster (default): Teleport validates SA tokens via its own
+#     in-cluster kube apiserver. Requires tbot to run on Teleport's
+#     home cluster.
+#   - static_jwks: Teleport validates SA tokens against an inlined JWKS.
+#     Requires JWKS_FILE to be set to the remote MC's /openid/v1/jwks
+#     output. The block is YAML-block-scalar indented so JSON content
+#     pastes verbatim.
+#
+# Both variants share the same `allow:` clause binding the bound
+# ServiceAccount.
+render_kubernetes_block() {
+  if [[ -z "$JWKS_FILE" ]]; then
+    cat <<EOF
+  kubernetes:
+    type: in_cluster
+    allow:
+      - service_account: "${SA_NAMESPACE}:${SA_NAME}"
+EOF
+    return 0
+  fi
+  if [[ ! -f "$JWKS_FILE" ]]; then
+    err "JWKS_FILE set to '${JWKS_FILE}' but file does not exist."
+    exit 2
+  fi
+  # Sanity-check: must be JSON with a "keys" array.
+  if ! grep -q '"keys"' "$JWKS_FILE"; then
+    err "JWKS_FILE '${JWKS_FILE}' does not look like a JWKS document (no '\"keys\"' field). Expected the response of /openid/v1/jwks."
+    exit 2
+  fi
+  # Indent JWKS body to match the block-scalar (`jwks: |`) at 6 spaces ->
+  # contents at 8 spaces.
+  local jwks_indented
+  jwks_indented="$(sed 's/^/        /' "$JWKS_FILE")"
+  cat <<EOF
+  kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: |
+${jwks_indented}
+    allow:
+      - service_account: "${SA_NAMESPACE}:${SA_NAME}"
+EOF
+}
+
 render_template() {
   if [[ ! -f "$TEMPLATE_PATH" ]]; then
     err "template not found at ${TEMPLATE_PATH}"
@@ -103,9 +167,20 @@ render_template() {
     exit 2
   fi
 
-  # Plain @VAR@ placeholder substitution. None of the substituted values can
-  # contain @ or unescaped quotes in normal SRE use; values come from env
-  # vars set by an SRE, not untrusted input.
+  # Render the kubernetes block to a temp file. Passing it through `-v` to
+  # awk doesn't work portably (BSD awk on macOS rejects newlines in -v
+  # values); reading from a file via getline does.
+  local block_file
+  block_file="$(mktemp)"
+  trap 'rm -f "$block_file"' RETURN
+  render_kubernetes_block > "$block_file"
+
+  # Plain @VAR@ placeholder substitution for single-line values. None of the
+  # substituted values can contain @ or unescaped quotes in normal SRE use;
+  # values come from env vars set by an SRE, not untrusted input.
+  #
+  # @KUBERNETES_BLOCK@ is multi-line and replaced on a separate pass via awk
+  # so embedded newlines / JSON braces don't confuse sed.
   sed \
     -e "s|@BOT_NAME@|${BOT_NAME}|g" \
     -e "s|@ROLE_NAME@|${ROLE_NAME}|g" \
@@ -113,7 +188,15 @@ render_template() {
     -e "s|@CLUSTER_ALLOWLIST_YAML@|${cluster_yaml}|g" \
     -e "s|@SA_NAMESPACE@|${SA_NAMESPACE}|g" \
     -e "s|@SA_NAME@|${SA_NAME}|g" \
-    "$TEMPLATE_PATH"
+    "$TEMPLATE_PATH" \
+  | awk -v f="$block_file" '
+      /@KUBERNETES_BLOCK@/ {
+        while ((getline line < f) > 0) print line
+        close(f)
+        next
+      }
+      { print }
+    '
 }
 
 confirm_or_exit() {
@@ -154,6 +237,11 @@ info "Role name:            ${ROLE_NAME}"
 info "Token name:           ${TOKEN_NAME}    (must match tbot onboarding.token)"
 info "Cluster allowlist:    ${CLUSTER_ALLOWLIST}"
 info "Bound SA:             ${SA_NAMESPACE}:${SA_NAME}"
+if [[ -z "$JWKS_FILE" ]]; then
+  info "Kube validator:       in_cluster (Teleport home cluster only)"
+else
+  info "Kube validator:       static_jwks (file: ${JWKS_FILE})"
+fi
 info "Template:             ${TEMPLATE_PATH}"
 info ""
 info "Rendered manifest:"

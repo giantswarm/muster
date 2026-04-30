@@ -64,7 +64,11 @@ spec:
   roles: [Bot]
   join_method: kubernetes
   bot_name: @BOT_NAME@
-  kubernetes:
-    type: in_cluster
-    allow:
-      - service_account: "@SA_NAMESPACE@:@SA_NAME@"
+  # The kubernetes-validator block below is replaced by provision-teleport-bot.sh
+  # with either an `in_cluster` or a `static_jwks` variant. Default is
+  # in_cluster (legacy: tbot host cluster IS Teleport's home cluster). When
+  # JWKS_FILE is set, the script switches to static_jwks and inlines the
+  # JWKS body so Teleport can validate SA tokens minted by a *remote* MC's
+  # apiserver (PLAN §9: required to host tbot on canary or non-Teleport-home
+  # MCs). The marker on the next line MUST stay as the only token on its line.
+  @KUBERNETES_BLOCK@
