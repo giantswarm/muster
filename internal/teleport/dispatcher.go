@@ -184,7 +184,17 @@ type dispatcher struct {
 // rather than at the first request).
 func NewTransportDispatcher(k8s client.Client, secretNamespace string) (TransportDispatcher, error) {
 	if secretNamespace == "" {
-		secretNamespace = DefaultSecretNamespace
+		// Prefer the muster pod's own namespace (where tbot writes identity
+		// Secrets for the muster Helm chart's bundled tbot Deployment) before
+		// falling back to the legacy default. This matches the autoStart
+		// probe's K8S_NAMESPACE/POD_NAMESPACE resolution and lets operators
+		// run muster + tbot in any namespace without configuring
+		// aggregator.transportRouting.teleport.secretNamespace explicitly.
+		if podNS := podNamespace(); podNS != "" {
+			secretNamespace = podNS
+		} else {
+			secretNamespace = DefaultSecretNamespace
+		}
 	}
 	if err := ValidateNamespace(secretNamespace); err != nil {
 		return nil, fmt.Errorf("dispatcher secret namespace: %w", err)
