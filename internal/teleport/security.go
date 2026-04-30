@@ -2,6 +2,7 @@ package teleport
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -12,6 +13,14 @@ import (
 // AllowedNamespaces defines the namespaces from which Teleport identity secrets
 // can be loaded. This provides defense-in-depth against misconfiguration.
 // An empty list means all namespaces are allowed (default for backward compatibility).
+//
+// The muster pod's own namespace (resolved from K8S_NAMESPACE / POD_NAMESPACE
+// at process start) is always allowed in addition to this list — that's where
+// tbot writes its identity Secrets via the chart's `kubernetes_secret`
+// destination, and `targetNamespace: muster` is the standard chart layout.
+// Without it, Teleport-routed MCPServers fail their autoStart probe with
+// `namespace "muster" is not in the allowed list` whenever the chart is
+// installed under any namespace other than `muster-system`.
 var AllowedNamespaces = []string{
 	"teleport-system",
 	"muster-system",
@@ -92,6 +101,14 @@ func ValidateNamespace(namespace string) error {
 		return fmt.Errorf("namespace cannot be empty")
 	}
 
+	// The pod's own namespace is always allowed — it's where the chart's
+	// `kubernetes_secret` tbot output writes identity Secrets and is the
+	// natural destination for chart-installed deployments. Resolved at
+	// each call so test setups that mutate the env var pick it up.
+	if podNS := podNamespace(); podNS != "" && namespace == podNS {
+		return nil
+	}
+
 	// If no restrictions are configured, allow all
 	if len(AllowedNamespaces) == 0 {
 		return nil
@@ -104,6 +121,17 @@ func ValidateNamespace(namespace string) error {
 	}
 
 	return fmt.Errorf("namespace %q is not in the allowed list for Teleport identity secrets", namespace)
+}
+
+// podNamespace returns the muster pod's own namespace, resolved from the
+// downward-API env vars set by the chart (K8S_NAMESPACE on the muster
+// container, POD_NAMESPACE on the init container and several operator-style
+// charts). Returns empty when running outside Kubernetes.
+func podNamespace() string {
+	if ns := os.Getenv("K8S_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return os.Getenv("POD_NAMESPACE")
 }
 
 // SecretNamePattern defines the valid pattern for Kubernetes secret names.
