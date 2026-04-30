@@ -166,8 +166,18 @@ func (p *ClientProvider) loadCertificatesFromMemoryLocked(certData CertificateDa
 		}
 	}
 
-	// Create CA certificate pool
-	caCertPool := x509.NewCertPool()
+	// Build CA certificate pool. Start from the system roots (so the
+	// Teleport proxy's public LE-signed serving cert verifies on the
+	// public tenant — teleport.giantswarm.io currently serves an LE cert)
+	// and append tbot's bundled CA (teleport-host-ca.crt) for internal /
+	// private Teleport deployments where the proxy cert is signed by the
+	// tenant's own host CA. Falling back to a fresh pool if the system
+	// roots can't be loaded (e.g. distroless without ca-certificates) so
+	// the fully-private deployment still works.
+	caCertPool, sysErr := x509.SystemCertPool()
+	if sysErr != nil || caCertPool == nil {
+		caCertPool = x509.NewCertPool()
+	}
 	if !caCertPool.AppendCertsFromPEM(certData.CAPEM) {
 		p.status.LastError = fmt.Errorf("failed to parse CA certificate")
 		return p.status.LastError
@@ -229,8 +239,13 @@ func (p *ClientProvider) loadCertificatesLocked() error {
 		return p.status.LastError
 	}
 
-	// Create CA certificate pool
-	caCertPool := x509.NewCertPool()
+	// Build CA certificate pool. See loadCertificatesFromMemoryLocked for
+	// rationale; same logic so both filesystem-mode and Kubernetes-secret
+	// mode behave identically against public Teleport tenants.
+	caCertPool, sysErr := x509.SystemCertPool()
+	if sysErr != nil || caCertPool == nil {
+		caCertPool = x509.NewCertPool()
+	}
 	if !caCertPool.AppendCertsFromPEM(caCert) {
 		p.status.LastError = fmt.Errorf("failed to parse CA certificate")
 		return p.status.LastError
