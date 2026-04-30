@@ -395,6 +395,15 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 		Headers:     info.Headers,
 		Timeout:     info.Timeout,
 		Auth:        info.Auth,
+		// TB-0/TB-7: pass spec.transport through so that the
+		// service layer can wire the CR-driven transport dispatcher
+		// at autoStart probe time. Dropping it here causes muster to
+		// post the autoStart probe with a default http.Client even
+		// when the CR declares Teleport routing — which fails the
+		// MCP handshake against any private MC because the request
+		// either times out (private URL) or returns an HTML
+		// auth-redirect (public Teleport proxy URL).
+		Transport: info.Transport,
 	}
 }
 
