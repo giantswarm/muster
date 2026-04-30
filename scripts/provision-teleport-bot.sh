@@ -28,8 +28,8 @@
 #     TOKEN_NAME          default muster-aggregator
 #                         (MUST match tbot's onboarding.token in TB-4)
 #     CLUSTER_ALLOWLIST   default glean   (comma-separated, no spaces required)
-#     SA_NAMESPACE        default muster-system
-#     SA_NAME             default muster
+#     SA_NAMESPACE        default muster
+#     SA_NAME             default muster-tbot
 #     TEMPLATE_PATH       default <script-dir>/provision-teleport-bot.yaml.tmpl
 
 set -euo pipefail
@@ -42,8 +42,11 @@ BOT_NAME="${BOT_NAME:-muster-aggregator}"
 ROLE_NAME="${ROLE_NAME:-muster-aggregator-role}"
 TOKEN_NAME="${TOKEN_NAME:-muster-aggregator}"
 CLUSTER_ALLOWLIST="${CLUSTER_ALLOWLIST:-glean}"
-SA_NAMESPACE="${SA_NAMESPACE:-muster-system}"
-SA_NAME="${SA_NAME:-muster}"
+# SA defaults match the muster Helm chart layout: helm-release.yaml pins
+# `targetNamespace: muster`, and helm/muster/templates/_helpers.tpl:77 defines
+# the tbot SA name as `<release>-tbot` (i.e. `muster-tbot` for release `muster`).
+SA_NAMESPACE="${SA_NAMESPACE:-muster}"
+SA_NAME="${SA_NAME:-muster-tbot}"
 TEMPLATE_PATH="${TEMPLATE_PATH:-${SCRIPT_DIR}/provision-teleport-bot.yaml.tmpl}"
 
 ASSUME_YES=0
