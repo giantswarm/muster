@@ -226,7 +226,11 @@ func (o *Orchestrator) processServiceClassRequirements(ctx context.Context) erro
 func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo api.MCPServerInfo) error {
 	logging.Info("Orchestrator", "Creating MCPServer service: %s", mcpServerInfo.Name)
 
-	// Convert MCPServerInfo to api.MCPServer format expected by the service
+	// Convert MCPServerInfo to api.MCPServer format expected by the service.
+	// TB-0/TB-7: Transport must propagate so the service layer can wire the
+	// CR-driven transport dispatcher at autoStart probe time. (The
+	// reconciler path has the analogous fix in
+	// internal/reconciler/mcpserver_reconciler.go infoToMCPServer.)
 	apiDef := &api.MCPServer{
 		Name:        mcpServerInfo.Name,
 		Type:        api.MCPServerType(mcpServerInfo.Type),
@@ -240,6 +244,7 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 		Headers:     mcpServerInfo.Headers,
 		Timeout:     mcpServerInfo.Timeout,
 		Auth:        mcpServerInfo.Auth,
+		Transport:   mcpServerInfo.Transport,
 	}
 
 	// Create MCPServer service using the service package

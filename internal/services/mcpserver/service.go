@@ -577,7 +577,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 			return fmt.Errorf("resolve Teleport HTTP client for MCPServer %s: %w", s.GetName(), err)
 		}
 		config.HTTPClient = httpClient
-		s.LogDebug("MCPServer %s: resolved Teleport HTTP client (app=%s, secret=%s/%s)",
+		s.LogInfo("MCPServer %s: resolved Teleport HTTP client (app=%s, secret=%s/%s) — autoStart probe will use mTLS",
 			s.GetName(), mcpTarget.AppName, secretNs, mcpTarget.IdentitySecretName)
 	}
 
