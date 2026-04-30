@@ -146,7 +146,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: muster-server
-  namespace: muster-system
+  namespace: muster
 spec:
   replicas: 1
   selector:
@@ -181,7 +181,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: muster-service
-  namespace: muster-system
+  namespace: muster
 spec:
   selector:
     app: muster-server
@@ -433,7 +433,7 @@ kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/m
 kubectl apply -f https://raw.githubusercontent.com/giantswarm/muster/main/helm/muster/crds/muster.giantswarm.io_workflows.yaml
 
 # Update deployment image
-kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n muster-system
+kubectl set image deployment/muster-server muster=giantswarm/muster:latest -n muster
 ```
 
 ## Next Steps

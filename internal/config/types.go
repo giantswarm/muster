@@ -74,7 +74,7 @@ type TransportRoutingConfig struct {
 // own appNames and Secrets.)
 type TeleportTransportConfig struct {
 	// SecretNamespace is the Kubernetes namespace from which the dispatcher
-	// reads tbot-identity Secrets. Defaults to "muster-system" when empty.
+	// reads tbot-identity Secrets. Defaults to "muster" when empty.
 	SecretNamespace string `yaml:"secretNamespace,omitempty"`
 }
 

@@ -228,7 +228,7 @@ func makeIdentitySecret(name, namespace string, bundle *testCertBundle) *corev1.
 func TestTB10_TeleportTransportRoutesPerCluster(t *testing.T) {
 	const (
 		cluster       = "glean"
-		ns            = "muster-system"
+		ns            = "muster"
 		mcpAppName    = "mcp-kubernetes-glean"
 		dexAppName    = "dex-glean"
 		mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
@@ -384,7 +384,7 @@ func TestTB10_TransportUnsetIsDirectHTTPS(t *testing.T) {
 	}
 	k8s := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	dispatcher, err := teleport.NewTransportDispatcher(k8s, "muster-system")
+	dispatcher, err := teleport.NewTransportDispatcher(k8s, "muster")
 	if err != nil {
 		t.Fatalf("dispatcher: %v", err)
 	}

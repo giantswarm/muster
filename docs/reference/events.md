@@ -689,7 +689,7 @@ kubectl get events --field-selector source=muster
 kubectl get events --field-selector involvedObject.kind=MCPServer,involvedObject.name=github-server
 
 # Filter by namespace
-kubectl get events -n muster-system --field-selector source=muster
+kubectl get events -n muster --field-selector source=muster
 
 # Filter by reason
 kubectl get events --field-selector reason=MCPServerFailed

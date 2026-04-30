@@ -20,10 +20,10 @@ import (
 // destination, and `targetNamespace: muster` is the standard chart layout.
 // Without it, Teleport-routed MCPServers fail their autoStart probe with
 // `namespace "muster" is not in the allowed list` whenever the chart is
-// installed under any namespace other than `muster-system`.
+// installed under any namespace other than the default.
 var AllowedNamespaces = []string{
 	"teleport-system",
-	"muster-system",
+	"muster",
 }
 
 // appNamePattern defines the valid pattern for Teleport application names.

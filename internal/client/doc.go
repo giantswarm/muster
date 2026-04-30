@@ -48,7 +48,7 @@
 // ## Explicit Configuration
 //
 //	config := &client.MusterClientConfig{
-//	    Namespace: "muster-system",
+//	    Namespace: "muster",
 //	    ForceFilesystemMode: true,
 //	}
 //	client, err := client.NewMusterClientWithConfig(config)

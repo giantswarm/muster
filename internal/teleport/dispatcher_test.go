@@ -152,7 +152,7 @@ func TestDispatcher_TransportUnset(t *testing.T) {
 	t.Cleanup(resetMetricsForTest)
 
 	k8s := newFakeK8s(t).Build()
-	d, err := NewTransportDispatcher(k8s, "muster-system")
+	d, err := NewTransportDispatcher(k8s, "muster")
 	if err != nil {
 		t.Fatalf("ctor: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestDispatcher_ResolvedBothTargets(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
-	const ns = "muster-system"
+	const ns = "muster"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
 	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
@@ -256,7 +256,7 @@ func TestDispatcher_ResolvedMCPOnly(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
-	const ns = "muster-system"
+	const ns = "muster"
 	const mcpApp = "mcp-kubernetes-glean"
 	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
 	mcpSecret, _ := makeIdentitySecret(t, mcpSecretName, ns)
@@ -288,7 +288,7 @@ func TestDispatcher_MCPSecretMissing(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
-	const ns = "muster-system"
+	const ns = "muster"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
 	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.
@@ -350,7 +350,7 @@ func TestDispatcher_DexSecretInvalid(t *testing.T) {
 	resetMetricsForTest()
 	t.Cleanup(resetMetricsForTest)
 
-	const ns = "muster-system"
+	const ns = "muster"
 	const mcpApp = "mcp-kubernetes-glean"
 	const dexApp = "dex-glean"
 	const mcpSecretName = "tbot-identity-mcp-glean" // #nosec G101 -- test fixture; not a credential.

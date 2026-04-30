@@ -46,7 +46,7 @@ apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
   name: remote-mcp-kubernetes
-  namespace: muster-system
+  namespace: muster
 spec:
   type: streamable-http
   url: https://mcp-kubernetes.teleport.example.com/mcp
@@ -176,7 +176,7 @@ Check that:
 For defense-in-depth, Muster restricts which namespaces identity secrets can be loaded from. By default, only the following namespaces are allowed:
 
 - `teleport-system`
-- `muster-system`
+- `muster`
 
 This prevents misconfigured MCPServer resources from accessing secrets in unauthorized namespaces.
 

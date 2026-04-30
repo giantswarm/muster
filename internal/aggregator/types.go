@@ -194,7 +194,7 @@ func (s *ServerInfo) GetNamespace() string {
 type TransportRoutingConfig struct {
 	// SecretNamespace is the Kubernetes namespace from which tbot-output
 	// identity Secrets are read. Defaults to teleport.DefaultSecretNamespace
-	// ("muster-system") when empty.
+	// ("muster") when empty.
 	SecretNamespace string
 }
 

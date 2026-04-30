@@ -174,7 +174,7 @@ aggregator:
 
 #### Production Configuration (Kubernetes)
 ```yaml
-namespace: "muster-system"      # Use dedicated namespace for muster CRs
+namespace: "muster"      # Use dedicated namespace for muster CRs
 kubernetes: true                # Use Kubernetes CRDs instead of filesystem
 aggregator:
   port: 80

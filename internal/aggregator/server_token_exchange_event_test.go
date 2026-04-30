@@ -84,8 +84,8 @@ func installFakeEventManager(t *testing.T) *fakeEventManager {
 func TestEmitTokenExchangeEvent_ServerGo_Success_AndFailure(t *testing.T) {
 	em := installFakeEventManager(t)
 
-	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster-system", true, "")
-	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster-system", false, "boom")
+	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster", true, "")
+	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster", false, "boom")
 
 	got := em.snapshot()
 	if len(got) != 2 {
@@ -135,7 +135,7 @@ func TestExchangeTokenAndCreateClient_FailurePathEmitsAuditEvent(t *testing.T) {
 	// Sentinel: no OAuth handler registered at all → exchangeTokenAndCreateClient
 	// fails before any audit emit. We instead drive the helper directly to
 	// prove server.go calls it on failure.
-	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster-system", false, errFailure.Error())
+	emitTokenExchangeEvent("mcp-kubernetes-glean", "muster", false, errFailure.Error())
 
 	got := em.snapshot()
 	if len(got) != 1 {

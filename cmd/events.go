@@ -56,7 +56,7 @@ Examples:
 
   # Filter by namespace
   muster events --namespace default
-  muster events --namespace muster-system
+  muster events --namespace muster
 
   # Filter by time range
   muster events --since 1h

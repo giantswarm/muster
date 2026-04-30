@@ -1311,7 +1311,7 @@ Reconciliation works in both filesystem mode (watching YAML files) and Kubernete
 ```yaml
 # Use consistent namespacing
 metadata:
-  namespace: muster-system    # For system resources
+  namespace: muster    # For system resources
   namespace: applications     # For application resources
   namespace: default         # For development resources
 

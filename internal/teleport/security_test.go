@@ -78,14 +78,14 @@ func TestValidateNamespace(t *testing.T) {
 	defer func() { AllowedNamespaces = original }()
 
 	t.Run("with allowed list", func(t *testing.T) {
-		AllowedNamespaces = []string{"teleport-system", "muster-system"}
+		AllowedNamespaces = []string{"teleport-system", "muster"}
 
 		tests := []struct {
 			namespace string
 			wantError bool
 		}{
 			{"teleport-system", false},
-			{"muster-system", false},
+			{"muster", false},
 			{"default", true},
 			{"kube-system", true},
 			{"", true},

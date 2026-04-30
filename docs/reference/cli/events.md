@@ -77,7 +77,7 @@ muster events --resource-type workflow --resource-name deploy-app
 
 # Filter by namespace
 muster events --namespace default
-muster events --namespace muster-system
+muster events --namespace muster
 ```
 
 ### Time-Based Filtering
