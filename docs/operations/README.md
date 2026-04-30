@@ -7,6 +7,7 @@ Production deployment and operational guidance for Muster.
 ### Core Topics
 - [Installation](installation.md) - Deploy Muster in production
 - [Security](security.md) - Secure configuration and access control
+- [Onboarding a Private Management Cluster](onboarding-private-mc.md) - Add a private MC as a host or target of muster + Teleport + Dex federation
 
 ### Additional Topics
 Coming soon:
