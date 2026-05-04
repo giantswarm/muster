@@ -112,7 +112,7 @@ steps:
   - description: "Setup initial state"
     command: "muster create serviceclass test-class"
     expect_success: true
-    
+
   - description: "Test the feature"
     command: "muster start service test-service test-class"
     expect_success: true
@@ -462,4 +462,4 @@ goimports -w .
 go mod graph | grep cycle
 ```
 
-Remember: **When in doubt, follow existing patterns in the codebase and ask for help!** 
+Remember: **When in doubt, follow existing patterns in the codebase and ask for help!**

@@ -138,7 +138,7 @@ func (d *FilesystemDetector) addWatchForType(resourceType ResourceType) error {
 	watchPath := filepath.Join(d.basePath, dirName)
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(watchPath, 0755); err != nil {
+	if err := os.MkdirAll(watchPath, 0755); err != nil { //nolint:gosec
 		return err
 	}
 

@@ -39,4 +39,4 @@ steps:
     contains: ["created successfully"]
   cleanup:
   - tool: "core_serviceclass_delete"
-    args: { name: "invalid-ops-sc" } 
+    args: { name: "invalid-ops-sc" }

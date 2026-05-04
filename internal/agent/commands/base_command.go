@@ -171,9 +171,7 @@ func (b *BaseCommand) validateTarget(target string, validTargets []string) error
 //   - Slice of completion suggestions
 func (b *BaseCommand) getCompletionsForTargets(targets []string) []string {
 	var completions []string
-	for _, target := range targets {
-		completions = append(completions, target)
-	}
+	completions = append(completions, targets...)
 	return completions
 }
 

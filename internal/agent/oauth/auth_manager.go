@@ -162,7 +162,7 @@ func probeEndpoint(ctx context.Context, httpClient *http.Client, serverURL strin
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -232,7 +232,7 @@ func fetchIssuerFromResourceMetadata(ctx context.Context, httpClient *http.Clien
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusOK {

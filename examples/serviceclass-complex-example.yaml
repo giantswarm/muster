@@ -85,4 +85,4 @@ spec:
     outputs:
       service_url: "{{.service_url}}"
       deployment_id: "{{.deployment_id}}"
-      port: "{{.port}}" 
+      port: "{{.port}}"

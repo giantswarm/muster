@@ -97,7 +97,7 @@ func init() {
 	eventsCmd.PersistentFlags().BoolVarP(&eventsFollow, "follow", "f", false, "Stream new events as they occur")
 
 	// Add shell completion for resource types
-	eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
+	_ = eventsCmd.PersistentFlags().SetAnnotation("resource-type", cobra.BashCompCustom, []string{"__muster_events_resource_types"})
 }
 
 func runEvents(cmd *cobra.Command, args []string) error {
@@ -111,13 +111,13 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		eventsResourceType = strings.ToLower(eventsResourceType)
 		// Convert to the expected CRD Kind format
 		switch eventsResourceType {
-		case "mcpserver":
+		case "mcpserver": //nolint:goconst
 			eventsResourceType = "MCPServer"
 		case "serviceclass":
 			eventsResourceType = "ServiceClass"
-		case "workflow":
+		case "workflow": //nolint:goconst
 			eventsResourceType = "Workflow"
-		case "service":
+		case "service": //nolint:goconst
 			eventsResourceType = "ServiceInstance"
 		}
 	}
@@ -166,7 +166,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {

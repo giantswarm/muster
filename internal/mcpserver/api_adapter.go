@@ -112,7 +112,7 @@ func (a *Adapter) GetMCPServer(name string) (*api.MCPServerInfo, error) {
 // convertCRDToInfo converts a MCPServer CRD to MCPServerInfo
 func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info := api.MCPServerInfo{
-		Name:                server.ObjectMeta.Name,
+		Name:                server.Name,
 		Type:                server.Spec.Type,
 		Description:         server.Spec.Description,
 		ToolPrefix:          server.Spec.ToolPrefix,
@@ -170,7 +170,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	}
 
 	// Generate user-friendly status message based on state and error
-	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.ObjectMeta.Name)
+	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name)
 
 	return info
 }
@@ -719,7 +719,7 @@ func (a *Adapter) handleMCPServerDelete(args map[string]interface{}) (*api.CallT
 
 // validateMCPServer performs basic validation on an MCP server
 func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
-	if server.ObjectMeta.Name == "" {
+	if server.Name == "" {
 		return fmt.Errorf("name is required")
 	}
 

@@ -27,4 +27,4 @@ steps:
   tool: "core_service_get"
   args: { name: "restart-test-service" }
   expected:
-    success: true 
+    success: true

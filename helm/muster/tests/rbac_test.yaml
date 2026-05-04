@@ -16,7 +16,7 @@ tests:
   # ==========================================
   # Basic RBAC Tests
   # ==========================================
-  
+
   - it: should create ClusterRole and ClusterRoleBinding
     set:
       serviceAccount.create: true

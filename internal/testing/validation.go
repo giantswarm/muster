@@ -42,7 +42,7 @@ type ValidationError struct {
 
 // LoadSchemaFromFile loads a JSON schema from file
 func LoadSchemaFromFile(filename string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read schema file: %w", err)
 	}
@@ -213,16 +213,16 @@ func FormatValidationResults(results *ScenarioValidationResults, verbose bool) s
 
 	output.WriteString("🔍 API Schema Validation Results\n")
 	output.WriteString("════════════════════════════════\n")
-	output.WriteString(fmt.Sprintf("Total scenarios: %d\n", results.TotalScenarios))
-	output.WriteString(fmt.Sprintf("Valid scenarios: %d\n", results.ValidScenarios))
-	output.WriteString(fmt.Sprintf("Invalid scenarios: %d\n", results.TotalScenarios-results.ValidScenarios))
-	output.WriteString(fmt.Sprintf("Total errors: %d\n", results.TotalErrors))
+	fmt.Fprintf(&output, "Total scenarios: %d\n", results.TotalScenarios)
+	fmt.Fprintf(&output, "Valid scenarios: %d\n", results.ValidScenarios)
+	fmt.Fprintf(&output, "Invalid scenarios: %d\n", results.TotalScenarios-results.ValidScenarios)
+	fmt.Fprintf(&output, "Total errors: %d\n", results.TotalErrors)
 
 	// Summary statistics
 	if len(results.ValidationSummary) > 0 {
 		output.WriteString("\n📊 Validation Summary:\n")
 		for errorType, count := range results.ValidationSummary {
-			output.WriteString(fmt.Sprintf("  %s: %d\n", errorType, count))
+			fmt.Fprintf(&output, "  %s: %d\n", errorType, count)
 		}
 	}
 
@@ -234,13 +234,13 @@ func FormatValidationResults(results *ScenarioValidationResults, verbose bool) s
 			if !scenarioResult.Valid {
 				status = "❌"
 			}
-			output.WriteString(fmt.Sprintf("  %s %s\n", status, scenarioResult.ScenarioName))
+			fmt.Fprintf(&output, "  %s %s\n", status, scenarioResult.ScenarioName)
 
 			if !scenarioResult.Valid && len(scenarioResult.Errors) > 0 {
 				for _, err := range scenarioResult.Errors {
-					output.WriteString(fmt.Sprintf("    • %s: %s\n", err.Type, err.Message))
+					fmt.Fprintf(&output, "    • %s: %s\n", err.Type, err.Message)
 					if err.Suggestion != "" {
-						output.WriteString(fmt.Sprintf("      💡 %s\n", err.Suggestion))
+						fmt.Fprintf(&output, "      💡 %s\n", err.Suggestion)
 					}
 				}
 			}

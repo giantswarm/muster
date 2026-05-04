@@ -114,4 +114,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "filter-workflow-b" }
   expected:
-    success: true 
+    success: true

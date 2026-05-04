@@ -117,7 +117,7 @@ type SessionState struct {
     SessionID      string
     CreatedAt      time.Time
     LastActivity   time.Time
-    
+
     // Per-server connection state for this session
     Connections map[string]*SessionConnection  // serverName -> connection
 }
@@ -223,13 +223,13 @@ When forwarding tool calls to remote OAuth-protected servers, the aggregator mus
 ```go
 func (a *AggregatorServer) forwardToolCall(ctx context.Context, serverName, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
     sessionID := getSessionIDFromContext(ctx)
-    
+
     // Get session-specific connection
     conn := a.sessionRegistry.GetConnection(sessionID, serverName)
     if conn == nil || conn.Status != StatusConnected {
         return nil, fmt.Errorf("not authenticated with %s", serverName)
     }
-    
+
     // The session's client already has the token configured
     return conn.Client.CallTool(ctx, toolName, args)
 }
@@ -256,10 +256,10 @@ Sessions are created implicitly when a new MCP connection is established:
 ```go
 func (a *AggregatorServer) handleInitialize(ctx context.Context, req mcp.InitializeRequest) {
     sessionID := getSessionIDFromContext(ctx)
-    
+
     // Create session state
     a.sessionRegistry.CreateSession(sessionID)
-    
+
     // Register unauthenticated session connections for OAuth servers
     for _, server := range a.getOAuthServers() {
         a.sessionRegistry.SetPendingAuth(sessionID, server.Name)
@@ -280,17 +280,17 @@ func (a *AggregatorServer) cleanupSession(sessionID string) {
     if state == nil {
         return
     }
-    
+
     // Close session-specific MCP client connections
     for _, conn := range state.Connections {
         if conn.Client != nil {
             conn.Client.Close()
         }
     }
-    
+
     // Remove session state
     a.sessionRegistry.DeleteSession(sessionID)
-    
+
     // Optionally: Revoke OAuth tokens (if supported by IdP)
 }
 ```
@@ -428,4 +428,3 @@ The SSO mechanisms (ADR 004) work with session-scoped connections:
 3. **Stdio transport**: Stdio is inherently single-user; should we skip session management entirely for stdio?
 
 4. **Tool list caching**: How long can we cache a session's tool list before re-checking server connections?
-

@@ -58,6 +58,11 @@ type CapabilityStore interface {
 	// This keeps the cache alive as long as the user is actively making requests.
 	// Returns true if the session existed and was touched.
 	Touch(ctx context.Context, sessionID string) (bool, error)
+
+	// ListSessions returns the sessionIDs currently held by the store. Intended
+	// for admin/inspection paths; the order is not guaranteed and expired
+	// sessions (in-memory impls) must be filtered out before returning.
+	ListSessions(ctx context.Context) ([]string, error)
 }
 
 // DefaultCapabilityStoreTTL is the session-level TTL for capability entries.
@@ -246,6 +251,21 @@ func (s *InMemoryCapabilityStore) Touch(_ context.Context, sessionID string) (bo
 	})
 
 	return true, nil
+}
+
+func (s *InMemoryCapabilityStore) ListSessions(_ context.Context) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	out := make([]string, 0, len(s.sessions))
+	for id, sess := range s.sessions {
+		if now.After(sess.expireAt) {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out, nil
 }
 
 // Stop cleans up all timers. Should be called when the store is no longer needed.

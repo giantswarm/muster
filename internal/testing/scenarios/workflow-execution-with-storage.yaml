@@ -127,4 +127,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "storage-tracking-workflow" }
   expected:
-    success: true 
+    success: true

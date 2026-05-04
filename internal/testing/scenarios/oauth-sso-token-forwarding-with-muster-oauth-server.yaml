@@ -3,11 +3,11 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Test SSO ID token forwarding when muster's OAuth server is enabled.
-  
+
   This scenario tests the getMusterIssuer function's primary code path where
   the issuer is retrieved from aggregator.oauthServer.baseUrl configuration,
   rather than falling back to FindTokenWithIDToken.
-  
+
   This specifically tests the fix for: getMusterIssuer incorrectly trying to
   cast OAuthServer.Config to interface{ GetIssuer() } instead of accessing
   config.OAuthServerConfig.BaseURL directly.

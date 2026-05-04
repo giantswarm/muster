@@ -388,7 +388,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 		}
 
 		// Get type
-		propType := "any"
+		propType := "any" //nolint:goconst
 		if t, ok := propMap["type"].(string); ok {
 			propType = t
 		}
@@ -430,7 +430,7 @@ func renderSchemaProperties(properties map[string]interface{}, required []string
 		}
 
 		// Handle nested object properties
-		if propType == "object" {
+		if propType == "object" { //nolint:goconst
 			if nestedProps, ok := propMap["properties"].(map[string]interface{}); ok {
 				var nestedRequired []string
 				if req, ok := propMap["required"].([]interface{}); ok {

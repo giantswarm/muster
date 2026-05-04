@@ -26,7 +26,7 @@ spec:
         name: "{{.app_name}}"
         tag: "{{.environment}}-latest"
       store: true
-    
+
     - id: deploy_service
       tool: core_service_create
       args:
@@ -36,10 +36,10 @@ spec:
           image: "{{.results.build_image.image_id}}"
           replicas: "{{.replicas}}"
       store: true
-    
+
     - id: verify_deployment
       tool: health_check
       args:
         service_name: "{{.results.deploy_service.name}}"
         timeout: "5m"
-      store: true 
+      store: true

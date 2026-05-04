@@ -396,6 +396,14 @@ muster:
       # Default: true
       allowLocalhostRedirectURIs: true
 
+      # OIDC client IDs (audiences) whose JWTs muster will accept directly
+      # as bearer tokens, without the client completing muster's own OAuth
+      # flow. The token's `aud` claim must match one of these values and
+      # the signature must validate against the provider's JWKS.
+      #
+      # SECURITY: only list client IDs you fully trust.
+      trustedAudiences: []
+
 # CRD installation
 crds:
   # Install Custom Resource Definitions

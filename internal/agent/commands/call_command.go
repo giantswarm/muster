@@ -103,12 +103,12 @@ func (c *CallCommand) Execute(ctx context.Context, args []string) error {
 			var jsonObj interface{}
 			if err := json.Unmarshal([]byte(v.Text), &jsonObj); err == nil {
 				if b, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
-					c.output.OutputLine(string(b))
+					c.output.OutputLine("%s", string(b))
 				} else {
-					c.output.OutputLine(v.Text)
+					c.output.OutputLine("%s", v.Text)
 				}
 			} else {
-				c.output.OutputLine(v.Text)
+				c.output.OutputLine("%s", v.Text)
 			}
 		case mcp.ImageContent:
 			c.output.OutputLine("[Image: MIME type %s, %d bytes]", v.MIMEType, len(v.Data))

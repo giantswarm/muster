@@ -74,6 +74,10 @@ data:
           {{- if .Values.muster.oauth.server.allowLocalhostRedirectURIs }}
           allowLocalhostRedirectURIs: true
           {{- end }}
+          {{- with .Values.muster.oauth.server.trustedAudiences }}
+          trustedAudiences:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- end }}
     namespace: {{ include "muster.namespace" . | quote }}
     kubernetes: true

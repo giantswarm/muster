@@ -18,7 +18,7 @@ This guide provides comprehensive documentation for authoring YAML-based test sc
 ```yaml
 # Required fields
 name: "scenario-unique-name"           # Unique identifier for the scenario
-category: "behavioral"                 # "behavioral" or "integration"  
+category: "behavioral"                 # "behavioral" or "integration"
 concept: "serviceclass"                # Core muster concept being tested
 description: "Human-readable description of what this scenario tests"
 
@@ -43,13 +43,13 @@ pre_configuration:
             responses:
               - response:
                   status: "success"
-                  
+
   service_classes:                     # ServiceClasses to pre-create
     - name: "test-serviceclass"
       config:
         # ServiceClass definition
-        
-  workflows:                           # Workflows to pre-create  
+
+  workflows:                           # Workflows to pre-create
     - name: "test-workflow"
       config:
         # Workflow definition
@@ -115,7 +115,7 @@ steps:
     tool: "x_kubernetes-mock_get_pods" # Prefixed name in usage
 ```
 
-**Workflow Tools**: Use `workflow_<workflow-name>` pattern  
+**Workflow Tools**: Use `workflow_<workflow-name>` pattern
 ```yaml
 # Pre-configuration defines workflow:
 pre_configuration:
@@ -178,7 +178,7 @@ Use action-oriented names with `id` field:
 ```yaml
 # ✅ Good examples
   - id: "create-test-serviceclass"
-  - id: "verify-serviceclass-availability"  
+  - id: "verify-serviceclass-availability"
   - id: "instantiate-service-from-class"
 
 # ❌ Bad examples
@@ -195,7 +195,7 @@ steps:
     tool: "core_serviceclass_list"    # Direct core tool usage
 ```
 
-#### Mock Server Tools  
+#### Mock Server Tools
 ```yaml
 # Define in pre_configuration:
 pre_configuration:
@@ -361,7 +361,7 @@ Always clean up resources:
 ```yaml
 cleanup:
   - id: "delete-test-serviceclass"
-    tool: "core_serviceclass_delete"  
+    tool: "core_serviceclass_delete"
     args:
       name: "test-serviceclass"
     expected:
@@ -380,7 +380,7 @@ steps:
   - id: "run-workflow"
     tool: "action_my-workflow"  # Old naming, doesn't work
 
-# ✅ Good: Current workflow naming  
+# ✅ Good: Current workflow naming
 steps:
   - id: "run-workflow"
     tool: "workflow_my-workflow"  # Correct workflow_ prefix
@@ -395,7 +395,7 @@ steps:
 
 # ✅ Good: Proper mock tool reference
 steps:
-  - id: "test-mock"  
+  - id: "test-mock"
     tool: "x_resource-mock_create_resource"  # Correct x_<server>_<tool> pattern
 ```
 
@@ -407,11 +407,11 @@ steps:
     tool: "core_test"
     args:               # Should be 'args'
       test: true
-      
+
 # ✅ Good: Consistent field naming
 steps:
   - id: "test-step"
-    tool: "core_test"  
+    tool: "core_test"
     args:
       test: true
 ```
@@ -510,7 +510,7 @@ Use the built-in validation to check scenario syntax:
 # Validate a single scenario
 ./muster test --validate-scenario=path/to/scenario.yaml
 
-# Validate all scenarios in a directory  
+# Validate all scenarios in a directory
 ./muster test --validate-scenarios=path/to/scenarios/
 ```
 
@@ -538,6 +538,6 @@ Test scenarios automatically run against isolated muster instances:
 
 ---
 
-For complete examples implementing these patterns, see the [examples/](examples/) directory.  
-For framework documentation, see [README.md](README.md).  
+For complete examples implementing these patterns, see the [examples/](examples/) directory.
+For framework documentation, see [README.md](README.md).
 For package details, see `internal/testing/doc.go`.

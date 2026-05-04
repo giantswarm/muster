@@ -217,7 +217,7 @@ func (m *MCPServer) handleTokenExpiredError(ctx context.Context, originalErr err
 	// Start waiting for auth completion in background with its own context and timeout.
 	// We use a background context because the request context may be cancelled when
 	// the handler returns, but we need the re-auth flow to complete independently.
-	go m.waitForReauthCompletion()
+	go m.waitForReauthCompletion() //nolint:gosec
 
 	// Return a user-friendly message
 	if browserOpened {

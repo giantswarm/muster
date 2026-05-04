@@ -2,7 +2,7 @@
 
 ## Context
 
-We have added support for connecting to remote MCP servers (e.g., `mcp-kubernetes`). These servers often require authentication, specifically OAuth 2.1 (using `mcp-oauth`). 
+We have added support for connecting to remote MCP servers (e.g., `mcp-kubernetes`). These servers often require authentication, specifically OAuth 2.1 (using `mcp-oauth`).
 
 The `muster` architecture consists of:
 - **Muster Agent**: Runs locally (e.g., on a user's laptop), integrated with clients like Cursor via stdio.

@@ -244,7 +244,7 @@ func TestInMemorySessionAuthStore_ConcurrentAccess(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			sessionID := "session-A"
-			server := "server"
+			server := "server" //nolint:goconst
 			if i%2 == 0 {
 				sessionID = "session-B"
 				server = "server2"

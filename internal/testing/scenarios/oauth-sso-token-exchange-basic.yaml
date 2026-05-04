@@ -3,17 +3,17 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Test RFC 8693 Token Exchange for cross-cluster SSO.
-  
+
   This scenario tests the token exchange flow where:
   1. User authenticates to muster via OAuth (gets token from cluster-a-idp)
   2. Muster needs to call an MCP server on a "remote cluster" (cluster-b)
   3. The remote cluster has its own OAuth server (cluster-b-idp) that trusts cluster-a-idp
   4. Muster exchanges its token for one valid on cluster-b
   5. The exchanged token is used to authenticate to the remote MCP server
-  
+
   This enables cross-cluster SSO without requiring the remote server to directly
   trust muster's OAuth server.
-  
+
   Key: We need a "local" server using cluster-a-idp to first establish the ID token
   in muster's session, then the remote server can use token exchange.
 tags: ["oauth", "sso", "token-exchange", "rfc8693", "cross-cluster", "authentication", "mcpserver"]

@@ -178,4 +178,4 @@ cleanup:
       name: "deploy-test-app"
     expected:
       success: true
-    timeout: "30s" 
+    timeout: "30s"

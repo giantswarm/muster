@@ -34,7 +34,7 @@ func LoadConfig(configPath string) (MusterConfig, error) {
 	config := GetDefaultConfigWithRoles() // Start with default config
 
 	// Start with default config
-	data, err := os.ReadFile(configFilePath)
+	data, err := os.ReadFile(configFilePath) //nolint:gosec
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logging.Info("ConfigLoader", "No config.yaml found at %s, using defaults", configFilePath)
@@ -95,7 +95,7 @@ func resolveSecretFiles(config *MusterConfig) error {
 
 // readSecretFile reads a secret from a file, trimming any trailing whitespace.
 func readSecretFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		return "", err
 	}

@@ -154,7 +154,7 @@ func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*Metada
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("metadata request failed with status %d", resp.StatusCode)
@@ -215,7 +215,7 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 	if err != nil {
 		return nil, fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

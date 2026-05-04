@@ -9,13 +9,13 @@ Choose your adventure based on your primary goal:
 
 → [AI Agent Quick Start (Standalone Mode)](ai-agent-setup.md)
 
-**Benefits**: One command (`muster standalone`), works with Cursor/VSCode/Claude, no separate processes  
+**Benefits**: One command (`muster standalone`), works with Cursor/VSCode/Claude, no separate processes
 **What you get**: Access to 11 meta-tools that provide unified access to all Muster capabilities
 
-### Advanced Setup  
+### Advanced Setup
 **Time**: 10 minutes | **Goal**: Production-ready with separate server/agent
 
-→ [Advanced AI Agent Integration](ai-agent-integration.md)  
+→ [Advanced AI Agent Integration](ai-agent-integration.md)
 
 **Benefits**: Visible logs, multiple MCP clients, production deployment ready
 
@@ -110,7 +110,7 @@ core_service_list()                             # Doesn't exist at agent layer
 
 **Key Tool Categories in the Aggregator:**
 - **Configuration** (5 tools) - System and aggregator management
-- **Services** (9 tools) - Service instance lifecycle 
+- **Services** (9 tools) - Service instance lifecycle
 - **ServiceClasses** (7 tools) - Reusable service templates
 - **MCP Servers** (6 tools) - External tool provider management
 - **Workflows** (9 tools) - Multi-step process orchestration
@@ -125,4 +125,4 @@ After completing your quick start:
 - [Understand the Architecture](../explanation/architecture.md) - How everything fits together
 - [Learn Core Concepts](../explanation/) - Background knowledge
 - [Follow How-To Guides](../how-to/) - Solve specific problems
-- [Browse Reference Docs](../reference/) - Technical specifications 
+- [Browse Reference Docs](../reference/) - Technical specifications

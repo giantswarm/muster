@@ -27,25 +27,25 @@ metadata:
 spec:
   # Required: Server execution type
   type: stdio|streamable-http|sse
-  
+
   # Optional: Tool name prefix (applies to all types)
   toolPrefix: "<prefix>"
-  
+
   # Optional: Human-readable description
   description: "<description>"
-  
+
   # For stdio servers: Auto-start behavior
   autoStart: false
-  
+
   # For stdio servers: Command to execute (required when type: stdio)
   command: "<executable>"
-  
+
   # For stdio servers: Command arguments (optional when type: stdio)
   args: ["<arg1>", "<arg2>"]
-  
+
   # For remote servers: Server endpoint (required when type: streamable-http or sse)
   url: "https://api.example.com/mcp"
-  
+
   # Optional: Environment variables (stdio servers) or headers (remote servers)
   env:        # For stdio servers
     KEY1: "value1"
@@ -53,10 +53,10 @@ spec:
   headers:    # For remote servers
     Authorization: "Bearer token"
     Content-Type: "application/json"
-  
+
   # Optional: Connection timeout in seconds (all types)
   timeout: 30
-  
+
   # Optional: Authentication configuration (remote servers)
   auth:
     type: oauth|none          # Authentication type
@@ -639,7 +639,7 @@ metadata:
 spec:
   # Optional: Human-readable description
   description: "<description>"
-  
+
   # Optional: Argument schema for service instantiation
   args:
     <arg_name>:
@@ -647,15 +647,15 @@ spec:
       required: true|false
       default: <default_value>
       description: "<description>"
-  
+
   # Required: Service configuration template
   serviceConfig:
     # Optional: Default name template for instances
     defaultName: "<name_template>"
-    
+
     # Optional: ServiceClass dependencies
     dependencies: ["<serviceclass1>", "<serviceclass2>"]
-    
+
     # Required: Lifecycle tool definitions
     lifecycleTools:
       # Required: Start tool
@@ -665,15 +665,15 @@ spec:
           <key>: <value_template>
         outputs:
           <var_name>: "<json_path>"
-      
-      # Required: Stop tool  
+
+      # Required: Stop tool
       stop:
         tool: "<tool_name>"
         args:
           <key>: <value_template>
         outputs:
           <var_name>: "<json_path>"
-      
+
       # Optional: Restart tool
       restart:
         tool: "<tool_name>"
@@ -681,7 +681,7 @@ spec:
           <key>: <value_template>
         outputs:
           <var_name>: "<json_path>"
-      
+
       # Optional: Health check tool
       healthCheck:
         tool: "<tool_name>"
@@ -695,7 +695,7 @@ spec:
           success: true|false
           jsonPath:
             <path>: <unexpected_value>
-      
+
       # Optional: Status tool
       status:
         tool: "<tool_name>"
@@ -703,20 +703,20 @@ spec:
           <key>: <value_template>
         outputs:
           <var_name>: "<json_path>"
-    
+
     # Optional: Health check configuration
     healthCheck:
       enabled: true|false
       interval: "<duration>"
       failureThreshold: <number>
       successThreshold: <number>
-    
+
     # Optional: Operation timeouts
     timeout:
       create: "<duration>"
       delete: "<duration>"
       healthCheck: "<duration>"
-    
+
     # Optional: Output templates
     outputs:
       <output_name>: "<template>"
@@ -971,7 +971,7 @@ metadata:
 spec:
   # Optional: Human-readable description
   description: "<description>"
-  
+
   # Optional: Argument schema for workflow execution
   args:
     <arg_name>:
@@ -979,7 +979,7 @@ spec:
       required: true|false
       default: <default_value>
       description: "<description>"
-  
+
   # Required: Workflow steps
   steps:
     - id: "<step_id>"
@@ -1101,7 +1101,7 @@ spec:
         tag: "{{.environment}}-latest"
       store: true
       description: "Build container image for deployment"
-    
+
     - id: deploy_service
       tool: core_service_create
       args:
@@ -1112,7 +1112,7 @@ spec:
           replicas: "{{.replicas}}"
       store: true
       description: "Create service instance"
-    
+
     - id: verify_deployment
       tool: health_check
       args:
@@ -1152,7 +1152,7 @@ spec:
         database: "{{.database_name}}"
       store: true
       description: "Verify database connectivity"
-    
+
     - id: backup_database
       tool: postgres_backup
       args:
@@ -1166,7 +1166,7 @@ spec:
             status: "connected"
       store: true
       description: "Create backup before migration"
-    
+
     - id: run_migration
       tool: postgres_migrate
       args:
@@ -1180,7 +1180,7 @@ spec:
       allowFailure: false
       store: true
       description: "Execute database migration"
-    
+
     - id: verify_migration
       tool: postgres_verify
       args:
@@ -1191,7 +1191,7 @@ spec:
         expect:
           success: true
       description: "Verify migration completed successfully"
-    
+
     - id: rollback_migration
       tool: postgres_restore
       args:
@@ -1238,7 +1238,7 @@ spec:
           environment: "staging"
       store: true
       description: "Deploy to staging environment"
-    
+
     - id: test_staging
       tool: integration_test
       args:
@@ -1250,7 +1250,7 @@ spec:
           success: true
       store: true
       description: "Run integration tests on staging"
-    
+
     - id: deploy_production
       tool: core_service_create
       args:
@@ -1268,7 +1268,7 @@ spec:
             test_result: "passed"
       store: true
       description: "Deploy to production environment"
-    
+
     - id: monitor_production
       tool: health_monitor
       args:
@@ -1333,7 +1333,7 @@ args:
     APP_NAME: "{{.app_name | upper}}"
     DATABASE_URL: "{{.database_connection_string}}"
 
-# Workflow templating  
+# Workflow templating
 args:
   service_name: "{{.app_name}}-{{.environment}}"
   image: "{{.results.build_image.image_id}}"
@@ -1435,7 +1435,7 @@ metadata:
 env:
   # Avoid storing secrets directly
   DATABASE_URL: "postgresql://user:pass@localhost:5432/db"  # ❌ BAD
-  
+
   # Use references to secrets
   DATABASE_URL_FROM_SECRET: "database-credentials"         # ✅ GOOD
 
@@ -1475,7 +1475,7 @@ steps:
   - id: risky_operation
     tool: external_api_call
     allowFailure: true    # Continue on failure
-    
+
   - id: cleanup
     tool: cleanup_resources
     condition:
@@ -1509,4 +1509,4 @@ timeout:
 - **[MCP Tools Reference](mcp-tools.md)** - Available tools for use in ServiceClasses and Workflows
 - **[Workflow Creation Guide](../how-to/workflow-creation.md)** - Step-by-step workflow development
 - **[Service Configuration Guide](../how-to/service-configuration.md)** - ServiceClass development patterns
-- **[Architecture Overview](../explanation/architecture.md)** - How CRDs fit into the muster system 
+- **[Architecture Overview](../explanation/architecture.md)** - How CRDs fit into the muster system

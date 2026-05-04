@@ -68,14 +68,14 @@ func buildAuthNotification(authRequired []pkgoauth.AuthRequiredInfo) string {
 	// List each server requiring auth
 	// Per ADR-008: Use core_auth_login with server parameter instead of per-server tools
 	for _, auth := range authRequired {
-		sb.WriteString(fmt.Sprintf("- %s: call 'core_auth_login' with server='%s' to sign in\n", auth.Server, auth.Server))
+		fmt.Fprintf(&sb, "- %s: call 'core_auth_login' with server='%s' to sign in\n", auth.Server, auth.Server)
 	}
 
 	// Add SSO hints for servers sharing the same issuer
 	for issuer, servers := range issuerServers {
 		if len(servers) > 1 {
-			sb.WriteString(fmt.Sprintf("\nNote: %s use the same identity provider (%s). ",
-				strings.Join(servers, " and "), issuer))
+			fmt.Fprintf(&sb, "\nNote: %s use the same identity provider (%s). ",
+				strings.Join(servers, " and "), issuer)
 			sb.WriteString("Signing in to one will authenticate all of them.\n")
 		}
 	}

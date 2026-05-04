@@ -219,14 +219,14 @@ func (a *Adapter) HandleRequest(ctx context.Context, req Request) (Response, err
     if err := req.Validate(); err != nil {
         return Response{}, fmt.Errorf("invalid request: %w", err)
     }
-    
+
     // Call implementation
     result, err := a.implementation.ProcessRequest(ctx, req)
     if err != nil {
         a.logger.Error("Request processing failed", "error", err, "request_id", req.ID)
         return Response{}, fmt.Errorf("processing failed: %w", err)
     }
-    
+
     return result, nil
 }
 ```
@@ -254,7 +254,7 @@ Always include context and proper error handling:
 type MyHandler interface {
     // Always include context as first parameter
     ProcessRequest(ctx context.Context, req Request) (Response, error)
-    
+
     // Return meaningful errors
     GetItem(ctx context.Context, id string) (*Item, error) // Returns nil, ErrNotFound if not found
 }
@@ -268,14 +268,14 @@ func TestWorkflowExecution(t *testing.T) {
     // Create mock service handler
     mockServiceHandler := &MockServiceHandler{}
     api.RegisterServiceHandler(mockServiceHandler)
-    
+
     // Set up expectations
     mockServiceHandler.On("StartService", mock.Anything, "prometheus").Return(nil)
-    
+
     // Test the workflow
     executor := NewWorkflowExecutor()
     err := executor.ExecuteWorkflow(ctx, workflowDef)
-    
+
     assert.NoError(t, err)
     mockServiceHandler.AssertExpectations(t)
 }
@@ -288,9 +288,9 @@ func TestServiceIntegration(t *testing.T) {
     serviceRegistry := services.NewRegistry()
     serviceAdapter := &services.Adapter{Registry: serviceRegistry}
     api.RegisterServiceHandler(serviceAdapter)
-    
+
     workflowExecutor := workflow.NewExecutor()
-    
+
     // Test actual integration
     result, err := workflowExecutor.ExecuteWorkflow(ctx, workflowDef)
     assert.NoError(t, err)
@@ -346,4 +346,4 @@ func TestServiceIntegration(t *testing.T) {
 - [Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
 - [Go Interfaces](https://go.dev/doc/effective_go#interfaces)
 
-This ADR establishes the foundational architectural pattern that enables all other design decisions in the Muster project, providing a scalable and maintainable approach to component interaction. 
+This ADR establishes the foundational architectural pattern that enables all other design decisions in the Muster project, providing a scalable and maintainable approach to component interaction.

@@ -8,4 +8,4 @@ steps:
 - id: "list-all-services"
   tool: "core_service_list"
   expected:
-    success: true 
+    success: true

@@ -3,13 +3,13 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Verify that auth://status correctly reflects SSO server connection state.
-  
+
   This tests the SSO token forwarding flow:
   1. User authenticates to muster (via `muster auth login`)
   2. User calls core_auth_login for SSO-enabled servers
   3. The ID token is forwarded to the downstream server
   4. auth://status shows the server as "connected"
-  
+
   This ensures that SSO token forwarding works correctly when explicitly requested
   via core_auth_login after muster authentication.
 tags: ["oauth", "authentication", "auth-status", "sso", "token-forwarding", "mcpserver"]

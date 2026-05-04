@@ -26,4 +26,4 @@ Task-oriented guides for accomplishing specific goals with Muster.
 - [Operations](../operations/) - Production deployment
 
 ## Feedback
-Missing a how-to guide? [Request it here](https://github.com/giantswarm/muster/issues/new?labels=documentation) 
+Missing a how-to guide? [Request it here](https://github.com/giantswarm/muster/issues/new?labels=documentation)

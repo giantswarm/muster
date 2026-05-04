@@ -62,7 +62,7 @@ func TestProtectedMCPServer_RequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer oauthServer.Stop(ctx)
+	defer func() { _ = oauthServer.Stop(ctx) }()
 
 	// Create protected MCP server
 	server, err := NewProtectedMCPServer(ProtectedMCPServerConfig{
@@ -89,7 +89,7 @@ func TestProtectedMCPServer_RequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start protected MCP server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Wait for server to be ready
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -107,7 +107,7 @@ func TestProtectedMCPServer_RequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("Expected 401 without auth, got %d", resp.StatusCode)
@@ -147,7 +147,7 @@ func TestProtectedMCPServer_AllowsAuthenticatedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start OAuth server: %v", err)
 	}
-	defer oauthServer.Stop(ctx)
+	defer func() { _ = oauthServer.Stop(ctx) }()
 
 	// Create protected MCP server
 	server, err := NewProtectedMCPServer(ProtectedMCPServerConfig{
@@ -174,7 +174,7 @@ func TestProtectedMCPServer_AllowsAuthenticatedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start protected MCP server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Wait for server to be ready
 	readyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -200,7 +200,7 @@ func TestProtectedMCPServer_AllowsAuthenticatedRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// The request might fail for other reasons (invalid MCP request body),
 	// but it should NOT be 401 if the token is valid
@@ -224,7 +224,7 @@ func TestProtectedMCPServer_SSETransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start protected MCP server: %v", err)
 	}
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	if port == 0 {
 		t.Error("Expected non-zero port")

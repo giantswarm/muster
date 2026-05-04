@@ -16,4 +16,4 @@ steps:
     args: ["validation-test"]
     autoStart: false
   expected:
-    success: true 
+    success: true

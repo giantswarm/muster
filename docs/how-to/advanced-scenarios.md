@@ -96,7 +96,7 @@ spec:
           cluster_name: "staging"
           namespace: "{{.namespace}}"
       store: true
-      
+
     - id: connect_production
       tool: core_service_create
       args:
@@ -106,7 +106,7 @@ spec:
           cluster_name: "production"
           namespace: "{{.namespace}}"
       store: true
-      
+
     # Gather resource information
     - id: get_staging_resources
       tool: x_k8s_get_resources
@@ -116,7 +116,7 @@ spec:
         namespace: "{{.namespace}}"
         resource_name: "{{.resource_name}}"
       store: true
-      
+
     - id: get_production_resources
       tool: x_k8s_get_resources
       args:
@@ -125,7 +125,7 @@ spec:
         namespace: "{{.namespace}}"
         resource_name: "{{.resource_name}}"
       store: true
-      
+
     # Gather logs if requested
     - id: get_staging_logs
       tool: x_k8s_get_logs
@@ -138,7 +138,7 @@ spec:
           - template: "{{ .include_logs }}"
           - template: "{{ eq .resource_type \"pods\" }}"
       store: true
-      
+
     - id: get_production_logs
       tool: x_k8s_get_logs
       args:
@@ -150,7 +150,7 @@ spec:
           - template: "{{ .include_logs }}"
           - template: "{{ eq .resource_type \"pods\" }}"
       store: true
-      
+
     # Compare and analyze
     - id: compare_resources
       tool: x_compare_k8s_resources
@@ -159,7 +159,7 @@ spec:
         production_data: "{{.results.get_production_resources}}"
         resource_type: "{{.resource_type}}"
       store: true
-      
+
     - id: analyze_differences
       tool: x_analyze_resource_diff
       args:
@@ -167,7 +167,7 @@ spec:
         staging_logs: "{{.results.get_staging_logs}}"
         production_logs: "{{.results.get_production_logs}}"
       store: true
-      
+
     # Generate investigation report
     - id: generate_report
       tool: x_generate_investigation_report
@@ -179,14 +179,14 @@ spec:
         analysis: "{{.results.analyze_differences}}"
         timestamp: "{{.execution_time}}"
       store: true
-      
+
     # Cleanup connections
     - id: cleanup_staging
       tool: core_service_delete
       args:
         name: "staging-access"
       allowFailure: true
-      
+
     - id: cleanup_production
       tool: core_service_delete
       args:
@@ -236,7 +236,7 @@ spec:
           retention: "{{.retention_period}}"
           storage_size: "{{ if eq .environment \"production\" }}100Gi{{ else }}20Gi{{ end }}"
         waitFor: "running"
-        
+
       # Grafana for visualization
       - name: "grafana-{{.environment}}"
         serviceClassName: "grafana-server"
@@ -244,7 +244,7 @@ spec:
           environment: "{{.environment}}"
           prometheus_url: "{{.dependencies.prometheus.endpoint}}"
         waitFor: "running"
-        
+
       # AlertManager for alerting
       - name: "alertmanager-{{.environment}}"
         serviceClassName: "alertmanager"
@@ -253,7 +253,7 @@ spec:
           webhook_url: "{{.alert_webhook}}"
         waitFor: "running"
         condition: "{{ ne .alert_webhook \"\" }}"
-        
+
     lifecycleTools:
       start:
         tool: x_setup_observability_stack
@@ -331,7 +331,7 @@ spec:
                 - "kubernetes_pod_restart_total"
                 - "node_memory_usage_bytes"
       store: true
-      
+
     # Configure MCP servers for debugging
     - id: setup_prometheus_mcp
       tool: core_mcpserver_create
@@ -342,7 +342,7 @@ spec:
         autoStart: true
         env:
           PROMETHEUS_URL: "{{.results.deploy_observability.prometheus_url}}"
-        
+
     - id: setup_grafana_mcp
       tool: core_mcpserver_create
       args:
@@ -352,7 +352,7 @@ spec:
         autoStart: true
         env:
           GRAFANA_URL: "{{.results.deploy_observability.grafana_url}}"
-          
+
     # Set up log aggregation
     - id: configure_log_aggregation
       tool: x_setup_log_aggregation
@@ -362,7 +362,7 @@ spec:
       condition:
         template: "{{ .enable_advanced_monitoring }}"
       store: true
-      
+
     # Create investigation workspace
     - id: create_workspace
       tool: x_create_investigation_workspace
@@ -374,7 +374,7 @@ spec:
           - "grafana-tools"
           - "kubernetes-tools"
       store: true
-      
+
     # Generate access instructions
     - id: generate_access_guide
       tool: x_generate_access_guide
@@ -433,7 +433,7 @@ spec:
         details: "{{.alert_details}}"
         timestamp: "{{.execution_time}}"
       store: true
-      
+
     # Gather system information
     - id: collect_diagnostics
       tool: x_collect_system_diagnostics
@@ -444,7 +444,7 @@ spec:
         include_metrics: true
         time_range: "1h"
       store: true
-      
+
     # Check service health and dependencies
     - id: check_service_health
       tool: x_comprehensive_health_check
@@ -453,7 +453,7 @@ spec:
         environment: "{{.environment}}"
         check_dependencies: true
       store: true
-      
+
     # Determine remediation strategy
     - id: analyze_issue
       tool: x_analyze_incident
@@ -463,7 +463,7 @@ spec:
         alert_details: "{{.alert_details}}"
         severity: "{{.severity}}"
       store: true
-      
+
     # Execute automated remediation (if safe)
     - id: attempt_auto_remediation
       tool: x_execute_remediation
@@ -479,7 +479,7 @@ spec:
           - template: "{{ ne .environment \"production\" }}"
       store: true
       allowFailure: true
-      
+
     # Notify incident response team
     - id: notify_team
       tool: x_send_incident_notification
@@ -491,7 +491,7 @@ spec:
         analysis: "{{.results.analyze_issue}}"
         auto_remediation_attempted: "{{ ne .results.attempt_auto_remediation nil }}"
         auto_remediation_success: "{{.results.attempt_auto_remediation.success}}"
-        
+
     # Create incident report
     - id: generate_incident_report
       tool: x_generate_incident_report
@@ -502,7 +502,7 @@ spec:
         remediation_actions: "{{.results.attempt_auto_remediation}}"
         timestamp: "{{.execution_time}}"
       store: true
-      
+
     # Follow-up monitoring
     - id: schedule_follow_up
       tool: x_schedule_monitoring
@@ -560,7 +560,7 @@ spec:
         image_tag: "{{.image_tag}}"
         environment: "{{.target_environment}}"
       store: true
-      
+
     # Get current deployment information
     - id: get_current_deployment
       tool: x_get_current_deployment
@@ -569,7 +569,7 @@ spec:
         environment: "{{.target_environment}}"
       store: true
       allowFailure: true
-      
+
     # Deploy to target environment
     - id: deploy_application
       tool: core_service_create
@@ -581,7 +581,7 @@ spec:
           image: "{{.application_name}}:{{.image_tag}}"
           environment: "{{.target_environment}}"
       store: true
-      
+
     # Wait for deployment to be ready
     - id: wait_for_ready
       tool: x_wait_for_deployment_ready
@@ -589,7 +589,7 @@ spec:
         service_name: "{{.application_name}}-{{.target_environment}}"
         timeout: "{{ if eq .target_environment \"production\" }}10m{{ else }}5m{{ end }}"
       store: true
-      
+
     # Run environment-specific tests
     - id: run_smoke_tests
       tool: x_run_smoke_tests
@@ -598,7 +598,7 @@ spec:
         environment: "{{.target_environment}}"
         endpoint: "{{.results.deploy_application.service_url}}"
       store: true
-      
+
     - id: run_integration_tests
       tool: x_run_integration_tests
       args:
@@ -608,7 +608,7 @@ spec:
       condition:
         template: "{{ ne .target_environment \"development\" }}"
       store: true
-      
+
     - id: run_performance_tests
       tool: x_run_performance_tests
       args:
@@ -618,7 +618,7 @@ spec:
       condition:
         template: "{{ eq .target_environment \"production\" }}"
       store: true
-      
+
     # Validate deployment success
     - id: validate_deployment_success
       tool: x_validate_deployment_success
@@ -628,7 +628,7 @@ spec:
         performance_tests: "{{.results.run_performance_tests}}"
         environment: "{{.target_environment}}"
       store: true
-      
+
     # Handle deployment failure
     - id: rollback_deployment
       tool: x_rollback_deployment
@@ -642,7 +642,7 @@ spec:
           - jsonPath:
               "results.validate_deployment_success.success": false
       store: true
-      
+
     # Promote to next environment (if applicable)
     - id: determine_next_environment
       tool: x_get_next_environment
@@ -651,7 +651,7 @@ spec:
         auto_promote: "{{.auto_promote}}"
         deployment_success: "{{.results.validate_deployment_success.success}}"
       store: true
-      
+
     - id: promote_to_next_environment
       tool: workflow_multi_environment_deployment
       args:
@@ -664,7 +664,7 @@ spec:
         jsonPath:
           "results.determine_next_environment.should_promote": true
       store: true
-      
+
     # Generate deployment report
     - id: generate_deployment_report
       tool: x_generate_deployment_report

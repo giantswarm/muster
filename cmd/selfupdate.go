@@ -19,7 +19,7 @@ func newSelfUpdateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "self-update",
 		Short: "Update muster to the latest version",
-		Long: `Checks for the latest release of muster on GitHub and 
+		Long: `Checks for the latest release of muster on GitHub and
 updates the current binary if a newer version is found.`,
 		RunE: runSelfUpdate,
 	}

@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>MCP servers ({{len .Servers}})</h1>
+{{if .Servers}}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Status</th>
+      <th>Auth</th>
+      <th>Issuer</th>
+      <th>Last update</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Servers}}
+    <tr>
+      <td><a href="/mcps/{{.Name}}">{{.Name}}</a></td>
+      <td>{{if .Status}}{{.Status}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{if .RequiresAuth}}<span class="pill">required</span>{{else}}<span class="muted">none</span>{{end}}</td>
+      <td class="mono">{{if .Issuer}}{{.Issuer}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="muted">{{humanTime .LastUpdate}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<div class="empty">No registered MCP servers.</div>
+{{end}}
+{{end}}

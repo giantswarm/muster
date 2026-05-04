@@ -85,8 +85,8 @@ type AuthFlow struct {
 
 // cachedMetadata holds OAuth metadata with its cache timestamp.
 type cachedMetadata struct {
-	metadata *OAuthMetadata
-	cachedAt time.Time
+	metadata *OAuthMetadata //nolint:unused
+	cachedAt time.Time      //nolint:unused
 }
 
 // Client is the OAuth client for the Muster Agent.
@@ -286,6 +286,27 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
 		return nil, errors.New("state mismatch - possible CSRF attack")
+	}
+
+	// Verify iss (RFC 9207) to defend against authorization-server mix-up
+	// attacks when the client talks to multiple ASes. Non-conforming servers
+	// omit the param; treat empty as "not advertised", not as a mismatch.
+	if result.Iss != "" {
+		expected := flow.IssuerURL
+		if flow.Metadata != nil && flow.Metadata.Issuer != "" {
+			expected = flow.Metadata.Issuer
+		}
+		if result.Iss != expected {
+			slog.Debug("OAuth iss mismatch detected - possible AS mix-up attack",
+				"server_url", flow.ServerURL,
+				"expected_iss", expected,
+				"received_iss", result.Iss,
+			)
+			c.mu.Lock()
+			c.cancelCurrentFlow()
+			c.mu.Unlock()
+			return nil, fmt.Errorf("iss mismatch: got %q, expected %q", result.Iss, expected)
+		}
 	}
 
 	// Check for error from authorization server using mcp-oauth error parsing

@@ -8,15 +8,21 @@ All notable changes to this project will be documented in this file.
 
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.
 - Add `ciliumNetworkPolicy.allowClusterIngress` Helm value to allow egress to in-cluster services on HTTP/HTTPS ports (e.g. Dex OIDC via ingress LoadBalancer IP).
+- OAuth encryption keys can now be supplied as either base64 (`openssl rand -base64 32`) or hex (`openssl rand -hex 32`); the format is auto-detected.
+- Agent OAuth client now validates the RFC 9207 `iss` parameter on the authorization callback (defense-in-depth against AS mix-up attacks). Servers that omit `iss` are still accepted.
+- Authorization-server discovery now also serves `/.well-known/openid-configuration` and per-path Protected Resource Metadata at `/.well-known/oauth-protected-resource/mcp` (additive — RFC 9728 / OpenID Connect Discovery).
 
 ### Changed
 
 - `list_tools` now deduplicates tools that share an identical `(name, description)` signature across multiple backend MCP servers. Duplicate entries are collapsed into a single entry whose `name` contains an `<installation>` placeholder and which lists the providing installations in a new `installations` field. Callers substitute a concrete installation into the placeholder when invoking `call_tool`. This cuts `list_tools` output substantially for setups with many same-type MCP servers (one per cluster).
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
+- Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
 ### Fixed
 
 - Bump `mcp-oauth` to v0.2.86 with Dex scope filtering: non-standard client scopes like `claudeai` (sent by Claude) are now stripped before forwarding to Dex, preventing `invalid_scope` errors. Also includes Google scope filtering and `openid` force-merge from v0.2.84.
+- CRD validation now uses the discovery API instead of listing `MCPServer` resources in the `default` namespace. With namespace-scoped RBAC (a `Role` limited to muster's own namespace), the previous probe failed with `Forbidden`, silently fell back to filesystem mode, and left configured `MCPServer` CRs unstarted (visible in logs as `Found 0 MCPServer definitions for auto-start processing` followed by `Deleting MCPServer service: <name>`).
+- `call_tool` meta-tool now forwards the underlying tool's `isError` flag on the outer response. Previously the top-level `isError` was always `false` even when the wrapped tool returned an error, which was misleading for MCP clients that only inspect the top-level flag.
 
 ## [0.1.0] - 2026-02-23
 

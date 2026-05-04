@@ -26,9 +26,9 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 	// Parse optional args
 	if category, ok := args["category"].(string); ok && category != "" {
 		switch category {
-		case "behavioral":
+		case "behavioral": //nolint:goconst
 			config.Category = testing.CategoryBehavioral
-		case "integration":
+		case "integration": //nolint:goconst
 			config.Category = testing.CategoryIntegration
 		default:
 			return mcp.NewToolResultError(fmt.Sprintf("Invalid category '%s', must be 'behavioral' or 'integration'", category)), nil
@@ -37,14 +37,14 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 
 	if concept, ok := args["concept"].(string); ok && concept != "" {
 		switch concept {
-		case "serviceclass":
+		case "serviceclass": //nolint:goconst
 			config.Concept = testing.ConceptServiceClass
-		case "workflow":
+		case "workflow": //nolint:goconst
 			config.Concept = testing.ConceptWorkflow
-		case "mcpserver":
+		case "mcpserver": //nolint:goconst
 			config.Concept = testing.ConceptMCPServer
 
-		case "service":
+		case "service": //nolint:goconst
 			config.Concept = testing.ConceptService
 		default:
 			return mcp.NewToolResultError(fmt.Sprintf("Invalid concept '%s', must be one of: serviceclass, workflow, mcpserver, service", concept)), nil

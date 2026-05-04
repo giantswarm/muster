@@ -206,7 +206,7 @@ func (f *TableFormatter) formatTableFromArrayWithMeta(data []interface{}, meta m
 			row := make([]string, len(columns))
 			for i, col := range columns {
 				// Use context-aware formatting for MCP servers (plain text version)
-				if detectedType == "mcpServers" || detectedType == "mcpServer" {
+				if detectedType == "mcpServers" || detectedType == "mcpServer" { //nolint:goconst
 					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], itemMap)
 				} else {
 					row[i] = f.builder.FormatCellValuePlain(col, itemMap[col], nil)
@@ -263,7 +263,7 @@ func (f *TableFormatter) printServerStatusNotes(data map[string]interface{}) {
 		// Only show notes for servers that need attention
 		if statusMessage != "" && name != "" {
 			switch state {
-			case "auth_required", "unreachable", "failed":
+			case "auth_required", "unreachable", "failed": //nolint:goconst
 				notes = append(notes, fmt.Sprintf("  %s: %s", name, statusMessage))
 			}
 		}
@@ -907,7 +907,7 @@ func (f *TableFormatter) displayWorkflowInputs(workflowData map[string]interface
 		isRequired := "No"
 		if req, exists := paramDef["required"]; exists {
 			if reqBool, ok := req.(bool); ok && reqBool {
-				isRequired = "Yes"
+				isRequired = "Yes" //nolint:goconst
 			}
 		}
 

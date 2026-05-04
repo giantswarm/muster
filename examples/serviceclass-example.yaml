@@ -57,4 +57,4 @@ spec:
       healthCheck: "10s"
     outputs:
       connection_string: "postgresql://user:pass@localhost:{{.port}}/{{.database_name}}"
-      port: "{{.port}}" 
+      port: "{{.port}}"

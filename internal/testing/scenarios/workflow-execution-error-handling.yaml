@@ -98,4 +98,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "failing-workflow" }
   expected:
-    success: true 
+    success: true

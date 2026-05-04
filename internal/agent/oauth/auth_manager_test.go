@@ -20,7 +20,7 @@ func TestAuthManager_StateTransitions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create auth manager: %v", err)
 		}
-		defer mgr.Close()
+		defer func() { _ = mgr.Close() }()
 
 		if mgr.GetState() != AuthStateUnknown {
 			t.Errorf("expected initial state to be Unknown, got %s", mgr.GetState())
@@ -59,7 +59,7 @@ func TestAuthManager_CheckConnection_NoToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	ctx := context.Background()
 	state, err := mgr.CheckConnection(ctx, "https://example.com")
@@ -81,11 +81,11 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Pre-store a valid token
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := "https://muster.example.com" //nolint:goconst
+	issuerURL := "https://dex.example.com"    //nolint:goconst
 	token := &StoredToken{
 		AccessToken: "valid-token",
 		TokenType:   "Bearer",
@@ -149,7 +149,7 @@ func TestAuthManager_GettersAndSetters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Test initial state
 	if mgr.GetState() != AuthStateUnknown {
@@ -182,7 +182,7 @@ func TestAuthManager_GetAccessToken_NotAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Try to get token when not authenticated
 	_, err = mgr.GetAccessToken()
@@ -206,7 +206,7 @@ func TestAuthManager_StartAuthFlow_InvalidState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	ctx := context.Background()
 
@@ -226,7 +226,7 @@ func TestAuthManager_ClearToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Store a token first via CheckConnection (to set serverURL)
 	ctx := context.Background()
@@ -237,7 +237,7 @@ func TestAuthManager_ClearToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	mgr.CheckConnection(ctx, server.URL)
+	_, _ = mgr.CheckConnection(ctx, server.URL)
 
 	// Clear should work even when there's no token
 	err = mgr.ClearToken()
@@ -255,7 +255,7 @@ func TestAuthManager_ClearToken(t *testing.T) {
 		TokenStorageDir: tmpDir,
 		FileMode:        false,
 	})
-	defer mgr2.Close()
+	defer func() { _ = mgr2.Close() }()
 
 	err = mgr2.ClearToken()
 	if err != nil {
@@ -272,7 +272,7 @@ func TestAuthManager_WaitForAuth_NoFlowInProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	ctx := context.Background()
 
@@ -292,7 +292,7 @@ func TestAuthManager_HasValidTokenForEndpoint_NoToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Should return false when no token exists
 	if mgr.HasValidTokenForEndpoint("https://muster.example.com") {
@@ -314,7 +314,7 @@ func TestAuthManager_HasValidTokenForEndpoint_WithValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Pre-store a valid token
 	serverURL := "https://muster.example.com"
@@ -351,7 +351,7 @@ func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-protected-resource" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"resource":              "https://example.com",
 				"authorization_servers": []string{"https://oauth.example.com"},
 			})
@@ -370,7 +370,7 @@ func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	ctx := context.Background()
 
@@ -382,7 +382,7 @@ func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.
 
 	// Now simulate CLI authentication by storing a token directly
 	issuerURL := "https://oauth.example.com"
-	token := &StoredToken{
+	token := &StoredToken{ //nolint:gosec
 		AccessToken: "cli-auth-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
@@ -416,7 +416,7 @@ func TestAuthManager_HasValidTokenForEndpoint_NormalizesURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Store token with normalized URL
 	serverURL := "https://muster.example.com"
@@ -460,7 +460,7 @@ func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Store an expired token
 	serverURL := "https://muster.example.com"
@@ -499,7 +499,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	serverURL := "https://muster.example.com"
 	issuerURL := "https://dex.example.com"
@@ -513,7 +513,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 
 	t.Run("returns expired token for silent re-auth hints", func(t *testing.T) {
 		// Store an expired token with an ID token (used for login hints)
-		expiredToken := &StoredToken{
+		expiredToken := &StoredToken{ //nolint:gosec
 			AccessToken:  "expired-access-token",
 			RefreshToken: "expired-refresh-token",
 			TokenType:    "Bearer",
@@ -530,7 +530,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 		}
 
 		// GetStoredToken should return nil for expired tokens
-		if mgr.GetStoredToken() != nil {
+		if mgr.GetStoredToken() != nil { //nolint:staticcheck
 			// GetStoredToken uses m.serverURL which is not set in this test
 			// so it will return nil anyway - this is expected
 		}
@@ -609,7 +609,7 @@ func TestAuthFlowOptions(t *testing.T) {
 	})
 
 	t.Run("silent mode options", func(t *testing.T) {
-		opts := &AuthFlowOptions{
+		opts := &AuthFlowOptions{ //nolint:gosec
 			Silent:      true,
 			LoginHint:   "user@example.com",
 			IDTokenHint: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -635,7 +635,7 @@ func TestAuthManager_StartAuthFlowSilent_RequiresPendingState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create auth manager: %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	ctx := context.Background()
 

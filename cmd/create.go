@@ -12,6 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// stringTrue is the string form of a boolean true used by CLI flag parsing.
+const stringTrue = "true"
+
 var createFlags cli.CommandFlags
 
 // Available resource types for create operations
@@ -24,7 +27,7 @@ var createResourceTypes = []string{
 
 // Dynamic completion for ServiceClass names (for service creation)
 func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 1 || args[0] != "service" {
+	if len(args) != 1 || args[0] != "service" { //nolint:goconst
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
@@ -43,7 +46,7 @@ func createServiceClassNameCompletion(cmd *cobra.Command, args []string, toCompl
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	// Get ServiceClass list
 	names, err := getResourceNames(ctx, executor, "core_serviceclass_list", "serviceclass")
@@ -167,7 +170,7 @@ func parseServiceParameters(serviceClassName string) map[string]interface{} {
 					i++ // Skip the next argument since we consumed it
 				} else {
 					// Boolean flag
-					params[paramArg] = "true"
+					params[paramArg] = stringTrue
 				}
 			}
 		}
@@ -249,7 +252,7 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 		}
 	case "autoStart", "auto-start":
 		if hasValue {
-			args["autoStart"] = flagValue == "true"
+			args["autoStart"] = flagValue == stringTrue
 		} else {
 			args["autoStart"] = true
 		}
@@ -314,7 +317,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer executor.Close()
+	defer func() { _ = executor.Close() }()
 
 	ctx := cmd.Context()
 	if err := executor.Connect(ctx); err != nil {
@@ -343,7 +346,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return executor.Execute(ctx, "core_service_create", toolArgs)
 	}
 
-	if resourceType == "mcpserver" {
+	if resourceType == "mcpserver" { //nolint:goconst
 		// Handle MCPServer creation: muster create mcpserver <name> --type <type> [options]
 		if len(args) < 2 {
 			return fmt.Errorf("MCPServer creation requires: muster create mcpserver <name> --type <type> [options]")

@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/c2dd604fd787d9aa63ec6c43c817c8596f1356f7/pkg/gen/input/makefile/internal/file/Makefile.gen.app.mk.template
+#    https://github.com/giantswarm/devctl/blob/eea19f200d7cfd27ded22474b787563bbfdb8ec4/pkg/gen/input/makefile/internal/file/Makefile.gen.app.mk.template
 #
 
 ##@ App

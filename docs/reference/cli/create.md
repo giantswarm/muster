@@ -121,7 +121,7 @@ muster create service my-app web-service
 muster create service my-app web-service --output json
 # {
 #   "name": "my-app",
-#   "type": "service", 
+#   "type": "service",
 #   "status": "Created",
 #   "serviceClass": "web-service",
 #   "created": "2024-01-07T10:00:00Z"
@@ -333,4 +333,4 @@ muster create service dev-env development-stack \
   --debug=true \
   --hot-reload=enabled \
   --local-storage=./data
-``` 
+```

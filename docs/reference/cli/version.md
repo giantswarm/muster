@@ -71,4 +71,4 @@ The version displayed follows semantic versioning (SemVer) principles:
 
 - The version is set at build time and embedded in the binary
 - Development builds cannot be updated using `muster self-update`
-- The version information is also available via the `--version` flag on the root command 
+- The version information is also available via the `--version` flag on the root command

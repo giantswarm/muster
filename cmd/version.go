@@ -25,16 +25,16 @@ func newVersionCmd() *cobra.Command {
 also displays the server version obtained from the MCP protocol handshake.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// Print CLI version
-			fmt.Fprintf(cmd.OutOrStdout(), "muster version %s\n", rootCmd.Version)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "muster version %s\n", rootCmd.Version)
 
 			// Try to get server version
 			serverVersion, serverName, err := getServerVersion()
 			if err != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "\nServer: (not running)\n")
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nServer: (not running)\n")
 				return
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "\nServer: %s (%s)\n", serverVersion, serverName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nServer: %s (%s)\n", serverVersion, serverName)
 		},
 	}
 }
@@ -55,7 +55,7 @@ func getServerVersion() (version, name string, err error) {
 
 	// Create a client without logging for version check
 	mcpClient := agent.NewClient(endpoint, nil, agent.TransportStreamableHTTP)
-	defer mcpClient.Close()
+	defer func() { _ = mcpClient.Close() }()
 
 	// Connect to the server (this performs the MCP handshake)
 	if err := mcpClient.Connect(ctx); err != nil {

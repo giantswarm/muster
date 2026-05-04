@@ -16,7 +16,7 @@ func createTempConfigFile(t *testing.T, dir string, filename string, content Mus
 	tempFilePath := filepath.Join(dir, filename)
 	data, err := yaml.Marshal(&content)
 	assert.NoError(t, err)
-	err = os.WriteFile(tempFilePath, data, 0644)
+	err = os.WriteFile(tempFilePath, data, 0644) //nolint:gosec
 	assert.NoError(t, err)
 	return tempFilePath
 }
@@ -38,7 +38,7 @@ func TestLoadConfig_WithUserConfig(t *testing.T) {
 
 	// Create the user config directory
 	userConfDir := filepath.Join(tempDir, userConfigDir)
-	err := os.MkdirAll(userConfDir, 0755)
+	err := os.MkdirAll(userConfDir, 0755) //nolint:gosec
 	assert.NoError(t, err)
 
 	// Create a user config file with custom settings
@@ -109,7 +109,7 @@ func TestLoadConfigFromPath_InvalidYAML(t *testing.T) {
 
 	// Create an invalid YAML file
 	invalidYAMLPath := filepath.Join(tempDir, configFileName)
-	err := os.WriteFile(invalidYAMLPath, []byte("invalid: yaml: content: ["), 0644)
+	err := os.WriteFile(invalidYAMLPath, []byte("invalid: yaml: content: ["), 0644) //nolint:gosec
 	assert.NoError(t, err)
 
 	// Should return an error for invalid YAML

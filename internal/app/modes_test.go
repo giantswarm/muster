@@ -48,7 +48,7 @@ func TestConfigValidation(t *testing.T) {
 			}
 
 			// Validate that the config has the expected structure
-			if tt.cfg.MusterConfig != nil {
+			if tt.cfg.MusterConfig != nil { //nolint:staticcheck
 				// MCPServers are now managed by MCPServerManager, not validated here
 			}
 		})

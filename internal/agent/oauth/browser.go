@@ -43,11 +43,11 @@ func OpenBrowser(urlStr string) error {
 
 	switch runtime.GOOS {
 	case "linux":
-		cmd = exec.Command("xdg-open", urlStr)
+		cmd = exec.Command("xdg-open", urlStr) //nolint:gosec
 	case "darwin":
-		cmd = exec.Command("open", urlStr)
+		cmd = exec.Command("open", urlStr) //nolint:gosec
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", urlStr)
+		cmd = exec.Command("cmd", "/c", "start", urlStr) //nolint:gosec
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}

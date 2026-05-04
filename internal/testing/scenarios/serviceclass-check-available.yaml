@@ -20,4 +20,4 @@ steps:
   expected:
     success: true
     json_path:
-      available: true 
+      available: true

@@ -13,7 +13,7 @@ import (
 
 // TestMCPServer wraps the test framework functionality and exposes it via MCP
 type TestMCPServer struct {
-	client       client.MCPClient
+	client       client.MCPClient //nolint:unused
 	endpoint     string
 	logger       *Logger
 	mcpServer    *server.MCPServer

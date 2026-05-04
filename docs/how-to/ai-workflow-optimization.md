@@ -38,7 +38,7 @@ metadata:
     ai.muster.io/complexity: "medium"
     ai.muster.io/estimated-duration: "5-10 minutes"
     ai.muster.io/prerequisites: "Application image available, target environment healthy"
-    
+
 spec:
   # Clear, descriptive parameters
   args:
@@ -48,28 +48,28 @@ spec:
       description: "Application name (lowercase, alphanumeric with hyphens)"
       pattern: "^[a-z][a-z0-9-]*[a-z0-9]$"
       examples: ["user-service", "api-gateway", "payment-processor"]
-      
+
     environment:
       type: string
       required: true
       description: "Deployment environment"
       enum: ["development", "staging", "production"]
       default: "staging"
-      
+
     image_tag:
       type: string
       required: true
       description: "Container image tag (semantic version format)"
       pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9]+)?$"
       examples: ["v1.2.3", "v2.0.0-beta1"]
-      
+
     replicas:
       type: integer
       description: "Number of replicas to deploy"
       minimum: 1
       maximum: 20
       default: 2
-      
+
   # Optimized step structure
   steps:
     # Parallel validation steps
@@ -79,7 +79,7 @@ spec:
       args:
         environment: "{{.environment}}"
       timeout: "30s"
-      
+
     - id: validate_image
       description: "Validate container image availability and security"
       tool: validate_container_image
@@ -87,7 +87,7 @@ spec:
         image: "{{.app_name}}:{{.image_tag}}"
       timeout: "60s"
       parallel_with: ["validate_environment"]
-      
+
     # Conditional approval for production
     - id: require_approval
       description: "Require approval for production deployments"
@@ -98,7 +98,7 @@ spec:
         operation: "deploy {{.app_name}} {{.image_tag}} to {{.environment}}"
         timeout: "30m"
       depends_on: ["validate_environment", "validate_image"]
-      
+
     # Main deployment with progress tracking
     - id: deploy_application
       description: "Deploy application using rolling update strategy"
@@ -114,7 +114,7 @@ spec:
       timeout: "10m"
       progress_tracking: true
       store_result: true
-      
+
     # Health verification with retries
     - id: verify_deployment
       description: "Verify deployment health and readiness"
@@ -127,7 +127,7 @@ spec:
         attempts: 3
         delay: "30s"
         backoff: "exponential"
-      
+
     # Parallel post-deployment tasks
     - id: update_monitoring
       description: "Update monitoring configuration for new deployment"
@@ -138,7 +138,7 @@ spec:
         version: "{{.image_tag}}"
       parallel_with: ["notify_team"]
       allow_failure: true
-      
+
     - id: notify_team
       description: "Notify team of successful deployment"
       tool: send_notification
@@ -152,7 +152,7 @@ spec:
           • Replicas: {{.replicas}}
           • Duration: {{.execution_duration}}
       allow_failure: true
-      
+
   # Error handling and rollback
   on_failure:
     - id: rollback_deployment
@@ -161,7 +161,7 @@ spec:
       args:
         service_name: "{{.app_name}}-{{.environment}}"
         strategy: "immediate"
-        
+
     - id: notify_failure
       description: "Notify team of deployment failure"
       tool: send_notification
@@ -191,12 +191,12 @@ parameters:
     default: 10
     examples: [5, 10, 20]
     performance_notes: "Higher values improve throughput but increase memory usage"
-    
+
   # ❌ Avoid: Vague, no guidance
   config:
     type: object
     description: "Configuration"
-    
+
   # ✅ Good: Structured choices
   deployment_strategy:
     type: string
@@ -220,13 +220,13 @@ performance:
     # Enable parallel execution where possible
     parallel_execution: true
     max_concurrent_tools: 5
-    
+
     # Smart caching for frequently used tools
     tool_caching:
       enabled: true
       cache_duration: "5m"
       cache_size: "100MB"
-      
+
     # Preload popular tools
     preloading:
       enabled: true
@@ -235,13 +235,13 @@ performance:
         - "kubectl_get_services"
         - "core_service_status"
         - "workflow_deploy_webapp"
-        
+
   # Context optimization
   context_management:
     smart_context_loading: true
     context_cache_size: "50MB"
     context_ttl: "10m"
-    
+
   # Network optimization
   network:
     connection_pooling: true
@@ -278,32 +278,32 @@ caching:
       enabled: true
       duration: "10m"
       invalidate_on: ["tool_changes", "server_restart"]
-      
+
     # Tool execution cache
     tool_execution:
       enabled: true
       duration: "5m"
       cache_keys: ["tool_name", "args_hash", "context_hash"]
-      
+
     # Workflow result cache
     workflow_results:
       enabled: true
       duration: "30m"
       cache_keys: ["workflow_name", "args_hash"]
-      
+
     # AI context cache
     ai_context:
       enabled: true
       duration: "15m"
       max_size: "100MB"
-      
+
   strategies:
     # Predictive caching
     predictive:
       enabled: true
       ml_based_prediction: true
       usage_pattern_learning: true
-      
+
     # Cache warming
     warming:
       enabled: true
@@ -323,25 +323,25 @@ ai_optimization:
     smart_context_selection: true
     relevance_scoring: true
     context_compression: true
-    
+
     # Context size limits
     max_context_size: "8MB"
     max_files_in_context: 20
     max_lines_per_file: 1000
-    
+
     # Context prioritization
     prioritization:
       recent_files: 1.0
       modified_files: 0.8
       relevant_files: 0.6
       dependency_files: 0.4
-      
+
   # Response optimization
   response_optimization:
     streaming_responses: true
     progressive_disclosure: true
     result_chunking: true
-    
+
   # Tool suggestion optimization
   tool_suggestions:
     predictive_suggestions: true
@@ -388,7 +388,7 @@ metadata:
   description: "Optimized deployment template for production workloads"
   category: "deployment"
   performance_optimized: true
-  
+
 spec:
   # Template parameters
   parameters:
@@ -401,7 +401,7 @@ spec:
           name: {type: string}
           version: {type: string}
           replicas: {type: integer, default: 3}
-          
+
   # Optimized execution plan
   execution:
     # Parallel validation for all services
@@ -411,13 +411,13 @@ spec:
         - validate_images
         - validate_environments
         - validate_resources
-        
+
     # Sequential deployment with health checks
     deployment_phase:
       strategy: "rolling"
       parallel_limit: 3
       health_check_interval: "30s"
-      
+
     # Parallel post-deployment tasks
     finalization_phase:
       parallel: true
@@ -436,7 +436,7 @@ kind: Workflow
 metadata:
   name: monitoring-optimized
   description: "Workflow with comprehensive monitoring and observability"
-  
+
 spec:
   monitoring:
     # Real-time progress tracking
@@ -444,19 +444,19 @@ spec:
       enabled: true
       granularity: "step"
       stream_to_ai: true
-      
+
     # Performance metrics
     metrics:
       execution_time: true
       resource_usage: true
       success_rate: true
-      
+
     # Alerting integration
     alerting:
       on_failure: true
       on_timeout: true
       on_performance_degradation: true
-      
+
   # Observable steps
   steps:
     - id: deploy
@@ -533,13 +533,13 @@ ml_optimization:
     enabled: true
     learning_window: "30d"
     adaptation_frequency: "daily"
-    
+
   # Predictive tool loading
   predictive_loading:
     enabled: true
     prediction_accuracy_threshold: 0.8
     lookahead_window: "5m"
-    
+
   # Intelligent caching
   intelligent_caching:
     ml_based_eviction: true
@@ -557,13 +557,13 @@ workflow_composition:
     enabled: true
     dependency_analysis: true
     resource_aware: true
-    
+
   # Step optimization
   step_optimization:
     merge_compatible_steps: true
     eliminate_redundant_steps: true
     optimize_data_flow: true
-    
+
   # Resource optimization
   resource_optimization:
     cpu_aware_scheduling: true
@@ -584,14 +584,14 @@ performance_metrics:
     context_loading_time: "average, max"
     tool_discovery_time: "average"
     conversation_efficiency: "turns_per_task"
-    
+
   # Workflow metrics
   workflow_metrics:
     execution_time: "total, per_step"
     success_rate: "percentage"
     retry_rate: "percentage"
     resource_utilization: "cpu, memory, network"
-    
+
   # System metrics
   system_metrics:
     cache_hit_ratio: "percentage"

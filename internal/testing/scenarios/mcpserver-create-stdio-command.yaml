@@ -35,4 +35,4 @@ cleanup:
   args:
     name: "stdio-command-server"
   expected:
-    success: true 
+    success: true

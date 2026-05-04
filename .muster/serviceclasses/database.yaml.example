@@ -83,4 +83,4 @@ spec:
       status: "{{ .start.status }}"
       database_name: "{{ .start.database_name }}"
       host: "{{ .start.host }}"
-      port: "{{ .start.port }}" 
+      port: "{{ .start.port }}"

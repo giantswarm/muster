@@ -16,4 +16,4 @@ steps:
           tool: "x_test-provider_stop"
   expected:
     success: false
-    error_contains: ["name", "required"] 
+    error_contains: ["name", "required"]

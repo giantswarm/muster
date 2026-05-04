@@ -3,7 +3,6 @@ package aggregator
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,9 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/internal/admin"
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
@@ -133,6 +134,9 @@ type AggregatorServer struct {
 	// valkeyEncryptor provides AES-256-GCM encryption at rest for sensitive values
 	// stored in Valkey (tokens, state). Nil when encryption is not configured.
 	valkeyEncryptor *security.Encryptor
+
+	// adminServer is the optional admin web UI listener. Nil when disabled.
+	adminServer *admin.Server
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -153,20 +157,81 @@ func (a *AggregatorServer) getValkeyEncryptor() *security.Encryptor {
 	return a.valkeyEncryptor
 }
 
-// subjectSessionTracker maps user subjects to their MCP client session IDs.
-// This enables targeted notifications instead of broadcasting to all clients.
-// A reverse map (session -> subject) allows O(1) removal when a session disconnects.
+// subjectSessionTracker maps user subjects to their MCP client session IDs
+// (for targeted notifications) and to their OAuth session IDs / token family
+// IDs (for the admin UI). The two ID spaces are intentionally kept separate
+// because polluting the MCP-session map with OAuth IDs would break
+// notification delivery.
+//
+// A reverse map keyed by MCP session ID allows O(1) cleanup when the
+// transport session is unregistered.
 type subjectSessionTracker struct {
-	mu       sync.RWMutex
-	sessions map[string]map[string]bool // sub -> set of MCP session IDs
-	reverse  map[string]string          // MCP session ID -> sub
+	mu                      sync.RWMutex
+	sessions                map[string]map[string]bool // sub -> set of MCP session IDs
+	reverse                 map[string]string          // MCP session ID -> sub
+	subjectByOAuthSessionID map[string]string          // OAuth session ID -> sub
 }
 
 func newSubjectSessionTracker() *subjectSessionTracker {
 	return &subjectSessionTracker{
-		sessions: make(map[string]map[string]bool),
-		reverse:  make(map[string]string),
+		sessions:                make(map[string]map[string]bool),
+		reverse:                 make(map[string]string),
+		subjectByOAuthSessionID: make(map[string]string),
 	}
+}
+
+// TrackOAuth records a mapping from subject to OAuth session ID (token family).
+// Called from sessionToolFilter and BeforeCallTool so the admin UI can render a
+// subject for every live OAuth session, even ones that haven't reached the
+// cap store yet.
+func (t *subjectSessionTracker) TrackOAuth(sub, oauthSessionID string) {
+	if sub == "" || oauthSessionID == "" {
+		return
+	}
+	// Fast-path: if already recorded, avoid the write-lock. OAuth session IDs
+	// are stable for the life of a token family, so concurrent tool calls
+	// only need to write once.
+	t.mu.RLock()
+	if t.subjectByOAuthSessionID[oauthSessionID] == sub {
+		t.mu.RUnlock()
+		return
+	}
+	t.mu.RUnlock()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.subjectByOAuthSessionID[oauthSessionID] = sub
+}
+
+// UntrackOAuth removes an OAuth session ID from the tracker. Called during
+// session teardown so the map doesn't grow unbounded.
+func (t *subjectSessionTracker) UntrackOAuth(oauthSessionID string) {
+	if oauthSessionID == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.subjectByOAuthSessionID, oauthSessionID)
+}
+
+// OAuthSubject returns the subject associated with an OAuth session ID, or
+// "" if none is tracked.
+func (t *subjectSessionTracker) OAuthSubject(oauthSessionID string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.subjectByOAuthSessionID[oauthSessionID]
+}
+
+// OAuthSessionIDs returns the set of tracked OAuth session IDs. Intended for
+// admin enumeration paths.
+func (t *subjectSessionTracker) OAuthSessionIDs() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]string, 0, len(t.subjectByOAuthSessionID))
+	for id := range t.subjectByOAuthSessionID {
+		out = append(out, id)
+	}
+	return out
 }
 
 // Track records a mapping from user subject to MCP session ID.
@@ -448,7 +513,7 @@ func createStores(cfg AggregatorConfig) storeBundle {
 	if ok && oauthCfg.Storage.Type == "valkey" && oauthCfg.Storage.Valkey.URL != "" {
 		keyPrefix := oauthCfg.Storage.Valkey.KeyPrefix
 		if keyPrefix == "" {
-			keyPrefix = "muster:"
+			keyPrefix = "muster:" //nolint:goconst
 		}
 
 		client, err := newValkeyClient(oauthCfg.Storage.Valkey)
@@ -489,7 +554,7 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 	if oauthCfg.EncryptionKey == "" {
 		return nil
 	}
-	keyBytes, err := base64.StdEncoding.DecodeString(oauthCfg.EncryptionKey)
+	keyBytes, err := musteroauth.DecodeEncryptionKey(oauthCfg.EncryptionKey)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Failed to decode encryption key for Valkey stores",
 			slog.String("error", err.Error()))
@@ -628,10 +693,17 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	})
 
 	hooks.AddBeforeCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest) {
+		subject := getUserSubjectFromContext(ctx)
 		logging.InfoWithAttrs("MCP-Protocol", "tools/call request",
 			logging.TransportSessionID(getTransportSessionID(ctx)),
-			slog.String("subject", logging.TruncateIdentifier(getUserSubjectFromContext(ctx))),
+			slog.String("subject", logging.TruncateIdentifier(subject)),
 			slog.String("tool", msg.Params.Name))
+
+		// Ensure the admin UI can resolve subject for sessions whose MCP
+		// client caches tools/list and therefore never re-hits
+		// sessionToolFilter. TrackOAuth short-circuits under RLock when the
+		// mapping is already recorded.
+		a.subjectSessions.TrackOAuth(subject, getSessionIDFromContext(ctx))
 	})
 
 	hooks.AddAfterCallTool(func(ctx context.Context, _ any, msg *mcp.CallToolRequest, result any) {
@@ -754,7 +826,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{
+				server := &http.Server{ //nolint:gosec
 					Handler: handler,
 				}
 				a.httpServer = append(a.httpServer, server)
@@ -768,7 +840,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with SSE transport",
 				slog.String("addr", addr))
-			server := &http.Server{
+			server := &http.Server{ //nolint:gosec
 				Addr:    addr,
 				Handler: handler,
 			}
@@ -817,7 +889,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		if useSystemdActivation {
 			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
 			for i, listener := range systemdListeners {
-				server := &http.Server{
+				server := &http.Server{ //nolint:gosec
 					Handler: handler,
 				}
 				a.httpServer = append(a.httpServer, server)
@@ -831,7 +903,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		} else {
 			logging.InfoWithAttrs("Aggregator", "Starting MCP aggregator server with streamable-http transport",
 				slog.String("addr", addr))
-			server := &http.Server{
+			server := &http.Server{ //nolint:gosec
 				Addr:    addr,
 				Handler: handler,
 			}
@@ -845,6 +917,28 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 	}
 	a.mu.Unlock()
+
+	// Start the optional admin web UI on a separate listener. Failure to
+	// bind the admin port is logged but not fatal: the aggregator itself is
+	// already serving and we do not want admin problems to take it down.
+	if a.config.Admin.Enabled {
+		adminCfg := admin.Config{
+			BindAddress: a.config.Admin.BindAddress,
+			Port:        a.config.Admin.Port,
+		}
+		adminSrv, err := admin.NewServer(adminCfg, a.adminDeps())
+		if err != nil {
+			logging.Error("Aggregator", err, "Failed to construct admin server (port %d)", adminCfg.Port)
+		} else if err := adminSrv.Start(); err != nil {
+			logging.Error("Aggregator", err, "Failed to start admin server on %s", adminSrv.Addr())
+		} else {
+			a.mu.Lock()
+			a.adminServer = adminSrv
+			a.mu.Unlock()
+			logging.InfoWithAttrs("Aggregator", "Admin UI listening",
+				slog.String("addr", adminSrv.Addr()))
+		}
+	}
 
 	return nil
 }
@@ -887,7 +981,18 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	// Capture references before releasing lock to avoid race conditions
 	cancelFunc := a.cancelFunc
 	httpServer := a.httpServer
+	adminServer := a.adminServer
+	a.adminServer = nil
 	a.mu.Unlock()
+
+	// Shut down the admin listener first — it is cheap and has no in-flight
+	// MCP work to wait for.
+	if adminServer != nil {
+		if err := adminServer.Stop(ctx); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Error shutting down admin server",
+				slog.String("error", err.Error()))
+		}
+	}
 
 	// Cancel context to signal shutdown to all background routines
 	if cancelFunc != nil {
@@ -1397,7 +1502,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			a.ssoTracker.ClearAllSSOFailed(userID)
 		}
 
-		go a.initSSOForSession(ctx, userID, sessionID, idToken)
+		go a.initSSOForSession(ctx, userID, sessionID, idToken) //nolint:gosec
 	})
 
 	// Establish SSO connections synchronously during login (token issuance).
@@ -1433,25 +1538,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	})
 
 	oauthServer.SetSessionRevocationHandler(func(ctx context.Context, userID, familyID string) {
-		if a.authStore != nil {
-			if err := a.authStore.RevokeSession(ctx, familyID); err != nil {
-				logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
-					slog.String("familyID", logging.TruncateIdentifier(familyID)),
-					slog.String("error", err.Error()))
-			}
-		}
-		if a.capabilityStore != nil {
-			if err := a.capabilityStore.Delete(ctx, familyID); err != nil {
-				logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
-					slog.String("familyID", logging.TruncateIdentifier(familyID)),
-					slog.String("error", err.Error()))
-			}
-		}
-		if a.connPool != nil {
-			a.connPool.EvictSession(familyID)
-		}
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
+		a.tearDownSession(ctx, familyID)
+		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
 			oauthHandler.DeleteTokensBySession(familyID)
 		}
 		logging.InfoWithAttrs("Aggregator", "Cleaned up session state for revoked session",
@@ -1556,6 +1644,11 @@ func (a *AggregatorServer) sessionToolFilter(ctx context.Context, _ []mcp.Tool) 
 	if subject != "" {
 		if session := mcpserver.ClientSessionFromContext(ctx); session != nil {
 			a.subjectSessions.Track(subject, session.SessionID())
+		}
+		// Also record the OAuth session ID (token family) so the admin UI
+		// can enumerate live sessions that haven't touched the cap store yet.
+		if oauthSessionID := getSessionIDFromContext(ctx); oauthSessionID != "" {
+			a.subjectSessions.TrackOAuth(subject, oauthSessionID)
 		}
 	}
 
@@ -1889,7 +1982,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 
 	case strings.HasPrefix(originalToolName, "config_"):
 		// Configuration management operations
-		handler := api.GetConfig()
+		handler := api.GetConfig() //nolint:staticcheck
 		if handler == nil {
 			return nil, fmt.Errorf("config handler not available")
 		}
@@ -2156,7 +2249,7 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch resource metadata: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("resource metadata returned status %d", resp.StatusCode)
@@ -2246,6 +2339,64 @@ func getSessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// tearDownSession clears all per-session server state: auth store entries,
+// capability cache, pooled connections, and the subject tracker mapping.
+// The oauth token store is NOT touched here — callers do that separately
+// because the scope differs (per-user vs per-session).
+func (a *AggregatorServer) tearDownSession(ctx context.Context, sessionID string) {
+	if a.authStore != nil {
+		if err := a.authStore.RevokeSession(ctx, sessionID); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.Delete(ctx, sessionID); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.connPool != nil {
+		a.connPool.EvictSession(sessionID)
+	}
+	if a.subjectSessions != nil {
+		a.subjectSessions.UntrackOAuth(sessionID)
+	}
+}
+
+// tearDownSessionServer clears the per-(session, server) state: oauth token
+// for the server's issuer, auth store entry, capability entry, and the
+// pooled connection.
+func (a *AggregatorServer) tearDownSessionServer(ctx context.Context, sessionID string, serverInfo *ServerInfo) {
+	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
+			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+		}
+	}
+	serverName := serverInfo.Name
+	if a.authStore != nil {
+		if err := a.authStore.Revoke(ctx, sessionID, serverName); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.capabilityStore != nil {
+		if err := a.capabilityStore.DeleteEntry(ctx, sessionID, serverName); err != nil {
+			logging.WarnWithAttrs("Aggregator", "Failed to delete entry from capability store",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+				slog.String("server", serverName),
+				slog.String("error", err.Error()))
+		}
+	}
+	if a.connPool != nil {
+		a.connPool.Evict(sessionID, serverName)
+	}
+}
+
 // handleUserTokensDeletion handles DELETE /user-tokens for "sign out everywhere".
 // It clears all downstream tokens for the authenticated user across all sessions
 // and invalidates all capability cache entries. This endpoint requires a valid
@@ -2266,26 +2417,9 @@ func (a *AggregatorServer) handleUserTokensDeletion(w http.ResponseWriter, r *ht
 		oauthHandler.DeleteTokensByUser(sub)
 	}
 
-	// Delete auth state, capability store entries, and pooled connections for all of this user's sessions
 	if a.subjectSessions != nil {
 		for _, sid := range a.subjectSessions.GetSessionIDs(sub) {
-			if a.authStore != nil {
-				if err := a.authStore.RevokeSession(context.Background(), sid); err != nil {
-					logging.WarnWithAttrs("Aggregator", "Failed to revoke auth session",
-						slog.String("sessionID", logging.TruncateIdentifier(sid)),
-						slog.String("error", err.Error()))
-				}
-			}
-			if a.capabilityStore != nil {
-				if err := a.capabilityStore.Delete(context.Background(), sid); err != nil {
-					logging.WarnWithAttrs("Aggregator", "Failed to delete session from capability store",
-						slog.String("sessionID", logging.TruncateIdentifier(sid)),
-						slog.String("error", err.Error()))
-				}
-			}
-			if a.connPool != nil {
-				a.connPool.EvictSession(sid)
-			}
+			a.tearDownSession(context.Background(), sid)
 		}
 	}
 
@@ -2327,36 +2461,7 @@ func (a *AggregatorServer) handleAuthServerDeletion(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Clear the downstream token for this server's issuer (session-scoped)
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
-		oauthHandler := api.GetOAuthHandler()
-		if oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
-		}
-	}
-
-	// Remove auth state and capability entry for this session+server.
-	if a.authStore != nil {
-		if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to revoke auth",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-	if a.capabilityStore != nil {
-		if err := a.capabilityStore.DeleteEntry(context.Background(), sessionID, serverName); err != nil {
-			logging.WarnWithAttrs("Aggregator", "Failed to delete entry from capability store",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
-				slog.String("server", serverName),
-				slog.String("error", err.Error()))
-		}
-	}
-
-	// Evict the pooled connection for this session+server.
-	if a.connPool != nil {
-		a.connPool.Evict(sessionID, serverName)
-	}
+	a.tearDownSessionServer(context.Background(), sessionID, serverInfo)
 
 	logging.InfoWithAttrs("Aggregator", "Server disconnected for session via DELETE /auth/{server}",
 		slog.String("server", serverName),
@@ -2408,25 +2513,25 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	ctx context.Context,
 	serverInfo *ServerInfo,
 	sessionID string,
-) (MCPClient, time.Time, error) {
+) (MCPClient, time.Time, string, error) {
 	serverName := serverInfo.Name
 	musterIssuer := a.getMusterIssuer()
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		return nil, time.Time{}, fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
 	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer)
 	if idToken == "" {
-		return nil, time.Time{}, fmt.Errorf("no ID token available for token exchange to %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
 	if isIDTokenExpired(idToken) {
-		return nil, time.Time{}, fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh", serverName)
 	}
 
 	userID := extractUserIDFromToken(idToken)
 	if userID == "" {
-		return nil, time.Time{}, fmt.Errorf("failed to extract user ID from token for %s", serverName)
+		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s", serverName)
 	}
 
 	exchangeConfig := *serverInfo.AuthConfig.TokenExchange
@@ -2434,7 +2539,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if exchangeConfig.ClientCredentialsSecretRef != nil {
 		credentials, err := loadTokenExchangeCredentials(ctx, serverInfo)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
+			return nil, time.Time{}, "", fmt.Errorf("failed to load client credentials for %s: %w", serverName, err)
 		}
 		exchangeConfig.ClientID = credentials.ClientID
 		exchangeConfig.ClientSecret = credentials.ClientSecret
@@ -2456,7 +2561,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 
 	teleportResult := getTeleportHTTPClientIfConfigured(ctx, serverInfo)
 	if teleportResult.Configured && teleportResult.Error != nil {
-		return nil, time.Time{}, fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
+		return nil, time.Time{}, "", fmt.Errorf("teleport configuration failed for %s: %w", serverName, teleportResult.Error)
 	}
 
 	var exchangedToken string
@@ -2471,7 +2576,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		)
 	}
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("token exchange failed for %s: %w", serverName, err)
+		return nil, time.Time{}, "", fmt.Errorf("token exchange failed for %s: %w", serverName, err)
 	}
 
 	tokenExpiry := getTokenExpiryTime(exchangedToken)
@@ -2487,7 +2592,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		client = internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc)
 	}
 
-	return client, tokenExpiry, nil
+	return client, tokenExpiry, exchangedToken, nil
 }
 
 // getOrCreateClientForToolCall returns a pooled or freshly created MCP client
@@ -2563,10 +2668,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	var client MCPClient
 	var tokenExpiry time.Time
+	var exchangedToken string
 
 	if ShouldUseTokenExchange(serverInfo) {
 		var err error
-		client, tokenExpiry, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
+		client, tokenExpiry, exchangedToken, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2611,7 +2717,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 
 	// Initialize the on-demand client
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
 
@@ -2619,6 +2725,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	// record the token expiry to enable proactive refresh.
 	if a.connPool != nil {
 		a.connPool.PutWithExpiry(sessionID, serverName, client, tokenExpiry)
+		if exchangedToken != "" {
+			a.connPool.SetExchangedToken(sessionID, serverName, exchangedToken)
+		}
 		logging.DebugWithAttrs("Aggregator", "Pooled new client",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("server", serverName))
@@ -2707,7 +2816,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 		return
 	}
 
-	client, tokenExpiry, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
+	client, tokenExpiry, exchangedToken, err := a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)
 	if err != nil {
 		logging.WarnWithAttrs("Aggregator", "Background token refresh failed",
 			slog.String("server", serverName),
@@ -2717,7 +2826,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 	}
 
 	if err := client.Initialize(ctx); err != nil {
-		client.Close()
+		_ = client.Close()
 		logging.WarnWithAttrs("Aggregator", "Background refresh: client init failed",
 			slog.String("server", serverName),
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
@@ -2727,6 +2836,9 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName, sub str
 
 	if a.connPool != nil {
 		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)
+		if exchangedToken != "" {
+			a.connPool.SetExchangedToken(sessionID, serverName, exchangedToken)
+		}
 	}
 
 	logging.InfoWithAttrs("Aggregator", "Background token refresh completed",

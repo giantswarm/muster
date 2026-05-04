@@ -47,7 +47,7 @@ func (ds *Storage) Save(entityType string, name string, data []byte) error {
 	targetDir := filepath.Join(ds.configPath, entityType)
 
 	// Ensure directory exists
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
 
@@ -56,7 +56,7 @@ func (ds *Storage) Save(entityType string, name string, data []byte) error {
 	filePath := filepath.Join(targetDir, filename)
 
 	// Write file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write file %s: %w", filePath, err)
 	}
 
@@ -79,7 +79,7 @@ func (ds *Storage) Load(entityType string, name string) ([]byte, error) {
 
 	// Load from the single configuration directory
 	filePath := filepath.Join(ds.configPath, entityType, ds.sanitizeFilename(name)+".yaml")
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("entity %s/%s not found", entityType, name)

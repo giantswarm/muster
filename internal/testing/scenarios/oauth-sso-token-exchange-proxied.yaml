@@ -3,21 +3,21 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Test RFC 8693 Token Exchange with separate access URL and issuer URL.
-  
+
   This scenario tests the proxied access use case where:
   1. Muster accesses Dex through a proxy (simulated by using a different token endpoint)
   2. The Dex issuer URL differs from the access URL
   3. Muster validates that the exchanged token's issuer matches expectedIssuer
-  
+
   This is critical for:
   - Teleport Application Access scenarios
   - VPN/tunnel access to private clusters
   - Any proxy that changes the access URL
-  
+
   The test uses two OAuth servers:
   - cluster-a-idp: The local cluster's IdP (muster authenticates here)
   - cluster-b-idp: The remote cluster's IdP (accessed via "proxy" - simulated)
-  
+
   The key difference from oauth-sso-token-exchange-basic is the use of
   expected_issuer to explicitly set the issuer validation.
 tags: ["oauth", "sso", "token-exchange", "rfc8693", "proxy", "teleport", "authentication", "mcpserver"]

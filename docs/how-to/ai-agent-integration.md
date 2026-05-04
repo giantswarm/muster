@@ -44,7 +44,7 @@ Beyond basic configuration, optimize Cursor for infrastructure work:
       }
     },
     "muster-development": {
-      "command": "muster", 
+      "command": "muster",
       "args": ["standalone"],
       "env": {
         "MUSTER_CONFIG_PATH": "/path/to/development-config"
@@ -130,7 +130,7 @@ spec:
       description: "Container image tag to deploy"
       pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
       examples: ["v1.2.3", "v2.0.1"]
-  
+
   # Steps with clear descriptions for AI understanding
   steps:
     - id: validate_prerequisites
@@ -140,7 +140,7 @@ spec:
         app_name: "{{.app_name}}"
         environment: "{{.environment}}"
       store: true
-      
+
     - id: deploy_application
       description: "Deploy the application to Kubernetes"
       tool: core_service_create
@@ -152,21 +152,21 @@ spec:
           environment: "{{.environment}}"
           replicas: "{{ if eq .environment \"production\" }}3{{ else }}1{{ end }}"
       store: true
-      
+
     - id: wait_for_deployment
       description: "Wait for deployment to become ready"
       tool: wait_for_service_ready
       args:
         service_name: "{{.results.deploy_application.name}}"
         timeout: "300s"
-      
+
     - id: verify_health
       description: "Verify application health and readiness"
       tool: verify_application_health
       args:
         endpoint: "{{.results.deploy_application.endpoint}}"
         expected_status: 200
-        
+
     - id: notify_completion
       description: "Notify team of successful deployment"
       tool: send_notification
@@ -186,12 +186,12 @@ metadata:
     ai.muster.io/purpose: "Web application deployment with validation"
     ai.muster.io/use-cases: |
       - Deploy new application versions
-      - Promote between environments  
+      - Promote between environments
       - Rollback to previous versions
     ai.muster.io/examples: |
       Basic deployment:
         call_tool(name="workflow_ai_deploy_webapp", arguments={"app_name": "my-app", "environment": "staging", "image_tag": "v1.2.3"})
-      
+
       Production deployment:
         call_tool(name="workflow_ai_deploy_webapp", arguments={"app_name": "critical-service", "environment": "production", "image_tag": "v2.0.1"})
 ```
@@ -230,9 +230,9 @@ suggestions:
       - file_patterns: ["*.yaml", "*.yml", "Dockerfile"]
     suggested_tools:
       - "workflow_deploy_webapp"
-      - "core_service_create" 
+      - "core_service_create"
       - "x_kubernetes_apply_manifest"
-    
+
   debugging_context:
     triggers:
       - keywords: ["debug", "troubleshoot", "error", "failed"]
@@ -305,7 +305,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: AI-Powered Change Analysis
         run: |
           # Use AI agent to analyze changes and suggest deployment strategy
@@ -313,7 +313,7 @@ jobs:
             --context "pull-request" \
             --files "${{ github.event.pull_request.changed_files }}" \
             --suggest-deployment
-      
+
       - name: Automated Deployment Suggestion
         run: |
           # AI agent suggests appropriate deployment workflow
@@ -329,14 +329,14 @@ Optimize IDE integration for infrastructure work:
 ```json
 // .vscode/tasks.json
 {
-  "version": "2.0.0", 
+  "version": "2.0.0",
   "tasks": [
     {
       "label": "AI: Analyze Infrastructure",
       "type": "shell",
       "command": "ai-agent",
       "args": [
-        "analyze", 
+        "analyze",
         "--context", "infrastructure",
         "--workspace", "${workspaceFolder}"
       ],
@@ -344,7 +344,7 @@ Optimize IDE integration for infrastructure work:
     },
     {
       "label": "AI: Suggest Deployment",
-      "type": "shell", 
+      "type": "shell",
       "command": "ai-agent",
       "args": [
         "suggest-deployment",
@@ -373,8 +373,8 @@ Write documentation that AI agents can parse effectively:
 
 Use structured formats that AI can understand:
 
-**Purpose**: Deploy web applications to Kubernetes  
-**Usage**: `workflow_deploy_webapp(app_name, environment, image_tag)`  
+**Purpose**: Deploy web applications to Kubernetes
+**Usage**: `workflow_deploy_webapp(app_name, environment, image_tag)`
 **Arguments**:
 - `app_name` (string, required): Application identifier
 - `environment` (string, required): Target environment [development|staging|production]
@@ -384,7 +384,7 @@ Use structured formats that AI can understand:
 ```
 call_tool(name="workflow_deploy_webapp", arguments={
   "app_name": "user-service",
-  "environment": "staging", 
+  "environment": "staging",
   "image_tag": "v1.2.3"
 })
 

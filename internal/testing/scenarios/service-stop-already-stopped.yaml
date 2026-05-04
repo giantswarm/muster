@@ -28,4 +28,4 @@ steps:
   args: { name: "idempotent-stop-test" }
   expected:
     success: true
-    contains: ["already stopped"] 
+    contains: ["already stopped"]

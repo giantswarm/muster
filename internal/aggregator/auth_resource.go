@@ -456,12 +456,15 @@ func (a *AggregatorServer) establishSSOConnection(
 	if err == nil && result != nil {
 		if result.Client != nil && a.connPool != nil {
 			a.connPool.PutWithExpiry(sessionID, serverInfo.Name, result.Client, result.TokenExpiry)
+			if result.ExchangedToken != "" {
+				a.connPool.SetExchangedToken(sessionID, serverInfo.Name, result.ExchangedToken)
+			}
 		}
 		logging.Info("Aggregator", "SSO: Connected user %s to SSO server %s via %s",
 			sub, serverInfo.Name, ssoMethod)
 	} else {
 		if result != nil && result.Client != nil {
-			result.Client.Close()
+			_ = result.Client.Close()
 		}
 		logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s: %v",
 			serverInfo.Name, sub, err)

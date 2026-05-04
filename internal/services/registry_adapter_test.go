@@ -56,7 +56,7 @@ func TestRegistryAdapter_Get(t *testing.T) {
 		state:       StateWaiting,
 		health:      HealthUnknown,
 	}
-	registry.Register(svc)
+	_ = registry.Register(svc)
 
 	// Get the service through the adapter
 	result, exists := adapter.Get("test-service")
@@ -78,8 +78,8 @@ func TestRegistryAdapter_GetAll(t *testing.T) {
 	// Register multiple services
 	svc1 := &mockStateUpdaterService{name: "service-1", serviceType: TypeMCPServer}
 	svc2 := &mockStateUpdaterService{name: "service-2", serviceType: TypeMCPServer}
-	registry.Register(svc1)
-	registry.Register(svc2)
+	_ = registry.Register(svc1)
+	_ = registry.Register(svc2)
 
 	all := adapter.GetAll()
 	if len(all) != 2 {
@@ -98,7 +98,7 @@ func TestServiceInfoAdapter_UpdateState(t *testing.T) {
 		state:       StateWaiting,
 		health:      HealthUnknown,
 	}
-	registry.Register(svc)
+	_ = registry.Register(svc)
 
 	// Get the service through the adapter
 	result, exists := adapter.Get("test-mcp-server")
@@ -162,7 +162,7 @@ func TestServiceInfoAdapter_UpdateState_NonUpdatableService(t *testing.T) {
 		state:       StateWaiting,
 		health:      HealthUnknown,
 	}
-	registry.Register(svc)
+	_ = registry.Register(svc)
 
 	// Get the service through the adapter
 	result, exists := adapter.Get("non-updatable-service")

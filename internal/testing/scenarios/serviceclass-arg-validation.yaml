@@ -107,4 +107,4 @@ steps:
       extra_param: "this should be ignored or fail"
   expected:
     success: false
-    error_contains: ["unknown argument", "extra_param"] 
+    error_contains: ["unknown argument", "extra_param"]

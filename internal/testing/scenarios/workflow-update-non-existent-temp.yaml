@@ -15,4 +15,4 @@ steps:
         tool: "core_service_list"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

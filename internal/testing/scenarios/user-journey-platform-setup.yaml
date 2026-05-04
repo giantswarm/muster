@@ -25,7 +25,7 @@ pre_configuration:
               - response:
                   namespace: "{{ .name }}"
                   status: "created"
-                  
+
           - name: "delete_namespace"
             input_schema:
               type: "object"
@@ -34,7 +34,7 @@ pre_configuration:
             responses:
               - response:
                   status: "deleted"
-                  
+
     - name: "monitoring-provider"
       config:
         tools:
@@ -51,17 +51,17 @@ pre_configuration:
 
 steps:
   # Phase 1: Platform Engineer validates clean state
-  - id: "validate-clean-environment" 
+  - id: "validate-clean-environment"
     tool: "core_service_list"
     expected:
       success: true
       # Should only contain default/system services
-    
+
   - id: "check-initial-mcpservers"
     tool: "core_mcpserver_list"
     expected:
       success: true
-      
+
   # Phase 2: Platform Engineer creates foundational service classes
   - id: "create-kubernetes-serviceclass"
     tool: "core_serviceclass_create"
@@ -78,14 +78,14 @@ steps:
     cleanup:
       - tool: "core_serviceclass_delete"
         args: { name: "kubernetes-management" }
-      
+
   - id: "verify-serviceclass-availability"
     tool: "core_serviceclass_available"
     args:
       name: "kubernetes-management"
     expected:
       success: true
-        
+
   # Phase 3: Platform Engineer creates service classes for developers
   - id: "create-development-namespace-serviceclass"
     description: "Create ServiceClass for development namespaces"
@@ -103,7 +103,7 @@ steps:
     cleanup:
       - tool: "core_serviceclass_delete"
         args: { name: "dev-namespace" }
-      
+
   - id: "create-monitoring-serviceclass"
     description: "Create ServiceClass for monitoring stack"
     tool: "core_serviceclass_create"
@@ -120,7 +120,7 @@ steps:
     cleanup:
       - tool: "core_serviceclass_delete"
         args: { name: "monitoring-stack" }
-      
+
   # Phase 4: Validate platform readiness
   - id: "verify-serviceclass-availability"
     tool: "core_serviceclass_available"
@@ -130,7 +130,7 @@ steps:
       success: true
       json_path:
         available: true
-        
+
   - id: "verify-monitoring-serviceclass-availability"
     tool: "core_serviceclass_available"
     args:
@@ -139,7 +139,7 @@ steps:
       success: true
       json_path:
         available: true
-        
+
   # Phase 5: Simulate developer workflow
   - id: "developer-creates-dev-environment"
     tool: "core_service_create"
@@ -156,7 +156,7 @@ steps:
     cleanup:
       - tool: "core_service_delete"
         args: { name: "team-alpha-project-x-dev" }
-      
+
   - id: "verify-development-namespace-running"
     tool: "core_service_get"
     args:
@@ -167,7 +167,7 @@ steps:
         name: "team-alpha-project-x-dev"
         serviceClassName: "dev-namespace"
         state: "running"
-        
+
   - id: "developer-adds-monitoring"
     tool: "core_service_create"
     args:
@@ -182,7 +182,7 @@ steps:
     cleanup:
       - tool: "core_service_delete"
         args: { name: "monitoring-alpha-project-x" }
-      
+
   - id: "verify-monitoring-deployed"
     tool: "core_service_get"
     args:
@@ -192,16 +192,16 @@ steps:
       json_path:
         state: "running"
         serviceClassName: "monitoring-stack"
-        
+
   # Phase 6: Validate complete platform functionality
   - id: "list-all-developer-services"
     tool: "core_service_list"
     expected:
       success: true
-      contains: 
+      contains:
         - "team-alpha-project-x-dev"
         - "monitoring-alpha-project-x"
-        
+
   - id: "verify-service-persistence"
     tool: "core_service_get"
     args:
@@ -249,4 +249,4 @@ cleanup:
       name: "kubernetes-management"
     expected:
       success: true  # ServiceClass exists and can be deleted
-    continue_on_failure: true 
+    continue_on_failure: true

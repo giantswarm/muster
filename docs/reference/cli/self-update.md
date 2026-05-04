@@ -42,7 +42,7 @@ muster self-update
 # - Added new workflow features
 # - Fixed service lifecycle bugs
 # - Improved error handling
-# 
+#
 # Updating /usr/local/bin/muster to version v1.3.0...
 # Successfully updated to version v1.3.0
 ```
@@ -159,4 +159,4 @@ sudo mv muster /usr/local/bin/
 - The self-update feature requires the binary to be built with release tags
 - Development builds and custom builds cannot use self-update
 - Updates preserve your configuration and data files
-- The command will display release notes for the new version when available 
+- The command will display release notes for the new version when available

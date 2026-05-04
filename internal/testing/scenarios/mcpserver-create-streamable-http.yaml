@@ -35,4 +35,4 @@ cleanup:
   args:
     name: "streamable-http-server"
   expected:
-    success: true 
+    success: true

@@ -17,7 +17,7 @@ const DefaultExpiryMargin = 30 * time.Second
 // DefaultTokenStorageDir is the default directory for storing OAuth tokens,
 // relative to the user's home directory. This follows XDG conventions.
 // This constant is shared across all OAuth implementations for consistency.
-const DefaultTokenStorageDir = ".config/muster/tokens"
+const DefaultTokenStorageDir = ".config/muster/tokens" //nolint:gosec
 
 // DefaultTokenDir returns the absolute path to the default token storage
 // directory (~/.config/muster/tokens). It does not create the directory;

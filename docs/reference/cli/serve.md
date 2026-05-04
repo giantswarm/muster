@@ -158,7 +158,7 @@ The configuration directory should be organized as follows:
 │   ├── kubernetes.yaml
 │   ├── prometheus.yaml
 │   └── github.yaml
-├── workflows/               # Workflow definitions  
+├── workflows/               # Workflow definitions
 │   ├── deploy-app.yaml
 │   └── backup-db.yaml
 ├── serviceclasses/          # Service templates
@@ -337,4 +337,4 @@ curl http://localhost:8080/api/v1/status
 
 # Monitor logs in real-time
 muster serve --debug | tee muster.log
-``` 
+```

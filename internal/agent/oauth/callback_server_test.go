@@ -92,7 +92,7 @@ func TestCallbackServer_HandleCallback_Success(t *testing.T) {
 			t.Logf("HTTP request error (may be expected if server stops first): %v", err)
 			return
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}()
 
 	// Wait for callback
@@ -140,7 +140,7 @@ func TestCallbackServer_HandleCallback_Error(t *testing.T) {
 			t.Logf("HTTP request error: %v", err)
 			return
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}()
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -187,7 +187,7 @@ func TestCallbackServer_HandleCallback_StateParameter(t *testing.T) {
 		if err != nil {
 			return
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}()
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -250,7 +250,7 @@ func TestCallbackServer_SecurityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HTTP request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check security headers
 	expectedHeaders := map[string]string{
@@ -320,7 +320,7 @@ func TestCallbackServer_ContextCancellation(t *testing.T) {
 	// Trying to connect should fail now
 	resp, err := http.Get(server.GetRedirectURI())
 	if err == nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		// Server might still be shutting down, not a hard failure
 		t.Log("Server still responded after context cancellation (may take time to stop)")
 	}
@@ -397,7 +397,7 @@ func TestCallbackServer_MultipleCallbacksHandledOnce(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		resp, err := http.Get(callbackURL + "?code=first-code&state=first-state")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}()
 
@@ -416,7 +416,7 @@ func TestCallbackServer_MultipleCallbacksHandledOnce(t *testing.T) {
 	// Try second callback - should get "already processed" or be rejected
 	resp, err := http.Get(callbackURL + "?code=second-code&state=second-state")
 	if err == nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		// The second request should be rejected
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Logf("Second callback got status %d (expected 400 BadRequest)", resp.StatusCode)

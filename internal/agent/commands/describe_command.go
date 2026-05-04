@@ -34,11 +34,11 @@ func (d *DescribeCommand) Execute(ctx context.Context, args []string) error {
 	itemName := parsed[1]
 
 	switch itemType {
-	case "tool":
+	case "tool": //nolint:goconst
 		return d.describeTool(ctx, itemName)
-	case "resource":
+	case "resource": //nolint:goconst
 		return d.describeResource(itemName)
-	case "prompt":
+	case "prompt": //nolint:goconst
 		return d.describePrompt(itemName)
 	default:
 		return d.validateTarget(itemType, []string{"tool", "resource", "prompt"})
@@ -72,7 +72,7 @@ func (d *DescribeCommand) describeTool(ctx context.Context, name string) error {
 
 			if err := json.Unmarshal([]byte(textContent.Text), &toolInfo); err != nil {
 				// Not JSON, just output the raw text
-				d.output.OutputLine(textContent.Text)
+				d.output.OutputLine("%s", textContent.Text)
 				return nil
 			}
 
@@ -101,7 +101,7 @@ func (d *DescribeCommand) describeResource(uri string) error {
 		return nil
 	}
 
-	d.output.OutputLine(d.getFormatters().FormatResourceDetail(*resource))
+	d.output.OutputLine("%s", d.getFormatters().FormatResourceDetail(*resource))
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (d *DescribeCommand) describePrompt(name string) error {
 		return nil
 	}
 
-	d.output.OutputLine(d.getFormatters().FormatPromptDetail(*prompt))
+	d.output.OutputLine("%s", d.getFormatters().FormatPromptDetail(*prompt))
 	return nil
 }
 

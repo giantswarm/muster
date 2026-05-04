@@ -6,4 +6,3 @@ ciliumNetworkPolicy:
 
 crds:
   install: true
-

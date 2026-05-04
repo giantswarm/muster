@@ -127,7 +127,7 @@ func TestManager_TriggerReconcile(t *testing.T) {
 	// Wait for reconciliation
 	select {
 	case req := <-reconciled:
-		if req.Name != "test-server" {
+		if req.Name != "test-server" { //nolint:goconst
 			t.Errorf("expected name 'test-server', got '%s'", req.Name)
 		}
 		if req.Type != ResourceTypeMCPServer {

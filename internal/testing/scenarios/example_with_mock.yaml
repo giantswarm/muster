@@ -37,7 +37,7 @@ steps:
       success: true
       contains: ["mock1"]
     timeout: "30s"
-    
+
   - id: test-create-tool
     tool: "x_mock1_create"
     args:
@@ -46,11 +46,11 @@ steps:
       success: true
       contains: ["created", "test-item"]
     timeout: "30s"
-    
+
   - id: test-list-tool
     tool: "x_mock1_list"
     args: {}
     expected:
       success: true
       contains: ["success"]
-    timeout: "30s" 
+    timeout: "30s"

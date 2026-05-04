@@ -404,7 +404,7 @@ echo "Deployment started with execution ID: $EXEC_ID"
 while true; do
   STATUS=$(muster get workflow-execution "$EXEC_ID" --output json | jq -r '.status')
   echo "Deployment status: $STATUS"
-  
+
   if [ "$STATUS" = "Success" ]; then
     echo "Deployment completed successfully!"
     break
@@ -413,7 +413,7 @@ while true; do
     muster get workflow-execution "$EXEC_ID"
     exit 1
   fi
-  
+
   sleep 30
 done
 ```
@@ -433,7 +433,7 @@ echo "Waiting for service to become healthy..."
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
   HEALTH=$(muster get service "$SERVICE_NAME" --output json | jq -r '.health.status')
-  
+
   if [ "$HEALTH" = "Healthy" ]; then
     echo "Service is healthy!"
     break
@@ -442,7 +442,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     muster get service "$SERVICE_NAME"
     exit 1
   fi
-  
+
   sleep 10
   ELAPSED=$((ELAPSED + 10))
 done
@@ -499,4 +499,4 @@ muster start workflow deploy-with-metadata \
   --git-branch="$BRANCH" \
   --git-commit="$COMMIT" \
   --environment=staging
-``` 
+```

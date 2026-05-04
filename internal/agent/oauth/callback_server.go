@@ -31,6 +31,11 @@ type CallbackResult struct {
 	// State is the state parameter to verify against the original request.
 	State string
 
+	// Iss is the RFC 9207 issuer identifier returned in the authorization
+	// response. Non-conforming servers omit it; callers must treat empty
+	// as "not advertised" rather than "did not match".
+	Iss string
+
 	// Error is the error code if the authorization failed.
 	Error string
 
@@ -156,6 +161,7 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 	result := &CallbackResult{
 		Code:             query.Get("code"),
 		State:            query.Get("state"),
+		Iss:              query.Get("iss"),
 		Error:            query.Get("error"),
 		ErrorDescription: query.Get("error_description"),
 	}

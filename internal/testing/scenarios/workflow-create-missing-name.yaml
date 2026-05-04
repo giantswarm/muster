@@ -13,4 +13,4 @@ steps:
         tool: "core_serviceclass_list"
   expected:
     success: false
-    error_contains: ["name", "required"] 
+    error_contains: ["name", "required"]

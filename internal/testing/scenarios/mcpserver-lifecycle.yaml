@@ -72,4 +72,4 @@ steps:
   tool: "core_mcpserver_list"
   expected:
     success: true
-    not_contains: ["lifecycle-test-server"] 
+    not_contains: ["lifecycle-test-server"]

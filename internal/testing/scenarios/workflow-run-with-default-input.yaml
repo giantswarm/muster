@@ -34,4 +34,4 @@ steps:
     contains:
       - "default value"
       - "completed"
-      - "echo" 
+      - "echo"

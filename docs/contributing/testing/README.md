@@ -35,7 +35,7 @@ The test framework transparently wraps all tool calls through the `call_tool` me
 
 ### API Schema Generation and Validation
 - **Schema Generation**: Generate JSON schemas from live muster serve instances (`--generate-schema`)
-- **Scenario Validation**: Validate test scenarios against API schemas (`--validate-scenarios`) 
+- **Scenario Validation**: Validate test scenarios against API schemas (`--validate-scenarios`)
 - **Unified Validation**: Both CLI and MCP server provide identical validation functionality
 - **Tool Prefix Validation**: Smart validation rules for `core_*`, `x_*`, and `workflow_*` tools
 - **CI/CD Integration**: Automated schema validation to catch API compatibility issues
@@ -50,8 +50,8 @@ The test framework transparently wraps all tool calls through the `call_tool` me
 The muster test framework provides a comprehensive testing solution for validating all muster functionality through automated test scenarios. As an muster developer, you can use this framework to:
 
 - **Test Core MCP Integration**: Validate muster's ability to manage MCP servers and aggregate their tools
-- **Test Concept Dependencies**: Verify that workflows, serviceclasses, capabilities, and services work correctly with MCP server tools  
-- **Catch Regressions**: Automatically detect when changes break existing functionality  
+- **Test Concept Dependencies**: Verify that workflows, serviceclasses, capabilities, and services work correctly with MCP server tools
+- **Catch Regressions**: Automatically detect when changes break existing functionality
 - **Validate New Features**: Ensure new implementations work correctly across different scenarios
 - **Debug Issues**: Systematically reproduce and diagnose problems with comprehensive logging
 - **Ensure Quality**: Maintain high confidence in muster reliability and correctness
@@ -133,7 +133,7 @@ steps:
 
 ## Quick Start
 
-### 1. No Setup Required! 
+### 1. No Setup Required!
 
 **🎉 The test framework now manages muster instances automatically!**
 
@@ -250,7 +250,7 @@ Tests can also be executed via MCP server mode for IDE integration and AI-powere
 
 # The MCP server exposes these tools:
 # - mcp_muster-test_test_run_scenarios      # Execute test scenarios
-# - mcp_muster-test_test_list_scenarios     # List available scenarios  
+# - mcp_muster-test_test_list_scenarios     # List available scenarios
 # - mcp_muster-test_test_validate_scenario  # Validate YAML structure AND API schema
 # - mcp_muster-test_test_get_results       # Get detailed test results
 ```
@@ -268,7 +268,7 @@ The framework organizes tests by **category** and **concept** to help you run ex
 ./muster test --category=behavioral      # User-facing functionality tests
 ./muster test --category=integration     # Component interaction tests
 
-# By Concept - What you're testing  
+# By Concept - What you're testing
 ./muster test --concept=serviceclass     # All ServiceClass tests
 ./muster test --concept=workflow         # All Workflow tests
 ./muster test --concept=mcpserver        # All MCP Server tests
@@ -324,7 +324,7 @@ Test categories organize tests by **testing approach**:
 - **`behavioral`** - Tests that verify muster works as users expect it to work
   - Example: "When I create a ServiceClass, I can instantiate a Service from it"
   - Focus: API contracts, user workflows, expected behavior
-  
+
 - **`integration`** - Tests that verify components work together correctly
   - Example: "Workflow can orchestrate multiple Services with dependencies"
   - Focus: Component interactions, data flow, end-to-end scenarios
@@ -334,7 +334,7 @@ Test categories organize tests by **testing approach**:
 Test concepts organize tests by **what functionality** is being tested:
 
 - **`serviceclass`** - Tests ServiceClass creation, validation, and Service instantiation
-- **`workflow`** - Tests Workflow execution, arg templating, and step dependencies  
+- **`workflow`** - Tests Workflow execution, arg templating, and step dependencies
 - **`mcpserver`** - Tests MCP server registration, tool aggregation, and connection management
 
 - **`service`** - Tests Service lifecycle, dependency management, and state transitions
@@ -393,7 +393,7 @@ With the `--debug` flag, you'll see captured logs from the muster instance:
 
 This helps identify:
 - Configuration loading issues
-- Service registration problems  
+- Service registration problems
 - Runtime errors during test execution
 - Performance bottlenecks
 
@@ -522,7 +522,7 @@ To debug this step:
 After identifying the issue:
 
 - **If muster behavior changed**: Update the test scenario expectations
-- **If muster has a bug**: Fix the bug in muster code  
+- **If muster has a bug**: Fix the bug in muster code
 - **If test scenario is wrong**: Fix the scenario YAML
 - **If test environment issue**: Check build and dependency issues
 
@@ -554,7 +554,7 @@ For comprehensive information about specific testing topics, see:
 
 - **[API Schema Validation](api-schema-validation.md)** - Complete guide to schema generation and validation
 - **[OAuth Testing](oauth-testing.md)** - OAuth BDD testing infrastructure and scenarios
-- **[Testing via MCP](testing-via-mcp.md)** - MCP server integration for AI-powered testing  
+- **[Testing via MCP](testing-via-mcp.md)** - MCP server integration for AI-powered testing
 - **[Test Scenarios](scenarios.md)** - Writing and structuring test scenarios
 - **[Scenario Examples](examples/)** - Ready-to-use scenario templates
 - **Debugging**: Use 1 worker to avoid concurrent execution issues
@@ -648,7 +648,7 @@ Industry-standard format for:
 
 #### 1. Connection Refused
 **Symptom**: `connection refused` errors when running tests
-**Solution**: 
+**Solution**:
 ```bash
 # Ensure muster aggregator is running
 ./muster serve
@@ -742,29 +742,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
-          
+
       - name: Build muster
         run: go build -o muster .
-        
+
       - name: Run Behavioral Tests
         run: |
           ./muster test --category=behavioral \
             --output-format=junit \
             --report-file=behavioral-results.xml \
             --parallel=4
-            
-      - name: Run Integration Tests  
+
+      - name: Run Integration Tests
         run: |
           ./muster test --category=integration \
             --output-format=junit \
             --report-file=integration-results.xml \
             --parallel=2
-            
+
       - name: Upload Test Results
         uses: actions/upload-artifact@v3
         if: always()
@@ -778,14 +778,14 @@ jobs:
 ```groovy
 pipeline {
     agent any
-    
+
     stages {
         stage('Build') {
             steps {
                 sh 'go build -o muster .'
             }
         }
-        
+
         stage('Behavioral Tests') {
             steps {
                 sh '''
@@ -801,7 +801,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Integration Tests') {
             steps {
                 sh '''
@@ -893,7 +893,7 @@ The framework automatically assigns ports starting from a base port:
 You can customize test execution through environment variables:
 
 ```bash
-# Test execution settings  
+# Test execution settings
 export MUSTER_TEST_TIMEOUT="30m"                         # Default timeout
 export MUSTER_TEST_PARALLEL="4"                          # Default parallel workers
 export MUSTER_TEST_CONFIG="./scenarios"                  # Default scenario directory
@@ -917,14 +917,14 @@ Writing test scenarios helps you verify that muster functionality works correctl
 
 Before writing YAML, think through:
 
-1. **What are you testing?** 
+1. **What are you testing?**
    - Which muster concept (ServiceClass, Workflow, MCP Server, etc.)
    - What specific functionality or behavior
-   
+
 2. **What's the user workflow?**
    - What steps would a user take?
    - What would they expect to happen?
-   
+
 3. **What could go wrong?**
    - Error conditions to test
    - Edge cases to validate
@@ -994,7 +994,7 @@ cleanup:
     expected:
       success: true
     continue_on_failure: true          # Continue cleanup even if this fails
-    
+
   - name: "verify-cleanup"
     description: "Verify resource was removed"
     tool: "core_serviceclass_get"
@@ -1143,7 +1143,7 @@ cleanup:
 # ✅ Good - describes what the test does
 name: "serviceclass-arg-validation-with-constraints"
 
-# ❌ Bad - generic and unclear  
+# ❌ Bad - generic and unclear
 name: "test-serviceclass-1"
 ```
 
@@ -1225,9 +1225,9 @@ internal/testing/scenarios/
 ## Where to Find More Information
 
 - **Scenario Authoring Details**: See [scenarios.md](scenarios.md) for complete YAML reference
-- **Example Scenarios**: Check [examples/](examples/) directory for comprehensive examples  
+- **Example Scenarios**: Check [examples/](examples/) directory for comprehensive examples
 - **Package Documentation**: See `internal/testing/doc.go` for implementation details
 
 ---
 
-**Related Issues**: [#71](https://github.com/giantswarm/muster/issues/71), [#69](https://github.com/giantswarm/muster/issues/69) 
+**Related Issues**: [#71](https://github.com/giantswarm/muster/issues/71), [#69](https://github.com/giantswarm/muster/issues/69)

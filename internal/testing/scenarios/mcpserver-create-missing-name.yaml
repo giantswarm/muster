@@ -12,4 +12,4 @@ steps:
   args: {}
   expected:
     success: false
-    error_contains: ["name", "required"] 
+    error_contains: ["name", "required"]

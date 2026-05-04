@@ -238,9 +238,9 @@ func (et *ExecutionTracker) extractStepsFromNewStructure(execution *api.Workflow
 		switch stepStatusRaw {
 		case "skipped":
 			stepStatus = "skipped" // Custom status for skipped steps
-		case "failed":
+		case "failed": //nolint:goconst
 			stepStatus = api.WorkflowExecutionFailed
-		case "completed":
+		case "completed": //nolint:goconst
 			stepStatus = api.WorkflowExecutionCompleted
 		default:
 			stepStatus = api.WorkflowExecutionCompleted

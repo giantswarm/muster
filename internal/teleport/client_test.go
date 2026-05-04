@@ -107,7 +107,7 @@ func TestNewClientProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	if !provider.IsLoaded() {
 		t.Error("Expected certificates to be loaded")
@@ -135,7 +135,7 @@ func TestNewClientProvider_MissingCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	if provider.IsLoaded() {
 		t.Error("Expected certificates to NOT be loaded")
@@ -159,7 +159,7 @@ func TestClientProvider_GetHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	// Get HTTP client
 	client, err := provider.GetHTTPClient()
@@ -202,7 +202,7 @@ func TestClientProvider_GetHTTPClient_NotLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	// Getting HTTP client should fail when certs not available
 	_, err = provider.GetHTTPClient()
@@ -223,7 +223,7 @@ func TestClientProvider_GetTLSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	tlsConfig, err := provider.GetTLSConfig()
 	if err != nil {
@@ -255,7 +255,7 @@ func TestClientProvider_GetHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	transport, err := provider.GetHTTPTransport()
 	if err != nil {
@@ -283,7 +283,7 @@ func TestClientProvider_Reload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	initialLoadTime := provider.GetStatus().LastLoaded
 
@@ -312,7 +312,7 @@ func TestClientProvider_OnReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	callbackCalled := false
 	provider.OnReload(func(config *tls.Config, err error) {
@@ -346,7 +346,7 @@ func TestClientProvider_IsExpiringSoon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	// Certificate expires in 24 hours, so 48 hour threshold should trigger
 	if !provider.IsExpiringSoon(48 * time.Hour) {
@@ -423,7 +423,7 @@ func TestClientProvider_CustomFileNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProvider failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	if !provider.IsLoaded() {
 		t.Error("Expected certificates to be loaded with custom file names")
@@ -535,7 +535,7 @@ func TestNewClientProviderFromMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProviderFromMemory failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	if !provider.IsLoaded() {
 		t.Error("Expected certificates to be loaded")
@@ -557,7 +557,7 @@ func TestNewClientProviderFromMemory_GetHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProviderFromMemory failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	client, err := provider.GetHTTPClient()
 	if err != nil {
@@ -636,7 +636,7 @@ func TestNewClientProviderFromMemory_GetTLSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClientProviderFromMemory failed: %v", err)
 	}
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 
 	tlsConfig, err := provider.GetTLSConfig()
 	if err != nil {

@@ -469,7 +469,7 @@ func (a *Adapter) CallToolInternal(ctx context.Context, toolName string, args ma
 // Stop stops the workflow adapter
 func (a *Adapter) Stop() {
 	if a.client != nil {
-		a.client.Close()
+		_ = a.client.Close()
 	}
 }
 
@@ -482,12 +482,12 @@ func (a *Adapter) ReloadWorkflows() error {
 // convertCRDToWorkflow converts a Workflow CRD to internal API format
 func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *api.Workflow {
 	workflow := &api.Workflow{
-		Name:         workflowCRD.ObjectMeta.Name,
+		Name:         workflowCRD.Name,
 		Description:  workflowCRD.Spec.Description,
 		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
 		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
-		CreatedAt:    workflowCRD.ObjectMeta.CreationTimestamp.Time,
-		LastModified: workflowCRD.ObjectMeta.CreationTimestamp.Time,
+		CreatedAt:    workflowCRD.CreationTimestamp.Time,
+		LastModified: workflowCRD.CreationTimestamp.Time,
 	}
 
 	// Use modification time if available
@@ -1313,7 +1313,7 @@ func (a *Adapter) handleExecutionList(ctx context.Context, args map[string]inter
 				IsError: true,
 			}, nil
 		}
-		if status != "inprogress" && status != "completed" && status != "failed" {
+		if status != "inprogress" && status != "completed" && status != "failed" { //nolint:goconst
 			return &api.CallToolResult{
 				Content: []interface{}{"status must be one of the enum values: inprogress, completed, failed"},
 				IsError: true,

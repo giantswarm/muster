@@ -43,7 +43,7 @@ type ProtectedMCPServerConfig struct {
 // ProtectedMCPServer is a mock MCP server that requires OAuth authentication
 type ProtectedMCPServer struct {
 	config         ProtectedMCPServerConfig
-	mockServer     *Server
+	mockServer     *Server //nolint:unused
 	mcpServer      *server.MCPServer
 	templateEngine *template.Engine
 	toolHandlers   map[string]*ToolHandler
@@ -74,7 +74,7 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 		return s.port, nil
 	}
 
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", ":0") //nolint:gosec
 	if err != nil {
 		return 0, fmt.Errorf("failed to listen: %w", err)
 	}
@@ -85,11 +85,11 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 	// Create the protected HTTP handler
 	handler, err := s.createProtectedHandler()
 	if err != nil {
-		listener.Close()
+		_ = listener.Close()
 		return 0, fmt.Errorf("failed to create handler: %w", err)
 	}
 
-	s.httpServer = &http.Server{Handler: handler}
+	s.httpServer = &http.Server{Handler: handler} //nolint:gosec
 
 	go func() {
 		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -234,7 +234,7 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
+		_ = json.NewEncoder(w).Encode(metadata)
 	})
 
 	// Pass all other requests to the protected handler
@@ -290,7 +290,7 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 					fmt.Fprintf(os.Stderr, "🔒 Token missing required scope %s, returning 403\n", m.requiredScope)
 				}
 				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte("insufficient_scope"))
+				_, _ = w.Write([]byte("insufficient_scope"))
 				return
 			}
 		}
@@ -336,7 +336,7 @@ func (s *ProtectedMCPServer) WaitForReady(ctx context.Context) error {
 				// Try to connect to verify it's really ready
 				conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", s.Port()), 1*time.Second)
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					return nil
 				}
 			}

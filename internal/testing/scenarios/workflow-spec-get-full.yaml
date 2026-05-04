@@ -19,4 +19,4 @@ steps:
     name: "test-spec-workflow"
   expected:
     success: true
-    contains: ["workflow", "yaml", "name"] 
+    contains: ["workflow", "yaml", "name"]

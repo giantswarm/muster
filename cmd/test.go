@@ -357,9 +357,9 @@ func runTest(cmd *cobra.Command, args []string) error {
 		switch testConcept {
 		case "serviceclass":
 			testConfig.Concept = testing.ConceptServiceClass
-		case "workflow":
+		case "workflow": //nolint:goconst
 			testConfig.Concept = testing.ConceptWorkflow
-		case "mcpserver":
+		case "mcpserver": //nolint:goconst
 			testConfig.Concept = testing.ConceptMCPServer
 		case "service":
 			testConfig.Concept = testing.ConceptService
@@ -376,7 +376,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create test framework: %w", err)
 	}
-	defer framework.Cleanup()
+	defer func() { _ = framework.Cleanup() }()
 
 	// Load test scenarios using unified path determination
 	scenarioPath := testing.GetScenarioPath(testConfigPath)
@@ -437,7 +437,7 @@ func runSchemaGeneration(ctx context.Context, cmd *cobra.Command, args []string)
 	if err != nil {
 		return fmt.Errorf("failed to create muster instance: %w", err)
 	}
-	defer manager.DestroyInstance(timeoutCtx, instance, logger)
+	defer func() { _ = manager.DestroyInstance(timeoutCtx, instance, logger) }()
 
 	// Wait for the instance to be ready
 	if err := manager.WaitForReady(timeoutCtx, instance, logger); err != nil {
@@ -450,7 +450,7 @@ func runSchemaGeneration(ctx context.Context, cmd *cobra.Command, args []string)
 
 	// Create MCP client to connect to the instance
 	mcpClient := testing.NewMCPTestClientWithLogger(testDebug, testing.NewStdoutLogger(testVerbose, testDebug))
-	defer mcpClient.Close()
+	defer func() { _ = mcpClient.Close() }()
 
 	// Connect to the instance
 	if err := mcpClient.Connect(timeoutCtx, instance.Endpoint); err != nil {
@@ -572,7 +572,7 @@ func writeSchemaToFile(schema map[string]interface{}, filename string) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+	if err := os.WriteFile(filename, jsonData, 0644); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to write schema file: %w", err)
 	}
 

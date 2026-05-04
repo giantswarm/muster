@@ -21,4 +21,4 @@ Coming soon:
 - [Getting Started](../getting-started/) - Basic usage patterns
 
 ## Feedback
-Questions about contributing? [Ask in Discussions](https://github.com/giantswarm/muster/discussions) 
+Questions about contributing? [Ask in Discussions](https://github.com/giantswarm/muster/discussions)

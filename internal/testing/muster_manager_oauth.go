@@ -90,7 +90,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 		readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		if err := oauthServer.WaitForReady(readyCtx); err != nil {
 			cancel()
-			oauthServer.Stop(ctx)
+			_ = oauthServer.Stop(ctx)
 			m.stopMockOAuthServers(ctx, instanceID, logger)
 			return nil, fmt.Errorf("mock OAuth server %s not ready: %w", oauthCfg.Name, err)
 		}
@@ -226,7 +226,7 @@ func (m *musterInstanceManager) startMockHTTPServersWithOAuth(
 
 	// Create mocks directory for mock configurations
 	mocksDir := filepath.Join(configPath, "mocks")
-	if err := os.MkdirAll(mocksDir, 0755); err != nil {
+	if err := os.MkdirAll(mocksDir, 0755); err != nil { //nolint:gosec
 		return nil, fmt.Errorf("failed to create mocks directory: %w", err)
 	}
 
@@ -368,7 +368,7 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	if err := protectedServer.WaitForReady(readyCtx); err != nil {
 		cancel()
-		protectedServer.Stop(ctx)
+		_ = protectedServer.Stop(ctx)
 		return nil, fmt.Errorf("protected MCP server not ready: %w", err)
 	}
 	cancel()
@@ -417,7 +417,7 @@ func (m *musterInstanceManager) startRegularMockHTTPServer(
 		return nil, fmt.Errorf("failed to marshal mock config: %w", err)
 	}
 
-	if err := os.WriteFile(mockConfigFile, yamlData, 0644); err != nil {
+	if err := os.WriteFile(mockConfigFile, yamlData, 0644); err != nil { //nolint:gosec
 		return nil, fmt.Errorf("failed to write mock config: %w", err)
 	}
 
@@ -436,7 +436,7 @@ func (m *musterInstanceManager) startRegularMockHTTPServer(
 	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	if err := httpServer.WaitForReady(readyCtx); err != nil {
 		cancel()
-		httpServer.Stop(ctx)
+		_ = httpServer.Stop(ctx)
 		return nil, fmt.Errorf("mock HTTP server not ready: %w", err)
 	}
 	cancel()

@@ -153,7 +153,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	fn()
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 	out, err := io.ReadAll(r)
 	if err != nil {

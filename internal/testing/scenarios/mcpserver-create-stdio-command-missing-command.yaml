@@ -27,4 +27,4 @@ steps:
     autoStart: false
   expected:
     success: false
-    error_contains: ["command", "required"] 
+    error_contains: ["command", "required"]

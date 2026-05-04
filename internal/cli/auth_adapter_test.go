@@ -27,7 +27,7 @@ func TestNewAuthAdapter(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		if adapter == nil {
 			t.Fatal("expected non-nil adapter")
@@ -46,7 +46,7 @@ func TestAuthAdapter_HasCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Without any tokens, should return false
 	if adapter.HasCredentials("https://example.com") {
@@ -59,7 +59,7 @@ func TestAuthAdapter_GetBearerToken_NotAuthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	_, err = adapter.GetBearerToken("https://example.com")
 	if err == nil {
@@ -78,7 +78,7 @@ func TestAuthAdapter_Logout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Logout should work even when no token exists
 	err = adapter.Logout("https://example.com")
@@ -95,7 +95,7 @@ func TestAuthAdapter_LogoutAll(t *testing.T) {
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tmpDir,
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// LogoutAll should work even when no managers exist
 	err := adapter.LogoutAll()
@@ -112,7 +112,7 @@ func TestAuthAdapter_GetStatus_Empty(t *testing.T) {
 		managers:        make(map[string]*oauth.AuthManager),
 		tokenStorageDir: tmpDir,
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	statuses := adapter.GetStatus()
 	if len(statuses) != 0 {
@@ -125,7 +125,7 @@ func TestAuthAdapter_GetStatusForEndpoint_Unknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	status := adapter.GetStatusForEndpoint("https://unknown.example.com")
 	if status == nil {
@@ -211,7 +211,7 @@ func TestListTokenFiles(t *testing.T) {
 	t.Run("directory with non-json files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		// Create a non-json file
-		err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("test"), 0644)
+		err := os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("test"), 0644) //nolint:gosec
 		if err != nil {
 			t.Fatalf("failed to create test file: %v", err)
 		}
@@ -240,7 +240,7 @@ func TestReadTokenFile(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "invalid.json")
-		err := os.WriteFile(tmpFile, []byte("not valid json"), 0644)
+		err := os.WriteFile(tmpFile, []byte("not valid json"), 0644) //nolint:gosec
 		if err != nil {
 			t.Fatalf("failed to create test file: %v", err)
 		}
@@ -268,7 +268,7 @@ func TestAuthAdapterConfig_NoSilentRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		if !adapter.noSilentRefresh {
 			t.Error("expected noSilentRefresh to be true")
@@ -283,7 +283,7 @@ func TestAuthAdapterConfig_NoSilentRefresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		if adapter.noSilentRefresh {
 			t.Error("expected noSilentRefresh to be false by default")
@@ -299,7 +299,7 @@ func TestAuthAdapter_SetNoSilentRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
 	}
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }()
 
 	// Initially false
 	if adapter.noSilentRefresh {
@@ -350,7 +350,7 @@ func TestRevokeRefreshToken(t *testing.T) {
 		if receivedMethod != http.MethodPost {
 			t.Errorf("expected POST, got %s", receivedMethod)
 		}
-		if receivedPath != "/oauth/revoke" {
+		if receivedPath != "/oauth/revoke" { //nolint:goconst
 			t.Errorf("expected path /oauth/revoke, got %s", receivedPath)
 		}
 		if receivedContentType != "application/x-www-form-urlencoded" {
@@ -455,7 +455,7 @@ func TestDeleteUserTokens(t *testing.T) {
 
 		adapter.deleteUserTokens(srv.URL, "token")
 
-		if receivedPath != "/user-tokens" {
+		if receivedPath != "/user-tokens" { //nolint:goconst
 			t.Errorf("expected path /user-tokens, got %s", receivedPath)
 		}
 	})
@@ -676,7 +676,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		// Write a token file with a refresh token for the server
 		serverURL := normalizeEndpoint(srv.URL + "/mcp")
@@ -718,7 +718,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		// Write a token file with NO refresh token
 		serverURL := normalizeEndpoint(srv.URL + "/mcp")
@@ -746,7 +746,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		unreachableURL := "http://127.0.0.1:1"
 		serverURL := normalizeEndpoint(unreachableURL + "/mcp")
@@ -782,7 +782,7 @@ func TestLogout_RevokesRefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		// No token file written -- logout a fresh endpoint
 		err = adapter.Logout(srv.URL + "/mcp")
@@ -824,7 +824,7 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		serverURL := normalizeEndpoint(srv.URL + "/mcp")
 		writeTestTokenFile(t, tmpDir, map[string]interface{}{
@@ -873,7 +873,7 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		url1 := normalizeEndpoint(srv1.URL + "/mcp")
 		url2 := normalizeEndpoint(srv2.URL + "/mcp")
@@ -918,7 +918,7 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		serverURL := normalizeEndpoint(srv.URL + "/mcp")
 		writeTestTokenFile(t, tmpDir, map[string]interface{}{
@@ -951,7 +951,7 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		// No token files written -- nothing to delete
 		err = adapter.LogoutAll()
@@ -972,7 +972,7 @@ func TestLogoutAll_RevokesAndDeletesUserTokens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create adapter: %v", err)
 		}
-		defer adapter.Close()
+		defer func() { _ = adapter.Close() }()
 
 		serverURL := "https://server.example.com"
 		writeTestTokenFile(t, tmpDir, map[string]interface{}{
@@ -1036,7 +1036,7 @@ func TestGetStatusFromManager_RefreshExpiresAt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create auth manager: %v", err)
 		}
-		defer mgr.Close()
+		defer func() { _ = mgr.Close() }()
 
 		ctx := context.Background()
 		_, _ = mgr.CheckConnection(ctx, serverURL)
@@ -1077,7 +1077,7 @@ func TestGetStatusFromManager_RefreshExpiresAt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create auth manager: %v", err)
 		}
-		defer mgr.Close()
+		defer func() { _ = mgr.Close() }()
 
 		ctx := context.Background()
 		_, _ = mgr.CheckConnection(ctx, serverURL)

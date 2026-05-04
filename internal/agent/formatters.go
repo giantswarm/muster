@@ -591,7 +591,7 @@ func (f *Formatters) IsAuthChallenge(result *mcp.CallToolResult) *api.AuthChalle
 		}
 
 		// Check if it's an auth challenge
-		if challenge.Status == "auth_required" && challenge.AuthURL != "" {
+		if challenge.Status == "auth_required" && challenge.AuthURL != "" { //nolint:goconst
 			return &challenge
 		}
 	}

@@ -41,6 +41,30 @@ type AggregatorConfig struct {
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
+
+	// Admin exposes a read-only web UI for listing and managing sessions on a
+	// separate HTTP listener. Disabled by default. When enabled, the listener
+	// binds to AdminBindAddress:AdminPort without authentication, so it is
+	// only safe when bound to a loopback address or reached via port-forward.
+	Admin AdminConfig `yaml:"admin,omitempty"`
+}
+
+// AdminConfig defines the configuration for the admin web UI.
+//
+// The admin surface exposes session management (list, inspect, delete) on a
+// dedicated HTTP listener. It does not implement authentication; rely on
+// network-level controls (loopback binding, kubectl port-forward RBAC) to
+// gate access.
+type AdminConfig struct {
+	// Enabled controls whether the admin listener is started. Default: false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Port is the TCP port for the admin listener (default: 9999).
+	Port int `yaml:"port,omitempty"`
+
+	// BindAddress is the interface to bind to (default: "127.0.0.1").
+	// Change this at your own risk: the admin surface has no auth.
+	BindAddress string `yaml:"bindAddress,omitempty"`
 }
 
 // OAuthConfig consolidates all OAuth-related configuration with explicit mcpClient/server roles.
@@ -258,6 +282,19 @@ type OAuthServerConfig struct {
 
 	// TLSKeyFile is the path to the TLS private key file (PEM format).
 	TLSKeyFile string `yaml:"tlsKeyFile,omitempty"`
+
+	// TrustedAudiences lists additional OAuth client IDs (audiences) whose
+	// JWT ID tokens are accepted directly as bearer tokens, without requiring
+	// the client to complete muster's own OAuth flow first. This enables
+	// authenticating muster with tokens generated directly against Dex (e.g.
+	// by dex-k8s-authenticator or another Dex client), as long as the token's
+	// `aud` claim matches one of these values and its signature validates
+	// against the provider's JWKS.
+	//
+	// SECURITY: only list client IDs you fully trust. Any JWT signed by the
+	// configured OIDC provider and carrying one of these audiences is treated
+	// as a valid muster bearer token.
+	TrustedAudiences []string `yaml:"trustedAudiences,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.

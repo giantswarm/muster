@@ -171,7 +171,7 @@ steps:
   expected:
     success: true
     contains: [
-      "edge-case-input_with_underscores-and-dashes", 
+      "edge-case-input_with_underscores-and-dashes",
       "special_input"
     ]
 
@@ -238,4 +238,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "workflow-with-many-dashes-and-numbers-123-456" }
   expected:
-    success: true 
+    success: true

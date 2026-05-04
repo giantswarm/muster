@@ -3,7 +3,7 @@
 ## Easiest Way: Standalone Mode (Recommended)
 
 ### 1. Install Muster
-```bash  
+```bash
 git clone https://github.com/giantswarm/muster.git
 cd muster && go install
 ```
@@ -73,7 +73,7 @@ describe_tool(name="core_service_list")  # Get tool details
 filter_tools(pattern="core_service_*")   # Filter by pattern
 list_core_tools()         # List core Muster tools specifically
 
-# Tool Execution  
+# Tool Execution
 call_tool(name="core_service_list", arguments={})  # Execute any tool
 
 # Resource & Prompt Access
@@ -91,7 +91,7 @@ The aggregator has the actual business logic tools:
 call_tool(name="core_config_get", arguments={})
 call_tool(name="core_config_save", arguments={})
 
-# Service Management Tools (9 tools)  
+# Service Management Tools (9 tools)
 call_tool(name="core_service_list", arguments={})
 call_tool(name="core_service_create", arguments={
   "serviceClassName": "service-k8s-connection",
@@ -137,7 +137,7 @@ call_tool(
 
 # Execute authentication workflow
 call_tool(
-  name="workflow_auth-workflow", 
+  name="workflow_auth-workflow",
   arguments={
     "cluster": "my-cluster"
   }
@@ -161,7 +161,7 @@ call_tool(
 - **11 meta-tools**: `list_tools`, `call_tool`, `describe_tool`, etc.
 - **Purpose**: Bridge between AI agents and aggregator
 
-**Layer 2: Aggregator (`muster serve`)**  
+**Layer 2: Aggregator (`muster serve`)**
 - **Contains the actual business logic**
 - **36+ tools**: `core_service_list`, `workflow_*`, `x_kubernetes_*`, etc.
 - **Purpose**: Unified tool execution and service management
@@ -181,6 +181,6 @@ core_service_list()                             # Doesn't exist at agent layer
 
 This pattern enables:
 - **Unified access** to all tool types (core, workflow, external)
-- **Dynamic discovery** of available capabilities  
+- **Dynamic discovery** of available capabilities
 - **Consistent interface** regardless of underlying tool source
-- **Transparent routing** to appropriate tool handlers 
+- **Transparent routing** to appropriate tool handlers

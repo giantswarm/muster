@@ -86,13 +86,13 @@ func (r *testRunner) Run(ctx context.Context, config TestConfiguration, scenario
 			if len(suggestions) == 1 && strings.HasPrefix(suggestions[0], "Did you mean") {
 				errorMsg += fmt.Sprintf("\n%s", suggestions[0])
 			} else {
-				errorMsg += fmt.Sprintf("\n\nSimilar scenarios found:\n")
+				errorMsg += "\n\nSimilar scenarios found:\n"
 				for _, suggestion := range suggestions {
 					errorMsg += fmt.Sprintf("  • %s\n", suggestion)
 				}
 			}
 		} else {
-			errorMsg += fmt.Sprintf("\n\nAvailable scenarios:\n")
+			errorMsg += "\n\nAvailable scenarios:\n"
 			for _, name := range availableScenarios {
 				errorMsg += fmt.Sprintf("  • %s\n", name)
 			}
@@ -372,7 +372,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 
 		done := make(chan struct{})
 		go func() {
-			scenarioClient.Close()
+			_ = scenarioClient.Close()
 			close(done)
 		}()
 
@@ -1211,10 +1211,10 @@ func (r *testRunner) compareValuesEnhanced(actual, expected interface{}) bool {
 		// Convert string to bool if needed
 		if actualStr, ok := actual.(string); ok {
 			if actualStr == "true" {
-				return expectedBool == true
+				return expectedBool
 			}
 			if actualStr == "false" {
-				return expectedBool == false
+				return !expectedBool
 			}
 		}
 	}

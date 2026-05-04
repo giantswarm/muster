@@ -395,9 +395,9 @@ func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, 
 	return nil, nil
 }
 func (d *deleteCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (d *deleteCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" } //nolint:goconst
 func (d *deleteCaptureMockHandler) GetCIMDPath() string {
-	return "/.well-known/oauth-client.json"
+	return "/.well-known/oauth-client.json" //nolint:goconst
 }
 func (d *deleteCaptureMockHandler) ShouldServeCIMD() bool { return true }
 func (d *deleteCaptureMockHandler) GetCIMDHandler() http.HandlerFunc {
@@ -445,7 +445,7 @@ func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _, _, _
 	return nil, nil
 }
 func (c *clearCaptureMockHandler) GetHTTPHandler() http.Handler { return nil }
-func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" }
+func (c *clearCaptureMockHandler) GetCallbackPath() string      { return "/oauth/proxy/callback" } //nolint:goconst
 func (c *clearCaptureMockHandler) GetCIMDPath() string {
 	return "/.well-known/oauth-client.json"
 }

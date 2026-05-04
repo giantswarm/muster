@@ -118,7 +118,7 @@ pre_configuration:
               size: "{{ .input.storage_size }}"
               storage_class: "fast"
             store: true
-            
+
           - id: "create_deployment"
             tool: "x_kubernetes-mock_create_deployment"  # Mock tool with x_ prefix
             args:
@@ -127,7 +127,7 @@ pre_configuration:
               replicas: "{{ .input.replicas }}"
               namespace: "{{ .input.namespace }}"
             store: true
-            
+
           - id: "verify_deployment"
             tool: "x_kubernetes-mock_get_deployment_status"  # Mock tool with x_ prefix
             args:
@@ -215,7 +215,7 @@ steps:
       app_name: "templating-test"
       app_image: "alpine:latest"
       replicas: 2
-      storage_size: "3Gi" 
+      storage_size: "3Gi"
       namespace: "testing"
     expected:
       success: true
@@ -243,4 +243,4 @@ cleanup:
       success: true
       not_contains: ["deploy-application"]
     timeout: "30s"
-    continue_on_failure: true 
+    continue_on_failure: true

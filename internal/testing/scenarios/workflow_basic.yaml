@@ -64,4 +64,4 @@ steps:
     name: "basic-workflow"
   expected:
     success: false
-    error_contains: ["not found"] 
+    error_contains: ["not found"]

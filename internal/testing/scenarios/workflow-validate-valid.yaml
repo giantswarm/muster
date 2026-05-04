@@ -14,4 +14,4 @@ steps:
       - id: "test-step"
         tool: "core_service_list"
   expected:
-    success: true 
+    success: true

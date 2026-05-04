@@ -156,7 +156,7 @@ func (h *ToolHandler) valuesEqual(expected, actual interface{}) bool {
 	// Handle string comparisons
 	expectedStr := fmt.Sprintf("%v", expected)
 	actualStr := fmt.Sprintf("%v", actual)
-	if expectedStr == actualStr {
+	if expectedStr == actualStr { //nolint:staticcheck
 		return true
 	}
 

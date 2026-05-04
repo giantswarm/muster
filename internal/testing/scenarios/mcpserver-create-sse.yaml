@@ -35,4 +35,4 @@ cleanup:
   args:
     name: "sse-server"
   expected:
-    success: true 
+    success: true

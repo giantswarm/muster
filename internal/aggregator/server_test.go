@@ -128,7 +128,7 @@ func TestAggregatorServer_HandlerTracking(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Create mock clients with tools
 	client1 := &mockMCPClient{
@@ -217,7 +217,7 @@ func TestAggregatorServer_InitialRegistration(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Register another server
 	require.NoError(t, server.RegisterServer(ctx, "test-server", client, ""))
@@ -254,7 +254,7 @@ func TestAggregatorServer_EmptyStart(t *testing.T) {
 	// Start the server with no registered servers
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Should have no tools initially
 	tools := server.GetTools()
@@ -292,7 +292,7 @@ func TestAggregatorServer_HandlerExecution(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Create and register a mock client
 	client := &mockMCPClient{
@@ -348,7 +348,7 @@ func TestAggregatorServer_ToolsRemovedOnServerStop(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Create and register two MCP servers
 	client1 := &mockMCPClient{
@@ -421,7 +421,7 @@ func TestAggregatorServer_DynamicToolManagement(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Capture the server instances - they should NOT change
 	server.mu.RLock()
@@ -519,7 +519,7 @@ func TestAggregatorServer_NoStaleHandlersAfterRestart(t *testing.T) {
 	// Start the server
 	err := server.Start(ctx)
 	require.NoError(t, err)
-	defer server.Stop(ctx)
+	defer func() { _ = server.Stop(ctx) }()
 
 	// Register server with conflicting tool names
 	client1 := &mockMCPClient{
@@ -624,11 +624,11 @@ func newTestAggregatorWithPool(t *testing.T) *AggregatorServer {
 func TestCallToolWithTokenExchangeRetry_SuccessNoRetry(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	ctx := context.Background()
-	sessionID := "test-session"
-	serverName := "exchange-server"
+	sessionID := "test-session"     //nolint:goconst
+	serverName := "exchange-server" //nolint:goconst
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -663,7 +663,7 @@ func TestCallToolWithTokenExchangeRetry_EvictsPoolOn401ForTokenExchange(t *testi
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -726,7 +726,7 @@ func TestCallToolWithTokenExchangeRetry_NoRetryForNon401Error(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -758,7 +758,7 @@ func TestGetOrCreateClientForToolCall_ExpiringSoonReturnsClientAndTriggersBackgr
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -797,7 +797,7 @@ func TestGetOrCreateClientForToolCall_ExpiredTokenEvictsSynchronously(t *testing
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",
@@ -830,7 +830,7 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	serverName := "exchange-server"
 
 	tokenExchangeAuth := &api.MCPServerAuth{
-		TokenExchange: &api.TokenExchangeConfig{
+		TokenExchange: &api.TokenExchangeConfig{ //nolint:gosec
 			Enabled:          true,
 			DexTokenEndpoint: "https://dex.example.com/token",
 			ConnectorID:      "ldap",

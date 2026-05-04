@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewBaseService(t *testing.T) {
-	name := "test-service"
+	name := "test-service" //nolint:goconst
 	serviceType := TypeMCPServer
 	dependencies := []string{"dep1", "dep2"}
 

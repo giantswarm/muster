@@ -137,7 +137,7 @@ func TestGet(t *testing.T) {
 		health:      HealthHealthy,
 	}
 
-	registry.Register(service)
+	_ = registry.Register(service)
 
 	// Test getting existing service
 	retrieved, exists := registry.Get("get-test")
@@ -173,7 +173,7 @@ func TestUnregister(t *testing.T) {
 		serviceType: TypeMCPServer,
 	}
 
-	registry.Register(service)
+	_ = registry.Register(service)
 
 	// Verify service exists
 	_, exists := registry.Get("unregister-test")
@@ -219,9 +219,9 @@ func TestGetAll(t *testing.T) {
 		serviceType: TypeMCPServer,
 	}
 
-	registry.Register(service1)
-	registry.Register(service2)
-	registry.Register(service3)
+	_ = registry.Register(service1)
+	_ = registry.Register(service2)
+	_ = registry.Register(service3)
 
 	// Test getting all services
 	services = registry.GetAll()
@@ -252,7 +252,7 @@ func TestGetByType(t *testing.T) {
 		serviceType: TypeMCPServer,
 	}
 
-	registry.Register(mcpService)
+	_ = registry.Register(mcpService)
 
 	// Test getting MCP services
 	mcpServices := registry.GetByType(TypeMCPServer)
@@ -284,7 +284,7 @@ func TestRegistryConcurrency(t *testing.T) {
 				name:        "concurrent-" + string(rune('0'+i)),
 				serviceType: TypeMCPServer,
 			}
-			registry.Register(service)
+			_ = registry.Register(service)
 		}
 		done <- true
 	}()

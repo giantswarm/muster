@@ -30,7 +30,7 @@ type Server struct {
 // NewServerFromFile creates a new mock MCP server from a configuration file
 func NewServerFromFile(configPath string, debug bool) (*Server, error) {
 	// Read the config file directly
-	content, err := os.ReadFile(configPath)
+	content, err := os.ReadFile(configPath) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to read mock config file %s: %w", configPath, err)
 	}

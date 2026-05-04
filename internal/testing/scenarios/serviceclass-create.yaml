@@ -89,7 +89,7 @@ steps:
     name: "test-serviceconnection"
     serviceClassName: "basic-create-sc"
     args:
-      port: "18001"    
+      port: "18001"
   expected:
     success: true
     json_path:

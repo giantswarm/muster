@@ -95,7 +95,7 @@ func (h *TestToolsHandler) SetMCPClient(client MCPTestClient) {
 		h.userClients = make(map[string]MCPTestClient)
 	}
 	h.userClients["default"] = client
-	h.currentUser = "default"
+	h.currentUser = "default" //nolint:goconst
 }
 
 // GetCurrentClient returns the MCP client for the currently active user.
@@ -124,7 +124,7 @@ func (h *TestToolsHandler) CloseAllUserClients() {
 			if h.debug {
 				h.logger.Debug("🔌 Closing MCP client for user %s\n", name)
 			}
-			client.Close()
+			_ = client.Close()
 		}
 	}
 }
@@ -351,7 +351,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	if err != nil {
 		return nil, fmt.Errorf("callback request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if h.debug {
 		h.logger.Debug("🔐 Callback response status: %d\n", resp.StatusCode)
@@ -1155,7 +1155,7 @@ func exchangeOAuthToken(ctx context.Context, tokenURL string, data url.Values) (
 	if err != nil {
 		return nil, fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -1259,7 +1259,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	if err != nil {
 		return nil, fmt.Errorf("client registration request failed: %w", err)
 	}
-	defer registerResp.Body.Close()
+	defer func() { _ = registerResp.Body.Close() }()
 
 	if registerResp.StatusCode != http.StatusCreated && registerResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(registerResp.Body, 4096))
@@ -1331,7 +1331,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	if err != nil {
 		return nil, fmt.Errorf("authorize request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// If we didn't capture the Dex auth URL during redirects, check the Location header
 	if dexAuthURL == "" {
@@ -1404,7 +1404,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	if err != nil {
 		return nil, fmt.Errorf("callback request failed: %w", err)
 	}
-	defer callbackResp.Body.Close()
+	defer func() { _ = callbackResp.Body.Close() }()
 
 	if h.debug {
 		h.logger.Debug("🔐 Callback response status: %d\n", callbackResp.StatusCode)
@@ -1462,7 +1462,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
 	h.currentInstance.MusterOAuthClientID = registeredClientID
 	if h.mcpClient != nil {
-		h.mcpClient.Close()
+		_ = h.mcpClient.Close()
 		newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
 		if err := newClient.ConnectWithAuth(ctx, h.currentInstance.Endpoint, tokenResult.AccessToken); err != nil {
 			return nil, fmt.Errorf("failed to reconnect with muster access token: %w", err)

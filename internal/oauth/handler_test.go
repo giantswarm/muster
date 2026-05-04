@@ -248,7 +248,7 @@ func TestHandler_SecurityHeaders(t *testing.T) {
 func TestHandler_ServeCIMD(t *testing.T) {
 	clientID := "https://muster.example.com/.well-known/oauth-client.json"
 	publicURL := "https://muster.example.com"
-	callbackPath := "/oauth/proxy/callback"
+	callbackPath := "/oauth/proxy/callback" //nolint:goconst
 
 	client := NewClient(clientID, publicURL, callbackPath, "openid profile email")
 	defer client.Stop()

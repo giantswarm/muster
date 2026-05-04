@@ -13,7 +13,7 @@ var (
 	GroupVersion = schema.GroupVersion{Group: "muster.giantswarm.io", Version: "v1alpha1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}
+	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion} //nolint:staticcheck // controller-runtime/pkg/scheme.Builder is the established kubebuilder pattern
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme

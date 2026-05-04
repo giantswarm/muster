@@ -831,7 +831,7 @@ func (gsi *GenericServiceInstance) executeLifecycleTool(
 	logging.Debug("GenericServiceInstance", "Extracted outputs from %s tool: %+v", toolName, extractedOutputs)
 
 	// Store outputs in service data for later use in templates
-	if extractedOutputs != nil {
+	if extractedOutputs != nil { //nolint:staticcheck
 		for outputName, value := range extractedOutputs {
 			gsi.serviceData[outputName] = value
 			logging.Debug("GenericServiceInstance", "Stored output %s=%v in serviceData", outputName, value)

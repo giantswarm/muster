@@ -301,11 +301,11 @@ performance:
     tool_discovery: 600s  # 10 minutes
     result_cache: 300s   # 5 minutes
     max_cache_size: 1GB
-    
+
   concurrency:
     max_parallel_tools: 5
     worker_pool_size: 10
-    
+
   optimization:
     preload_frequent_tools: true
     background_tool_loading: true
@@ -554,7 +554,7 @@ safety:
   environment_confirmation:
     production: always
     staging: on_destructive_operations
-  
+
   dangerous_operations:
     require_double_confirmation: true
     log_all_attempts: true
@@ -598,7 +598,7 @@ network:
   read_timeout: 60s
   retry_attempts: 3
   retry_delay: 5s
-  
+
   proxy:
     http_proxy: "http://proxy.company.com:8080"
     https_proxy: "https://proxy.company.com:8080"
@@ -754,13 +754,13 @@ monitoring:
     interval: 30s
     timeout: 10s
     failure_threshold: 3
-    
+
   alerts:
     email: admin@company.com
     slack: "#platform-alerts"
     webhooks:
       - "https://monitoring.company.com/webhook/muster"
-      
+
   metrics:
     enabled: true
     export_interval: 60s
@@ -839,4 +839,4 @@ muster support schedule \
 
 - [AI Agent Integration Guide](ai-agent-integration.md)
 - [Configuration Reference](../reference/configuration.md)
-- [General Troubleshooting](troubleshooting.md) 
+- [General Troubleshooting](troubleshooting.md)

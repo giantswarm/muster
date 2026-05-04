@@ -448,4 +448,4 @@ After installation:
 
 - [Troubleshooting Guide](../how-to/troubleshooting.md)
 - [GitHub Issues](https://github.com/giantswarm/muster/issues)
-- [GitHub Discussions](https://github.com/giantswarm/muster/discussions) 
+- [GitHub Discussions](https://github.com/giantswarm/muster/discussions)

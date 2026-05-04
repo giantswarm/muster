@@ -49,16 +49,16 @@ func TestNewClient(t *testing.T) {
 
 func TestDiscoverMetadata(t *testing.T) {
 	t.Run("discovers via RFC 8414 endpoint", func(t *testing.T) {
-		metadata := &Metadata{
+		metadata := &Metadata{ //nolint:gosec
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
 		}
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			if r.URL.Path == "/.well-known/oauth-authorization-server" { //nolint:goconst
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(metadata)
+				_ = json.NewEncoder(w).Encode(metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -80,7 +80,7 @@ func TestDiscoverMetadata(t *testing.T) {
 	})
 
 	t.Run("falls back to OIDC endpoint", func(t *testing.T) {
-		metadata := &Metadata{
+		metadata := &Metadata{ //nolint:gosec
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -89,7 +89,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/openid-configuration" {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(metadata)
+				_ = json.NewEncoder(w).Encode(metadata)
 				return
 			}
 			// RFC 8414 endpoint returns 404
@@ -124,7 +124,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 	t.Run("caches metadata", func(t *testing.T) {
 		var callCount int32
-		metadata := &Metadata{
+		metadata := &Metadata{ //nolint:gosec
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -134,7 +134,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			atomic.AddInt32(&callCount, 1)
 			if r.URL.Path == "/.well-known/oauth-authorization-server" {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(metadata)
+				_ = json.NewEncoder(w).Encode(metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -162,7 +162,7 @@ func TestDiscoverMetadata(t *testing.T) {
 
 	t.Run("deduplicates concurrent requests", func(t *testing.T) {
 		var callCount int32
-		metadata := &Metadata{
+		metadata := &Metadata{ //nolint:gosec
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -174,7 +174,7 @@ func TestDiscoverMetadata(t *testing.T) {
 			atomic.AddInt32(&callCount, 1)
 			if r.URL.Path == "/.well-known/oauth-authorization-server" {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(metadata)
+				_ = json.NewEncoder(w).Encode(metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -201,7 +201,7 @@ func TestDiscoverMetadata(t *testing.T) {
 	})
 
 	t.Run("strips trailing slash from issuer", func(t *testing.T) {
-		metadata := &Metadata{
+		metadata := &Metadata{ //nolint:gosec
 			Issuer:                "https://issuer.example.com",
 			AuthorizationEndpoint: "https://issuer.example.com/authorize",
 			TokenEndpoint:         "https://issuer.example.com/token",
@@ -210,7 +210,7 @@ func TestDiscoverMetadata(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/oauth-authorization-server" {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(metadata)
+				_ = json.NewEncoder(w).Encode(metadata)
 				return
 			}
 			http.NotFound(w, r)
@@ -244,7 +244,7 @@ func TestExchangeCode(t *testing.T) {
 				t.Errorf("expected /token path, got %s", r.URL.Path)
 			}
 
-			err := r.ParseForm()
+			err := r.ParseForm() //nolint:gosec
 			if err != nil {
 				t.Fatalf("failed to parse form: %v", err)
 			}
@@ -266,7 +266,7 @@ func TestExchangeCode(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(expectedToken)
+			_ = json.NewEncoder(w).Encode(expectedToken) //nolint:gosec
 		}))
 		defer server.Close()
 
@@ -297,7 +297,7 @@ func TestExchangeCode(t *testing.T) {
 	t.Run("returns error on failed request", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error": "invalid_grant"}`))
+			_, _ = w.Write([]byte(`{"error": "invalid_grant"}`))
 		}))
 		defer server.Close()
 
@@ -414,7 +414,7 @@ func TestBuildAuthorizationURL(t *testing.T) {
 }
 
 func TestClearMetadataCache(t *testing.T) {
-	metadata := &Metadata{
+	metadata := &Metadata{ //nolint:gosec
 		Issuer:                "https://issuer.example.com",
 		AuthorizationEndpoint: "https://issuer.example.com/authorize",
 		TokenEndpoint:         "https://issuer.example.com/token",
@@ -425,7 +425,7 @@ func TestClearMetadataCache(t *testing.T) {
 		atomic.AddInt32(&callCount, 1)
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metadata)
+			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
 		http.NotFound(w, r)
@@ -465,7 +465,7 @@ func TestClearMetadataCache(t *testing.T) {
 }
 
 func TestMetadataCacheExpiry(t *testing.T) {
-	metadata := &Metadata{
+	metadata := &Metadata{ //nolint:gosec
 		Issuer:                "https://issuer.example.com",
 		AuthorizationEndpoint: "https://issuer.example.com/authorize",
 		TokenEndpoint:         "https://issuer.example.com/token",
@@ -476,7 +476,7 @@ func TestMetadataCacheExpiry(t *testing.T) {
 		atomic.AddInt32(&callCount, 1)
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metadata)
+			_ = json.NewEncoder(w).Encode(metadata)
 			return
 		}
 		http.NotFound(w, r)

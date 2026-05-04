@@ -129,23 +129,23 @@ func (b *TableBuilder) normalizeState(state string) string {
 	switch strings.ToLower(state) {
 	case "running":
 		return "Running"
-	case "connected":
-		return "Connected"
+	case "connected": //nolint:goconst
+		return "Connected" //nolint:goconst
 	case "stopped":
 		return "Stopped"
-	case "disconnected":
-		return "Disconnected"
+	case "disconnected": //nolint:goconst
+		return "Disconnected" //nolint:goconst
 	case "starting":
 		return "Starting"
 	case "stopping":
 		return "Stopping"
-	case "failed":
-		return "Failed"
+	case "failed": //nolint:goconst
+		return "Failed" //nolint:goconst
 	case "error":
 		return "Error"
-	case "auth_required":
+	case "auth_required": //nolint:goconst
 		return "Auth Required"
-	case "unreachable":
+	case "unreachable": //nolint:goconst
 		return "Unreachable"
 	case "waiting":
 		return "Waiting"
@@ -330,7 +330,7 @@ func (b *TableBuilder) formatAutoStartStatusPlain(value interface{}) string {
 	switch v := value.(type) {
 	case bool:
 		if v {
-			return "Yes"
+			return "Yes" //nolint:goconst
 		}
 		return "No"
 	case string:

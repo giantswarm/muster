@@ -246,12 +246,12 @@ func (f *TokenForwarder) ForwardTokenForSession(sessionID string) (string, error
     if token == nil {
         return "", fmt.Errorf("no token for session")
     }
-    
+
     // Prefer ID token for forwarding (contains user identity)
     if token.IDToken != "" {
         return token.IDToken, nil
     }
-    
+
     // Fallback to access token if no ID token (less ideal)
     return token.AccessToken, nil
 }
@@ -266,10 +266,10 @@ Each downstream MCP server (mcp-kubernetes, inboxfewer, etc.) must be configured
 type OAuthConfig struct {
     // Primary audience (direct authentication)
     ClientID string
-    
+
     // Additional trusted audiences (forwarded tokens)
     TrustedAudiences []string
-    
+
     // Trusted issuers
     TrustedIssuers []string
 }
@@ -279,18 +279,18 @@ func (c *OAuthConfig) ValidateToken(token string) (*Claims, error) {
     if err != nil {
         return nil, err
     }
-    
+
     // Validate issuer
     if !contains(c.TrustedIssuers, claims.Issuer) {
         return nil, fmt.Errorf("untrusted issuer: %s", claims.Issuer)
     }
-    
+
     // Validate audience (allow primary OR trusted forwarded audiences)
     allAudiences := append([]string{c.ClientID}, c.TrustedAudiences...)
     if !containsAny(allAudiences, claims.Audience) {
         return nil, fmt.Errorf("invalid audience")
     }
-    
+
     return claims, nil
 }
 ```
@@ -604,7 +604,7 @@ Required changes to token validation:
    ```go
    type OAuthConfig struct {
        // ... existing fields ...
-       
+
        // TrustedAudiences lists client IDs whose tokens are accepted for SSO
        TrustedAudiences []string
    }

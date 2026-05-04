@@ -248,7 +248,7 @@ SC_STATUS=$(muster check serviceclass web-application --output json | jq -r '.st
 if [ "$SC_STATUS" != "Available" ]; then
   echo "ServiceClass is not available:"
   muster check serviceclass web-application
-  
+
   # Check specific MCP servers
   muster check mcpserver kubernetes
   muster check mcpserver prometheus
@@ -269,7 +269,7 @@ echo "Checking critical MCP servers..."
 for server in "${CRITICAL_SERVERS[@]}"; do
   STATUS=$(muster check mcpserver "$server" --output json | jq -r '.status')
   echo "  $server: $STATUS"
-  
+
   if [ "$STATUS" != "Healthy" ]; then
     echo "    WARNING: $server is not healthy!"
   fi
@@ -279,7 +279,7 @@ echo "Checking critical workflows..."
 for workflow in "${CRITICAL_WORKFLOWS[@]}"; do
   STATUS=$(muster check workflow "$workflow" --output json | jq -r '.status')
   echo "  $workflow: $STATUS"
-  
+
   if [ "$STATUS" != "Available" ]; then
     echo "    WARNING: $workflow is not available!"
   fi
@@ -475,4 +475,4 @@ muster list workflow --output json | jq -r '.workflows[].name' | while read wf; 
 done
 
 echo "Health check complete"
-``` 
+```

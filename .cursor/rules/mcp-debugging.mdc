@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: false
 ---
 - **Core Testing Loop**
@@ -35,11 +35,11 @@ alwaysApply: false
       journalctl --user -u muster.service --no-pager |tail -n 50
       ```
   - **Important Note**
-    - **Always use `--no-pager`:** When using `journalctl` or `systemctl`, you **MUST** include the `--no-pager` flag. Without it, the output will be piped to a pager program, and you will not receive a response in the terminal. 
+    - **Always use `--no-pager`:** When using `journalctl` or `systemctl`, you **MUST** include the `--no-pager` flag. Without it, the output will be piped to a pager program, and you will not receive a response in the terminal.
 
 
 - **Debugging muster via mcp-debug**
-  - mcp-debug provides core debugging tools to test and explore the functionality of muster exposed in its aggregated MCP server. 
+  - mcp-debug provides core debugging tools to test and explore the functionality of muster exposed in its aggregated MCP server.
   - Use mcp-debug tools as the primary debugging interface rather than manual inspection
 
 - **mcp-debug Tools**
@@ -54,7 +54,7 @@ alwaysApply: false
   - The aggregated MCP server can be compiled and restarted via `./scripts/dev-restart.sh`
 
 - **Debugging Examples**
-  - 1. Verify All Services Are Running: 
+  - 1. Verify All Services Are Running:
     Start by checking the overall health of the system:
     ```
     mcp_mcp-debug_call_tool(name="core_service_list", arguments={})
@@ -74,7 +74,7 @@ alwaysApply: false
     - Verify argument schemas match the tool requirements
 
 - **Important Notes**
-  - The tools with the prefix `x_` are coming from the MCP servers that are managed by muster and then aggregated in its own MCP server. Please don't try to fix them. They are separate projects. 
+  - The tools with the prefix `x_` are coming from the MCP servers that are managed by muster and then aggregated in its own MCP server. Please don't try to fix them. They are separate projects.
   - Tool names from individual MCP servers get prefixed like this `x_kubernetes_*` for the kubernetes MCP server and `x_prometheus_*`  for the prometheus MCP server
 
 - **Debugging Approach**

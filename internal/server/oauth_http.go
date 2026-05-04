@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/internal/config"
+	musteroauth "github.com/giantswarm/muster/internal/oauth"
 	"github.com/giantswarm/muster/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 )
@@ -201,30 +203,18 @@ func (s *OAuthHTTPServer) CreateMux() http.Handler {
 }
 
 // setupOAuthRoutes registers OAuth 2.1 endpoints on the mux.
+//
+// Delegates to mcp-oauth's bundle helper, which registers the flow endpoints
+// (/oauth/authorize, /oauth/callback, /oauth/token, /oauth/revoke,
+// /oauth/register, /oauth/introspect — gated on EnableIntrospectionEndpoint),
+// the Protected Resource Metadata routes (RFC 9728) for both the root and
+// the /mcp sub-path, and the Authorization Server Metadata routes (RFC 8414
+// + OpenID Connect Discovery).
 func (s *OAuthHTTPServer) setupOAuthRoutes(mux *http.ServeMux) {
-	// Protected Resource Metadata endpoint (RFC 9728)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", s.oauthHandler.ServeProtectedResourceMetadata)
-
-	// Authorization Server Metadata endpoint (RFC 8414)
-	mux.HandleFunc("/.well-known/oauth-authorization-server", s.oauthHandler.ServeAuthorizationServerMetadata)
-
-	// Dynamic Client Registration endpoint (RFC 7591)
-	mux.HandleFunc("/oauth/register", s.oauthHandler.ServeClientRegistration)
-
-	// OAuth Authorization endpoint
-	mux.HandleFunc("/oauth/authorize", s.oauthHandler.ServeAuthorization)
-
-	// OAuth Token endpoint
-	mux.HandleFunc("/oauth/token", s.oauthHandler.ServeToken)
-
-	// OAuth Callback endpoint (from provider)
-	mux.HandleFunc("/oauth/callback", s.oauthHandler.ServeCallback)
-
-	// Token Revocation endpoint (RFC 7009)
-	mux.HandleFunc("/oauth/revoke", s.oauthHandler.ServeTokenRevocation)
-
-	// Token Introspection endpoint (RFC 7662)
-	mux.HandleFunc("/oauth/introspect", s.oauthHandler.ServeTokenIntrospection)
+	s.oauthHandler.RegisterOAuthRoutes(mux, oauth.OAuthRoutesOptions{
+		MCPPath:         "/mcp",
+		IncludeMetadata: true,
+	})
 
 	logging.Info("OAuth", "Registered OAuth 2.1 endpoints")
 }
@@ -318,6 +308,16 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// mcp-oauth's RefreshAccessToken and becomes stale.
 		token := s.getProviderToken(ctx, r)
 		if token == nil {
+			// The bearer token was accepted by ValidateToken but muster's token
+			// store has no entry for it. This happens when a client presents a
+			// JWT issued directly by the upstream IdP (e.g. a Dex ID token) and
+			// mcp-oauth accepted it via the TrustedAudiences path. Treat the
+			// bearer token itself as the ID token and synthesize a stable
+			// session so downstream SSO flows can run.
+			if s.injectExternalIDToken(w, r, ctx, next) {
+				return
+			}
+
 			logging.Warn("OAuth", "SSO: No token stored for email=%s (SSO forwarding will not work)",
 				truncateEmail(userInfo.Email))
 			r = r.WithContext(ctx)
@@ -354,6 +354,97 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// musterIssuer returns the OAuth issuer URL used as the key when storing
+// tokens in the OAuth proxy token store. This MUST match the issuer the
+// aggregator uses for lookups (see aggregator.getMusterIssuer): for Dex,
+// that's the upstream Dex issuer URL; for other providers, it's muster's
+// own base URL.
+//
+// Returns empty string when no issuer can be determined.
+func (s *OAuthHTTPServer) musterIssuer() string {
+	if s.config.Provider == OAuthProviderDex && s.config.Dex.IssuerURL != "" {
+		return s.config.Dex.IssuerURL
+	}
+	return s.config.BaseURL
+}
+
+// acceptForwardedIDToken is a test seam around (*oauth.Server).AcceptForwardedIDToken.
+// Tests stub this to avoid needing a real JWKS/provider setup; production code
+// leaves it at its default.
+var acceptForwardedIDToken = func(s *oauth.Server, ctx context.Context, bearerToken string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+	return s.AcceptForwardedIDToken(ctx, bearerToken)
+}
+
+// injectExternalIDToken handles the case where the bearer token was validated
+// by mcp-oauth but muster's token store has no entry for it — i.e. a JWT
+// issued directly by the upstream OIDC provider (typically a Dex ID token
+// accepted via TrustedAudiences). The bearer token IS the ID token, so we
+// delegate JWT parsing, JWKS signature verification, issuer/audience checks
+// and session-ID derivation to mcp-oauth's AcceptForwardedIDToken, then
+// inject the verified subject and ID token into the request context and
+// mirror the token into the OAuth proxy store so downstream SSO forwarding
+// can resolve it later.
+//
+// Returns true if the request was handled as an external token (in which
+// case next.ServeHTTP has already been called and the caller must return);
+// returns false when AcceptForwardedIDToken rejects the token (audience
+// mismatch, signature failure, not a JWT, etc.) and the caller should fall
+// back to the existing "no token stored" path.
+func (s *OAuthHTTPServer) injectExternalIDToken(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	next http.Handler,
+) bool {
+	bearerToken := extractBearerToken(r)
+	if bearerToken == "" {
+		return false
+	}
+
+	acceptance, err := acceptForwardedIDToken(s.oauthServer, ctx, bearerToken)
+	if err != nil {
+		if s.debug {
+			if errors.Is(err, oauth.ErrTrustedAudienceMismatch) {
+				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, falling back: %v", err)
+			} else {
+				logging.Debug("OAuth", "SSO: forwarded ID token rejected, falling back: %v", err)
+			}
+		}
+		return false
+	}
+
+	ctx = api.WithSessionID(ctx, acceptance.SessionID)
+	ctx = api.WithSubject(ctx, acceptance.Subject)
+	ctx = ContextWithIDToken(ctx, bearerToken)
+
+	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,
+	// musterIssuer). getIDTokenForForwarding (in the aggregator) looks here
+	// for background header-func closures that run without the request
+	// context. The key MUST match the issuer the aggregator computes —
+	// mirror its resolution logic here. mcp-oauth's AcceptForwardedIDToken
+	// intentionally does NOT mirror into TokenStore, so this keying is
+	// muster's own responsibility.
+	if issuer := s.musterIssuer(); issuer != "" {
+		if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
+			oh.StoreToken(acceptance.SessionID, acceptance.Subject, issuer, &api.OAuthToken{IDToken: bearerToken})
+		}
+	}
+
+	if s.debug {
+		var email string
+		if acceptance.UserInfo != nil {
+			email = acceptance.UserInfo.Email
+		}
+		logging.Debug("OAuth", "SSO: accepted externally-issued ID token (email=%s, session=%s)",
+			truncateEmail(email), logging.TruncateIdentifier(acceptance.SessionID))
+	}
+
+	r = r.WithContext(ctx)
+	s.fireOnAuthenticated(ctx)
+	next.ServeHTTP(w, r)
+	return true
 }
 
 // fireOnAuthenticated calls the onAuthenticated callback if set and a session
@@ -493,13 +584,13 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		return nil, nil, fmt.Errorf("unsupported OAuth provider: %s (supported: %s, %s)", cfg.Provider, OAuthProviderDex, OAuthProviderGoogle)
 	}
 
-	// Create storage backend based on configuration
-	var tokenStore storage.TokenStore
-	var clientStore storage.ClientStore
-	var flowStore storage.FlowStore
+	// Create storage backend based on configuration. Both memory.Store and
+	// valkey.Store satisfy storage.Combined (TokenStore + ClientStore + FlowStore),
+	// so a single handle is enough.
+	var combinedStore storage.Combined
 
 	switch cfg.Storage.Type {
-	case "valkey":
+	case storage.BackendValkey:
 		if cfg.Storage.Valkey.URL == "" {
 			return nil, nil, fmt.Errorf("valkey URL is required when using valkey storage")
 		}
@@ -529,7 +620,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 
 		// Set up encryption if key is provided
 		if cfg.EncryptionKey != "" {
-			keyBytes, err := base64.StdEncoding.DecodeString(cfg.EncryptionKey)
+			keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
 			if err != nil {
 				valkeyStore.Close()
 				return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
@@ -543,20 +634,15 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 			logger.Info("Token encryption at rest enabled for Valkey storage (AES-256-GCM)")
 		}
 
-		tokenStore = valkeyStore
-		clientStore = valkeyStore
-		flowStore = valkeyStore
+		combinedStore = valkeyStore
 		logger.Info("Using Valkey storage backend", "address", cfg.Storage.Valkey.URL)
 
-	case "memory", "":
-		memStore := memory.New()
-		tokenStore = memStore
-		clientStore = memStore
-		flowStore = memStore
+	case storage.BackendMemory, "":
+		combinedStore = memory.New()
 		logger.Info("Using in-memory storage backend")
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: memory, valkey)", cfg.Storage.Type)
+		return nil, nil, fmt.Errorf("unsupported OAuth storage type: %s (supported: %s, %s)", cfg.Storage.Type, storage.BackendMemory, storage.BackendValkey)
 	}
 
 	// Set defaults
@@ -584,8 +670,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		RegistrationAccessToken:          cfg.RegistrationToken,
 		MaxClientsPerIP:                  maxClientsPerIP,
 		EnableClientIDMetadataDocuments:  cfg.EnableCIMD,
+		EnableIntrospectionEndpoint:      true,
 		TrustedPublicRegistrationSchemes: cfg.TrustedPublicRegistrationSchemes,
 		AllowLocalhostRedirectURIs:       cfg.AllowLocalhostRedirectURIs,
+		TrustedAudiences:                 cfg.TrustedAudiences,
 
 		// Instrumentation
 		Instrumentation: oauthserver.InstrumentationConfig{
@@ -596,12 +684,12 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		},
 	}
 
-	// Create OAuth server
-	oauthSrv, err := oauth.NewServer(
+	// Create OAuth server. Both memory and valkey backends implement
+	// storage.Combined, so we use the single-store constructor instead of
+	// passing the same handle three times.
+	oauthSrv, err := oauth.NewServerWithCombined(
 		provider,
-		tokenStore,
-		clientStore,
-		flowStore,
+		combinedStore,
 		serverConfig,
 		logger,
 	)
@@ -609,9 +697,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 		return nil, nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
 
-	// Set up encryption if key provided (for memory storage)
-	if cfg.EncryptionKey != "" && cfg.Storage.Type != "valkey" {
-		keyBytes, err := base64.StdEncoding.DecodeString(cfg.EncryptionKey)
+	// Set up encryption if key provided (for memory storage; valkey wires the
+	// encryptor onto the store directly above).
+	if cfg.EncryptionKey != "" && cfg.Storage.Type != storage.BackendValkey {
+		keyBytes, err := musteroauth.DecodeEncryptionKey(cfg.EncryptionKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to decode encryption key: %w", err)
 		}
@@ -646,7 +735,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, debug bool) (*oauth.Server,
 	oauthSrv.SetClientRegistrationRateLimiter(clientRegRL)
 	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", maxClientsPerIP)
 
-	return oauthSrv, tokenStore, nil
+	return oauthSrv, combinedStore, nil
 }
 
 // createHTTPClientWithCA creates an HTTP client that trusts certificates signed by

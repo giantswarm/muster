@@ -164,15 +164,15 @@ func TestAuthMetaKey_Namespacing(t *testing.T) {
 }
 
 // mockAuthPoller is a mock implementation for testing
-type mockAuthPoller struct {
+type mockAuthPoller struct { //nolint:unused
 	authRequired []pkgoauth.AuthRequiredInfo
 }
 
-func (m *mockAuthPoller) GetAuthRequired() []pkgoauth.AuthRequiredInfo {
+func (m *mockAuthPoller) GetAuthRequired() []pkgoauth.AuthRequiredInfo { //nolint:unused
 	return m.authRequired
 }
 
-func (m *mockAuthPoller) HasAuthRequired() bool {
+func (m *mockAuthPoller) HasAuthRequired() bool { //nolint:unused
 	return len(m.authRequired) > 0
 }
 

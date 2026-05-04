@@ -53,7 +53,7 @@ Context Configuration:
 
 Precedence (highest to lowest):
   1. --endpoint flag
-  2. --context flag  
+  2. --context flag
   3. MUSTER_CONTEXT environment variable
   4. current-context from contexts.yaml
   5. Local fallback (http://localhost:8090/mcp)`,
@@ -279,14 +279,14 @@ func runContextList(cmd *cobra.Command, args []string) error {
 
 	// Use tabwriter for aligned output
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "CURRENT\tNAME\tENDPOINT")
+	_, _ = fmt.Fprintln(w, "CURRENT\tNAME\tENDPOINT")
 
 	for _, ctx := range config.Contexts {
 		current := ""
 		if ctx.Name == config.CurrentContext {
 			current = "*"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", current, ctx.Name, ctx.Endpoint)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", current, ctx.Name, ctx.Endpoint)
 	}
 
 	return w.Flush()

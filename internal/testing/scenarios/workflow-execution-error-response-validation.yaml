@@ -62,7 +62,7 @@ steps:
   expected:
     success: true
     contains: [
-      "execution_id", "workflow_name", "error-validation-workflow", 
+      "execution_id", "workflow_name", "error-validation-workflow",
       "status", "failed", "started_at", "completed_at", "duration_ms",
       "input", "error", "steps"
     ]
@@ -158,7 +158,7 @@ steps:
   expected:
     success: true
     contains: [
-      "steps", "failing_step", "failed", "error", 
+      "steps", "failing_step", "failed", "error",
       "success_step", "completed"
     ]
 
@@ -171,7 +171,7 @@ steps:
   expected:
     success: true
     contains: [
-      "execution_id", "status", "failed", "error", 
+      "execution_id", "status", "failed", "error",
       "Validation test error", "structured-test"
     ]
     not_contains: ["steps"]
@@ -212,4 +212,4 @@ cleanup:
   tool: "core_workflow_delete"
   args: { name: "error-validation-workflow" }
   expected:
-    success: true 
+    success: true

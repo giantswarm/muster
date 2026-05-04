@@ -96,7 +96,7 @@ func (f *filesystemClient) Get(ctx context.Context, key types.NamespacedName, ob
 // List retrieves a list of resources (implements client.Client interface).
 func (f *filesystemClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	// Extract namespace from list options
-	namespace := "default"
+	namespace := "default" //nolint:goconst
 	for _, opt := range opts {
 		if nsOpt, ok := opt.(*client.ListOptions); ok && nsOpt.Namespace != "" {
 			namespace = nsOpt.Namespace
@@ -202,7 +202,7 @@ func (f *filesystemClient) SubResource(subResource string) client.SubResourceCli
 // Scheme returns the scheme (implements client.Client interface).
 func (f *filesystemClient) Scheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-	musterv1alpha1.AddToScheme(scheme)
+	_ = musterv1alpha1.AddToScheme(scheme)
 	return scheme
 }
 
@@ -236,7 +236,7 @@ func (f *filesystemClient) IsObjectNamespaced(obj runtime.Object) (bool, error) 
 func (f *filesystemClient) GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
 	filePath := f.getMCPServerPath(name)
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errors.NewNotFound(
@@ -310,7 +310,7 @@ func (f *filesystemClient) CreateMCPServer(ctx context.Context, server *musterv1
 
 	// Create directory if it doesn't exist
 	dirPath := f.getMCPServerDir()
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
@@ -397,7 +397,7 @@ func (f *filesystemClient) getMCPServerPath(name string) string {
 func (f *filesystemClient) GetServiceClass(ctx context.Context, name, namespace string) (*musterv1alpha1.ServiceClass, error) {
 	filePath := f.getServiceClassPath(name)
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errors.NewNotFound(
@@ -471,7 +471,7 @@ func (f *filesystemClient) CreateServiceClass(ctx context.Context, serviceClass 
 
 	// Create directory if it doesn't exist
 	dirPath := f.getServiceClassDir()
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
@@ -556,7 +556,7 @@ func (f *filesystemClient) getServiceClassPath(name string) string {
 func (f *filesystemClient) GetWorkflow(ctx context.Context, name, namespace string) (*musterv1alpha1.Workflow, error) {
 	filePath := f.getWorkflowPath(name)
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errors.NewNotFound(
@@ -630,7 +630,7 @@ func (f *filesystemClient) CreateWorkflow(ctx context.Context, workflow *musterv
 
 	// Create directory if it doesn't exist
 	dirPath := f.getWorkflowDir()
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err := os.MkdirAll(dirPath, 0755); err != nil { //nolint:gosec
 		return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
 	}
 
@@ -831,7 +831,7 @@ func (f *filesystemClient) QueryEvents(ctx context.Context, options api.EventQue
 	eventsDir := filepath.Join(f.basePath, "events")
 
 	// Create events directory if it doesn't exist
-	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+	if err := os.MkdirAll(eventsDir, 0755); err != nil { //nolint:gosec
 		return nil, fmt.Errorf("failed to create events directory: %w", err)
 	}
 
@@ -889,7 +889,7 @@ func (f *filesystemClient) QueryEvents(ctx context.Context, options api.EventQue
 
 // readEventsFromFile reads events from a daily JSON file.
 func (f *filesystemClient) readEventsFromFile(filePath string) ([]api.EventResult, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
@@ -921,7 +921,7 @@ func (f *filesystemClient) readEventsFromFile(filePath string) ([]api.EventResul
 // readLegacyEventsLog reads events from the legacy events.log file.
 func (f *filesystemClient) readLegacyEventsLog(eventsDir string) ([]api.EventResult, error) {
 	legacyFile := filepath.Join(eventsDir, "events.log")
-	data, err := os.ReadFile(legacyFile)
+	data, err := os.ReadFile(legacyFile) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
@@ -1069,7 +1069,7 @@ func (f *filesystemClient) filterEvents(events []api.EventResult, options api.Ev
 // writeEventToFile writes event information to both legacy and JSON formats.
 func (f *filesystemClient) writeEventToFile(namespace, name, kind, reason, message, eventType string) error {
 	eventsDir := filepath.Join(f.basePath, "events")
-	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+	if err := os.MkdirAll(eventsDir, 0755); err != nil { //nolint:gosec
 		logging.Debug("fs-client", "Failed to create events directory: %v", err)
 		return nil
 	}
@@ -1098,11 +1098,11 @@ func (f *filesystemClient) writeLegacyEvent(eventsDir string, timestamp time.Tim
 	eventLine := fmt.Sprintf("[%s] %s %s/%s: %s - %s (%s)\n",
 		timestamp.Format(time.RFC3339), kind, namespace, name, reason, message, eventType)
 
-	file, err := os.OpenFile(eventsFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(eventsFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	_, err = file.WriteString(eventLine)
 	return err
@@ -1134,11 +1134,11 @@ func (f *filesystemClient) writeJSONEvent(eventsDir string, timestamp time.Time,
 	}
 
 	// Append to daily JSON file (one JSON object per line)
-	file, err := os.OpenFile(jsonFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(jsonFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	_, err = file.WriteString(string(eventJSON) + "\n")
 	return err
@@ -1164,19 +1164,19 @@ func atomicWriteFile(filePath string, data []byte, perm os.FileMode) error {
 	success := false
 	defer func() {
 		if !success {
-			os.Remove(tempPath)
+			_ = os.Remove(tempPath)
 		}
 	}()
 
 	// Write data to temp file
 	if _, err := tempFile.Write(data); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("failed to write to temp file: %w", err)
 	}
 
 	// Sync to ensure data is on disk before rename
 	if err := tempFile.Sync(); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("failed to sync temp file: %w", err)
 	}
 

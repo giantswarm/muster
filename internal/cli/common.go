@@ -94,7 +94,7 @@ func CheckServerRunning(endpoint string) error {
 	if err != nil {
 		return fmt.Errorf("muster server is not running. Start it with: muster serve")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// For streamable-http MCP, a GET request should return 202 Accepted or similar
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {

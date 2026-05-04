@@ -959,27 +959,27 @@ func (a *Adapter) convertRequestToCRD(name, description string, args map[string]
 
 // validateServiceClass performs basic validation on a ServiceClass
 func (a *Adapter) validateServiceClass(serviceClass *musterv1alpha1.ServiceClass) error {
-	if serviceClass.ObjectMeta.Name == "" {
+	if serviceClass.Name == "" {
 		// Generate validation failure event
-		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "ServiceClass name is required")
+		a.generateServiceClassEvent(serviceClass.Name, events.ReasonServiceClassValidationFailed, "ServiceClass name is required")
 		return fmt.Errorf("name is required")
 	}
 
 	if serviceClass.Spec.ServiceConfig.LifecycleTools.Start.Tool == "" {
 		// Generate validation failure event
-		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.start.tool is required")
+		a.generateServiceClassEvent(serviceClass.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.start.tool is required")
 		return fmt.Errorf("serviceConfig.lifecycleTools.start.tool is required")
 	}
 
 	if serviceClass.Spec.ServiceConfig.LifecycleTools.Stop.Tool == "" {
 		// Generate validation failure event
-		a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.stop.tool is required")
+		a.generateServiceClassEvent(serviceClass.Name, events.ReasonServiceClassValidationFailed, "serviceConfig.lifecycleTools.stop.tool is required")
 		return fmt.Errorf("serviceConfig.lifecycleTools.stop.tool is required")
 	}
 
 	// Generate validation success event
-	message := fmt.Sprintf("ServiceClass '%s' validation succeeded", serviceClass.ObjectMeta.Name)
-	a.generateServiceClassEvent(serviceClass.ObjectMeta.Name, events.ReasonServiceClassValidated, message)
+	message := fmt.Sprintf("ServiceClass '%s' validation succeeded", serviceClass.Name)
+	a.generateServiceClassEvent(serviceClass.Name, events.ReasonServiceClassValidated, message)
 
 	return nil
 }

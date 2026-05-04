@@ -21,8 +21,8 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 		t.Fatalf("Failed to create token store: %v", err)
 	}
 
-	serverURL := "https://muster.example.com"
-	issuerURL := "https://dex.example.com"
+	serverURL := "https://muster.example.com" //nolint:goconst
+	issuerURL := "https://dex.example.com"    //nolint:goconst
 	token := &oauth2.Token{
 		AccessToken:  "test-access-token",
 		RefreshToken: "test-refresh-token",
@@ -159,7 +159,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 		t.Errorf("Expected 1 token file, got %d", len(files))
 	}
 
-	if len(files) > 0 && filepath.Ext(files[0].Name()) != ".json" {
+	if len(files) > 0 && filepath.Ext(files[0].Name()) != ".json" { //nolint:goconst
 		t.Errorf("Expected .json file, got %s", files[0].Name())
 	}
 
@@ -645,7 +645,7 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 			}
 
 			// Clean up for next test case
-			store.DeleteToken(serverURL)
+			_ = store.DeleteToken(serverURL)
 		})
 	}
 }
@@ -737,7 +737,7 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 	issuerURL := "https://dex.example.com"
 
 	// Token with zero expiry (some tokens don't have expiry info)
-	token := &oauth2.Token{
+	token := &oauth2.Token{ //nolint:gosec
 		AccessToken: "no-expiry-token",
 		TokenType:   "Bearer",
 		// Expiry is zero value
@@ -781,7 +781,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 
 	t.Run("returns token expiring within margin", func(t *testing.T) {
 		// Store a token that's expiring within the 60s margin
-		expiringToken := &oauth2.Token{
+		expiringToken := &oauth2.Token{ //nolint:gosec
 			AccessToken:  "expiring-soon-token",
 			RefreshToken: "refresh-token",
 			TokenType:    "Bearer",
@@ -812,12 +812,12 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		}
 
 		// Clean up
-		store.DeleteToken(serverURL)
+		_ = store.DeleteToken(serverURL)
 	})
 
 	t.Run("returns already expired token with refresh token", func(t *testing.T) {
 		// Store a token that's already expired but has a refresh token
-		expiredToken := &oauth2.Token{
+		expiredToken := &oauth2.Token{ //nolint:gosec
 			AccessToken:  "expired-token",
 			RefreshToken: "still-valid-refresh-token",
 			TokenType:    "Bearer",
@@ -844,7 +844,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 		}
 
 		// Clean up
-		store.DeleteToken(serverURL)
+		_ = store.DeleteToken(serverURL)
 	})
 
 	t.Run("returns valid token", func(t *testing.T) {
@@ -892,7 +892,7 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 	issuerURL := "https://dex.example.com"
 
 	// Store a token that's expiring soon
-	expiringToken := &oauth2.Token{
+	expiringToken := &oauth2.Token{ //nolint:gosec
 		AccessToken:  "expiring-token",
 		RefreshToken: "refresh-token",
 		TokenType:    "Bearer",

@@ -627,4 +627,4 @@ done
 
 ## Related Documentation
 - [Workflow Creation](workflow-creation.md)
-- [ServiceClass Reference](../reference/mcp-tools.md#serviceclass-tools) 
+- [ServiceClass Reference](../reference/mcp-tools.md#serviceclass-tools)

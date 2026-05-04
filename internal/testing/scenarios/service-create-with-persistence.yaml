@@ -41,4 +41,4 @@ cleanup:
   args:
     name: "persistent-service"
   expected:
-    success: true 
+    success: true

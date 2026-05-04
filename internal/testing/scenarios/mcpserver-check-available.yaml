@@ -28,4 +28,4 @@ steps:
     success: true
     json_path:
       name: "available-server"
-      state: "running" 
+      state: "running"

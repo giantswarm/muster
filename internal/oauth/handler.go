@@ -165,7 +165,7 @@ func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 // renderErrorPage renders an HTML page indicating an authentication error.
@@ -186,7 +186,7 @@ func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
 	}
 
 	w.WriteHeader(http.StatusBadRequest)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 // ServeHTTP implements http.Handler for the OAuth handler.

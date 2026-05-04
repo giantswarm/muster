@@ -3,12 +3,12 @@ category: "behavioral"
 concept: "mcpserver"
 description: |
   Verify that SSO token forwarding works correctly with multiple servers.
-  
+
   This test verifies that:
   1. Token forwarding works for SSO-enabled servers
   2. Multiple SSO servers can be connected via token forwarding
   3. auth://status correctly reflects connection state
-  
+
   Note: The "failure" in the name refers to the original test which tested failure cases.
   This simplified version tests the success path to verify the no-fallback behavior works.
 tags: ["oauth", "authentication", "sso", "token-forwarding", "mcpserver"]

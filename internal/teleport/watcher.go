@@ -109,7 +109,7 @@ func (w *CertWatcher) Start() error {
 	if err := w.fsWatcher.Add(w.config.IdentityDir); err != nil {
 		logging.Warn("CertWatcher", "Failed to watch directory %s, falling back to polling: %v",
 			w.config.IdentityDir, err)
-		w.fsWatcher.Close()
+		_ = w.fsWatcher.Close()
 		w.fsWatcher = nil
 		go w.pollForChanges()
 		return nil

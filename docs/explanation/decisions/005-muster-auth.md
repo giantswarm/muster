@@ -225,7 +225,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
             next.ServeHTTP(w, r)
             return
         }
-        
+
         token, err := s.tokenStore.GetToken(ctx, userInfo.Email)
         // Extract ID token and inject into context
         idToken := GetIDToken(token)

@@ -128,17 +128,17 @@ flowchart TB
         AI1[Cursor via Agent<br/>non-OAuth client]
         AI2[Claude Desktop<br/>OAuth-capable]
     end
-    
+
     subgraph agent [muster agent]
         AuthShim[OAuth Shim<br/>stdio ↔ HTTP bridge]
     end
-    
+
     subgraph server [muster serve]
         MetaTools[Meta-Tools Provider<br/>list_tools, call_tool, etc.]
         Aggregator[Aggregator<br/>actual tools]
         OAuthServer[OAuth Server]
     end
-    
+
     AI1 -->|stdio| AuthShim
     AuthShim -->|HTTP + Bearer| OAuthServer
     AI2 -->|HTTP + OAuth| OAuthServer
@@ -433,12 +433,12 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]inte
         "name":      name,
         "arguments": args,
     }
-    
+
     result, err := c.callToolDirect(ctx, "call_tool", wrappedArgs)
     if err != nil {
         return nil, err
     }
-    
+
     // Unwrap the nested response
     return c.unwrapMetaToolResponse(result, name)
 }
@@ -474,7 +474,7 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
     unwrapped := &mcp.CallToolResult{
         IsError: nested.IsError,
     }
-    
+
     var contentItems []map[string]interface{}
     if err := json.Unmarshal(nested.Content, &contentItems); err == nil {
         for _, item := range contentItems {
@@ -598,13 +598,13 @@ The current agent's `handleCallTool` flattens responses to text. For BDD tests t
 func (m *MetaToolsProvider) handleCallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
     name, _ := request.RequireString("name")
     args := extractArgs(request)
-    
+
     // Execute via aggregator
     result, err := api.GetAggregator().CallToolInternal(ctx, name, args)
     if err != nil {
         return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: %v", err)), nil
     }
-    
+
     // CRITICAL: Return result as structured JSON, not flattened text
     // This allows BDD tests to unwrap and validate IsError, Content, etc.
     resultJSON, _ := json.Marshal(struct {
@@ -614,7 +614,7 @@ func (m *MetaToolsProvider) handleCallTool(ctx context.Context, request mcp.Call
         IsError: result.IsError,
         Content: serializeContent(result.Content),
     })
-    
+
     return mcp.NewToolResultText(string(resultJSON)), nil
 }
 ```
@@ -681,7 +681,7 @@ func (c *mcpTestClient) unwrapMetaToolResponse(result *mcp.CallToolResult, toolN
     unwrapped := &mcp.CallToolResult{
         IsError: nested.IsError,
     }
-    
+
     // Parse content array
     var contentItems []map[string]interface{}
     if err := json.Unmarshal(nested.Content, &contentItems); err == nil {
@@ -1175,7 +1175,7 @@ Add under `## [Unreleased]`:
 
 #### Server-Side Meta-Tools Migration
 
-**What Changed**: Meta-tools (`list_tools`, `call_tool`, `describe_tool`, etc.) 
+**What Changed**: Meta-tools (`list_tools`, `call_tool`, `describe_tool`, etc.)
 have moved from the agent to the aggregator server.
 
 **Impact**:
@@ -1222,8 +1222,8 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for deta
 ```markdown
 ### Meta-Tools Wrapping
 
-The test framework transparently wraps all tool calls through the `call_tool` 
-meta-tool. Test scenarios continue to reference tools by name (e.g., 
+The test framework transparently wraps all tool calls through the `call_tool`
+meta-tool. Test scenarios continue to reference tools by name (e.g.,
 `core_service_list`), and the test client handles wrapping internally.
 ```
 
@@ -1255,5 +1255,3 @@ meta-tool. Test scenarios continue to reference tools by name (e.g.,
 | architecture.md Key Flow          | Agent processes meta-tools      | Agent forwards to server |
 | architecture.md Tool Architecture | Shows agent meta-tools          | Shows server meta-tools  |
 | aggregator.md (if diagrams)       | Shows direct tool access        | Shows meta-tool layer    |
-
-

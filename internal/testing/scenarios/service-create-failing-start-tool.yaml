@@ -19,13 +19,13 @@ pre_configuration:
         responses: [ { error: "Database server is currently unavailable - connection timeout after 30s" } ]
       - name: "health_check"
         responses: [ { error: "Service health check failed: port 5432 unreachable" } ]
-        
+
   - name: "working-provider"
     config:
       tools:
       - name: "create_cache"
         responses: [ { response: { cache_id: "cache-12345", status: "created" } } ]
-        
+
   service_classes:
   - name: "database-service"
     args:
@@ -36,7 +36,7 @@ pre_configuration:
       lifecycleTools:
         start: { tool: "x_unreliable-database-provider_create_database" }
         stop: { tool: "core_config_get" }
-        
+
   - name: "cache-service"
     args:
       name:
@@ -124,4 +124,4 @@ cleanup:
       name: "my-app-cache"
     expected:
       success: false  # Service was already deleted in step 7, so cleanup fails (not found)
-    timeout: "30s" 
+    timeout: "30s"
