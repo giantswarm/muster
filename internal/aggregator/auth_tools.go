@@ -227,8 +227,8 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []interface{}{fmt.Sprintf(
 				"Cannot authenticate to '%s': RFC 9728 protected resource metadata not found. "+
-					"Set spec.auth.authorizationServer.issuer on the MCPServer to pin the OAuth issuer URL "+
-					"(e.g. https://cf.mcp.atlassian.com for Atlassian's hosted MCP). "+
+					"On the MCPServer set spec.auth.type=oauth and spec.auth.authorizationServer.issuer "+
+					"to pin the OAuth issuer URL (e.g. https://cf.mcp.atlassian.com for Atlassian's hosted MCP). "+
 					"See docs/how-to/connecting-non-rfc9728-mcp-servers.md.",
 				serverName,
 			)},
