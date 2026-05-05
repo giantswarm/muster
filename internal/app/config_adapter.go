@@ -37,7 +37,7 @@ func NewConfigAdapter(cfg *config.MusterConfig, configPath string) *ConfigAdapte
 // This must be called during application initialization to make the config
 // handler available to other components through the API system.
 func (a *ConfigAdapter) Register() {
-	api.RegisterConfig(a) //nolint:staticcheck
+	api.RegisterConfigHandler(a)
 }
 
 // GetConfig returns the current muster configuration.

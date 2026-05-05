@@ -127,19 +127,6 @@ func RegisterConfigHandler(h ConfigHandler) {
 	configHandler = h
 }
 
-// RegisterConfig is an alias for RegisterConfigHandler for backward compatibility.
-// New code should prefer using RegisterConfigHandler for clarity.
-//
-// Args:
-//   - h: ConfigHandler implementation that manages configuration operations
-//
-// Thread-safe: Yes, delegates to RegisterConfigHandler.
-//
-// Deprecated: Use RegisterConfigHandler directly for better clarity.
-func RegisterConfig(h ConfigHandler) {
-	RegisterConfigHandler(h)
-}
-
 // GetServiceRegistry returns the registered service registry handler.
 // This provides access to the service discovery and information interface.
 //
@@ -235,19 +222,6 @@ func GetConfigHandler() ConfigHandler {
 	handlerMutex.RLock()
 	defer handlerMutex.RUnlock()
 	return configHandler
-}
-
-// GetConfig is an alias for GetConfigHandler for backward compatibility.
-// New code should prefer using GetConfigHandler for clarity.
-//
-// Returns:
-//   - ConfigHandler: The registered handler, or nil if not registered
-//
-// Thread-safe: Yes, delegates to GetConfigHandler.
-//
-// Deprecated: Use GetConfigHandler directly for better clarity.
-func GetConfig() ConfigHandler {
-	return GetConfigHandler()
 }
 
 // RegisterWorkflow registers the workflow handler implementation.
