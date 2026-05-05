@@ -31,36 +31,36 @@ muster currently plays multiple roles: agent-facing OAuth resource server, MCP a
 
 ### Per-customer stack
 
-One stack per customer regardless of how many MCs the customer has: `agentgateway + muster + mcp-token-broker`. These three components live in the customer's primary MC. The customer's other MCs (1-N workload MCs) just run MCPs deployed via existing GitOps and exposed via ingress; muster reaches them via ingress URLs.
+One stack per customer regardless of how many MCs the customer has: `agentgateway + muster + mcp-token-broker`. These three components are deployed in one of the customer's MCs — there's no formal "primary" designation, the stack just runs somewhere. The customer's other MCs run MCPs deployed via existing GitOps and exposed via ingress; muster reaches them via ingress URLs.
 
-**Each MC has its own Dex** (for kube-apiserver OIDC and cluster-level identity). For the agent-platform layer, the primary MC's Dex is the issuer that agentgateway validates against and the broker calls for token exchange.
+**Each MC has its own Dex** (for kube-apiserver OIDC and cluster-level identity). For the agent-platform layer, the agentgateway uses the Dex of whichever MC the stack is deployed in as its issuer; the broker calls that Dex for token exchange.
 
 ```mermaid
 graph TB
     Agent
 
-    subgraph PrimaryMC["Customer's primary MC"]
-        DexPrimary[Dex]
+    subgraph DeploymentMC["MC where customer's stack is deployed"]
+        DexDeployment[Dex]
         agentgateway
         muster
         broker[mcp-token-broker]
-        LocalBackends[Backend MCPs in primary MC]
+        LocalBackends[Backend MCPs in this MC]
     end
 
-    subgraph WorkloadMC1["Customer's workload MC (one of 1-N)"]
-        DexWC[Dex]
+    subgraph OtherMC["One of customer's other MCs"]
+        DexOther[Dex]
         RemoteMCPs[Backend MCPs<br/>reached via ingress]
     end
 
     Agent --> agentgateway
-    Agent -.-> DexPrimary
+    Agent -.-> DexDeployment
     agentgateway --> muster
-    agentgateway -.-> DexPrimary
+    agentgateway -.-> DexDeployment
     muster <--> broker
-    broker <--> DexPrimary
+    broker <--> DexDeployment
     muster --> LocalBackends
     muster -->|ingress URL| RemoteMCPs
-    DexWC -.-> RemoteMCPs
+    DexOther -.-> RemoteMCPs
 ```
 
 ### Multi-customer topology
@@ -173,7 +173,7 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 ## Constraints
 
 - **Backend ownership**: GS doesn't own community/third-party SaaS MCP backends. Backend-embedded mcp-oauth isn't viable for those. The broker is the only realistic place for SaaS OAuth orchestration.
-- **Dex per MC**: Each MC has its own Dex (used for cluster-level OIDC, kube-apiserver, etc.). For the agent-platform layer, the customer's primary MC's Dex is the issuer agentgateway validates against. GS-Central registers as a client on each customer's primary-MC Dex for cross-tenant token exchange.
+- **Dex per MC**: Each MC has its own Dex (used for cluster-level OIDC, kube-apiserver, etc.). The agentgateway uses the Dex of whichever MC its stack is deployed in as its issuer. GS-Central registers as a client on each customer's stack-deployment Dex for cross-tenant token exchange.
 - **Cross-cluster app**: muster talks to a GS-built cross-cluster app via standard upstream HTTP/mTLS. `internal/teleport/` and `MCPServer.spec.transport.teleport` are subject to change as the app rolls out (separate workstream).
 - **agentgateway CRD shapes**: Need verification against current OSS release before committing config syntax.
 
@@ -192,7 +192,7 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 
 ### Negative
 
-- Two new components to operate per customer (agentgateway + broker), in the customer's primary MC
+- Two new components to operate per customer (agentgateway + broker), deployed alongside muster in one of the customer's MCs
 - Multi-customer operational complexity (per-customer stacks)
 - Brand-new dependency on agentgateway (CNCF Sandbox, ~1 year project)
 - Broker becomes critical-path component (every per-backend call goes through it)
