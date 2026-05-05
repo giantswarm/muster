@@ -15,7 +15,7 @@ import (
 // MCP 2025-11-25 §"Authorization Code Protection" requirement: the agent
 // flow refuses to start when the AS does not advertise S256 PKCE.
 func TestStartAuthFlowWithOptions_RefusesWithoutS256PKCE(t *testing.T) {
-	metadata := pkgoauth.Metadata{
+	metadata := pkgoauth.Metadata{ //nolint:gosec
 		Issuer:                "https://auth.example.com",
 		AuthorizationEndpoint: "https://auth.example.com/authorize",
 		TokenEndpoint:         "https://auth.example.com/token",
