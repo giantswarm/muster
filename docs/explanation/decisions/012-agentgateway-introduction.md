@@ -7,7 +7,7 @@
 
 ## Status summary
 
-Introduce **agentgateway** as the agent-facing MCP resource server in front of muster. Extract muster's per-backend OAuth machinery into a standalone OSS service **mcp-token-broker** with four credential modes (Dex passthrough, RFC 8693 exchange, SaaS OAuth, static-token PAT). Apply per-customer (1 stack per customer, 1-N MCs per customer); **A2A peering between gateways is the standard cross-tenant pattern** — customer's gateway sees and audits GS staff calls.
+Introduce **agentgateway** as the agent-facing MCP resource server in front of muster. Extract muster's per-backend OAuth machinery into a standalone OSS service **mcp-token-broker** with three credential modes (`passthrough`, `token-exchange`, `oauth`). Apply per-customer (1 stack per customer, 1-N MCs per customer); **A2A peering between gateways is the standard cross-tenant pattern** — customer's gateway sees and audits GS staff calls.
 
 muster stays behind the gateway as the MCP-aggregation control plane: aggregator + workflows + ServiceClasses + MCPServer registry + filter_tools + admin shim. Auth dispatch moves to the broker; agent-facing concerns (RFC 8707 audience binding, CEL policy, audit, A2A) move to the gateway.
 
@@ -66,6 +66,37 @@ graph TB
 
 The broker can call any IdP it has client credentials for — Dex-Deployment for local-MC backends, Dex-Other for cross-MC backends within the same customer, and (in the multi-customer case below) other customers' Dexes for GS staff cross-tenant access.
 
+### Initial SSO flow
+
+The user configures their IDE (Claude Code, Cursor) with **one URL** — the customer's agentgateway:
+
+```json
+{
+  "mcpServers": {
+    "giantswarm": {
+      "url": "https://agents.<customer>.example.com/mcp"
+    }
+  }
+}
+```
+
+First-time sign-in:
+
+1. IDE connects to the gateway URL with no credentials
+2. Gateway responds with `401 Unauthorized` + `/.well-known/oauth-protected-resource` discovery payload pointing at the customer's Dex
+3. IDE drives an OIDC authorization-code flow with Dex (opens browser; PKCE enforced)
+4. User authenticates against Dex's federated upstream (e.g., GitHub-for-staff, customer's IdP)
+5. Browser callback delivers the authorization code to the IDE; IDE exchanges it for a Dex JWT (audience-locked to the gateway, RFC 8707)
+6. IDE retries the original request with `Authorization: Bearer <jwt>`; gateway validates and forwards
+
+From that point on, the IDE caches the token and all subsequent requests are silent. Per-backend credentials are handled invisibly by the broker:
+
+- For backends in the deployment MC: token passes through unchanged
+- For backends in the customer's other MCs: broker exchanges the token for the target MC's Dex audience (RFC 8693)
+- For backends with their own OAuth (rare): broker drives the OAuth flow on first use, caches the resulting token
+
+The user signs in **once** to Dex; nothing else surfaces unless a backend explicitly requires a second OAuth flow it brokers itself.
+
 ### Giant Swarm multi-customer topology
 
 ```mermaid
@@ -116,19 +147,13 @@ A2A peering is **standard, not opt-in**, deployed via the GS support chart. Cust
 
 ### Broker credential modes
 
-Three initial modes:
-
 | Mode | Use case |
 |---|---|
 | `passthrough` | Backend trusts the inbound issuer; forward the token unchanged |
-| `token-exchange` | Backend trusts a different IdP; RFC 8693 exchange to that IdP. Used for cross-cluster scenarios within a customer (different MC Dexes) and for cross-tenant (GS-Central staff → customer Dex). The broker can call any IdP it has client credentials for. |
+| `token-exchange` | Backend trusts a different IdP; RFC 8693 exchange to that IdP. Used for cross-MC scenarios within a customer (different MC Dexes) and for cross-tenant (GS-Central staff → customer Dex). The broker can call any IdP it has client credentials for. |
 | `oauth` | Backend brokers its own OAuth flow with a third party (full OAuth code flow with browser redirect; cached token per user) |
 
-Future modes (not in initial scope, added when concrete need arises):
-
-- `static-token` for backends that accept user-registered PATs/API-keys (mcp-github with PAT, mcp-slack with bot token). Add when first such backend is onboarded.
-
-The broker is **architecture-agnostic**: gRPC API for muster, ext_authz API reserved for future gateway-direct use. Same code, two API surfaces.
+The broker is **architecture-agnostic**: gRPC API for muster, ext_authz API reserved for future gateway-direct use.
 
 ### What stays in muster
 
@@ -139,7 +164,7 @@ The broker is **architecture-agnostic**: gRPC API for muster, ext_authz API rese
 - `filter_tools` meta-tool (agent-driven runtime exploration)
 - Admin shim consuming broker lifecycle events
 - Per-backend connection lifecycle (reconnect, health, backoff)
-- ADR-006 disposition decided in Step 2 (drop, keep Lite, or keep full)
+- ADR-006 session-scoped tool visibility (kept as-is)
 
 ### What moves out (Step 1 — to agentgateway)
 
@@ -168,7 +193,7 @@ Estimated total removal: ~2000-2500 LOC plus tests across both steps. Replaced b
 
 **Step 1 — agentgateway adoption (in GS Central)**: Stand up Dex-GS in HA; deploy agentgateway; switch muster to gateway-trusted JWT mode; remove agent-facing OAuth code paths; CEL policies; drop `denylist.go`; slim metatools to `filter_tools` only. Run 2 weeks.
 
-**Step 2 — mcp-token-broker extraction**: Extract `internal/oauth/` to broker library + gRPC service; implement four credential modes including `static-token`; update muster to call broker via gRPC; drop per-backend metrics/rate-limit/sso-tracker/session-store from muster; rewire `auth://status` resource and `core_auth_*` tools to call broker; decide ADR-006 disposition. Run 2 weeks.
+**Step 2 — mcp-token-broker extraction**: Extract `internal/oauth/` to standalone gRPC service; implement three credential modes (`passthrough`, `token-exchange`, `oauth`); update muster to call broker via gRPC; drop per-backend metrics/rate-limit/sso-tracker/session-store from muster; rewire `auth://status` resource and `core_auth_*` tools to call broker; rewire ADR-006 sessionToolFilter to consume broker lifecycle events. Run 2 weeks.
 
 **Step 3 — Per-customer rollout (with A2A peering)**: For each customer, deploy the per-customer stack (Dex + agentgateway + muster + broker); register GS-Central as client in customer Dex; establish A2A peering with GS-allow CEL in support chart; verify dual audit (GS-Central logs egress, customer's MC logs inbound).
 
@@ -202,7 +227,7 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 - Multi-customer operational complexity (per-customer stacks)
 - Brand-new dependency on agentgateway (CNCF Sandbox, ~1 year project)
 - Broker becomes critical-path component (every per-backend call goes through it)
-- `muster agent` CLI becomes local-dev only; production agents reconfigure for gateway URL
+- `muster agent` CLI keeps working for local development; production agents talk to the gateway URL instead
 
 ### Neutral
 
@@ -211,11 +236,14 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 
 ## Decisions to resolve
 
-- **ADR-006 disposition** (Step 2): drop entirely, keep ADR-006 Lite (per-user catalog cache only), or keep full ADR-006
-- **`muster agent` deprecation timeline**: when is local-dev-only positioning communicated to users
 - **Audit retention/sampling at gateway**: TBD with security team
-- **Defense-in-depth**: keep muster's denylist as second layer? Default: drop unless compliance requires
-- **Broker library + service split**: Form C (library imported by muster + standalone service wrapper) is the recommended path
+- **`muster agent` positioning**: kept as a local-dev convenience (direct stdio to muster with `--local-dev`); production agents talk to the gateway. Decision: keep `muster agent` working; document that production usage is via the gateway URL. Not deprecated.
+
+### Decisions already made (resolved)
+
+- **ADR-006**: kept as-is. Per-user-per-backend catalog correctness matters for backends that differentiate tools by user permissions. The implementation is rewired in Step 2 to consume broker lifecycle events instead of in-process state.
+- **Defense-in-depth (muster denylist)**: dropped. Gateway CEL policy is the single enforcement point.
+- **Broker form**: standalone service only. Not also packaged as a Go library — the broker is consumed by muster (and potentially the gateway via ext_authz) as a service, not imported as a library. No reuse outside the GS architecture is planned for now.
 
 ## References
 
