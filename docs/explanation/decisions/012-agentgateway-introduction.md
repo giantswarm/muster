@@ -58,12 +58,15 @@ graph TB
     agentgateway -.-> DexDeployment
     muster <--> broker
     broker <--> DexDeployment
+    broker -.->|token-exchange| DexOther
     muster --> LocalBackends
     muster -->|ingress URL| RemoteMCPs
     DexOther -.-> RemoteMCPs
 ```
 
-### Multi-customer topology
+The broker can call any IdP it has client credentials for — Dex-Deployment for local-MC backends, Dex-Other for cross-MC backends within the same customer, and (in the multi-customer case below) other customers' Dexes for GS staff cross-tenant access.
+
+### Giant Swarm multi-customer topology
 
 ```mermaid
 graph LR
@@ -113,14 +116,17 @@ A2A peering is **standard, not opt-in**, deployed via the GS support chart. Cust
 
 ### Broker credential modes
 
-Four modes covering OAuth and non-OAuth backends:
+Three initial modes:
 
 | Mode | Use case |
 |---|---|
-| `dex-passthrough` | Internal Dex-trusting backends in same MC |
-| `dex-exchange` | Cross-cluster Dex-trusting backends (RFC 8693 to remote Dex) |
-| `saas-oauth` | Backends that speak full OAuth (rare in MCP today) |
-| `static-token` | Most community/SaaS MCPs (mcp-github with PAT, mcp-slack, mcp-jira) — user registers token once via broker |
+| `passthrough` | Backend trusts the inbound issuer; forward the token unchanged |
+| `token-exchange` | Backend trusts a different IdP; RFC 8693 exchange to that IdP. Used for cross-cluster scenarios within a customer (different MC Dexes) and for cross-tenant (GS-Central staff → customer Dex). The broker can call any IdP it has client credentials for. |
+| `oauth` | Backend brokers its own OAuth flow with a third party (full OAuth code flow with browser redirect; cached token per user) |
+
+Future modes (not in initial scope, added when concrete need arises):
+
+- `static-token` for backends that accept user-registered PATs/API-keys (mcp-github with PAT, mcp-slack with bot token). Add when first such backend is onboarded.
 
 The broker is **architecture-agnostic**: gRPC API for muster, ext_authz API reserved for future gateway-direct use. Same code, two API surfaces.
 
