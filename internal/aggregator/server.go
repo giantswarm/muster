@@ -2237,8 +2237,6 @@ type ProtectedResourceMetadata struct {
 // operator-pinned values, performing an RFC 8414 §3.3 self-verification fetch
 // against the override issuer to fail closed on a wrong pin. Otherwise it
 // follows the MCP OAuth specification for resource metadata discovery (RFC 9728).
-//
-// Issue: https://github.com/giantswarm/muster/issues/599
 func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, override *api.MCPServerAuthAuthorizationServer) (*ProtectedResourceMetadata, error) {
 	if override != nil {
 		issuer := strings.TrimSuffix(override.Issuer, "/")

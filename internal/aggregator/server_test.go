@@ -861,10 +861,9 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
 }
 
-// TestDiscoverProtectedResourceMetadata_Override exercises the
-// authorizationServer override branch added for issue #599. The override
-// MUST skip PRM probing and MUST verify the operator-pinned issuer matches
-// the AS metadata's `issuer` field (RFC 8414 §3.3).
+// TestDiscoverProtectedResourceMetadata_Override locks in the contract that
+// the override MUST skip PRM probing and MUST verify the operator-pinned
+// issuer matches the AS metadata's `issuer` field per RFC 8414 §3.3.
 func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 	// Stub authorization server: serves /.well-known/oauth-authorization-server
 	// with a configurable advertised `issuer` value so tests can exercise the
