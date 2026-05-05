@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated four scattered JWT-payload decoders (`decodeJWTPayload` in `internal/aggregator/connection_helper.go`, `parseIDTokenClaims` in `internal/cli/auth_adapter.go`, `extractIssuerFromToken` in `internal/oauth/token_exchange.go`, and the admin-side helpers in `internal/admin/jwt.go`) into a single `pkg/oauth.DecodeJWTPayload` / `pkg/oauth.ParseIDTokenClaims` pair. The consolidated decoder accepts the union of base64 variants the four sites previously each handled differently (`RawURLEncoding`, `URLEncoding`, `RawStdEncoding`, `StdEncoding`). Parity tests cover every combination of part-count and encoding the originals accepted.
+
 ### Added
 
 - Add `muster call` command for direct MCP tool invocation from the CLI. Supports `--key=value` arguments and `--json` for complex payloads, with tab completion for tool names.

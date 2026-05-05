@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -286,7 +285,7 @@ func (a *AuthAdapter) trySilentReAuth(ctx context.Context, mgr *oauth.AuthManage
 	var loginHint string
 	var idTokenHint string
 	if storedToken.IDToken != "" {
-		claims := parseIDTokenClaims(storedToken.IDToken)
+		claims := pkgoauth.ParseIDTokenClaims(storedToken.IDToken)
 		loginHint = claims.Email
 		idTokenHint = storedToken.IDToken
 	}
@@ -616,7 +615,7 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 			}
 			// Extract identity from ID token if available
 			if storedToken.IDToken != "" {
-				claims := parseIDTokenClaims(storedToken.IDToken)
+				claims := pkgoauth.ParseIDTokenClaims(storedToken.IDToken)
 				status.Subject = claims.Subject
 				status.Email = claims.Email
 			}
@@ -633,28 +632,6 @@ func (a *AuthAdapter) getStatusFromManager(endpoint string, mgr *oauth.AuthManag
 	}
 
 	return status
-}
-
-// parseIDTokenClaims extracts identity claims from a JWT ID token.
-// This performs basic JWT parsing without validation (validation is done at login time).
-func parseIDTokenClaims(idToken string) pkgoauth.IDTokenClaims {
-	var claims pkgoauth.IDTokenClaims
-
-	// JWT has 3 parts: header.payload.signature
-	parts := strings.Split(idToken, ".")
-	if len(parts) != 3 {
-		return claims
-	}
-
-	// Decode the payload (second part)
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return claims
-	}
-
-	// Parse claims
-	_ = json.Unmarshal(payload, &claims)
-	return claims
 }
 
 // InvalidateCache removes the cached auth manager for an endpoint.

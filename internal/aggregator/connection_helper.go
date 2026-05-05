@@ -2,11 +2,9 @@ package aggregator
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/internal/mcpserver"
@@ -15,6 +13,7 @@ import (
 	"github.com/giantswarm/muster/internal/events"
 	"github.com/giantswarm/muster/internal/server"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -797,35 +796,6 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 	_ = eventManager.CreateEvent(context.Background(), objRef, string(reason), message, eventType)
 }
 
-// decodeJWTPayload decodes the payload (second part) of a JWT token without
-// cryptographic verification. This is safe for extracting claims for non-security
-// purposes (e.g., cache keys, expiry checks) when the token comes from a trusted source.
-//
-// Returns the decoded payload bytes or an error if decoding fails.
-func decodeJWTPayload(token string) ([]byte, error) {
-	if token == "" {
-		return nil, fmt.Errorf("token is empty")
-	}
-
-	// JWT format: header.payload.signature
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid JWT format: expected at least 2 parts")
-	}
-
-	// Decode the payload using RawURLEncoding (handles missing padding automatically)
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		// Try standard base64 as fallback for non-standard implementations
-		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode payload: %w", err)
-		}
-	}
-
-	return decoded, nil
-}
-
 // extractUserIDFromToken extracts the user ID (sub claim) from a JWT ID token.
 // This is used to generate cache keys for token exchange.
 //
@@ -836,7 +806,7 @@ func decodeJWTPayload(token string) ([]byte, error) {
 //   - The actual token validation happens on the remote Dex server during exchange.
 //   - The extracted user ID is only used for cache key generation, not authorization.
 func extractUserIDFromToken(idToken string) string {
-	decoded, err := decodeJWTPayload(idToken)
+	decoded, err := pkgoauth.DecodeJWTPayload(idToken)
 	if err != nil {
 		return ""
 	}
@@ -984,7 +954,7 @@ func notifyMCPServerConnected(serverName, authMethod string) {
 //   - The 'exp' claim is missing
 //   - The token has expired or will expire within the margin
 func isIDTokenExpired(idToken string) bool {
-	decoded, err := decodeJWTPayload(idToken)
+	decoded, err := pkgoauth.DecodeJWTPayload(idToken)
 	if err != nil {
 		logging.Debug("TokenValidation", "Failed to decode ID token: %v", err)
 		return true
@@ -1020,7 +990,7 @@ func isIDTokenExpired(idToken string) bool {
 // getTokenExpiryTime extracts the expiry time from a JWT token.
 // Returns zero time if the token is malformed or missing the exp claim.
 func getTokenExpiryTime(token string) time.Time {
-	decoded, err := decodeJWTPayload(token)
+	decoded, err := pkgoauth.DecodeJWTPayload(token)
 	if err != nil {
 		return time.Time{}
 	}

@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/giantswarm/muster/internal/api"
 	"github.com/giantswarm/muster/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/pkg/oauth"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
 )
@@ -504,31 +504,16 @@ func isJWTToken(token string) bool {
 	return len(parts) == 3
 }
 
-// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token.
-// This parses the token payload without cryptographic verification.
-//
-// SECURITY NOTE:
-//   - The token is assumed to come from a trusted token exchange endpoint.
-//   - Full signature verification is the responsibility of the downstream server.
-//   - This is a defense-in-depth check for proxied access scenarios.
+// extractIssuerFromToken extracts the issuer (iss claim) from a JWT token
+// without cryptographic verification. Safe only for tokens already validated
+// by a trusted exchange endpoint upstream — see pkgoauth.DecodeJWTPayload's
+// trust model.
 func extractIssuerFromToken(token string) (string, error) {
-	// JWT format: header.payload.signature
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid JWT format: expected at least 2 parts")
-	}
-
-	// Decode the payload using RawURLEncoding (handles missing padding automatically)
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	decoded, err := pkgoauth.DecodeJWTPayload(token)
 	if err != nil {
-		// Try standard base64 as fallback for non-standard implementations
-		decoded, err = base64.RawStdEncoding.DecodeString(parts[1])
-		if err != nil {
-			return "", fmt.Errorf("failed to decode payload: %w", err)
-		}
+		return "", err
 	}
 
-	// Parse the claims
 	var claims struct {
 		Iss string `json:"iss"`
 	}
