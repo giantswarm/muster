@@ -666,10 +666,9 @@ func TestAuthStatusResponse_MarshalJSON(t *testing.T) {
 	}
 }
 
-// TestStoreIDTokenForSSO_SetsExpiresAtFromJWT covers the fix for issue #549:
-// the stored proxy-side token must carry an ExpiresAt derived from the JWT
-// `exp` claim so IsExpiredWithMargin can evict it after idle. Without this
-// the entry has zero ExpiresAt and is treated as never-expiring.
+// TestStoreIDTokenForSSO_SetsExpiresAtFromJWT locks in the contract that the
+// stored proxy-side token must carry an ExpiresAt derived from the JWT `exp`
+// claim. A zero ExpiresAt is treated as never-expiring by IsExpiredWithMargin.
 func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 	mock := newMockOAuthHandler(true)
 	api.RegisterOAuthHandler(mock)

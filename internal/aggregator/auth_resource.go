@@ -227,8 +227,8 @@ func (a *AggregatorServer) getMusterIssuer() string {
 // The token is muster's own ID token, always a JWT issued by mcp-oauth and
 // already validated by upstream middleware — it must carry an `exp`. If we
 // can't parse one out, the token is malformed and we refuse to store it
-// rather than land a never-expiring entry (which IsExpiredWithMargin treats
-// as immortal when ExpiresAt is zero). Issue #549.
+// rather than land a never-expiring entry (IsExpiredWithMargin treats a zero
+// ExpiresAt as immortal).
 func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) {
 	if idToken == "" || familyID == "" {
 		return
