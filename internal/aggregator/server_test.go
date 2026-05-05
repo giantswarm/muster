@@ -862,10 +862,9 @@ func TestGetOrCreateClientForToolCall_NoEvictionWhenTokenFresh(t *testing.T) {
 	assert.Equal(t, 1, a.connPool.Len(), "pool entry should remain")
 }
 
-// TestDiscoverProtectedResourceMetadata_Override exercises the
-// authorizationServer override branch added for issue #599. The override
-// MUST skip PRM probing and MUST verify the operator-pinned issuer matches
-// the AS metadata's `issuer` field (RFC 8414 §3.3).
+// TestDiscoverProtectedResourceMetadata_Override locks in the contract that
+// the override MUST skip PRM probing and MUST verify the operator-pinned
+// issuer matches the AS metadata's `issuer` field per RFC 8414 §3.3.
 func TestDiscoverProtectedResourceMetadata_Override(t *testing.T) {
 	// Stub authorization server: serves /.well-known/oauth-authorization-server
 	// with a configurable advertised `issuer` value so tests can exercise the
@@ -959,6 +958,27 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		assert.Equal(t, "https://issuer.example", md.Issuer)
 		assert.Contains(t, seenPaths, "/.well-known/oauth-protected-resource/v1/mcp",
 			"path-based well-known must use the raw MCP URL path")
+	})
+
+	t.Run("trailing slash on MCP URL path is stripped before composing well-known", func(t *testing.T) {
+		var seenPaths []string
+		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seenPaths = append(seenPaths, r.URL.Path)
+			if r.URL.Path == "/.well-known/oauth-protected-resource/v1/mcp" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer mcp.Close()
+
+		_, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp/", nil)
+		require.NoError(t, err)
+		for _, p := range seenPaths {
+			assert.NotEqual(t, "/.well-known/oauth-protected-resource/v1/mcp/", p,
+				"trailing slash must be stripped from path before composing well-known")
+		}
 	})
 
 	t.Run("falls back to root well-known when path-based 404s", func(t *testing.T) {
