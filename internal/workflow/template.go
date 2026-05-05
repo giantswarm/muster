@@ -8,15 +8,6 @@ import (
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
-// executionContext holds the state during workflow execution.
-type executionContext struct {
-	input        map[string]interface{} // Original input arguments
-	variables    map[string]interface{} // User-defined variables
-	results      map[string]interface{} // Results from previous steps
-	templateVars []string               // Track template variables used
-	stepMetadata []stepMetadata         // Track step metadata
-}
-
 // resolveArguments resolves template variables in step arguments.
 func (we *WorkflowExecutor) resolveArguments(args map[string]interface{}, ctx *executionContext) (map[string]interface{}, error) {
 	resolved := make(map[string]interface{})

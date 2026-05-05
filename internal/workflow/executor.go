@@ -42,6 +42,15 @@ type stepMetadata struct {
 	ConditionTool       string      // Tool used for condition evaluation (empty if no condition)
 }
 
+// executionContext holds the state during workflow execution.
+type executionContext struct {
+	input        map[string]interface{} // Original input arguments
+	variables    map[string]interface{} // User-defined variables
+	results      map[string]interface{} // Results from previous steps
+	templateVars []string               // Track template variables used
+	stepMetadata []stepMetadata         // Track step metadata
+}
+
 // WorkflowExecutor executes workflow steps
 type WorkflowExecutor struct {
 	toolCaller    ToolCaller
