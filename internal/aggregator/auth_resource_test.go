@@ -705,31 +705,23 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 		}
 	})
 
-	t.Run("leaves ExpiresAt zero on unparseable token", func(t *testing.T) {
+	t.Run("refuses to store an unparseable token", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		a.storeIDTokenForSSO("family-2", "bob", "not-a-jwt")
 
-		stored := mock.GetFullTokenByIssuer("family-2", "https://muster.example")
-		if stored == nil {
-			t.Fatal("token should still be stored even if exp parsing fails")
-		}
-		if !stored.ExpiresAt.IsZero() {
-			t.Errorf("expected zero ExpiresAt for unparseable token, got %v", stored.ExpiresAt)
+		if stored := mock.GetFullTokenByIssuer("family-2", "https://muster.example"); stored != nil {
+			t.Fatalf("unparseable token must not be stored (would land as never-expiring), got %+v", stored)
 		}
 	})
 
-	t.Run("leaves ExpiresAt zero when JWT has no exp claim", func(t *testing.T) {
+	t.Run("refuses to store a JWT without exp", func(t *testing.T) {
 		mock.tokens = map[string]*api.OAuthToken{}
 		// Payload: {"sub":"carol"} — no exp.
 		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJjYXJvbCJ9.sig" //nolint:gosec
 		a.storeIDTokenForSSO("family-3", "carol", idToken)
 
-		stored := mock.GetFullTokenByIssuer("family-3", "https://muster.example")
-		if stored == nil {
-			t.Fatal("token was not stored")
-		}
-		if !stored.ExpiresAt.IsZero() {
-			t.Errorf("expected zero ExpiresAt when JWT has no exp, got %v", stored.ExpiresAt)
+		if stored := mock.GetFullTokenByIssuer("family-3", "https://muster.example"); stored != nil {
+			t.Fatalf("JWT without exp must not be stored, got %+v", stored)
 		}
 	})
 }

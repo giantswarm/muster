@@ -224,10 +224,11 @@ func (a *AggregatorServer) getMusterIssuer() string {
 // token store so background headerFunc closures can resolve it for SSO token
 // forwarding.
 //
-// The stored entry's ExpiresAt is set from the JWT `exp` claim so
-// IsExpiredWithMargin can evict it once the embedded token is past its
-// lifetime. Tokens with no parseable `exp` are stored with zero ExpiresAt to
-// keep behavior unchanged for opaque tokens. Issue #549.
+// The token is muster's own ID token, always a JWT issued by mcp-oauth and
+// already validated by upstream middleware — it must carry an `exp`. If we
+// can't parse one out, the token is malformed and we refuse to store it
+// rather than land a never-expiring entry (which IsExpiredWithMargin treats
+// as immortal when ExpiresAt is zero). Issue #549.
 func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) {
 	if idToken == "" || familyID == "" {
 		return
@@ -236,12 +237,18 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 	if musterIssuer == "" {
 		return
 	}
+	exp, err := pkgoauth.Expiry(idToken)
+	if err != nil || exp.IsZero() {
+		logging.Warn("OAuth",
+			"storeIDTokenForSSO: refusing to store ID token without parseable JWT exp (familyID=%s, issuer=%s): %v; SSO forwarding will require re-auth",
+			logging.TruncateIdentifier(familyID), musterIssuer, err)
+		return
+	}
 	if oh := api.GetOAuthHandler(); oh != nil && oh.IsEnabled() {
-		token := &api.OAuthToken{IDToken: idToken}
-		if exp, err := pkgoauth.Expiry(idToken); err == nil && !exp.IsZero() {
-			token.ExpiresAt = exp
-		}
-		oh.StoreToken(familyID, userID, musterIssuer, token)
+		oh.StoreToken(familyID, userID, musterIssuer, &api.OAuthToken{
+			IDToken:   idToken,
+			ExpiresAt: exp,
+		})
 	}
 }
 
