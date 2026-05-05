@@ -29,34 +29,38 @@ muster currently plays multiple roles: agent-facing OAuth resource server, MCP a
 
 ## Decision
 
-### Per-MC stack
+### Per-customer stack
 
-Each MC runs `Dex + agentgateway + muster + mcp-token-broker + backend MCPs`. Per customer: 1 stack regardless of how many MCs the customer has — components live in the customer's primary MC; other MCs just run MCPs deployed via existing GitOps and exposed via ingress.
+One stack per customer regardless of how many MCs the customer has: `agentgateway + muster + mcp-token-broker`. These three components live in the customer's primary MC. The customer's other MCs (1-N workload MCs) just run MCPs deployed via existing GitOps and exposed via ingress; muster reaches them via ingress URLs.
+
+**Each MC has its own Dex** (for kube-apiserver OIDC and cluster-level identity). For the agent-platform layer, the primary MC's Dex is the issuer that agentgateway validates against and the broker calls for token exchange.
 
 ```mermaid
 graph TB
     Agent
 
-    subgraph MC["Per MC"]
-        Dex
+    subgraph PrimaryMC["Customer's primary MC"]
+        DexPrimary[Dex]
         agentgateway
         muster
         broker[mcp-token-broker]
-        Backends
+        LocalBackends[Backend MCPs in primary MC]
     end
 
-    Ingress
-    RemoteMCPs[Remote MCPs in other MCs]
+    subgraph WorkloadMC1["Customer's workload MC (one of 1-N)"]
+        DexWC[Dex]
+        RemoteMCPs[Backend MCPs<br/>reached via ingress]
+    end
 
     Agent --> agentgateway
-    Agent -.-> Dex
+    Agent -.-> DexPrimary
     agentgateway --> muster
-    agentgateway -.-> Dex
+    agentgateway -.-> DexPrimary
     muster <--> broker
-    broker <--> Dex
-    muster --> Backends
-    muster --> Ingress
-    Ingress --> RemoteMCPs
+    broker <--> DexPrimary
+    muster --> LocalBackends
+    muster -->|ingress URL| RemoteMCPs
+    DexWC -.-> RemoteMCPs
 ```
 
 ### Multi-customer topology
@@ -169,7 +173,7 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 ## Constraints
 
 - **Backend ownership**: GS doesn't own community/third-party SaaS MCP backends. Backend-embedded mcp-oauth isn't viable for those. The broker is the only realistic place for SaaS OAuth orchestration.
-- **Per-customer Dex**: Each customer has their own Dex; GS-Central registers as a client on each customer Dex.
+- **Dex per MC**: Each MC has its own Dex (used for cluster-level OIDC, kube-apiserver, etc.). For the agent-platform layer, the customer's primary MC's Dex is the issuer agentgateway validates against. GS-Central registers as a client on each customer's primary-MC Dex for cross-tenant token exchange.
 - **Cross-cluster app**: muster talks to a GS-built cross-cluster app via standard upstream HTTP/mTLS. `internal/teleport/` and `MCPServer.spec.transport.teleport` are subject to change as the app rolls out (separate workstream).
 - **agentgateway CRD shapes**: Need verification against current OSS release before committing config syntax.
 
@@ -188,7 +192,7 @@ Detailed phase sub-steps, risks, configuration YAML, gRPC API specs, and verific
 
 ### Negative
 
-- Two new components to operate per MC (agentgateway + broker)
+- Two new components to operate per customer (agentgateway + broker), in the customer's primary MC
 - Multi-customer operational complexity (per-customer stacks)
 - Brand-new dependency on agentgateway (CNCF Sandbox, ~1 year project)
 - Broker becomes critical-path component (every per-backend call goes through it)
