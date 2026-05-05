@@ -179,7 +179,7 @@ func (f *Client) Status() client.StatusWriter {
 
 // SubResource returns a sub-resource client (implements client.Client interface).
 func (f *Client) SubResource(subResource string) client.SubResourceClient {
-	return &subResourceClient{client: f, subResource: subResource}
+	return &subResourceClient{client: f}
 }
 
 // Scheme returns the scheme (implements client.Client interface).
@@ -261,8 +261,7 @@ func (w *statusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration
 // subResourceClient implements client.SubResourceClient.
 // Filesystem mode treats sub-resource ops the same as the parent ops.
 type subResourceClient struct {
-	client      *Client
-	subResource string
+	client *Client
 }
 
 func (s *subResourceClient) Get(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceGetOption) error {
