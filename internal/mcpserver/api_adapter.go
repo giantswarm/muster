@@ -295,7 +295,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		// Convert AuthorizationServer override if present
 		if req.Auth.AuthorizationServer != nil {
 			crd.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-				Issuer: musterv1alpha1.IssuerURL(req.Auth.AuthorizationServer.Issuer),
+				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
 				Scopes: req.Auth.AuthorizationServer.Scopes,
 			}
 		}
@@ -680,7 +680,7 @@ func (a *Adapter) handleMCPServerUpdate(args map[string]interface{}) (*api.CallT
 		}
 		if req.Auth.AuthorizationServer != nil {
 			existing.Spec.Auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
-				Issuer: musterv1alpha1.IssuerURL(req.Auth.AuthorizationServer.Issuer),
+				Issuer: musterv1alpha1.IssuerURL(strings.TrimSuffix(req.Auth.AuthorizationServer.Issuer, "/")),
 				Scopes: req.Auth.AuthorizationServer.Scopes,
 			}
 		}
