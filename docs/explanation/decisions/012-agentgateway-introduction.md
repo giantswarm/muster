@@ -35,23 +35,28 @@ Each MC runs `Dex + agentgateway + muster + mcp-token-broker + backend MCPs`. Pe
 
 ```mermaid
 graph TB
-    Agent["Agent in IDE"]
+    Agent
 
     subgraph MC["Per MC"]
-        Dex["Dex (OIDC IdP, RFC 8693)"]
-        GW["agentgateway: JWT validation, CEL policy, audit, OTel, A2A"]
-        M["muster: aggregator, workflows, ServiceClasses, MCPServer registry"]
-        Broker["mcp-token-broker: RFC 8693, SaaS OAuth, static tokens, cache"]
-        Backends["Backend MCPs (existing GitOps)"]
+        Dex
+        agentgateway
+        muster
+        broker[mcp-token-broker]
+        Backends
     end
 
-    Agent -->|Bearer JWT| GW
-    Agent -.->|OIDC login| Dex
-    GW -->|passthrough JWT| M
-    GW -.->|JWKS validation| Dex
-    M <-->|gRPC GetCredential| Broker
-    Broker <-->|RFC 8693| Dex
-    M -->|broker-provided credential| Backends
+    Ingress
+    RemoteMCPs[Remote MCPs in other MCs]
+
+    Agent --> agentgateway
+    Agent -.-> Dex
+    agentgateway --> muster
+    agentgateway -.-> Dex
+    muster <--> broker
+    broker <--> Dex
+    muster --> Backends
+    muster --> Ingress
+    Ingress --> RemoteMCPs
 ```
 
 ### Multi-customer topology
@@ -59,19 +64,37 @@ graph TB
 ```mermaid
 graph LR
     subgraph CustomerA["Customer A"]
-        StackA["Dex-A + agentgateway-A + muster-A + broker-A"]
+        DexA[Dex]
+        gwA[agentgateway]
+        mA[muster]
+        bA[broker]
+        DexA --> gwA
+        gwA --> mA
+        mA --> bA
     end
 
     subgraph GSCentral["GS Central"]
-        StackGS["Dex-GS + agentgateway-GS + muster-GS + broker-GS"]
+        DexGS[Dex]
+        gwGS[agentgateway]
+        mGS[muster]
+        bGS[broker]
+        DexGS --> gwGS
+        gwGS --> mGS
+        mGS --> bGS
     end
 
     subgraph CustomerB["Customer B"]
-        StackB["Dex-B + agentgateway-B + muster-B + broker-B"]
+        DexB[Dex]
+        gwB[agentgateway]
+        mB[muster]
+        bB[broker]
+        DexB --> gwB
+        gwB --> mB
+        mB --> bB
     end
 
-    StackGS <-.->|A2A peer| StackA
-    StackGS <-.->|A2A peer| StackB
+    gwGS <-.->|A2A peer| gwA
+    gwGS <-.->|A2A peer| gwB
 ```
 
 A2A peering is **standard, not opt-in**, deployed via the GS support chart. Customer's gateway sees and audits all access including GS staff. Customer technically can deny GS via CEL policy but operationally maintains GS-allow as part of the support relationship (managed-platform trust model — same as cloud providers' control-plane access).
@@ -122,7 +145,7 @@ Per-backend OAuth machinery (this is the bulk of the auth surface):
 
 - `internal/oauth/`, `internal/agent/oauth/`, `pkg/oauth/`
 - `internal/aggregator/auth_metrics.go` (per-server OAuth metrics)
-- `internal/aggregator/auth_rate_limiter.go` (per-user OAuth-flow rate limiting)
+- `internal/aggregator/auth_rate_limiter.go` (per-user OAuth-flow rate limiting — anti-abuse on backend OAuth attempts; **distinct from gateway's general agent-call rate limiting which stays at the gateway**)
 - `internal/aggregator/sso_tracker*.go` (per-backend SSO connection state)
 - `internal/aggregator/session_auth_store*.go` (per-user-per-backend token storage)
 - `auth_resource.go` resource handler and `auth_tools.go` tool implementations are **rewired to call broker via gRPC**, not removed (the MCP surfaces stay)
