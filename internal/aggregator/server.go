@@ -2302,30 +2302,40 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 // the WWW-Authenticate header's resource_metadata= URL when present, per
 // MCP 2025-11-25 §"PRM Discovery Requirements". Returns nil (not an error)
 // when the header is absent or carries no usable pointer — caller falls
-// through to well-known probing.
+// through to well-known probing. Each abandoned branch logs at debug so
+// failures on this path remain diagnosable.
 func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL string) *ProtectedResourceMetadata {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, serverURL, nil)
 	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: build request for %s failed: %v", serverURL, err)
 		return nil
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s unreachable: %v", serverURL, err)
 		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s returned %d (need 401), falling through", serverURL, resp.StatusCode)
 		return nil
 	}
+	// Header.Get returns the first value; RFC 7235 allows repeated header
+	// instances, but ParseWWWAuthenticate already handles multiple challenges
+	// inside one value, which is the form every real MCP backend emits.
 	header := resp.Header.Get("WWW-Authenticate")
 	if header == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s 401 carried no WWW-Authenticate header", serverURL)
 		return nil
 	}
 	challenge, err := pkgoauth.ParseWWWAuthenticate(header)
 	if err != nil || challenge.ResourceMetadataURL == "" {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: %s carried no resource_metadata= pointer (parse err=%v)", serverURL, err)
 		return nil
 	}
 	md, err := fetchProtectedResourceMetadata(ctx, httpClient, challenge.ResourceMetadataURL)
 	if err != nil {
+		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
 		return nil
 	}
 	return md
