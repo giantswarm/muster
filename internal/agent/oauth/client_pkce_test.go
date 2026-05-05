@@ -15,21 +15,27 @@ import (
 // MCP 2025-11-25 §"Authorization Code Protection" requirement: the agent
 // flow refuses to start when the AS does not advertise S256 PKCE.
 func TestStartAuthFlowWithOptions_RefusesWithoutS256PKCE(t *testing.T) {
-	metadata := pkgoauth.Metadata{ //nolint:gosec
-		Issuer:                "https://auth.example.com",
-		AuthorizationEndpoint: "https://auth.example.com/authorize",
-		TokenEndpoint:         "https://auth.example.com/token",
-	}
-
+	var metadataJSON []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == pkgoauth.WellKnownAuthorizationServer {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(metadata)
+			_, _ = w.Write(metadataJSON)
 			return
 		}
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
+
+	// Build the AS metadata using the test server's runtime URL — no literal
+	// token-shaped strings to trip gosec G101.
+	metadataJSON, err := json.Marshal(pkgoauth.Metadata{
+		Issuer:                server.URL,
+		AuthorizationEndpoint: server.URL + "/authorize",
+		TokenEndpoint:         server.URL + "/token",
+	})
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
 
 	c, err := NewClient(ClientConfig{
 		TokenStoreConfig: TokenStoreConfig{StorageDir: t.TempDir()},
