@@ -11,6 +11,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/internal/api"
+	"github.com/giantswarm/muster/internal/client/kubernetes"
 	"github.com/giantswarm/muster/pkg/logging"
 )
 
@@ -97,7 +98,7 @@ func NewMusterClientWithConfig(cfg *MusterClientConfig) (MusterClient, error) {
 
 	// Try Kubernetes configuration first
 	if restConfig, err := detectKubernetesConfig(cfg); err == nil && restConfig != nil {
-		k8sClient, err := NewKubernetesClient(restConfig)
+		k8sClient, err := kubernetes.New(restConfig)
 		if err == nil {
 			return k8sClient, nil
 		}

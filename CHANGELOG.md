@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Move the 547-line `internal/client/kubernetes_client.go` into a new `internal/client/kubernetes/` subpackage, split per domain (`client.go`, `mcpserver.go`, `serviceclass.go`, `workflow.go`, `events.go`). The core file keeps the type, constructor, scheme, lifecycle methods, and discovery-based CRD validation. Pure refactor: the `MusterClient` interface stays in the parent `client` package, the dispatcher calls `kubernetes.New(restConfig)` directly, and external consumers are unaffected. ([#140](https://github.com/giantswarm/muster/issues/140))
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
