@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Extracted validation and template-resolution helpers from the 930-line `internal/workflow/executor.go` into dedicated `validation.go` and `template.go` files. `executor.go` is now ~600 lines; `ExecuteWorkflow` itself remains 500 lines and a follow-up tracks breaking it into per-concern helpers (`executeStep`, `evaluateCondition`, `processStepResult`) — that's a behavioral refactor with test impact, not a file split. ([#140](https://github.com/giantswarm/muster/issues/140))
 - Restore `groups` scope in `DefaultOAuthCIMDScopes` -- required for group-based RBAC in downstream services. Provider-level scope filtering in mcp-oauth (e.g., `filterGoogleScopes`, `filterDexScopes`) handles provider differences.
 - Bump `mcp-oauth` to v0.2.117. Adopts `oauth.NewServerWithCombined` and `Handler.RegisterOAuthRoutes` to simplify server wiring; the authorization callback now includes the RFC 9207 `iss` parameter automatically. **Operational note:** mcp-oauth now rejects low-entropy AES-256 token-encryption keys (fewer than 16 distinct byte values). Real keys generated with `openssl rand -base64 32` or `openssl rand -hex 32` are unaffected; placeholder keys (all zeros, repeated bytes) will fail at startup with a clear error — rotate before upgrading.
 
