@@ -54,7 +54,7 @@ func ExtractEmailFromIDToken(idToken string) string {
 // decodeSegment decodes a JWT segment (header or payload) and re-indents the
 // JSON for display in the admin UI.
 func decodeSegment(seg string) (json.RawMessage, error) {
-	b, err := pkgoauth.DecodeJWTPayload("." + seg)
+	b, err := pkgoauth.DecodeJWTSegment(seg)
 	if err != nil {
 		return nil, fmt.Errorf("base64 decode: %w", err)
 	}
