@@ -724,4 +724,20 @@ func TestStoreIDTokenForSSO_SetsExpiresAtFromJWT(t *testing.T) {
 			t.Fatalf("JWT without exp must not be stored, got %+v", stored)
 		}
 	})
+
+	t.Run("stored entry is IsExpiredWithMargin-expired when JWT exp is in the past", func(t *testing.T) {
+		mock.tokens = map[string]*api.OAuthToken{}
+		// Payload: {"sub":"dave","exp":1} — Unix epoch + 1s.
+		idToken := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJkYXZlIiwiZXhwIjoxfQ.sig" //nolint:gosec
+		a.storeIDTokenForSSO("family-4", "dave", idToken)
+
+		stored := mock.GetFullTokenByIssuer("family-4", "https://muster.example")
+		if stored == nil {
+			t.Fatal("token with parseable past exp must still be stored — eviction is the consumer's job")
+		}
+		token := &pkgoauth.Token{ExpiresAt: stored.ExpiresAt}
+		if !token.IsExpiredWithMargin(0) {
+			t.Errorf("stored entry should be IsExpiredWithMargin(0)-expired; ExpiresAt=%v", stored.ExpiresAt)
+		}
+	})
 }

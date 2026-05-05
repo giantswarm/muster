@@ -238,7 +238,7 @@ func (a *AggregatorServer) storeIDTokenForSSO(familyID, userID, idToken string) 
 		return
 	}
 	exp, err := pkgoauth.Expiry(idToken)
-	if err != nil || exp.IsZero() {
+	if err != nil {
 		logging.Warn("OAuth",
 			"storeIDTokenForSSO: refusing to store ID token without parseable JWT exp (familyID=%s, issuer=%s): %v; SSO forwarding will require re-auth",
 			logging.TruncateIdentifier(familyID), musterIssuer, err)
