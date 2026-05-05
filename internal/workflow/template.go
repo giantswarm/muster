@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/muster/pkg/logging"
@@ -87,13 +88,13 @@ func (we *WorkflowExecutor) resolveTemplate(templateStr string, ctx *executionCo
 					remaining := word[start+1:]
 					if end := strings.IndexAny(remaining, " }"); end != -1 {
 						varName := remaining[:end]
-						if varName != "" && !contains(ctx.templateVars, varName) {
+						if varName != "" && !slices.Contains(ctx.templateVars, varName) {
 							ctx.templateVars = append(ctx.templateVars, varName)
 						}
 					} else {
 						varName := strings.TrimSuffix(remaining, "}}")
 						varName = strings.TrimSuffix(varName, "}")
-						if varName != "" && !contains(ctx.templateVars, varName) {
+						if varName != "" && !slices.Contains(ctx.templateVars, varName) {
 							ctx.templateVars = append(ctx.templateVars, varName)
 						}
 					}
@@ -152,22 +153,13 @@ func (we *WorkflowExecutor) getOriginalValue(templateStr string, ctx *executionC
 
 	switch {
 	case strings.HasPrefix(inner, ".input."):
-		return ctx.input[inner[7:]]
+		return ctx.input[strings.TrimPrefix(inner, ".input.")]
 	case strings.HasPrefix(inner, ".results."):
-		return ctx.results[inner[9:]]
+		return ctx.results[strings.TrimPrefix(inner, ".results.")]
 	case strings.HasPrefix(inner, ".vars."):
-		return ctx.variables[inner[6:]]
+		return ctx.variables[strings.TrimPrefix(inner, ".vars.")]
 	}
 
 	return nil
 }
 
-// contains is a small slice-string helper used by template-variable tracking.
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
